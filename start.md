@@ -1627,17 +1627,40 @@ ath agent check
 
 ## 29. Roadmap
 
+Roadmap строится от доменного ядра к проверяемому knowledge loop:
+
+```text
+Domain contracts
+  → Storage and snapshots
+  → First extraction/linking/checking loop
+  → Generated read-models
+  → Living documentation and API consistency
+  → Incremental daemon
+  → Search, vectors and integrations
+```
+
+Каждая фаза должна давать проверяемый результат в CLI и не протаскивать детали adapters в core.
+
+---
+
 ### Phase 0 — Product Kernel
 
-Цель: зафиксировать фундамент.
+Цель: зафиксировать минимальный доменный фундамент.
+
+Состав:
 
 ```text
 athanor-domain
-Entity/Fact/Relation/Evidence/Diagnostic/Snapshot/ContextPack/Concept
+Entity / Fact / Relation / Evidence / Diagnostic / Snapshot / ContextPack / Concept
+Repo / Branch / Commit / Snapshot identity
 KnowledgeStore trait
-Extractor/Linker/Checker/Projector traits
+SourceProvider trait
+Extractor / Linker / Checker / Projector traits
+SearchIndex / VectorIndex / EmbeddingProvider traits
+Transport / AgentInterface contracts
 ModuleRegistry
 basic config
+stable error codes
 ```
 
 Результат:
@@ -1649,14 +1672,22 @@ ath init
 
 ---
 
-### Phase 1 — Storage and JSON model
+### Phase 1 — Storage and Portable Data Model
+
+Цель: сделать canonical knowledge сохраняемым, переносимым и тестируемым.
+
+Состав:
 
 ```text
-SurrealDB embedded store
 Memory store for tests
-JSON/JSONL export
+SurrealDB embedded store
+typed JSON schema
+JSONL export/import
 Snapshot model
 basic repository model
+source locations
+evidence model
+confidence/status fields
 ```
 
 Результат:
@@ -1664,53 +1695,148 @@ basic repository model
 ```bash
 ath index .
 ath export jsonl
+ath explain <entity>
 ```
 
 ---
 
-### Phase 2 — First vertical slice
+### Phase 2 — First Vertical Slice
 
-Минимальный полный цикл:
+Цель: получить первый полный цикл Facts → Relations → Diagnostics → Context.
+
+Состав:
 
 ```text
 Rust extractor
 Markdown extractor
 OpenAPI extractor
 basic docs ↔ API ↔ code linker
+basic API Registry entities
 basic stale docs checker
 basic missing docs checker
+basic API consistency checker
 ```
 
 Результат:
 
 ```bash
 ath check docs
+ath check api
 ath explain api://POST:/login
+ath context "изменить login"
 ```
 
 ---
 
-### Phase 3 — Agent wiki
+### Phase 3 — Generated Read Models
+
+Цель: построить пересоздаваемые read-models для агента и человека.
+
+Состав:
 
 ```text
 Markdown wiki
 YAML frontmatter
 JSONL data
 manifest
+HTML report
+agent context packs
 atomic generation
 current pointer
+```
+
+Правило:
+
+```text
+Generated wiki не является источником истины.
+Generated artifacts можно удалить и пересобрать из canonical store.
 ```
 
 Результат:
 
 ```bash
 ath wiki
-ath context "изменить login"
+ath report html
+ath context "изменить login" --json
 ```
 
 ---
 
-### Phase 4 — Инкрементальность
+### Phase 4 — Living Documentation and API Contract
+
+Цель: встроить нижние добавления про документацию и API в основной продуктовый цикл.
+
+Состав:
+
+```text
+Editable Documentation model
+Generated Documentation model
+DocumentationPage / DocumentationSection entities
+ApiEndpoint / ApiSchema / ApiExample / ApiSnapshot entities
+docs frontmatter
+docs patch model
+API source_of_truth policy
+API strict mode
+API examples validation
+API contract snapshot
+documentation diagnostics gate
+```
+
+Результат:
+
+```bash
+ath docs check
+ath docs drift
+ath docs propose-fix
+ath docs apply-patch <id>
+ath check api --strict
+ath api snapshot
+ath api diff
+```
+
+---
+
+### Phase 5 — Operations, Configs and Environment
+
+Цель: связать эксплуатационные знания с тем же knowledge model.
+
+Состав:
+
+```text
+Shell scripts
+Makefile
+Dockerfile
+docker-compose
+GitHub Actions
+.env.example
+Cargo.toml
+package.json
+pyproject.toml
+deployment configs
+database migrations
+runtime configuration
+OperationsDocsChecker
+EnvDocsChecker
+ScriptDocsChecker
+RunbookConsistencyChecker
+```
+
+Результат:
+
+```bash
+ath docs operations check
+ath check scripts
+ath check env
+ath check deployment
+```
+
+---
+
+### Phase 6 — Incrementality
+
+Цель: пересчитывать только affected knowledge.
+
+Состав:
 
 ```text
 file hashing
@@ -1718,7 +1844,11 @@ change detection
 affected graph
 partial extraction
 affected linkers/checkers
+affected docs diagnostics
+affected API snapshots
 affected wiki pages
+repair and garbage collection
+deterministic output
 ```
 
 Результат:
@@ -1726,19 +1856,30 @@ affected wiki pages
 ```bash
 ath update --changed
 ath check affected
+ath impact --diff
+ath context --diff
 ```
 
 ---
 
-### Phase 5 — Daemon and agent-native access
+### Phase 7 — Daemon and Agent-Native Access
+
+Цель: дать агентам быстрый локальный доступ без привязки к MCP.
+
+Состав:
 
 ```text
 file watcher
 local socket
 locks
 hot cache
+job system
+cancellation
+backpressure
+debounce
 agent commands
 inbox/outbox protocol
+output size control
 ```
 
 Результат:
@@ -1751,30 +1892,11 @@ ath context "задача" --json
 
 ---
 
-### Phase 6 — Scripts/configs/environment
+### Phase 8 — i18n and Concepts
 
-```text
-Shell
-Makefile
-Dockerfile
-docker-compose
-GitHub Actions
-.env.example
-Cargo.toml
-package.json
-pyproject.toml
-```
+Цель: сделать знания многоязычными без раздвоения истины.
 
-Результат:
-
-```bash
-ath check scripts
-ath check env
-```
-
----
-
-### Phase 7 — i18n and concepts
+Состав:
 
 ```text
 language detection
@@ -1782,6 +1904,9 @@ glossary
 aliases
 concept mapping
 localized wiki
+editable docs languages
+translation_of relations
+translation drift diagnostics
 cross-language context
 ```
 
@@ -1789,18 +1914,26 @@ cross-language context
 
 ```bash
 ath concept map "авторизация"
+ath docs i18n check
+ath docs propose-translation --from ru --to en
 ath context "исправить авторизацию" --lang ru
 ```
 
 ---
 
-### Phase 8 — Search and vectors
+### Phase 9 — Search and Vectors
+
+Цель: добавить быстрый lexical/semantic retrieval как read-model, а не как источник истины.
+
+Состав:
 
 ```text
 Tantivy search
 basic semantic search
 local embeddings
 hybrid search
+vector index adapters
+search result evidence
 ```
 
 Результат:
@@ -1812,7 +1945,11 @@ ath context "добавить refresh token" --level deep
 
 ---
 
-### Phase 9 — Rustok adapter
+### Phase 10 — Rustok Adapter
+
+Цель: встроить Athanor в Rustok без загрязнения Athanor core.
+
+Состав:
 
 ```text
 Postgres/SeaORM store
@@ -1821,6 +1958,8 @@ Loco/Axum routes
 Rustok-compatible errors
 Rustok permissions
 Rustok dashboards
+API Registry read-model
+docs/API drift dashboards
 ```
 
 Результат:
@@ -1835,19 +1974,31 @@ ath sync postgres
 Athanor project overview
 Diagnostics dashboard
 Context packs
-Docs/API drift
+API Overview
+API Consistency
+Breaking Changes
+Docs Drift
+Undocumented Endpoints
+Invalid Examples
+Translation Drift
 ```
 
 ---
 
-### Phase 10 — Community modules foundation
+### Phase 11 — Community Modules Foundation
+
+Цель: подготовить расширяемость без зависимости от Rustok marketplace.
+
+Состав:
 
 ```text
 module manifest
 ModuleRegistry
 CLI module management
 permission model
-compatibility checks
+compatibility matrix
+extension SDK docs
+contract tests for adapters
 ```
 
 Результат:
@@ -1861,7 +2012,11 @@ ath module enable framework-magento
 
 ---
 
-### Phase 11 — Advanced language support
+### Phase 12 — Advanced Language and Framework Support
+
+Цель: расширять покрытие языков через adapters и importers.
+
+Состав:
 
 ```text
 TypeScript/JavaScript deeper support
@@ -1871,6 +2026,7 @@ PHP
 Java
 C#
 C/C++
+framework adapters
 LSP integration
 SCIP/LSIF import/export
 ```
@@ -1958,7 +2114,7 @@ Extensions are contract-based.
 Rustok integration is an adapter, not the core.
 ```
 
-Дополнение 1
+---
 
 ## 33. Конфигурация и layering настроек
 
@@ -2946,7 +3102,7 @@ EmbeddingProvider, SourceProvider, Transport, AgentInterface, Module.
 а не adapter-specific деталь.
 ```
 
-Дополнение 2
+---
 
 ## 61. Living Documentation и API Consistency
 
@@ -3561,7 +3717,7 @@ Generated draft → review → apply patch
 
 Пример generated API page:
 
-````md
+`````md
 ---
 id: doc://docs/ru/api/auth.md
 kind: api_documentation
@@ -3584,7 +3740,7 @@ last_verified_snapshot: snap_abc123
   "email": "user@example.com",
   "password": "secret"
 }
-````
+```
 
 ### Responses
 
@@ -3601,7 +3757,7 @@ last_verified_snapshot: snap_abc123
 * `src/routes/auth.rs`
 * `symbol://rust:crate::routes::auth::login`
 
-````
+`````
 
 ---
 
@@ -3614,7 +3770,7 @@ last_verified_snapshot: snap_abc123
 ```text
 Если API изменился, но docs/OpenAPI/examples не обновлены,
 Athanor должен создать diagnostic.
-````
+```
 
 Severity:
 
