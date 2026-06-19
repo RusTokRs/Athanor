@@ -40,7 +40,7 @@ Crate-local adapter docs:
 
 ## Current Generated Read Model
 
-The current CLI writes generated JSONL read models to:
+The current CLI uses `JsonlReadModelWriter` to write generated JSONL read models to:
 
 ```text
 .athanor/generated/current/jsonl/

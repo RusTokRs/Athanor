@@ -1,5 +1,3 @@
-use std::fs::{self, File};
-use std::io::Write;
 #[cfg(windows)]
 use std::path::{Component, Prefix};
 use std::path::{Path, PathBuf};
@@ -7,10 +5,8 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use athanor_domain::{RepoId, SnapshotBase};
 use athanor_store_memory::MemoryKnowledgeStore;
-use serde::Serialize;
-use serde_json::json;
 
-use crate::RuntimeBuilder;
+use crate::{JsonlReadModelWriter, RuntimeBuilder};
 
 #[derive(Debug, Clone)]
 pub struct IndexOptions {
@@ -48,73 +44,16 @@ pub async fn index_project(options: IndexOptions) -> Result<IndexReport> {
         .context("failed to run index pipeline")?;
 
     let output_dir = root.join(".athanor/generated/current/jsonl");
-    write_jsonl(&output_dir.join("entities.jsonl"), &output.entities)?;
-    write_jsonl(&output_dir.join("facts.jsonl"), &output.facts)?;
-    write_jsonl(&output_dir.join("relations.jsonl"), &output.relations)?;
-    write_jsonl(&output_dir.join("diagnostics.jsonl"), &output.diagnostics)?;
-    write_manifest(
-        &output_dir.join("manifest.json"),
-        &output.snapshot.0,
-        output.files.len(),
-        output.entities.len(),
-        output.facts.len(),
-        output.relations.len(),
-        output.diagnostics.len(),
-    )?;
+    let read_model = JsonlReadModelWriter::new(&output_dir)
+        .write(&output)
+        .context("failed to write JSONL read model")?;
 
     Ok(IndexReport {
         root,
         snapshot: output.snapshot.0,
         files_indexed: output.files.len(),
-        output_dir,
+        output_dir: read_model.output_dir,
     })
-}
-
-fn write_jsonl<T: Serialize>(path: &Path, items: &[T]) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("failed to create {}", parent.display()))?;
-    }
-
-    let mut file =
-        File::create(path).with_context(|| format!("failed to create {}", path.display()))?;
-
-    for item in items {
-        serde_json::to_writer(&mut file, item)
-            .with_context(|| format!("failed to write JSON to {}", path.display()))?;
-        file.write_all(b"\n")
-            .with_context(|| format!("failed to write newline to {}", path.display()))?;
-    }
-
-    Ok(())
-}
-
-fn write_manifest(
-    path: &Path,
-    snapshot: &str,
-    files_indexed: usize,
-    entities: usize,
-    facts: usize,
-    relations: usize,
-    diagnostics: usize,
-) -> Result<()> {
-    let manifest = json!({
-        "schema": "athanor.jsonl_manifest.v1",
-        "snapshot": snapshot,
-        "files_indexed": files_indexed,
-        "entities": entities,
-        "facts": facts,
-        "relations": relations,
-        "diagnostics": diagnostics,
-    });
-
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("failed to create {}", parent.display()))?;
-    }
-
-    fs::write(path, serde_json::to_string_pretty(&manifest)?)
-        .with_context(|| format!("failed to write {}", path.display()))
 }
 
 fn repo_id_for_root(root: &Path) -> String {
@@ -164,6 +103,8 @@ fn normalize_canonical_path(path: PathBuf) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
 
     #[tokio::test]

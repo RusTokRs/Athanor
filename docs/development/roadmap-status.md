@@ -60,10 +60,10 @@ cargo run -p ath --quiet -- index .
 Recent observed output:
 
 ```text
-files_indexed: 47
-entities: 294
-facts: 278
-relations: 247
+files_indexed: 48
+entities: 296
+facts: 280
+relations: 248
 diagnostics: 0
 ```
 
@@ -114,6 +114,21 @@ checkers:
   MarkdownStructureChecker
 ```
 
+### JSONL Read Model Writer
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-app/src/read_model.rs`
+
+Purpose:
+
+- owns JSONL read-model file writing
+- owns `manifest.json` generation
+- keeps generated output behavior reusable outside CLI indexing
+- lets `ath index` stay focused on root normalization, runtime construction, and reporting
+
 ## In Progress
 
 None.
@@ -123,15 +138,16 @@ None.
 Recommended next task:
 
 ```text
-Move JSONL export behind a projector or shared utility.
+Introduce affected-subset execution for linkers and checkers.
 ```
 
 Why:
 
 - `IndexPipeline` owns orchestration.
 - `AdapterRegistry` and `RuntimeBuilder` own adapter assembly.
-- JSONL export is still hand-written in the CLI-facing indexing service.
-- Future generated read models should share a projector or utility instead of duplicating file-writing logic.
+- `JsonlReadModelWriter` owns generated read-model export.
+- Linkers and checkers still run over the full extracted set.
+- Incremental indexing will need a way to pass only affected entities, facts, and relations through downstream adapters.
 
 ## Verification Commands
 
