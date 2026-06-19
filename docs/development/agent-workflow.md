@@ -7,10 +7,11 @@ This document defines the working procedure for agents implementing Athanor.
 Before changing files, read:
 
 1. `AGENTS.md`
-2. `docs/development/roadmap-status.md`
-3. Relevant architecture docs under `docs/architecture/`
-4. Relevant adapter docs under `docs/adapters/`
-5. Relevant crate `README.md`
+2. `docs/README.md`
+3. `docs/development/roadmap-status.md`
+4. Relevant architecture docs under `docs/architecture/`
+5. Relevant adapter docs under `docs/adapters/`
+6. Relevant crate `README.md`
 
 Use `start.md` as the full architectural plan, not as the daily task checklist.
 
@@ -81,12 +82,15 @@ Documentation is required in the same task when changing:
 Update the relevant files:
 
 - `docs/development/roadmap-status.md`
+- `docs/README.md`
 - `docs/architecture/pipeline.md`
 - `docs/architecture/adapters.md`
 - `docs/adapters/*.md`
 - crate `README.md`
 
 New adapter crates must have a `README.md`.
+
+If documentation is added, renamed, removed, or its purpose changes, update `docs/README.md` in the same task.
 
 ## 6. Verification
 

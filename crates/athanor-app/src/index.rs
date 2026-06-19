@@ -5,17 +5,12 @@ use std::path::{Component, Prefix};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use athanor_checker_markdown::MarkdownStructureChecker;
 use athanor_domain::{RepoId, SnapshotBase};
-use athanor_extractor_basic::FileExtractor;
-use athanor_extractor_markdown::MarkdownExtractor;
-use athanor_linker_markdown::MarkdownContainmentLinker;
-use athanor_source_fs::LocalFileSystemSource;
 use athanor_store_memory::MemoryKnowledgeStore;
 use serde::Serialize;
 use serde_json::json;
 
-use crate::IndexPipeline;
+use crate::RuntimeBuilder;
 
 #[derive(Debug, Clone)]
 pub struct IndexOptions {
@@ -38,13 +33,8 @@ pub async fn index_project(options: IndexOptions) -> Result<IndexReport> {
             .with_context(|| format!("failed to canonicalize {}", options.root.display()))?,
     );
 
-    let source = LocalFileSystemSource::new(&root);
-    let output = IndexPipeline::new(MemoryKnowledgeStore::new())
-        .source(source)
-        .extractor(FileExtractor)
-        .extractor(MarkdownExtractor)
-        .linker(MarkdownContainmentLinker)
-        .checker(MarkdownStructureChecker)
+    let output = RuntimeBuilder::new(&root)
+        .build_index_pipeline(MemoryKnowledgeStore::new())
         .run(
             RepoId(repo_id_for_root(&root)),
             SnapshotBase {

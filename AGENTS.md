@@ -9,11 +9,12 @@ Read this file before changing code or documentation.
 Before implementation work:
 
 1. Read this file.
-2. Read `docs/development/agent-workflow.md`.
-3. Read `docs/development/roadmap-status.md`.
-4. If touching indexing/runtime, read `docs/architecture/pipeline.md`.
-5. If adding or changing an adapter/plugin, read `docs/architecture/adapters.md`.
-6. If editing an existing adapter crate, read that crate's `README.md`.
+2. Read `docs/README.md`.
+3. Read `docs/development/agent-workflow.md`.
+4. Read `docs/development/roadmap-status.md`.
+5. If touching indexing/runtime, read `docs/architecture/pipeline.md`.
+6. If adding or changing an adapter/plugin, read `docs/architecture/adapters.md`.
+7. If editing an existing adapter crate, read that crate's `README.md`.
 
 ## Core Rules
 
@@ -22,6 +23,7 @@ Before implementation work:
 - Do not duplicate stable ID generation, evidence builders, JSONL writer, path normalization, or registry logic.
 - Facts, relations, and diagnostics must include evidence.
 - Documentation is part of implementation. Update English docs in the same task.
+- If documentation is added, renamed, removed, or its purpose changes, update `docs/README.md` in the same task.
 - Do not mark work complete until verification commands pass.
 
 ## Required Verification

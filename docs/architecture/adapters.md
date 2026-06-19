@@ -64,3 +64,16 @@ Every adapter should document:
 | `athanor-extractor-markdown` | `Extractor` | Emit Markdown documentation page/section knowledge. |
 | `athanor-linker-markdown` | `Linker` | Link Markdown file/page/section containment. |
 | `athanor-checker-markdown` | `Checker` | Diagnose basic Markdown documentation structure. |
+
+## Built-In Registry
+
+`athanor-app` owns adapter assembly through `AdapterRegistry` and `RuntimeBuilder`.
+
+The registry keeps adapter order and construction in one app-layer place. CLI code should ask the runtime builder for an `IndexPipeline` instead of manually listing source providers, extractors, linkers, or checkers.
+
+When a new adapter is added, update:
+
+- this adapter map
+- the adapter crate `README.md`
+- the relevant `docs/adapters/*.md` page
+- the built-in registry only if the adapter should run by default

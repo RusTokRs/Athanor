@@ -34,8 +34,18 @@ impl IndexPipeline {
         }
     }
 
+    pub fn boxed_source(mut self, source: Box<dyn SourceProvider>) -> Self {
+        self.sources.push(source);
+        self
+    }
+
     pub fn source(mut self, source: impl SourceProvider + 'static) -> Self {
         self.sources.push(Box::new(source));
+        self
+    }
+
+    pub fn boxed_extractor(mut self, extractor: Box<dyn Extractor>) -> Self {
+        self.extractors.push(extractor);
         self
     }
 
@@ -44,8 +54,18 @@ impl IndexPipeline {
         self
     }
 
+    pub fn boxed_linker(mut self, linker: Box<dyn Linker>) -> Self {
+        self.linkers.push(linker);
+        self
+    }
+
     pub fn linker(mut self, linker: impl Linker + 'static) -> Self {
         self.linkers.push(Box::new(linker));
+        self
+    }
+
+    pub fn boxed_checker(mut self, checker: Box<dyn Checker>) -> Self {
+        self.checkers.push(checker);
         self
     }
 
