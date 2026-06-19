@@ -30,6 +30,7 @@ cargo run -p ath -- index .
 7. `IndexPipeline` builds an affected subset from the extracted entities and facts for this run, then passes that subset to linkers and checkers alongside the full in-memory context.
 8. `IndexPipeline` stores the canonical objects for the current run through `KnowledgeStore`.
 9. `JsonlReadModelWriter` exports JSONL read models to `.athanor/generated/current/jsonl`.
+10. `IndexStateStore` persists file hash state to `.athanor/state/index-state.json` for the next run.
 
 ## Pipeline Assembly
 
@@ -65,6 +66,8 @@ checkers:
 - canonicalizing the project root
 - creating the default runtime builder
 - choosing the generated JSONL output path
+- loading and saving persisted index state
+- reporting changed, unchanged, and removed file counts
 - calling the read-model writer
 
 `RuntimeBuilder` and `AdapterRegistry` are responsible for adapter assembly:
@@ -98,18 +101,21 @@ checkers:
   relations.jsonl
   diagnostics.jsonl
   manifest.json
+
+.athanor/state/
+  index-state.json
 ```
 
-Generated files are read models. They are not the source of truth and may be deleted and rebuilt.
+Generated JSONL files are read models. They are not the source of truth and may be deleted and rebuilt. The state file records the last indexed file paths, content hashes, language hints, and snapshot id so later runs can classify changed, unchanged, and removed files.
 
 ## Current Limitations
 
 - Snapshot IDs are in-memory and restart from `snap_memory_00000001` on every CLI run.
 - The registry is in-process only; external plugin discovery is not implemented yet.
-- The current CLI still performs a full source discovery and extraction pass before building the affected subset.
-- The affected subset is run-local; persisted incremental change detection against previous snapshots is not implemented yet.
+- The current CLI still performs a full source discovery and extraction pass before classifying changed files.
+- Persisted state currently reports changed, unchanged, and removed file counts; it does not yet drive partial extraction or canonical-store merge behavior.
 - JSONL export is a reusable app-layer writer, not a full `Projector` port implementation yet.
 
 ## Next Good Step
 
-Persist previous snapshot state and compute affected subsets from file/content changes instead of treating every extracted object in the current run as affected.
+Use persisted file change state to drive partial extraction and merge unchanged canonical objects from previous snapshots.

@@ -5,6 +5,8 @@ use athanor_core::{
 };
 use athanor_domain::{Diagnostic, Entity, Fact, Relation, RepoId, SnapshotBase, SnapshotId};
 
+use crate::AffectedFileSet;
+
 pub struct IndexPipeline {
     store: Box<dyn KnowledgeStore>,
     sources: Vec<Box<dyn SourceProvider>>,
@@ -21,6 +23,7 @@ pub struct IndexPipelineOutput {
     pub facts: Vec<Fact>,
     pub relations: Vec<Relation>,
     pub diagnostics: Vec<Diagnostic>,
+    pub affected_files: AffectedFileSet,
 }
 
 impl IndexPipeline {
@@ -119,6 +122,7 @@ impl IndexPipeline {
             facts,
             relations,
             diagnostics,
+            affected_files: AffectedFileSet::default(),
         })
     }
 

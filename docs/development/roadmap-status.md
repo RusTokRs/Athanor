@@ -57,14 +57,12 @@ Current runtime check:
 cargo run -p ath --quiet -- index .
 ```
 
-Recent observed output:
+Recent observed output shape:
 
 ```text
-files_indexed: 48
-entities: 296
-facts: 280
-relations: 248
-diagnostics: 0
+indexed <N> files into snapshot snap_memory_00000001
+affected files: <changed> changed, <unchanged> unchanged, <removed> removed
+wrote JSONL to <project>/.athanor/generated/current/jsonl
 ```
 
 ### IndexPipeline
@@ -149,6 +147,25 @@ Purpose:
 
 Current CLI behavior still treats every object extracted in the run as affected because persisted incremental change detection is not implemented yet.
 
+### Persisted File Change State
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-app/src/index_state.rs`
+- `crates/athanor-app/src/index.rs`
+- `crates/athanor-app/src/read_model.rs`
+- `apps/ath/src/main.rs`
+
+Purpose:
+
+- persists last-run file paths, content hashes, language hints, and snapshot id in `.athanor/state/index-state.json`
+- computes changed, unchanged, and removed file sets by comparing current discovery output to the previous state
+- includes affected file counts in the JSONL manifest and CLI output
+
+Current limitation: state is observational and reporting-oriented. The pipeline still performs full extraction and does not yet merge unchanged canonical objects from previous snapshots.
+
 ## In Progress
 
 None.
@@ -158,15 +175,15 @@ None.
 Recommended next task:
 
 ```text
-Persist snapshot state and compute affected subsets from file/content changes.
+Use persisted file change state to drive partial extraction and canonical object merging.
 ```
 
 Why:
 
-- `IndexPipeline` can now pass affected subsets to linkers and checkers.
-- Markdown downstream adapters scope emitted relations and diagnostics to affected paths/pages.
-- The CLI still performs full extraction and marks all current-run extracted objects as affected.
-- Incremental indexing needs persisted previous-run state to identify changed, removed, and unchanged objects.
+- File change state is now persisted across CLI runs.
+- The CLI can report changed, unchanged, and removed files from previous-run state.
+- The pipeline still performs full extraction and does not reuse unchanged canonical objects.
+- Incremental indexing needs a merge step that carries unchanged objects forward and rebuilds only affected downstream outputs.
 
 ## Verification Commands
 

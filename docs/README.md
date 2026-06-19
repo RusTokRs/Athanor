@@ -51,7 +51,7 @@ The current CLI uses `JsonlReadModelWriter` to write generated JSONL read models
   manifest.json
 ```
 
-Generated files are not source documentation. They are disposable read models.
+Generated files are not source documentation. They are disposable read models. The CLI also persists incremental file-change state at `.athanor/state/index-state.json`.
 
 ## Documentation Rule
 
