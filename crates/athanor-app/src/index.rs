@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 use athanor_domain::{RepoId, SnapshotBase};
 use athanor_store_memory::MemoryKnowledgeStore;
 
-use crate::{JsonlReadModelWriter, RuntimeBuilder};
+use crate::{IndexState, IndexStateStore, JsonlReadModelWriter, RuntimeBuilder};
 
 #[derive(Debug, Clone)]
 pub struct IndexOptions {
@@ -19,6 +19,9 @@ pub struct IndexReport {
     pub snapshot: String,
     pub files_indexed: usize,
     pub output_dir: PathBuf,
+    pub changed_files: usize,
+    pub unchanged_files: usize,
+    pub removed_files: usize,
 }
 
 pub async fn index_project(options: IndexOptions) -> Result<IndexReport> {
@@ -29,7 +32,10 @@ pub async fn index_project(options: IndexOptions) -> Result<IndexReport> {
             .with_context(|| format!("failed to canonicalize {}", options.root.display()))?,
     );
 
-    let output = RuntimeBuilder::new(&root)
+    let state_store = IndexStateStore::new(root.join(".athanor/state/index-state.json"));
+    let previous_state = state_store.load().context("failed to load index state")?;
+
+    let mut output = RuntimeBuilder::new(&root)
         .build_index_pipeline(MemoryKnowledgeStore::new())
         .run(
             RepoId(repo_id_for_root(&root)),
@@ -43,16 +49,25 @@ pub async fn index_project(options: IndexOptions) -> Result<IndexReport> {
         .await
         .context("failed to run index pipeline")?;
 
+    output.affected_files = previous_state.affected_files(&output.files);
+
     let output_dir = root.join(".athanor/generated/current/jsonl");
     let read_model = JsonlReadModelWriter::new(&output_dir)
         .write(&output)
         .context("failed to write JSONL read model")?;
+
+    state_store
+        .save(&IndexState::from_sources(&output.snapshot.0, &output.files))
+        .context("failed to save index state")?;
 
     Ok(IndexReport {
         root,
         snapshot: output.snapshot.0,
         files_indexed: output.files.len(),
         output_dir: read_model.output_dir,
+        changed_files: read_model.changed_files,
+        unchanged_files: read_model.unchanged_files,
+        removed_files: read_model.removed_files,
     })
 }
 
@@ -141,6 +156,19 @@ mod tests {
 
         let relations = fs::read_to_string(report.output_dir.join("relations.jsonl")).unwrap();
         assert!(relations.contains("contains"));
+        assert_eq!(report.changed_files, 2);
+        assert_eq!(report.unchanged_files, 0);
+        assert_eq!(report.removed_files, 0);
+        assert!(root.join(".athanor/state/index-state.json").is_file());
+
+        let second_report = index_project(IndexOptions { root: root.clone() })
+            .await
+            .unwrap();
+
+        assert_eq!(second_report.files_indexed, 2);
+        assert_eq!(second_report.changed_files, 0);
+        assert_eq!(second_report.unchanged_files, 2);
+        assert_eq!(second_report.removed_files, 0);
 
         fs::remove_dir_all(root).unwrap();
     }

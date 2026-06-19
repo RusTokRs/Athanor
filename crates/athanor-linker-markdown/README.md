@@ -17,7 +17,7 @@ documentation_page contains documentation_section
 
 ## Inputs
 
-Entities emitted by file and Markdown extractors.
+Entities emitted by file and Markdown extractors. The adapter receives full extracted context plus an `AffectedSubset` and emits containment relations only for affected documentation paths.
 
 ## Side Effects
 

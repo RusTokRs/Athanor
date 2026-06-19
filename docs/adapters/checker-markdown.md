@@ -18,6 +18,8 @@ Reads canonical objects from the current pipeline:
 
 It does not read files directly.
 
+The checker receives the full extracted context plus an `AffectedSubset`. It evaluates only affected documentation page entities while still using affected containment relations to determine whether a page has sections.
+
 ## Outputs
 
 Diagnostics:

@@ -46,6 +46,10 @@ async fn main() -> Result<()> {
                 "indexed {} files into snapshot {}",
                 report.files_indexed, report.snapshot
             );
+            println!(
+                "affected files: {} changed, {} unchanged, {} removed",
+                report.changed_files, report.unchanged_files, report.removed_files
+            );
             println!("wrote JSONL to {}", report.output_dir.display());
         }
         None => {

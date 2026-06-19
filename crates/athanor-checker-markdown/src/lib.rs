@@ -19,6 +19,7 @@ impl Checker for MarkdownStructureChecker {
         let mut diagnostics = Vec::new();
 
         for page in input
+            .affected
             .entities
             .iter()
             .filter(|entity| entity.kind == EntityKind::DocumentationPage)
@@ -40,6 +41,7 @@ impl Checker for MarkdownStructureChecker {
             }
 
             let section_count = input
+                .affected
                 .relations
                 .iter()
                 .filter(|relation| {
@@ -143,9 +145,10 @@ mod tests {
         let diagnostics = MarkdownStructureChecker
             .check(CheckInput {
                 snapshot: SnapshotId("snap_test".to_string()),
-                entities: vec![page],
+                entities: vec![page.clone()],
                 facts: Vec::new(),
                 relations: Vec::new(),
+                affected: athanor_core::AffectedSubset::from_extracted(vec![page], Vec::new()),
             })
             .await
             .unwrap();
@@ -188,9 +191,14 @@ mod tests {
         let diagnostics = MarkdownStructureChecker
             .check(CheckInput {
                 snapshot: SnapshotId("snap_test".to_string()),
-                entities: vec![page, section],
+                entities: vec![page.clone(), section.clone()],
                 facts: Vec::new(),
-                relations: vec![relation],
+                relations: vec![relation.clone()],
+                affected: athanor_core::AffectedSubset::from_extracted(
+                    vec![page, section],
+                    Vec::new(),
+                )
+                .with_relations(vec![relation]),
             })
             .await
             .unwrap();
@@ -202,10 +210,42 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn limits_diagnostics_to_affected_pages() {
+        let affected_page =
+            page_entity_with_id("ent_affected_page", "doc://docs/affected.md", None);
+        let unaffected_page =
+            page_entity_with_id("ent_unaffected_page", "doc://docs/unaffected.md", None);
+
+        let diagnostics = MarkdownStructureChecker
+            .check(CheckInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: vec![affected_page.clone(), unaffected_page.clone()],
+                facts: Vec::new(),
+                relations: Vec::new(),
+                affected: athanor_core::AffectedSubset::from_extracted(
+                    vec![affected_page.clone()],
+                    Vec::new(),
+                ),
+            })
+            .await
+            .unwrap();
+
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| { diagnostic.entities == vec![affected_page.id.clone()] })
+        );
+    }
+
     fn page_entity(title: Option<&str>) -> Entity {
+        page_entity_with_id("ent_page", "doc://docs/auth.md", title)
+    }
+
+    fn page_entity_with_id(id: &str, stable_key: &str, title: Option<&str>) -> Entity {
         Entity {
-            id: EntityId("ent_page".to_string()),
-            stable_key: StableKey("doc://docs/auth.md".to_string()),
+            id: EntityId(id.to_string()),
+            stable_key: StableKey(stable_key.to_string()),
             kind: EntityKind::DocumentationPage,
             name: "docs/auth.md".to_string(),
             title: title.map(str::to_string),

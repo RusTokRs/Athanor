@@ -57,14 +57,12 @@ Current runtime check:
 cargo run -p ath --quiet -- index .
 ```
 
-Recent observed output:
+Recent observed output shape:
 
 ```text
-files_indexed: 48
-entities: 296
-facts: 280
-relations: 248
-diagnostics: 0
+indexed <N> files into snapshot snap_memory_00000001
+affected files: <changed> changed, <unchanged> unchanged, <removed> removed
+wrote JSONL to <project>/.athanor/generated/current/jsonl
 ```
 
 ### IndexPipeline
@@ -129,6 +127,45 @@ Purpose:
 - keeps generated output behavior reusable outside CLI indexing
 - lets `ath index` stay focused on root normalization, runtime construction, and reporting
 
+### Affected-Subset Linker And Checker Inputs
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-core/src/ports.rs`
+- `crates/athanor-app/src/pipeline.rs`
+- `crates/athanor-linker-markdown/src/lib.rs`
+- `crates/athanor-checker-markdown/src/lib.rs`
+
+Purpose:
+
+- introduces `AffectedSubset` as a core input contract for downstream adapters
+- passes affected entities, facts, and newly produced relations to linkers and checkers
+- keeps full extracted context available for adapters that need neighboring objects
+- updates Markdown linker/checker adapters to scope emitted relations and diagnostics to affected documentation paths/pages
+
+Current CLI behavior still treats every object extracted in the run as affected because persisted incremental change detection is not implemented yet.
+
+### Persisted File Change State
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-app/src/index_state.rs`
+- `crates/athanor-app/src/index.rs`
+- `crates/athanor-app/src/read_model.rs`
+- `apps/ath/src/main.rs`
+
+Purpose:
+
+- persists last-run file paths, content hashes, language hints, and snapshot id in `.athanor/state/index-state.json`
+- computes changed, unchanged, and removed file sets by comparing current discovery output to the previous state
+- includes affected file counts in the JSONL manifest and CLI output
+
+Current limitation: state is observational and reporting-oriented. The pipeline still performs full extraction and does not yet merge unchanged canonical objects from previous snapshots.
+
 ## In Progress
 
 None.
@@ -138,16 +175,15 @@ None.
 Recommended next task:
 
 ```text
-Introduce affected-subset execution for linkers and checkers.
+Use persisted file change state to drive partial extraction and canonical object merging.
 ```
 
 Why:
 
-- `IndexPipeline` owns orchestration.
-- `AdapterRegistry` and `RuntimeBuilder` own adapter assembly.
-- `JsonlReadModelWriter` owns generated read-model export.
-- Linkers and checkers still run over the full extracted set.
-- Incremental indexing will need a way to pass only affected entities, facts, and relations through downstream adapters.
+- File change state is now persisted across CLI runs.
+- The CLI can report changed, unchanged, and removed files from previous-run state.
+- The pipeline still performs full extraction and does not reuse unchanged canonical objects.
+- Incremental indexing needs a merge step that carries unchanged objects forward and rebuilds only affected downstream outputs.
 
 ## Verification Commands
 

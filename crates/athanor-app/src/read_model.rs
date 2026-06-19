@@ -20,6 +20,9 @@ pub struct JsonlReadModelReport {
     pub output_dir: PathBuf,
     pub snapshot: String,
     pub files_indexed: usize,
+    pub changed_files: usize,
+    pub unchanged_files: usize,
+    pub removed_files: usize,
     pub entities: usize,
     pub facts: usize,
     pub relations: usize,
@@ -46,6 +49,9 @@ impl JsonlReadModelWriter {
             output_dir: self.output_dir.clone(),
             snapshot: output.snapshot.0.clone(),
             files_indexed: output.files.len(),
+            changed_files: output.affected_files.changed.len(),
+            unchanged_files: output.affected_files.unchanged.len(),
+            removed_files: output.affected_files.removed.len(),
             entities: output.entities.len(),
             facts: output.facts.len(),
             relations: output.relations.len(),
@@ -82,6 +88,9 @@ fn write_manifest(path: &Path, report: &JsonlReadModelReport) -> Result<()> {
         "schema": JSONL_MANIFEST_SCHEMA,
         "snapshot": report.snapshot,
         "files_indexed": report.files_indexed,
+        "changed_files": report.changed_files,
+        "unchanged_files": report.unchanged_files,
+        "removed_files": report.removed_files,
         "entities": report.entities,
         "facts": report.facts,
         "relations": report.relations,
@@ -121,6 +130,7 @@ mod tests {
             facts: Vec::new(),
             relations: Vec::new(),
             diagnostics: Vec::new(),
+            affected_files: crate::AffectedFileSet::default(),
         };
 
         let report = JsonlReadModelWriter::new(&output_dir)
