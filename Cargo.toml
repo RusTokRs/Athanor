@@ -1,0 +1,25 @@
+[workspace]
+members = [
+    "apps/ath",
+    "crates/athanor-app",
+    "crates/athanor-core",
+    "crates/athanor-domain",
+    "crates/athanor-source-fs",
+    "crates/athanor-store-memory",
+]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/rynak/athanor"
+rust-version = "1.95"
+
+[workspace.dependencies]
+anyhow = "1.0"
+async-trait = "0.1"
+clap = { version = "4.5", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+tokio = { version = "1.48", features = ["macros", "rt-multi-thread"] }
