@@ -11,7 +11,7 @@ Implements: `Checker`
 
 ## Inputs
 
-Canonical entities and relations from the current pipeline.
+Canonical entities and relations from the current pipeline. The adapter receives full extracted context plus an `AffectedSubset` and evaluates only affected documentation pages and affected containment relations.
 
 This checker does not read files directly.
 

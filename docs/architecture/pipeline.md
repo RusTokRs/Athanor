@@ -27,8 +27,9 @@ cargo run -p ath -- index .
 4. `athanor-linker-markdown` creates `contains` relations between files, documentation pages, and sections.
 5. `athanor-checker-markdown` creates documentation structure diagnostics.
 6. `RuntimeBuilder` builds the configured `IndexPipeline` from an `AdapterRegistry`.
-7. `IndexPipeline` stores the canonical objects for the current run through `KnowledgeStore`.
-8. `JsonlReadModelWriter` exports JSONL read models to `.athanor/generated/current/jsonl`.
+7. `IndexPipeline` builds an affected subset from the extracted entities and facts for this run, then passes that subset to linkers and checkers alongside the full in-memory context.
+8. `IndexPipeline` stores the canonical objects for the current run through `KnowledgeStore`.
+9. `JsonlReadModelWriter` exports JSONL read models to `.athanor/generated/current/jsonl`.
 
 ## Pipeline Assembly
 
@@ -76,8 +77,9 @@ checkers:
 
 - discovering sources
 - running extractors
-- running linkers
-- running checkers
+- deriving the affected subset for downstream adapters
+- running linkers over the affected subset with full extracted context available
+- running checkers over the affected subset with full extracted context available
 - storing entities/facts/relations/diagnostics
 - committing the snapshot
 
@@ -104,9 +106,10 @@ Generated files are read models. They are not the source of truth and may be del
 
 - Snapshot IDs are in-memory and restart from `snap_memory_00000001` on every CLI run.
 - The registry is in-process only; external plugin discovery is not implemented yet.
-- Linkers and checkers run over the full extracted set, not an affected subset.
+- The current CLI still performs a full source discovery and extraction pass before building the affected subset.
+- The affected subset is run-local; persisted incremental change detection against previous snapshots is not implemented yet.
 - JSONL export is a reusable app-layer writer, not a full `Projector` port implementation yet.
 
 ## Next Good Step
 
-Introduce affected-subset execution for linkers and checkers so larger projects do not need full extracted-set passes for every indexing run.
+Persist previous snapshot state and compute affected subsets from file/content changes instead of treating every extracted object in the current run as affected.

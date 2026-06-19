@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use athanor_core::{
-    CheckInput, Checker, ExtractInput, Extractor, KnowledgeStore, LinkInput, Linker, SourceFile,
-    SourceProvider,
+    AffectedSubset, CheckInput, Checker, ExtractInput, Extractor, KnowledgeStore, LinkInput,
+    Linker, SourceFile, SourceProvider,
 };
 use athanor_domain::{Diagnostic, Entity, Fact, Relation, RepoId, SnapshotBase, SnapshotId};
 
@@ -82,8 +82,14 @@ impl IndexPipeline {
             .await
             .context("failed to begin snapshot")?;
         let (entities, facts) = self.extract(&repo, &snapshot, &files).await?;
-        let relations = self.link(&snapshot, &entities, &facts).await?;
-        let diagnostics = self.check(&snapshot, &entities, &facts, &relations).await?;
+        let affected_extracted = AffectedSubset::from_extracted(entities.clone(), facts.clone());
+        let relations = self
+            .link(&snapshot, &entities, &facts, &affected_extracted)
+            .await?;
+        let affected_checked = affected_extracted.with_relations(relations.clone());
+        let diagnostics = self
+            .check(&snapshot, &entities, &facts, &relations, &affected_checked)
+            .await?;
 
         self.store
             .put_entities(snapshot.clone(), entities.clone())
@@ -171,6 +177,7 @@ impl IndexPipeline {
         snapshot: &SnapshotId,
         entities: &[Entity],
         facts: &[Fact],
+        affected: &AffectedSubset,
     ) -> Result<Vec<Relation>> {
         let mut relations = Vec::new();
 
@@ -181,6 +188,7 @@ impl IndexPipeline {
                         snapshot: snapshot.clone(),
                         entities: entities.to_vec(),
                         facts: facts.to_vec(),
+                        affected: affected.clone(),
                     })
                     .await
                     .with_context(|| format!("linker {} failed", linker.name()))?,
@@ -196,6 +204,7 @@ impl IndexPipeline {
         entities: &[Entity],
         facts: &[Fact],
         relations: &[Relation],
+        affected: &AffectedSubset,
     ) -> Result<Vec<Diagnostic>> {
         let mut diagnostics = Vec::new();
 
@@ -207,6 +216,7 @@ impl IndexPipeline {
                         entities: entities.to_vec(),
                         facts: facts.to_vec(),
                         relations: relations.to_vec(),
+                        affected: affected.clone(),
                     })
                     .await
                     .with_context(|| format!("checker {} failed", checker.name()))?,

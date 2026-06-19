@@ -22,10 +22,22 @@ impl Linker for MarkdownContainmentLinker {
             .iter()
             .filter(|entity| entity.kind == EntityKind::File)
             .collect::<Vec<_>>();
+        let affected_paths = input
+            .affected
+            .entities
+            .iter()
+            .filter_map(|entity| entity.source.as_ref().map(|source| source.path.as_str()))
+            .collect::<std::collections::HashSet<_>>();
         let pages = input
             .entities
             .iter()
-            .filter(|entity| entity.kind == EntityKind::DocumentationPage)
+            .filter(|entity| {
+                entity.kind == EntityKind::DocumentationPage
+                    && entity
+                        .source
+                        .as_ref()
+                        .is_some_and(|source| affected_paths.contains(source.path.as_str()))
+            })
             .collect::<Vec<_>>();
         let sections = input
             .entities
@@ -164,6 +176,10 @@ mod tests {
                 snapshot: SnapshotId("snap_test".to_string()),
                 entities: vec![file.clone(), page.clone(), section.clone()],
                 facts: Vec::new(),
+                affected: athanor_core::AffectedSubset::from_extracted(
+                    vec![file.clone(), page.clone(), section.clone()],
+                    Vec::new(),
+                ),
             })
             .await
             .unwrap();
@@ -179,6 +195,56 @@ mod tests {
                 && relation.from == page.id
                 && relation.to == section.id
         }));
+    }
+
+    #[tokio::test]
+    async fn limits_links_to_affected_source_paths() {
+        let auth_file = entity(
+            "ent_file_auth",
+            "file://docs/auth.md",
+            EntityKind::File,
+            "docs/auth.md",
+        );
+        let auth_page = entity(
+            "ent_doc_page_auth",
+            "doc://docs/auth.md",
+            EntityKind::DocumentationPage,
+            "docs/auth.md",
+        );
+        let billing_file = entity(
+            "ent_file_billing",
+            "file://docs/billing.md",
+            EntityKind::File,
+            "docs/billing.md",
+        );
+        let billing_page = entity(
+            "ent_doc_page_billing",
+            "doc://docs/billing.md",
+            EntityKind::DocumentationPage,
+            "docs/billing.md",
+        );
+
+        let relations = MarkdownContainmentLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: vec![
+                    auth_file.clone(),
+                    auth_page.clone(),
+                    billing_file.clone(),
+                    billing_page.clone(),
+                ],
+                facts: Vec::new(),
+                affected: athanor_core::AffectedSubset::from_extracted(
+                    vec![auth_file.clone(), auth_page.clone()],
+                    Vec::new(),
+                ),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(relations.len(), 1);
+        assert_eq!(relations[0].from, auth_file.id);
+        assert_eq!(relations[0].to, auth_page.id);
     }
 
     fn entity(id: &str, stable_key: &str, kind: EntityKind, path: &str) -> Entity {

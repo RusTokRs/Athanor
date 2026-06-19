@@ -97,11 +97,34 @@ pub trait Extractor: Send + Sync {
     async fn extract(&self, input: ExtractInput) -> CoreResult<ExtractOutput>;
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AffectedSubset {
+    pub entities: Vec<Entity>,
+    pub facts: Vec<Fact>,
+    pub relations: Vec<Relation>,
+}
+
+impl AffectedSubset {
+    pub fn from_extracted(entities: Vec<Entity>, facts: Vec<Fact>) -> Self {
+        Self {
+            entities,
+            facts,
+            relations: Vec::new(),
+        }
+    }
+
+    pub fn with_relations(mut self, relations: Vec<Relation>) -> Self {
+        self.relations = relations;
+        self
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LinkInput {
     pub snapshot: SnapshotId,
     pub entities: Vec<Entity>,
     pub facts: Vec<Fact>,
+    pub affected: AffectedSubset,
 }
 
 #[async_trait]
@@ -116,6 +139,7 @@ pub struct CheckInput {
     pub entities: Vec<Entity>,
     pub facts: Vec<Fact>,
     pub relations: Vec<Relation>,
+    pub affected: AffectedSubset,
 }
 
 #[async_trait]
