@@ -61,6 +61,7 @@ pub enum EntityKind {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FactKind {
+    FileDiscovered,
     SymbolDefined,
     RouteDeclared,
     DocSectionFound,
@@ -133,6 +134,8 @@ pub enum EvidenceStatus {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DiagnosticKind {
+    EmptyDocumentationPage,
+    DocumentationPageMissingTitle,
     MissingDocumentation,
     StaleDocumentation,
     OpenapiMismatch,

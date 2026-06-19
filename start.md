@@ -1,5 +1,7 @@
 # Athanor — финальный архитектурный план
 
+Agent entrypoint: read `AGENTS.md` before implementation work.
+
 ## 1. Суть продукта
 
 **Athanor** — независимый Rust-based Code Knowledge Engine для AI-агентов и разработчиков.
@@ -3104,7 +3106,56 @@ EmbeddingProvider, SourceProvider, Transport, AgentInterface, Module.
 
 ---
 
-## 61. Living Documentation и API Consistency
+## 61. Adapter-first feature rule
+
+Перед добавлением новой возможности нужно задать простой вопрос:
+
+```text
+Это часть смысла Athanor или это способ прочитать/записать/показать данные?
+```
+
+Если это способ работы с конкретным форматом, языком, фреймворком, базой данных,
+поиском, UI, транспортом или внешним сервисом — это должен быть adapter.
+
+Примеры:
+
+```text
+Markdown parser             -> extractor adapter
+OpenAPI parser              -> extractor adapter
+Rust AST parser             -> language adapter
+Postgres storage            -> store adapter
+SurrealDB storage           -> store adapter
+HTML report                 -> projector adapter
+MCP                         -> transport adapter
+Rustok dashboard            -> Rustok adapter
+```
+
+В core можно добавлять только то, что остаётся верным при замене adapter:
+
+```text
+Entity
+Fact
+Relation
+Evidence
+Diagnostic
+Snapshot
+ContextPack
+Concept
+ports/contracts
+stable statuses and ids
+```
+
+Практическое правило:
+
+```text
+Сначала пробуем вынести фичу в adapter.
+Если не получается, объясняем почему это новая часть доменной модели.
+Только после этого меняем core/domain.
+```
+
+---
+
+## 62. Living Documentation и API Consistency
 
 Athanor должен поддерживать не только generated wiki для агента, но и полноценную живую документацию проекта.
 
@@ -3131,7 +3182,7 @@ Canonical Knowledge остаётся главным источником для 
 
 ---
 
-## 62. Типы документации
+## 63. Типы документации
 
 Athanor должен различать типы документации:
 
@@ -3169,7 +3220,7 @@ Environment documentation
 
 ---
 
-## 63. Editable docs layout
+## 64. Editable docs layout
 
 Редактируемая документация может жить в проекте:
 
@@ -3224,7 +3275,7 @@ include_ci = true
 
 ---
 
-## 64. Generated docs не должны перетирать ручные правки
+## 65. Generated docs не должны перетирать ручные правки
 
 Athanor не должен молча переписывать editable documentation.
 
@@ -3258,7 +3309,7 @@ ath docs apply-patch <id>
 
 ---
 
-## 65. Структура markdown-документа
+## 66. Структура markdown-документа
 
 Каждый редактируемый документ должен иметь frontmatter.
 
@@ -3294,7 +3345,7 @@ status: verified
 
 ---
 
-## 66. Многоязычная документация
+## 67. Многоязычная документация
 
 Athanor должен поддерживать несколько языковых версий одного документа.
 
@@ -3354,7 +3405,7 @@ ath docs propose-translation --from ru --to en
 
 ---
 
-## 67. Operations documentation
+## 68. Operations documentation
 
 Athanor должен уметь генерировать и проверять эксплуатационную документацию.
 
@@ -3418,7 +3469,7 @@ ath check deployment
 
 ---
 
-## 68. API Registry
+## 69. API Registry
 
 Athanor должен иметь отдельный API Registry внутри knowledge model.
 
@@ -3485,7 +3536,7 @@ deprecation status
 
 ---
 
-## 69. API source of truth policy
+## 70. API source of truth policy
 
 Проект должен явно задавать источник истины для API.
 
@@ -3528,7 +3579,7 @@ tests/examples подтверждают работоспособность
 
 ---
 
-## 70. API consistency checks
+## 71. API consistency checks
 
 Athanor должен проверять консистентность API между всеми источниками.
 
@@ -3571,7 +3622,7 @@ api_removed_but_client_still_uses_it
 
 ---
 
-## 71. API strict mode
+## 72. API strict mode
 
 API должны быть очень точными. Поэтому нужен strict mode.
 
@@ -3596,7 +3647,7 @@ ath check api --strict
 
 ---
 
-## 72. API Contract Snapshot
+## 73. API Contract Snapshot
 
 Athanor должен хранить snapshot публичного API.
 
@@ -3647,7 +3698,7 @@ api_breaking_change_detected
 
 ---
 
-## 73. API examples validation
+## 74. API examples validation
 
 Athanor должен проверять примеры API.
 
@@ -3685,7 +3736,7 @@ ath docs api examples update
 
 ---
 
-## 74. API docs generation
+## 75. API docs generation
 
 Athanor должен уметь генерировать API docs из API Registry.
 
@@ -3761,7 +3812,7 @@ last_verified_snapshot: snap_abc123
 
 ---
 
-## 75. API docs as diagnostics gate
+## 76. API docs as diagnostics gate
 
 Документация API должна быть не просто текстом, а проверяемым контрактом.
 
@@ -3786,7 +3837,7 @@ low      — wording/summary stale
 
 ---
 
-## 76. API consistency with Rustok
+## 77. API consistency with Rustok
 
 В Rustok mode API Registry должен синхронизироваться в Postgres/JSONB.
 
@@ -3817,7 +3868,7 @@ Translation Drift
 
 ---
 
-## 77. Documentation writer workflow
+## 78. Documentation writer workflow
 
 Athanor должен поддерживать workflow для агента-документатора.
 
@@ -3847,7 +3898,7 @@ ath docs verify
 
 ---
 
-## 78. API precision rule
+## 79. API precision rule
 
 Для API действует отдельное строгое правило:
 
@@ -3882,7 +3933,7 @@ untrusted
 
 ---
 
-## 79. Добавить новые сущности в модель
+## 80. Добавить новые сущности в модель
 
 Добавить к доменной модели:
 
@@ -3916,7 +3967,7 @@ EntityKind::OperationStep
 
 ---
 
-## 80. Новые relation kinds
+## 81. Новые relation kinds
 
 ```text
 documents
@@ -3939,7 +3990,7 @@ missing_against
 
 ---
 
-## 81. Новые checkers
+## 82. Новые checkers
 
 ```text
 ApiImplementationChecker
@@ -3956,7 +4007,7 @@ RunbookConsistencyChecker
 
 ---
 
-## 82. Новые projectors
+## 83. Новые projectors
 
 ```text
 ApiMarkdownProjector
@@ -3970,7 +4021,7 @@ RustokApiDashboardProjector
 
 ---
 
-## 83. Итоговое правило по документации
+## 84. Итоговое правило по документации
 
 Athanor должен уметь:
 
@@ -3991,4 +4042,5 @@ Athanor должен уметь:
 скрывать API mismatch как warning в strict mode
 генерировать API docs без evidence
 ```
+
 

@@ -84,11 +84,26 @@ name = "athanor-app"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "athanor-checker-markdown",
  "athanor-core",
  "athanor-domain",
+ "athanor-extractor-basic",
+ "athanor-extractor-markdown",
+ "athanor-linker-markdown",
  "athanor-source-fs",
  "athanor-store-memory",
  "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "athanor-checker-markdown"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "athanor-core",
+ "athanor-domain",
  "serde_json",
  "tokio",
 ]
@@ -110,6 +125,40 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "athanor-extractor-basic"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "athanor-core",
+ "athanor-domain",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "athanor-extractor-markdown"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "athanor-core",
+ "athanor-domain",
+ "athanor-extractor-basic",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "athanor-linker-markdown"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "athanor-core",
+ "athanor-domain",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

@@ -2,8 +2,12 @@
 members = [
     "apps/ath",
     "crates/athanor-app",
+    "crates/athanor-checker-markdown",
     "crates/athanor-core",
     "crates/athanor-domain",
+    "crates/athanor-extractor-basic",
+    "crates/athanor-extractor-markdown",
+    "crates/athanor-linker-markdown",
     "crates/athanor-source-fs",
     "crates/athanor-store-memory",
 ]

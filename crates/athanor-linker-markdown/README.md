@@ -1,0 +1,32 @@
+# athanor-linker-markdown
+
+Markdown containment linker adapter.
+
+Implements: `Linker`
+
+## What It Emits
+
+- `RelationKind::Contains`
+
+Current relations:
+
+```text
+file contains documentation_page
+documentation_page contains documentation_section
+```
+
+## Inputs
+
+Entities emitted by file and Markdown extractors.
+
+## Side Effects
+
+None.
+
+This adapter does not run commands, does not use the network, and does not modify project files.
+
+## Test
+
+```bash
+cargo test -p athanor-linker-markdown
+```

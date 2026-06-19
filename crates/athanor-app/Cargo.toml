@@ -8,8 +8,12 @@ rust-version.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+athanor-checker-markdown = { path = "../athanor-checker-markdown" }
 athanor-core = { path = "../athanor-core" }
 athanor-domain = { path = "../athanor-domain" }
+athanor-extractor-basic = { path = "../athanor-extractor-basic" }
+athanor-extractor-markdown = { path = "../athanor-extractor-markdown" }
+athanor-linker-markdown = { path = "../athanor-linker-markdown" }
 athanor-source-fs = { path = "../athanor-source-fs" }
 athanor-store-memory = { path = "../athanor-store-memory" }
 serde.workspace = true
