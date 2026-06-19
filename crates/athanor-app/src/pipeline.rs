@@ -181,6 +181,11 @@ impl IndexPipeline {
                         snapshot: snapshot.clone(),
                         entities: entities.to_vec(),
                         facts: facts.to_vec(),
+                        affected_entities: entities
+                            .iter()
+                            .map(|entity| entity.stable_key.clone())
+                            .collect(),
+                        affected_facts: facts.iter().map(|fact| fact.id.clone()).collect(),
                     })
                     .await
                     .with_context(|| format!("linker {} failed", linker.name()))?,
@@ -207,6 +212,15 @@ impl IndexPipeline {
                         entities: entities.to_vec(),
                         facts: facts.to_vec(),
                         relations: relations.to_vec(),
+                        affected_entities: entities
+                            .iter()
+                            .map(|entity| entity.stable_key.clone())
+                            .collect(),
+                        affected_facts: facts.iter().map(|fact| fact.id.clone()).collect(),
+                        affected_relations: relations
+                            .iter()
+                            .map(|relation| relation.id.clone())
+                            .collect(),
                     })
                     .await
                     .with_context(|| format!("checker {} failed", checker.name()))?,

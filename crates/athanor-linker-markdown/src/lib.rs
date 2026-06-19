@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use athanor_core::{CoreResult, LinkInput, Linker};
 use athanor_domain::{
     Entity, EntityKind, Evidence, EvidenceStatus, Relation, RelationId, RelationKind,
-    RelationStatus, SnapshotId,
+    RelationStatus, SnapshotId, StableKey,
 };
 use serde_json::json;
 
@@ -33,7 +33,11 @@ impl Linker for MarkdownContainmentLinker {
             .filter(|entity| entity.kind == EntityKind::DocumentationSection)
             .collect::<Vec<_>>();
 
-        for page in pages {
+        for page in pages
+            .iter()
+            .copied()
+            .filter(|page| is_affected(&page.stable_key, &input.affected_entities))
+        {
             if let Some(file) = matching_file(page, &files) {
                 relations.push(contains_relation(
                     &input.snapshot,
@@ -61,6 +65,13 @@ impl Linker for MarkdownContainmentLinker {
 
         Ok(relations)
     }
+}
+
+fn is_affected(stable_key: &StableKey, affected_entities: &[StableKey]) -> bool {
+    affected_entities.is_empty()
+        || affected_entities
+            .iter()
+            .any(|affected| affected == stable_key)
 }
 
 fn matching_file<'a>(page: &Entity, files: &'a [&Entity]) -> Option<&'a Entity> {
@@ -164,6 +175,8 @@ mod tests {
                 snapshot: SnapshotId("snap_test".to_string()),
                 entities: vec![file.clone(), page.clone(), section.clone()],
                 facts: Vec::new(),
+                affected_entities: Vec::new(),
+                affected_facts: Vec::new(),
             })
             .await
             .unwrap();
@@ -179,6 +192,35 @@ mod tests {
                 && relation.from == page.id
                 && relation.to == section.id
         }));
+    }
+
+    #[tokio::test]
+    async fn skips_unaffected_pages() {
+        let file = entity(
+            "ent_file_docs_auth",
+            "file://docs/auth.md",
+            EntityKind::File,
+            "docs/auth.md",
+        );
+        let page = entity(
+            "ent_doc_page_auth",
+            "doc://docs/auth.md",
+            EntityKind::DocumentationPage,
+            "docs/auth.md",
+        );
+
+        let relations = MarkdownContainmentLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: vec![file, page],
+                facts: Vec::new(),
+                affected_entities: vec![StableKey("doc://docs/other.md".to_string())],
+                affected_facts: Vec::new(),
+            })
+            .await
+            .unwrap();
+
+        assert!(relations.is_empty());
     }
 
     fn entity(id: &str, stable_key: &str, kind: EntityKind, path: &str) -> Entity {

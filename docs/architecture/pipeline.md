@@ -1,6 +1,6 @@
 # Indexing Pipeline
 
-Status: implemented, reusable app-layer pipeline with app-layer adapter registry and JSONL read-model writer.
+Status: implemented, reusable app-layer pipeline with app-layer adapter registry, affected-subset adapter inputs, and JSONL read-model writer.
 
 Athanor currently has a minimal but complete knowledge pipeline:
 
@@ -26,9 +26,10 @@ cargo run -p ath -- index .
 3. `athanor-extractor-markdown` creates documentation page/section entities and `doc_section_found` facts.
 4. `athanor-linker-markdown` creates `contains` relations between files, documentation pages, and sections.
 5. `athanor-checker-markdown` creates documentation structure diagnostics.
-6. `RuntimeBuilder` builds the configured `IndexPipeline` from an `AdapterRegistry`.
-7. `IndexPipeline` stores the canonical objects for the current run through `KnowledgeStore`.
-8. `JsonlReadModelWriter` exports JSONL read models to `.athanor/generated/current/jsonl`.
+6. `IndexPipeline` passes affected entity/fact/relation IDs into linker and checker inputs.
+7. `RuntimeBuilder` builds the configured `IndexPipeline` from an `AdapterRegistry`.
+8. `IndexPipeline` stores the canonical objects for the current run through `KnowledgeStore`.
+9. `JsonlReadModelWriter` exports JSONL read models to `.athanor/generated/current/jsonl`.
 
 ## Pipeline Assembly
 
@@ -76,8 +77,8 @@ checkers:
 
 - discovering sources
 - running extractors
-- running linkers
-- running checkers
+- running linkers with affected entity/fact markers
+- running checkers with affected entity/fact/relation markers
 - storing entities/facts/relations/diagnostics
 - committing the snapshot
 
@@ -104,9 +105,10 @@ Generated files are read models. They are not the source of truth and may be del
 
 - Snapshot IDs are in-memory and restart from `snap_memory_00000001` on every CLI run.
 - The registry is in-process only; external plugin discovery is not implemented yet.
-- Linkers and checkers run over the full extracted set, not an affected subset.
+- Source discovery and extraction still run over all discovered files.
+- The current CLI still indexes a full fresh snapshot; affected markers describe the current run's extracted objects and are not yet derived from persisted file diffs.
 - JSONL export is a reusable app-layer writer, not a full `Projector` port implementation yet.
 
 ## Next Good Step
 
-Introduce affected-subset execution for linkers and checkers so larger projects do not need full extracted-set passes for every indexing run.
+Persist source fingerprints and compare them with the previous snapshot so affected markers can be narrowed to changed files instead of representing the full current run.

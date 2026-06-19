@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use athanor_core::{CheckInput, Checker, CoreResult};
 use athanor_domain::{
     Diagnostic, DiagnosticId, DiagnosticKind, DiagnosticStatus, Entity, EntityKind, Evidence,
-    EvidenceStatus, RelationKind, Severity, SnapshotId,
+    EvidenceStatus, RelationKind, Severity, SnapshotId, StableKey,
 };
 use serde_json::json;
 
@@ -22,6 +22,7 @@ impl Checker for MarkdownStructureChecker {
             .entities
             .iter()
             .filter(|entity| entity.kind == EntityKind::DocumentationPage)
+            .filter(|entity| is_affected(&entity.stable_key, &input.affected_entities))
         {
             if page
                 .title
@@ -62,6 +63,13 @@ impl Checker for MarkdownStructureChecker {
 
         Ok(diagnostics)
     }
+}
+
+fn is_affected(stable_key: &StableKey, affected_entities: &[StableKey]) -> bool {
+    affected_entities.is_empty()
+        || affected_entities
+            .iter()
+            .any(|affected| affected == stable_key)
 }
 
 fn diagnostic(
@@ -146,6 +154,9 @@ mod tests {
                 entities: vec![page],
                 facts: Vec::new(),
                 relations: Vec::new(),
+                affected_entities: Vec::new(),
+                affected_facts: Vec::new(),
+                affected_relations: Vec::new(),
             })
             .await
             .unwrap();
@@ -191,6 +202,9 @@ mod tests {
                 entities: vec![page, section],
                 facts: Vec::new(),
                 relations: vec![relation],
+                affected_entities: Vec::new(),
+                affected_facts: Vec::new(),
+                affected_relations: Vec::new(),
             })
             .await
             .unwrap();
@@ -200,6 +214,26 @@ mod tests {
                 .iter()
                 .any(|diagnostic| diagnostic.kind == DiagnosticKind::EmptyDocumentationPage)
         );
+    }
+
+    #[tokio::test]
+    async fn skips_unaffected_pages() {
+        let page = page_entity(None);
+
+        let diagnostics = MarkdownStructureChecker
+            .check(CheckInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: vec![page],
+                facts: Vec::new(),
+                relations: Vec::new(),
+                affected_entities: vec![StableKey("doc://docs/other.md".to_string())],
+                affected_facts: Vec::new(),
+                affected_relations: Vec::new(),
+            })
+            .await
+            .unwrap();
+
+        assert!(diagnostics.is_empty());
     }
 
     fn page_entity(title: Option<&str>) -> Entity {

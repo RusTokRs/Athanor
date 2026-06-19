@@ -129,6 +129,24 @@ Purpose:
 - keeps generated output behavior reusable outside CLI indexing
 - lets `ath index` stay focused on root normalization, runtime construction, and reporting
 
+### Affected-Subset Adapter Inputs
+
+Status: implemented, targeted verification.
+
+Implemented in:
+
+- `crates/athanor-core/src/ports.rs`
+- `crates/athanor-app/src/pipeline.rs`
+- `crates/athanor-linker-markdown/src/lib.rs`
+- `crates/athanor-checker-markdown/src/lib.rs`
+
+Purpose:
+
+- adds affected entity/fact/relation markers to linker and checker inputs
+- lets downstream adapters skip unchanged objects once persisted file-diff state exists
+- keeps the first slice backward-compatible by treating an empty affected list as a full pass
+- keeps current CLI behavior as a full fresh-snapshot index
+
 ## In Progress
 
 None.
@@ -138,7 +156,7 @@ None.
 Recommended next task:
 
 ```text
-Introduce affected-subset execution for linkers and checkers.
+Persist source fingerprints and compute changed-file affected sets.
 ```
 
 Why:
@@ -146,8 +164,9 @@ Why:
 - `IndexPipeline` owns orchestration.
 - `AdapterRegistry` and `RuntimeBuilder` own adapter assembly.
 - `JsonlReadModelWriter` owns generated read-model export.
-- Linkers and checkers still run over the full extracted set.
-- Incremental indexing will need a way to pass only affected entities, facts, and relations through downstream adapters.
+- Linker and checker ports now accept affected object markers.
+- The current CLI still builds a full fresh snapshot on every run.
+- Incremental indexing now needs persisted source fingerprints and previous-snapshot comparison to narrow affected markers.
 
 ## Verification Commands
 

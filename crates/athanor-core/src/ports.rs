@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use athanor_domain::{
-    Diagnostic, Entity, Fact, Relation, RepoId, SnapshotBase, SnapshotId, StableKey,
+    Diagnostic, Entity, Fact, FactId, Relation, RelationId, RepoId, SnapshotBase, SnapshotId,
+    StableKey,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -102,6 +103,8 @@ pub struct LinkInput {
     pub snapshot: SnapshotId,
     pub entities: Vec<Entity>,
     pub facts: Vec<Fact>,
+    pub affected_entities: Vec<StableKey>,
+    pub affected_facts: Vec<FactId>,
 }
 
 #[async_trait]
@@ -116,6 +119,9 @@ pub struct CheckInput {
     pub entities: Vec<Entity>,
     pub facts: Vec<Fact>,
     pub relations: Vec<Relation>,
+    pub affected_entities: Vec<StableKey>,
+    pub affected_facts: Vec<FactId>,
+    pub affected_relations: Vec<RelationId>,
 }
 
 #[async_trait]
