@@ -93,3 +93,52 @@ When a new adapter is added, update:
 - the adapter crate `README.md`
 - the relevant `docs/adapters/*.md` page
 - the built-in registry only if the adapter should run by default
+
+## Adapter Plugin Manifests
+
+`RuntimeBuilder` discovers adapter plugin manifests before building the indexing pipeline.
+
+Manifest locations:
+
+```text
+.athanor/adapters/*.json
+.athanor/plugins/*/athanor-adapter.json
+```
+
+Manifest schema:
+
+```json
+{
+  "schema": "athanor.adapter_plugin.v1",
+  "name": "example-plugin",
+  "version": "0.1.0",
+  "adapters": [
+    {
+      "id": "builtin.extractor.file",
+      "kind": "extractor",
+      "enabled": true
+    }
+  ]
+}
+```
+
+Supported adapter kinds:
+
+```text
+source
+extractor
+linker
+checker
+```
+
+Current built-in adapter ids:
+
+```text
+builtin.source.local_filesystem
+builtin.extractor.file
+builtin.extractor.markdown
+builtin.linker.markdown_containment
+builtin.checker.markdown_structure
+```
+
+This is the first discovery layer. It gives the app layer a stable manifest contract and a validation path for adapter/plugin configuration. It does not dynamically load external Rust code yet; unknown adapter ids fail fast with a clear runtime-builder error.

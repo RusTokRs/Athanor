@@ -78,6 +78,8 @@ pub async fn index_project(options: IndexOptions) -> Result<IndexReport> {
 
     let output_result = if options.validate_only {
         RuntimeBuilder::new(&root)
+            .with_discovered_plugins()
+            .context("failed to discover adapter plugins")?
             .build_index_pipeline(MemoryKnowledgeStore::new())
             .run_with_incremental(
                 RepoId(repo_id_for_root(&root)),
@@ -95,6 +97,8 @@ pub async fn index_project(options: IndexOptions) -> Result<IndexReport> {
             .await
     } else {
         RuntimeBuilder::new(&root)
+            .with_discovered_plugins()
+            .context("failed to discover adapter plugins")?
             .build_index_pipeline(canonical_store.clone())
             .run_with_incremental(
                 RepoId(repo_id_for_root(&root)),

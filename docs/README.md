@@ -6,6 +6,7 @@ Use this file to find the right document before changing code, adapters, plugins
 
 ## Entry Points
 
+- [Project overview](../README.md): concise product description, quick start, and verification commands.
 - [Agent entrypoint](../AGENTS.md): required first read for agents.
 - [Full architectural plan](../start.md): long-form product and architecture plan.
 - [Agent workflow](development/agent-workflow.md): required implementation workflow.

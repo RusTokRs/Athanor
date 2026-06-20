@@ -27,17 +27,18 @@ cargo run -p ath -- index . --validate-only
 3. `athanor-extractor-markdown` creates documentation page/section entities and `doc_section_found` facts.
 4. `athanor-linker-markdown` creates `contains` relations between files, documentation pages, and sections.
 5. `athanor-checker-markdown` creates documentation structure diagnostics.
-6. `RuntimeBuilder` builds the configured `IndexPipeline` from an `AdapterRegistry`.
-7. `IndexStateStore` classifies discovered files as changed, unchanged, or removed by comparing them with the previous state.
-8. `IndexPipeline` extracts changed files only when a previous canonical snapshot is available from `CanonicalSnapshotStore`.
-9. `IndexPipeline` carries unchanged canonical objects forward from the previous canonical snapshot, rewrites carried snapshot ids to the new snapshot, and drops objects whose ownership includes changed or removed paths.
-10. `IndexPipeline` builds an affected subset from newly extracted entities and facts, then passes that subset to linkers and checkers alongside the merged full in-memory context.
-11. `IndexPipeline` validates newly emitted canonical objects for required evidence and ownership metadata.
-12. If validation fails, `ath index` writes the aggregated adapter validation report to the configured validation report path.
-13. In `--validate-only` mode, the CLI writes a structured validation result artifact for successful runs, then stops without persisting a canonical snapshot, read model, or index state.
-14. Otherwise, `IndexPipeline` stores the merged canonical objects for the current run through `KnowledgeStore`.
-15. `JsonlReadModelWriter` exports JSONL read models to `.athanor/generated/current/jsonl`.
-16. `IndexStateStore` persists file hash state to `.athanor/state/index-state.json` for the next run.
+6. `RuntimeBuilder` discovers adapter plugin manifests from `.athanor/adapters/*.json` and `.athanor/plugins/*/athanor-adapter.json`, then applies enabled adapter entries that match known app-layer factory ids.
+7. `RuntimeBuilder` builds the configured `IndexPipeline` from an `AdapterRegistry`.
+8. `IndexStateStore` classifies discovered files as changed, unchanged, or removed by comparing them with the previous state.
+9. `IndexPipeline` extracts changed files only when a previous canonical snapshot is available from `CanonicalSnapshotStore`.
+10. `IndexPipeline` carries unchanged canonical objects forward from the previous canonical snapshot, rewrites carried snapshot ids to the new snapshot, and drops objects whose ownership includes changed or removed paths.
+11. `IndexPipeline` builds an affected subset from newly extracted entities and facts, then passes that subset to linkers and checkers alongside the merged full in-memory context.
+12. `IndexPipeline` validates newly emitted canonical objects for required evidence and ownership metadata.
+13. If validation fails, `ath index` writes the aggregated adapter validation report to the configured validation report path.
+14. In `--validate-only` mode, the CLI writes a structured validation result artifact for successful runs, then stops without persisting a canonical snapshot, read model, or index state.
+15. Otherwise, `IndexPipeline` stores the merged canonical objects for the current run through `KnowledgeStore`.
+16. `JsonlReadModelWriter` exports JSONL read models to `.athanor/generated/current/jsonl`.
+17. `IndexStateStore` persists file hash state to `.athanor/state/index-state.json` for the next run.
 
 ## Pipeline Assembly
 
@@ -45,7 +46,7 @@ cargo run -p ath -- index . --validate-only
 
 - `IndexPipeline`: orchestration for source discovery, extraction, linking, checking, and store writes.
 - `AdapterRegistry`: ordered factories for source, extractor, linker, and checker adapters.
-- `RuntimeBuilder`: app-layer runtime assembly for a project root and registry.
+- `RuntimeBuilder`: app-layer runtime assembly for a project root, registry, and discovered adapter plugin manifests.
 - `JsonlReadModelWriter`: reusable JSONL export for generated read models.
 - `JsonlKnowledgeStore`: durable local canonical snapshot store used by the CLI.
 
@@ -85,6 +86,8 @@ checkers:
 `RuntimeBuilder` and `AdapterRegistry` are responsible for adapter assembly:
 
 - keeping the built-in adapter list out of CLI code
+- discovering adapter plugin manifests from `.athanor/adapters/*.json` and `.athanor/plugins/*/athanor-adapter.json`
+- applying enabled manifest entries that map to known app-layer adapter factory ids
 - preserving adapter order
 - allowing tests, daemon code, and future plugins to share the same assembly point
 
@@ -125,6 +128,12 @@ checkers:
   validation-report.json
   validation-result.json
 
+.athanor/adapters/
+  <adapter-plugin>.json
+
+.athanor/plugins/
+  <plugin-name>/athanor-adapter.json
+
 .athanor/state/
   index-state.json
 
@@ -137,7 +146,7 @@ Generated JSONL files under `.athanor/generated/current/jsonl` are read models. 
 
 ## Current Limitations
 
-- The registry is in-process only; external plugin discovery is not implemented yet.
+- Adapter plugin discovery validates manifests and known factory ids, but dynamic external code loading is not implemented yet.
 - The current CLI still performs a full source discovery pass before classifying changed files.
 - The JSONL canonical store is a local development store, not a concurrent multi-process database.
 - Older canonical snapshots without ownership metadata are pruned by entity source paths and evidence source files.
@@ -145,4 +154,4 @@ Generated JSONL files under `.athanor/generated/current/jsonl` are read models. 
 
 ## Next Good Step
 
-Add external adapter/plugin discovery so the app-layer registry can load adapters outside the built-in set.
+Add dynamic external adapter loading behind the adapter plugin manifest contract.

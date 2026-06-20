@@ -330,6 +330,26 @@ Purpose:
 - serializes schema, status, snapshot, affected-file counts, and canonical object counts
 - removes stale validation result artifacts after validation failures or normal index runs
 
+### Adapter Plugin Manifest Discovery
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-app/src/runtime.rs`
+- `crates/athanor-app/src/index.rs`
+- `docs/architecture/adapters.md`
+- `docs/architecture/pipeline.md`
+
+Purpose:
+
+- introduces the `athanor.adapter_plugin.v1` manifest schema
+- discovers manifests from `.athanor/adapters/*.json` and `.athanor/plugins/*/athanor-adapter.json`
+- applies enabled manifest entries through the app-layer `AdapterRegistry`
+- supports known built-in adapter factory ids as the first registry-backed loading path
+- fails fast for unknown adapter ids or invalid manifest schemas
+- keeps dynamic external code loading explicitly deferred
+
 ## In Progress
 
 None.
@@ -339,14 +359,14 @@ None.
 Recommended next task:
 
 ```text
-Add external adapter/plugin discovery for the app-layer registry.
+Add dynamic external adapter loading behind the adapter plugin manifest contract.
 ```
 
 Why:
 
-- Built-in adapter assembly is centralized in `RuntimeBuilder` and `AdapterRegistry`.
-- Adapter contract validation now has machine-readable success and failure outputs.
-- The next modularity step is loading adapters outside the built-in registry without changing CLI indexing code.
+- Adapter plugin manifest discovery now provides a stable configuration contract.
+- The registry can apply discovered adapter entries through known app-layer factory ids.
+- The next modularity step is loading adapter implementations from outside the compiled built-in catalog.
 
 ## Verification Commands
 
