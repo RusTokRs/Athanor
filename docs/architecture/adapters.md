@@ -109,14 +109,19 @@ Manifest schema:
 
 ```json
 {
-  "schema": "athanor.adapter_plugin.v1",
+  "schema": "athanor.adapter_manifest",
   "name": "example-plugin",
   "version": "0.1.0",
   "adapters": [
     {
-      "id": "builtin.extractor.file",
+      "id": "external.extractor.example",
       "kind": "extractor",
-      "enabled": true
+      "enabled": true,
+      "command": {
+        "program": "adapters/example-extractor",
+        "args": ["--mode", "json"]
+      },
+      "supports_extensions": ["md", "txt"]
     }
   ]
 }
@@ -141,4 +146,23 @@ builtin.linker.markdown_containment
 builtin.checker.markdown_structure
 ```
 
-This is the first discovery layer. It gives the app layer a stable manifest contract and a validation path for adapter/plugin configuration. It does not dynamically load external Rust code yet; unknown adapter ids fail fast with a clear runtime-builder error.
+This is the first discovery layer. It gives the app layer a single current manifest contract and a validation path for adapter/plugin configuration. It does not dynamically load external Rust code yet; unknown adapter ids fail fast with a clear runtime-builder error. The optional `version` field describes the plugin package, not a separate generation of the adapter contract.
+
+## External Process Extractors
+
+Extractor entries can be loaded from external commands when they provide a `command` field.
+
+The current process adapter protocol is intentionally narrow:
+
+- only `extractor` entries can be loaded from external commands
+- Athanor starts the command once per supported source file
+- Athanor writes `ExtractInput` JSON to stdin
+- the command writes `ExtractOutput` JSON to stdout
+- stderr is used only for failure details
+- `supports_extensions` scopes which source file extensions should be sent to the command
+
+External extractors must emit normal canonical entities and facts. The same pipeline validation applies: entities need ownership, and facts need evidence and ownership. Invalid output fails indexing through the existing adapter validation report path.
+
+Relative command paths that include a path separator are resolved relative to the manifest file directory. Bare command names are resolved by the operating system `PATH`.
+
+External process loading currently covers extractors only. Source, linker, and checker process adapters are intentionally deferred until the extractor protocol proves useful.

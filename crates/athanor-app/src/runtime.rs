@@ -1,10 +1,15 @@
 use std::collections::BTreeSet;
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 
 use anyhow::{Context, Result, bail};
 use athanor_checker_markdown::MarkdownStructureChecker;
-use athanor_core::{Checker, Extractor, KnowledgeStore, Linker, SourceProvider};
+use athanor_core::{
+    Checker, CoreError, CoreResult, ExtractInput, ExtractOutput, Extractor, KnowledgeStore, Linker,
+    SourceFile, SourceProvider,
+};
 use athanor_extractor_basic::FileExtractor;
 use athanor_extractor_markdown::MarkdownExtractor;
 use athanor_linker_markdown::MarkdownContainmentLinker;
@@ -13,7 +18,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::IndexPipeline;
 
-pub const ADAPTER_PLUGIN_MANIFEST_SCHEMA: &str = "athanor.adapter_plugin.v1";
+pub const ADAPTER_MANIFEST_SCHEMA: &str = "athanor.adapter_manifest";
 
 type SourceFactory = Box<dyn Fn(&Path) -> Box<dyn SourceProvider> + Send + Sync>;
 type ExtractorFactory = Box<dyn Fn() -> Box<dyn Extractor> + Send + Sync>;
@@ -36,6 +41,17 @@ pub struct AdapterPluginEntry {
     pub kind: AdapterPluginKind,
     #[serde(default = "enabled_by_default")]
     pub enabled: bool,
+    #[serde(default)]
+    pub command: Option<AdapterProcessCommand>,
+    #[serde(default)]
+    pub supports_extensions: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AdapterProcessCommand {
+    pub program: String,
+    #[serde(default)]
+    pub args: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -81,12 +97,20 @@ impl AdapterRegistry {
             .builtin_checker_markdown_structure()
     }
 
-    pub fn with_plugin_manifest(mut self, manifest: &AdapterPluginManifest) -> Result<Self> {
+    pub fn with_plugin_manifest(self, manifest: &AdapterPluginManifest) -> Result<Self> {
+        self.with_plugin_manifest_at(manifest, Path::new("."))
+    }
+
+    pub fn with_plugin_manifest_at(
+        mut self,
+        manifest: &AdapterPluginManifest,
+        manifest_dir: &Path,
+    ) -> Result<Self> {
         validate_adapter_plugin_manifest(manifest)?;
 
         for adapter in manifest.adapters.iter().filter(|adapter| adapter.enabled) {
             self = self
-                .with_adapter_id(adapter.kind, &adapter.id)
+                .with_adapter_entry(adapter, manifest_dir)
                 .with_context(|| {
                     format!(
                         "failed to register adapter {} from plugin {}",
@@ -98,8 +122,8 @@ impl AdapterRegistry {
         Ok(self)
     }
 
-    fn with_adapter_id(self, kind: AdapterPluginKind, id: &str) -> Result<Self> {
-        match (kind, id) {
+    fn with_adapter_entry(self, adapter: &AdapterPluginEntry, manifest_dir: &Path) -> Result<Self> {
+        match (adapter.kind, adapter.id.as_str()) {
             (AdapterPluginKind::Source, "builtin.source.local_filesystem") => {
                 Ok(self.builtin_source_local_filesystem())
             }
@@ -115,8 +139,39 @@ impl AdapterRegistry {
             (AdapterPluginKind::Checker, "builtin.checker.markdown_structure") => {
                 Ok(self.builtin_checker_markdown_structure())
             }
-            _ => bail!("unknown {kind:?} adapter id {id}"),
+            (AdapterPluginKind::Extractor, _) => {
+                self.external_process_extractor(adapter, manifest_dir)
+            }
+            _ => bail!("unknown {:?} adapter id {}", adapter.kind, adapter.id),
         }
+    }
+
+    fn external_process_extractor(
+        self,
+        adapter: &AdapterPluginEntry,
+        manifest_dir: &Path,
+    ) -> Result<Self> {
+        let Some(command) = &adapter.command else {
+            bail!(
+                "unknown extractor adapter id {} and no command was provided",
+                adapter.id
+            );
+        };
+        let command = ProcessCommand::from_manifest(manifest_dir, command);
+        let id = adapter.id.clone();
+        let supports_extensions = adapter
+            .supports_extensions
+            .iter()
+            .map(normalize_extension)
+            .collect::<BTreeSet<_>>();
+
+        Ok(self.register_extractor_id(&adapter.id, move || {
+            Box::new(ProcessExtractor {
+                id: id.clone(),
+                command: command.clone(),
+                supports_extensions: supports_extensions.clone(),
+            })
+        }))
     }
 
     fn builtin_source_local_filesystem(self) -> Self {
@@ -275,7 +330,10 @@ impl RuntimeBuilder {
 
     pub fn with_discovered_plugins(mut self) -> Result<Self> {
         for plugin in discover_adapter_plugins(&self.root)? {
-            self.registry = self.registry.with_plugin_manifest(&plugin.manifest)?;
+            let manifest_dir = plugin.manifest_path.parent().unwrap_or(&self.root);
+            self.registry = self
+                .registry
+                .with_plugin_manifest_at(&plugin.manifest, manifest_dir)?;
         }
 
         Ok(self)
@@ -341,11 +399,11 @@ fn read_adapter_plugin_manifest(path: PathBuf) -> Result<DiscoveredAdapterPlugin
 }
 
 fn validate_adapter_plugin_manifest(manifest: &AdapterPluginManifest) -> Result<()> {
-    if manifest.schema != ADAPTER_PLUGIN_MANIFEST_SCHEMA {
+    if manifest.schema != ADAPTER_MANIFEST_SCHEMA {
         bail!(
             "unsupported adapter plugin manifest schema {}; expected {}",
             manifest.schema,
-            ADAPTER_PLUGIN_MANIFEST_SCHEMA
+            ADAPTER_MANIFEST_SCHEMA
         );
     }
 
@@ -358,6 +416,122 @@ fn validate_adapter_plugin_manifest(manifest: &AdapterPluginManifest) -> Result<
 
 fn enabled_by_default() -> bool {
     true
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ProcessCommand {
+    program: PathBuf,
+    args: Vec<String>,
+}
+
+impl ProcessCommand {
+    fn from_manifest(manifest_dir: &Path, command: &AdapterProcessCommand) -> Self {
+        let program = resolve_manifest_program(manifest_dir, &command.program);
+
+        Self {
+            program,
+            args: command.args.clone(),
+        }
+    }
+}
+
+struct ProcessExtractor {
+    id: String,
+    command: ProcessCommand,
+    supports_extensions: BTreeSet<String>,
+}
+
+#[async_trait::async_trait]
+impl Extractor for ProcessExtractor {
+    fn name(&self) -> &str {
+        &self.id
+    }
+
+    fn supports(&self, source: &SourceFile) -> bool {
+        if self.supports_extensions.is_empty() {
+            return true;
+        }
+
+        Path::new(&source.path)
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .map(normalize_extension)
+            .is_some_and(|extension| self.supports_extensions.contains(&extension))
+    }
+
+    async fn extract(&self, input: ExtractInput) -> CoreResult<ExtractOutput> {
+        let mut child = Command::new(&self.command.program)
+            .args(&self.command.args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|error| {
+                CoreError::Adapter(format!(
+                    "failed to spawn external extractor {}: {error}",
+                    self.id
+                ))
+            })?;
+
+        let stdin = child.stdin.as_mut().ok_or_else(|| {
+            CoreError::Adapter(format!(
+                "failed to open stdin for external extractor {}",
+                self.id
+            ))
+        })?;
+        serde_json::to_writer(&mut *stdin, &input).map_err(|error| {
+            CoreError::Adapter(format!(
+                "failed to write input for external extractor {}: {error}",
+                self.id
+            ))
+        })?;
+        stdin.write_all(b"\n").map_err(|error| {
+            CoreError::Adapter(format!(
+                "failed to finish input for external extractor {}: {error}",
+                self.id
+            ))
+        })?;
+
+        let output = child.wait_with_output().map_err(|error| {
+            CoreError::Adapter(format!(
+                "failed to wait for external extractor {}: {error}",
+                self.id
+            ))
+        })?;
+
+        if !output.status.success() {
+            return Err(CoreError::Adapter(format!(
+                "external extractor {} exited with {}; stderr: {}",
+                self.id,
+                output.status,
+                String::from_utf8_lossy(&output.stderr).trim()
+            )));
+        }
+
+        serde_json::from_slice(&output.stdout).map_err(|error| {
+            CoreError::Adapter(format!(
+                "failed to parse output from external extractor {}: {error}",
+                self.id
+            ))
+        })
+    }
+}
+
+fn resolve_manifest_program(manifest_dir: &Path, program: &str) -> PathBuf {
+    let path = PathBuf::from(program);
+
+    if path.is_relative() && (program.contains('/') || program.contains('\\')) {
+        manifest_dir.join(path)
+    } else {
+        path
+    }
+}
+
+fn normalize_extension(extension: impl AsRef<str>) -> String {
+    extension
+        .as_ref()
+        .trim_start_matches('.')
+        .to_ascii_lowercase()
 }
 
 #[cfg(test)]
@@ -426,7 +600,7 @@ mod tests {
         fs::create_dir_all(root.join("src")).unwrap();
         fs::write(root.join("src/lib.rs"), "pub fn hello() {}\n").unwrap();
         let manifest = AdapterPluginManifest {
-            schema: ADAPTER_PLUGIN_MANIFEST_SCHEMA.to_string(),
+            schema: ADAPTER_MANIFEST_SCHEMA.to_string(),
             name: "test-plugin".to_string(),
             version: Some("0.1.0".to_string()),
             adapters: vec![
@@ -434,11 +608,15 @@ mod tests {
                     id: "builtin.source.local_filesystem".to_string(),
                     kind: AdapterPluginKind::Source,
                     enabled: true,
+                    command: None,
+                    supports_extensions: Vec::new(),
                 },
                 AdapterPluginEntry {
                     id: "builtin.extractor.file".to_string(),
                     kind: AdapterPluginKind::Extractor,
                     enabled: true,
+                    command: None,
+                    supports_extensions: Vec::new(),
                 },
             ],
         };
@@ -486,13 +664,15 @@ mod tests {
         fs::create_dir_all(root.join("src")).unwrap();
         fs::write(root.join("src/lib.rs"), "pub fn hello() {}\n").unwrap();
         let manifest = AdapterPluginManifest {
-            schema: ADAPTER_PLUGIN_MANIFEST_SCHEMA.to_string(),
+            schema: ADAPTER_MANIFEST_SCHEMA.to_string(),
             name: "duplicate-builtins".to_string(),
             version: None,
             adapters: vec![AdapterPluginEntry {
                 id: "builtin.extractor.file".to_string(),
                 kind: AdapterPluginKind::Extractor,
                 enabled: true,
+                command: None,
+                supports_extensions: Vec::new(),
             }],
         };
 
@@ -528,6 +708,66 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    #[tokio::test]
+    async fn loads_external_process_extractor_from_manifest() {
+        let root = std::env::temp_dir().join(format!(
+            "athanor-runtime-process-extractor-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(root.join("src/lib.rs"), "pub fn hello() {}\n").unwrap();
+        let manifest = AdapterPluginManifest {
+            schema: ADAPTER_MANIFEST_SCHEMA.to_string(),
+            name: "process-extractor".to_string(),
+            version: None,
+            adapters: vec![
+                AdapterPluginEntry {
+                    id: "builtin.source.local_filesystem".to_string(),
+                    kind: AdapterPluginKind::Source,
+                    enabled: true,
+                    command: None,
+                    supports_extensions: Vec::new(),
+                },
+                AdapterPluginEntry {
+                    id: "external.extractor.empty".to_string(),
+                    kind: AdapterPluginKind::Extractor,
+                    enabled: true,
+                    command: Some(empty_output_command()),
+                    supports_extensions: vec!["rs".to_string()],
+                },
+            ],
+        };
+
+        let output = RuntimeBuilder::new(&root)
+            .with_registry(
+                AdapterRegistry::empty()
+                    .with_plugin_manifest(&manifest)
+                    .unwrap(),
+            )
+            .build_index_pipeline(MemoryKnowledgeStore::new())
+            .run(
+                RepoId("repo_runtime_process_extractor_test".to_string()),
+                SnapshotBase {
+                    branch: None,
+                    commit: None,
+                    parent_snapshot: None,
+                    working_tree: true,
+                },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(output.files.len(), 1);
+        assert!(output.entities.is_empty());
+        assert!(output.facts.is_empty());
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn discovers_adapter_plugin_manifests() {
         let root = std::env::temp_dir().join(format!(
@@ -543,7 +783,7 @@ mod tests {
         fs::write(
             &manifest_path,
             serde_json::json!({
-                "schema": ADAPTER_PLUGIN_MANIFEST_SCHEMA,
+                "schema": ADAPTER_MANIFEST_SCHEMA,
                 "name": "files",
                 "adapters": [
                     {
@@ -564,5 +804,28 @@ mod tests {
         assert!(plugins[0].manifest.adapters[0].enabled);
 
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(windows)]
+    fn empty_output_command() -> AdapterProcessCommand {
+        AdapterProcessCommand {
+            program: "powershell".to_string(),
+            args: vec![
+                "-NoProfile".to_string(),
+                "-Command".to_string(),
+                "$input | Out-Null; '{\"entities\":[],\"facts\":[]}'".to_string(),
+            ],
+        }
+    }
+
+    #[cfg(not(windows))]
+    fn empty_output_command() -> AdapterProcessCommand {
+        AdapterProcessCommand {
+            program: "sh".to_string(),
+            args: vec![
+                "-c".to_string(),
+                "cat >/dev/null; printf '{\"entities\":[],\"facts\":[]}'".to_string(),
+            ],
+        }
     }
 }

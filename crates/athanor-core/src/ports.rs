@@ -101,13 +101,13 @@ pub struct ExtractOutput {
 
 #[async_trait]
 pub trait SourceProvider: Send + Sync {
-    fn name(&self) -> &'static str;
+    fn name(&self) -> &str;
     async fn discover(&self) -> CoreResult<Vec<SourceFile>>;
 }
 
 #[async_trait]
 pub trait Extractor: Send + Sync {
-    fn name(&self) -> &'static str;
+    fn name(&self) -> &str;
     fn supports(&self, source: &SourceFile) -> bool;
     async fn extract(&self, input: ExtractInput) -> CoreResult<ExtractOutput>;
 }
@@ -144,7 +144,7 @@ pub struct LinkInput {
 
 #[async_trait]
 pub trait Linker: Send + Sync {
-    fn name(&self) -> &'static str;
+    fn name(&self) -> &str;
     async fn link(&self, input: LinkInput) -> CoreResult<Vec<Relation>>;
 }
 
@@ -159,7 +159,7 @@ pub struct CheckInput {
 
 #[async_trait]
 pub trait Checker: Send + Sync {
-    fn name(&self) -> &'static str;
+    fn name(&self) -> &str;
     async fn check(&self, input: CheckInput) -> CoreResult<Vec<Diagnostic>>;
 }
 
@@ -172,7 +172,7 @@ pub struct ProjectInput {
 
 #[async_trait]
 pub trait Projector: Send + Sync {
-    fn name(&self) -> &'static str;
+    fn name(&self) -> &str;
     async fn project(&self, input: ProjectInput) -> CoreResult<()>;
 }
 
@@ -258,6 +258,6 @@ pub trait AgentInterface: Send + Sync {
 
 #[async_trait]
 pub trait Transport: Send + Sync {
-    fn name(&self) -> &'static str;
+    fn name(&self) -> &str;
     async fn serve(&self) -> CoreResult<()>;
 }

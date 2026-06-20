@@ -88,6 +88,7 @@ checkers:
 - keeping the built-in adapter list out of CLI code
 - discovering adapter plugin manifests from `.athanor/adapters/*.json` and `.athanor/plugins/*/athanor-adapter.json`
 - applying enabled manifest entries that map to known app-layer adapter factory ids
+- loading external process extractors from manifest `command` entries
 - preserving adapter order
 - allowing tests, daemon code, and future plugins to share the same assembly point
 
@@ -146,7 +147,7 @@ Generated JSONL files under `.athanor/generated/current/jsonl` are read models. 
 
 ## Current Limitations
 
-- Adapter plugin discovery validates manifests and known factory ids, but dynamic external code loading is not implemented yet.
+- Adapter plugin discovery can load external process extractors, but source, linker, and checker process adapters are not implemented yet.
 - The current CLI still performs a full source discovery pass before classifying changed files.
 - The JSONL canonical store is a local development store, not a concurrent multi-process database.
 - Older canonical snapshots without ownership metadata are pruned by entity source paths and evidence source files.
@@ -154,4 +155,4 @@ Generated JSONL files under `.athanor/generated/current/jsonl` are read models. 
 
 ## Next Good Step
 
-Add dynamic external adapter loading behind the adapter plugin manifest contract.
+Extend external process adapter loading to linker and checker ports.

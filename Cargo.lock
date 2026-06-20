@@ -84,6 +84,7 @@ name = "athanor-app"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "athanor-checker-markdown",
  "athanor-core",
  "athanor-domain",
