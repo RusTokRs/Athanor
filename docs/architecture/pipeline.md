@@ -49,6 +49,20 @@ cargo run -p ath -- index . --validate-only
 - `RuntimeBuilder`: app-layer runtime assembly for a project root, registry, and discovered adapter plugin manifests.
 - `JsonlReadModelWriter`: reusable JSONL export for generated read models.
 - `JsonlKnowledgeStore`: durable local canonical snapshot store used by the CLI.
+- `context_project`: task-focused context-pack generation from the latest canonical snapshot.
+
+## Context Pack Generation
+
+`ath context <task>` reads the latest durable canonical snapshot without running indexing again. The initial context generator:
+
+- tokenizes the task deterministically
+- ranks canonical entities by matches in names, titles, stable keys, aliases, and source paths
+- expands direct matches by one relation hop within a fixed entity limit
+- includes diagnostics attached to selected entities
+- returns stable file and entity scopes
+- materializes selected entities, internal relations, and diagnostics in the JSON payload
+
+This is intentionally a lexical app-layer slice, not a `SearchIndex` implementation. It provides the first end-to-end `ContextPack` CLI contract while Tantivy, vectors, budget controls, context levels, and deeper graph traversal remain future adapters or services.
 
 The default built-in registry currently assembles:
 
@@ -88,7 +102,7 @@ checkers:
 - keeping the built-in adapter list out of CLI code
 - discovering adapter plugin manifests from `.athanor/adapters/*.json` and `.athanor/plugins/*/athanor-adapter.json`
 - applying enabled manifest entries that map to known app-layer adapter factory ids
-- loading external process extractors, linkers, and checkers from manifest `command` entries
+- loading external process sources, extractors, linkers, and checkers from manifest `command` entries
 - preserving adapter order
 - allowing tests, daemon code, and future plugins to share the same assembly point
 
@@ -147,7 +161,8 @@ Generated JSONL files under `.athanor/generated/current/jsonl` are read models. 
 
 ## Current Limitations
 
-- Adapter plugin discovery can load external process extractors, linkers, and checkers, but source process adapters are not implemented yet.
+- Process source adapters perform a full discovery request per indexing run; streaming discovery and source-level change feeds are not implemented.
+- Context generation currently uses deterministic lexical matching, a fixed 20-entity limit, and one relation hop; explicit budgets, levels, and semantic search are not implemented.
 - The current CLI still performs a full source discovery pass before classifying changed files.
 - The JSONL canonical store is a local development store, not a concurrent multi-process database.
 - Older canonical snapshots without ownership metadata are pruned by entity source paths and evidence source files.
@@ -155,4 +170,4 @@ Generated JSONL files under `.athanor/generated/current/jsonl` are read models. 
 
 ## Next Good Step
 
-Implement source process adapter loading after a concrete source plugin protocol is needed.
+Start the next roadmap vertical slice from `start.md`; all current indexing ports can now be supplied by external process adapters without Rust ABI coupling.

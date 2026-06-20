@@ -39,6 +39,13 @@ Validate adapter contracts without writing snapshots, state, or read models:
 cargo run -p ath --quiet -- index . --validate-only
 ```
 
+Build a task-focused context pack from the latest canonical snapshot:
+
+```bash
+cargo run -p ath --quiet -- context "change authentication"
+cargo run -p ath --quiet -- context "change authentication" --json
+```
+
 Generated read models are written under `.athanor/generated/current/jsonl`. Durable canonical snapshots are written under `.athanor/store/canonical/jsonl`.
 
 ## Documentation

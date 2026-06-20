@@ -1,6 +1,4 @@
 use std::fs;
-#[cfg(windows)]
-use std::path::{Component, Prefix};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -14,6 +12,7 @@ use crate::{
     AdapterValidationReport, IncrementalIndexContext, IndexState, IndexStateStore,
     JsonlReadModelWriter, RuntimeBuilder,
 };
+use crate::project_path::normalize_canonical_path;
 
 #[derive(Debug, Clone)]
 pub struct IndexOptions {

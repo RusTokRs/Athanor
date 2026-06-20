@@ -139,13 +139,36 @@ impl AdapterRegistry {
             (AdapterPluginKind::Checker, "builtin.checker.markdown_structure") => {
                 Ok(self.builtin_checker_markdown_structure())
             }
+            (AdapterPluginKind::Source, _) => self.external_process_source(adapter, manifest_dir),
             (AdapterPluginKind::Extractor, _) => {
                 self.external_process_extractor(adapter, manifest_dir)
             }
             (AdapterPluginKind::Linker, _) => self.external_process_linker(adapter, manifest_dir),
             (AdapterPluginKind::Checker, _) => self.external_process_checker(adapter, manifest_dir),
-            _ => bail!("unknown {:?} adapter id {}", adapter.kind, adapter.id),
         }
+    }
+
+    fn external_process_source(
+        self,
+        adapter: &AdapterPluginEntry,
+        manifest_dir: &Path,
+    ) -> Result<Self> {
+        let Some(command) = &adapter.command else {
+            bail!(
+                "unknown source adapter id {} and no command was provided",
+                adapter.id
+            );
+        };
+        let command = ProcessCommand::from_manifest(manifest_dir, command);
+        let id = adapter.id.clone();
+
+        Ok(self.register_source_id(&adapter.id, move |root| {
+            Box::new(ProcessSource {
+                id: id.clone(),
+                command: command.clone(),
+                root: root.to_path_buf(),
+            })
+        }))
     }
 
     fn external_process_extractor(
@@ -487,6 +510,17 @@ struct ProcessExtractor {
     supports_extensions: BTreeSet<String>,
 }
 
+struct ProcessSource {
+    id: String,
+    command: ProcessCommand,
+    root: PathBuf,
+}
+
+#[derive(Serialize)]
+struct SourceDiscoverInput<'a> {
+    root: &'a Path,
+}
+
 struct ProcessLinker {
     id: String,
     command: ProcessCommand,
@@ -495,6 +529,22 @@ struct ProcessLinker {
 struct ProcessChecker {
     id: String,
     command: ProcessCommand,
+}
+
+#[async_trait::async_trait]
+impl SourceProvider for ProcessSource {
+    fn name(&self) -> &str {
+        &self.id
+    }
+
+    async fn discover(&self) -> CoreResult<Vec<SourceFile>> {
+        run_process_adapter(
+            "source",
+            &self.id,
+            &self.command,
+            &SourceDiscoverInput { root: &self.root },
+        )
+    }
 }
 
 #[async_trait::async_trait]
@@ -855,6 +905,66 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn loads_external_process_source_from_manifest() {
+        let root = std::env::temp_dir().join(format!(
+            "athanor-runtime-process-source-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+
+        fs::create_dir_all(&root).unwrap();
+        let manifest = AdapterPluginManifest {
+            schema: ADAPTER_MANIFEST_SCHEMA.to_string(),
+            name: "process-source".to_string(),
+            version: None,
+            adapters: vec![
+                AdapterPluginEntry {
+                    id: "external.source.virtual".to_string(),
+                    kind: AdapterPluginKind::Source,
+                    enabled: true,
+                    command: Some(source_output_command()),
+                    supports_extensions: Vec::new(),
+                },
+                AdapterPluginEntry {
+                    id: "builtin.extractor.file".to_string(),
+                    kind: AdapterPluginKind::Extractor,
+                    enabled: true,
+                    command: None,
+                    supports_extensions: Vec::new(),
+                },
+            ],
+        };
+
+        let output = RuntimeBuilder::new(&root)
+            .with_registry(
+                AdapterRegistry::empty()
+                    .with_plugin_manifest(&manifest)
+                    .unwrap(),
+            )
+            .build_index_pipeline(MemoryKnowledgeStore::new())
+            .run(
+                RepoId("repo_runtime_process_source_test".to_string()),
+                SnapshotBase {
+                    branch: None,
+                    commit: None,
+                    parent_snapshot: None,
+                    working_tree: true,
+                },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(output.files.len(), 1);
+        assert_eq!(output.files[0].path, "virtual/readme.md");
+        assert_eq!(output.files[0].language_hint.as_deref(), Some("markdown"));
+        assert_eq!(output.entities.len(), 1);
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
     async fn loads_external_process_linker_and_checker_from_manifest() {
         let root = std::env::temp_dir().join(format!(
             "athanor-runtime-process-downstream-test-{}",
@@ -975,6 +1085,20 @@ mod tests {
     #[cfg(not(windows))]
     fn empty_output_command() -> AdapterProcessCommand {
         sh_json_command("{\"entities\":[],\"facts\":[]}")
+    }
+
+    #[cfg(windows)]
+    fn source_output_command() -> AdapterProcessCommand {
+        powershell_json_command(
+            "[{\"path\":\"virtual/readme.md\",\"language_hint\":\"markdown\",\"content_hash\":\"test:1\",\"content\":\"# Virtual\"}]",
+        )
+    }
+
+    #[cfg(not(windows))]
+    fn source_output_command() -> AdapterProcessCommand {
+        sh_json_command(
+            "[{\"path\":\"virtual/readme.md\",\"language_hint\":\"markdown\",\"content_hash\":\"test:1\",\"content\":\"# Virtual\"}]",
+        )
     }
 
     #[cfg(windows)]

@@ -76,6 +76,7 @@ dependencies = [
  "anyhow",
  "athanor-app",
  "clap",
+ "serde_json",
  "tokio",
 ]
 

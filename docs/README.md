@@ -71,6 +71,13 @@ cargo run -p ath --quiet -- index . --validate-only
 cargo run -p ath --quiet -- index . --validate-only --validation-result .athanor/generated/current/validation-result.json
 ```
 
+Task-focused context packs can be read from the latest canonical snapshot:
+
+```bash
+cargo run -p ath --quiet -- context "task"
+cargo run -p ath --quiet -- context "task" --json
+```
+
 ## Documentation Rule
 
 When code changes, documentation must be updated in the same task.

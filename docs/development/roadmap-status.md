@@ -37,6 +37,8 @@ ath init
 ath index
 ath index --validate-only
 ath index --validate-only --validation-result <path>
+ath context <task>
+ath context <task> --json
 ```
 
 ### Indexing Vertical Slice
@@ -372,6 +374,44 @@ Purpose:
 - resolves relative command paths from the manifest directory
 - keeps canonical output validation in the existing indexing pipeline
 
+### External Process Sources
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-app/src/runtime.rs`
+- `docs/architecture/adapters.md`
+- `docs/architecture/pipeline.md`
+
+Purpose:
+
+- lets manifest entries load source adapters from external commands
+- starts each source command once per indexing run
+- sends an absolute project-root discovery request as JSON on stdin
+- reads a JSON array of `SourceFile` values from stdout
+- reuses the existing process lifecycle, stderr failure reporting, and manifest-relative command resolution
+- completes process adapter coverage for the current source, extractor, linker, and checker ports
+
+### Task-Focused Context Packs
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-app/src/context.rs`
+- `apps/ath/src/main.rs`
+- `docs/architecture/pipeline.md`
+
+Purpose:
+
+- adds `ath context <task>` and `ath context <task> --json`
+- loads the latest durable canonical snapshot without re-indexing
+- selects direct lexical entity matches and expands them by one relation hop
+- includes files and diagnostics associated with the selected entities
+- emits the canonical `ContextPack` model with a self-contained JSON payload
+- keeps search-backend and CLI presentation details out of domain/core
+
 ## In Progress
 
 None.
@@ -381,14 +421,15 @@ None.
 Recommended next task:
 
 ```text
-Define the next source process adapter protocol or start the next roadmap vertical slice from start.md.
+Add explicit context limits and levels, then continue Phase 2 with the first code/API extraction slice.
 ```
 
 Why:
 
 - Adapter plugin manifest discovery now provides a stable configuration contract.
-- External process extractors, linkers, and checkers cover all currently useful canonical-output ports without Rust ABI coupling.
-- Source process adapters need a separate discovery protocol before implementation.
+- External process adapters cover source discovery and all currently useful canonical-output ports without Rust ABI coupling.
+- The first `ContextPack` CLI path now closes the current Markdown knowledge loop.
+- Context budgets and deeper extraction are the next gaps before semantic search or daemon work.
 
 ## Verification Commands
 

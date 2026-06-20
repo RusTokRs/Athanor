@@ -150,7 +150,7 @@ This is the first discovery layer. It gives the app layer a single current manif
 
 ## External Process Adapters
 
-Extractor, linker, and checker entries can be loaded from external commands when they provide a `command` field. Source process adapters are not implemented yet.
+Source, extractor, linker, and checker entries can be loaded from external commands when they provide a `command` field.
 
 The current process adapter protocol is intentionally narrow:
 
@@ -163,8 +163,34 @@ The current process adapter protocol is intentionally narrow:
 - Athanor starts external checkers once per indexing run.
 - Athanor writes `CheckInput` JSON to checker stdin.
 - Checker commands write a JSON array of `Diagnostic` objects to stdout.
+- Athanor starts external sources once per indexing run.
+- Athanor writes a discovery request containing the absolute project `root` to source stdin.
+- Source commands write a JSON array of `SourceFile` objects to stdout.
 - stderr is used only for failure details.
-- `supports_extensions` scopes which source file extensions should be sent to extractor commands; it does not apply to linker or checker commands.
+- `supports_extensions` scopes which source file extensions should be sent to extractor commands; it does not apply to source, linker, or checker commands.
+
+Source discovery request:
+
+```json
+{
+  "root": "/absolute/project/root"
+}
+```
+
+Source discovery response:
+
+```json
+[
+  {
+    "path": "virtual/example.md",
+    "language_hint": "markdown",
+    "content_hash": "provider:stable-content-id",
+    "content": "# Example"
+  }
+]
+```
+
+Source adapters should return stable, project-relative paths where possible. `content_hash` must change whenever content or extraction-relevant source metadata changes so incremental indexing can classify the file correctly. `content` may be `null` for binary or remotely referenced sources, but extractors that require text will then have no text to process.
 
 External process adapters must emit normal canonical objects. The same pipeline validation applies: entities need ownership, and facts, relations, and diagnostics need evidence and ownership. Invalid output fails indexing through the existing adapter validation report path.
 

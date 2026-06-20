@@ -1,7 +1,9 @@
 use std::path::PathBuf;
 
 use anyhow::Result;
-use athanor_app::{IndexOptions, InitOptions, index_project, init_project};
+use athanor_app::{
+    ContextOptions, IndexOptions, InitOptions, context_project, index_project, init_project,
+};
 use clap::{Parser, Subcommand};
 
 #[derive(Debug, Parser)]
@@ -33,6 +35,17 @@ enum Command {
         /// Validate adapter contracts without writing snapshots, state, or read models.
         #[arg(long)]
         validate_only: bool,
+    },
+    /// Build a task-focused context pack from the latest canonical snapshot.
+    Context {
+        /// Task or question used to select relevant project knowledge.
+        task: String,
+        /// Project root. Defaults to the current directory.
+        #[arg(long, default_value = ".")]
+        path: PathBuf,
+        /// Print the complete context pack as JSON.
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -82,6 +95,23 @@ async fn main() -> Result<()> {
             );
             if !report.validate_only {
                 println!("wrote JSONL to {}", report.output_dir.display());
+            }
+        }
+        Some(Command::Context { task, path, json }) => {
+            let pack = context_project(ContextOptions { root: path, task }).await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&pack)?);
+            } else {
+                println!("{}", pack.summary);
+                for file in &pack.files {
+                    println!("file: {file}");
+                }
+                for scope in &pack.scope {
+                    println!("entity: {scope}");
+                }
+                for diagnostic in &pack.diagnostics {
+                    println!("diagnostic: {}", diagnostic.0);
+                }
             }
         }
         None => {
