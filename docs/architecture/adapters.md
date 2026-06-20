@@ -78,8 +78,12 @@ Ownership should list every source file that can invalidate the emitted object. 
 | `athanor-store-jsonl` | `KnowledgeStore`, `CanonicalSnapshotStore` | Durable local JSONL canonical snapshot store. |
 | `athanor-extractor-basic` | `Extractor` | Emit file entities and file discovery facts. |
 | `athanor-extractor-markdown` | `Extractor` | Emit Markdown documentation page/section knowledge. |
+| `athanor-extractor-openapi` | `Extractor` | Emit OpenAPI operation and component-schema knowledge. |
+| `athanor-extractor-rust` | `Extractor` | Emit Rust module, function, and symbol definitions. |
+| `athanor-linker-api` | `Linker` | Link OpenAPI operations to Rust functions and Markdown documentation. |
 | `athanor-linker-markdown` | `Linker` | Link Markdown file/page/section containment. |
 | `athanor-checker-markdown` | `Checker` | Diagnose basic Markdown documentation structure. |
+| `athanor-checker-api` | `Checker` | Diagnose API operations without linked implementations or documentation. |
 
 ## Built-In Registry
 
@@ -142,8 +146,12 @@ Current built-in adapter ids:
 builtin.source.local_filesystem
 builtin.extractor.file
 builtin.extractor.markdown
+builtin.extractor.openapi
+builtin.extractor.rust
+builtin.linker.api_knowledge
 builtin.linker.markdown_containment
 builtin.checker.markdown_structure
+builtin.checker.api_consistency
 ```
 
 This is the first discovery layer. It gives the app layer a single current manifest contract and a validation path for adapter/plugin configuration. It does not dynamically load external Rust code yet; unknown adapter ids fail fast with a clear runtime-builder error. The optional `version` field describes the plugin package, not a separate generation of the adapter contract.

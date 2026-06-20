@@ -11,12 +11,75 @@ use serde_json::json;
 
 use crate::project_path::normalize_canonical_path;
 
-const DEFAULT_MAX_ENTITIES: usize = 20;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ContextLimits {
+    pub max_tokens: usize,
+    pub max_files: usize,
+    pub max_entities: usize,
+    pub max_diagnostics: usize,
+    pub max_depth: usize,
+}
+
+impl ContextLimits {
+    pub fn for_level(level: ContextLevel) -> Self {
+        match level {
+            ContextLevel::Summary => Self {
+                max_tokens: 2_000,
+                max_files: 5,
+                max_entities: 8,
+                max_diagnostics: 5,
+                max_depth: 0,
+            },
+            ContextLevel::Normal => Self {
+                max_tokens: 8_000,
+                max_files: 10,
+                max_entities: 20,
+                max_diagnostics: 10,
+                max_depth: 1,
+            },
+            ContextLevel::Deep => Self {
+                max_tokens: 16_000,
+                max_files: 20,
+                max_entities: 50,
+                max_diagnostics: 20,
+                max_depth: 2,
+            },
+            ContextLevel::Full => Self {
+                max_tokens: 32_000,
+                max_files: 100,
+                max_entities: 200,
+                max_diagnostics: 100,
+                max_depth: 4,
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ContextLimitOverrides {
+    pub max_tokens: Option<usize>,
+    pub max_files: Option<usize>,
+    pub max_entities: Option<usize>,
+    pub max_diagnostics: Option<usize>,
+    pub max_depth: Option<usize>,
+}
+
+impl ContextLimitOverrides {
+    fn apply(&self, limits: &mut ContextLimits) {
+        limits.max_tokens = self.max_tokens.unwrap_or(limits.max_tokens);
+        limits.max_files = self.max_files.unwrap_or(limits.max_files);
+        limits.max_entities = self.max_entities.unwrap_or(limits.max_entities);
+        limits.max_diagnostics = self.max_diagnostics.unwrap_or(limits.max_diagnostics);
+        limits.max_depth = self.max_depth.unwrap_or(limits.max_depth);
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct ContextOptions {
     pub root: PathBuf,
     pub task: String,
+    pub level: ContextLevel,
+    pub limits: ContextLimitOverrides,
 }
 
 pub async fn context_project(options: ContextOptions) -> Result<ContextPack> {
@@ -42,17 +105,25 @@ pub async fn context_project(options: ContextOptions) -> Result<ContextPack> {
             )
         })?;
 
+    let mut limits = ContextLimits::for_level(options.level);
+    options.limits.apply(&mut limits);
+    if limits.max_tokens == 0 || limits.max_files == 0 || limits.max_entities == 0 {
+        bail!("context token, file, and entity limits must be greater than zero");
+    }
+
     Ok(generate_context_pack(
         &snapshot,
         &options.task,
-        DEFAULT_MAX_ENTITIES,
+        options.level,
+        limits,
     ))
 }
 
 pub fn generate_context_pack(
     snapshot: &CanonicalSnapshot,
     task: &str,
-    max_entities: usize,
+    level: ContextLevel,
+    limits: ContextLimits,
 ) -> ContextPack {
     let terms = tokenize(task);
     let mut ranked = snapshot
@@ -65,28 +136,43 @@ pub fn generate_context_pack(
         .collect::<Vec<_>>();
     ranked.sort_by_key(|(score, entity)| (Reverse(*score), entity.stable_key.0.clone()));
 
-    let direct_ids = ranked
-        .iter()
-        .take(max_entities)
-        .map(|(_, entity)| entity.id.clone())
-        .collect::<Vec<_>>();
-    let direct_id_set = direct_ids.iter().cloned().collect::<HashSet<_>>();
-    let mut selected_ids = direct_ids.clone();
+    let mut selected_ids = Vec::new();
+    let mut selected_files = BTreeSet::new();
+    for id in ranked.iter().map(|(_, entity)| entity.id.clone()) {
+        try_select_entity(snapshot, id, &mut selected_ids, &mut selected_files, limits);
+        if selected_ids.len() == limits.max_entities {
+            break;
+        }
+    }
 
-    for relation in &snapshot.relations {
-        let neighbor = if direct_id_set.contains(&relation.from) {
-            Some(&relation.to)
-        } else if direct_id_set.contains(&relation.to) {
-            Some(&relation.from)
-        } else {
-            None
-        };
-
-        if let Some(neighbor) = neighbor
-            && !selected_ids.contains(neighbor)
-            && selected_ids.len() < max_entities
-        {
-            selected_ids.push(neighbor.clone());
+    let direct_ids = selected_ids.clone();
+    let mut frontier = selected_ids.clone();
+    for _ in 0..limits.max_depth {
+        let frontier_set = frontier.iter().cloned().collect::<HashSet<_>>();
+        let mut next_frontier = Vec::new();
+        for relation in &snapshot.relations {
+            let neighbor = if frontier_set.contains(&relation.from) {
+                Some(&relation.to)
+            } else if frontier_set.contains(&relation.to) {
+                Some(&relation.from)
+            } else {
+                None
+            };
+            if let Some(neighbor) = neighbor
+                && try_select_entity(
+                    snapshot,
+                    neighbor.clone(),
+                    &mut selected_ids,
+                    &mut selected_files,
+                    limits,
+                )
+            {
+                next_frontier.push(neighbor.clone());
+            }
+        }
+        frontier = next_frontier;
+        if frontier.is_empty() || selected_ids.len() == limits.max_entities {
+            break;
         }
     }
 
@@ -109,6 +195,7 @@ pub fn generate_context_pack(
                 .iter()
                 .any(|entity| selected_id_set.contains(entity))
         })
+        .take(limits.max_diagnostics)
         .collect::<Vec<_>>();
     let diagnostics = selected_diagnostics
         .iter()
@@ -147,7 +234,7 @@ pub fn generate_context_pack(
         .as_ref()
         .map(|snapshot| snapshot.0.as_str())
         .unwrap_or("unknown");
-    let id_material = format!("{snapshot_id}\0{task}\0normal\0{max_entities}");
+    let id_material = format!("{snapshot_id}\0{task}\0{level:?}\0{limits:?}");
     let matched_terms = terms
         .iter()
         .filter(|term| {
@@ -172,12 +259,19 @@ pub fn generate_context_pack(
             diagnostics.len()
         )
     };
+    let omitted_files = snapshot
+        .entities
+        .iter()
+        .flat_map(entity_files)
+        .collect::<BTreeSet<_>>()
+        .len()
+        .saturating_sub(files.len());
 
     ContextPack {
         id: ContextPackId(format!("ctx_{:016x}", stable_hash(id_material.as_bytes()))),
         task: task.to_string(),
         scope,
-        level: ContextLevel::Normal,
+        level,
         language: None,
         summary,
         entities: selected_ids,
@@ -190,11 +284,111 @@ pub fn generate_context_pack(
             "snapshot": snapshot_id,
             "query_terms": terms,
             "direct_matches": direct_ids.len(),
+            "limits": {
+                "max_tokens": limits.max_tokens,
+                "max_files": limits.max_files,
+                "max_entities": limits.max_entities,
+                "max_diagnostics": limits.max_diagnostics,
+                "max_depth": limits.max_depth,
+            },
+            "omitted": {
+                "entities": snapshot.entities.len().saturating_sub(selected_entities.len()),
+                "files": omitted_files,
+                "diagnostics": snapshot.diagnostics.len().saturating_sub(selected_diagnostics.len()),
+                "reason": "relevance_or_context_limits",
+            },
+            "estimated_tokens": estimate_tokens(&selected_entities, &selected_relations, &selected_diagnostics),
             "entities": selected_entities,
             "relations": selected_relations,
             "diagnostics": selected_diagnostics,
         }),
     }
+}
+
+fn try_select_entity(
+    snapshot: &CanonicalSnapshot,
+    id: athanor_domain::EntityId,
+    selected_ids: &mut Vec<athanor_domain::EntityId>,
+    selected_files: &mut BTreeSet<String>,
+    limits: ContextLimits,
+) -> bool {
+    if selected_ids.contains(&id) || selected_ids.len() >= limits.max_entities {
+        return false;
+    }
+    let Some(entity) = snapshot.entities.iter().find(|entity| entity.id == id) else {
+        return false;
+    };
+    let entity_files = entity_files(entity).collect::<BTreeSet<_>>();
+    let additional_files = entity_files.difference(selected_files).count();
+    if selected_files.len() + additional_files > limits.max_files {
+        return false;
+    }
+
+    let mut candidate_ids = selected_ids.clone();
+    candidate_ids.push(id.clone());
+    if estimate_selection_tokens(snapshot, &candidate_ids, limits.max_diagnostics)
+        > limits.max_tokens
+    {
+        return false;
+    }
+
+    selected_ids.push(id);
+    selected_files.extend(entity_files);
+    true
+}
+
+fn estimate_selection_tokens(
+    snapshot: &CanonicalSnapshot,
+    selected_ids: &[athanor_domain::EntityId],
+    max_diagnostics: usize,
+) -> usize {
+    let selected_id_set = selected_ids.iter().collect::<HashSet<_>>();
+    let entities = snapshot
+        .entities
+        .iter()
+        .filter(|entity| selected_id_set.contains(&entity.id))
+        .collect::<Vec<_>>();
+    let relations = snapshot
+        .relations
+        .iter()
+        .filter(|relation| {
+            selected_id_set.contains(&relation.from) && selected_id_set.contains(&relation.to)
+        })
+        .collect::<Vec<_>>();
+    let diagnostics = snapshot
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| {
+            diagnostic
+                .entities
+                .iter()
+                .any(|entity| selected_id_set.contains(entity))
+        })
+        .take(max_diagnostics)
+        .collect::<Vec<_>>();
+    estimate_tokens(&entities, &relations, &diagnostics)
+}
+
+fn entity_files(entity: &Entity) -> impl Iterator<Item = String> + '_ {
+    entity
+        .source
+        .iter()
+        .map(|source| source.path.clone())
+        .chain(
+            entity
+                .ownership
+                .iter()
+                .map(|ownership| ownership.source_file.clone()),
+        )
+}
+
+fn estimate_tokens<T: serde::Serialize, U: serde::Serialize, V: serde::Serialize>(
+    entities: &[T],
+    relations: &[U],
+    diagnostics: &[V],
+) -> usize {
+    serde_json::to_vec(&(entities, relations, diagnostics))
+        .map_or(0, |bytes| bytes.len().div_ceil(4))
 }
 
 fn entity_score(entity: &Entity, terms: &[String]) -> usize {
@@ -296,7 +490,12 @@ mod tests {
             }],
         };
 
-        let pack = generate_context_pack(&snapshot, "change auth", 20);
+        let pack = generate_context_pack(
+            &snapshot,
+            "change auth",
+            ContextLevel::Normal,
+            ContextLimits::for_level(ContextLevel::Normal),
+        );
 
         assert_eq!(pack.entities, vec![file.id, section.id]);
         assert_eq!(pack.files, vec!["docs/auth.md", "tests/login.rs"]);
@@ -321,11 +520,100 @@ mod tests {
             ..CanonicalSnapshot::default()
         };
 
-        let pack = generate_context_pack(&snapshot, "authentication", 20);
+        let pack = generate_context_pack(
+            &snapshot,
+            "authentication",
+            ContextLevel::Normal,
+            ContextLimits::for_level(ContextLevel::Normal),
+        );
 
         assert!(pack.entities.is_empty());
         assert_eq!(pack.confidence, 0.0);
         assert!(pack.summary.starts_with("No canonical entities matched"));
+    }
+
+    #[test]
+    fn summary_level_does_not_expand_relations() {
+        let file = entity("ent_file", "file://docs/auth.md", "auth", "docs/auth.md");
+        let neighbor = entity("ent_neighbor", "file://src/code.rs", "code", "src/code.rs");
+        let snapshot = CanonicalSnapshot {
+            entities: vec![file.clone(), neighbor.clone()],
+            relations: vec![Relation {
+                id: RelationId("rel_contains".to_string()),
+                kind: RelationKind::Contains,
+                from: file.id.clone(),
+                to: neighbor.id.clone(),
+                status: RelationStatus::Verified,
+                confidence: 1.0,
+                evidence: Vec::new(),
+                ownership: Vec::new(),
+                snapshot: SnapshotId("snap_test".to_string()),
+                payload: json!({}),
+            }],
+            ..CanonicalSnapshot::default()
+        };
+
+        let pack = generate_context_pack(
+            &snapshot,
+            "auth",
+            ContextLevel::Summary,
+            ContextLimits::for_level(ContextLevel::Summary),
+        );
+
+        assert_eq!(pack.level, ContextLevel::Summary);
+        assert_eq!(pack.entities, vec![file.id]);
+        assert_eq!(pack.payload["limits"]["max_depth"], 0);
+    }
+
+    #[test]
+    fn explicit_limits_bound_files_entities_and_diagnostics() {
+        let first = entity("ent_first", "file://docs/first.md", "auth", "docs/first.md");
+        let second = entity(
+            "ent_second",
+            "file://docs/second.md",
+            "auth",
+            "docs/second.md",
+        );
+        let diagnostic = |id: &str, entity: EntityId| Diagnostic {
+            id: DiagnosticId(id.to_string()),
+            kind: DiagnosticKind::MissingDocumentation,
+            severity: Severity::Medium,
+            status: DiagnosticStatus::Open,
+            title: id.to_string(),
+            message: id.to_string(),
+            entities: vec![entity],
+            evidence: Vec::new(),
+            ownership: Vec::new(),
+            snapshot: SnapshotId("snap_test".to_string()),
+            suggested_fix: None,
+            payload: json!({}),
+        };
+        let snapshot = CanonicalSnapshot {
+            entities: vec![first.clone(), second.clone()],
+            diagnostics: vec![
+                diagnostic("diag_first", first.id.clone()),
+                diagnostic("diag_second", first.id.clone()),
+            ],
+            ..CanonicalSnapshot::default()
+        };
+        let limits = ContextLimits {
+            max_tokens: 2_000,
+            max_files: 1,
+            max_entities: 1,
+            max_diagnostics: 1,
+            max_depth: 0,
+        };
+
+        let pack = generate_context_pack(&snapshot, "auth", ContextLevel::Normal, limits);
+
+        assert_eq!(pack.entities.len(), 1);
+        assert_eq!(pack.files.len(), 1);
+        assert_eq!(pack.diagnostics.len(), 1);
+        assert!(pack.payload["estimated_tokens"].as_u64().unwrap() <= 2_000);
+        assert_eq!(
+            pack.payload["omitted"]["reason"],
+            "relevance_or_context_limits"
+        );
     }
 
     fn entity(id: &str, stable_key: &str, name: &str, path: &str) -> Entity {

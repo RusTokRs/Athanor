@@ -2,9 +2,30 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use athanor_app::{
-    ContextOptions, IndexOptions, InitOptions, context_project, index_project, init_project,
+    ContextLimitOverrides, ContextOptions, IndexOptions, InitOptions, context_project,
+    index_project, init_project,
 };
-use clap::{Parser, Subcommand};
+use athanor_domain::ContextLevel;
+use clap::{Parser, Subcommand, ValueEnum};
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum ContextLevelArg {
+    Summary,
+    Normal,
+    Deep,
+    Full,
+}
+
+impl From<ContextLevelArg> for ContextLevel {
+    fn from(value: ContextLevelArg) -> Self {
+        match value {
+            ContextLevelArg::Summary => Self::Summary,
+            ContextLevelArg::Normal => Self::Normal,
+            ContextLevelArg::Deep => Self::Deep,
+            ContextLevelArg::Full => Self::Full,
+        }
+    }
+}
 
 #[derive(Debug, Parser)]
 #[command(name = "ath", version, about = "Athanor command line interface")]
@@ -46,6 +67,24 @@ enum Command {
         /// Print the complete context pack as JSON.
         #[arg(long)]
         json: bool,
+        /// Context detail level and its default limits.
+        #[arg(long, value_enum, default_value_t = ContextLevelArg::Normal)]
+        level: ContextLevelArg,
+        /// Approximate maximum serialized tokens.
+        #[arg(long = "budget")]
+        max_tokens: Option<usize>,
+        /// Maximum number of source files.
+        #[arg(long)]
+        max_files: Option<usize>,
+        /// Maximum number of canonical entities.
+        #[arg(long)]
+        max_entities: Option<usize>,
+        /// Maximum number of diagnostics.
+        #[arg(long)]
+        max_diagnostics: Option<usize>,
+        /// Maximum relation traversal depth.
+        #[arg(long)]
+        max_depth: Option<usize>,
     },
 }
 
@@ -97,8 +136,30 @@ async fn main() -> Result<()> {
                 println!("wrote JSONL to {}", report.output_dir.display());
             }
         }
-        Some(Command::Context { task, path, json }) => {
-            let pack = context_project(ContextOptions { root: path, task }).await?;
+        Some(Command::Context {
+            task,
+            path,
+            json,
+            level,
+            max_tokens,
+            max_files,
+            max_entities,
+            max_diagnostics,
+            max_depth,
+        }) => {
+            let pack = context_project(ContextOptions {
+                root: path,
+                task,
+                level: level.into(),
+                limits: ContextLimitOverrides {
+                    max_tokens,
+                    max_files,
+                    max_entities,
+                    max_diagnostics,
+                    max_depth,
+                },
+            })
+            .await?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&pack)?);
             } else {

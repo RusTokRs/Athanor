@@ -29,16 +29,24 @@ High-level adapter docs:
 
 - [Basic extractor](adapters/extractor-basic.md)
 - [Markdown extractor](adapters/extractor-markdown.md)
+- [OpenAPI extractor](adapters/extractor-openapi.md)
+- [Rust extractor](adapters/extractor-rust.md)
+- [API knowledge linker](adapters/linker-api.md)
 - [Markdown linker](adapters/linker-markdown.md)
 - [Markdown checker](adapters/checker-markdown.md)
+- [API consistency checker](adapters/checker-api.md)
 - [JSONL store](adapters/store-jsonl.md)
 
 Crate-local adapter docs:
 
 - [`athanor-extractor-basic`](../crates/athanor-extractor-basic/README.md)
 - [`athanor-extractor-markdown`](../crates/athanor-extractor-markdown/README.md)
+- [`athanor-extractor-openapi`](../crates/athanor-extractor-openapi/README.md)
+- [`athanor-extractor-rust`](../crates/athanor-extractor-rust/README.md)
+- [`athanor-linker-api`](../crates/athanor-linker-api/README.md)
 - [`athanor-linker-markdown`](../crates/athanor-linker-markdown/README.md)
 - [`athanor-checker-markdown`](../crates/athanor-checker-markdown/README.md)
+- [`athanor-checker-api`](../crates/athanor-checker-api/README.md)
 - [`athanor-store-jsonl`](../crates/athanor-store-jsonl/README.md)
 
 ## Current Generated Read Model
@@ -76,6 +84,8 @@ Task-focused context packs can be read from the latest canonical snapshot:
 ```bash
 cargo run -p ath --quiet -- context "task"
 cargo run -p ath --quiet -- context "task" --json
+cargo run -p ath --quiet -- context "task" --level summary --budget 2000
+cargo run -p ath --quiet -- context "task" --level deep --max-files 20 --max-depth 2
 ```
 
 ## Documentation Rule

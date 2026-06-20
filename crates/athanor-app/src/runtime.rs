@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use anyhow::{Context, Result, bail};
+use athanor_checker_api::ApiConsistencyChecker;
 use athanor_checker_markdown::MarkdownStructureChecker;
 use athanor_core::{
     CheckInput, Checker, CoreError, CoreResult, ExtractInput, ExtractOutput, Extractor,
@@ -12,6 +13,9 @@ use athanor_core::{
 };
 use athanor_extractor_basic::FileExtractor;
 use athanor_extractor_markdown::MarkdownExtractor;
+use athanor_extractor_openapi::OpenApiExtractor;
+use athanor_extractor_rust::RustExtractor;
+use athanor_linker_api::ApiKnowledgeLinker;
 use athanor_linker_markdown::MarkdownContainmentLinker;
 use athanor_source_fs::LocalFileSystemSource;
 use serde::{Deserialize, Serialize};
@@ -93,8 +97,12 @@ impl AdapterRegistry {
             .builtin_source_local_filesystem()
             .builtin_extractor_file()
             .builtin_extractor_markdown()
+            .builtin_extractor_openapi()
+            .builtin_extractor_rust()
             .builtin_linker_markdown_containment()
+            .builtin_linker_api_knowledge()
             .builtin_checker_markdown_structure()
+            .builtin_checker_api_consistency()
     }
 
     pub fn with_plugin_manifest(self, manifest: &AdapterPluginManifest) -> Result<Self> {
@@ -133,11 +141,23 @@ impl AdapterRegistry {
             (AdapterPluginKind::Extractor, "builtin.extractor.markdown") => {
                 Ok(self.builtin_extractor_markdown())
             }
+            (AdapterPluginKind::Extractor, "builtin.extractor.openapi") => {
+                Ok(self.builtin_extractor_openapi())
+            }
+            (AdapterPluginKind::Extractor, "builtin.extractor.rust") => {
+                Ok(self.builtin_extractor_rust())
+            }
             (AdapterPluginKind::Linker, "builtin.linker.markdown_containment") => {
                 Ok(self.builtin_linker_markdown_containment())
             }
+            (AdapterPluginKind::Linker, "builtin.linker.api_knowledge") => {
+                Ok(self.builtin_linker_api_knowledge())
+            }
             (AdapterPluginKind::Checker, "builtin.checker.markdown_structure") => {
                 Ok(self.builtin_checker_markdown_structure())
+            }
+            (AdapterPluginKind::Checker, "builtin.checker.api_consistency") => {
+                Ok(self.builtin_checker_api_consistency())
             }
             (AdapterPluginKind::Source, _) => self.external_process_source(adapter, manifest_dir),
             (AdapterPluginKind::Extractor, _) => {
@@ -257,15 +277,35 @@ impl AdapterRegistry {
         self.register_extractor_id("builtin.extractor.markdown", || Box::new(MarkdownExtractor))
     }
 
+    fn builtin_extractor_openapi(self) -> Self {
+        self.register_extractor_id("builtin.extractor.openapi", || Box::new(OpenApiExtractor))
+    }
+
+    fn builtin_extractor_rust(self) -> Self {
+        self.register_extractor_id("builtin.extractor.rust", || Box::new(RustExtractor))
+    }
+
     fn builtin_linker_markdown_containment(self) -> Self {
         self.register_linker_id("builtin.linker.markdown_containment", || {
             Box::new(MarkdownContainmentLinker)
         })
     }
 
+    fn builtin_linker_api_knowledge(self) -> Self {
+        self.register_linker_id("builtin.linker.api_knowledge", || {
+            Box::new(ApiKnowledgeLinker)
+        })
+    }
+
     fn builtin_checker_markdown_structure(self) -> Self {
         self.register_checker_id("builtin.checker.markdown_structure", || {
             Box::new(MarkdownStructureChecker)
+        })
+    }
+
+    fn builtin_checker_api_consistency(self) -> Self {
+        self.register_checker_id("builtin.checker.api_consistency", || {
+            Box::new(ApiConsistencyChecker)
         })
     }
 

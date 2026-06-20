@@ -3,11 +3,15 @@ members = [
     "apps/ath",
     "crates/athanor-app",
     "crates/athanor-checker-markdown",
+    "crates/athanor-checker-api",
     "crates/athanor-core",
     "crates/athanor-domain",
     "crates/athanor-extractor-basic",
     "crates/athanor-extractor-markdown",
+    "crates/athanor-extractor-openapi",
+    "crates/athanor-extractor-rust",
     "crates/athanor-linker-markdown",
+    "crates/athanor-linker-api",
     "crates/athanor-source-fs",
     "crates/athanor-store-jsonl",
     "crates/athanor-store-memory",
@@ -26,5 +30,9 @@ async-trait = "0.1"
 clap = { version = "4.5", features = ["derive"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+serde_yaml = "0.9"
+proc-macro2 = { version = "1.0", features = ["span-locations"] }
+quote = "1.0"
+syn = { version = "2.0", features = ["full"] }
 thiserror = "2.0"
 tokio = { version = "1.48", features = ["macros", "rt-multi-thread"] }

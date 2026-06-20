@@ -1,0 +1,33 @@
+openapi: 3.1.0
+info:
+  title: Auth API
+  version: 1.0.0
+paths:
+  /login:
+    post:
+      operationId: login
+      summary: Log in
+      tags: [auth]
+      requestBody: {}
+      responses:
+        '200':
+          description: OK
+  /__athanor_fixture_missing_handler:
+    post:
+      operationId: athanorFixtureMissingHandler
+      responses:
+        '204':
+          description: No content
+  /__athanor_fixture_without_docs:
+    get:
+      operationId: athanorFixtureUndocumentedHandler
+      responses:
+        '200':
+          description: OK
+components:
+  schemas:
+    LoginRequest:
+      type: object
+      properties:
+        email:
+          type: string

@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 use athanor_core::SourceFile;
 use serde::{Deserialize, Serialize};
 
-pub const INDEX_STATE_SCHEMA: &str = "athanor.index_state.v1";
+pub const INDEX_STATE_SCHEMA: &str = "athanor.index_state.v5";
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IndexState {
@@ -177,5 +177,28 @@ mod tests {
         assert!(affected.unchanged.contains("docs/auth.md"));
         assert!(affected.changed.contains("docs/new.md"));
         assert!(affected.removed.contains("docs/removed.md"));
+    }
+
+    #[test]
+    fn incompatible_state_schema_forces_a_full_rebuild() {
+        let root = std::env::temp_dir().join(format!(
+            "athanor-index-state-schema-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let path = root.join("index-state.json");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(
+            &path,
+            r#"{"schema":"athanor.index_state.v4","snapshot":"snap_old","files":{}}"#,
+        )
+        .unwrap();
+
+        let state = IndexStateStore::new(&path).load().unwrap();
+
+        assert_eq!(state, IndexState::empty());
+        fs::remove_dir_all(root).unwrap();
     }
 }

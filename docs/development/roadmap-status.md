@@ -20,8 +20,12 @@ Crates:
 - `athanor-store-jsonl`
 - `athanor-extractor-basic`
 - `athanor-extractor-markdown`
+- `athanor-extractor-openapi`
+- `athanor-extractor-rust`
+- `athanor-linker-api`
 - `athanor-linker-markdown`
 - `athanor-checker-markdown`
+- `athanor-checker-api`
 - `apps/ath`
 
 ### CLI
@@ -49,11 +53,11 @@ Implemented flow:
 
 ```text
 local files
-  -> file and Markdown extraction
-  -> Markdown containment links
+  -> file, Markdown, OpenAPI, and Rust extraction
+  -> Markdown containment and cross-source API links
   -> Markdown structure diagnostics
-  -> memory store
-  -> JSONL export
+  -> JSONL canonical store
+  -> JSONL read-model export
 ```
 
 Current runtime check:
@@ -109,12 +113,16 @@ sources:
 extractors:
   FileExtractor
   MarkdownExtractor
+  OpenApiExtractor
+  RustExtractor
 
 linkers:
   MarkdownContainmentLinker
+  ApiKnowledgeLinker
 
 checkers:
   MarkdownStructureChecker
+  ApiConsistencyChecker
 ```
 
 Current CLI store:
@@ -412,6 +420,103 @@ Purpose:
 - emits the canonical `ContextPack` model with a self-contained JSON payload
 - keeps search-backend and CLI presentation details out of domain/core
 
+### Explicit Context Limits And Levels
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-app/src/context.rs`
+- `apps/ath/src/main.rs`
+- `docs/architecture/pipeline.md`
+
+Purpose:
+
+- adds `summary`, `normal`, `deep`, and `full` context presets
+- adds `--budget`, `--max-files`, `--max-entities`, `--max-diagnostics`, and `--max-depth` overrides
+- bounds graph expansion and canonical payload material deterministically
+- records effective limits, approximate token usage, and omitted object counts in the context payload
+
+### Rust Code Extraction Slice
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-extractor-rust`
+- `crates/athanor-app/src/runtime.rs`
+- `docs/adapters/extractor-rust.md`
+
+Purpose:
+
+- adds the built-in `builtin.extractor.rust` adapter
+- parses Rust source with `syn` without changing domain/core contracts
+- emits canonical module, function, and symbol entities
+- emits `symbol_defined` facts connected to canonical file entities
+- derives stable `symbol://rust:` keys from source module paths
+- includes parser-derived line evidence and single-file ownership metadata
+- advances persisted index state to v2 so existing projects rebuild unchanged Rust files once
+
+### OpenAPI Extraction Slice
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-extractor-openapi`
+- `crates/athanor-app/src/runtime.rs`
+- `docs/adapters/extractor-openapi.md`
+
+Purpose:
+
+- adds the built-in `builtin.extractor.openapi` adapter
+- parses OpenAPI 3.x YAML and JSON without changing domain/core contracts
+- emits canonical API endpoint and component-schema entities
+- emits route and schema declaration facts connected to canonical file entities
+- records operation metadata including methods, paths, tags, parameters, responses, and security
+- advances persisted index state to v3 so existing projects rebuild supported specification files once
+
+### API Knowledge Linker Slice
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-linker-api`
+- `crates/athanor-app/src/runtime.rs`
+- `docs/adapters/linker-api.md`
+
+Purpose:
+
+- adds the built-in `builtin.linker.api_knowledge` adapter
+- links OpenAPI operation ids to matching Rust function and method names
+- links Markdown pages and sections to API operations using operation ids, path segments, and tags
+- emits inferred `implemented_by`, `documents_operation`, and `documents_api` relations
+- combines evidence and ownership from both sides of each relation
+- scopes incremental output to pairs with at least one affected entity
+- advances persisted index state to v4 so existing projects build the new cross-source relations once
+
+### API Consistency Checker Slice
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-checker-api`
+- `crates/athanor-app/src/pipeline.rs`
+- `crates/athanor-app/src/runtime.rs`
+- `docs/adapters/checker-api.md`
+
+Purpose:
+
+- adds the built-in `builtin.checker.api_consistency` adapter
+- reports OpenAPI endpoints without linked Rust implementations
+- reports implemented endpoints without linked Markdown documentation
+- reevaluates endpoints when relevant functions, documents, or API relations change
+- includes endpoint evidence and candidate-aware ownership for incremental invalidation
+- forces a safe full rebuild when files are added or removed
+- advances persisted index state to v5 so existing projects build the new diagnostics once
+
 ## In Progress
 
 None.
@@ -421,7 +526,7 @@ None.
 Recommended next task:
 
 ```text
-Add explicit context limits and levels, then continue Phase 2 with the first code/API extraction slice.
+Add OpenAPI request/response schema relations, then basic schema consistency diagnostics.
 ```
 
 Why:
@@ -429,7 +534,10 @@ Why:
 - Adapter plugin manifest discovery now provides a stable configuration contract.
 - External process adapters cover source discovery and all currently useful canonical-output ports without Rust ABI coupling.
 - The first `ContextPack` CLI path now closes the current Markdown knowledge loop.
-- Context budgets and deeper extraction are the next gaps before semantic search or daemon work.
+- Rust symbols now provide the code side of the Phase 2 API knowledge loop.
+- OpenAPI operations and schemas now provide the contract side of the Phase 2 API knowledge loop.
+- Basic implementation and documentation coverage diagnostics now close the first Phase 2 API loop.
+- Request/response schema links are the next missing layer for deeper API consistency checks.
 
 ## Verification Commands
 

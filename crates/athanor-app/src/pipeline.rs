@@ -195,6 +195,15 @@ impl IndexPipeline {
         let files = self.discover_sources().await?;
         let mut affected_files = incremental.previous_state.affected_files(&files);
 
+        let has_added_files = affected_files
+            .changed
+            .iter()
+            .any(|path| !incremental.previous_state.files.contains_key(path));
+        if has_added_files || !affected_files.removed.is_empty() {
+            affected_files.changed = files.iter().map(|file| file.path.clone()).collect();
+            affected_files.unchanged.clear();
+        }
+
         if incremental.previous_snapshot.is_none() {
             affected_files.changed = files.iter().map(|file| file.path.clone()).collect();
             affected_files.unchanged.clear();

@@ -355,13 +355,28 @@ mod tests {
         .unwrap();
 
         assert_eq!(fourth_report.files_indexed, 1);
-        assert_eq!(fourth_report.changed_files, 0);
-        assert_eq!(fourth_report.unchanged_files, 1);
+        assert_eq!(fourth_report.changed_files, 1);
+        assert_eq!(fourth_report.unchanged_files, 0);
         assert_eq!(fourth_report.removed_files, 1);
         let fourth_entities =
             fs::read_to_string(fourth_report.output_dir.join("entities.jsonl")).unwrap();
         assert!(!fourth_entities.contains("file://src/lib.rs"));
         assert!(fourth_entities.contains("doc://docs/auth.md"));
+
+        fs::write(root.join("docs/new.md"), "# New\n").unwrap();
+        let fifth_report = index_project(IndexOptions {
+            root: root.clone(),
+            validation_report: None,
+            validation_result: None,
+            validate_only: false,
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(fifth_report.files_indexed, 2);
+        assert_eq!(fifth_report.changed_files, 2);
+        assert_eq!(fifth_report.unchanged_files, 0);
+        assert_eq!(fifth_report.removed_files, 0);
 
         fs::remove_dir_all(root).unwrap();
     }
