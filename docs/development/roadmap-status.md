@@ -348,10 +348,10 @@ Purpose:
 - applies enabled manifest entries through the app-layer `AdapterRegistry`
 - supports known built-in adapter factory ids as the first registry-backed loading path
 - fails fast for unknown adapter ids or invalid manifest schemas
-- supports external process extractors through manifest `command` entries
-- keeps source, linker, and checker process adapters explicitly deferred
+- supports external process extractors, linkers, and checkers through manifest `command` entries
+- keeps source process adapters explicitly deferred
 
-### External Process Extractors
+### External Process Extractors, Linkers, And Checkers
 
 Status: verified.
 
@@ -365,9 +365,9 @@ Implemented in:
 
 Purpose:
 
-- lets manifest entries load extractor adapters from external commands
-- sends `ExtractInput` JSON to the process stdin
-- reads `ExtractOutput` JSON from process stdout
+- lets manifest entries load extractor, linker, and checker adapters from external commands
+- sends `ExtractInput`, `LinkInput`, or `CheckInput` JSON to the process stdin
+- reads `ExtractOutput`, relation arrays, or diagnostic arrays from process stdout
 - scopes process extractors with optional `supports_extensions`
 - resolves relative command paths from the manifest directory
 - keeps canonical output validation in the existing indexing pipeline
@@ -381,14 +381,14 @@ None.
 Recommended next task:
 
 ```text
-Extend external process adapter loading to linker and checker ports.
+Define the next source process adapter protocol or start the next roadmap vertical slice from start.md.
 ```
 
 Why:
 
 - Adapter plugin manifest discovery now provides a stable configuration contract.
-- External process extractors prove the manifest-backed loading path without Rust ABI coupling.
-- Linker and checker process adapters are the next useful external ports.
+- External process extractors, linkers, and checkers cover all currently useful canonical-output ports without Rust ABI coupling.
+- Source process adapters need a separate discovery protocol before implementation.
 
 ## Verification Commands
 

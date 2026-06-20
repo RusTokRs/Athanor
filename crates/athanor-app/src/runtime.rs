@@ -7,8 +7,8 @@ use std::process::{Command, Stdio};
 use anyhow::{Context, Result, bail};
 use athanor_checker_markdown::MarkdownStructureChecker;
 use athanor_core::{
-    Checker, CoreError, CoreResult, ExtractInput, ExtractOutput, Extractor, KnowledgeStore, Linker,
-    SourceFile, SourceProvider,
+    CheckInput, Checker, CoreError, CoreResult, ExtractInput, ExtractOutput, Extractor,
+    KnowledgeStore, LinkInput, Linker, SourceFile, SourceProvider,
 };
 use athanor_extractor_basic::FileExtractor;
 use athanor_extractor_markdown::MarkdownExtractor;
@@ -142,6 +142,8 @@ impl AdapterRegistry {
             (AdapterPluginKind::Extractor, _) => {
                 self.external_process_extractor(adapter, manifest_dir)
             }
+            (AdapterPluginKind::Linker, _) => self.external_process_linker(adapter, manifest_dir),
+            (AdapterPluginKind::Checker, _) => self.external_process_checker(adapter, manifest_dir),
             _ => bail!("unknown {:?} adapter id {}", adapter.kind, adapter.id),
         }
     }
@@ -170,6 +172,50 @@ impl AdapterRegistry {
                 id: id.clone(),
                 command: command.clone(),
                 supports_extensions: supports_extensions.clone(),
+            })
+        }))
+    }
+
+    fn external_process_linker(
+        self,
+        adapter: &AdapterPluginEntry,
+        manifest_dir: &Path,
+    ) -> Result<Self> {
+        let Some(command) = &adapter.command else {
+            bail!(
+                "unknown linker adapter id {} and no command was provided",
+                adapter.id
+            );
+        };
+        let command = ProcessCommand::from_manifest(manifest_dir, command);
+        let id = adapter.id.clone();
+
+        Ok(self.register_linker_id(&adapter.id, move || {
+            Box::new(ProcessLinker {
+                id: id.clone(),
+                command: command.clone(),
+            })
+        }))
+    }
+
+    fn external_process_checker(
+        self,
+        adapter: &AdapterPluginEntry,
+        manifest_dir: &Path,
+    ) -> Result<Self> {
+        let Some(command) = &adapter.command else {
+            bail!(
+                "unknown checker adapter id {} and no command was provided",
+                adapter.id
+            );
+        };
+        let command = ProcessCommand::from_manifest(manifest_dir, command);
+        let id = adapter.id.clone();
+
+        Ok(self.register_checker_id(&adapter.id, move || {
+            Box::new(ProcessChecker {
+                id: id.clone(),
+                command: command.clone(),
             })
         }))
     }
@@ -441,6 +487,16 @@ struct ProcessExtractor {
     supports_extensions: BTreeSet<String>,
 }
 
+struct ProcessLinker {
+    id: String,
+    command: ProcessCommand,
+}
+
+struct ProcessChecker {
+    id: String,
+    command: ProcessCommand,
+}
+
 #[async_trait::async_trait]
 impl Extractor for ProcessExtractor {
     fn name(&self) -> &str {
@@ -460,61 +516,91 @@ impl Extractor for ProcessExtractor {
     }
 
     async fn extract(&self, input: ExtractInput) -> CoreResult<ExtractOutput> {
-        let mut child = Command::new(&self.command.program)
-            .args(&self.command.args)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|error| {
-                CoreError::Adapter(format!(
-                    "failed to spawn external extractor {}: {error}",
-                    self.id
-                ))
-            })?;
+        run_process_adapter("extractor", &self.id, &self.command, &input)
+    }
+}
 
-        let stdin = child.stdin.as_mut().ok_or_else(|| {
+#[async_trait::async_trait]
+impl Linker for ProcessLinker {
+    fn name(&self) -> &str {
+        &self.id
+    }
+
+    async fn link(&self, input: LinkInput) -> CoreResult<Vec<athanor_domain::Relation>> {
+        run_process_adapter("linker", &self.id, &self.command, &input)
+    }
+}
+
+#[async_trait::async_trait]
+impl Checker for ProcessChecker {
+    fn name(&self) -> &str {
+        &self.id
+    }
+
+    async fn check(&self, input: CheckInput) -> CoreResult<Vec<athanor_domain::Diagnostic>> {
+        run_process_adapter("checker", &self.id, &self.command, &input)
+    }
+}
+
+fn run_process_adapter<I, O>(
+    adapter_kind: &str,
+    adapter_id: &str,
+    command: &ProcessCommand,
+    input: &I,
+) -> CoreResult<O>
+where
+    I: Serialize,
+    O: for<'de> Deserialize<'de>,
+{
+    let mut child = Command::new(&command.program)
+        .args(&command.args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| {
             CoreError::Adapter(format!(
-                "failed to open stdin for external extractor {}",
-                self.id
+                "failed to spawn external {adapter_kind} {adapter_id}: {error}"
             ))
         })?;
-        serde_json::to_writer(&mut *stdin, &input).map_err(|error| {
+
+    {
+        let mut stdin = child.stdin.take().ok_or_else(|| {
             CoreError::Adapter(format!(
-                "failed to write input for external extractor {}: {error}",
-                self.id
+                "failed to open stdin for external {adapter_kind} {adapter_id}"
+            ))
+        })?;
+        serde_json::to_writer(&mut stdin, input).map_err(|error| {
+            CoreError::Adapter(format!(
+                "failed to write input for external {adapter_kind} {adapter_id}: {error}"
             ))
         })?;
         stdin.write_all(b"\n").map_err(|error| {
             CoreError::Adapter(format!(
-                "failed to finish input for external extractor {}: {error}",
-                self.id
+                "failed to finish input for external {adapter_kind} {adapter_id}: {error}"
             ))
         })?;
-
-        let output = child.wait_with_output().map_err(|error| {
-            CoreError::Adapter(format!(
-                "failed to wait for external extractor {}: {error}",
-                self.id
-            ))
-        })?;
-
-        if !output.status.success() {
-            return Err(CoreError::Adapter(format!(
-                "external extractor {} exited with {}; stderr: {}",
-                self.id,
-                output.status,
-                String::from_utf8_lossy(&output.stderr).trim()
-            )));
-        }
-
-        serde_json::from_slice(&output.stdout).map_err(|error| {
-            CoreError::Adapter(format!(
-                "failed to parse output from external extractor {}: {error}",
-                self.id
-            ))
-        })
     }
+
+    let output = child.wait_with_output().map_err(|error| {
+        CoreError::Adapter(format!(
+            "failed to wait for external {adapter_kind} {adapter_id}: {error}"
+        ))
+    })?;
+
+    if !output.status.success() {
+        return Err(CoreError::Adapter(format!(
+            "external {adapter_kind} {adapter_id} exited with {}; stderr: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+
+    serde_json::from_slice(&output.stdout).map_err(|error| {
+        CoreError::Adapter(format!(
+            "failed to parse output from external {adapter_kind} {adapter_id}: {error}"
+        ))
+    })
 }
 
 fn resolve_manifest_program(manifest_dir: &Path, program: &str) -> PathBuf {
@@ -768,6 +854,81 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    #[tokio::test]
+    async fn loads_external_process_linker_and_checker_from_manifest() {
+        let root = std::env::temp_dir().join(format!(
+            "athanor-runtime-process-downstream-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(root.join("src/lib.rs"), "pub fn hello() {}\n").unwrap();
+        let manifest = AdapterPluginManifest {
+            schema: ADAPTER_MANIFEST_SCHEMA.to_string(),
+            name: "process-downstream".to_string(),
+            version: None,
+            adapters: vec![
+                AdapterPluginEntry {
+                    id: "builtin.source.local_filesystem".to_string(),
+                    kind: AdapterPluginKind::Source,
+                    enabled: true,
+                    command: None,
+                    supports_extensions: Vec::new(),
+                },
+                AdapterPluginEntry {
+                    id: "builtin.extractor.file".to_string(),
+                    kind: AdapterPluginKind::Extractor,
+                    enabled: true,
+                    command: None,
+                    supports_extensions: Vec::new(),
+                },
+                AdapterPluginEntry {
+                    id: "external.linker.empty".to_string(),
+                    kind: AdapterPluginKind::Linker,
+                    enabled: true,
+                    command: Some(empty_array_command()),
+                    supports_extensions: Vec::new(),
+                },
+                AdapterPluginEntry {
+                    id: "external.checker.empty".to_string(),
+                    kind: AdapterPluginKind::Checker,
+                    enabled: true,
+                    command: Some(empty_array_command()),
+                    supports_extensions: Vec::new(),
+                },
+            ],
+        };
+
+        let output = RuntimeBuilder::new(&root)
+            .with_registry(
+                AdapterRegistry::empty()
+                    .with_plugin_manifest(&manifest)
+                    .unwrap(),
+            )
+            .build_index_pipeline(MemoryKnowledgeStore::new())
+            .run(
+                RepoId("repo_runtime_process_downstream_test".to_string()),
+                SnapshotBase {
+                    branch: None,
+                    commit: None,
+                    parent_snapshot: None,
+                    working_tree: true,
+                },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(output.files.len(), 1);
+        assert_eq!(output.entities.len(), 1);
+        assert!(output.relations.is_empty());
+        assert!(output.diagnostics.is_empty());
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn discovers_adapter_plugin_manifests() {
         let root = std::env::temp_dir().join(format!(
@@ -808,23 +969,46 @@ mod tests {
 
     #[cfg(windows)]
     fn empty_output_command() -> AdapterProcessCommand {
+        powershell_json_command("{\"entities\":[],\"facts\":[]}")
+    }
+
+    #[cfg(not(windows))]
+    fn empty_output_command() -> AdapterProcessCommand {
+        sh_json_command("{\"entities\":[],\"facts\":[]}")
+    }
+
+    #[cfg(windows)]
+    fn empty_array_command() -> AdapterProcessCommand {
+        powershell_json_command("[]")
+    }
+
+    #[cfg(not(windows))]
+    fn empty_array_command() -> AdapterProcessCommand {
+        sh_json_command("[]")
+    }
+
+    #[cfg(windows)]
+    fn powershell_json_command(json: &str) -> AdapterProcessCommand {
         AdapterProcessCommand {
             program: "powershell".to_string(),
             args: vec![
                 "-NoProfile".to_string(),
                 "-Command".to_string(),
-                "$input | Out-Null; '{\"entities\":[],\"facts\":[]}'".to_string(),
+                format!("$input | Out-Null; '{}'", json.replace('\'', "''")),
             ],
         }
     }
 
     #[cfg(not(windows))]
-    fn empty_output_command() -> AdapterProcessCommand {
+    fn sh_json_command(json: &str) -> AdapterProcessCommand {
         AdapterProcessCommand {
             program: "sh".to_string(),
             args: vec![
                 "-c".to_string(),
-                "cat >/dev/null; printf '{\"entities\":[],\"facts\":[]}'".to_string(),
+                format!(
+                    "cat >/dev/null; printf '%s' '{}'",
+                    json.replace('\'', "'\\''")
+                ),
             ],
         }
     }

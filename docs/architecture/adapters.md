@@ -148,21 +148,24 @@ builtin.checker.markdown_structure
 
 This is the first discovery layer. It gives the app layer a single current manifest contract and a validation path for adapter/plugin configuration. It does not dynamically load external Rust code yet; unknown adapter ids fail fast with a clear runtime-builder error. The optional `version` field describes the plugin package, not a separate generation of the adapter contract.
 
-## External Process Extractors
+## External Process Adapters
 
-Extractor entries can be loaded from external commands when they provide a `command` field.
+Extractor, linker, and checker entries can be loaded from external commands when they provide a `command` field. Source process adapters are not implemented yet.
 
 The current process adapter protocol is intentionally narrow:
 
-- only `extractor` entries can be loaded from external commands
-- Athanor starts the command once per supported source file
-- Athanor writes `ExtractInput` JSON to stdin
-- the command writes `ExtractOutput` JSON to stdout
-- stderr is used only for failure details
-- `supports_extensions` scopes which source file extensions should be sent to the command
+- Athanor starts external extractors once per supported source file.
+- Athanor writes `ExtractInput` JSON to extractor stdin.
+- Extractor commands write `ExtractOutput` JSON to stdout.
+- Athanor starts external linkers once per indexing run.
+- Athanor writes `LinkInput` JSON to linker stdin.
+- Linker commands write a JSON array of `Relation` objects to stdout.
+- Athanor starts external checkers once per indexing run.
+- Athanor writes `CheckInput` JSON to checker stdin.
+- Checker commands write a JSON array of `Diagnostic` objects to stdout.
+- stderr is used only for failure details.
+- `supports_extensions` scopes which source file extensions should be sent to extractor commands; it does not apply to linker or checker commands.
 
-External extractors must emit normal canonical entities and facts. The same pipeline validation applies: entities need ownership, and facts need evidence and ownership. Invalid output fails indexing through the existing adapter validation report path.
+External process adapters must emit normal canonical objects. The same pipeline validation applies: entities need ownership, and facts, relations, and diagnostics need evidence and ownership. Invalid output fails indexing through the existing adapter validation report path.
 
 Relative command paths that include a path separator are resolved relative to the manifest file directory. Bare command names are resolved by the operating system `PATH`.
-
-External process loading currently covers extractors only. Source, linker, and checker process adapters are intentionally deferred until the extractor protocol proves useful.
