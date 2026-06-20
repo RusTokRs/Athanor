@@ -8,11 +8,11 @@ use athanor_store_jsonl::JsonlKnowledgeStore;
 use athanor_store_memory::MemoryKnowledgeStore;
 use serde::Serialize;
 
+use crate::project_path::normalize_canonical_path;
 use crate::{
     AdapterValidationReport, IncrementalIndexContext, IndexState, IndexStateStore,
     JsonlReadModelWriter, RuntimeBuilder,
 };
-use crate::project_path::normalize_canonical_path;
 
 #[derive(Debug, Clone)]
 pub struct IndexOptions {
@@ -254,33 +254,6 @@ fn stable_hash(bytes: &[u8]) -> u64 {
     }
 
     hash
-}
-
-fn normalize_canonical_path(path: PathBuf) -> PathBuf {
-    #[cfg(windows)]
-    {
-        let mut components = path.components();
-
-        if let Some(Component::Prefix(prefix)) = components.next() {
-            match prefix.kind() {
-                Prefix::VerbatimDisk(disk) => {
-                    let drive = char::from(disk);
-                    return PathBuf::from(format!("{drive}:\\")).join(components.as_path());
-                }
-                Prefix::VerbatimUNC(server, share) => {
-                    return PathBuf::from(format!(
-                        "\\\\{}\\{}",
-                        server.to_string_lossy(),
-                        share.to_string_lossy()
-                    ))
-                    .join(components.as_path());
-                }
-                _ => {}
-            }
-        }
-    }
-
-    path
 }
 
 #[cfg(test)]

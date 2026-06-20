@@ -1,6 +1,6 @@
+use std::path::PathBuf;
 #[cfg(windows)]
 use std::path::{Component, Prefix};
-use std::path::PathBuf;
 
 pub(crate) fn normalize_canonical_path(path: PathBuf) -> PathBuf {
     #[cfg(windows)]
