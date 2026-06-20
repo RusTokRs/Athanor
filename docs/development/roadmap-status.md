@@ -35,6 +35,7 @@ ath
 ath --version
 ath init
 ath index
+ath index --validate-only
 ```
 
 ### Indexing Vertical Slice
@@ -289,6 +290,26 @@ Purpose:
 - removes stale validation reports after a successful index run
 - serializes adapter name, object type, object id, and missing metadata field for every validation issue
 
+### Adapter Validation-Only Mode
+
+Status: verified.
+
+Implemented in:
+
+- `apps/ath/src/main.rs`
+- `crates/athanor-app/src/index.rs`
+- `docs/README.md`
+- `docs/architecture/pipeline.md`
+
+Purpose:
+
+- adds `ath index --validate-only`
+- runs source discovery, extraction, linking, checking, and adapter contract validation
+- reuses previous canonical snapshot context when available
+- uses a transient memory store for the validation run
+- does not write durable canonical snapshots, generated read models, or index state
+- still writes machine-readable validation reports when adapter validation fails
+
 ## In Progress
 
 None.
@@ -298,14 +319,14 @@ None.
 Recommended next task:
 
 ```text
-Add an explicit adapter validation mode that checks contracts without committing a snapshot.
+Add structured validation result output for successful validation-only runs.
 ```
 
 Why:
 
-- Adapter validation reports are now machine-readable when indexing fails.
-- The current validation path still runs as part of indexing.
-- Adapter/plugin authors would benefit from a command mode dedicated to contract checking without persisting new canonical snapshots.
+- Adapter validation can now run without committing snapshots or read models.
+- Successful validation currently reports through human-readable CLI text only.
+- A machine-readable success artifact would make adapter/plugin CI easier to consume.
 
 ## Verification Commands
 

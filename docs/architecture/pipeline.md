@@ -17,6 +17,7 @@ The CLI entry point is:
 
 ```bash
 cargo run -p ath -- index .
+cargo run -p ath -- index . --validate-only
 ```
 
 ## Current Flow
@@ -33,9 +34,10 @@ cargo run -p ath -- index .
 10. `IndexPipeline` builds an affected subset from newly extracted entities and facts, then passes that subset to linkers and checkers alongside the merged full in-memory context.
 11. `IndexPipeline` validates newly emitted canonical objects for required evidence and ownership metadata.
 12. If validation fails, `ath index` writes the aggregated adapter validation report to the configured validation report path.
-13. `IndexPipeline` stores the merged canonical objects for the current run through `KnowledgeStore`.
-14. `JsonlReadModelWriter` exports JSONL read models to `.athanor/generated/current/jsonl`.
-15. `IndexStateStore` persists file hash state to `.athanor/state/index-state.json` for the next run.
+13. In `--validate-only` mode, the CLI stops after validation and does not persist a canonical snapshot, read model, or index state.
+14. Otherwise, `IndexPipeline` stores the merged canonical objects for the current run through `KnowledgeStore`.
+15. `JsonlReadModelWriter` exports JSONL read models to `.athanor/generated/current/jsonl`.
+16. `IndexStateStore` persists file hash state to `.athanor/state/index-state.json` for the next run.
 
 ## Pipeline Assembly
 
@@ -77,6 +79,7 @@ checkers:
 - calling the read-model writer
 - loading the previous canonical snapshot from the durable store
 - writing adapter validation reports to `.athanor/generated/current/validation-report.json` or the `--validation-report` path when validation fails
+- supporting `--validate-only` for adapter contract validation without writing snapshots, state, or read models
 
 `RuntimeBuilder` and `AdapterRegistry` are responsible for adapter assembly:
 
@@ -97,6 +100,7 @@ checkers:
 - running checkers over the affected subset with full merged context available
 - validating newly emitted entities/facts/relations/diagnostics before storage
 - aggregating adapter validation failures by adapter, object type, object id, and missing metadata field
+- stopping before durable writes when the CLI requested validation-only mode
 - storing entities/facts/relations/diagnostics
 - committing the snapshot
 
@@ -139,4 +143,4 @@ Generated JSONL files under `.athanor/generated/current/jsonl` are read models. 
 
 ## Next Good Step
 
-Add an explicit adapter validation mode that runs adapters in a contract-checking workflow without committing a snapshot.
+Add structured validation result output for successful `--validate-only` runs.

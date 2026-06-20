@@ -7,6 +7,7 @@ use anyhow::{Context, Result};
 use athanor_core::CanonicalSnapshotStore;
 use athanor_domain::{RepoId, SnapshotBase};
 use athanor_store_jsonl::JsonlKnowledgeStore;
+use athanor_store_memory::MemoryKnowledgeStore;
 
 use crate::{
     AdapterValidationReport, IncrementalIndexContext, IndexState, IndexStateStore,
@@ -17,6 +18,7 @@ use crate::{
 pub struct IndexOptions {
     pub root: PathBuf,
     pub validation_report: Option<PathBuf>,
+    pub validate_only: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -29,6 +31,7 @@ pub struct IndexReport {
     pub unchanged_files: usize,
     pub removed_files: usize,
     pub validation_report: PathBuf,
+    pub validate_only: bool,
 }
 
 pub async fn index_project(options: IndexOptions) -> Result<IndexReport> {
@@ -52,22 +55,41 @@ pub async fn index_project(options: IndexOptions) -> Result<IndexReport> {
         None => None,
     };
 
-    let output_result = RuntimeBuilder::new(&root)
-        .build_index_pipeline(canonical_store.clone())
-        .run_with_incremental(
-            RepoId(repo_id_for_root(&root)),
-            SnapshotBase {
-                branch: None,
-                commit: None,
-                parent_snapshot: None,
-                working_tree: true,
-            },
-            IncrementalIndexContext {
-                previous_state: previous_state.clone(),
-                previous_snapshot,
-            },
-        )
-        .await;
+    let output_result = if options.validate_only {
+        RuntimeBuilder::new(&root)
+            .build_index_pipeline(MemoryKnowledgeStore::new())
+            .run_with_incremental(
+                RepoId(repo_id_for_root(&root)),
+                SnapshotBase {
+                    branch: None,
+                    commit: None,
+                    parent_snapshot: None,
+                    working_tree: true,
+                },
+                IncrementalIndexContext {
+                    previous_state: previous_state.clone(),
+                    previous_snapshot,
+                },
+            )
+            .await
+    } else {
+        RuntimeBuilder::new(&root)
+            .build_index_pipeline(canonical_store.clone())
+            .run_with_incremental(
+                RepoId(repo_id_for_root(&root)),
+                SnapshotBase {
+                    branch: None,
+                    commit: None,
+                    parent_snapshot: None,
+                    working_tree: true,
+                },
+                IncrementalIndexContext {
+                    previous_state: previous_state.clone(),
+                    previous_snapshot,
+                },
+            )
+            .await
+    };
     let output = match output_result {
         Ok(output) => {
             remove_validation_report(&validation_report)
@@ -83,6 +105,20 @@ pub async fn index_project(options: IndexOptions) -> Result<IndexReport> {
             return Err(error).context("failed to run index pipeline");
         }
     };
+
+    if options.validate_only {
+        return Ok(IndexReport {
+            root,
+            snapshot: output.snapshot.0,
+            files_indexed: output.files.len(),
+            output_dir,
+            changed_files: output.affected_files.changed.len(),
+            unchanged_files: output.affected_files.unchanged.len(),
+            removed_files: output.affected_files.removed.len(),
+            validation_report,
+            validate_only: true,
+        });
+    }
 
     let read_model = JsonlReadModelWriter::new(&output_dir)
         .write(&output)
@@ -101,6 +137,7 @@ pub async fn index_project(options: IndexOptions) -> Result<IndexReport> {
         unchanged_files: read_model.unchanged_files,
         removed_files: read_model.removed_files,
         validation_report,
+        validate_only: false,
     })
 }
 
@@ -197,6 +234,7 @@ mod tests {
         let report = index_project(IndexOptions {
             root: root.clone(),
             validation_report: None,
+            validate_only: false,
         })
         .await
         .unwrap();
@@ -224,6 +262,7 @@ mod tests {
         let second_report = index_project(IndexOptions {
             root: root.clone(),
             validation_report: None,
+            validate_only: false,
         })
         .await
         .unwrap();
@@ -241,6 +280,7 @@ mod tests {
         let third_report = index_project(IndexOptions {
             root: root.clone(),
             validation_report: None,
+            validate_only: false,
         })
         .await
         .unwrap();
@@ -259,6 +299,7 @@ mod tests {
         let fourth_report = index_project(IndexOptions {
             root: root.clone(),
             validation_report: None,
+            validate_only: false,
         })
         .await
         .unwrap();
@@ -271,6 +312,44 @@ mod tests {
             fs::read_to_string(fourth_report.output_dir.join("entities.jsonl")).unwrap();
         assert!(!fourth_entities.contains("file://src/lib.rs"));
         assert!(fourth_entities.contains("doc://docs/auth.md"));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn validates_without_writing_outputs_or_state() {
+        let root = std::env::temp_dir().join(format!(
+            "athanor-validate-only-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+
+        fs::create_dir_all(root.join("docs")).unwrap();
+        fs::write(root.join("docs/auth.md"), "# Auth\n\n## Login\n").unwrap();
+
+        let report = index_project(IndexOptions {
+            root: root.clone(),
+            validation_report: None,
+            validate_only: true,
+        })
+        .await
+        .unwrap();
+
+        assert!(report.validate_only);
+        assert_eq!(report.files_indexed, 1);
+        assert!(!root.join(".athanor/state/index-state.json").exists());
+        assert!(
+            !root
+                .join(".athanor/generated/current/jsonl/entities.jsonl")
+                .exists()
+        );
+        assert!(
+            !root
+                .join(".athanor/store/canonical/jsonl/latest.json")
+                .exists()
+        );
 
         fs::remove_dir_all(root).unwrap();
     }

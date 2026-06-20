@@ -27,6 +27,9 @@ enum Command {
         /// Path to write adapter validation reports when indexing fails validation.
         #[arg(long)]
         validation_report: Option<PathBuf>,
+        /// Validate adapter contracts without writing snapshots, state, or read models.
+        #[arg(long)]
+        validate_only: bool,
     },
 }
 
@@ -46,21 +49,32 @@ async fn main() -> Result<()> {
         Some(Command::Index {
             path,
             validation_report,
+            validate_only,
         }) => {
             let report = index_project(IndexOptions {
                 root: path,
                 validation_report,
+                validate_only,
             })
             .await?;
-            println!(
-                "indexed {} files into snapshot {}",
-                report.files_indexed, report.snapshot
-            );
+            if report.validate_only {
+                println!(
+                    "validated {} files against adapter contracts using snapshot {}",
+                    report.files_indexed, report.snapshot
+                );
+            } else {
+                println!(
+                    "indexed {} files into snapshot {}",
+                    report.files_indexed, report.snapshot
+                );
+            }
             println!(
                 "affected files: {} changed, {} unchanged, {} removed",
                 report.changed_files, report.unchanged_files, report.removed_files
             );
-            println!("wrote JSONL to {}", report.output_dir.display());
+            if !report.validate_only {
+                println!("wrote JSONL to {}", report.output_dir.display());
+            }
         }
         None => {
             println!("Athanor {}", env!("CARGO_PKG_VERSION"));

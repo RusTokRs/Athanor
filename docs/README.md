@@ -63,6 +63,12 @@ The CLI stores durable canonical snapshots at:
   snapshots/<snapshot-id>/
 ```
 
+Adapter contracts can be checked without writing snapshots, state, or read models:
+
+```bash
+cargo run -p ath --quiet -- index . --validate-only
+```
+
 ## Documentation Rule
 
 When code changes, documentation must be updated in the same task.
