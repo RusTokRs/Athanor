@@ -34,7 +34,7 @@ cargo run -p ath -- index . --validate-only
 10. `IndexPipeline` builds an affected subset from newly extracted entities and facts, then passes that subset to linkers and checkers alongside the merged full in-memory context.
 11. `IndexPipeline` validates newly emitted canonical objects for required evidence and ownership metadata.
 12. If validation fails, `ath index` writes the aggregated adapter validation report to the configured validation report path.
-13. In `--validate-only` mode, the CLI stops after validation and does not persist a canonical snapshot, read model, or index state.
+13. In `--validate-only` mode, the CLI writes a structured validation result artifact for successful runs, then stops without persisting a canonical snapshot, read model, or index state.
 14. Otherwise, `IndexPipeline` stores the merged canonical objects for the current run through `KnowledgeStore`.
 15. `JsonlReadModelWriter` exports JSONL read models to `.athanor/generated/current/jsonl`.
 16. `IndexStateStore` persists file hash state to `.athanor/state/index-state.json` for the next run.
@@ -79,6 +79,7 @@ checkers:
 - calling the read-model writer
 - loading the previous canonical snapshot from the durable store
 - writing adapter validation reports to `.athanor/generated/current/validation-report.json` or the `--validation-report` path when validation fails
+- writing successful validation-only result JSON to `.athanor/generated/current/validation-result.json` or the `--validation-result` path
 - supporting `--validate-only` for adapter contract validation without writing snapshots, state, or read models
 
 `RuntimeBuilder` and `AdapterRegistry` are responsible for adapter assembly:
@@ -122,6 +123,7 @@ checkers:
 
 .athanor/generated/current/
   validation-report.json
+  validation-result.json
 
 .athanor/state/
   index-state.json
@@ -131,7 +133,7 @@ checkers:
   snapshots/<snapshot-id>/
 ```
 
-Generated JSONL files under `.athanor/generated/current/jsonl` are read models. They are not the source of truth and may be deleted and rebuilt. `validation-report.json` is written only for adapter contract validation failures and is removed after a successful index run. Durable canonical snapshots live under `.athanor/store/canonical/jsonl`. The state file records the last indexed file paths, content hashes, language hints, and snapshot id so later runs can classify changed, unchanged, and removed files.
+Generated JSONL files under `.athanor/generated/current/jsonl` are read models. They are not the source of truth and may be deleted and rebuilt. `validation-report.json` is written only for adapter contract validation failures and is removed after a successful index run. `validation-result.json` is written only for successful `--validate-only` runs and is removed after validation failures or normal index runs. Durable canonical snapshots live under `.athanor/store/canonical/jsonl`. The state file records the last indexed file paths, content hashes, language hints, and snapshot id so later runs can classify changed, unchanged, and removed files.
 
 ## Current Limitations
 
@@ -143,4 +145,4 @@ Generated JSONL files under `.athanor/generated/current/jsonl` are read models. 
 
 ## Next Good Step
 
-Add structured validation result output for successful `--validate-only` runs.
+Add external adapter/plugin discovery so the app-layer registry can load adapters outside the built-in set.

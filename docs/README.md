@@ -53,7 +53,7 @@ The current CLI uses `JsonlReadModelWriter` to write generated JSONL read models
   manifest.json
 ```
 
-Generated files are not source documentation. They are disposable read models. Adapter validation failures are written to `.athanor/generated/current/validation-report.json` by default. The CLI also persists incremental file-change state at `.athanor/state/index-state.json`.
+Generated files are not source documentation. They are disposable read models. Adapter validation failures are written to `.athanor/generated/current/validation-report.json` by default. Successful `--validate-only` runs write `.athanor/generated/current/validation-result.json` by default. The CLI also persists incremental file-change state at `.athanor/state/index-state.json`.
 
 The CLI stores durable canonical snapshots at:
 
@@ -67,6 +67,7 @@ Adapter contracts can be checked without writing snapshots, state, or read model
 
 ```bash
 cargo run -p ath --quiet -- index . --validate-only
+cargo run -p ath --quiet -- index . --validate-only --validation-result .athanor/generated/current/validation-result.json
 ```
 
 ## Documentation Rule

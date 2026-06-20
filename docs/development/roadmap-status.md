@@ -36,6 +36,7 @@ ath --version
 ath init
 ath index
 ath index --validate-only
+ath index --validate-only --validation-result <path>
 ```
 
 ### Indexing Vertical Slice
@@ -310,6 +311,25 @@ Purpose:
 - does not write durable canonical snapshots, generated read models, or index state
 - still writes machine-readable validation reports when adapter validation fails
 
+### Successful Validation-Only Result Artifact
+
+Status: verified.
+
+Implemented in:
+
+- `apps/ath/src/main.rs`
+- `crates/athanor-app/src/index.rs`
+- `docs/README.md`
+- `docs/architecture/pipeline.md`
+
+Purpose:
+
+- adds `ath index --validate-only --validation-result <path>`
+- writes machine-readable success JSON for successful validation-only runs
+- defaults validation result output to `.athanor/generated/current/validation-result.json`
+- serializes schema, status, snapshot, affected-file counts, and canonical object counts
+- removes stale validation result artifacts after validation failures or normal index runs
+
 ## In Progress
 
 None.
@@ -319,14 +339,14 @@ None.
 Recommended next task:
 
 ```text
-Add structured validation result output for successful validation-only runs.
+Add external adapter/plugin discovery for the app-layer registry.
 ```
 
 Why:
 
-- Adapter validation can now run without committing snapshots or read models.
-- Successful validation currently reports through human-readable CLI text only.
-- A machine-readable success artifact would make adapter/plugin CI easier to consume.
+- Built-in adapter assembly is centralized in `RuntimeBuilder` and `AdapterRegistry`.
+- Adapter contract validation now has machine-readable success and failure outputs.
+- The next modularity step is loading adapters outside the built-in registry without changing CLI indexing code.
 
 ## Verification Commands
 

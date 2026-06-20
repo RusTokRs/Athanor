@@ -27,6 +27,9 @@ enum Command {
         /// Path to write adapter validation reports when indexing fails validation.
         #[arg(long)]
         validation_report: Option<PathBuf>,
+        /// Path to write successful validation-only result JSON.
+        #[arg(long)]
+        validation_result: Option<PathBuf>,
         /// Validate adapter contracts without writing snapshots, state, or read models.
         #[arg(long)]
         validate_only: bool,
@@ -49,11 +52,13 @@ async fn main() -> Result<()> {
         Some(Command::Index {
             path,
             validation_report,
+            validation_result,
             validate_only,
         }) => {
             let report = index_project(IndexOptions {
                 root: path,
                 validation_report,
+                validation_result,
                 validate_only,
             })
             .await?;
@@ -62,6 +67,9 @@ async fn main() -> Result<()> {
                     "validated {} files against adapter contracts using snapshot {}",
                     report.files_indexed, report.snapshot
                 );
+                if let Some(validation_result) = &report.validation_result {
+                    println!("wrote validation result to {}", validation_result.display());
+                }
             } else {
                 println!(
                     "indexed {} files into snapshot {}",

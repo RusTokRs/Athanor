@@ -8,6 +8,7 @@ use athanor_core::CanonicalSnapshotStore;
 use athanor_domain::{RepoId, SnapshotBase};
 use athanor_store_jsonl::JsonlKnowledgeStore;
 use athanor_store_memory::MemoryKnowledgeStore;
+use serde::Serialize;
 
 use crate::{
     AdapterValidationReport, IncrementalIndexContext, IndexState, IndexStateStore,
@@ -18,6 +19,7 @@ use crate::{
 pub struct IndexOptions {
     pub root: PathBuf,
     pub validation_report: Option<PathBuf>,
+    pub validation_result: Option<PathBuf>,
     pub validate_only: bool,
 }
 
@@ -31,7 +33,25 @@ pub struct IndexReport {
     pub unchanged_files: usize,
     pub removed_files: usize,
     pub validation_report: PathBuf,
+    pub validation_result: Option<PathBuf>,
     pub validate_only: bool,
+}
+
+pub const VALIDATION_RESULT_SCHEMA: &str = "athanor.validation_result.v1";
+
+#[derive(Debug, Clone, Serialize)]
+struct ValidationResultFile<'a> {
+    schema: &'static str,
+    status: &'static str,
+    snapshot: &'a str,
+    files_indexed: usize,
+    changed_files: usize,
+    unchanged_files: usize,
+    removed_files: usize,
+    entities: usize,
+    facts: usize,
+    relations: usize,
+    diagnostics: usize,
 }
 
 pub async fn index_project(options: IndexOptions) -> Result<IndexReport> {
@@ -46,6 +66,7 @@ pub async fn index_project(options: IndexOptions) -> Result<IndexReport> {
     let previous_state = state_store.load().context("failed to load index state")?;
     let output_dir = root.join(".athanor/generated/current/jsonl");
     let validation_report = validation_report_path(&root, options.validation_report.as_deref());
+    let validation_result = validation_result_path(&root, options.validation_result.as_deref());
     let canonical_store = JsonlKnowledgeStore::new(root.join(".athanor/store/canonical/jsonl"));
     let previous_snapshot = match previous_state.snapshot.as_ref() {
         Some(snapshot) => canonical_store
@@ -97,6 +118,9 @@ pub async fn index_project(options: IndexOptions) -> Result<IndexReport> {
             output
         }
         Err(error) => {
+            remove_validation_result(&validation_result)
+                .context("failed to remove stale validation result")?;
+
             if let Some(report) = error.downcast_ref::<AdapterValidationReport>() {
                 write_validation_report(&validation_report, report)
                     .context("failed to write validation report")?;
@@ -107,6 +131,9 @@ pub async fn index_project(options: IndexOptions) -> Result<IndexReport> {
     };
 
     if options.validate_only {
+        write_validation_result(&validation_result, &output)
+            .context("failed to write validation result")?;
+
         return Ok(IndexReport {
             root,
             snapshot: output.snapshot.0,
@@ -116,9 +143,13 @@ pub async fn index_project(options: IndexOptions) -> Result<IndexReport> {
             unchanged_files: output.affected_files.unchanged.len(),
             removed_files: output.affected_files.removed.len(),
             validation_report,
+            validation_result: Some(validation_result),
             validate_only: true,
         });
     }
+
+    remove_validation_result(&validation_result)
+        .context("failed to remove stale validation result")?;
 
     let read_model = JsonlReadModelWriter::new(&output_dir)
         .write(&output)
@@ -137,6 +168,7 @@ pub async fn index_project(options: IndexOptions) -> Result<IndexReport> {
         unchanged_files: read_model.unchanged_files,
         removed_files: read_model.removed_files,
         validation_report,
+        validation_result: None,
         validate_only: false,
     })
 }
@@ -145,6 +177,12 @@ fn validation_report_path(root: &Path, configured: Option<&Path>) -> PathBuf {
     configured
         .map(Path::to_path_buf)
         .unwrap_or_else(|| root.join(".athanor/generated/current/validation-report.json"))
+}
+
+fn validation_result_path(root: &Path, configured: Option<&Path>) -> PathBuf {
+    configured
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| root.join(".athanor/generated/current/validation-result.json"))
 }
 
 fn write_validation_report(path: &Path, report: &AdapterValidationReport) -> Result<()> {
@@ -157,7 +195,39 @@ fn write_validation_report(path: &Path, report: &AdapterValidationReport) -> Res
         .with_context(|| format!("failed to write {}", path.display()))
 }
 
+fn write_validation_result(path: &Path, output: &crate::IndexPipelineOutput) -> Result<()> {
+    let result = ValidationResultFile {
+        schema: VALIDATION_RESULT_SCHEMA,
+        status: "passed",
+        snapshot: &output.snapshot.0,
+        files_indexed: output.files.len(),
+        changed_files: output.affected_files.changed.len(),
+        unchanged_files: output.affected_files.unchanged.len(),
+        removed_files: output.affected_files.removed.len(),
+        entities: output.entities.len(),
+        facts: output.facts.len(),
+        relations: output.relations.len(),
+        diagnostics: output.diagnostics.len(),
+    };
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+
+    fs::write(path, serde_json::to_string_pretty(&result)?)
+        .with_context(|| format!("failed to write {}", path.display()))
+}
+
 fn remove_validation_report(path: &Path) -> Result<()> {
+    if path.exists() {
+        fs::remove_file(path).with_context(|| format!("failed to remove {}", path.display()))?;
+    }
+
+    Ok(())
+}
+
+fn remove_validation_result(path: &Path) -> Result<()> {
     if path.exists() {
         fs::remove_file(path).with_context(|| format!("failed to remove {}", path.display()))?;
     }
@@ -234,6 +304,7 @@ mod tests {
         let report = index_project(IndexOptions {
             root: root.clone(),
             validation_report: None,
+            validation_result: None,
             validate_only: false,
         })
         .await
@@ -262,6 +333,7 @@ mod tests {
         let second_report = index_project(IndexOptions {
             root: root.clone(),
             validation_report: None,
+            validation_result: None,
             validate_only: false,
         })
         .await
@@ -280,6 +352,7 @@ mod tests {
         let third_report = index_project(IndexOptions {
             root: root.clone(),
             validation_report: None,
+            validation_result: None,
             validate_only: false,
         })
         .await
@@ -299,6 +372,7 @@ mod tests {
         let fourth_report = index_project(IndexOptions {
             root: root.clone(),
             validation_report: None,
+            validation_result: None,
             validate_only: false,
         })
         .await
@@ -332,6 +406,7 @@ mod tests {
         let report = index_project(IndexOptions {
             root: root.clone(),
             validation_report: None,
+            validation_result: None,
             validate_only: true,
         })
         .await
@@ -339,6 +414,15 @@ mod tests {
 
         assert!(report.validate_only);
         assert_eq!(report.files_indexed, 1);
+        let validation_result = report.validation_result.unwrap();
+        assert_eq!(
+            validation_result,
+            root.join(".athanor/generated/current/validation-result.json")
+        );
+        let validation_result_json = fs::read_to_string(validation_result).unwrap();
+        assert!(validation_result_json.contains(VALIDATION_RESULT_SCHEMA));
+        assert!(validation_result_json.contains("\"status\": \"passed\""));
+        assert!(validation_result_json.contains("\"files_indexed\": 1"));
         assert!(!root.join(".athanor/state/index-state.json").exists());
         assert!(
             !root
@@ -350,6 +434,37 @@ mod tests {
                 .join(".athanor/store/canonical/jsonl/latest.json")
                 .exists()
         );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn writes_configured_validation_result_for_validate_only() {
+        let root = std::env::temp_dir().join(format!(
+            "athanor-validation-result-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+
+        fs::create_dir_all(root.join("docs")).unwrap();
+        fs::write(root.join("docs/auth.md"), "# Auth\n\n## Login\n").unwrap();
+        let validation_result = root.join("custom-validation-result.json");
+
+        let report = index_project(IndexOptions {
+            root: root.clone(),
+            validation_report: None,
+            validation_result: Some(validation_result.clone()),
+            validate_only: true,
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(report.validation_result, Some(validation_result.clone()));
+        let content = fs::read_to_string(validation_result).unwrap();
+        assert!(content.contains("\"schema\": \"athanor.validation_result.v1\""));
+        assert!(content.contains("\"relations\""));
 
         fs::remove_dir_all(root).unwrap();
     }
