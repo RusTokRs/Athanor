@@ -30,6 +30,7 @@ High-level adapter docs:
 - [Markdown extractor](adapters/extractor-markdown.md)
 - [Markdown linker](adapters/linker-markdown.md)
 - [Markdown checker](adapters/checker-markdown.md)
+- [JSONL store](adapters/store-jsonl.md)
 
 Crate-local adapter docs:
 
@@ -37,6 +38,7 @@ Crate-local adapter docs:
 - [`athanor-extractor-markdown`](../crates/athanor-extractor-markdown/README.md)
 - [`athanor-linker-markdown`](../crates/athanor-linker-markdown/README.md)
 - [`athanor-checker-markdown`](../crates/athanor-checker-markdown/README.md)
+- [`athanor-store-jsonl`](../crates/athanor-store-jsonl/README.md)
 
 ## Current Generated Read Model
 
@@ -51,7 +53,15 @@ The current CLI uses `JsonlReadModelWriter` to write generated JSONL read models
   manifest.json
 ```
 
-Generated files are not source documentation. They are disposable read models. The CLI also persists incremental file-change state at `.athanor/state/index-state.json`.
+Generated files are not source documentation. They are disposable read models. Adapter validation failures are written to `.athanor/generated/current/validation-report.json` by default. The CLI also persists incremental file-change state at `.athanor/state/index-state.json`.
+
+The CLI stores durable canonical snapshots at:
+
+```text
+.athanor/store/canonical/jsonl/
+  latest.json
+  snapshots/<snapshot-id>/
+```
 
 ## Documentation Rule
 

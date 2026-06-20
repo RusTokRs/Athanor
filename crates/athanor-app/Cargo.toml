@@ -15,6 +15,7 @@ athanor-extractor-basic = { path = "../athanor-extractor-basic" }
 athanor-extractor-markdown = { path = "../athanor-extractor-markdown" }
 athanor-linker-markdown = { path = "../athanor-linker-markdown" }
 athanor-source-fs = { path = "../athanor-source-fs" }
+athanor-store-jsonl = { path = "../athanor-store-jsonl" }
 athanor-store-memory = { path = "../athanor-store-memory" }
 serde.workspace = true
 serde_json.workspace = true

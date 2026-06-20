@@ -36,6 +36,7 @@ Each relation has:
 - `status = verified`
 - `confidence = 1.0`
 - evidence pointing to the relevant source file/line when available
+- ownership copied from the related file/page/section entities
 
 ## Commands And Network
 

@@ -91,6 +91,7 @@ dependencies = [
  "athanor-extractor-markdown",
  "athanor-linker-markdown",
  "athanor-source-fs",
+ "athanor-store-jsonl",
  "athanor-store-memory",
  "serde",
  "serde_json",
@@ -104,6 +105,7 @@ dependencies = [
  "async-trait",
  "athanor-core",
  "athanor-domain",
+ "athanor-extractor-basic",
  "serde_json",
  "tokio",
 ]
@@ -157,6 +159,7 @@ dependencies = [
  "async-trait",
  "athanor-core",
  "athanor-domain",
+ "athanor-extractor-basic",
  "serde_json",
  "tokio",
 ]
@@ -167,6 +170,18 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "athanor-core",
+ "tokio",
+]
+
+[[package]]
+name = "athanor-store-jsonl"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "athanor-core",
+ "athanor-domain",
+ "serde",
+ "serde_json",
  "tokio",
 ]
 

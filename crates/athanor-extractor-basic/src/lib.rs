@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use athanor_core::{CoreResult, ExtractInput, ExtractOutput, Extractor, SourceFile};
 use athanor_domain::{
     Entity, EntityId, EntityKind, Evidence, EvidenceStatus, Fact, FactId, FactKind, LanguageCode,
-    SourceLocation, StableKey,
+    Ownership, SourceLocation, StableKey,
 };
 use serde_json::json;
 
@@ -35,6 +35,7 @@ impl Extractor for FileExtractor {
                 "language_hint": input.source.language_hint,
             }),
             evidence: vec![evidence_for_file(&entity.name, self.name(), None, None)],
+            ownership: ownership_for_file(&entity.name),
             snapshot: input.snapshot,
             extractor: self.name().to_string(),
             confidence: 1.0,
@@ -69,12 +70,19 @@ pub fn file_entity(source: &SourceFile, snapshot: &str) -> Entity {
             .as_ref()
             .map(|language| LanguageCode(language.clone())),
         aliases: Vec::new(),
+        ownership: ownership_for_file(&source.path),
         payload: json!({
             "snapshot": snapshot,
             "content_hash": source.content_hash,
             "has_text_content": source.content.is_some(),
         }),
     }
+}
+
+pub fn ownership_for_file(path: &str) -> Vec<Ownership> {
+    vec![Ownership {
+        source_file: path.to_string(),
+    }]
 }
 
 pub fn evidence_for_file(

@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use athanor_core::{CoreResult, LinkInput, Linker};
 use athanor_domain::{
-    Entity, EntityKind, Evidence, EvidenceStatus, Relation, RelationId, RelationKind,
+    Entity, EntityKind, Evidence, EvidenceStatus, Ownership, Relation, RelationId, RelationKind,
     RelationStatus, SnapshotId,
 };
 use serde_json::json;
@@ -110,6 +110,7 @@ fn contains_relation(
         status: RelationStatus::Verified,
         confidence: 1.0,
         evidence: vec![evidence_for_entities(from, to, linker)],
+        ownership: ownership_for_entities(from, to),
         snapshot: snapshot.clone(),
         payload: json!({
             "from": from.stable_key.0,
@@ -117,6 +118,21 @@ fn contains_relation(
             "reason": reason,
         }),
     }
+}
+
+fn ownership_for_entities(from: &Entity, to: &Entity) -> Vec<Ownership> {
+    let mut ownership = from.ownership.clone();
+
+    for owner in &to.ownership {
+        if !ownership
+            .iter()
+            .any(|existing| existing.source_file == owner.source_file)
+        {
+            ownership.push(owner.clone());
+        }
+    }
+
+    ownership
 }
 
 fn evidence_for_entities(from: &Entity, to: &Entity, linker: &str) -> Evidence {
@@ -261,6 +277,7 @@ mod tests {
             }),
             language: Some(LanguageCode("markdown".to_string())),
             aliases: Vec::new(),
+            ownership: athanor_extractor_basic::ownership_for_file(path),
             payload: json!({}),
         }
     }

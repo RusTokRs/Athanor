@@ -5,7 +5,7 @@ use athanor_core::{CoreResult, ExtractInput, ExtractOutput, Extractor, SourceFil
 use athanor_domain::{
     Entity, EntityId, EntityKind, Fact, FactId, FactKind, LanguageCode, SourceLocation, StableKey,
 };
-use athanor_extractor_basic::{evidence_for_file, stable_hash};
+use athanor_extractor_basic::{evidence_for_file, ownership_for_file, stable_hash};
 use serde_json::json;
 
 #[derive(Debug, Clone, Default)]
@@ -44,6 +44,7 @@ impl Extractor for MarkdownExtractor {
             }),
             language: Some(LanguageCode("markdown".to_string())),
             aliases: Vec::new(),
+            ownership: ownership_for_file(&input.source.path),
             payload: json!({
                 "content_hash": input.source.content_hash,
             }),
@@ -74,6 +75,7 @@ impl Extractor for MarkdownExtractor {
                 }),
                 language: Some(LanguageCode("markdown".to_string())),
                 aliases: Vec::new(),
+                ownership: ownership_for_file(&input.source.path),
                 payload: json!({
                     "level": heading.level,
                     "slug": slug,
@@ -99,6 +101,7 @@ impl Extractor for MarkdownExtractor {
                     Some(heading.line),
                     Some(heading.line),
                 )],
+                ownership: ownership_for_file(&input.source.path),
                 snapshot: input.snapshot.clone(),
                 extractor: self.name().to_string(),
                 confidence: 1.0,

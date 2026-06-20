@@ -54,12 +54,28 @@ Every adapter should document:
 - limitations
 - how to test it
 
+## Canonical Output Requirements
+
+Adapters that emit canonical objects must include enough metadata for verification and incremental merge.
+
+Required:
+
+- Entities must include `ownership`.
+- Facts must include `evidence` and `ownership`.
+- Relations must include `evidence` and `ownership`.
+- Diagnostics must include `evidence` and `ownership`.
+
+Ownership should list every source file that can invalidate the emitted object. For single-file extraction output, use the source file path. For cross-file linker or checker output, use the union of all contributing source file paths.
+
+`IndexPipeline` validates newly emitted adapter output before storing canonical objects. Missing evidence or ownership is an adapter error. Validation errors are reported as an aggregated adapter validation report with the adapter name, object type, object id, and missing metadata field for every issue found in that adapter output.
+
 ## Existing Adapters
 
 | Crate | Port | Purpose |
 | --- | --- | --- |
 | `athanor-source-fs` | `SourceProvider` | Discover local files. |
 | `athanor-store-memory` | `KnowledgeStore` | In-memory canonical object store. |
+| `athanor-store-jsonl` | `KnowledgeStore`, `CanonicalSnapshotStore` | Durable local JSONL canonical snapshot store. |
 | `athanor-extractor-basic` | `Extractor` | Emit file entities and file discovery facts. |
 | `athanor-extractor-markdown` | `Extractor` | Emit Markdown documentation page/section knowledge. |
 | `athanor-linker-markdown` | `Linker` | Link Markdown file/page/section containment. |

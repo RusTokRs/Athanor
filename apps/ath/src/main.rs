@@ -24,6 +24,9 @@ enum Command {
         /// Project root. Defaults to the current directory.
         #[arg(default_value = ".")]
         path: PathBuf,
+        /// Path to write adapter validation reports when indexing fails validation.
+        #[arg(long)]
+        validation_report: Option<PathBuf>,
     },
 }
 
@@ -40,8 +43,15 @@ async fn main() -> Result<()> {
                 println!("created {}", path.display());
             }
         }
-        Some(Command::Index { path }) => {
-            let report = index_project(IndexOptions { root: path }).await?;
+        Some(Command::Index {
+            path,
+            validation_report,
+        }) => {
+            let report = index_project(IndexOptions {
+                root: path,
+                validation_report,
+            })
+            .await?;
             println!(
                 "indexed {} files into snapshot {}",
                 report.files_indexed, report.snapshot

@@ -9,6 +9,8 @@ Implements: `Checker`
 - `DiagnosticKind::DocumentationPageMissingTitle`
 - `DiagnosticKind::EmptyDocumentationPage`
 
+Diagnostics include ownership copied from the diagnosed documentation page entity.
+
 ## Inputs
 
 Canonical entities and relations from the current pipeline. The adapter receives full extracted context plus an `AffectedSubset` and evaluates only affected documentation pages and affected containment relations.

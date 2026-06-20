@@ -8,6 +8,8 @@ Implements: `Linker`
 
 - `RelationKind::Contains`
 
+Relations include ownership copied from the related file/page/section entities.
+
 Current relations:
 
 ```text

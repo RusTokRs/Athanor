@@ -233,6 +233,7 @@ mod tests {
             source: None,
             language: None,
             aliases: Vec::new(),
+            ownership: Vec::new(),
             payload: json!({}),
         };
 

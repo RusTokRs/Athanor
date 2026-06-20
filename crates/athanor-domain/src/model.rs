@@ -198,6 +198,11 @@ pub struct SourceLocation {
     pub line_end: Option<u32>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Ownership {
+    pub source_file: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Evidence {
     pub source_file: Option<String>,
@@ -219,6 +224,8 @@ pub struct Entity {
     pub source: Option<SourceLocation>,
     pub language: Option<LanguageCode>,
     pub aliases: Vec<String>,
+    #[serde(default)]
+    pub ownership: Vec<Ownership>,
     pub payload: Value,
 }
 
@@ -230,6 +237,8 @@ pub struct Fact {
     pub object: Option<EntityId>,
     pub value: Value,
     pub evidence: Vec<Evidence>,
+    #[serde(default)]
+    pub ownership: Vec<Ownership>,
     pub snapshot: SnapshotId,
     pub extractor: String,
     pub confidence: f32,
@@ -244,6 +253,8 @@ pub struct Relation {
     pub status: RelationStatus,
     pub confidence: f32,
     pub evidence: Vec<Evidence>,
+    #[serde(default)]
+    pub ownership: Vec<Ownership>,
     pub snapshot: SnapshotId,
     pub payload: Value,
 }
@@ -258,6 +269,8 @@ pub struct Diagnostic {
     pub message: String,
     pub entities: Vec<EntityId>,
     pub evidence: Vec<Evidence>,
+    #[serde(default)]
+    pub ownership: Vec<Ownership>,
     pub snapshot: SnapshotId,
     pub suggested_fix: Option<String>,
     pub payload: Value,

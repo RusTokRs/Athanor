@@ -9,6 +9,7 @@ members = [
     "crates/athanor-extractor-markdown",
     "crates/athanor-linker-markdown",
     "crates/athanor-source-fs",
+    "crates/athanor-store-jsonl",
     "crates/athanor-store-memory",
 ]
 resolver = "3"

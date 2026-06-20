@@ -48,6 +48,10 @@ Each section fact includes:
 - confidence
 - verified status
 
+## Ownership
+
+Emitted page entities, section entities, and section facts are owned by the Markdown source file path.
+
 ## Commands And Network
 
 - Does not run external commands.

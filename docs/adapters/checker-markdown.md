@@ -41,6 +41,7 @@ Diagnostics include:
 - source line when known
 - checker name
 - verified evidence status
+- ownership copied from the diagnosed documentation page entity
 
 ## Commands And Network
 

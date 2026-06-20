@@ -13,4 +13,5 @@ athanor-domain = { path = "../athanor-domain" }
 serde_json.workspace = true
 
 [dev-dependencies]
+athanor-extractor-basic = { path = "../athanor-extractor-basic" }
 tokio.workspace = true

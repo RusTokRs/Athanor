@@ -38,6 +38,10 @@ Evidence:
 - `confidence = 1.0`
 - `status = verified`
 
+Ownership:
+
+- emitted entities and facts are owned by the discovered source file path
+
 ## Commands And Network
 
 - Does not run external commands.

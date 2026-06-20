@@ -10,6 +10,8 @@ Implements: `Extractor`
 - `EntityKind::DocumentationSection`
 - `FactKind::DocSectionFound`
 
+All emitted objects include ownership metadata for the Markdown source file path.
+
 ## Inputs
 
 `SourceFile` with:

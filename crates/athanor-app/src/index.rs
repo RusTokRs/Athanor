@@ -1,16 +1,22 @@
+use std::fs;
 #[cfg(windows)]
 use std::path::{Component, Prefix};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+use athanor_core::CanonicalSnapshotStore;
 use athanor_domain::{RepoId, SnapshotBase};
-use athanor_store_memory::MemoryKnowledgeStore;
+use athanor_store_jsonl::JsonlKnowledgeStore;
 
-use crate::{IndexState, IndexStateStore, JsonlReadModelWriter, RuntimeBuilder};
+use crate::{
+    AdapterValidationReport, IncrementalIndexContext, IndexState, IndexStateStore,
+    JsonlReadModelWriter, RuntimeBuilder,
+};
 
 #[derive(Debug, Clone)]
 pub struct IndexOptions {
     pub root: PathBuf,
+    pub validation_report: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone)]
@@ -22,6 +28,7 @@ pub struct IndexReport {
     pub changed_files: usize,
     pub unchanged_files: usize,
     pub removed_files: usize,
+    pub validation_report: PathBuf,
 }
 
 pub async fn index_project(options: IndexOptions) -> Result<IndexReport> {
@@ -34,10 +41,20 @@ pub async fn index_project(options: IndexOptions) -> Result<IndexReport> {
 
     let state_store = IndexStateStore::new(root.join(".athanor/state/index-state.json"));
     let previous_state = state_store.load().context("failed to load index state")?;
+    let output_dir = root.join(".athanor/generated/current/jsonl");
+    let validation_report = validation_report_path(&root, options.validation_report.as_deref());
+    let canonical_store = JsonlKnowledgeStore::new(root.join(".athanor/store/canonical/jsonl"));
+    let previous_snapshot = match previous_state.snapshot.as_ref() {
+        Some(snapshot) => canonical_store
+            .load_snapshot(&athanor_domain::SnapshotId(snapshot.clone()))
+            .await
+            .context("failed to load previous canonical snapshot")?,
+        None => None,
+    };
 
-    let mut output = RuntimeBuilder::new(&root)
-        .build_index_pipeline(MemoryKnowledgeStore::new())
-        .run(
+    let output_result = RuntimeBuilder::new(&root)
+        .build_index_pipeline(canonical_store.clone())
+        .run_with_incremental(
             RepoId(repo_id_for_root(&root)),
             SnapshotBase {
                 branch: None,
@@ -45,13 +62,28 @@ pub async fn index_project(options: IndexOptions) -> Result<IndexReport> {
                 parent_snapshot: None,
                 working_tree: true,
             },
+            IncrementalIndexContext {
+                previous_state: previous_state.clone(),
+                previous_snapshot,
+            },
         )
-        .await
-        .context("failed to run index pipeline")?;
+        .await;
+    let output = match output_result {
+        Ok(output) => {
+            remove_validation_report(&validation_report)
+                .context("failed to remove stale validation report")?;
+            output
+        }
+        Err(error) => {
+            if let Some(report) = error.downcast_ref::<AdapterValidationReport>() {
+                write_validation_report(&validation_report, report)
+                    .context("failed to write validation report")?;
+            }
 
-    output.affected_files = previous_state.affected_files(&output.files);
+            return Err(error).context("failed to run index pipeline");
+        }
+    };
 
-    let output_dir = root.join(".athanor/generated/current/jsonl");
     let read_model = JsonlReadModelWriter::new(&output_dir)
         .write(&output)
         .context("failed to write JSONL read model")?;
@@ -68,7 +100,32 @@ pub async fn index_project(options: IndexOptions) -> Result<IndexReport> {
         changed_files: read_model.changed_files,
         unchanged_files: read_model.unchanged_files,
         removed_files: read_model.removed_files,
+        validation_report,
     })
+}
+
+fn validation_report_path(root: &Path, configured: Option<&Path>) -> PathBuf {
+    configured
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| root.join(".athanor/generated/current/validation-report.json"))
+}
+
+fn write_validation_report(path: &Path, report: &AdapterValidationReport) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+
+    fs::write(path, serde_json::to_string_pretty(report)?)
+        .with_context(|| format!("failed to write {}", path.display()))
+}
+
+fn remove_validation_report(path: &Path) -> Result<()> {
+    if path.exists() {
+        fs::remove_file(path).with_context(|| format!("failed to remove {}", path.display()))?;
+    }
+
+    Ok(())
 }
 
 fn repo_id_for_root(root: &Path) -> String {
@@ -137,9 +194,12 @@ mod tests {
         fs::write(root.join("src/lib.rs"), "pub fn hello() {}\n").unwrap();
         fs::write(root.join("docs/auth.md"), "# Auth\n\n## Login\n").unwrap();
 
-        let report = index_project(IndexOptions { root: root.clone() })
-            .await
-            .unwrap();
+        let report = index_project(IndexOptions {
+            root: root.clone(),
+            validation_report: None,
+        })
+        .await
+        .unwrap();
 
         assert_eq!(report.files_indexed, 2);
         assert!(report.output_dir.join("entities.jsonl").is_file());
@@ -161,14 +221,84 @@ mod tests {
         assert_eq!(report.removed_files, 0);
         assert!(root.join(".athanor/state/index-state.json").is_file());
 
-        let second_report = index_project(IndexOptions { root: root.clone() })
-            .await
-            .unwrap();
+        let second_report = index_project(IndexOptions {
+            root: root.clone(),
+            validation_report: None,
+        })
+        .await
+        .unwrap();
 
         assert_eq!(second_report.files_indexed, 2);
         assert_eq!(second_report.changed_files, 0);
         assert_eq!(second_report.unchanged_files, 2);
         assert_eq!(second_report.removed_files, 0);
+        let second_entities =
+            fs::read_to_string(second_report.output_dir.join("entities.jsonl")).unwrap();
+        assert!(second_entities.contains("file://src/lib.rs"));
+        assert!(second_entities.contains("doc://docs/auth.md#login"));
+
+        fs::write(root.join("docs/auth.md"), "# Auth\n").unwrap();
+        let third_report = index_project(IndexOptions {
+            root: root.clone(),
+            validation_report: None,
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(third_report.files_indexed, 2);
+        assert_eq!(third_report.changed_files, 1);
+        assert_eq!(third_report.unchanged_files, 1);
+        assert_eq!(third_report.removed_files, 0);
+        let third_entities =
+            fs::read_to_string(third_report.output_dir.join("entities.jsonl")).unwrap();
+        assert!(third_entities.contains("file://src/lib.rs"));
+        assert!(third_entities.contains("doc://docs/auth.md"));
+        assert!(!third_entities.contains("doc://docs/auth.md#login"));
+
+        fs::remove_file(root.join("src/lib.rs")).unwrap();
+        let fourth_report = index_project(IndexOptions {
+            root: root.clone(),
+            validation_report: None,
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(fourth_report.files_indexed, 1);
+        assert_eq!(fourth_report.changed_files, 0);
+        assert_eq!(fourth_report.unchanged_files, 1);
+        assert_eq!(fourth_report.removed_files, 1);
+        let fourth_entities =
+            fs::read_to_string(fourth_report.output_dir.join("entities.jsonl")).unwrap();
+        assert!(!fourth_entities.contains("file://src/lib.rs"));
+        assert!(fourth_entities.contains("doc://docs/auth.md"));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn writes_validation_report_json() {
+        let root = std::env::temp_dir().join(format!(
+            "athanor-validation-report-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let path = root.join("validation-report.json");
+        let report = AdapterValidationReport {
+            adapter: "test-adapter".to_string(),
+            issues: vec![crate::AdapterValidationIssue {
+                object_type: "relation",
+                object_id: "rel_test".to_string(),
+                missing: crate::MissingCanonicalMetadata::Ownership,
+            }],
+        };
+
+        write_validation_report(&path, &report).unwrap();
+
+        let content = fs::read_to_string(&path).unwrap();
+        assert!(content.contains("\"adapter\": \"test-adapter\""));
+        assert!(content.contains("\"missing\": \"ownership\""));
 
         fs::remove_dir_all(root).unwrap();
     }

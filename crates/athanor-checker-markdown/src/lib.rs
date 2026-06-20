@@ -88,6 +88,7 @@ fn diagnostic(
         message: message.to_string(),
         entities: vec![entity.id.clone()],
         evidence: vec![evidence_for_entity(entity, checker)],
+        ownership: entity.ownership.clone(),
         snapshot: snapshot.clone(),
         suggested_fix: None,
         payload: json!({
@@ -174,6 +175,7 @@ mod tests {
             }),
             language: Some(LanguageCode("markdown".to_string())),
             aliases: Vec::new(),
+            ownership: athanor_extractor_basic::ownership_for_file("docs/auth.md"),
             payload: json!({}),
         };
         let relation = Relation {
@@ -184,6 +186,7 @@ mod tests {
             status: RelationStatus::Verified,
             confidence: 1.0,
             evidence: Vec::new(),
+            ownership: athanor_extractor_basic::ownership_for_file("docs/auth.md"),
             snapshot: SnapshotId("snap_test".to_string()),
             payload: json!({}),
         };
@@ -256,6 +259,7 @@ mod tests {
             }),
             language: Some(LanguageCode("markdown".to_string())),
             aliases: Vec::new(),
+            ownership: athanor_extractor_basic::ownership_for_file("docs/auth.md"),
             payload: json!({}),
         }
     }

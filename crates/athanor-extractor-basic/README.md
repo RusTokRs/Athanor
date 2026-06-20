@@ -9,6 +9,8 @@ Implements: `Extractor`
 - `EntityKind::File`
 - `FactKind::FileDiscovered`
 
+Both emitted object types include ownership metadata for the discovered source file path.
+
 ## Inputs
 
 `SourceFile` from any `SourceProvider`.

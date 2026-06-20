@@ -63,6 +63,21 @@ pub trait KnowledgeStore: Send + Sync {
     async fn commit_snapshot(&self, snapshot: SnapshotId) -> CoreResult<()>;
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CanonicalSnapshot {
+    pub snapshot: Option<SnapshotId>,
+    pub entities: Vec<Entity>,
+    pub facts: Vec<Fact>,
+    pub relations: Vec<Relation>,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+#[async_trait]
+pub trait CanonicalSnapshotStore: Send + Sync {
+    async fn load_snapshot(&self, snapshot: &SnapshotId) -> CoreResult<Option<CanonicalSnapshot>>;
+    async fn load_latest_snapshot(&self) -> CoreResult<Option<CanonicalSnapshot>>;
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SourceFile {
     pub path: String,
