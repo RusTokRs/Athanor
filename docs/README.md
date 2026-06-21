@@ -21,6 +21,7 @@ Use this file to find the right document before changing code, adapters, plugins
 
 - [Agent workflow](development/agent-workflow.md): read-before-coding, planning, documentation, verification, completion notes.
 - [Definition of done](development/definition-of-done.md): required checks and documentation expectations.
+- [Library adoption plan](development/library-adoption-plan.md): approved dependencies, adapter boundaries, risks, and acceptance criteria.
 - [Roadmap status](development/roadmap-status.md): current verified implementation status and next recommended task.
 
 ## Adapter Documentation
@@ -86,6 +87,20 @@ cargo run -p ath --quiet -- context "task"
 cargo run -p ath --quiet -- context "task" --json
 cargo run -p ath --quiet -- context "task" --level summary --budget 2000
 cargo run -p ath --quiet -- context "task" --level deep --max-files 20 --max-depth 2
+```
+
+Canonical entities can be explained directly from the latest snapshot:
+
+```bash
+cargo run -p ath --quiet -- explain "api://POST:/login"
+cargo run -p ath --quiet -- explain "api://POST:/login" --json
+```
+
+Open canonical diagnostics can be inspected by scope:
+
+```bash
+cargo run -p ath --quiet -- check api
+cargo run -p ath --quiet -- check docs --json
 ```
 
 ## Documentation Rule

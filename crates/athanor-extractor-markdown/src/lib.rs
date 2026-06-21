@@ -6,6 +6,7 @@ use athanor_domain::{
     Entity, EntityId, EntityKind, Fact, FactId, FactKind, LanguageCode, SourceLocation, StableKey,
 };
 use athanor_extractor_basic::{evidence_for_file, ownership_for_file, stable_hash};
+use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 use serde_json::json;
 
 #[derive(Debug, Clone, Default)]
@@ -25,6 +26,7 @@ impl Extractor for MarkdownExtractor {
         let Some(content) = input.source.content.as_deref() else {
             return Ok(ExtractOutput::default());
         };
+        let headings = markdown_headings(content);
 
         let page_key = StableKey(format!("doc://{}", input.source.path));
         let page_id = EntityId(format!(
@@ -36,7 +38,10 @@ impl Extractor for MarkdownExtractor {
             stable_key: page_key,
             kind: EntityKind::DocumentationPage,
             name: input.source.path.clone(),
-            title: first_heading(content).map(str::to_string),
+            title: headings
+                .iter()
+                .find(|heading| heading.level == 1)
+                .map(|heading| heading.title.clone()),
             source: Some(SourceLocation {
                 path: input.source.path.clone(),
                 line_start: Some(1),
@@ -54,7 +59,7 @@ impl Extractor for MarkdownExtractor {
         let mut facts = Vec::new();
         let mut seen_slugs = HashMap::new();
 
-        for heading in markdown_headings(content) {
+        for heading in headings {
             let slug = unique_slug(&heading.title, &mut seen_slugs);
             let section_key = StableKey(format!("doc://{}#{}", input.source.path, slug));
             let section_id = EntityId(format!(
@@ -120,39 +125,66 @@ struct MarkdownHeading {
 }
 
 fn markdown_headings(content: &str) -> Vec<MarkdownHeading> {
-    content
-        .lines()
-        .enumerate()
-        .filter_map(|(index, line)| {
-            let trimmed = line.trim_start();
-            let level = trimmed
-                .chars()
-                .take_while(|character| *character == '#')
-                .count();
+    let mut options = Options::empty();
+    options.insert(Options::ENABLE_TABLES);
+    options.insert(Options::ENABLE_FOOTNOTES);
+    options.insert(Options::ENABLE_STRIKETHROUGH);
+    options.insert(Options::ENABLE_TASKLISTS);
 
-            if level == 0 || level > 6 || !trimmed[level..].starts_with(' ') {
-                return None;
+    let mut headings = Vec::new();
+    let mut current: Option<MarkdownHeading> = None;
+    for (event, range) in Parser::new_ext(content, options).into_offset_iter() {
+        match event {
+            Event::Start(Tag::Heading { level, .. }) => {
+                current = Some(MarkdownHeading {
+                    level: heading_level(level),
+                    title: String::new(),
+                    line: line_for_offset(content, range.start),
+                });
             }
-
-            let title = trimmed[level..].trim().to_string();
-
-            if title.is_empty() {
-                return None;
+            Event::Text(text) | Event::Code(text) => {
+                if let Some(heading) = &mut current {
+                    heading.title.push_str(&text);
+                }
             }
-
-            Some(MarkdownHeading {
-                level,
-                title,
-                line: (index + 1) as u32,
-            })
-        })
-        .collect()
+            Event::SoftBreak | Event::HardBreak => {
+                if let Some(heading) = &mut current
+                    && !heading.title.ends_with(' ')
+                {
+                    heading.title.push(' ');
+                }
+            }
+            Event::End(TagEnd::Heading(_)) => {
+                if let Some(mut heading) = current.take() {
+                    heading.title = heading.title.trim().to_string();
+                    if !heading.title.is_empty() {
+                        headings.push(heading);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    headings
 }
 
-fn first_heading(content: &str) -> Option<&str> {
-    content
-        .lines()
-        .find_map(|line| line.strip_prefix("# ").map(str::trim))
+fn heading_level(level: HeadingLevel) -> usize {
+    match level {
+        HeadingLevel::H1 => 1,
+        HeadingLevel::H2 => 2,
+        HeadingLevel::H3 => 3,
+        HeadingLevel::H4 => 4,
+        HeadingLevel::H5 => 5,
+        HeadingLevel::H6 => 6,
+    }
+}
+
+fn line_for_offset(content: &str, offset: usize) -> u32 {
+    content.as_bytes()[..offset.min(content.len())]
+        .iter()
+        .filter(|byte| **byte == b'\n')
+        .count() as u32
+        + 1
 }
 
 fn line_count(content: &str) -> Option<u32> {
@@ -283,5 +315,56 @@ mod tests {
                 .0
                 .starts_with("doc://docs/auth.md#%d0%b0%d0%b2")
         }));
+    }
+
+    #[tokio::test]
+    async fn ignores_heading_syntax_inside_fenced_code() {
+        let output = extract("# Real\n\n```md\n# Not a heading\n```\n\n## Section").await;
+
+        let sections = output
+            .entities
+            .iter()
+            .filter(|entity| entity.kind == EntityKind::DocumentationSection)
+            .collect::<Vec<_>>();
+        assert_eq!(sections.len(), 2);
+        assert!(!sections.iter().any(|entity| entity.name == "Not a heading"));
+    }
+
+    #[tokio::test]
+    async fn extracts_setext_and_formatted_headings_with_source_lines() {
+        let output = extract("Page title\n==========\n\n## Login with *tokens* and `code`").await;
+
+        let page = output
+            .entities
+            .iter()
+            .find(|entity| entity.kind == EntityKind::DocumentationPage)
+            .unwrap();
+        assert_eq!(page.title.as_deref(), Some("Page title"));
+        let section = output
+            .entities
+            .iter()
+            .find(|entity| entity.name == "Login with tokens and code")
+            .unwrap();
+        assert_eq!(section.source.as_ref().unwrap().line_start, Some(4));
+        assert_eq!(
+            section.stable_key.0,
+            "doc://docs/auth.md#login-with-tokens-and-code"
+        );
+    }
+
+    async fn extract(content: &str) -> ExtractOutput {
+        MarkdownExtractor
+            .extract(ExtractInput {
+                repo: RepoId("repo_test".to_string()),
+                snapshot: SnapshotId("snap_test".to_string()),
+                source: SourceFile {
+                    path: "docs/auth.md".to_string(),
+                    language_hint: Some("markdown".to_string()),
+                    content_hash: Some("hash".to_string()),
+                    content: Some(content.to_string()),
+                },
+            })
+            .await
+            .unwrap()
     }
 }

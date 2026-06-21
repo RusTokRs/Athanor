@@ -8,10 +8,18 @@ paths:
       operationId: login
       summary: Log in
       tags: [auth]
-      requestBody: {}
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
       responses:
         '200':
           description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
   /__athanor_fixture_missing_handler:
     post:
       operationId: athanorFixtureMissingHandler
@@ -30,4 +38,9 @@ components:
       type: object
       properties:
         email:
+          type: string
+    LoginResponse:
+      type: object
+      properties:
+        token:
           type: string

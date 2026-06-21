@@ -2,8 +2,9 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use athanor_app::{
-    ContextLimitOverrides, ContextOptions, IndexOptions, InitOptions, context_project,
-    index_project, init_project,
+    ContextLimitOverrides, ContextOptions, DiagnosticCheckOptions, DiagnosticCheckReport,
+    DiagnosticScope, EntityExplanation, ExplainOptions, IndexOptions, InitOptions, check_project,
+    context_project, explain_project, index_project, init_project,
 };
 use athanor_domain::ContextLevel;
 use clap::{Parser, Subcommand, ValueEnum};
@@ -23,6 +24,21 @@ impl From<ContextLevelArg> for ContextLevel {
             ContextLevelArg::Normal => Self::Normal,
             ContextLevelArg::Deep => Self::Deep,
             ContextLevelArg::Full => Self::Full,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum DiagnosticScopeArg {
+    Api,
+    Docs,
+}
+
+impl From<DiagnosticScopeArg> for DiagnosticScope {
+    fn from(value: DiagnosticScopeArg) -> Self {
+        match value {
+            DiagnosticScopeArg::Api => Self::Api,
+            DiagnosticScopeArg::Docs => Self::Docs,
         }
     }
 }
@@ -85,6 +101,29 @@ enum Command {
         /// Maximum relation traversal depth.
         #[arg(long)]
         max_depth: Option<usize>,
+    },
+    /// Explain one canonical entity from the latest snapshot.
+    Explain {
+        /// Exact canonical stable key, for example api://POST:/login.
+        stable_key: String,
+        /// Project root. Defaults to the current directory.
+        #[arg(long, default_value = ".")]
+        path: PathBuf,
+        /// Print the complete explanation as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show open diagnostics from the latest canonical snapshot.
+    Check {
+        /// Diagnostic scope to inspect.
+        #[arg(value_enum)]
+        scope: DiagnosticScopeArg,
+        /// Project root. Defaults to the current directory.
+        #[arg(long, default_value = ".")]
+        path: PathBuf,
+        /// Print the complete diagnostic report as JSON.
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -175,10 +214,141 @@ async fn main() -> Result<()> {
                 }
             }
         }
+        Some(Command::Explain {
+            stable_key,
+            path,
+            json,
+        }) => {
+            let explanation = explain_project(ExplainOptions {
+                root: path,
+                stable_key,
+            })
+            .await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&explanation)?);
+            } else {
+                print_explanation(&explanation)?;
+            }
+        }
+        Some(Command::Check { scope, path, json }) => {
+            let report = check_project(DiagnosticCheckOptions {
+                root: path,
+                scope: scope.into(),
+            })
+            .await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                print_check_report(&report)?;
+            }
+        }
         None => {
             println!("Athanor {}", env!("CARGO_PKG_VERSION"));
         }
     }
 
     Ok(())
+}
+
+fn print_explanation(explanation: &EntityExplanation) -> Result<()> {
+    println!("{}", explanation.entity.stable_key.0);
+    println!("snapshot: {}", explanation.snapshot);
+    println!("kind: {}", serialized_name(&explanation.entity.kind)?);
+    println!("name: {}", explanation.entity.name);
+    if let Some(source) = &explanation.entity.source {
+        let line = source
+            .line_start
+            .map_or_else(String::new, |line| format!(":{line}"));
+        println!("source: {}{line}", source.path);
+    }
+    for fact in &explanation.facts {
+        println!(
+            "fact: {} (confidence {:.2})",
+            serialized_name(&fact.kind)?,
+            fact.confidence
+        );
+    }
+    for explained in &explanation.outgoing_relations {
+        let target = explained
+            .related_entity
+            .as_ref()
+            .map_or(explained.relation.to.0.as_str(), |entity| {
+                entity.stable_key.0.as_str()
+            });
+        println!(
+            "relation: --{}--> {} [{}]",
+            serialized_name(&explained.relation.kind)?,
+            target,
+            serialized_name(&explained.relation.status)?
+        );
+    }
+    for explained in &explanation.incoming_relations {
+        let source = explained
+            .related_entity
+            .as_ref()
+            .map_or(explained.relation.from.0.as_str(), |entity| {
+                entity.stable_key.0.as_str()
+            });
+        println!(
+            "relation: {} --{}--> [this] [{}]",
+            source,
+            serialized_name(&explained.relation.kind)?,
+            serialized_name(&explained.relation.status)?
+        );
+    }
+    for diagnostic in &explanation.diagnostics {
+        println!(
+            "diagnostic: {} {} — {}",
+            serialized_name(&diagnostic.severity)?,
+            serialized_name(&diagnostic.kind)?,
+            diagnostic.title
+        );
+    }
+    Ok(())
+}
+
+fn print_check_report(report: &DiagnosticCheckReport) -> Result<()> {
+    println!(
+        "{} diagnostics in {}: {} open ({} critical, {} high, {} medium, {} low)",
+        serialized_name(&report.scope)?,
+        report.snapshot,
+        report.counts.total,
+        report.counts.critical,
+        report.counts.high,
+        report.counts.medium,
+        report.counts.low
+    );
+    for diagnostic in &report.diagnostics {
+        let location = diagnostic
+            .evidence
+            .iter()
+            .find_map(|evidence| {
+                evidence.source_file.as_ref().map(|path| {
+                    evidence
+                        .line_start
+                        .map_or_else(|| path.clone(), |line| format!("{path}:{line}"))
+                })
+            })
+            .or_else(|| {
+                diagnostic
+                    .ownership
+                    .first()
+                    .map(|ownership| ownership.source_file.clone())
+            })
+            .unwrap_or_else(|| "unknown source".to_string());
+        println!(
+            "{} {} at {} — {}",
+            serialized_name(&diagnostic.severity)?,
+            serialized_name(&diagnostic.kind)?,
+            location,
+            diagnostic.title
+        );
+    }
+    Ok(())
+}
+
+fn serialized_name(value: &impl serde::Serialize) -> Result<String> {
+    Ok(serde_json::to_value(value)?
+        .as_str()
+        .map_or_else(|| "unknown".to_string(), str::to_string))
 }

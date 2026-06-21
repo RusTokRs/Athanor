@@ -46,6 +46,20 @@ cargo run -p ath --quiet -- context "change authentication"
 cargo run -p ath --quiet -- context "change authentication" --json
 ```
 
+Explain one canonical entity with its facts, relations, evidence, and diagnostics:
+
+```bash
+cargo run -p ath --quiet -- explain "api://POST:/login"
+cargo run -p ath --quiet -- explain "api://POST:/login" --json
+```
+
+Inspect open API or documentation diagnostics from the latest snapshot:
+
+```bash
+cargo run -p ath --quiet -- check api
+cargo run -p ath --quiet -- check docs --json
+```
+
 Generated read models are written under `.athanor/generated/current/jsonl`. Durable canonical snapshots are written under `.athanor/store/canonical/jsonl`.
 
 ## Documentation

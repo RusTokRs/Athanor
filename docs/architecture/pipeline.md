@@ -24,13 +24,13 @@ cargo run -p ath -- index . --validate-only
 
 1. `athanor-source-fs` discovers project files and returns `SourceFile` values.
 2. `athanor-extractor-basic` creates file entities and `file_discovered` facts.
-3. `athanor-extractor-markdown` creates documentation page/section entities and `doc_section_found` facts.
-4. `athanor-extractor-openapi` parses OpenAPI 3.x operations and component schemas into API entities and declaration facts.
+3. `athanor-extractor-markdown` parses CommonMark/GFM heading events with `pulldown-cmark`, then creates documentation page/section entities and `doc_section_found` facts.
+4. `athanor-extractor-openapi` dispatches OpenAPI 3.1 to `oas3` and 3.0 to a maintained-YAML legacy parser, then extracts operations, component schemas, and normalized request/response schema uses.
 5. `athanor-extractor-rust` parses Rust files into module, function, and symbol entities plus `symbol_defined` facts.
 6. `athanor-linker-markdown` creates `contains` relations between files, documentation pages, and sections.
-7. `athanor-linker-api` links OpenAPI operations to matching Rust handlers and Markdown API documentation.
+7. `athanor-linker-api` links OpenAPI operations to matching Rust handlers, Markdown API documentation, and same-document request/response component schemas.
 8. `athanor-checker-markdown` creates documentation structure diagnostics.
-9. `athanor-checker-api` diagnoses OpenAPI operations without linked implementations or documentation.
+9. `athanor-checker-api` diagnoses OpenAPI operations without linked implementations or documentation and local component schema references that did not resolve.
 10. `RuntimeBuilder` discovers adapter plugin manifests from `.athanor/adapters/*.json` and `.athanor/plugins/*/athanor-adapter.json`, then applies enabled adapter entries that match known app-layer factory ids.
 11. `RuntimeBuilder` builds the configured `IndexPipeline` from an `AdapterRegistry`.
 12. `IndexStateStore` classifies discovered files as changed, unchanged, or removed by comparing them with the previous state.
@@ -55,6 +55,8 @@ cargo run -p ath -- index . --validate-only
 - `JsonlReadModelWriter`: reusable JSONL export for generated read models.
 - `JsonlKnowledgeStore`: durable local canonical snapshot store used by the CLI.
 - `context_project`: task-focused context-pack generation from the latest canonical snapshot.
+- `explain_project`: exact stable-key entity explanation from the latest canonical snapshot.
+- `check_project`: scoped API/documentation diagnostic reporting from the latest canonical snapshot.
 
 ## Context Pack Generation
 
@@ -71,6 +73,36 @@ cargo run -p ath -- index . --validate-only
 - reports effective limits, approximate serialized token usage, omitted object counts, and whether relevance or limits caused omission in the JSON payload
 
 The token budget is a deterministic estimate based on serialized canonical payload bytes divided by four; it is a size guard, not tokenizer-specific accounting. This remains an app-layer lexical slice rather than a `SearchIndex` implementation. Tantivy, vectors, and semantic ranking remain future adapters or services.
+
+## Entity Explanation
+
+`ath explain <stable-key>` reads one exact canonical entity from the latest durable snapshot without
+re-indexing. The app-layer explanation includes:
+
+- the full canonical entity and its source metadata
+- facts where the entity is either subject or object
+- outgoing and incoming relations, each resolved to the neighboring entity when available
+- diagnostics attached to the entity
+- the snapshot id and `athanor.entity_explanation.v1` response schema
+
+The default CLI output is a compact directional summary. `--json` returns the complete explanation,
+including canonical evidence, confidence, status, ownership, and payload fields. Stable-key lookup is
+exact and currently explains one canonical entity at a time.
+
+## Diagnostic Check Views
+
+`ath check api` and `ath check docs` read open diagnostics from the latest durable canonical snapshot
+without re-indexing. The app layer classifies diagnostic kinds into API and documentation scopes,
+sorts results by severity and diagnostic id, and returns:
+
+- snapshot id and requested scope
+- total, critical, high, medium, and low counts
+- complete canonical diagnostic objects
+
+The default CLI output is a compact source-oriented list. `--json` emits the
+`athanor.diagnostic_check.v1` report. These commands are currently read-only views and return success
+after a valid query even when diagnostics exist; CI failure thresholds and strict-mode policy remain
+deferred.
 
 The default built-in registry currently assembles:
 
@@ -169,16 +201,18 @@ checkers:
   snapshots/<snapshot-id>/
 ```
 
-Generated JSONL files under `.athanor/generated/current/jsonl` are read models. They are not the source of truth and may be deleted and rebuilt. `validation-report.json` is written only for adapter contract validation failures and is removed after a successful index run. `validation-result.json` is written only for successful `--validate-only` runs and is removed after validation failures or normal index runs. Durable canonical snapshots live under `.athanor/store/canonical/jsonl`. The state file records the last indexed file paths, content hashes, language hints, and snapshot id so later runs can classify changed, unchanged, and removed files. Its schema is versioned so changes to built-in extraction, linking, or checking semantics can force a safe one-time full rebuild; API consistency checking advances it to `athanor.index_state.v5`.
+Generated JSONL files under `.athanor/generated/current/jsonl` are read models. They are not the source of truth and may be deleted and rebuilt. `validation-report.json` is written only for adapter contract validation failures and is removed after a successful index run. `validation-result.json` is written only for successful `--validate-only` runs and is removed after validation failures or normal index runs. Durable canonical snapshots live under `.athanor/store/canonical/jsonl`. The state file records the last indexed file paths, content hashes, language hints, and snapshot id so later runs can classify changed, unchanged, and removed files. Its schema is versioned so changes to built-in extraction, linking, or checking semantics can force a safe one-time full rebuild; the OpenAPI parser-adapter migration advances it to `athanor.index_state.v8`.
 
 ## Current Limitations
 
 - Process source adapters perform a full discovery request per indexing run; streaming discovery and source-level change feeds are not implemented.
 - Context generation uses deterministic lexical matching and approximate token accounting; model-specific tokenizers and semantic search are not implemented.
+- Entity explanation requires an exact stable key and does not yet provide fuzzy lookup, history, or cross-snapshot comparison.
+- Diagnostic check views expose open findings but do not yet implement CI exit thresholds, strict mode, suppression configuration, or historical comparison.
 - Rust extraction does not expand macros, emit trait method declarations, or infer imports, calls, and framework routes.
-- OpenAPI extraction does not resolve references, merge specifications, or infer code handlers.
-- API knowledge linking is lexical; framework route metadata, call graphs, and schema/type links are not implemented.
-- API consistency diagnostics inherit the lexical linker's limitations and do not check schemas, status codes, auth, or permissions yet.
+- OpenAPI extraction supports 3.0.x and 3.1.x through replaceable parser backends but does not support Swagger 2.x/OpenAPI 3.2, resolve external references, merge specifications, or infer code handlers.
+- API knowledge linking is lexical for code/docs and resolves only same-document component schemas; framework route metadata, call graphs, and Rust schema/type links are not implemented.
+- API consistency diagnostics check unresolved local component schema references but do not compare schema fields with Rust types or check status codes, auth, or permissions yet.
 - The current CLI still performs a full source discovery pass before classifying changed files.
 - The JSONL canonical store is a local development store, not a concurrent multi-process database.
 - Older canonical snapshots without ownership metadata are pruned by entity source paths and evidence source files.

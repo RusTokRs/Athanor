@@ -21,6 +21,11 @@ impl Checker for ApiConsistencyChecker {
     async fn check(&self, input: CheckInput) -> CoreResult<Vec<Diagnostic>> {
         let endpoints = entities_of_kind(&input.entities, EntityKind::ApiEndpoint);
         let functions = entities_of_kind(&input.entities, EntityKind::Function);
+        let schemas_affected = input
+            .affected
+            .entities
+            .iter()
+            .any(|entity| entity.kind == EntityKind::ApiSchema);
         let documents = input
             .entities
             .iter()
@@ -80,6 +85,53 @@ impl Checker for ApiConsistencyChecker {
                     )
                 });
             let endpoint_affected = affected_ids.contains(&endpoint.id);
+            let schema_links_changed = affected_relations.iter().any(|relation| {
+                matches!(
+                    relation.kind,
+                    RelationKind::SchemaForRequest | RelationKind::SchemaForResponse
+                )
+            });
+
+            if endpoint_affected || schemas_affected || schema_links_changed {
+                for (payload_key, relation_kind, diagnostic_kind) in [
+                    (
+                        "request_schemas",
+                        RelationKind::SchemaForRequest,
+                        DiagnosticKind::ApiRequestSchemaMismatch,
+                    ),
+                    (
+                        "response_schemas",
+                        RelationKind::SchemaForResponse,
+                        DiagnosticKind::ApiResponseSchemaMismatch,
+                    ),
+                ] {
+                    for schema_use in endpoint_schema_uses(endpoint, payload_key) {
+                        let Some(reference) = schema_use
+                            .get("reference")
+                            .and_then(serde_json::Value::as_str)
+                        else {
+                            continue;
+                        };
+                        if !is_local_component_schema_reference(reference) {
+                            continue;
+                        }
+                        let resolved = input.relations.iter().any(|relation| {
+                            relation.kind == relation_kind
+                                && relation.from == endpoint.id
+                                && relation_schema_reference(relation) == Some(reference)
+                        });
+                        if !resolved {
+                            diagnostics.push(missing_schema_diagnostic(
+                                endpoint,
+                                diagnostic_kind.clone(),
+                                schema_use,
+                                self.name(),
+                                &input.snapshot,
+                            ));
+                        }
+                    }
+                }
+            }
 
             if !implemented && (endpoint_affected || implementation_changed) {
                 diagnostics.push(missing_implementation_diagnostic(
@@ -114,6 +166,34 @@ fn entities_of_kind(entities: &[Entity], kind: EntityKind) -> Vec<&Entity> {
 
 fn relation_touches(relation: &Relation, entity: &EntityId) -> bool {
     relation.from == *entity || relation.to == *entity
+}
+
+fn endpoint_schema_uses<'a>(
+    endpoint: &'a Entity,
+    payload_key: &str,
+) -> Vec<&'a serde_json::Map<String, serde_json::Value>> {
+    endpoint
+        .payload
+        .get(payload_key)
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(serde_json::Value::as_object)
+        .collect()
+}
+
+fn is_local_component_schema_reference(reference: &str) -> bool {
+    reference
+        .strip_prefix("#/components/schemas/")
+        .is_some_and(|name| !name.is_empty() && !name.contains('/'))
+}
+
+fn relation_schema_reference(relation: &Relation) -> Option<&str> {
+    relation
+        .payload
+        .get("schema_use")
+        .and_then(|schema_use| schema_use.get("reference"))
+        .and_then(serde_json::Value::as_str)
 }
 
 fn missing_implementation_diagnostic(
@@ -157,6 +237,64 @@ fn missing_documentation_diagnostic(
     )
 }
 
+fn missing_schema_diagnostic(
+    endpoint: &Entity,
+    kind: DiagnosticKind,
+    schema_use: &serde_json::Map<String, serde_json::Value>,
+    checker: &str,
+    snapshot: &SnapshotId,
+) -> Diagnostic {
+    let reference = schema_use
+        .get("reference")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    let context = serde_json::to_string(schema_use).unwrap_or_default();
+    let kind_slug = diagnostic_slug(&kind);
+    let id_material = format!(
+        "{kind_slug}\0{}\0{reference}\0{context}",
+        endpoint.stable_key.0
+    );
+    let (severity, title, message) = match kind {
+        DiagnosticKind::ApiRequestSchemaMismatch => (
+            Severity::High,
+            "API request references an unresolved schema",
+            "The OpenAPI request body references a component schema that was not linked.",
+        ),
+        _ => (
+            Severity::Medium,
+            "API response references an unresolved schema",
+            "The OpenAPI response references a component schema that was not linked.",
+        ),
+    };
+
+    Diagnostic {
+        id: DiagnosticId(format!(
+            "diag_api_{:016x}",
+            stable_hash(id_material.as_bytes())
+        )),
+        kind,
+        severity,
+        status: DiagnosticStatus::Open,
+        title: title.to_string(),
+        message: message.to_string(),
+        entities: vec![endpoint.id.clone()],
+        evidence: vec![evidence_for_endpoint(endpoint, checker)],
+        ownership: endpoint.ownership.clone(),
+        snapshot: snapshot.clone(),
+        suggested_fix: Some(format!(
+            "Define {reference} in components.schemas or correct the local $ref."
+        )),
+        payload: json!({
+            "endpoint": endpoint.stable_key.0,
+            "schema_use": schema_use,
+            "missing_relation": match kind_slug {
+                "api_request_schema_mismatch" => "schema_for_request",
+                _ => "schema_for_response",
+            },
+        }),
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn diagnostic(
     endpoint: &Entity,
@@ -198,6 +336,8 @@ fn diagnostic_slug(kind: &DiagnosticKind) -> &'static str {
     match kind {
         DiagnosticKind::ApiEndpointDocumentedButNotImplemented => "api_endpoint_not_implemented",
         DiagnosticKind::ApiEndpointImplementedButNotDocumented => "api_endpoint_not_documented",
+        DiagnosticKind::ApiRequestSchemaMismatch => "api_request_schema_mismatch",
+        DiagnosticKind::ApiResponseSchemaMismatch => "api_response_schema_mismatch",
         _ => "api_consistency",
     }
 }
@@ -393,6 +533,109 @@ mod tests {
             .unwrap();
 
         assert_eq!(diagnostics.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn reports_unresolved_request_and_response_schema_references() {
+        let mut endpoint = entity(
+            "ent_endpoint",
+            "api://POST:/login",
+            EntityKind::ApiEndpoint,
+            "openapi.yaml",
+        );
+        endpoint.payload = json!({
+            "request_schemas": [{
+                "media_type": "application/json",
+                "reference": "#/components/schemas/MissingRequest"
+            }],
+            "response_schemas": [{
+                "status_code": "200",
+                "media_type": "application/json",
+                "reference": "#/components/schemas/MissingResponse"
+            }]
+        });
+
+        let diagnostics = ApiConsistencyChecker
+            .check(input(
+                vec![endpoint.clone()],
+                Vec::new(),
+                vec![endpoint],
+                Vec::new(),
+            ))
+            .await
+            .unwrap();
+
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == DiagnosticKind::ApiRequestSchemaMismatch
+                && diagnostic.payload["schema_use"]["reference"]
+                    == "#/components/schemas/MissingRequest"
+        }));
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == DiagnosticKind::ApiResponseSchemaMismatch
+                && diagnostic.payload["schema_use"]["status_code"] == "200"
+        }));
+    }
+
+    #[tokio::test]
+    async fn accepts_linked_request_and_response_schemas() {
+        let mut endpoint = entity(
+            "ent_endpoint",
+            "api://POST:/login",
+            EntityKind::ApiEndpoint,
+            "openapi.yaml",
+        );
+        endpoint.payload = json!({
+            "request_schemas": [{"reference": "#/components/schemas/LoginRequest"}],
+            "response_schemas": [{
+                "status_code": "200",
+                "reference": "#/components/schemas/LoginResponse"
+            }]
+        });
+        let request = entity(
+            "ent_request",
+            "api-schema://openapi.yaml#LoginRequest",
+            EntityKind::ApiSchema,
+            "openapi.yaml",
+        );
+        let response = entity(
+            "ent_response",
+            "api-schema://openapi.yaml#LoginResponse",
+            EntityKind::ApiSchema,
+            "openapi.yaml",
+        );
+        let mut request_relation = relation(
+            "rel_request",
+            RelationKind::SchemaForRequest,
+            &endpoint,
+            &request,
+        );
+        request_relation.payload = json!({
+            "schema_use": {"reference": "#/components/schemas/LoginRequest"}
+        });
+        let mut response_relation = relation(
+            "rel_response",
+            RelationKind::SchemaForResponse,
+            &endpoint,
+            &response,
+        );
+        response_relation.payload = json!({
+            "schema_use": {"reference": "#/components/schemas/LoginResponse"}
+        });
+
+        let diagnostics = ApiConsistencyChecker
+            .check(input(
+                vec![endpoint.clone(), request, response],
+                vec![request_relation.clone(), response_relation.clone()],
+                vec![endpoint],
+                vec![request_relation, response_relation],
+            ))
+            .await
+            .unwrap();
+
+        assert!(!diagnostics.iter().any(|diagnostic| matches!(
+            diagnostic.kind,
+            DiagnosticKind::ApiRequestSchemaMismatch | DiagnosticKind::ApiResponseSchemaMismatch
+        )));
     }
 
     fn input(

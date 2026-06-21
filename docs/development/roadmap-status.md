@@ -43,6 +43,12 @@ ath index --validate-only
 ath index --validate-only --validation-result <path>
 ath context <task>
 ath context <task> --json
+ath explain <stable-key>
+ath explain <stable-key> --json
+ath check api
+ath check api --json
+ath check docs
+ath check docs --json
 ```
 
 ### Indexing Vertical Slice
@@ -437,6 +443,111 @@ Purpose:
 - bounds graph expansion and canonical payload material deterministically
 - records effective limits, approximate token usage, and omitted object counts in the context payload
 
+### Canonical Entity Explanation
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-app/src/explain.rs`
+- `apps/ath/src/main.rs`
+- `docs/architecture/pipeline.md`
+
+Purpose:
+
+- adds `ath explain <stable-key>` and `ath explain <stable-key> --json`
+- loads the latest durable canonical snapshot without re-indexing
+- resolves an entity by exact stable key
+- includes facts where the entity is subject or object
+- separates incoming and outgoing relations and resolves their neighboring entities
+- includes diagnostics attached to the entity
+- exposes full evidence, ownership, confidence, status, and payload data in JSON mode
+- keeps query orchestration in the app layer without changing domain/core contracts
+
+### Scoped Diagnostic Check Views
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-app/src/check.rs`
+- `apps/ath/src/main.rs`
+- `docs/architecture/pipeline.md`
+
+Purpose:
+
+- adds `ath check api` and `ath check docs` with optional `--json` output
+- reads the latest durable canonical snapshot without re-indexing
+- classifies API and documentation diagnostic kinds in the app layer
+- returns open diagnostics only, sorted by severity and diagnostic id
+- reports total and per-severity counts
+- preserves complete diagnostic evidence, ownership, entity ids, status, and payload in JSON mode
+- keeps the initial commands read-only with no CI failure threshold or strict-mode policy
+
+### Library Adoption Plan
+
+Status: verified.
+
+Implemented in:
+
+- `docs/development/library-adoption-plan.md`
+- `docs/README.md`
+- `start.md`
+
+Purpose:
+
+- records retained, approved, conditional, and deferred third-party dependencies
+- selects `pulldown-cmark`, `oas3`, `jsonschema`, `notify`, and Tantivy for their relevant phases
+- requires replacement of the unmaintained `serde_yaml` backend through a compatibility spike
+- defines adapter boundaries and contract-test criteria for every adoption
+- keeps canonical models, stable identity, evidence, ownership, and incremental merge Athanor-owned
+
+### Pulldown-Cmark Markdown Extraction
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-extractor-markdown`
+- `crates/athanor-app/src/index_state.rs`
+- `docs/adapters/extractor-markdown.md`
+- `docs/development/library-adoption-plan.md`
+
+Purpose:
+
+- replaces the line-based Markdown heading scanner with `pulldown-cmark` 0.13.4
+- parses ATX and setext headings from CommonMark events
+- ignores heading syntax inside fenced code blocks
+- normalizes inline formatting into canonical heading titles
+- maps parser byte offsets to deterministic source evidence lines
+- preserves Athanor stable slug, ownership, fact, and entity contracts
+- enables GFM extensions explicitly
+- advances persisted index state to v7 so existing projects rebuild Markdown structure once
+
+### Replaceable OpenAPI Parser Backends
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-extractor-openapi/src/parser.rs`
+- `crates/athanor-extractor-openapi/src/lib.rs`
+- `crates/athanor-extractor-openapi/tests/fixtures`
+- `crates/athanor-app/src/index_state.rs`
+- `docs/adapters/extractor-openapi.md`
+- `docs/development/library-adoption-plan.md`
+
+Purpose:
+
+- adds a private `OpenApiDocumentParser` boundary and `NormalizedOpenApiDocument`
+- dispatches OpenAPI 3.1.x documents to `oas3` 0.22.0
+- keeps OpenAPI 3.0.x support through a replaceable legacy normalized-value parser
+- replaces the unmaintained `serde_yaml` dependency with `serde_yaml_ng` for preflight and fallback parsing
+- records the selected parser backend in canonical endpoint/schema payloads
+- verifies canonical endpoint keys and schema-use metadata across 3.0.3, 3.1.0, and 3.1.1 YAML/JSON fixtures
+- keeps all third-party parser types inside the OpenAPI adapter crate
+- advances persisted index state to v8 so existing projects rebuild parser metadata once
+
 ### Rust Code Extraction Slice
 
 Status: verified.
@@ -517,6 +628,30 @@ Purpose:
 - forces a safe full rebuild when files are added or removed
 - advances persisted index state to v5 so existing projects build the new diagnostics once
 
+### OpenAPI Request/Response Schema Slice
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-extractor-openapi`
+- `crates/athanor-linker-api`
+- `crates/athanor-checker-api`
+- `crates/athanor-app/src/index_state.rs`
+- `docs/adapters/extractor-openapi.md`
+- `docs/adapters/linker-api.md`
+- `docs/adapters/checker-api.md`
+
+Purpose:
+
+- records request and response schema `$ref` uses with media type and response status metadata
+- collects nested references from arrays and composition schemas
+- emits verified `schema_for_request` and `schema_for_response` relations for same-document component schemas
+- reports `api_request_schema_mismatch` and `api_response_schema_mismatch` when local component references do not resolve
+- preserves evidence and ownership on all new relations and diagnostics
+- keeps external references, inline-schema materialization, and Rust type comparison deferred
+- advances persisted index state to v6 so existing projects build schema relations and diagnostics once
+
 ## In Progress
 
 None.
@@ -526,18 +661,15 @@ None.
 Recommended next task:
 
 ```text
-Add OpenAPI request/response schema relations, then basic schema consistency diagnostics.
+Add the first Markdown wiki projector from the latest canonical snapshot.
 ```
 
 Why:
 
-- Adapter plugin manifest discovery now provides a stable configuration contract.
-- External process adapters cover source discovery and all currently useful canonical-output ports without Rust ABI coupling.
-- The first `ContextPack` CLI path now closes the current Markdown knowledge loop.
-- Rust symbols now provide the code side of the Phase 2 API knowledge loop.
-- OpenAPI operations and schemas now provide the contract side of the Phase 2 API knowledge loop.
-- Basic implementation and documentation coverage diagnostics now close the first Phase 2 API loop.
-- Request/response schema links are the next missing layer for deeper API consistency checks.
+- Markdown and OpenAPI parsing now use maintained libraries behind adapter-owned contracts.
+- OpenAPI 3.0/3.1 compatibility is covered by a YAML/JSON fixture corpus and the unmaintained YAML dependency is removed.
+- Canonical entities, relations, diagnostics, and evidence are ready for a disposable human-readable read model.
+- The wiki projector is the next missing Phase 3 output and must remain fully regenerable from the canonical snapshot.
 
 ## Verification Commands
 

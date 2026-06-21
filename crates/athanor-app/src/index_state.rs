@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 use athanor_core::SourceFile;
 use serde::{Deserialize, Serialize};
 
-pub const INDEX_STATE_SCHEMA: &str = "athanor.index_state.v5";
+pub const INDEX_STATE_SCHEMA: &str = "athanor.index_state.v8";
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IndexState {
@@ -192,7 +192,7 @@ mod tests {
         fs::create_dir_all(&root).unwrap();
         fs::write(
             &path,
-            r#"{"schema":"athanor.index_state.v4","snapshot":"snap_old","files":{}}"#,
+            r#"{"schema":"athanor.index_state.v7","snapshot":"snap_old","files":{}}"#,
         )
         .unwrap();
 

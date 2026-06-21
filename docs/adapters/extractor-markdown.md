@@ -38,6 +38,10 @@ doc://path/to/file.md#section-slug
 
 Non-ASCII heading slugs are percent-encoded to keep stable keys portable across terminals and platforms.
 
+The adapter uses `pulldown-cmark` 0.13 internally. It recognizes ATX and setext headings, reduces
+inline formatting to canonical heading text, ignores heading syntax inside fenced code blocks, and
+maps parser source offsets to evidence lines. `pulldown-cmark` types remain private to the adapter.
+
 ## Evidence
 
 Each section fact includes:
@@ -57,6 +61,13 @@ Emitted page entities, section entities, and section facts are owned by the Mark
 - Does not run external commands.
 - Does not use the network.
 - Does not modify project files.
+
+## Limitations
+
+- Only heading structure is materialized; paragraphs, links, code blocks, and frontmatter are not
+  emitted as separate canonical entities yet.
+- Stable slugs continue to use Athanor's existing slug algorithm rather than a renderer-specific
+  anchor algorithm.
 
 ## Tests
 

@@ -30,6 +30,11 @@ doc://docs/example.md#section
 
 Non-ASCII heading text is percent-encoded in slugs.
 
+Heading structure is parsed with `pulldown-cmark` 0.13 using explicit CommonMark/GFM options.
+ATX and setext headings are supported, inline formatting is normalized into heading text, and
+heading-like content inside fenced code blocks is ignored. Parser byte offsets are converted to
+source evidence lines without exposing parser types outside this crate.
+
 ## Side Effects
 
 None.

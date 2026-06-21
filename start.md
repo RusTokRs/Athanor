@@ -1643,6 +1643,10 @@ Domain contracts
 
 Каждая фаза должна давать проверяемый результат в CLI и не протаскивать детали adapters в core.
 
+Конкретные решения по сторонним библиотекам, границы adapters и критерии миграции ведутся в
+[`docs/development/library-adoption-plan.md`](docs/development/library-adoption-plan.md). Библиотека
+может реализовывать внутренности adapter, но не определяет canonical contracts Athanor.
+
 ---
 
 ### Phase 0 — Product Kernel

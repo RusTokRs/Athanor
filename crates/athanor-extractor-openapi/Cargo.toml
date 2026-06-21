@@ -11,8 +11,9 @@ async-trait.workspace = true
 athanor-core = { path = "../athanor-core" }
 athanor-domain = { path = "../athanor-domain" }
 athanor-extractor-basic = { path = "../athanor-extractor-basic" }
+oas3.workspace = true
 serde_json.workspace = true
-serde_yaml.workspace = true
+serde_yaml_ng.workspace = true
 
 [dev-dependencies]
 tokio.workspace = true

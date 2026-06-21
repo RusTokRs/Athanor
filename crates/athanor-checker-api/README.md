@@ -8,8 +8,12 @@ Implements: `Checker`
 
 - `ApiEndpointDocumentedButNotImplemented` when an OpenAPI endpoint has no `implemented_by` relation
 - `ApiEndpointImplementedButNotDocumented` when an implemented endpoint has no `documents_api` or `documents_operation` relation
+- `ApiRequestSchemaMismatch` when a local request schema `$ref` has no `schema_for_request` relation
+- `ApiResponseSchemaMismatch` when a local response schema `$ref` has no `schema_for_response` relation
 
-Diagnostics are open, deterministic, and owned by the endpoint plus current Rust or Markdown candidates that can invalidate the absence result. Evidence points to the OpenAPI operation.
+Diagnostics are open and deterministic. Implementation/documentation absence diagnostics are owned
+by the endpoint plus current Rust or Markdown candidates. Schema diagnostics are owned by the
+OpenAPI source file. Evidence points to the OpenAPI operation.
 
 ## Incremental Behavior
 
@@ -22,7 +26,9 @@ None. The checker does not run commands, use the network, or modify files.
 ## Limitations
 
 - Consistency depends on the current lexical API linker; framework routes and unresolved links can produce false positives.
-- Request/response schema, status-code, auth, and permission checks are deferred.
+- Schema checks currently validate only resolution of same-document component `$ref` values; they do
+  not compare schema structure with Rust types or validate inline/external schemas.
+- Status-code, auth, and permission checks are deferred.
 
 ## Test
 

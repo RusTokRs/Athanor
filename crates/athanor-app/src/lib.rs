@@ -1,6 +1,8 @@
 //! Application services for Athanor.
 
+pub mod check;
 pub mod context;
+pub mod explain;
 pub mod index;
 pub mod index_state;
 pub mod init;
@@ -9,7 +11,9 @@ mod project_path;
 pub mod read_model;
 pub mod runtime;
 
+pub use check::*;
 pub use context::*;
+pub use explain::*;
 pub use index::*;
 pub use index_state::*;
 pub use init::*;

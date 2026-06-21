@@ -26,6 +26,7 @@ impl Linker for ApiKnowledgeLinker {
             .map(|entity| entity.id.clone())
             .collect::<HashSet<_>>();
         let endpoints = entities_of_kind(&input.entities, EntityKind::ApiEndpoint);
+        let schemas = entities_of_kind(&input.entities, EntityKind::ApiSchema);
         let functions = entities_of_kind(&input.entities, EntityKind::Function);
         let documents = input
             .entities
@@ -41,6 +42,41 @@ impl Linker for ApiKnowledgeLinker {
         let mut relation_ids = HashSet::new();
 
         for endpoint in endpoints {
+            for (payload_key, kind) in [
+                ("request_schemas", RelationKind::SchemaForRequest),
+                ("response_schemas", RelationKind::SchemaForResponse),
+            ] {
+                for schema_use in endpoint_schema_uses(endpoint, payload_key) {
+                    let Some(reference) =
+                        schema_use.get("reference").and_then(|value| value.as_str())
+                    else {
+                        continue;
+                    };
+                    let Some(component_name) = local_schema_name(reference) else {
+                        continue;
+                    };
+                    let Some(schema) = schemas.iter().find(|schema| {
+                        schema.name == component_name && same_source_file(endpoint, schema)
+                    }) else {
+                        continue;
+                    };
+                    if either_affected(endpoint, schema, &affected) {
+                        push_unique(
+                            &mut relations,
+                            &mut relation_ids,
+                            schema_relation(
+                                &input.snapshot,
+                                endpoint,
+                                schema,
+                                kind.clone(),
+                                self.name(),
+                                schema_use,
+                            ),
+                        );
+                    }
+                }
+            }
+
             if let Some(operation_id) = endpoint_operation_id(endpoint) {
                 let normalized_operation_id = normalize(operation_id);
                 if !normalized_operation_id.is_empty() {
@@ -112,6 +148,33 @@ fn endpoint_operation_id(endpoint: &Entity) -> Option<&str> {
         .payload
         .get("operation_id")
         .and_then(serde_json::Value::as_str)
+}
+
+fn endpoint_schema_uses<'a>(
+    endpoint: &'a Entity,
+    payload_key: &str,
+) -> Vec<&'a serde_json::Map<String, serde_json::Value>> {
+    endpoint
+        .payload
+        .get(payload_key)
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(serde_json::Value::as_object)
+        .collect()
+}
+
+fn local_schema_name(reference: &str) -> Option<&str> {
+    reference
+        .strip_prefix("#/components/schemas/")
+        .filter(|name| !name.is_empty() && !name.contains('/'))
+}
+
+fn same_source_file(left: &Entity, right: &Entity) -> bool {
+    left.source
+        .as_ref()
+        .zip(right.source.as_ref())
+        .is_some_and(|(left, right)| left.path == right.path)
 }
 
 fn documentation_match(document: &Entity, endpoint: &Entity) -> Option<(&'static str, String)> {
@@ -221,8 +284,45 @@ fn relation_kind_name(kind: &RelationKind) -> &'static str {
         RelationKind::ImplementedBy => "implemented_by",
         RelationKind::DocumentsOperation => "documents_operation",
         RelationKind::DocumentsApi => "documents_api",
+        RelationKind::SchemaForRequest => "schema_for_request",
+        RelationKind::SchemaForResponse => "schema_for_response",
         _ => "api_relation",
     }
+}
+
+fn schema_relation(
+    snapshot: &SnapshotId,
+    endpoint: &Entity,
+    schema: &Entity,
+    kind: RelationKind,
+    linker: &str,
+    schema_use: &serde_json::Map<String, serde_json::Value>,
+) -> Relation {
+    let reference = schema_use
+        .get("reference")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    let mut relation = relation(
+        snapshot,
+        endpoint,
+        schema,
+        kind,
+        linker,
+        "openapi_component_schema_reference",
+        reference,
+        1.0,
+    );
+    relation.status = RelationStatus::Verified;
+    for evidence in &mut relation.evidence {
+        evidence.status = EvidenceStatus::Verified;
+    }
+    relation.payload = json!({
+        "from": endpoint.stable_key.0,
+        "to": schema.stable_key.0,
+        "reason": "openapi_component_schema_reference",
+        "schema_use": schema_use,
+    });
+    relation
 }
 
 fn evidence_for_entities(
@@ -324,6 +424,48 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn links_request_and_response_component_schemas() {
+        let endpoint = endpoint();
+        let request_schema = entity(
+            "ent_request_schema",
+            "api-schema://openapi.yaml#LoginRequest",
+            EntityKind::ApiSchema,
+            "LoginRequest",
+            "openapi.yaml",
+            json!({}),
+        );
+        let response_schema = entity(
+            "ent_response_schema",
+            "api-schema://openapi.yaml#LoginResponse",
+            EntityKind::ApiSchema,
+            "LoginResponse",
+            "openapi.yaml",
+            json!({}),
+        );
+        let entities = vec![endpoint, request_schema, response_schema];
+
+        let relations = ApiKnowledgeLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: entities.clone(),
+                facts: Vec::new(),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(relations.len(), 2);
+        assert!(relations.iter().any(|relation| {
+            relation.kind == RelationKind::SchemaForRequest
+                && relation.status == RelationStatus::Verified
+        }));
+        assert!(relations.iter().any(|relation| {
+            relation.kind == RelationKind::SchemaForResponse
+                && relation.payload["schema_use"]["status_code"] == "200"
+        }));
+    }
+
+    #[tokio::test]
     async fn incremental_linking_requires_an_affected_side() {
         let endpoint = endpoint();
         let function = entity(
@@ -403,6 +545,15 @@ mod tests {
                 "method": "POST",
                 "path": "/login",
                 "tags": ["auth"],
+                "request_schemas": [{
+                    "media_type": "application/json",
+                    "reference": "#/components/schemas/LoginRequest"
+                }],
+                "response_schemas": [{
+                    "status_code": "200",
+                    "media_type": "application/json",
+                    "reference": "#/components/schemas/LoginResponse"
+                }],
             }),
         )
     }

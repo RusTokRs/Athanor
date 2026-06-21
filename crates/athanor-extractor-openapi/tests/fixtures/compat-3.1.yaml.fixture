@@ -1,0 +1,23 @@
+openapi: 3.1.0
+info:
+  title: Compatibility API
+  version: 1.0.0
+paths:
+  /compat:
+    post:
+      operationId: compatibilityCheck
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompatRequest'
+      responses:
+        '204':
+          description: No content
+components:
+  schemas:
+    CompatRequest:
+      type: object
+      properties:
+        value:
+          type: [string, 'null']
