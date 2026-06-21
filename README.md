@@ -60,7 +60,25 @@ cargo run -p ath --quiet -- check api
 cargo run -p ath --quiet -- check docs --json
 ```
 
-Generated read models are written under `.athanor/generated/current/jsonl`. Durable canonical snapshots are written under `.athanor/store/canonical/jsonl`.
+Build the neutral Markdown wiki from the latest canonical snapshot:
+
+```bash
+cargo run -p ath --quiet -- wiki .
+```
+
+Build the static HTML report:
+
+```bash
+cargo run -p ath --quiet -- report html .
+```
+
+Publish JSONL, wiki, and HTML as one immutable snapshot-consistent generation:
+
+```bash
+cargo run -p ath --quiet -- generate .
+```
+
+Coordinated read models are written under `.athanor/generated/generations/<generation>` and selected through `.athanor/generated/current.json`. The individual commands retain their direct `.athanor/generated/current/*` compatibility outputs. Durable canonical snapshots are written under `.athanor/store/canonical/jsonl`.
 
 ## Documentation
 

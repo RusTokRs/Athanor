@@ -19,6 +19,9 @@ athanor-extractor-openapi = { path = "../athanor-extractor-openapi" }
 athanor-extractor-rust = { path = "../athanor-extractor-rust" }
 athanor-linker-markdown = { path = "../athanor-linker-markdown" }
 athanor-linker-api = { path = "../athanor-linker-api" }
+athanor-projector-wiki = { path = "../athanor-projector-wiki" }
+athanor-projector-html = { path = "../athanor-projector-html" }
+athanor-projector-support = { path = "../athanor-projector-support" }
 athanor-source-fs = { path = "../athanor-source-fs" }
 athanor-store-jsonl = { path = "../athanor-store-jsonl" }
 athanor-store-memory = { path = "../athanor-store-memory" }

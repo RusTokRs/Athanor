@@ -107,6 +107,9 @@ dependencies = [
  "athanor-extractor-rust",
  "athanor-linker-api",
  "athanor-linker-markdown",
+ "athanor-projector-html",
+ "athanor-projector-support",
+ "athanor-projector-wiki",
  "athanor-source-fs",
  "athanor-store-jsonl",
  "athanor-store-memory",
@@ -231,6 +234,41 @@ dependencies = [
  "athanor-core",
  "athanor-domain",
  "athanor-extractor-basic",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "athanor-projector-html"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "athanor-core",
+ "athanor-domain",
+ "athanor-projector-support",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "athanor-projector-support"
+version = "0.1.0"
+dependencies = [
+ "athanor-core",
+ "athanor-domain",
+ "serde",
+]
+
+[[package]]
+name = "athanor-projector-wiki"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "athanor-core",
+ "athanor-domain",
+ "athanor-projector-support",
+ "serde",
  "serde_json",
  "tokio",
 ]

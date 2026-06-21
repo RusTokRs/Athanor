@@ -37,6 +37,8 @@ High-level adapter docs:
 - [Markdown checker](adapters/checker-markdown.md)
 - [API consistency checker](adapters/checker-api.md)
 - [JSONL store](adapters/store-jsonl.md)
+- [Markdown wiki projector](adapters/projector-wiki.md)
+- [HTML report projector](adapters/projector-html.md)
 
 Crate-local adapter docs:
 
@@ -49,8 +51,34 @@ Crate-local adapter docs:
 - [`athanor-checker-markdown`](../crates/athanor-checker-markdown/README.md)
 - [`athanor-checker-api`](../crates/athanor-checker-api/README.md)
 - [`athanor-store-jsonl`](../crates/athanor-store-jsonl/README.md)
+- [`athanor-projector-wiki`](../crates/athanor-projector-wiki/README.md)
+- [`athanor-projector-html`](../crates/athanor-projector-html/README.md)
+- [`athanor-projector-support`](../crates/athanor-projector-support/README.md)
 
-## Current Generated Read Model
+## Current Generated Read Models
+
+The coordinated generation command publishes all read models from one canonical snapshot:
+
+```bash
+cargo run -p ath --quiet -- generate .
+```
+
+It writes immutable generation directories and updates a portable JSON pointer only after every output succeeds:
+
+```text
+.athanor/generated/
+  current.json
+  generations/
+    00000001/
+      manifest.json
+      jsonl/
+      wiki/
+      html/
+```
+
+`current.json` records the generation id, canonical snapshot id, relative generation path, and manifest path. Consumers should resolve coordinated outputs through this pointer.
+
+The individual commands retain direct compatibility outputs under `.athanor/generated/current`.
 
 The current CLI uses `JsonlReadModelWriter` to write generated JSONL read models to:
 
@@ -102,6 +130,22 @@ Open canonical diagnostics can be inspected by scope:
 cargo run -p ath --quiet -- check api
 cargo run -p ath --quiet -- check docs --json
 ```
+
+The latest canonical snapshot can be projected into a disposable Markdown wiki:
+
+```bash
+cargo run -p ath --quiet -- wiki .
+```
+
+The wiki is written to `.athanor/generated/current/wiki` by default.
+
+A self-contained browser report can be generated from the same snapshot:
+
+```bash
+cargo run -p ath --quiet -- report html .
+```
+
+The report is written to `.athanor/generated/current/html` by default.
 
 ## Documentation Rule
 

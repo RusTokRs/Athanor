@@ -3,8 +3,9 @@ use std::path::PathBuf;
 use anyhow::Result;
 use athanor_app::{
     ContextLimitOverrides, ContextOptions, DiagnosticCheckOptions, DiagnosticCheckReport,
-    DiagnosticScope, EntityExplanation, ExplainOptions, IndexOptions, InitOptions, check_project,
-    context_project, explain_project, index_project, init_project,
+    DiagnosticScope, EntityExplanation, ExplainOptions, GenerationOptions, HtmlReportOptions,
+    IndexOptions, InitOptions, WikiOptions, check_project, context_project, explain_project,
+    generate_project, index_project, init_project, project_html_report, project_wiki,
 };
 use athanor_domain::ContextLevel;
 use clap::{Parser, Subcommand, ValueEnum};
@@ -125,6 +126,39 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Build a Markdown wiki from the latest canonical snapshot.
+    Wiki {
+        /// Project root. Defaults to the current directory.
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Wiki output directory. Relative paths are resolved from the project root.
+        #[arg(long)]
+        output: Option<PathBuf>,
+    },
+    /// Build generated reports from the latest canonical snapshot.
+    Report {
+        #[command(subcommand)]
+        command: ReportCommand,
+    },
+    /// Publish JSONL, Markdown, and HTML as one immutable generated generation.
+    Generate {
+        /// Project root. Defaults to the current directory.
+        #[arg(default_value = ".")]
+        path: PathBuf,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum ReportCommand {
+    /// Build a self-contained static HTML report.
+    Html {
+        /// Project root. Defaults to the current directory.
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Report output directory. Relative paths are resolved from the project root.
+        #[arg(long)]
+        output: Option<PathBuf>,
+    },
 }
 
 #[tokio::main]
@@ -241,6 +275,39 @@ async fn main() -> Result<()> {
             } else {
                 print_check_report(&report)?;
             }
+        }
+        Some(Command::Wiki { path, output }) => {
+            let report = project_wiki(WikiOptions { root: path, output }).await?;
+            println!(
+                "projected {} entities and {} open diagnostics from snapshot {}",
+                report.entities, report.open_diagnostics, report.snapshot
+            );
+            println!("wrote Markdown wiki to {}", report.output_dir.display());
+        }
+        Some(Command::Report {
+            command: ReportCommand::Html { path, output },
+        }) => {
+            let report = project_html_report(HtmlReportOptions { root: path, output }).await?;
+            println!(
+                "projected {} entities and {} open diagnostics from snapshot {}",
+                report.entities, report.open_diagnostics, report.snapshot
+            );
+            println!("wrote HTML report to {}", report.output_dir.display());
+        }
+        Some(Command::Generate { path }) => {
+            let report = generate_project(GenerationOptions { root: path }).await?;
+            println!(
+                "published generation {} from snapshot {}",
+                report.generation, report.snapshot
+            );
+            println!(
+                "wrote generated outputs to {}",
+                report.generation_dir.display()
+            );
+            println!(
+                "updated current pointer at {}",
+                report.current_pointer.display()
+            );
         }
         None => {
             println!("Athanor {}", env!("CARGO_PKG_VERSION"));

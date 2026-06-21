@@ -1,6 +1,6 @@
 # Indexing Pipeline
 
-Status: implemented, reusable app-layer pipeline with app-layer adapter registry, incremental merge, and JSONL read-model writer.
+Status: implemented, reusable app-layer pipeline with app-layer adapter registry, incremental merge, JSONL read-model writer, Markdown wiki projection, and static HTML reporting from canonical snapshots.
 
 Athanor currently has a minimal but complete knowledge pipeline:
 
@@ -10,7 +10,7 @@ SourceProvider
   -> Linker
   -> Checker
   -> JSONL KnowledgeStore
-  -> JSONL read model
+  -> JSONL, Markdown wiki, and HTML report read models
 ```
 
 The CLI entry point is:
@@ -44,6 +44,9 @@ cargo run -p ath -- index . --validate-only
 20. Otherwise, `IndexPipeline` stores the merged canonical objects for the current run through `KnowledgeStore`.
 21. `JsonlReadModelWriter` exports JSONL read models to `.athanor/generated/current/jsonl`.
 22. `IndexStateStore` persists file hash state to `.athanor/state/index-state.json` for the next run.
+23. On demand, `ath wiki` loads the latest durable canonical snapshot and performs a staged replacement of the neutral Markdown wiki read model.
+24. On demand, `ath report html` loads the same snapshot and performs a staged replacement of a self-contained HTML report.
+25. On demand, `ath generate` projects JSONL, wiki, and HTML into one immutable generation, writes a complete generation manifest, and then switches `current.json` to that generation.
 
 ## Pipeline Assembly
 
@@ -57,6 +60,46 @@ cargo run -p ath -- index . --validate-only
 - `context_project`: task-focused context-pack generation from the latest canonical snapshot.
 - `explain_project`: exact stable-key entity explanation from the latest canonical snapshot.
 - `check_project`: scoped API/documentation diagnostic reporting from the latest canonical snapshot.
+- `project_wiki`: Markdown wiki projection from the latest canonical snapshot.
+- `project_html_report`: static HTML report projection from the latest canonical snapshot.
+- `generate_project`: coordinated immutable JSONL/wiki/HTML generation and portable current-pointer publication.
+
+## Markdown Wiki Projection
+
+`ath wiki [path]` reads the latest durable canonical snapshot without re-indexing and invokes the built-in `MarkdownWikiProjector` through the core `Projector` port. It writes:
+
+- a snapshot summary index
+- one page per canonical entity
+- one page per open diagnostic
+- a versioned manifest with canonical object counts
+
+Entity pages include source locations, matching facts, incoming and outgoing relations, and attached open diagnostics. Pages use neutral-language YAML frontmatter and stable entity or diagnostic ids as file names.
+
+The complete projection is built in a temporary sibling directory, then renamed into place. The previous wiki is retained as a temporary backup until the swap succeeds, so readers never observe partially written pages. On platforms that cannot replace a non-empty directory in one operation, the target can be briefly absent during the swap. The wiki remains fully disposable and can be regenerated from the canonical store.
+
+## HTML Report Projection
+
+`ath report html [path]` reads the latest durable canonical snapshot without re-indexing and invokes `HtmlReportProjector` through the core `Projector` port. It writes a self-contained `index.html` and a versioned manifest under `.athanor/generated/current/html` by default.
+
+The report shows snapshot metrics, complete open diagnostics, and a deterministic canonical entity table. Dynamic canonical values are HTML-escaped, presentation CSS is embedded, and the output has no network dependencies. The HTML and wiki adapters share canonical projection payload and staged directory publication utilities through `athanor-projector-support`.
+
+## Coordinated Generated Generations
+
+`ath generate [path]` loads the latest durable canonical snapshot once and builds all current read-model formats from that exact object set:
+
+```text
+.athanor/generated/generations/<generation>/
+  manifest.json
+  jsonl/
+  wiki/
+  html/
+```
+
+Generation ids are local zero-padded sequence numbers. The service builds the complete generation in a temporary sibling directory and publishes it with a single directory rename. Published generation directories are immutable and never replaced.
+
+After publication, the service replaces `.athanor/generated/current.json` with an `athanor.generated_current.v1` document containing the generation id, snapshot id, relative generation path, and manifest path. The pointer is the final write, so any projector failure leaves the previous current generation selected. A pointer-write failure can leave a complete unreferenced generation, which is safe and can be collected later.
+
+The JSON pointer is used instead of a filesystem symlink so publication works without elevated link privileges on Windows. Individual `ath index`, `ath wiki`, and `ath report html` commands continue to write direct compatibility outputs under `.athanor/generated/current`; only `ath generate` guarantees cross-format snapshot consistency.
 
 ## Context Pack Generation
 
@@ -183,6 +226,24 @@ checkers:
   diagnostics.jsonl
   manifest.json
 
+.athanor/generated/current/wiki/
+  index.md
+  manifest.json
+  entities/<entity-id>.md
+  diagnostics/<diagnostic-id>.md
+
+.athanor/generated/current/html/
+  index.html
+  manifest.json
+
+.athanor/generated/current.json
+
+.athanor/generated/generations/<generation>/
+  manifest.json
+  jsonl/
+  wiki/
+  html/
+
 .athanor/generated/current/
   validation-report.json
   validation-result.json
@@ -201,7 +262,7 @@ checkers:
   snapshots/<snapshot-id>/
 ```
 
-Generated JSONL files under `.athanor/generated/current/jsonl` are read models. They are not the source of truth and may be deleted and rebuilt. `validation-report.json` is written only for adapter contract validation failures and is removed after a successful index run. `validation-result.json` is written only for successful `--validate-only` runs and is removed after validation failures or normal index runs. Durable canonical snapshots live under `.athanor/store/canonical/jsonl`. The state file records the last indexed file paths, content hashes, language hints, and snapshot id so later runs can classify changed, unchanged, and removed files. Its schema is versioned so changes to built-in extraction, linking, or checking semantics can force a safe one-time full rebuild; the OpenAPI parser-adapter migration advances it to `athanor.index_state.v8`.
+Generated JSONL files and Markdown wiki pages under `.athanor/generated/current` are read models. They are not the source of truth and may be deleted and rebuilt. `validation-report.json` is written only for adapter contract validation failures and is removed after a successful index run. `validation-result.json` is written only for successful `--validate-only` runs and is removed after validation failures or normal index runs. Durable canonical snapshots live under `.athanor/store/canonical/jsonl`. The state file records the last indexed file paths, content hashes, language hints, and snapshot id so later runs can classify changed, unchanged, and removed files. Its schema is versioned so changes to built-in extraction, linking, or checking semantics can force a safe one-time full rebuild; the OpenAPI parser-adapter migration advances it to `athanor.index_state.v8`.
 
 ## Current Limitations
 
@@ -216,8 +277,11 @@ Generated JSONL files under `.athanor/generated/current/jsonl` are read models. 
 - The current CLI still performs a full source discovery pass before classifying changed files.
 - The JSONL canonical store is a local development store, not a concurrent multi-process database.
 - Older canonical snapshots without ownership metadata are pruned by entity source paths and evidence source files.
-- JSONL export is a reusable app-layer writer, not a full `Projector` port implementation yet.
+- Wiki and HTML projection currently rebuild complete outputs and are selected directly by app services rather than projector plugin discovery.
+- The HTML report is a static overview without client-side filtering or per-entity detail pages.
+- Generation numbering and pointer updates are local single-process operations; concurrent generation publishers and garbage collection are not implemented.
+- Direct compatibility outputs under `.athanor/generated/current` are not coordinated; consumers requiring one snapshot must use `current.json` and `generations/`.
 
 ## Next Good Step
 
-Start the next roadmap vertical slice from `start.md`; all current indexing ports can now be supplied by external process adapters without Rust ABI coupling.
+Start Phase 4 with explicit documentation frontmatter extraction for stable document identity, language, and editable/generated classification.

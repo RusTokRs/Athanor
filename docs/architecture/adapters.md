@@ -84,6 +84,10 @@ Ownership should list every source file that can invalidate the emitted object. 
 | `athanor-linker-markdown` | `Linker` | Link Markdown file/page/section containment. |
 | `athanor-checker-markdown` | `Checker` | Diagnose basic Markdown documentation structure. |
 | `athanor-checker-api` | `Checker` | Diagnose missing API implementation/documentation links and unresolved local schema references. |
+| `athanor-projector-wiki` | `Projector` | Project the latest canonical snapshot into a neutral Markdown wiki. |
+| `athanor-projector-html` | `Projector` | Project the latest canonical snapshot into a self-contained HTML report. |
+
+`athanor-projector-support` is a shared implementation library rather than an adapter. It owns the canonical projection payload shape, generated filename escaping, staged directory replacement, immutable directory publication, and portable pointer-file replacement used by filesystem projectors and coordinated generations.
 
 ## Built-In Registry
 
@@ -97,6 +101,8 @@ When a new adapter is added, update:
 - the adapter crate `README.md`
 - the relevant `docs/adapters/*.md` page
 - the built-in registry only if the adapter should run by default
+
+The wiki and HTML projectors are invoked by app-layer services rather than the indexing `AdapterRegistry`. Projector registration and plugin manifests remain a later runtime extension.
 
 ## Adapter Plugin Manifests
 

@@ -26,6 +26,9 @@ Crates:
 - `athanor-linker-markdown`
 - `athanor-checker-markdown`
 - `athanor-checker-api`
+- `athanor-projector-support`
+- `athanor-projector-wiki`
+- `athanor-projector-html`
 - `apps/ath`
 
 ### CLI
@@ -49,6 +52,11 @@ ath check api
 ath check api --json
 ath check docs
 ath check docs --json
+ath wiki
+ath wiki --output <directory>
+ath report html
+ath report html --output <directory>
+ath generate
 ```
 
 ### Indexing Vertical Slice
@@ -484,6 +492,75 @@ Purpose:
 - preserves complete diagnostic evidence, ownership, entity ids, status, and payload in JSON mode
 - keeps the initial commands read-only with no CI failure threshold or strict-mode policy
 
+### Markdown Wiki Projector
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-projector-wiki`
+- `crates/athanor-app/src/wiki.rs`
+- `apps/ath/src/main.rs`
+- `docs/adapters/projector-wiki.md`
+
+Purpose:
+
+- adds `ath wiki [path]` with an optional `--output` directory
+- loads the latest durable canonical snapshot without re-indexing
+- implements the core `Projector` port in an adapter crate
+- writes a neutral Markdown index plus entity and open-diagnostic pages
+- includes YAML frontmatter, source locations, facts, relations, evidence, and attached diagnostics
+- emits a versioned manifest with snapshot and canonical object counts
+- builds a complete staging directory and replaces the previous wiki without exposing partial pages
+- keeps generated wiki content disposable and fully regenerable from canonical JSONL storage
+
+### HTML Report Projector
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-projector-html`
+- `crates/athanor-projector-support`
+- `crates/athanor-app/src/report.rs`
+- `apps/ath/src/main.rs`
+- `docs/adapters/projector-html.md`
+
+Purpose:
+
+- adds `ath report html [path]` with an optional `--output` directory
+- loads the latest durable canonical snapshot without re-indexing
+- implements a second core `Projector` adapter with a versioned input contract
+- writes a self-contained static report and versioned manifest
+- shows snapshot metrics, open diagnostic details, and a deterministic canonical entity table
+- HTML-escapes all dynamic canonical values and avoids external scripts, styles, and network resources
+- extracts shared canonical projection and staged publication mechanics into `athanor-projector-support`
+- keeps generated HTML disposable and fully regenerable from canonical JSONL storage
+
+### Coordinated Immutable Generated Generations
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-projector-support/src/lib.rs`
+- `crates/athanor-app/src/generation.rs`
+- `crates/athanor-app/src/read_model.rs`
+- `apps/ath/src/main.rs`
+- `docs/architecture/pipeline.md`
+
+Purpose:
+
+- adds `ath generate [path]`
+- loads the latest canonical snapshot once for all read models
+- projects JSONL, Markdown wiki, and HTML into one numbered generation directory
+- writes a complete generation manifest before publication
+- publishes immutable `.athanor/generated/generations/<generation>` directories
+- updates portable `.athanor/generated/current.json` only after every output succeeds
+- preserves the previous pointer when projection fails
+- keeps direct `.athanor/generated/current/*` outputs as uncoordinated compatibility paths
+- extends `JsonlReadModelWriter` to project a loaded canonical snapshot without duplicating JSONL writing logic
+
 ### Library Adoption Plan
 
 Status: verified.
@@ -661,15 +738,15 @@ None.
 Recommended next task:
 
 ```text
-Add the first Markdown wiki projector from the latest canonical snapshot.
+Add explicit documentation frontmatter extraction for stable identity, language, and editable/generated classification.
 ```
 
 Why:
 
-- Markdown and OpenAPI parsing now use maintained libraries behind adapter-owned contracts.
-- OpenAPI 3.0/3.1 compatibility is covered by a YAML/JSON fixture corpus and the unmaintained YAML dependency is removed.
-- Canonical entities, relations, diagnostics, and evidence are ready for a disposable human-readable read model.
-- The wiki projector is the next missing Phase 3 output and must remain fully regenerable from the canonical snapshot.
+- Phase 3 now has JSONL, Markdown, and HTML outputs plus snapshot-consistent immutable publication.
+- The portable JSON pointer avoids platform-specific symlink privileges while preserving a final pointer-switch boundary.
+- Documentation entities already exist, but their identity and language are still inferred from paths and parser output.
+- Explicit frontmatter is the next Phase 4 contract needed before editable/generated documentation workflows and patch proposals.
 
 ## Verification Commands
 
