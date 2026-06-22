@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use athanor_domain::{
     Diagnostic, Entity, Fact, Relation, RepoId, SnapshotBase, SnapshotId, StableKey,
@@ -137,8 +139,8 @@ impl AffectedSubset {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LinkInput {
     pub snapshot: SnapshotId,
-    pub entities: Vec<Entity>,
-    pub facts: Vec<Fact>,
+    pub entities: Arc<[Entity]>,
+    pub facts: Arc<[Fact]>,
     pub affected: AffectedSubset,
 }
 
@@ -151,9 +153,9 @@ pub trait Linker: Send + Sync {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CheckInput {
     pub snapshot: SnapshotId,
-    pub entities: Vec<Entity>,
-    pub facts: Vec<Fact>,
-    pub relations: Vec<Relation>,
+    pub entities: Arc<[Entity]>,
+    pub facts: Arc<[Fact]>,
+    pub relations: Arc<[Relation]>,
     pub affected: AffectedSubset,
 }
 

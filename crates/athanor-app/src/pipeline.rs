@@ -1,5 +1,6 @@
 use std::collections::{BTreeSet, HashSet};
 use std::fmt;
+use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use athanor_core::{
@@ -9,9 +10,12 @@ use athanor_core::{
 use athanor_domain::{Diagnostic, Entity, Fact, Relation, RepoId, SnapshotBase, SnapshotId};
 use serde::Serialize;
 use serde_json::Value;
+use tracing::{error, info};
 
 use crate::{AffectedFileSet, IndexState};
 use futures::stream::{self, StreamExt};
+
+const EXTRACTION_CONCURRENCY_LIMIT: usize = 16;
 
 pub struct IndexPipeline {
     store: Box<dyn KnowledgeStore>,
@@ -193,7 +197,9 @@ impl IndexPipeline {
         base: SnapshotBase,
         incremental: IncrementalIndexContext,
     ) -> Result<IndexPipelineOutput> {
+        info!("starting source discovery");
         let files = self.discover_sources().await?;
+        info!(file_count = files.len(), "completed source discovery");
         let mut affected_files = incremental.previous_state.affected_files(&files);
 
         let has_added_files = affected_files
@@ -220,8 +226,19 @@ impl IndexPipeline {
             .filter(|file| affected_files.changed.contains(&file.path))
             .cloned()
             .collect::<Vec<_>>();
+        info!(
+            changed_files = files_to_extract.len(),
+            unchanged_files = affected_files.unchanged.len(),
+            removed_files = affected_files.removed.len(),
+            "starting extraction"
+        );
         let (extracted_entities, extracted_facts) =
             self.extract(&repo, &snapshot, &files_to_extract).await?;
+        info!(
+            entities = extracted_entities.len(),
+            facts = extracted_facts.len(),
+            "completed extraction"
+        );
         let affected_extracted =
             AffectedSubset::from_extracted(extracted_entities.clone(), extracted_facts.clone());
         let (mut entities, mut facts, mut prior_relations, mut prior_diagnostics) =
@@ -234,12 +251,15 @@ impl IndexPipeline {
         entities.extend(extracted_entities);
         facts.extend(extracted_facts);
 
+        info!("starting linking");
         let relations = self
             .link(&snapshot, &entities, &facts, &affected_extracted)
             .await?;
+        info!(relations = relations.len(), "completed linking");
         let mut all_relations_for_check = prior_relations.clone();
         all_relations_for_check.extend(relations.clone());
         let affected_checked = affected_extracted.with_relations(relations.clone());
+        info!("starting checking");
         let diagnostics = self
             .check(
                 &snapshot,
@@ -249,6 +269,7 @@ impl IndexPipeline {
                 &affected_checked,
             )
             .await?;
+        info!(diagnostics = diagnostics.len(), "completed checking");
         prior_relations.extend(relations);
         prior_diagnostics.extend(diagnostics);
 
@@ -272,6 +293,7 @@ impl IndexPipeline {
             .commit_snapshot(snapshot.clone())
             .await
             .context("failed to commit snapshot")?;
+        info!(%snapshot, "committed index snapshot");
 
         Ok(IndexPipelineOutput {
             snapshot,
@@ -295,21 +317,91 @@ impl IndexPipeline {
                     .with_context(|| format!("source {} failed", source.name()))?,
             );
         }
+
+        Ok(files)
+    }
+
+    async fn extract(
+        &self,
+        repo: &RepoId,
+        snapshot: &SnapshotId,
+        files: &[SourceFile],
+    ) -> Result<(Vec<Entity>, Vec<Fact>)> {
+        let tasks = files
+            .iter()
+            .flat_map(|source| {
+                self.extractors
+                    .iter()
+                    .filter(move |extractor| extractor.supports(source))
+                    .map(move |extractor| (extractor.as_ref(), source.clone()))
+            })
+            .collect::<Vec<_>>();
+        info!(
+            task_count = tasks.len(),
+            concurrency = EXTRACTION_CONCURRENCY_LIMIT,
+            "queued extraction tasks"
+        );
+
+        let mut outputs = stream::iter(tasks)
+            .map(|(extractor, source)| async move {
+                let input = ExtractInput {
+                    repo: repo.clone(),
+                    snapshot: snapshot.clone(),
+                    source,
+                };
+                let output = extractor.extract(input).await.with_context(|| {
+                    format!("extractor {} failed", extractor.name())
+                })?;
+
+                validate_entities(extractor.name(), &output.entities)?;
+                validate_facts(extractor.name(), &output.facts)?;
+                Ok::<_, anyhow::Error>(output)
+            })
+            .buffer_unordered(EXTRACTION_CONCURRENCY_LIMIT);
+
+        let mut entities = Vec::new();
+        let mut facts = Vec::new();
+
+        while let Some(output) = outputs.next().await {
+            match output {
+                Ok(output) => {
+                    entities.extend(output.entities);
+                    facts.extend(output.facts);
+                }
+                Err(error) => {
+                    error!(%error, "extraction failed");
+                    return Err(error);
+                }
+            }
+        }
+
+        entities.sort_by(|left, right| left.id.0.cmp(&right.id.0));
+        facts.sort_by(|left, right| left.id.0.cmp(&right.id.0));
+
+        Ok((entities, facts))
+    }
+
+    async fn link(
+        &self,
+        snapshot: &SnapshotId,
         entities: &[Entity],
         facts: &[Fact],
         affected: &AffectedSubset,
     ) -> Result<Vec<Relation>> {
         let mut relations = Vec::new();
+        let entities = Arc::<[Entity]>::from(entities.to_vec());
+        let facts = Arc::<[Fact]>::from(facts.to_vec());
 
         for linker in &self.linkers {
             let output = linker
                 .link(LinkInput {
                     snapshot: snapshot.clone(),
-                    entities: entities.to_vec(),
-                    facts: facts.to_vec(),
+                    entities: entities.clone(),
+                    facts: facts.clone(),
                     affected: affected.clone(),
                 })
                 .await
+                .inspect_err(|error| error!(linker = linker.name(), %error, "linker failed"))
                 .with_context(|| format!("linker {} failed", linker.name()))?;
 
             validate_relations(linker.name(), &output)?;
@@ -328,17 +420,21 @@ impl IndexPipeline {
         affected: &AffectedSubset,
     ) -> Result<Vec<Diagnostic>> {
         let mut diagnostics = Vec::new();
+        let entities = Arc::<[Entity]>::from(entities.to_vec());
+        let facts = Arc::<[Fact]>::from(facts.to_vec());
+        let relations = Arc::<[Relation]>::from(relations.to_vec());
 
         for checker in &self.checkers {
             let output = checker
                 .check(CheckInput {
                     snapshot: snapshot.clone(),
-                    entities: entities.to_vec(),
-                    facts: facts.to_vec(),
-                    relations: relations.to_vec(),
+                    entities: entities.clone(),
+                    facts: facts.clone(),
+                    relations: relations.clone(),
                     affected: affected.clone(),
                 })
                 .await
+                .inspect_err(|error| error!(checker = checker.name(), %error, "checker failed"))
                 .with_context(|| format!("checker {} failed", checker.name()))?;
 
             validate_diagnostics(checker.name(), &output)?;

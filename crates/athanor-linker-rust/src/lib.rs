@@ -1,6 +1,6 @@
 #![allow(clippy::collapsible_if)]
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use async_trait::async_trait;
 use athanor_core::{CoreResult, LinkInput, Linker};
@@ -30,11 +30,15 @@ impl Linker for RustLinker {
 
         // Keep a set of all qualified names/stable keys in the snapshot for path resolution
         let mut rust_entities = Vec::new();
+        let mut rust_by_qualified_name = HashMap::new();
+        let mut rust_by_id = HashMap::new();
         let mut qualified_names = HashSet::new();
 
         for entity in &input.entities {
             if let Some(qn) = qualified_name(entity) {
                 rust_entities.push(entity);
+                rust_by_qualified_name.insert(qn, entity);
+                rust_by_id.insert(&entity.id, entity);
                 qualified_names.insert(qn);
             }
         }
@@ -50,9 +54,8 @@ impl Linker for RustLinker {
             if qn.contains("::") {
                 let parts = qn.split("::").collect::<Vec<_>>();
                 let parent_qn = parts[..parts.len() - 1].join("::");
-                if let Some(parent) = rust_entities
-                    .iter()
-                    .find(|e| qualified_name(e) == Some(&parent_qn))
+                if let Some(parent) = rust_by_qualified_name
+                    .get(parent_qn.as_str())
                     .filter(|parent| either_affected(entity, parent, &affected_ids))
                 {
                     push_unique(
@@ -82,9 +85,8 @@ impl Linker for RustLinker {
                     if let Some(import_path) = import_val.as_str() {
                         if let Some(resolved) = resolve_path(qn, import_path, &[], &qualified_names)
                         {
-                            if let Some(target) = rust_entities
-                                .iter()
-                                .find(|e| qualified_name(e) == Some(&resolved))
+                            if let Some(target) = rust_by_qualified_name
+                                .get(resolved.as_str())
                                 .filter(|target| either_affected(entity, target, &affected_ids))
                             {
                                 push_unique(
@@ -118,9 +120,8 @@ impl Linker for RustLinker {
                 // Find containing module imports to resolve local paths
                 let parts = qn.split("::").collect::<Vec<_>>();
                 let parent_module_qn = parts[..parts.len() - 1].join("::");
-                let imports = rust_entities
-                    .iter()
-                    .find(|e| qualified_name(e) == Some(&parent_module_qn))
+                let imports = rust_by_qualified_name
+                    .get(parent_module_qn.as_str())
                     .and_then(|e| e.payload.get("imports").and_then(|v| v.as_array()))
                     .map(|arr| {
                         arr.iter()
@@ -138,9 +139,8 @@ impl Linker for RustLinker {
                                 &imports,
                                 &qualified_names,
                             ) {
-                                if let Some(target) = rust_entities
-                                    .iter()
-                                    .find(|e| qualified_name(e) == Some(&resolved))
+                                if let Some(target) = rust_by_qualified_name
+                                    .get(resolved.as_str())
                                     .filter(|target| either_affected(entity, target, &affected_ids))
                                 {
                                     let rel = relation(
@@ -168,15 +168,15 @@ impl Linker for RustLinker {
             if rel.kind != RelationKind::Calls {
                 continue;
             }
-            let Some(caller) = rust_entities
-                .iter()
-                .find(|e| e.id == rel.from && e.kind == EntityKind::TestCase)
+            let Some(caller) = rust_by_id
+                .get(&rel.from)
+                .filter(|entity| entity.kind == EntityKind::TestCase)
             else {
                 continue;
             };
-            let Some(callee) = rust_entities
-                .iter()
-                .find(|e| e.id == rel.to && e.kind == EntityKind::Function)
+            let Some(callee) = rust_by_id
+                .get(&rel.to)
+                .filter(|entity| entity.kind == EntityKind::Function)
             else {
                 continue;
             };

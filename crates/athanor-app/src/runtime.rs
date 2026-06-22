@@ -20,6 +20,7 @@ use athanor_linker_markdown::MarkdownContainmentLinker;
 use athanor_linker_rust::RustLinker;
 use athanor_source_fs::LocalFileSystemSource;
 use serde::{Deserialize, Serialize};
+use tracing::{debug, warn};
 
 use crate::IndexPipeline;
 
@@ -692,12 +693,32 @@ where
             "failed to wait for external {adapter_kind} {adapter_id}: {error}"
         ))
     })?;
+    let stdout = process_output_excerpt(&output.stdout);
+    let stderr = process_output_excerpt(&output.stderr);
+
+    if !stdout.is_empty() {
+        debug!(
+            adapter_kind,
+            adapter_id,
+            stdout = %stdout,
+            "external process adapter stdout"
+        );
+    }
+
+    if !stderr.is_empty() {
+        warn!(
+            adapter_kind,
+            adapter_id,
+            stderr = %stderr,
+            "external process adapter stderr"
+        );
+    }
 
     if !output.status.success() {
         return Err(CoreError::Adapter(format!(
             "external {adapter_kind} {adapter_id} exited with {}; stderr: {}",
             output.status,
-            String::from_utf8_lossy(&output.stderr).trim()
+            stderr
         )));
     }
 
@@ -706,6 +727,23 @@ where
             "failed to parse output from external {adapter_kind} {adapter_id}: {error}"
         ))
     })
+}
+
+fn process_output_excerpt(bytes: &[u8]) -> String {
+    const MAX_PROCESS_OUTPUT_LOG_CHARS: usize = 4096;
+
+    let value = String::from_utf8_lossy(bytes);
+    let trimmed = value.trim();
+    let mut excerpt = trimmed
+        .chars()
+        .take(MAX_PROCESS_OUTPUT_LOG_CHARS)
+        .collect::<String>();
+
+    if trimmed.chars().count() > MAX_PROCESS_OUTPUT_LOG_CHARS {
+        excerpt.push_str("...");
+    }
+
+    excerpt
 }
 
 fn resolve_manifest_program(manifest_dir: &Path, program: &str) -> PathBuf {

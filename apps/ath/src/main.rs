@@ -12,6 +12,7 @@ use athanor_app::{
 };
 use athanor_domain::ContextLevel;
 use clap::{Parser, Subcommand, ValueEnum};
+use tracing_subscriber::{EnvFilter, fmt};
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum ContextLevelArg {
@@ -280,6 +281,7 @@ enum ApiCommand {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    init_tracing();
     let cli = Cli::parse();
 
     match cli.command {
@@ -615,6 +617,14 @@ async fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn init_tracing() {
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn"));
+    let _ = fmt()
+        .with_env_filter(filter)
+        .with_writer(std::io::stderr)
+        .try_init();
 }
 
 fn print_explanation(explanation: &EntityExplanation) -> Result<()> {
