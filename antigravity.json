@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "athanor": {
+      "command": "cargo",
+      "args": ["run", "--bin", "ath", "--quiet", "--", "mcp", "."]
+    }
+  }
+}

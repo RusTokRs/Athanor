@@ -42,27 +42,27 @@ You can configure a new MCP stdio server in Cursor's settings:
 - **Command**: `path/to/ath mcp path/to/your/project/root`
 
 ### Antigravity
-Add the Athanor MCP server to your `antigravity.json` configuration file:
+A pre-configured `antigravity.json` file is provided in the workspace root. It runs the local Athanor server on the current workspace using cargo:
 ```json
 {
   "mcpServers": {
     "athanor": {
-      "command": "path/to/ath",
-      "args": ["mcp", "path/to/your/project/root"]
+      "command": "cargo",
+      "args": ["run", "--bin", "ath", "--quiet", "--", "mcp", "."]
     }
   }
 }
 ```
 
 ### Codex
-Add the Athanor MCP server to your Codex configuration file (e.g. `.codex.json`):
+A pre-configured `.codex.json` file is also provided in the workspace root:
 ```json
 {
   "mcp": {
     "servers": {
       "athanor": {
-        "command": "path/to/ath",
-        "args": ["mcp", "path/to/your/project/root"]
+        "command": "cargo",
+        "args": ["run", "--bin", "ath", "--quiet", "--", "mcp", "."]
       }
     }
   }
