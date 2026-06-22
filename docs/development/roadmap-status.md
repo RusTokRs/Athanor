@@ -908,6 +908,37 @@ Purpose:
 - traverses dependency, call, containment, and test relations via a BFS graph traversal
 - gathers open diagnostics attached to any entity in the blast radius
 
+### Agent Transport Layer
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-transport-mcp`
+- `apps/ath/src/main.rs`
+- `docs/adapters/transport-mcp.md`
+
+Purpose:
+
+- implements the standard stdio JSON-RPC Model Context Protocol (MCP) server
+- exposes Athanor's query tools (`search`, `explain`, `context`, `impact`, `check`, `index`) as MCP tools
+- formats Athanor app queries output as structured text contents for the agent to use
+- redirects all logging and debug outputs to `stderr` to protect the JSON-RPC stdio channel
+
+### Large-Repository Scale & Performance
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-store-jsonl/src/lib.rs`
+- `docs/adapters/store-jsonl.md`
+
+Purpose:
+
+- generates and writes two secondary index files on snapshot commit: `path_index.json` and `stable_key_index.json`
+- optimizes memory usage by parsing JSONL line-by-line / chunk-by-chunk using a reusable line buffer
+
 ## In Progress
 
 None.
@@ -916,17 +947,9 @@ None.
 
 This backlog contains prioritized initiatives based on recent project research and technical debt analysis.
 
-4. **Large-Repository Scale & Performance**
-   - **Goal**: Introduce secondary indexes (path -> object IDs, stable-key -> entity ID) and chunked JSONL loading.
-   - **Why**: Eliminate the memory and IO bottleneck of loading full snapshots on huge repos.
-
 ### P2: Transports & Operations
 
-1. **Agent Transport Layer**
-   - **Goal**: Stabilize machine-readable JSON output contracts and implement socket/HTTP (Axum) or MCP server adapters.
-   - **Why**: Allow external orchestration agents to consume Athanor queries easily.
-
-2. **Security & Supply-Chain Automation**
+1. **Security & Supply-Chain Automation**
    - **Goal**: Integrate `cargo-deny`, `cargo-audit` checks, and nightly vulnerability scan workflows.
    - **Why**: Mitigate supply-chain risks and ensure attestation readiness.
 

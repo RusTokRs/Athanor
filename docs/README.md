@@ -52,6 +52,7 @@ High-level adapter docs:
 - [JSONL store](adapters/store-jsonl.md)
 - [Tantivy search index](adapters/search-tantivy.md)
 - [Markdown wiki projector](adapters/projector-wiki.md)
+- [Model Context Protocol (MCP) transport](adapters/transport-mcp.md)
 - [HTML report projector](adapters/projector-html.md)
 
 Crate-local adapter docs:

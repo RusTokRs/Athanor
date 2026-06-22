@@ -1,5 +1,5 @@
 [package]
-name = "ath"
+name = "athanor-transport-mcp"
 version = "0.1.0"
 authors.workspace = true
 description.workspace = true
@@ -13,10 +13,9 @@ rust-version.workspace = true
 
 [dependencies]
 anyhow.workspace = true
-athanor-app = { path = "../../crates/athanor-app" }
-athanor-domain = { path = "../../crates/athanor-domain" }
-athanor-transport-mcp = { path = "../../crates/athanor-transport-mcp" }
-clap.workspace = true
-serde.workspace = true
+async-trait.workspace = true
+athanor-app = { path = "../athanor-app" }
+athanor-domain = { path = "../athanor-domain" }
+serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["full"] }

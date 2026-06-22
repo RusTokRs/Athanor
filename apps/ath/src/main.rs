@@ -183,6 +183,12 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Start Model Context Protocol (MCP) stdio server.
+    Mcp {
+        /// Project root. Defaults to the current directory.
+        #[arg(default_value = ".")]
+        path: PathBuf,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -423,6 +429,9 @@ async fn main() -> Result<()> {
                     }
                 }
             }
+        }
+        Some(Command::Mcp { path }) => {
+            athanor_transport_mcp::run_mcp_server(path).await?;
         }
         None => {
             println!("Athanor {}", env!("CARGO_PKG_VERSION"));

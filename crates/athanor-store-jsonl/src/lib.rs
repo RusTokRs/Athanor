@@ -400,8 +400,9 @@ fn write_snapshot(root: &Path, snapshot: &SnapshotId, data: &SnapshotData) -> Co
     // Write Indexes
     fs::write(
         snapshot_dir.join("stable_key_index.json"),
-        serde_json::to_string_pretty(&stable_key_index)
-            .map_err(|err| CoreError::Adapter(format!("failed to serialize stable key index: {err}")))?,
+        serde_json::to_string_pretty(&stable_key_index).map_err(|err| {
+            CoreError::Adapter(format!("failed to serialize stable key index: {err}"))
+        })?,
     )
     .map_err(|err| CoreError::Adapter(format!("failed to write stable key index: {err}")))?;
 
@@ -624,7 +625,7 @@ mod tests {
             )
             .await
             .unwrap();
-            
+
         let entity = Entity {
             id: EntityId("ent_file_readme".to_string()),
             stable_key: StableKey("file://README.md".to_string()),
@@ -649,12 +650,15 @@ mod tests {
         store.commit_snapshot(snapshot.clone()).await.unwrap();
 
         let snapshot_dir = root.join("snapshots").join(&snapshot.0);
-        
+
         let stable_key_path = snapshot_dir.join("stable_key_index.json");
         assert!(stable_key_path.exists());
         let stable_key_content = fs::read_to_string(&stable_key_path).unwrap();
         let stable_key_index: StableKeyIndex = serde_json::from_str(&stable_key_content).unwrap();
-        assert_eq!(stable_key_index.entries.get("file://README.md").unwrap(), "ent_file_readme");
+        assert_eq!(
+            stable_key_index.entries.get("file://README.md").unwrap(),
+            "ent_file_readme"
+        );
 
         let path_index_path = snapshot_dir.join("path_index.json");
         assert!(path_index_path.exists());

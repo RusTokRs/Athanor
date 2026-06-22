@@ -22,7 +22,7 @@ pub struct IndexOptions {
     pub validate_only: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct IndexReport {
     pub root: PathBuf,
     pub snapshot: String,
