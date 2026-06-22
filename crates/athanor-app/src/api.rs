@@ -5,7 +5,11 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use athanor_core::{CanonicalSnapshot, CanonicalSnapshotStore};
-use athanor_domain::{Entity, EntityKind};
+use athanor_domain::{
+    Diagnostic, DiagnosticId, DiagnosticKind, DiagnosticStatus, Entity, EntityId, EntityKind,
+    Evidence, EvidenceStatus, Ownership, Severity, SnapshotId, SourceLocation,
+};
+use athanor_extractor_basic::stable_hash;
 use athanor_projector_support::replace_output_file;
 use athanor_store_jsonl::JsonlKnowledgeStore;
 use serde::{Deserialize, Serialize};
@@ -13,9 +17,9 @@ use serde_json::Value;
 
 use crate::project_path::normalize_canonical_path;
 
-pub const API_CONTRACT_SNAPSHOT_SCHEMA: &str = "athanor.api_contract_snapshot.v1";
+pub const API_CONTRACT_SNAPSHOT_SCHEMA: &str = "athanor.api_contract_snapshot.v2";
 pub const API_CONTRACT_LATEST_SCHEMA: &str = "athanor.api_contract_latest.v1";
-pub const API_CONTRACT_DIFF_SCHEMA: &str = "athanor.api_contract_diff.v1";
+pub const API_CONTRACT_DIFF_SCHEMA: &str = "athanor.api_contract_diff.v2";
 
 #[derive(Debug, Clone)]
 pub struct ApiSnapshotOptions {
@@ -31,8 +35,14 @@ pub struct ApiDiffOptions {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ApiContractItem {
+    #[serde(default)]
+    pub entity_id: Option<EntityId>,
     pub stable_key: String,
     pub name: String,
+    #[serde(default)]
+    pub source: Option<SourceLocation>,
+    #[serde(default)]
+    pub ownership: Vec<Ownership>,
     pub payload: Value,
 }
 
@@ -82,6 +92,12 @@ pub struct ApiContractChange {
     pub stable_key: String,
     pub breaking: bool,
     pub reasons: Vec<String>,
+    #[serde(default)]
+    pub entity_id: Option<EntityId>,
+    #[serde(default)]
+    pub source: Option<SourceLocation>,
+    #[serde(default)]
+    pub ownership: Vec<Ownership>,
     pub before: Option<Value>,
     pub after: Option<Value>,
 }
@@ -93,6 +109,10 @@ pub struct ApiContractDiff {
     pub to: String,
     pub breaking_changes: usize,
     pub changes: Vec<ApiContractChange>,
+    #[serde(default)]
+    pub diagnostics: Vec<Diagnostic>,
+    #[serde(default)]
+    pub artifact: Option<String>,
 }
 
 pub async fn snapshot_api_contract(options: ApiSnapshotOptions) -> Result<ApiSnapshotReport> {
@@ -146,7 +166,17 @@ pub fn diff_api_contracts(options: ApiDiffOptions) -> Result<ApiContractDiff> {
     let (from, to) = resolve_diff_pair(options.from, options.to, &available)?;
     let before = read_contract(&snapshots_dir, &from)?;
     let after = read_contract(&snapshots_dir, &to)?;
-    Ok(build_api_contract_diff(&before, &after))
+    let mut diff = build_api_contract_diff(&before, &after);
+    let relative = format!("diffs/{}--{}.json", diff.from, diff.to);
+    diff.artifact = Some(relative.clone());
+    let artifact = root.join(".athanor/api").join(&relative);
+    replace_output_file(
+        &artifact,
+        &serde_json::to_string_pretty(&diff).context("failed to serialize API contract diff")?,
+        "API contract diff",
+    )
+    .context("failed to persist API contract diff")?;
+    Ok(diff)
 }
 
 fn canonical_root(root: &Path) -> Result<PathBuf> {
@@ -176,8 +206,11 @@ fn contract_items(entities: &[Entity], kind: EntityKind) -> Vec<ApiContractItem>
         .iter()
         .filter(|entity| entity.kind == kind)
         .map(|entity| ApiContractItem {
+            entity_id: Some(entity.id.clone()),
             stable_key: entity.stable_key.0.clone(),
             name: entity.name.clone(),
+            source: entity.source.clone(),
+            ownership: entity.ownership.clone(),
             payload: entity.payload.clone(),
         })
         .collect::<Vec<_>>();
@@ -311,12 +344,19 @@ fn build_api_contract_diff(
             .cmp(&(&right.stable_key, format!("{:?}", right.kind)))
     });
     let breaking_changes = changes.iter().filter(|change| change.breaking).count();
+    let diagnostics = changes
+        .iter()
+        .filter(|change| change.breaking)
+        .map(|change| breaking_change_diagnostic(change, &before.snapshot, &after.snapshot))
+        .collect();
     ApiContractDiff {
         schema: API_CONTRACT_DIFF_SCHEMA.to_string(),
         from: before.snapshot.clone(),
         to: after.snapshot.clone(),
         breaking_changes,
         changes,
+        diagnostics,
+        artifact: None,
     }
 }
 
@@ -367,6 +407,9 @@ fn compare_items(
                     stable_key: key.to_string(),
                     breaking: !reasons.is_empty(),
                     reasons,
+                    entity_id: right.entity_id.clone().or_else(|| left.entity_id.clone()),
+                    source: right.source.clone().or_else(|| left.source.clone()),
+                    ownership: merge_ownership(&left.ownership, &right.ownership),
                     before: Some(left.payload.clone()),
                     after: Some(right.payload.clone()),
                 });
@@ -388,8 +431,83 @@ fn change(
         stable_key: item.stable_key.clone(),
         breaking,
         reasons,
+        entity_id: item.entity_id.clone(),
+        source: item.source.clone(),
+        ownership: item.ownership.clone(),
         before: removed.then(|| item.payload.clone()),
         after: (!removed).then(|| item.payload.clone()),
+    }
+}
+
+fn merge_ownership(left: &[Ownership], right: &[Ownership]) -> Vec<Ownership> {
+    let mut ownership = left.to_vec();
+    for owner in right {
+        if !ownership
+            .iter()
+            .any(|existing| existing.source_file == owner.source_file)
+        {
+            ownership.push(owner.clone());
+        }
+    }
+    ownership
+}
+
+fn breaking_change_diagnostic(
+    change: &ApiContractChange,
+    from: &str,
+    to: &str,
+) -> Diagnostic {
+    let material = format!("api_breaking_change_detected\0{from}\0{to}\0{}", change.stable_key);
+    let source = change.source.as_ref();
+    let mut ownership = change.ownership.clone();
+    if ownership.is_empty()
+    {
+        ownership.push(Ownership {
+            source_file: source.map_or_else(
+                || format!(".athanor/api/snapshots/{from}.json"),
+                |source| source.path.clone(),
+            ),
+        });
+    }
+    Diagnostic {
+        id: DiagnosticId(format!(
+            "diag_api_breaking_{:016x}",
+            stable_hash(material.as_bytes())
+        )),
+        kind: DiagnosticKind::ApiBreakingChangeDetected,
+        severity: Severity::High,
+        status: DiagnosticStatus::Open,
+        title: "Breaking API contract change detected".to_string(),
+        message: format!(
+            "{} changed between {from} and {to}: {}",
+            change.stable_key,
+            change.reasons.join(", ")
+        ),
+        entities: change.entity_id.clone().into_iter().collect(),
+        evidence: vec![Evidence {
+            source_file: Some(source.map_or_else(
+                || format!(".athanor/api/snapshots/{from}.json"),
+                |source| source.path.clone(),
+            )),
+            line_start: source.and_then(|source| source.line_start),
+            line_end: source.and_then(|source| source.line_end),
+            extractor: Some("api-contract-diff".to_string()),
+            commit_hash: None,
+            confidence: 1.0,
+            status: EvidenceStatus::Conflicting,
+        }],
+        ownership,
+        snapshot: SnapshotId(to.to_string()),
+        suggested_fix: Some(
+            "Restore compatibility or explicitly approve and version the API change.".to_string(),
+        ),
+        payload: serde_json::json!({
+            "from": from,
+            "to": to,
+            "stable_key": change.stable_key,
+            "change_kind": change.kind,
+            "reasons": change.reasons,
+        }),
     }
 }
 
@@ -601,8 +719,11 @@ mod tests {
 
     fn item(stable_key: &str, payload: Value) -> ApiContractItem {
         ApiContractItem {
+            entity_id: None,
             stable_key: stable_key.to_string(),
             name: stable_key.to_string(),
+            source: None,
+            ownership: Vec::new(),
             payload,
         }
     }
