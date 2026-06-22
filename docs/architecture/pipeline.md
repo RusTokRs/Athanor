@@ -70,6 +70,7 @@ flowchart TD
 23. On demand, `ath wiki` loads the latest durable canonical snapshot and performs a staged replacement of the neutral Markdown wiki read model.
 24. On demand, `ath report html` loads the same snapshot and performs a staged replacement of a self-contained HTML report.
 25. On demand, `ath generate` projects JSONL, wiki, and HTML into one immutable generation, writes a complete generation manifest, and then switches `current.json` to that generation.
+26. On demand, `ath docs check` evaluates editable documentation under the configured path against frontmatter completeness and diagnostic severity policy.
 
 ## Pipeline Assembly
 
@@ -83,6 +84,7 @@ flowchart TD
 - `context_project`: task-focused context-pack generation from the latest canonical snapshot.
 - `explain_project`: exact stable-key entity explanation from the latest canonical snapshot.
 - `check_project`: scoped API/documentation diagnostic reporting from the latest canonical snapshot.
+- `check_docs`: configurable editable-documentation completeness gate from the latest canonical snapshot.
 - `project_wiki`: Markdown wiki projection from the latest canonical snapshot.
 - `project_html_report`: static HTML report projection from the latest canonical snapshot.
 - `generate_project`: coordinated immutable JSONL/wiki/HTML generation and portable current-pointer publication.
@@ -169,6 +171,18 @@ The default CLI output is a compact source-oriented list. `--json` emits the
 `athanor.diagnostic_check.v1` report. These commands are currently read-only views and return success
 after a valid query even when diagnostics exist; CI failure thresholds and strict-mode policy remain
 deferred.
+
+## Editable Documentation Completeness Gate
+
+`ath docs check` is a read-only CI gate over the latest durable snapshot. It reads `[docs]` and
+`[docs.completeness]` from `athanor.toml`, selects only `documentation_layer = "editable"` pages
+under `docs.editable_path`, and fails when required frontmatter fields are absent, status is not
+allowed, current-snapshot verification is required but stale, or matching open documentation
+diagnostics meet the configured severity threshold. `--json` emits the stable
+`athanor.docs_check.v1` report before returning a non-zero exit status on failure.
+
+The gate does not re-index or modify documentation. Generated documentation is excluded even when
+it is present in a canonical snapshot.
 
 The default built-in registry currently assembles:
 
@@ -285,7 +299,7 @@ checkers:
   snapshots/<snapshot-id>/
 ```
 
-Generated JSONL files and Markdown wiki pages under `.athanor/generated/current` are read models. They are not the source of truth and may be deleted and rebuilt. `validation-report.json` is written only for adapter contract validation failures and is removed after a successful index run. `validation-result.json` is written only for successful `--validate-only` runs and is removed after validation failures or normal index runs. Durable canonical snapshots live under `.athanor/store/canonical/jsonl`. The state file records the last indexed file paths, content hashes, language hints, and snapshot id so later runs can classify changed, unchanged, and removed files. Its schema is versioned so changes to built-in extraction, linking, or checking semantics can force a safe one-time full rebuild; frontmatter reference linking/checking advances it to `athanor.index_state.v10`.
+Generated JSONL files and Markdown wiki pages under `.athanor/generated/current` are read models. They are not the source of truth and may be deleted and rebuilt. `validation-report.json` is written only for adapter contract validation failures and is removed after a successful index run. `validation-result.json` is written only for successful `--validate-only` runs and is removed after validation failures or normal index runs. Durable canonical snapshots live under `.athanor/store/canonical/jsonl`. The state file records the last indexed file paths, content hashes, language hints, and snapshot id so later runs can classify changed, unchanged, and removed files. Its schema is versioned so changes to built-in extraction, linking, or checking semantics can force a safe one-time full rebuild; explicit frontmatter field tracking advances it to `athanor.index_state.v11`.
 
 ## Current Limitations
 
@@ -293,6 +307,7 @@ Generated JSONL files and Markdown wiki pages under `.athanor/generated/current`
 - Context generation uses deterministic lexical matching and approximate token accounting; model-specific tokenizers and semantic search are not implemented.
 - Entity explanation requires an exact stable key and does not yet provide fuzzy lookup, history, or cross-snapshot comparison.
 - Diagnostic check views expose open findings but do not yet implement CI exit thresholds, strict mode, suppression configuration, or historical comparison.
+- The completeness gate has a project-level severity threshold but does not yet support per-kind suppressions or baseline comparison.
 - Rust extraction does not expand macros, emit trait method declarations, or infer imports, calls, and framework routes.
 - OpenAPI extraction supports 3.0.x and 3.1.x through replaceable parser backends but does not support Swagger 2.x/OpenAPI 3.2, resolve external references, merge specifications, or infer code handlers.
 - API knowledge linking is lexical for code/docs and resolves only same-document component schemas; framework route metadata, call graphs, and Rust schema/type links are not implemented.
@@ -308,4 +323,4 @@ Generated JSONL files and Markdown wiki pages under `.athanor/generated/current`
 
 ## Next Good Step
 
-Add frontmatter completeness policy and an `ath docs check` gate for editable documentation.
+Add the automated CI/CD baseline workflow from the P0 roadmap.

@@ -52,6 +52,8 @@ ath check api
 ath check api --json
 ath check docs
 ath check docs --json
+ath docs check
+ath docs check --json
 ath wiki
 ath wiki --output <directory>
 ath report html
@@ -492,6 +494,30 @@ Purpose:
 - preserves complete diagnostic evidence, ownership, entity ids, status, and payload in JSON mode
 - keeps the initial commands read-only with no CI failure threshold or strict-mode policy
 
+### Editable Documentation Completeness Policy And Gate
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-app/src/docs.rs`
+- `apps/ath/src/main.rs`
+- `crates/athanor-extractor-markdown/src/frontmatter.rs`
+- `crates/athanor-extractor-markdown/src/lib.rs`
+- `docs/development/docs-completeness-policy.md`
+
+Purpose:
+
+- adds `ath docs check` and `ath docs check --json`
+- reads project policy from `[docs.completeness]` in `athanor.toml`
+- gates only editable Markdown pages under `docs.editable_path`
+- verifies explicitly declared required frontmatter fields and allowed statuses
+- optionally requires `last_verified_snapshot` to match the current canonical snapshot
+- includes open documentation diagnostics at or above a configurable severity threshold
+- returns a non-zero process status when the gate fails
+- excludes generated documentation and never rewrites editable source files
+- advances persisted index state to v11 so existing projects capture explicit frontmatter field metadata once
+
 ### Markdown Wiki Projector
 
 Status: verified.
@@ -788,15 +814,11 @@ This backlog contains prioritized initiatives based on recent project research a
 
 ### P0: Quality & Hygiene Baseline (Next Up)
 
-1. **Completeness Policy & Gate**
-   - **Goal**: Configure completeness policies and a dedicated `ath docs check` gate for editable documentation.
-   - **Why**: Prevent drift before patch workflows are introduced.
-
-2. **Automated CI/CD Baseline**
+1. **Automated CI/CD Baseline**
    - **Goal**: Add `.github/workflows/ci.yml` matrix workflow.
    - **Why**: Convert manual validation rules (rustfmt, clippy, tests, index smoke tests) into an automated PR check.
 
-3. **Metadata & Configuration Hygiene**
+2. **Metadata & Configuration Hygiene**
    - **Goal**: Fix package repository URLs (upstream drift) and keep `README.md` status descriptions synchronized.
    - **Why**: Clean up workspace metadata and align expectations for team members and AI agents.
 

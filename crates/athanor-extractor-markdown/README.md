@@ -60,6 +60,8 @@ status: verified
 ```
 
 `documentation_layer` accepts `editable` or `generated`. Source Markdown defaults to `editable`.
+The page payload records `frontmatter_fields`, preserving which keys were explicitly declared so
+app-layer completeness policies can distinguish defaults from authored metadata.
 Frontmatter metadata is stored in the page payload and identity, language, layer, and kind are
 inherited by section entities. Malformed YAML, unclosed frontmatter, invalid language values, and
 page ids that are not fragment-free `doc://` keys fail extraction.

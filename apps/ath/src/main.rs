@@ -3,9 +3,10 @@ use std::path::PathBuf;
 use anyhow::Result;
 use athanor_app::{
     ContextLimitOverrides, ContextOptions, DiagnosticCheckOptions, DiagnosticCheckReport,
-    DiagnosticScope, EntityExplanation, ExplainOptions, GenerationOptions, HtmlReportOptions,
-    IndexOptions, InitOptions, WikiOptions, check_project, context_project, explain_project,
-    generate_project, index_project, init_project, project_html_report, project_wiki,
+    DiagnosticScope, DocsCheckOptions, DocsCheckReport, EntityExplanation, ExplainOptions,
+    GenerationOptions, HtmlReportOptions, IndexOptions, InitOptions, WikiOptions, check_docs,
+    check_project, context_project, explain_project, generate_project, index_project, init_project,
+    project_html_report, project_wiki,
 };
 use athanor_domain::ContextLevel;
 use clap::{Parser, Subcommand, ValueEnum};
@@ -126,6 +127,11 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Check editable documentation against the configured completeness policy.
+    Docs {
+        #[command(subcommand)]
+        command: DocsCommand,
+    },
     /// Build a Markdown wiki from the latest canonical snapshot.
     Wiki {
         /// Project root. Defaults to the current directory.
@@ -158,6 +164,19 @@ enum ReportCommand {
         /// Report output directory. Relative paths are resolved from the project root.
         #[arg(long)]
         output: Option<PathBuf>,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum DocsCommand {
+    /// Run the editable-documentation completeness gate.
+    Check {
+        /// Project root. Defaults to the current directory.
+        #[arg(long, default_value = ".")]
+        path: PathBuf,
+        /// Print the complete gate report as JSON.
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -274,6 +293,19 @@ async fn main() -> Result<()> {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
                 print_check_report(&report)?;
+            }
+        }
+        Some(Command::Docs {
+            command: DocsCommand::Check { path, json },
+        }) => {
+            let report = check_docs(DocsCheckOptions { root: path }).await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                print_docs_check_report(&report)?;
+            }
+            if !report.passed {
+                anyhow::bail!("documentation completeness gate failed");
             }
         }
         Some(Command::Wiki { path, output }) => {
@@ -408,6 +440,31 @@ fn print_check_report(report: &DiagnosticCheckReport) -> Result<()> {
             serialized_name(&diagnostic.severity)?,
             serialized_name(&diagnostic.kind)?,
             location,
+            diagnostic.title
+        );
+    }
+    Ok(())
+}
+
+fn print_docs_check_report(report: &DocsCheckReport) -> Result<()> {
+    println!(
+        "documentation completeness in {}: {} ({} editable documents, {} policy violations, {} diagnostics)",
+        report.snapshot,
+        if report.passed { "passed" } else { "failed" },
+        report.editable_documents,
+        report.policy_violations.len(),
+        report.diagnostics.len()
+    );
+    for violation in &report.policy_violations {
+        println!(
+            "policy {} at {} — {}",
+            violation.field, violation.path, violation.message
+        );
+    }
+    for diagnostic in &report.diagnostics {
+        println!(
+            "diagnostic: {} — {}",
+            serialized_name(&diagnostic.kind)?,
             diagnostic.title
         );
     }

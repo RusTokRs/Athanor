@@ -2,6 +2,7 @@
 
 pub mod check;
 pub mod context;
+pub mod docs;
 pub mod explain;
 pub mod generation;
 pub mod index;
@@ -16,6 +17,7 @@ pub mod wiki;
 
 pub use check::*;
 pub use context::*;
+pub use docs::*;
 pub use explain::*;
 pub use generation::*;
 pub use index::*;

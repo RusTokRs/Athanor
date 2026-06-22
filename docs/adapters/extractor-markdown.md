@@ -73,6 +73,7 @@ Supported fields:
 | `id` | Overrides the path-derived documentation page stable key. |
 | `language` | Sets page and section `Entity.language`. |
 | `documentation_layer` | Classifies the document as `editable` or `generated`. |
+| `frontmatter_fields` | Lists explicitly declared frontmatter keys for app-layer completeness checks. |
 | `kind` | Records the documentation kind in page and section payloads. |
 | `source_language` | Records the source language for future translation workflows. |
 | `concepts` | Records declared concept stable keys in the page payload. |

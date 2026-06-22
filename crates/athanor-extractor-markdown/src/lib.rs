@@ -71,6 +71,7 @@ impl Extractor for MarkdownExtractor {
             payload: json!({
                 "content_hash": input.source.content_hash,
                 "frontmatter_present": parsed.body_offset > 0,
+                "frontmatter_fields": parsed.fields,
                 "documentation_layer": documentation_layer.as_str(),
                 "documentation_kind": metadata.kind.as_deref(),
                 "source_language": metadata.source_language.as_deref(),

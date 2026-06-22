@@ -22,6 +22,7 @@ Use this file to find the right document before changing code, adapters, plugins
 - [Agent workflow](development/agent-workflow.md): read-before-coding, planning, documentation, verification, completion notes.
 - [Definition of done](development/definition-of-done.md): required checks and documentation expectations.
 - [Library adoption plan](development/library-adoption-plan.md): approved dependencies, adapter boundaries, risks, and acceptance criteria.
+- [Documentation completeness policy](development/docs-completeness-policy.md): `athanor.toml` policy fields and the `ath docs check` CI gate.
 - [Roadmap status](development/roadmap-status.md): current verified implementation status and next recommended task.
 
 ## Adapter Documentation
@@ -129,6 +130,13 @@ Open canonical diagnostics can be inspected by scope:
 ```bash
 cargo run -p ath --quiet -- check api
 cargo run -p ath --quiet -- check docs --json
+```
+
+Editable documentation can be checked against the project completeness policy:
+
+```bash
+cargo run -p ath --quiet -- docs check
+cargo run -p ath --quiet -- docs check --json
 ```
 
 The latest canonical snapshot can be projected into a disposable Markdown wiki:

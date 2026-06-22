@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 use athanor_core::SourceFile;
 use serde::{Deserialize, Serialize};
 
-pub const INDEX_STATE_SCHEMA: &str = "athanor.index_state.v10";
+pub const INDEX_STATE_SCHEMA: &str = "athanor.index_state.v11";
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IndexState {

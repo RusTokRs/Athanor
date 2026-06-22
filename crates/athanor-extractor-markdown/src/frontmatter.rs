@@ -35,6 +35,7 @@ impl DocumentationLayer {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ParsedMarkdownFrontmatter {
     pub metadata: Option<MarkdownFrontmatter>,
+    pub fields: Vec<String>,
     pub body_offset: usize,
 }
 
@@ -54,15 +55,28 @@ pub fn parse_markdown_frontmatter(content: &str) -> CoreResult<ParsedMarkdownFro
         cursor += line.len();
         if trimmed_line(line) == "---" {
             let yaml = &content[yaml_start..line_start];
-            let metadata = if yaml.trim().is_empty() {
-                MarkdownFrontmatter::default()
+            let (metadata, fields) = if yaml.trim().is_empty() {
+                (MarkdownFrontmatter::default(), Vec::new())
             } else {
-                serde_yaml_ng::from_str(yaml).map_err(|error| {
+                let value =
+                    serde_yaml_ng::from_str::<serde_yaml_ng::Value>(yaml).map_err(|error| {
+                        CoreError::InvalidInput(format!("invalid Markdown frontmatter: {error}"))
+                    })?;
+                let fields = value
+                    .as_mapping()
+                    .into_iter()
+                    .flat_map(|mapping| mapping.keys())
+                    .filter_map(serde_yaml_ng::Value::as_str)
+                    .map(str::to_string)
+                    .collect();
+                let metadata = serde_yaml_ng::from_value(value).map_err(|error| {
                     CoreError::InvalidInput(format!("invalid Markdown frontmatter: {error}"))
-                })?
+                })?;
+                (metadata, fields)
             };
             return Ok(ParsedMarkdownFrontmatter {
                 metadata: Some(metadata),
+                fields,
                 body_offset: cursor,
             });
         }
@@ -89,6 +103,7 @@ mod tests {
 
         assert_eq!(metadata.id.as_deref(), Some("doc://docs/auth.md"));
         assert_eq!(metadata.language.as_deref(), Some("en"));
+        assert_eq!(parsed.fields, ["id", "language", "documentation_layer"]);
         assert_eq!(
             metadata.documentation_layer,
             Some(DocumentationLayer::Editable)

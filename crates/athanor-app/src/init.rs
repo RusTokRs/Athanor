@@ -59,6 +59,12 @@ languages = ["ru", "en"]
 source_language = "ru"
 mode = "patch-based"
 
+[docs.completeness]
+required_fields = ["id", "kind", "language", "source_language", "last_verified_snapshot", "status"]
+allowed_statuses = ["verified"]
+minimum_diagnostic_severity = "medium"
+require_current_snapshot = false
+
 [docs.api]
 enabled = true
 source_of_truth = "hybrid"

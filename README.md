@@ -13,6 +13,7 @@ local files
   -> file, Markdown, OpenAPI, and Rust extraction
   -> Markdown containment, document references, and cross-source API links
   -> Markdown structure, unresolved reference, duplicate ID, and API consistency checks
+  -> Configurable editable-documentation completeness gate
   -> JSONL canonical store
   -> Coordinated read models (JSONL, Markdown Wiki, and HTML browser report)
   -> Immutable coordinator publication with snapshot-consistent generation pointers
@@ -59,6 +60,13 @@ Inspect open API or documentation diagnostics from the latest snapshot:
 ```bash
 cargo run -p ath --quiet -- check api
 cargo run -p ath --quiet -- check docs --json
+```
+
+Run the CI-oriented completeness gate for editable documentation:
+
+```bash
+cargo run -p ath --quiet -- docs check
+cargo run -p ath --quiet -- docs check --json
 ```
 
 Build the neutral Markdown wiki from the latest canonical snapshot:

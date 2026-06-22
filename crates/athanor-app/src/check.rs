@@ -107,7 +107,7 @@ pub fn build_check_report(
     }
 }
 
-fn diagnostic_matches_scope(kind: &DiagnosticKind, scope: DiagnosticScope) -> bool {
+pub(crate) fn diagnostic_matches_scope(kind: &DiagnosticKind, scope: DiagnosticScope) -> bool {
     match scope {
         DiagnosticScope::Api => matches!(
             kind,
