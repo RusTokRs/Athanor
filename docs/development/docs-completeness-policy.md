@@ -1,3 +1,12 @@
+---
+id: doc://docs/development/docs-completeness-policy.md
+kind: developer_guide
+language: en
+source_language: en
+last_verified_snapshot: snap_jsonl_00000030
+status: verified
+---
+
 # Documentation Completeness Policy
 
 `ath docs check` is the CI-oriented gate for editable Markdown documentation. It reads the latest
@@ -40,3 +49,6 @@ The command returns success only when every selected editable page satisfies the
 selected open documentation diagnostic reaches the configured threshold. JSON output uses
 `athanor.docs_check.v1`. Generated documentation is always excluded, and the command never edits
 source files or re-indexes the project.
+
+The repository CI workflow indexes the checkout first and then runs this gate on every operating
+system in its matrix.

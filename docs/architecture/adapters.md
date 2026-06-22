@@ -1,3 +1,12 @@
+---
+id: doc://docs/architecture/adapters.md
+kind: architecture
+language: en
+source_language: en
+last_verified_snapshot: snap_jsonl_00000030
+status: verified
+---
+
 # Adapter Architecture
 
 Athanor uses adapter-first design.

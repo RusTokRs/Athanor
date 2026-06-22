@@ -1,3 +1,12 @@
+---
+id: doc://docs/development/definition-of-done.md
+kind: developer_guide
+language: en
+source_language: en
+last_verified_snapshot: snap_jsonl_00000030
+status: verified
+---
+
 # Definition of Done
 
 A feature is not done until it is implemented, verified, and documented.
@@ -24,6 +33,10 @@ For indexing-related changes:
 ```bash
 cargo run -p ath --quiet -- index .
 ```
+
+The GitHub Actions matrix runs these checks with `--locked` where Cargo resolves dependencies, then
+runs `ath docs check` against the newly indexed snapshot. Local verification remains required before
+handoff; CI is the repository-level enforcement layer.
 
 ## Documentation Updates
 

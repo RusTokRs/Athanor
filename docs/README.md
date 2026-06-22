@@ -1,3 +1,12 @@
+---
+id: doc://docs/README.md
+kind: project_overview
+language: en
+source_language: en
+last_verified_snapshot: snap_jsonl_00000030
+status: verified
+---
+
 # Athanor Documentation Map
 
 This is the documentation index for Athanor.
@@ -21,6 +30,7 @@ Use this file to find the right document before changing code, adapters, plugins
 
 - [Agent workflow](development/agent-workflow.md): read-before-coding, planning, documentation, verification, completion notes.
 - [Definition of done](development/definition-of-done.md): required checks and documentation expectations.
+- [Continuous integration](development/ci.md): GitHub Actions matrix, commands, and security defaults.
 - [Library adoption plan](development/library-adoption-plan.md): approved dependencies, adapter boundaries, risks, and acceptance criteria.
 - [Documentation completeness policy](development/docs-completeness-policy.md): `athanor.toml` policy fields and the `ath docs check` CI gate.
 - [Roadmap status](development/roadmap-status.md): current verified implementation status and next recommended task.

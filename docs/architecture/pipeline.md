@@ -1,3 +1,12 @@
+---
+id: doc://docs/architecture/pipeline.md
+kind: architecture
+language: en
+source_language: en
+last_verified_snapshot: snap_jsonl_00000030
+status: verified
+---
+
 # Indexing Pipeline
 
 Status: implemented, reusable app-layer pipeline with app-layer adapter registry, incremental merge, JSONL read-model writer, Markdown wiki projection, and static HTML reporting from canonical snapshots.
@@ -323,4 +332,4 @@ Generated JSONL files and Markdown wiki pages under `.athanor/generated/current`
 
 ## Next Good Step
 
-Add the automated CI/CD baseline workflow from the P0 roadmap.
+Complete the metadata and configuration hygiene item from the P0 roadmap.

@@ -1,5 +1,7 @@
 # Athanor
 
+[![CI](https://github.com/RusTokRs/Athanor/actions/workflows/ci.yml/badge.svg)](https://github.com/RusTokRs/Athanor/actions/workflows/ci.yml)
+
 Athanor is a Rust-based code knowledge engine for AI agents and developers.
 
 It builds an incremental, evidence-backed knowledge model for a repository by discovering source files, extracting canonical facts, linking related objects, running checks, and exporting disposable read models.
@@ -97,6 +99,9 @@ Coordinated read models are written under `.athanor/generated/generations/<gener
 - [Full architectural plan](start.md): long-form product and architecture direction.
 
 ## Verification
+
+GitHub Actions runs the verification matrix on Linux, Windows, and macOS with Rust 1.95. See the
+[CI contract](docs/development/ci.md).
 
 For code changes, run:
 

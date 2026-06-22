@@ -1,3 +1,12 @@
+---
+id: doc://docs/adapters/linker-markdown.md
+kind: module_documentation
+language: en
+source_language: en
+last_verified_snapshot: snap_jsonl_00000030
+status: verified
+---
+
 # Markdown Linker Adapter
 
 Crate: `athanor-linker-markdown`

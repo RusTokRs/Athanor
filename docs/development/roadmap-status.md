@@ -1,3 +1,12 @@
+---
+id: doc://docs/development/roadmap-status.md
+kind: developer_guide
+language: en
+source_language: en
+last_verified_snapshot: snap_jsonl_00000030
+status: verified
+---
+
 # Roadmap Status
 
 This file tracks what has actually been implemented. It is intentionally separate from `start.md`, which is the full architectural plan.
@@ -518,6 +527,26 @@ Purpose:
 - excludes generated documentation and never rewrites editable source files
 - advances persisted index state to v11 so existing projects capture explicit frontmatter field metadata once
 
+### Automated CI/CD Baseline
+
+Status: implemented; local CI contract verified, first hosted matrix run pending.
+
+Implemented in:
+
+- `.github/workflows/ci.yml`
+- `docs/development/ci.md`
+
+Purpose:
+
+- runs on pushes to `main`, pull requests, and manual dispatches
+- tests Rust 1.95 on Linux, Windows, and macOS
+- enforces formatting, workspace tests, Clippy warnings, and indexing smoke tests
+- runs the editable-documentation completeness gate against the newly indexed snapshot
+- uses the locked dependency graph and Rust build caching
+- grants read-only repository permissions and does not persist checkout credentials
+- cancels superseded runs for the same workflow ref while allowing every matrix OS to finish
+- migrates current English documentation to the required editable frontmatter contract
+
 ### Markdown Wiki Projector
 
 Status: verified.
@@ -814,11 +843,7 @@ This backlog contains prioritized initiatives based on recent project research a
 
 ### P0: Quality & Hygiene Baseline (Next Up)
 
-1. **Automated CI/CD Baseline**
-   - **Goal**: Add `.github/workflows/ci.yml` matrix workflow.
-   - **Why**: Convert manual validation rules (rustfmt, clippy, tests, index smoke tests) into an automated PR check.
-
-2. **Metadata & Configuration Hygiene**
+1. **Metadata & Configuration Hygiene**
    - **Goal**: Fix package repository URLs (upstream drift) and keep `README.md` status descriptions synchronized.
    - **Why**: Clean up workspace metadata and align expectations for team members and AI agents.
 

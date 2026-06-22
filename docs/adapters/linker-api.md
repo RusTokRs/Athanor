@@ -1,3 +1,12 @@
+---
+id: doc://docs/adapters/linker-api.md
+kind: module_documentation
+language: en
+source_language: en
+last_verified_snapshot: snap_jsonl_00000030
+status: verified
+---
+
 # API Knowledge Linker
 
 Crate: `athanor-linker-api`

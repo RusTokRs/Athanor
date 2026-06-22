@@ -1,3 +1,12 @@
+---
+id: doc://docs/adapters/extractor-rust.md
+kind: module_documentation
+language: en
+source_language: en
+last_verified_snapshot: snap_jsonl_00000030
+status: verified
+---
+
 # Rust Extractor
 
 Crate: `athanor-extractor-rust`

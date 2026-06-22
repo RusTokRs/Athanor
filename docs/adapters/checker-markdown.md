@@ -1,3 +1,12 @@
+---
+id: doc://docs/adapters/checker-markdown.md
+kind: module_documentation
+language: en
+source_language: en
+last_verified_snapshot: snap_jsonl_00000030
+status: verified
+---
+
 # Markdown Checker Adapter
 
 Crate: `athanor-checker-markdown`

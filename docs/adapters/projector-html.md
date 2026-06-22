@@ -1,3 +1,12 @@
+---
+id: doc://docs/adapters/projector-html.md
+kind: module_documentation
+language: en
+source_language: en
+last_verified_snapshot: snap_jsonl_00000030
+status: verified
+---
+
 # HTML Report Projector
 
 Crate: `athanor-projector-html`
