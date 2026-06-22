@@ -65,6 +65,12 @@ ath docs check
 ath docs check --json
 ath docs drift
 ath docs drift --json
+ath api snapshot
+ath api snapshot --json
+ath api diff --from <snapshot> --to <snapshot>
+ath api diff --json
+ath api breaking-changes --from <snapshot> --to <snapshot>
+ath api breaking-changes --json
 ath wiki
 ath wiki --output <directory>
 ath report html
@@ -895,6 +901,29 @@ Purpose:
 - advances persisted index state to v12 so existing projects rebuild OpenAPI knowledge once
 - keeps external/schema-level examples and external schema references deferred
 
+### Immutable API Contract Snapshots And Diff
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-app/src/api.rs`
+- `apps/ath/src/main.rs`
+- `docs/architecture/pipeline.md`
+
+Purpose:
+
+- adds `ath api snapshot` and `ath api diff` with JSON output modes
+- publishes stable-key-sorted endpoint, schema, and example contracts under `.athanor/api/snapshots`
+- keeps snapshot files immutable and updates `.athanor/api/latest.json` atomically
+- supports explicit `--from`/`--to` ids and automatic comparison of the latest two snapshots
+- reports deterministic added, removed, and changed contract items
+- classifies removed endpoints/status codes, auth/security changes, and schema-reference changes as breaking
+- applies field-level schema rules for type changes, required-set changes, removed properties, and property type changes
+- keeps descriptions, optional property additions, additions, and example-only changes informational
+- adds `ath api breaking-changes` as a non-zero-exit CI gate over the same deterministic diff
+- leaves canonical evidence-backed breaking-change diagnostics for the next slice
+
 ### Rust Relation Graph Slice
 
 Status: verified.
@@ -1011,7 +1040,7 @@ None.
 
 This backlog contains prioritized initiatives based on recent project research and technical debt analysis.
 
-1. Add immutable API contract snapshots and `ath api diff` for deterministic breaking-change review.
+1. Persist evidence-backed `api_breaking_change_detected` diagnostics and add strict API policy.
 
 ## Verification Commands
 

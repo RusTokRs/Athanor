@@ -79,6 +79,9 @@ cargo run -p ath --quiet -- docs check
 cargo run -p ath --quiet -- docs check --json
 cargo run -p ath --quiet -- docs drift
 cargo run -p ath --quiet -- docs drift --json
+cargo run -p ath --quiet -- api snapshot
+cargo run -p ath --quiet -- api diff --from <snapshot> --to <snapshot>
+cargo run -p ath --quiet -- api breaking-changes --from <snapshot> --to <snapshot>
 ```
 
 Build the neutral Markdown wiki from the latest canonical snapshot:

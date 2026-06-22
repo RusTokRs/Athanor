@@ -52,7 +52,7 @@ pub struct ApiContractLatest {
     pub path: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ApiSnapshotReport {
     pub snapshot: String,
     pub path: PathBuf,
@@ -81,6 +81,7 @@ pub struct ApiContractChange {
     pub kind: ApiContractChangeKind,
     pub stable_key: String,
     pub breaking: bool,
+    pub reasons: Vec<String>,
     pub before: Option<Value>,
     pub after: Option<Value>,
 }
@@ -106,7 +107,10 @@ pub async fn snapshot_api_contract(options: ApiSnapshotOptions) -> Result<ApiSna
     let api_root = root.join(".athanor/api");
     let snapshots_dir = api_root.join("snapshots");
     fs::create_dir_all(&snapshots_dir).with_context(|| {
-        format!("failed to create API snapshot dir {}", snapshots_dir.display())
+        format!(
+            "failed to create API snapshot dir {}",
+            snapshots_dir.display()
+        )
     })?;
     let path = snapshots_dir.join(format!("{}.json", contract.snapshot));
     let serialized = serde_json::to_string_pretty(&contract)
@@ -198,7 +202,10 @@ fn write_immutable(path: &Path, content: &str) -> Result<bool> {
             let expected: ApiContractSnapshot = serde_json::from_str(content)
                 .context("failed to parse generated API contract snapshot")?;
             if existing != expected {
-                bail!("immutable API snapshot {} has conflicting content", path.display());
+                bail!(
+                    "immutable API snapshot {} has conflicting content",
+                    path.display()
+                );
             }
             Ok(false)
         }
@@ -278,6 +285,7 @@ fn build_api_contract_diff(
         ApiContractChangeKind::EndpointAdded,
         ApiContractChangeKind::EndpointRemoved,
         ApiContractChangeKind::EndpointChanged,
+        ChangePolicy::Endpoint,
         &mut changes,
     );
     compare_items(
@@ -286,6 +294,7 @@ fn build_api_contract_diff(
         ApiContractChangeKind::SchemaAdded,
         ApiContractChangeKind::SchemaRemoved,
         ApiContractChangeKind::SchemaChanged,
+        ChangePolicy::Schema,
         &mut changes,
     );
     compare_items(
@@ -294,6 +303,7 @@ fn build_api_contract_diff(
         ApiContractChangeKind::ExampleAdded,
         ApiContractChangeKind::ExampleRemoved,
         ApiContractChangeKind::ExampleChanged,
+        ChangePolicy::Example,
         &mut changes,
     );
     changes.sort_by(|left, right| {
@@ -316,6 +326,7 @@ fn compare_items(
     added_kind: ApiContractChangeKind,
     removed_kind: ApiContractChangeKind,
     changed_kind: ApiContractChangeKind,
+    policy: ChangePolicy,
     output: &mut Vec<ApiContractChange>,
 ) {
     let before = before
@@ -333,15 +344,33 @@ fn compare_items(
         .collect::<BTreeSet<_>>();
     for key in keys {
         match (before.get(key), after.get(key)) {
-            (None, Some(item)) => output.push(change(added_kind.clone(), item, false, false)),
-            (Some(item), None) => output.push(change(removed_kind.clone(), item, true, true)),
-            (Some(left), Some(right)) if *left != *right => output.push(ApiContractChange {
-                kind: changed_kind.clone(),
-                stable_key: key.to_string(),
-                breaking: !matches!(changed_kind, ApiContractChangeKind::ExampleChanged),
-                before: Some(left.payload.clone()),
-                after: Some(right.payload.clone()),
-            }),
+            (None, Some(item)) => {
+                output.push(change(added_kind.clone(), item, false, false, Vec::new()))
+            }
+            (Some(item), None) => {
+                let breaking = policy != ChangePolicy::Example;
+                output.push(change(
+                    removed_kind.clone(),
+                    item,
+                    breaking,
+                    true,
+                    breaking
+                        .then(|| "contract_item_removed".to_string())
+                        .into_iter()
+                        .collect(),
+                ));
+            }
+            (Some(left), Some(right)) if *left != *right => {
+                let reasons = compatibility_reasons(policy, &left.payload, &right.payload);
+                output.push(ApiContractChange {
+                    kind: changed_kind.clone(),
+                    stable_key: key.to_string(),
+                    breaking: !reasons.is_empty(),
+                    reasons,
+                    before: Some(left.payload.clone()),
+                    after: Some(right.payload.clone()),
+                });
+            }
             _ => {}
         }
     }
@@ -352,14 +381,113 @@ fn change(
     item: &ApiContractItem,
     breaking: bool,
     removed: bool,
+    reasons: Vec<String>,
 ) -> ApiContractChange {
     ApiContractChange {
         kind,
         stable_key: item.stable_key.clone(),
         breaking,
+        reasons,
         before: removed.then(|| item.payload.clone()),
         after: (!removed).then(|| item.payload.clone()),
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ChangePolicy {
+    Endpoint,
+    Schema,
+    Example,
+}
+
+fn compatibility_reasons(policy: ChangePolicy, before: &Value, after: &Value) -> Vec<String> {
+    match policy {
+        ChangePolicy::Endpoint => endpoint_compatibility_reasons(before, after),
+        ChangePolicy::Schema => schema_compatibility_reasons(before, after),
+        ChangePolicy::Example => Vec::new(),
+    }
+}
+
+fn endpoint_compatibility_reasons(before: &Value, after: &Value) -> Vec<String> {
+    let mut reasons = Vec::new();
+    let before_responses = string_set(before.get("responses"));
+    let after_responses = string_set(after.get("responses"));
+    if before_responses
+        .difference(&after_responses)
+        .next()
+        .is_some()
+    {
+        reasons.push("response_status_removed".to_string());
+    }
+    for field in [
+        "method",
+        "path",
+        "security",
+        "request_schemas",
+        "response_schemas",
+    ] {
+        if before.get(field) != after.get(field) {
+            reasons.push(format!("{field}_changed"));
+        }
+    }
+    reasons
+}
+
+fn schema_compatibility_reasons(before: &Value, after: &Value) -> Vec<String> {
+    let before = before.get("schema").unwrap_or(before);
+    let after = after.get("schema").unwrap_or(after);
+    let mut reasons = Vec::new();
+    if before.get("type") != after.get("type") {
+        reasons.push("schema_type_changed".to_string());
+    }
+    let before_required = string_set(before.get("required"));
+    let after_required = string_set(after.get("required"));
+    if after_required.difference(&before_required).next().is_some() {
+        reasons.push("required_field_added".to_string());
+    }
+    if before_required.difference(&after_required).next().is_some() {
+        reasons.push("required_field_removed".to_string());
+    }
+    let before_properties = object_key_set(before.get("properties"));
+    let after_properties = object_key_set(after.get("properties"));
+    if before_properties
+        .difference(&after_properties)
+        .next()
+        .is_some()
+    {
+        reasons.push("schema_property_removed".to_string());
+    }
+    for property in before_properties.intersection(&after_properties) {
+        if before
+            .get("properties")
+            .and_then(|properties| properties.get(*property))
+            .and_then(|property| property.get("type"))
+            != after
+                .get("properties")
+                .and_then(|properties| properties.get(*property))
+                .and_then(|property| property.get("type"))
+        {
+            reasons.push(format!("property_type_changed:{property}"));
+        }
+    }
+    reasons
+}
+
+fn string_set(value: Option<&Value>) -> BTreeSet<&str> {
+    value
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect()
+}
+
+fn object_key_set(value: Option<&Value>) -> BTreeSet<&str> {
+    value
+        .and_then(Value::as_object)
+        .into_iter()
+        .flat_map(|object| object.keys().map(String::as_str))
+        .collect()
 }
 
 #[cfg(test)]
@@ -371,34 +499,126 @@ mod tests {
 
     #[test]
     fn classifies_removed_and_changed_contract_items_as_breaking() {
-        let before = contract("snap_old", vec![item("api://GET:/users", json!({"responses": ["200"]}))], vec![item("api-schema://api#User", json!({"type": "object"}))]);
-        let after = contract("snap_new", Vec::new(), vec![item("api-schema://api#User", json!({"type": "string"}))]);
+        let before = contract(
+            "snap_old",
+            vec![item("api://GET:/users", json!({"responses": ["200"]}))],
+            vec![item("api-schema://api#User", json!({"type": "object"}))],
+        );
+        let after = contract(
+            "snap_new",
+            Vec::new(),
+            vec![item("api-schema://api#User", json!({"type": "string"}))],
+        );
         let diff = build_api_contract_diff(&before, &after);
         assert_eq!(diff.breaking_changes, 2);
-        assert!(diff.changes.iter().any(|change| change.kind == ApiContractChangeKind::EndpointRemoved));
-        assert!(diff.changes.iter().any(|change| change.kind == ApiContractChangeKind::SchemaChanged));
+        assert!(
+            diff.changes
+                .iter()
+                .any(|change| change.kind == ApiContractChangeKind::EndpointRemoved)
+        );
+        assert!(
+            diff.changes
+                .iter()
+                .any(|change| change.kind == ApiContractChangeKind::SchemaChanged)
+        );
     }
 
     #[test]
     fn builds_sorted_contract_from_canonical_entities() {
         let canonical = CanonicalSnapshot {
             snapshot: Some(athanor_domain::SnapshotId("snap_test".to_string())),
-            entities: vec![entity("api://POST:/z", EntityKind::ApiEndpoint), entity("api://GET:/a", EntityKind::ApiEndpoint)],
+            entities: vec![
+                entity("api://POST:/z", EntityKind::ApiEndpoint),
+                entity("api://GET:/a", EntityKind::ApiEndpoint),
+            ],
             ..CanonicalSnapshot::default()
         };
         let contract = build_api_contract_snapshot(&canonical).unwrap();
         assert_eq!(contract.endpoints[0].stable_key, "api://GET:/a");
     }
 
-    fn contract(snapshot: &str, endpoints: Vec<ApiContractItem>, schemas: Vec<ApiContractItem>) -> ApiContractSnapshot {
-        ApiContractSnapshot { schema: API_CONTRACT_SNAPSHOT_SCHEMA.to_string(), snapshot: snapshot.to_string(), endpoints, schemas, examples: Vec::new() }
+    #[test]
+    fn treats_documentation_and_optional_schema_additions_as_non_breaking() {
+        let before = contract(
+            "snap_old",
+            vec![item(
+                "api://GET:/users",
+                json!({"responses": ["200"], "description": "old"}),
+            )],
+            vec![item(
+                "api-schema://api#User",
+                json!({"schema": {"type": "object", "properties": {"id": {"type": "string"}}}}),
+            )],
+        );
+        let after = contract(
+            "snap_new",
+            vec![item(
+                "api://GET:/users",
+                json!({"responses": ["200"], "description": "new"}),
+            )],
+            vec![item(
+                "api-schema://api#User",
+                json!({"schema": {"type": "object", "properties": {"id": {"type": "string"}, "name": {"type": "string"}}}}),
+            )],
+        );
+
+        let diff = build_api_contract_diff(&before, &after);
+        assert_eq!(diff.changes.len(), 2);
+        assert_eq!(diff.breaking_changes, 0);
+    }
+
+    #[test]
+    fn identifies_status_auth_and_field_level_breaking_changes() {
+        let endpoint_reasons = endpoint_compatibility_reasons(
+            &json!({"responses": ["200", "404"], "security": [{"oauth": []}]}),
+            &json!({"responses": ["200"], "security": []}),
+        );
+        assert!(endpoint_reasons.contains(&"response_status_removed".to_string()));
+        assert!(endpoint_reasons.contains(&"security_changed".to_string()));
+
+        let schema_reasons = schema_compatibility_reasons(
+            &json!({"type": "object", "properties": {"id": {"type": "string"}, "name": {"type": "string"}}, "required": ["id"]}),
+            &json!({"type": "object", "properties": {"id": {"type": "integer"}}, "required": ["id", "email"]}),
+        );
+        assert!(schema_reasons.contains(&"required_field_added".to_string()));
+        assert!(schema_reasons.contains(&"schema_property_removed".to_string()));
+        assert!(schema_reasons.contains(&"property_type_changed:id".to_string()));
+    }
+
+    fn contract(
+        snapshot: &str,
+        endpoints: Vec<ApiContractItem>,
+        schemas: Vec<ApiContractItem>,
+    ) -> ApiContractSnapshot {
+        ApiContractSnapshot {
+            schema: API_CONTRACT_SNAPSHOT_SCHEMA.to_string(),
+            snapshot: snapshot.to_string(),
+            endpoints,
+            schemas,
+            examples: Vec::new(),
+        }
     }
 
     fn item(stable_key: &str, payload: Value) -> ApiContractItem {
-        ApiContractItem { stable_key: stable_key.to_string(), name: stable_key.to_string(), payload }
+        ApiContractItem {
+            stable_key: stable_key.to_string(),
+            name: stable_key.to_string(),
+            payload,
+        }
     }
 
     fn entity(stable_key: &str, kind: EntityKind) -> Entity {
-        Entity { id: EntityId(stable_key.to_string()), stable_key: StableKey(stable_key.to_string()), kind, name: stable_key.to_string(), title: None, source: None, language: None, aliases: Vec::new(), ownership: Vec::new(), payload: json!({}) }
+        Entity {
+            id: EntityId(stable_key.to_string()),
+            stable_key: StableKey(stable_key.to_string()),
+            kind,
+            name: stable_key.to_string(),
+            title: None,
+            source: None,
+            language: None,
+            aliases: Vec::new(),
+            ownership: Vec::new(),
+            payload: json!({}),
+        }
     }
 }

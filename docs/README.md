@@ -155,6 +155,9 @@ cargo run -p ath --quiet -- docs check
 cargo run -p ath --quiet -- docs check --json
 cargo run -p ath --quiet -- docs drift
 cargo run -p ath --quiet -- docs drift --json
+cargo run -p ath --quiet -- api snapshot
+cargo run -p ath --quiet -- api diff --from <snapshot> --to <snapshot>
+cargo run -p ath --quiet -- api breaking-changes --from <snapshot> --to <snapshot>
 ```
 
 The latest canonical snapshot can be projected into a disposable Markdown wiki:

@@ -2,12 +2,13 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use athanor_app::{
-    ContextLimitOverrides, ContextOptions, DiagnosticCheckOptions, DiagnosticCheckReport,
-    DiagnosticScope, DocsCheckOptions, DocsCheckReport, DocsDriftOptions, DocsDriftReport,
-    EntityExplanation, ExplainOptions, GenerationOptions, HtmlReportOptions, ImpactAnalysis,
-    ImpactOptions, IndexOptions, InitOptions, WikiOptions, check_docs, check_project,
-    context_project, docs_drift, explain_project, generate_project, impact_project, index_project,
-    init_project, project_html_report, project_wiki,
+    ApiContractDiff, ApiDiffOptions, ApiSnapshotOptions, ApiSnapshotReport, ContextLimitOverrides,
+    ContextOptions, DiagnosticCheckOptions, DiagnosticCheckReport, DiagnosticScope,
+    DocsCheckOptions, DocsCheckReport, DocsDriftOptions, DocsDriftReport, EntityExplanation,
+    ExplainOptions, GenerationOptions, HtmlReportOptions, ImpactAnalysis, ImpactOptions,
+    IndexOptions, InitOptions, WikiOptions, check_docs, check_project, context_project,
+    diff_api_contracts, docs_drift, explain_project, generate_project, impact_project,
+    index_project, init_project, project_html_report, project_wiki, snapshot_api_contract,
 };
 use athanor_domain::ContextLevel;
 use clap::{Parser, Subcommand, ValueEnum};
@@ -150,6 +151,11 @@ enum Command {
         #[command(subcommand)]
         command: DocsCommand,
     },
+    /// Snapshot or compare the public API contract.
+    Api {
+        #[command(subcommand)]
+        command: ApiCommand,
+    },
     /// Build a Markdown wiki from the latest canonical snapshot.
     Wiki {
         /// Project root. Defaults to the current directory.
@@ -222,6 +228,39 @@ enum DocsCommand {
         #[arg(long, default_value = ".")]
         path: PathBuf,
         /// Print the complete drift report as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum ApiCommand {
+    /// Publish an immutable contract from the latest canonical snapshot.
+    Snapshot {
+        #[arg(long, default_value = ".")]
+        path: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Compare two API contract snapshots.
+    Diff {
+        #[arg(long)]
+        from: Option<String>,
+        #[arg(long)]
+        to: Option<String>,
+        #[arg(long, default_value = ".")]
+        path: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Fail when the selected API diff contains breaking changes.
+    BreakingChanges {
+        #[arg(long)]
+        from: Option<String>,
+        #[arg(long)]
+        to: Option<String>,
+        #[arg(long, default_value = ".")]
+        path: PathBuf,
         #[arg(long)]
         json: bool,
     },
@@ -383,6 +422,62 @@ async fn main() -> Result<()> {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
                 print_docs_drift_report(&report);
+            }
+        }
+        Some(Command::Api {
+            command: ApiCommand::Snapshot { path, json },
+        }) => {
+            let report = snapshot_api_contract(ApiSnapshotOptions { root: path }).await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                print_api_snapshot_report(&report);
+            }
+        }
+        Some(Command::Api {
+            command:
+                ApiCommand::BreakingChanges {
+                    from,
+                    to,
+                    path,
+                    json,
+                },
+        }) => {
+            let diff = diff_api_contracts(ApiDiffOptions {
+                root: path,
+                from,
+                to,
+            })?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&diff)?);
+            } else {
+                print_api_contract_diff(&diff)?;
+            }
+            if diff.breaking_changes > 0 {
+                anyhow::bail!(
+                    "API contract contains {} breaking changes",
+                    diff.breaking_changes
+                );
+            }
+        }
+        Some(Command::Api {
+            command:
+                ApiCommand::Diff {
+                    from,
+                    to,
+                    path,
+                    json,
+                },
+        }) => {
+            let diff = diff_api_contracts(ApiDiffOptions {
+                root: path,
+                from,
+                to,
+            })?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&diff)?);
+            } else {
+                print_api_contract_diff(&diff)?;
             }
         }
         Some(Command::Wiki { path, output }) => {
@@ -598,6 +693,40 @@ fn print_docs_drift_report(report: &DocsDriftReport) {
             document.verified_snapshot.as_deref().unwrap_or("never")
         );
     }
+}
+
+fn print_api_snapshot_report(report: &ApiSnapshotReport) {
+    println!(
+        "{} API contract snapshot {} ({} endpoints, {} schemas, {} examples)",
+        if report.created { "created" } else { "reused" },
+        report.snapshot,
+        report.endpoints,
+        report.schemas,
+        report.examples
+    );
+    println!("wrote API contract to {}", report.path.display());
+}
+
+fn print_api_contract_diff(diff: &ApiContractDiff) -> Result<()> {
+    println!(
+        "API contract {} -> {}: {} changes, {} breaking",
+        diff.from,
+        diff.to,
+        diff.changes.len(),
+        diff.breaking_changes
+    );
+    for change in &diff.changes {
+        println!(
+            "{} {}{}",
+            serialized_name(&change.kind)?,
+            change.stable_key,
+            if change.breaking { " [breaking]" } else { "" }
+        );
+        for reason in &change.reasons {
+            println!("  reason: {reason}");
+        }
+    }
+    Ok(())
 }
 
 fn serialized_name(value: &impl serde::Serialize) -> Result<String> {

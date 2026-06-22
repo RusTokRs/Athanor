@@ -1,7 +1,7 @@
 //! Application services for Athanor.
 
-pub mod check;
 pub mod api;
+pub mod check;
 pub mod context;
 pub mod docs;
 pub mod explain;
@@ -18,8 +18,8 @@ pub mod runtime;
 pub mod search;
 pub mod wiki;
 
-pub use check::*;
 pub use api::*;
+pub use check::*;
 pub use context::*;
 pub use docs::*;
 pub use explain::*;

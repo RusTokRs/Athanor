@@ -81,6 +81,7 @@ flowchart TD
 25. On demand, `ath generate` projects JSONL, wiki, and HTML into one immutable generation, writes a complete generation manifest, and then switches `current.json` to that generation.
 26. On demand, `ath docs check` evaluates editable documentation under the configured path against frontmatter completeness and diagnostic severity policy.
 27. On demand, `ath docs drift` reports editable documentation not verified against the latest canonical snapshot.
+28. On demand, `ath api snapshot` publishes the latest API contract immutably and `ath api diff` compares contract snapshots.
 
 ## Pipeline Assembly
 
@@ -96,6 +97,8 @@ flowchart TD
 - `check_project`: scoped API/documentation diagnostic reporting from the latest canonical snapshot.
 - `check_docs`: configurable editable-documentation completeness gate from the latest canonical snapshot.
 - `docs_drift`: read-only editable-document verification-age report from the latest canonical snapshot.
+- `snapshot_api_contract`: immutable endpoint/schema/example contract publication from the latest canonical snapshot.
+- `diff_api_contracts`: deterministic comparison of two published API contract snapshots.
 - `project_wiki`: Markdown wiki projection from the latest canonical snapshot.
 - `project_html_report`: static HTML report projection from the latest canonical snapshot.
 - `generate_project`: coordinated immutable JSONL/wiki/HTML generation and portable current-pointer publication.
@@ -199,6 +202,26 @@ it is present in a canonical snapshot.
 or diagnostic thresholds. It reports pages with a missing or non-current `last_verified_snapshot`;
 `--json` emits `athanor.docs_drift.v1`. Drift is informational and does not produce a failing exit
 status.
+
+## API Contract Snapshots
+
+`ath api snapshot` selects canonical `ApiEndpoint`, `ApiSchema`, and `ApiExample` entities from the
+latest durable snapshot, sorts them by stable key, and writes an immutable
+`.athanor/api/snapshots/<snapshot>.json` contract. Repeating the command for the same canonical
+snapshot reuses the file only when its content is identical. The portable `.athanor/api/latest.json`
+pointer is replaced atomically after publication.
+
+`ath api diff --from <snapshot> --to <snapshot>` compares two published contracts. When ids are
+omitted, it compares the latest two snapshots. Breaking endpoint rules cover removed endpoints or
+status codes and changed method, path, security, request-schema, or response-schema declarations.
+Breaking schema rules cover schema/property type changes, removed properties, and required-set
+changes. Description-only changes, optional property additions, additions, and example changes are
+informational. Every breaking change carries machine-readable reasons.
+
+`ath api breaking-changes` evaluates the same diff and returns a non-zero exit status when any
+breaking change exists, making it suitable for CI once a baseline snapshot is available. The gate
+does not mutate canonical storage and does not yet persist `api_breaking_change_detected`
+diagnostics.
 
 The default built-in registry currently assembles:
 
@@ -313,6 +336,10 @@ checkers:
 .athanor/store/canonical/jsonl/
   latest.json
   snapshots/<snapshot-id>/
+
+.athanor/api/
+  latest.json
+  snapshots/<snapshot-id>.json
 ```
 
 Generated JSONL files and Markdown wiki pages under `.athanor/generated/current` are read models. They are not the source of truth and may be deleted and rebuilt. `validation-report.json` is written only for adapter contract validation failures and is removed after a successful index run. `validation-result.json` is written only for successful `--validate-only` runs and is removed after validation failures or normal index runs. Durable canonical snapshots live under `.athanor/store/canonical/jsonl`. The state file records the last indexed file paths, content hashes, language hints, and snapshot id so later runs can classify changed, unchanged, and removed files. Its schema is versioned so changes to built-in extraction, linking, or checking semantics can force a safe one-time full rebuild; OpenAPI example extraction and validation advance it to `athanor.index_state.v12`.
@@ -339,4 +366,4 @@ Generated JSONL files and Markdown wiki pages under `.athanor/generated/current`
 
 ## Next Good Step
 
-Add immutable API contract snapshots and `ath api diff` as the next Phase 4 API-contract slice.
+Persist evidence-backed `api_breaking_change_detected` diagnostics and add strict API policy.
