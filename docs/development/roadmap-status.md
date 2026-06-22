@@ -871,6 +871,43 @@ Purpose:
 - resolves relative imports and local calls dynamically looking up declared imports of parent modules
 - scopes incremental output to pairs with at least one affected entity
 
+### Lexical Search Read-Model
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-search-tantivy`
+- `crates/athanor-app/src/search.rs`
+- `crates/athanor-app/src/context.rs`
+- `apps/ath/src/main.rs`
+- `docs/adapters/search-tantivy.md`
+
+Purpose:
+
+- implements the `SearchIndex` port via Tantivy 0.26.1
+- adds the `ath search <query>` subcommand to query the index
+- integrates lexical search into context-pack selection as a seed mechanism
+- dynamically manages index rebuilds on snapshot updates using `index_meta.json`
+
+### Code Impact Analysis
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-app/src/impact.rs`
+- `crates/athanor-app/src/lib.rs`
+- `apps/ath/src/main.rs`
+- `docs/adapters/impact.md`
+
+Purpose:
+
+- implements the `ath impact <target>` subcommand to analyze the direct and transitive blast radius of changes
+- supports `--diff` mode to calculate impact based on unindexed changes in the working tree
+- traverses dependency, call, containment, and test relations via a BFS graph traversal
+- gathers open diagnostics attached to any entity in the blast radius
+
 ## In Progress
 
 None.
@@ -878,14 +915,6 @@ None.
 ## Next
 
 This backlog contains prioritized initiatives based on recent project research and technical debt analysis.
-
-1. **Lexical Search Read-Model**
-   - **Goal**: Implement `SearchIndex` via Tantivy as a disposable read-model and add the `ath search` CLI command.
-   - **Why**: Seed AI context packs with lexical lookup before expanding relations, bypassing store pollution.
-
-3. **Code Impact Analysis**
-   - **Goal**: Implement `ath impact <stable-key | path>` query command.
-   - **Why**: Traverse ownership, dependency graphs, and diagnostics to calculate direct and transitive blast radius.
 
 4. **Large-Repository Scale & Performance**
    - **Goal**: Introduce secondary indexes (path -> object IDs, stable-key -> entity ID) and chunked JSONL loading.

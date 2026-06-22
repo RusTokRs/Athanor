@@ -4,9 +4,9 @@ use anyhow::Result;
 use athanor_app::{
     ContextLimitOverrides, ContextOptions, DiagnosticCheckOptions, DiagnosticCheckReport,
     DiagnosticScope, DocsCheckOptions, DocsCheckReport, EntityExplanation, ExplainOptions,
-    GenerationOptions, HtmlReportOptions, IndexOptions, InitOptions, WikiOptions, check_docs,
-    check_project, context_project, explain_project, generate_project, index_project, init_project,
-    project_html_report, project_wiki,
+    GenerationOptions, HtmlReportOptions, ImpactAnalysis, ImpactOptions, IndexOptions, InitOptions,
+    WikiOptions, check_docs, check_project, context_project, explain_project, generate_project,
+    impact_project, index_project, init_project, project_html_report, project_wiki,
 };
 use athanor_domain::ContextLevel;
 use clap::{Parser, Subcommand, ValueEnum};
@@ -114,6 +114,23 @@ enum Command {
         /// Print the complete explanation as JSON.
         #[arg(long)]
         json: bool,
+    },
+    /// Calculate direct and transitive blast radius of changes.
+    Impact {
+        /// Target entity stable key (e.g. api://POST:/login) or source file path (e.g. src/auth.rs).
+        target: Option<String>,
+        /// Project root. Defaults to the current directory.
+        #[arg(long, default_value = ".")]
+        path: PathBuf,
+        /// Print the complete blast radius analysis as JSON.
+        #[arg(long)]
+        json: bool,
+        /// Analyze the impact of all modified files in the working directory compared to index state.
+        #[arg(long)]
+        diff: bool,
+        /// Maximum relation traversal depth.
+        #[arg(long, default_value_t = 10)]
+        max_depth: usize,
     },
     /// Show open diagnostics from the latest canonical snapshot.
     Check {
@@ -295,6 +312,26 @@ async fn main() -> Result<()> {
                 println!("{}", serde_json::to_string_pretty(&explanation)?);
             } else {
                 print_explanation(&explanation)?;
+            }
+        }
+        Some(Command::Impact {
+            target,
+            path,
+            json,
+            diff,
+            max_depth,
+        }) => {
+            let analysis = impact_project(ImpactOptions {
+                root: path,
+                target,
+                diff,
+                max_depth,
+            })
+            .await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&analysis)?);
+            } else {
+                print_impact_analysis(&analysis)?;
             }
         }
         Some(Command::Check { scope, path, json }) => {
@@ -521,4 +558,113 @@ fn serialized_name(value: &impl serde::Serialize) -> Result<String> {
     Ok(serde_json::to_value(value)?
         .as_str()
         .map_or_else(|| "unknown".to_string(), str::to_string))
+}
+
+fn print_impact_analysis(analysis: &ImpactAnalysis) -> Result<()> {
+    println!("Code Impact Analysis (snapshot: {})", analysis.snapshot);
+    println!("Starting Entities:");
+    if analysis.starting_entities.is_empty() {
+        println!("  (none)");
+    } else {
+        for entity in &analysis.starting_entities {
+            println!(
+                "  - [{}] {} ({})",
+                serialized_name(&entity.kind)?,
+                entity.name,
+                entity.stable_key.0
+            );
+        }
+    }
+    println!();
+
+    println!("Impacted Files ({}):", analysis.impacted_files.len());
+    for file in &analysis.impacted_files {
+        println!("  - {file}");
+    }
+    println!();
+
+    println!("Impacted Entities ({}):", analysis.impacted_entities.len());
+    if analysis.impacted_entities.is_empty() {
+        println!("  (none)");
+    } else {
+        let mut max_depth = 0;
+        for item in &analysis.impacted_entities {
+            if item.depth > max_depth {
+                max_depth = item.depth;
+            }
+        }
+
+        for depth in 1..=max_depth {
+            let items_at_depth: Vec<_> = analysis
+                .impacted_entities
+                .iter()
+                .filter(|item| item.depth == depth)
+                .collect();
+
+            if items_at_depth.is_empty() {
+                continue;
+            }
+
+            println!("  Depth {}:", depth);
+            for item in items_at_depth {
+                let relation_info = if let Some(flow) = item.path.last() {
+                    let rel_kind = serialized_name(&flow.relation.kind)?;
+                    match flow.direction {
+                        athanor_app::FlowDirection::Forward => {
+                            let prev_name = find_entity_name(analysis, &flow.relation.from);
+                            format!("via {} --{}--> [this]", prev_name, rel_kind)
+                        }
+                        athanor_app::FlowDirection::Backward => {
+                            let prev_name = find_entity_name(analysis, &flow.relation.to);
+                            format!("via [this] --{}--> {}", rel_kind, prev_name)
+                        }
+                    }
+                } else {
+                    "direct".to_string()
+                };
+
+                println!(
+                    "    - [{}] {} ({}) ({})",
+                    serialized_name(&item.entity.kind)?,
+                    item.entity.name,
+                    item.entity.stable_key.0,
+                    relation_info
+                );
+            }
+        }
+    }
+    println!();
+
+    println!(
+        "Impacted Diagnostics ({}):",
+        analysis.impacted_diagnostics.len()
+    );
+    if analysis.impacted_diagnostics.is_empty() {
+        println!("  (none)");
+    } else {
+        for diagnostic in &analysis.impacted_diagnostics {
+            println!(
+                "  - [{}] {} — {}",
+                serialized_name(&diagnostic.severity)?,
+                serialized_name(&diagnostic.kind)?,
+                diagnostic.title
+            );
+        }
+    }
+
+    Ok(())
+}
+
+fn find_entity_name(analysis: &ImpactAnalysis, id: &athanor_domain::EntityId) -> String {
+    if let Some(entity) = analysis.starting_entities.iter().find(|e| e.id == *id) {
+        return entity.name.clone();
+    }
+    if let Some(item) = analysis
+        .impacted_entities
+        .iter()
+        .find(|i| i.entity.id == *id)
+    {
+        return item.entity.name.clone();
+    }
+    id.0.clone()
 }

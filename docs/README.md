@@ -48,6 +48,7 @@ High-level adapter docs:
 - [Rust linker](adapters/linker-rust.md)
 - [Markdown checker](adapters/checker-markdown.md)
 - [API consistency checker](adapters/checker-api.md)
+- [Code impact analysis](adapters/impact.md)
 - [JSONL store](adapters/store-jsonl.md)
 - [Tantivy search index](adapters/search-tantivy.md)
 - [Markdown wiki projector](adapters/projector-wiki.md)
