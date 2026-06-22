@@ -39,6 +39,26 @@ documented limitation.
 
 The checker is local and side-effect free. Deeper schema, status-code, authentication, permission, and breaking-change checks are deferred.
 
+## Configuration & Policy Enforcement
+
+When checking API consistency via `ath check api` (or with the `--strict` flag), policy parameters from `athanor.toml` (loaded under `[api]` or `[docs.api]`) dynamically filter the active diagnostics:
+
+```toml
+[api]
+enabled = true
+source_of_truth = "hybrid" # Options: "hybrid", "openapi_first", "code_first"
+strict = true
+fail_on_missing_docs = true
+fail_on_openapi_mismatch = true
+fail_on_undocumented_status_code = true
+```
+
+- `source_of_truth`:
+  - `hybrid`: Enforces full API and documentation compliance.
+  - `openapi_first`: Treats OpenAPI as the truth. Ignores implemented endpoints missing documentation, unless `fail_on_missing_docs` is explicitly set to `true`.
+  - `code_first`: Treats code as the truth. Ignores documented endpoints missing implementations.
+- `strict`: Enforces CI gate failure (non-zero process exit) if any filtered API consistency diagnostics or contract breaking changes are found.
+
 Test with:
 
 ```bash

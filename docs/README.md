@@ -158,6 +158,8 @@ cargo run -p ath --quiet -- docs drift --json
 cargo run -p ath --quiet -- api snapshot
 cargo run -p ath --quiet -- api diff --from <snapshot> --to <snapshot>
 cargo run -p ath --quiet -- api breaking-changes --from <snapshot> --to <snapshot>
+cargo run -p ath --quiet -- api registry
+cargo run -p ath --quiet -- api registry --json
 cargo run -p ath --quiet -- check api --strict
 ```
 

@@ -1054,6 +1054,23 @@ Purpose:
 - monitors crate advisories and checks for duplicate dependency versions
 - documents all supply-chain security checks in the developer guidelines
 
+### API Registry and Source-of-Truth Policy
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-app/src/api_registry.rs`
+- `crates/athanor-app/src/config.rs`
+- `crates/athanor-app/src/check.rs`
+- `apps/ath/src/main.rs`
+
+Purpose:
+
+- Adds `ath api registry` and `ath api registry --json` to list API endpoints, their linked handlers, and their documentation pages.
+- Parses `source_of_truth` policy configurations (`hybrid`, `openapi_first`, `code_first`) from `athanor.toml`.
+- Dynamically filters diagnostic findings on API checks (`ath check api`) according to the selected policy.
+
 ## In Progress
 
 None.
@@ -1062,7 +1079,7 @@ None.
 
 This backlog contains prioritized initiatives based on recent project research and technical debt analysis.
 
-1. Add the API registry view and enforce the configured API source-of-truth policy.
+None.
 
 ## Verification Commands
 

@@ -1,12 +1,11 @@
 use std::collections::BTreeSet;
-use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use athanor_core::CanonicalSnapshotStore;
 use athanor_domain::{Diagnostic, DiagnosticStatus, Entity, EntityKind, Severity};
 use athanor_store_jsonl::JsonlKnowledgeStore;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::check::{DiagnosticScope, diagnostic_matches_scope};
 use crate::project_path::normalize_canonical_path;
@@ -59,54 +58,7 @@ pub struct DocsDriftReport {
     pub drifted_documents: Vec<DriftedDocument>,
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(default)]
-struct ProjectConfig {
-    docs: DocsConfig,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(default)]
-struct DocsConfig {
-    editable_path: String,
-    completeness: CompletenessPolicy,
-}
-
-impl Default for DocsConfig {
-    fn default() -> Self {
-        Self {
-            editable_path: "docs".to_string(),
-            completeness: CompletenessPolicy::default(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(default)]
-struct CompletenessPolicy {
-    required_fields: Vec<String>,
-    allowed_statuses: Vec<String>,
-    minimum_diagnostic_severity: Severity,
-    require_current_snapshot: bool,
-}
-
-impl Default for CompletenessPolicy {
-    fn default() -> Self {
-        Self {
-            required_fields: vec![
-                "id".to_string(),
-                "kind".to_string(),
-                "language".to_string(),
-                "source_language".to_string(),
-                "last_verified_snapshot".to_string(),
-                "status".to_string(),
-            ],
-            allowed_statuses: vec!["verified".to_string()],
-            minimum_diagnostic_severity: Severity::Medium,
-            require_current_snapshot: false,
-        }
-    }
-}
+use crate::config::{CompletenessPolicy, DocsConfig, ProjectConfig, load_config};
 
 pub async fn check_docs(options: DocsCheckOptions) -> Result<DocsCheckReport> {
     let (canonical, config) = load_docs_snapshot(&options.root).await?;
@@ -156,16 +108,6 @@ async fn load_docs_snapshot(
             )
         })?;
     Ok((canonical, config))
-}
-
-fn load_config(root: &Path) -> Result<ProjectConfig> {
-    let path = root.join("athanor.toml");
-    if !path.exists() {
-        return Ok(ProjectConfig::default());
-    }
-    let content =
-        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
-    toml::from_str(&content).with_context(|| format!("failed to parse {}", path.display()))
 }
 
 fn build_docs_check_report(

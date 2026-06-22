@@ -267,6 +267,15 @@ enum ApiCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Show the API registry.
+    Registry {
+        /// Project root. Defaults to the current directory.
+        #[arg(long, default_value = ".")]
+        path: PathBuf,
+        /// Print the API registry as JSON.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[tokio::main]
@@ -399,12 +408,14 @@ async fn main() -> Result<()> {
             strict,
         }) => {
             let scope: DiagnosticScope = scope.into();
+            let config = athanor_app::config::load_config(&path)?;
+            let is_strict = strict || (scope == DiagnosticScope::Api && config.api.strict);
             let report = check_project(DiagnosticCheckOptions {
                 root: path.clone(),
                 scope,
             })
             .await?;
-            if strict {
+            if is_strict {
                 if scope != DiagnosticScope::Api {
                     anyhow::bail!("--strict is currently supported only for `ath check api`");
                 }
@@ -516,6 +527,18 @@ async fn main() -> Result<()> {
                 println!("{}", serde_json::to_string_pretty(&diff)?);
             } else {
                 print_api_contract_diff(&diff)?;
+            }
+        }
+        Some(Command::Api {
+            command: ApiCommand::Registry { path, json },
+        }) => {
+            let report =
+                athanor_app::query_api_registry(athanor_app::ApiRegistryOptions { root: path })
+                    .await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                print_api_registry_report(&report)?;
             }
         }
         Some(Command::Wiki { path, output }) => {
@@ -880,4 +903,38 @@ fn find_entity_name(analysis: &ImpactAnalysis, id: &athanor_domain::EntityId) ->
         return item.entity.name.clone();
     }
     id.0.clone()
+}
+
+fn print_api_registry_report(report: &athanor_app::ApiRegistryReport) -> Result<()> {
+    println!(
+        "API registry (snapshot: {}, {} endpoints):",
+        report.snapshot,
+        report.endpoints.len()
+    );
+    if report.endpoints.is_empty() {
+        println!("  (none)");
+    } else {
+        for endpoint in &report.endpoints {
+            println!(
+                "  - {} {} ({})",
+                endpoint.method, endpoint.path, endpoint.stable_key
+            );
+            if let Some(op_id) = &endpoint.operation_id {
+                println!("    operationId: {}", op_id);
+            }
+            if let Some(summary) = &endpoint.summary {
+                println!("    summary: {}", summary);
+            }
+            if let Some(handler) = &endpoint.handler {
+                println!("    handler: {}", handler);
+            }
+            if !endpoint.documentation.is_empty() {
+                println!("    documentation:");
+                for doc in &endpoint.documentation {
+                    println!("      - {}", doc);
+                }
+            }
+        }
+    }
+    Ok(())
 }

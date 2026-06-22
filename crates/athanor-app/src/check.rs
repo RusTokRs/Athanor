@@ -39,6 +39,8 @@ pub struct DiagnosticCheckReport {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+use crate::config::{ApiConfig, ApiSourceOfTruth, load_config};
+
 pub async fn check_project(options: DiagnosticCheckOptions) -> Result<DiagnosticCheckReport> {
     let root = normalize_canonical_path(
         options
@@ -46,6 +48,7 @@ pub async fn check_project(options: DiagnosticCheckOptions) -> Result<Diagnostic
             .canonicalize()
             .with_context(|| format!("failed to canonicalize {}", options.root.display()))?,
     );
+    let config = load_config(&root)?;
     let store = JsonlKnowledgeStore::new(root.join(".athanor/store/canonical/jsonl"));
     let snapshot = store
         .load_latest_snapshot()
@@ -66,6 +69,7 @@ pub async fn check_project(options: DiagnosticCheckOptions) -> Result<Diagnostic
         snapshot_id,
         options.scope,
         &snapshot.diagnostics,
+        &config.api,
     ))
 }
 
@@ -73,12 +77,35 @@ pub fn build_check_report(
     snapshot: String,
     scope: DiagnosticScope,
     diagnostics: &[Diagnostic],
+    config: &ApiConfig,
 ) -> DiagnosticCheckReport {
     let mut diagnostics = diagnostics
         .iter()
         .filter(|diagnostic| {
-            diagnostic.status == DiagnosticStatus::Open
-                && diagnostic_matches_scope(&diagnostic.kind, scope)
+            if diagnostic.status != DiagnosticStatus::Open
+                || !diagnostic_matches_scope(&diagnostic.kind, scope)
+            {
+                return false;
+            }
+
+            match scope {
+                DiagnosticScope::Api => match diagnostic.kind {
+                    DiagnosticKind::ApiEndpointImplementedButNotDocumented => {
+                        config.fail_on_missing_docs
+                    }
+                    DiagnosticKind::ApiEndpointDocumentedButNotImplemented => {
+                        config.source_of_truth != ApiSourceOfTruth::CodeFirst
+                    }
+                    DiagnosticKind::ApiRequestSchemaMismatch
+                    | DiagnosticKind::ApiResponseSchemaMismatch
+                    | DiagnosticKind::ApiExampleInvalid => config.fail_on_openapi_mismatch,
+                    DiagnosticKind::ApiStatusCodeUndocumented => {
+                        config.fail_on_undocumented_status_code
+                    }
+                    _ => true,
+                },
+                DiagnosticScope::Docs => true,
+            }
         })
         .cloned()
         .collect::<Vec<_>>();
@@ -187,8 +214,12 @@ mod tests {
             ),
         ];
 
-        let report =
-            build_check_report("snap_test".to_string(), DiagnosticScope::Api, &diagnostics);
+        let report = build_check_report(
+            "snap_test".to_string(),
+            DiagnosticScope::Api,
+            &diagnostics,
+            &ApiConfig::default(),
+        );
 
         assert_eq!(report.schema, "athanor.diagnostic_check.v1");
         assert_eq!(report.counts.total, 2);
@@ -220,11 +251,124 @@ mod tests {
             ),
         ];
 
-        let report =
-            build_check_report("snap_test".to_string(), DiagnosticScope::Docs, &diagnostics);
+        let report = build_check_report(
+            "snap_test".to_string(),
+            DiagnosticScope::Docs,
+            &diagnostics,
+            &ApiConfig::default(),
+        );
 
         assert_eq!(report.counts.total, 2);
         assert_eq!(report.diagnostics[0].id.0, "diag_docs");
+    }
+
+    #[test]
+    fn openapi_first_policy_filters_out_missing_docs_unless_fail_on_missing_docs() {
+        let diagnostics = vec![
+            diagnostic(
+                "diag_missing_docs",
+                DiagnosticKind::ApiEndpointImplementedButNotDocumented,
+                Severity::Medium,
+                DiagnosticStatus::Open,
+            ),
+            diagnostic(
+                "diag_missing_impl",
+                DiagnosticKind::ApiEndpointDocumentedButNotImplemented,
+                Severity::High,
+                DiagnosticStatus::Open,
+            ),
+        ];
+
+        // Case 1: openapi-first and fail_on_missing_docs is false
+        let mut config = ApiConfig {
+            source_of_truth: ApiSourceOfTruth::OpenapiFirst,
+            fail_on_missing_docs: false,
+            ..Default::default()
+        };
+        let report = build_check_report(
+            "snap_test".to_string(),
+            DiagnosticScope::Api,
+            &diagnostics,
+            &config,
+        );
+        assert_eq!(report.counts.total, 1);
+        assert_eq!(report.diagnostics[0].id.0, "diag_missing_impl");
+
+        // Case 2: openapi-first and fail_on_missing_docs is true
+        config.fail_on_missing_docs = true;
+        let report = build_check_report(
+            "snap_test".to_string(),
+            DiagnosticScope::Api,
+            &diagnostics,
+            &config,
+        );
+        assert_eq!(report.counts.total, 2);
+    }
+
+    #[test]
+    fn code_first_policy_filters_out_missing_implementations() {
+        let diagnostics = vec![diagnostic(
+            "diag_missing_impl",
+            DiagnosticKind::ApiEndpointDocumentedButNotImplemented,
+            Severity::High,
+            DiagnosticStatus::Open,
+        )];
+
+        let config = ApiConfig {
+            source_of_truth: ApiSourceOfTruth::CodeFirst,
+            ..Default::default()
+        };
+        let report = build_check_report(
+            "snap_test".to_string(),
+            DiagnosticScope::Api,
+            &diagnostics,
+            &config,
+        );
+        assert_eq!(report.counts.total, 0);
+    }
+
+    #[test]
+    fn fail_on_openapi_mismatch_filters_out_mismatches() {
+        let diagnostics = vec![diagnostic(
+            "diag_mismatch",
+            DiagnosticKind::ApiRequestSchemaMismatch,
+            Severity::High,
+            DiagnosticStatus::Open,
+        )];
+
+        let config = ApiConfig {
+            fail_on_openapi_mismatch: false,
+            ..Default::default()
+        };
+        let report = build_check_report(
+            "snap_test".to_string(),
+            DiagnosticScope::Api,
+            &diagnostics,
+            &config,
+        );
+        assert_eq!(report.counts.total, 0);
+    }
+
+    #[test]
+    fn fail_on_undocumented_status_code_filters_out_undocumented_codes() {
+        let diagnostics = vec![diagnostic(
+            "diag_code",
+            DiagnosticKind::ApiStatusCodeUndocumented,
+            Severity::Medium,
+            DiagnosticStatus::Open,
+        )];
+
+        let config = ApiConfig {
+            fail_on_undocumented_status_code: false,
+            ..Default::default()
+        };
+        let report = build_check_report(
+            "snap_test".to_string(),
+            DiagnosticScope::Api,
+            &diagnostics,
+            &config,
+        );
+        assert_eq!(report.counts.total, 0);
     }
 
     fn diagnostic(
