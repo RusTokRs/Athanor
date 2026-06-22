@@ -547,6 +547,25 @@ Purpose:
 - cancels superseded runs for the same workflow ref while allowing every matrix OS to finish
 - migrates current English documentation to the required editable frontmatter contract
 
+### Workspace Metadata And Status Hygiene
+
+Status: verified.
+
+Implemented in:
+
+- `Cargo.toml`
+- all workspace package manifests
+- `README.md`
+
+Purpose:
+
+- confirms the canonical `RusTokRs/Athanor` repository URL against GitHub and the local `origin`
+- keeps repository metadata inherited from one workspace-level source
+- adds shared author, description, homepage, and documentation metadata to all 18 packages
+- marks internal workspace packages as non-publishable until an explicit release plan exists
+- updates the root status description to cover incremental snapshots, queries, process adapters, projectors, documentation policy, and CI
+- states the current local/offline boundary and the next engine features without implying they already exist
+
 ### Markdown Wiki Projector
 
 Status: verified.
@@ -841,13 +860,7 @@ None.
 
 This backlog contains prioritized initiatives based on recent project research and technical debt analysis.
 
-### P0: Quality & Hygiene Baseline (Next Up)
-
-1. **Metadata & Configuration Hygiene**
-   - **Goal**: Fix package repository URLs (upstream drift) and keep `README.md` status descriptions synchronized.
-   - **Why**: Clean up workspace metadata and align expectations for team members and AI agents.
-
-### P1: Engine Extensions & Core Features
+### P1: Engine Extensions & Core Features (Next Up)
 
 1. **Rust Relation Graph Slice**
    - **Goal**: Add imports, static call graphs, module containment, and `tested_by` relations on top of the syn-based extractor.

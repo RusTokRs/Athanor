@@ -22,8 +22,13 @@ members = [
 resolver = "3"
 
 [workspace.package]
+authors = ["RusTokRs"]
+description = "Local-first, evidence-backed code knowledge engine for AI agents and developers"
+documentation = "https://github.com/RusTokRs/Athanor/tree/main/docs"
 edition = "2024"
+homepage = "https://github.com/RusTokRs/Athanor"
 license = "MIT"
+publish = false
 repository = "https://github.com/RusTokRs/Athanor"
 rust-version = "1.95"
 

@@ -332,4 +332,4 @@ Generated JSONL files and Markdown wiki pages under `.athanor/generated/current`
 
 ## Next Good Step
 
-Complete the metadata and configuration hygiene item from the P0 roadmap.
+Add the Rust relation graph slice from the P1 roadmap.

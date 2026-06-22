@@ -8,20 +8,28 @@ It builds an incremental, evidence-backed knowledge model for a repository by di
 
 ## Current Status
 
-Athanor currently ships a verified indexing vertical slice:
+Athanor currently ships a verified local-first knowledge-engine baseline:
 
 ```text
 local files
   -> file, Markdown, OpenAPI, and Rust extraction
   -> Markdown containment, document references, and cross-source API links
   -> Markdown structure, unresolved reference, duplicate ID, and API consistency checks
-  -> Configurable editable-documentation completeness gate
   -> JSONL canonical store
-  -> Coordinated read models (JSONL, Markdown Wiki, and HTML browser report)
-  -> Immutable coordinator publication with snapshot-consistent generation pointers
+  -> context, explain, and scoped diagnostic queries
+  -> configurable editable-documentation completeness gate
+  -> coordinated JSONL, Markdown wiki, and HTML read models
+  -> immutable snapshot-consistent generation pointers
 ```
 
-The implementation is intentionally adapter-first. Domain and core crates define canonical types and ports; source discovery, extraction, linking, checking, and storage live in adapter crates.
+Built-in and external-process adapters share one runtime registry, indexing is incremental across
+durable snapshots, and the GitHub Actions matrix enforces the workspace checks on Linux, Windows,
+and macOS. The implementation remains intentionally adapter-first: domain and core crates define
+canonical types and ports, while format, storage, query presentation, and projection behavior stay
+outside those boundaries.
+
+The current baseline is an offline CLI and local JSONL store. Search indexing, impact analysis,
+network transports, and production multi-process storage remain roadmap work.
 
 ## Quick Start
 
