@@ -1035,6 +1035,30 @@ Purpose:
 - generates and writes two secondary index files on snapshot commit: `path_index.json` and `stable_key_index.json`
 - optimizes memory usage by parsing JSONL line-by-line / chunk-by-chunk using a reusable line buffer
 
+### Extraction Parallelization, Shared Downstream Inputs, And Tracing
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-core/src/ports.rs`
+- `crates/athanor-app/src/pipeline.rs`
+- `crates/athanor-app/src/runtime.rs`
+- `crates/athanor-linker-rust/src/lib.rs`
+- `crates/athanor-linker-api/src/lib.rs`
+- `apps/ath/src/main.rs`
+- `docs/architecture/pipeline.md`
+- `docs/architecture/adapters.md`
+
+Purpose:
+
+- runs extractor/source-file tasks through a future stream with up to 16 concurrent in-flight tasks
+- changes in-process `LinkInput` and `CheckInput` full-context lists to shared `Arc<[T]>` slices while preserving JSON serialization for external process adapters
+- avoids cloning full entity, fact, and relation lists for every linker and checker invocation
+- optimizes Rust linker qualified-name and entity-id resolution with hash maps
+- optimizes API linker example, schema, and operation-id matching with lookup maps
+- initializes standard CLI tracing output and emits indexing/runtime logs through tracing
+
 ### Security & Supply-Chain Automation
 
 Status: verified.

@@ -73,7 +73,7 @@ impl Checker for MarkdownStructureChecker {
                 .filter(|entity| entity.kind == EntityKind::DocumentationPage)
                 .collect::<Vec<_>>();
             let mut entities_by_stable_key = BTreeMap::<&str, Vec<&Entity>>::new();
-            for entity in &input.entities {
+            for entity in input.entities.iter() {
                 entities_by_stable_key
                     .entry(&entity.stable_key.0)
                     .or_default()
@@ -370,9 +370,9 @@ mod tests {
         let diagnostics = MarkdownStructureChecker
             .check(CheckInput {
                 snapshot: SnapshotId("snap_test".to_string()),
-                entities: vec![page.clone()],
-                facts: Vec::new(),
-                relations: Vec::new(),
+                entities: vec![page.clone()].into(),
+                facts: Vec::new().into(),
+                relations: Vec::new().into(),
                 affected: athanor_core::AffectedSubset::from_extracted(vec![page], Vec::new()),
             })
             .await
@@ -418,9 +418,9 @@ mod tests {
         let diagnostics = MarkdownStructureChecker
             .check(CheckInput {
                 snapshot: SnapshotId("snap_test".to_string()),
-                entities: vec![page.clone(), section.clone()],
-                facts: Vec::new(),
-                relations: vec![relation.clone()],
+                entities: vec![page.clone(), section.clone()].into(),
+                facts: Vec::new().into(),
+                relations: vec![relation.clone()].into(),
                 affected: athanor_core::AffectedSubset::from_extracted(
                     vec![page, section],
                     Vec::new(),
@@ -447,9 +447,9 @@ mod tests {
         let diagnostics = MarkdownStructureChecker
             .check(CheckInput {
                 snapshot: SnapshotId("snap_test".to_string()),
-                entities: vec![affected_page.clone(), unaffected_page.clone()],
-                facts: Vec::new(),
-                relations: Vec::new(),
+                entities: vec![affected_page.clone(), unaffected_page.clone()].into(),
+                facts: Vec::new().into(),
+                relations: Vec::new().into(),
                 affected: athanor_core::AffectedSubset::from_extracted(
                     vec![affected_page.clone()],
                     Vec::new(),
@@ -479,9 +479,9 @@ mod tests {
         let diagnostics = MarkdownStructureChecker
             .check(CheckInput {
                 snapshot: SnapshotId("snap_test".to_string()),
-                entities: vec![page.clone(), candidate],
-                facts: Vec::new(),
-                relations: Vec::new(),
+                entities: vec![page.clone(), candidate].into(),
+                facts: Vec::new().into(),
+                relations: Vec::new().into(),
                 affected: athanor_core::AffectedSubset::from_extracted(
                     vec![page.clone()],
                     Vec::new(),
@@ -517,9 +517,9 @@ mod tests {
         let diagnostics = MarkdownStructureChecker
             .check(CheckInput {
                 snapshot: SnapshotId("snap_test".to_string()),
-                entities: vec![page.clone(), endpoint],
-                facts: Vec::new(),
-                relations: Vec::new(),
+                entities: vec![page.clone(), endpoint].into(),
+                facts: Vec::new().into(),
+                relations: Vec::new().into(),
                 affected: athanor_core::AffectedSubset::from_extracted(vec![page], Vec::new()),
             })
             .await
@@ -550,9 +550,9 @@ mod tests {
         let diagnostics = MarkdownStructureChecker
             .check(CheckInput {
                 snapshot: SnapshotId("snap_test".to_string()),
-                entities: vec![page.clone(), first, second],
-                facts: Vec::new(),
-                relations: Vec::new(),
+                entities: vec![page.clone(), first, second].into(),
+                facts: Vec::new().into(),
+                relations: Vec::new().into(),
                 affected: athanor_core::AffectedSubset::from_extracted(vec![page], Vec::new()),
             })
             .await
@@ -574,9 +574,9 @@ mod tests {
         let diagnostics = MarkdownStructureChecker
             .check(CheckInput {
                 snapshot: SnapshotId("snap_test".to_string()),
-                entities: vec![first.clone(), second.clone()],
-                facts: Vec::new(),
-                relations: Vec::new(),
+                entities: vec![first.clone(), second.clone()].into(),
+                facts: Vec::new().into(),
+                relations: Vec::new().into(),
                 affected: athanor_core::AffectedSubset::from_extracted(
                     vec![first, second],
                     Vec::new(),

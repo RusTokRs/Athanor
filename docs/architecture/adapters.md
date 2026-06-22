@@ -194,6 +194,7 @@ The current process adapter protocol is intentionally narrow:
 - Athanor writes a discovery request containing the absolute project `root` to source stdin.
 - Source commands write a JSON array of `SourceFile` objects to stdout.
 - stderr is used only for failure details.
+- Athanor records external process stdout and stderr through tracing. stdout remains the process adapter protocol stream and is logged only at debug level; stderr is logged when present and is still included in process failure errors.
 - `supports_extensions` scopes which source file extensions should be sent to extractor commands; it does not apply to source, linker, or checker commands.
 
 Source discovery request:

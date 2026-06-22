@@ -717,8 +717,7 @@ where
     if !output.status.success() {
         return Err(CoreError::Adapter(format!(
             "external {adapter_kind} {adapter_id} exited with {}; stderr: {}",
-            output.status,
-            stderr
+            output.status, stderr
         )));
     }
 

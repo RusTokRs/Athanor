@@ -1009,9 +1009,9 @@ mod tests {
     ) -> CheckInput {
         CheckInput {
             snapshot: SnapshotId("snap_test".to_string()),
-            entities,
-            facts: Vec::new(),
-            relations,
+            entities: entities.into(),
+            facts: Vec::new().into(),
+            relations: relations.into(),
             affected: AffectedSubset::from_extracted(affected_entities, Vec::new())
                 .with_relations(affected_relations),
         }

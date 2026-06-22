@@ -34,7 +34,7 @@ impl Linker for RustLinker {
         let mut rust_by_id = HashMap::new();
         let mut qualified_names = HashSet::new();
 
-        for entity in &input.entities {
+        for entity in input.entities.iter() {
             if let Some(qn) = qualified_name(entity) {
                 rust_entities.push(entity);
                 rust_by_qualified_name.insert(qn, entity);
@@ -439,8 +439,8 @@ mod tests {
         let relations = RustLinker
             .link(LinkInput {
                 snapshot: SnapshotId("snap_test".to_string()),
-                entities: entities.clone(),
-                facts: Vec::new(),
+                entities: entities.clone().into(),
+                facts: Vec::new().into(),
                 affected: AffectedSubset::from_extracted(entities, Vec::new()),
             })
             .await

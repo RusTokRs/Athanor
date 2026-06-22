@@ -274,8 +274,8 @@ mod tests {
         let relations = MarkdownContainmentLinker
             .link(LinkInput {
                 snapshot: SnapshotId("snap_test".to_string()),
-                entities: vec![file.clone(), page.clone(), section.clone()],
-                facts: Vec::new(),
+                entities: vec![file.clone(), page.clone(), section.clone()].into(),
+                facts: Vec::new().into(),
                 affected: athanor_core::AffectedSubset::from_extracted(
                     vec![file.clone(), page.clone(), section.clone()],
                     Vec::new(),
@@ -332,8 +332,9 @@ mod tests {
                     auth_page.clone(),
                     billing_file.clone(),
                     billing_page.clone(),
-                ],
-                facts: Vec::new(),
+                ]
+                .into(),
+                facts: Vec::new().into(),
                 affected: athanor_core::AffectedSubset::from_extracted(
                     vec![auth_file.clone(), auth_page.clone()],
                     Vec::new(),
@@ -369,8 +370,8 @@ mod tests {
         let relations = MarkdownContainmentLinker
             .link(LinkInput {
                 snapshot: SnapshotId("snap_test".to_string()),
-                entities: vec![page.clone(), endpoint.clone()],
-                facts: Vec::new(),
+                entities: vec![page.clone(), endpoint.clone()].into(),
+                facts: Vec::new().into(),
                 affected: athanor_core::AffectedSubset::from_extracted(
                     vec![page.clone()],
                     Vec::new(),
@@ -413,8 +414,8 @@ mod tests {
         let relations = MarkdownContainmentLinker
             .link(LinkInput {
                 snapshot: SnapshotId("snap_test".to_string()),
-                entities: vec![page, endpoint.clone()],
-                facts: Vec::new(),
+                entities: vec![page, endpoint.clone()].into(),
+                facts: Vec::new().into(),
                 affected: athanor_core::AffectedSubset::from_extracted(vec![endpoint], Vec::new()),
             })
             .await

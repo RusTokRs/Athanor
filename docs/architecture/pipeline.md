@@ -67,9 +67,9 @@ flowchart TD
 11. `RuntimeBuilder` builds the configured `IndexPipeline` from an `AdapterRegistry`.
 12. `IndexStateStore` classifies discovered files as changed, unchanged, or removed by comparing them with the previous state.
 13. File additions or removals trigger a safe full rebuild so absence diagnostics cannot remain stale.
-14. `IndexPipeline` extracts changed files only when a previous canonical snapshot is available from `CanonicalSnapshotStore`.
+14. `IndexPipeline` extracts changed files only when a previous canonical snapshot is available from `CanonicalSnapshotStore`; extractor/source-file tasks run concurrently with a fixed limit of 16 in-flight tasks.
 15. `IndexPipeline` carries unchanged canonical objects forward from the previous canonical snapshot, rewrites carried snapshot ids to the new snapshot, and drops objects whose ownership includes changed or removed paths.
-16. `IndexPipeline` builds an affected subset from newly extracted objects, then passes it to linkers and checkers alongside the merged full context.
+16. `IndexPipeline` builds an affected subset from newly extracted objects, then passes it to linkers and checkers alongside the merged full context. In-process linker and checker inputs share full-context entity, fact, and relation lists through `Arc<[T]>` to avoid cloning the complete lists per adapter.
 17. `IndexPipeline` validates newly emitted canonical objects for required evidence and ownership metadata.
 18. If validation fails, `ath index` writes the aggregated adapter validation report to the configured validation report path.
 19. In `--validate-only` mode, the CLI writes a structured validation result artifact for successful runs, then stops without persisting a canonical snapshot, read model, or index state.
@@ -266,6 +266,7 @@ checkers:
 - writing adapter validation reports to `.athanor/generated/current/validation-report.json` or the `--validation-report` path when validation fails
 - writing successful validation-only result JSON to `.athanor/generated/current/validation-result.json` or the `--validation-result` path
 - supporting `--validate-only` for adapter contract validation without writing snapshots, state, or read models
+- initializing standard tracing output; detailed indexing logs can be enabled with `RUST_LOG=athanor_app=info`
 
 `RuntimeBuilder` and `AdapterRegistry` are responsible for adapter assembly:
 
@@ -275,18 +276,19 @@ checkers:
 - loading external process sources, extractors, linkers, and checkers from manifest `command` entries
 - preserving adapter order
 - allowing tests, daemon code, and future plugins to share the same assembly point
+- logging external process adapter stdout and stderr through tracing
 
 `IndexPipeline` is responsible for orchestration:
 
 - discovering sources
 - classifying affected files from persisted state
-- running extractors for changed files when a previous canonical snapshot is available
+- running extractors for changed files when a previous canonical snapshot is available, with up to 16 concurrent extraction tasks
 - falling back to full extraction when the previous canonical snapshot is missing
 - merging unchanged canonical objects from the previous canonical snapshot
 - pruning carried canonical objects by explicit ownership metadata, with source/evidence fallback for older snapshots
 - deriving the affected subset from newly extracted objects for downstream adapters
-- running linkers over the affected subset with full merged context available
-- running checkers over the affected subset with full merged context available
+- running linkers over the affected subset with shared full merged context available
+- running checkers over the affected subset with shared full merged context available
 - validating newly emitted entities/facts/relations/diagnostics before storage
 - aggregating adapter validation failures by adapter, object type, object id, and missing metadata field
 - stopping before durable writes when the CLI requested validation-only mode

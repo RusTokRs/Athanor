@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use async_trait::async_trait;
 use athanor_core::{CoreResult, LinkInput, Linker};
@@ -29,6 +29,9 @@ impl Linker for ApiKnowledgeLinker {
         let schemas = entities_of_kind(&input.entities, EntityKind::ApiSchema);
         let examples = entities_of_kind(&input.entities, EntityKind::ApiExample);
         let functions = entities_of_kind(&input.entities, EntityKind::Function);
+        let examples_by_endpoint = examples_by_endpoint(&examples);
+        let schemas_by_source_and_name = schemas_by_source_and_name(&schemas);
+        let functions_by_normalized_name = functions_by_normalized_name(&functions);
         let documents = input
             .entities
             .iter()
@@ -43,13 +46,11 @@ impl Linker for ApiKnowledgeLinker {
         let mut relation_ids = HashSet::new();
 
         for endpoint in endpoints {
-            for example in examples.iter().filter(|example| {
-                example
-                    .payload
-                    .get("endpoint")
-                    .and_then(serde_json::Value::as_str)
-                    == Some(endpoint.stable_key.0.as_str())
-            }) {
+            for example in examples_by_endpoint
+                .get(endpoint.stable_key.0.as_str())
+                .into_iter()
+                .flatten()
+            {
                 if either_affected(example, endpoint, &affected) {
                     push_unique(
                         &mut relations,
@@ -71,9 +72,14 @@ impl Linker for ApiKnowledgeLinker {
                     let Some(component_name) = local_schema_name(reference) else {
                         continue;
                     };
-                    let Some(schema) = schemas.iter().find(|schema| {
-                        schema.name == component_name && same_source_file(endpoint, schema)
-                    }) else {
+                    let Some(source_path) =
+                        endpoint.source.as_ref().map(|source| source.path.as_str())
+                    else {
+                        continue;
+                    };
+                    let Some(schema) =
+                        schemas_by_source_and_name.get(&(source_path, component_name))
+                    else {
                         continue;
                     };
                     if either_affected(endpoint, schema, &affected) {
@@ -96,10 +102,12 @@ impl Linker for ApiKnowledgeLinker {
             if let Some(operation_id) = endpoint_operation_id(endpoint) {
                 let normalized_operation_id = normalize(operation_id);
                 if !normalized_operation_id.is_empty() {
-                    for function in &functions {
-                        if normalize(&function.name) == normalized_operation_id
-                            && either_affected(endpoint, function, &affected)
-                        {
+                    for function in functions_by_normalized_name
+                        .get(normalized_operation_id.as_str())
+                        .into_iter()
+                        .flatten()
+                    {
+                        if either_affected(endpoint, function, &affected) {
                             push_unique(
                                 &mut relations,
                                 &mut relation_ids,
@@ -182,6 +190,46 @@ fn entities_of_kind(entities: &[Entity], kind: EntityKind) -> Vec<&Entity> {
         .collect()
 }
 
+fn examples_by_endpoint<'a>(examples: &[&'a Entity]) -> HashMap<&'a str, Vec<&'a Entity>> {
+    let mut by_endpoint = HashMap::new();
+    for example in examples {
+        if let Some(endpoint) = example
+            .payload
+            .get("endpoint")
+            .and_then(serde_json::Value::as_str)
+        {
+            by_endpoint
+                .entry(endpoint)
+                .or_insert_with(Vec::new)
+                .push(*example);
+        }
+    }
+    by_endpoint
+}
+
+fn schemas_by_source_and_name<'a>(
+    schemas: &[&'a Entity],
+) -> HashMap<(&'a str, &'a str), &'a Entity> {
+    let mut by_source_and_name = HashMap::new();
+    for schema in schemas {
+        if let Some(source_path) = schema.source.as_ref().map(|source| source.path.as_str()) {
+            by_source_and_name.insert((source_path, schema.name.as_str()), *schema);
+        }
+    }
+    by_source_and_name
+}
+
+fn functions_by_normalized_name<'a>(functions: &[&'a Entity]) -> HashMap<String, Vec<&'a Entity>> {
+    let mut by_name = HashMap::new();
+    for function in functions {
+        by_name
+            .entry(normalize(&function.name))
+            .or_insert_with(Vec::new)
+            .push(*function);
+    }
+    by_name
+}
+
 fn endpoint_operation_id(endpoint: &Entity) -> Option<&str> {
     endpoint
         .payload
@@ -207,13 +255,6 @@ fn local_schema_name(reference: &str) -> Option<&str> {
     reference
         .strip_prefix("#/components/schemas/")
         .filter(|name| !name.is_empty() && !name.contains('/'))
-}
-
-fn same_source_file(left: &Entity, right: &Entity) -> bool {
-    left.source
-        .as_ref()
-        .zip(right.source.as_ref())
-        .is_some_and(|(left, right)| left.path == right.path)
 }
 
 fn documentation_match(document: &Entity, endpoint: &Entity) -> Option<(&'static str, String)> {
@@ -440,8 +481,8 @@ mod tests {
         let relations = ApiKnowledgeLinker
             .link(LinkInput {
                 snapshot: SnapshotId("snap_test".to_string()),
-                entities: entities.clone(),
-                facts: Vec::new(),
+                entities: entities.clone().into(),
+                facts: Vec::new().into(),
                 affected: AffectedSubset::from_extracted(entities, Vec::new()),
             })
             .await
@@ -487,8 +528,8 @@ mod tests {
         let relations = ApiKnowledgeLinker
             .link(LinkInput {
                 snapshot: SnapshotId("snap_test".to_string()),
-                entities: entities.clone(),
-                facts: Vec::new(),
+                entities: entities.clone().into(),
+                facts: Vec::new().into(),
                 affected: AffectedSubset::from_extracted(entities, Vec::new()),
             })
             .await
@@ -521,8 +562,8 @@ mod tests {
         let relations = ApiKnowledgeLinker
             .link(LinkInput {
                 snapshot: SnapshotId("snap_test".to_string()),
-                entities: entities.clone(),
-                facts: Vec::new(),
+                entities: entities.clone().into(),
+                facts: Vec::new().into(),
                 affected: AffectedSubset::from_extracted(entities, Vec::new()),
             })
             .await
@@ -560,8 +601,8 @@ mod tests {
         let relations = ApiKnowledgeLinker
             .link(LinkInput {
                 snapshot: SnapshotId("snap_test".to_string()),
-                entities: vec![endpoint, function.clone(), section],
-                facts: Vec::new(),
+                entities: vec![endpoint, function.clone(), section].into(),
+                facts: Vec::new().into(),
                 affected: AffectedSubset::from_extracted(vec![function], Vec::new()),
             })
             .await
@@ -595,8 +636,8 @@ mod tests {
         let relations = ApiKnowledgeLinker
             .link(LinkInput {
                 snapshot: SnapshotId("snap_test".to_string()),
-                entities: entities.clone(),
-                facts: Vec::new(),
+                entities: entities.clone().into(),
+                facts: Vec::new().into(),
                 affected: AffectedSubset::from_extracted(entities, Vec::new()),
             })
             .await

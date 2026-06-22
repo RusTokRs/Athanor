@@ -293,7 +293,7 @@ impl IndexPipeline {
             .commit_snapshot(snapshot.clone())
             .await
             .context("failed to commit snapshot")?;
-        info!(%snapshot, "committed index snapshot");
+        info!(?snapshot, "committed index snapshot");
 
         Ok(IndexPipelineOutput {
             snapshot,
@@ -349,9 +349,10 @@ impl IndexPipeline {
                     snapshot: snapshot.clone(),
                     source,
                 };
-                let output = extractor.extract(input).await.with_context(|| {
-                    format!("extractor {} failed", extractor.name())
-                })?;
+                let output = extractor
+                    .extract(input)
+                    .await
+                    .with_context(|| format!("extractor {} failed", extractor.name()))?;
 
                 validate_entities(extractor.name(), &output.entities)?;
                 validate_facts(extractor.name(), &output.facts)?;
