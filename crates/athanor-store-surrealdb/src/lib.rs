@@ -63,7 +63,7 @@ impl KnowledgeStore for SurrealKnowledgeStore {
                 let _: Option<CounterRecord> = self
                     .db
                     .update(counter_id)
-                    .content(&c)
+                    .content(c)
                     .await
                     .map_err(|err| {
                         CoreError::Adapter(format!("failed to update snapshot counter: {err}"))
@@ -75,7 +75,7 @@ impl KnowledgeStore for SurrealKnowledgeStore {
                 let _: Option<CounterRecord> = self
                     .db
                     .create(counter_id)
-                    .content(&c)
+                    .content(c)
                     .await
                     .map_err(|err| {
                         CoreError::Adapter(format!("failed to create snapshot counter: {err}"))
@@ -98,7 +98,7 @@ impl KnowledgeStore for SurrealKnowledgeStore {
         let _: Option<SnapshotRecord> = self
             .db
             .create(("snapshot", &snapshot_id))
-            .content(&record)
+            .content(record)
             .await
             .map_err(|err| {
                 CoreError::Adapter(format!("failed to create snapshot record: {err}"))
@@ -113,7 +113,7 @@ impl KnowledgeStore for SurrealKnowledgeStore {
             let _: Option<serde_json::Value> = self
                 .db
                 .create(("entity", &record_id))
-                .content(&entity)
+                .content(entity)
                 .await
                 .map_err(|err| CoreError::Adapter(format!("failed to insert entity: {err}")))?;
         }
@@ -126,7 +126,7 @@ impl KnowledgeStore for SurrealKnowledgeStore {
             let _: Option<serde_json::Value> = self
                 .db
                 .create(("fact", &record_id))
-                .content(&fact)
+                .content(fact)
                 .await
                 .map_err(|err| CoreError::Adapter(format!("failed to insert fact: {err}")))?;
         }
@@ -143,7 +143,7 @@ impl KnowledgeStore for SurrealKnowledgeStore {
             let _: Option<serde_json::Value> = self
                 .db
                 .create(("relation", &record_id))
-                .content(&relation)
+                .content(relation)
                 .await
                 .map_err(|err| CoreError::Adapter(format!("failed to insert relation: {err}")))?;
         }
@@ -160,7 +160,7 @@ impl KnowledgeStore for SurrealKnowledgeStore {
             let _: Option<serde_json::Value> = self
                 .db
                 .create(("diagnostic", &record_id))
-                .content(&diagnostic)
+                .content(diagnostic)
                 .await
                 .map_err(|err| {
                     CoreError::Adapter(format!("failed to insert diagnostic: {err}"))
@@ -316,7 +316,7 @@ impl CanonicalSnapshotStore for SurrealKnowledgeStore {
         let mut entities_res = self
             .db
             .query("SELECT * FROM entity WHERE snapshot.0 = $snapshot")
-            .bind(("snapshot", &snapshot.0))
+            .bind(("snapshot", snapshot.0.clone()))
             .await
             .map_err(|err| CoreError::Adapter(format!("failed to load snapshot entities: {err}")))?;
         let entities: Vec<Entity> = entities_res
@@ -326,7 +326,7 @@ impl CanonicalSnapshotStore for SurrealKnowledgeStore {
         let mut facts_res = self
             .db
             .query("SELECT * FROM fact WHERE snapshot.0 = $snapshot")
-            .bind(("snapshot", &snapshot.0))
+            .bind(("snapshot", snapshot.0.clone()))
             .await
             .map_err(|err| CoreError::Adapter(format!("failed to load snapshot facts: {err}")))?;
         let facts: Vec<Fact> = facts_res
@@ -336,7 +336,7 @@ impl CanonicalSnapshotStore for SurrealKnowledgeStore {
         let mut relations_res = self
             .db
             .query("SELECT * FROM relation WHERE snapshot.0 = $snapshot")
-            .bind(("snapshot", &snapshot.0))
+            .bind(("snapshot", snapshot.0.clone()))
             .await
             .map_err(|err| CoreError::Adapter(format!("failed to load snapshot relations: {err}")))?;
         let relations: Vec<Relation> = relations_res
@@ -346,7 +346,7 @@ impl CanonicalSnapshotStore for SurrealKnowledgeStore {
         let mut diagnostics_res = self
             .db
             .query("SELECT * FROM diagnostic WHERE snapshot.0 = $snapshot")
-            .bind(("snapshot", &snapshot.0))
+            .bind(("snapshot", snapshot.0.clone()))
             .await
             .map_err(|err| CoreError::Adapter(format!("failed to load snapshot diagnostics: {err}")))?;
         let diagnostics: Vec<Diagnostic> = diagnostics_res
@@ -394,7 +394,6 @@ mod tests {
     use athanor_domain::{EntityId, EntityKind, SourceLocation};
 
     async fn temp_store() -> SurrealKnowledgeStore {
-        // connect to temporary in-memory SurrealDB instance
         SurrealKnowledgeStore::connect("mem://").await.unwrap()
     }
 
