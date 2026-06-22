@@ -37,7 +37,7 @@ cargo run -p ath --quiet --locked -- docs check
 
 ## Nightly Security Audit Workflow
 
-A separate nightly `Security Audit` workflow runs every day at midnight (and can be triggered manually). It executes `rustsec/audit-action` (`cargo-audit`) to scan the locked dependency tree for newly discovered vulnerabilities in the Rust advisory database.
+A separate nightly `Security Audit` workflow runs every day at midnight (and can be triggered manually). It executes `rustsec/audit-check` (`cargo-audit`) to scan the locked dependency tree for newly discovered vulnerabilities in the Rust advisory database.
 
 ## Principles & Permissions
 
