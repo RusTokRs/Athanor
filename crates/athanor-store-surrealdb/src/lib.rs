@@ -127,7 +127,7 @@ impl KnowledgeStore for SurrealKnowledgeStore {
 
             let _: Option<DummyRecord> = self
                 .db
-                .create(("entity", &record_id))
+                .upsert(("entity", &record_id))
                 .content(val)
                 .await
                 .map_err(|err| CoreError::Adapter(format!("failed to insert entity: {err}")))?;
@@ -147,7 +147,7 @@ impl KnowledgeStore for SurrealKnowledgeStore {
 
             let _: Option<DummyRecord> = self
                 .db
-                .create(("fact", &record_id))
+                .upsert(("fact", &record_id))
                 .content(val)
                 .await
                 .map_err(|err| CoreError::Adapter(format!("failed to insert fact: {err}")))?;
@@ -172,7 +172,7 @@ impl KnowledgeStore for SurrealKnowledgeStore {
 
             let _: Option<DummyRecord> = self
                 .db
-                .create(("relation", &record_id))
+                .upsert(("relation", &record_id))
                 .content(val)
                 .await
                 .map_err(|err| CoreError::Adapter(format!("failed to insert relation: {err}")))?;
@@ -197,7 +197,7 @@ impl KnowledgeStore for SurrealKnowledgeStore {
 
             let _: Option<DummyRecord> = self
                 .db
-                .create(("diagnostic", &record_id))
+                .upsert(("diagnostic", &record_id))
                 .content(val)
                 .await
                 .map_err(|err| CoreError::Adapter(format!("failed to insert diagnostic: {err}")))?;
