@@ -170,7 +170,7 @@ exact and currently explains one canonical entity at a time.
 
 `ath check api` and `ath check docs` read open diagnostics from the latest durable canonical snapshot
 without re-indexing. The app layer classifies diagnostic kinds into API and documentation scopes,
-`ath check docs` command is sorted by severity and diagnostic id, and returns:
+sorts results by severity and diagnostic id, and returns:
 
 - snapshot id and requested scope
 - total, critical, high, medium, and low counts
