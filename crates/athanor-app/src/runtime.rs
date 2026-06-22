@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use anyhow::{Context, Result, bail};
-use athanor_checker_api::ApiConsistencyChecker;
+use athanor_checker_api::{ApiConsistencyChecker, EnvDocsChecker};
 use athanor_checker_markdown::MarkdownStructureChecker;
 use athanor_core::{
     CheckInput, Checker, CoreError, CoreResult, ExtractInput, ExtractOutput, Extractor,
@@ -105,6 +105,7 @@ impl AdapterRegistry {
             .builtin_linker_rust()
             .builtin_checker_markdown_structure()
             .builtin_checker_api_consistency()
+            .builtin_checker_env_docs()
     }
 
     pub fn with_plugin_manifest(self, manifest: &AdapterPluginManifest) -> Result<Self> {
@@ -161,6 +162,9 @@ impl AdapterRegistry {
             }
             (AdapterPluginKind::Checker, "builtin.checker.api_consistency") => {
                 Ok(self.builtin_checker_api_consistency())
+            }
+            (AdapterPluginKind::Checker, "builtin.checker.env_docs") => {
+                Ok(self.builtin_checker_env_docs())
             }
             (AdapterPluginKind::Source, _) => self.external_process_source(adapter, manifest_dir),
             (AdapterPluginKind::Extractor, _) => {
@@ -314,6 +318,10 @@ impl AdapterRegistry {
         self.register_checker_id("builtin.checker.api_consistency", || {
             Box::new(ApiConsistencyChecker)
         })
+    }
+
+    fn builtin_checker_env_docs(self) -> Self {
+        self.register_checker_id("builtin.checker.env_docs", || Box::new(EnvDocsChecker))
     }
 
     fn register_source_id(

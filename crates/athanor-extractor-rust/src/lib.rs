@@ -74,12 +74,12 @@ impl Extractor for RustExtractor {
         }
 
         let symbols = deduplicate_symbols(symbols);
-
+        let mut symbol_ids = HashMap::new();
         let file_id = file_entity(&input.source, &input.snapshot.0).id;
-        let mut entities = Vec::with_capacity(symbols.len());
-        let mut facts = Vec::with_capacity(symbols.len());
+        let mut entities = Vec::new();
+        let mut facts = Vec::new();
 
-        for symbol in symbols {
+        for symbol in &symbols {
             let prefix = match symbol.entity_kind {
                 EntityKind::TestCase => "ent_rust_test_case_",
                 EntityKind::Module => "ent_rust_module_",
@@ -92,6 +92,12 @@ impl Extractor for RustExtractor {
                 prefix,
                 stable_hash(stable_key.0.as_bytes())
             ));
+            symbol_ids.insert(symbol.qualified_name.clone(), entity_id);
+        }
+
+        for symbol in symbols {
+            let stable_key = StableKey(format!("symbol://rust:{}", symbol.qualified_name));
+            let entity_id = symbol_ids.get(&symbol.qualified_name).cloned().unwrap();
             let (line_start, line_end) = symbol_line_range(&symbol.spans);
             let ownership = ownership_for_file(&input.source.path);
 
@@ -147,6 +153,87 @@ impl Extractor for RustExtractor {
                         )
                     })
                     .collect(),
+                ownership,
+                snapshot: input.snapshot.clone(),
+                extractor: self.name().to_string(),
+                confidence: 1.0,
+            });
+        }
+
+        // Environment variables extraction
+        let mut env_visitor = EnvVarVisitor {
+            current_parent: file_module_path.clone(),
+            usages: Vec::new(),
+        };
+        env_visitor.visit_file(&syntax);
+
+        // Deduplicate env vars by name
+        let mut unique_env_vars = HashMap::new();
+        for usage in &env_visitor.usages {
+            unique_env_vars.entry(usage.name.clone()).or_insert(usage);
+        }
+
+        for (name, first_usage) in unique_env_vars {
+            let stable_key = StableKey(format!("env://{name}"));
+            let entity_id = EntityId(format!(
+                "ent_env_var_{:016x}",
+                stable_hash(stable_key.0.as_bytes())
+            ));
+            let (line_start, line_end) = span_lines(first_usage.span);
+            let ownership = ownership_for_file(&input.source.path);
+
+            entities.push(Entity {
+                id: entity_id,
+                stable_key,
+                kind: EntityKind::EnvVar,
+                name: name.clone(),
+                title: None,
+                source: Some(SourceLocation {
+                    path: input.source.path.clone(),
+                    line_start: Some(line_start),
+                    line_end: Some(line_end),
+                }),
+                language: Some(LanguageCode("rust".to_string())),
+                aliases: Vec::new(),
+                ownership,
+                payload: json!({
+                    "name": name,
+                }),
+            });
+        }
+
+        for (i, usage) in env_visitor.usages.iter().enumerate() {
+            let env_var_stable_key = StableKey(format!("env://{}", usage.name));
+            let env_var_id = EntityId(format!(
+                "ent_env_var_{:016x}",
+                stable_hash(env_var_stable_key.0.as_bytes())
+            ));
+            let parent_id = symbol_ids
+                .get(&usage.parent_symbol)
+                .cloned()
+                .unwrap_or_else(|| file_id.clone());
+
+            let (line_start, line_end) = span_lines(usage.span);
+            let ownership = ownership_for_file(&input.source.path);
+
+            facts.push(Fact {
+                id: FactId(format!(
+                    "fact_env_var_used_{:016x}_{i}",
+                    stable_hash(format!("{}->{}", usage.parent_symbol, usage.name).as_bytes())
+                )),
+                kind: FactKind::EnvVarUsed,
+                subject: parent_id,
+                object: Some(env_var_id),
+                value: json!({
+                    "name": usage.name,
+                    "mechanism": usage.mechanism,
+                }),
+                evidence: vec![evidence_for_file(
+                    &input.source.path,
+                    self.name(),
+                    Some(line_start),
+                    Some(line_end),
+                )],
                 ownership,
                 snapshot: input.snapshot.clone(),
                 extractor: self.name().to_string(),
@@ -516,6 +603,130 @@ fn symbol_line_range(spans: &[Span]) -> (u32, u32) {
         })
 }
 
+struct EnvVarUsage {
+    name: String,
+    mechanism: String,
+    span: Span,
+    parent_symbol: String,
+}
+
+struct EnvVarVisitor {
+    current_parent: String,
+    usages: Vec<EnvVarUsage>,
+}
+
+impl<'ast> Visit<'ast> for EnvVarVisitor {
+    fn visit_item_fn(&mut self, node: &'ast syn::ItemFn) {
+        let old_parent = self.current_parent.clone();
+        self.current_parent = qualify(&old_parent, &node.sig.ident.to_string());
+        syn::visit::visit_item_fn(self, node);
+        self.current_parent = old_parent;
+    }
+
+    fn visit_item_mod(&mut self, node: &'ast syn::ItemMod) {
+        let old_parent = self.current_parent.clone();
+        self.current_parent = qualify(&old_parent, &node.ident.to_string());
+        syn::visit::visit_item_mod(self, node);
+        self.current_parent = old_parent;
+    }
+
+    fn visit_impl_item_fn(&mut self, node: &'ast syn::ImplItemFn) {
+        let old_parent = self.current_parent.clone();
+        self.current_parent = qualify(&old_parent, &node.sig.ident.to_string());
+        syn::visit::visit_impl_item_fn(self, node);
+        self.current_parent = old_parent;
+    }
+
+    fn visit_item_impl(&mut self, node: &'ast syn::ItemImpl) {
+        if let Some(owner) = type_name(&node.self_ty) {
+            let old_parent = self.current_parent.clone();
+            let owner_qualified = qualify(&old_parent, &owner);
+            self.current_parent = node
+                .trait_
+                .as_ref()
+                .and_then(|(_, path, _)| path.segments.last())
+                .map_or_else(
+                    || owner_qualified.clone(),
+                    |segment| qualify(&owner_qualified, &segment.ident.to_string()),
+                );
+            syn::visit::visit_item_impl(self, node);
+            self.current_parent = old_parent;
+        } else {
+            syn::visit::visit_item_impl(self, node);
+        }
+    }
+
+    fn visit_item_struct(&mut self, node: &'ast syn::ItemStruct) {
+        let old_parent = self.current_parent.clone();
+        self.current_parent = qualify(&old_parent, &node.ident.to_string());
+        syn::visit::visit_item_struct(self, node);
+        self.current_parent = old_parent;
+    }
+
+    fn visit_item_enum(&mut self, node: &'ast syn::ItemEnum) {
+        let old_parent = self.current_parent.clone();
+        self.current_parent = qualify(&old_parent, &node.ident.to_string());
+        syn::visit::visit_item_enum(self, node);
+        self.current_parent = old_parent;
+    }
+
+    fn visit_item_const(&mut self, node: &'ast syn::ItemConst) {
+        let old_parent = self.current_parent.clone();
+        self.current_parent = qualify(&old_parent, &node.ident.to_string());
+        syn::visit::visit_item_const(self, node);
+        self.current_parent = old_parent;
+    }
+
+    fn visit_item_static(&mut self, node: &'ast syn::ItemStatic) {
+        let old_parent = self.current_parent.clone();
+        self.current_parent = qualify(&old_parent, &node.ident.to_string());
+        syn::visit::visit_item_static(self, node);
+        self.current_parent = old_parent;
+    }
+
+    fn visit_expr_macro(&mut self, node: &'ast syn::ExprMacro) {
+        let macro_name = path_to_string(&node.mac.path);
+        if macro_name == "env" || macro_name == "option_env" {
+            let parsed = syn::parse2::<syn::LitStr>(node.mac.tokens.clone());
+            if let Ok(lit) = parsed {
+                self.usages.push(EnvVarUsage {
+                    name: lit.value(),
+                    mechanism: macro_name,
+                    span: lit.span(),
+                    parent_symbol: self.current_parent.clone(),
+                });
+            }
+        }
+        syn::visit::visit_expr_macro(self, node);
+    }
+
+    fn visit_expr_call(&mut self, node: &'ast syn::ExprCall) {
+        if let syn::Expr::Path(expr_path) = &*node.func {
+            let func_path = path_to_string(&expr_path.path);
+            if func_path == "std::env::var"
+                || func_path == "env::var"
+                || func_path == "std::env::var_os"
+                || func_path == "env::var_os"
+            {
+                let first_arg = node.args.first();
+                if let Some(syn::Expr::Lit(syn::ExprLit {
+                    lit: syn::Lit::Str(lit_str),
+                    ..
+                })) = first_arg
+                {
+                    self.usages.push(EnvVarUsage {
+                        name: lit_str.value(),
+                        mechanism: func_path,
+                        span: lit_str.span(),
+                        parent_symbol: self.current_parent.clone(),
+                    });
+                }
+            }
+        }
+        syn::visit::visit_expr_call(self, node);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use athanor_domain::{EntityKind, FactKind, RepoId, SnapshotId};
@@ -642,6 +853,67 @@ fn platform() {}
             .find(|e| e.name == "platform")
             .unwrap();
         assert_eq!(symbol.payload["definitions"], 2);
+    }
+
+    #[tokio::test]
+    async fn extracts_environment_variables() {
+        let output = RustExtractor
+            .extract(input(
+                "src/main.rs",
+                r#"
+                const DATABASE: &str = env!("DATABASE_URL");
+
+                pub fn run() {
+                    let port = std::env::var("PORT").unwrap();
+                    let debug = env::var_os("DEBUG");
+                }
+
+                struct App;
+                impl App {
+                    fn get_host(&self) -> Option<&'static str> {
+                        option_env!("HOST")
+                    }
+                }
+                "#,
+            ))
+            .await
+            .unwrap();
+
+        let env_vars = output
+            .entities
+            .iter()
+            .filter(|e| e.kind == EntityKind::EnvVar)
+            .map(|e| e.stable_key.0.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(env_vars.len(), 4);
+        assert!(env_vars.contains(&"env://DATABASE_URL"));
+        assert!(env_vars.contains(&"env://PORT"));
+        assert!(env_vars.contains(&"env://DEBUG"));
+        assert!(env_vars.contains(&"env://HOST"));
+
+        // Check that DATABASE_URL is used by the file itself/root module const
+        let database_fact = output
+            .facts
+            .iter()
+            .find(|f| f.kind == FactKind::EnvVarUsed && f.value["name"] == "DATABASE_URL")
+            .unwrap();
+        // PORT is used by symbol run
+        let port_fact = output
+            .facts
+            .iter()
+            .find(|f| f.kind == FactKind::EnvVarUsed && f.value["name"] == "PORT")
+            .unwrap();
+        // HOST is used by get_host method
+        let host_fact = output
+            .facts
+            .iter()
+            .find(|f| f.kind == FactKind::EnvVarUsed && f.value["name"] == "HOST")
+            .unwrap();
+
+        assert_eq!(database_fact.value["mechanism"], "env");
+        assert_eq!(port_fact.value["mechanism"], "std::env::var");
+        assert_eq!(host_fact.value["mechanism"], "option_env");
     }
 
     fn input(path: &str, content: &str) -> ExtractInput {

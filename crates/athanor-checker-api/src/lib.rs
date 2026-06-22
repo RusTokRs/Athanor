@@ -160,6 +160,96 @@ impl Checker for ApiConsistencyChecker {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct EnvDocsChecker;
+
+#[async_trait]
+impl Checker for EnvDocsChecker {
+    fn name(&self) -> &'static str {
+        "env-docs"
+    }
+
+    async fn check(&self, input: CheckInput) -> CoreResult<Vec<Diagnostic>> {
+        let env_vars = entities_of_kind(&input.entities, EntityKind::EnvVar);
+        let docs_affected = input.affected.entities.iter().any(|entity| {
+            matches!(
+                entity.kind,
+                EntityKind::DocumentationPage | EntityKind::DocumentationSection
+            )
+        });
+        let affected_ids = input
+            .affected
+            .entities
+            .iter()
+            .map(|entity| entity.id.clone())
+            .collect::<HashSet<_>>();
+
+        let mut diagnostics = Vec::new();
+
+        for env_var in env_vars {
+            let env_var_affected = affected_ids.contains(&env_var.id);
+            if env_var_affected || docs_affected {
+                let documented = input.relations.iter().any(|relation| {
+                    relation.kind == RelationKind::Documents && relation.to == env_var.id
+                });
+                if !documented {
+                    diagnostics.push(missing_env_var_diagnostic(
+                        env_var,
+                        self.name(),
+                        &input.snapshot,
+                    ));
+                }
+            }
+        }
+
+        Ok(diagnostics)
+    }
+}
+
+fn missing_env_var_diagnostic(
+    env_var: &Entity,
+    checker: &str,
+    snapshot: &SnapshotId,
+) -> Diagnostic {
+    let kind = DiagnosticKind::MissingEnvVar;
+    let kind_slug = "missing_env_var";
+    let id_material = format!("{kind_slug}\0{}", env_var.stable_key.0);
+    Diagnostic {
+        id: DiagnosticId(format!(
+            "diag_env_{:016x}",
+            stable_hash(id_material.as_bytes())
+        )),
+        kind,
+        severity: Severity::Medium,
+        status: DiagnosticStatus::Open,
+        title: "Environment variable is not documented".to_string(),
+        message: format!(
+            "Environment variable `{}` is used in the codebase but not documented.",
+            env_var.stable_key.0
+        ),
+        entities: vec![env_var.id.clone()],
+        evidence: vec![Evidence {
+            source_file: env_var.source.as_ref().map(|s| s.path.clone()),
+            line_start: env_var.source.as_ref().and_then(|s| s.line_start),
+            line_end: env_var.source.as_ref().and_then(|s| s.line_end),
+            extractor: Some(checker.to_string()),
+            commit_hash: None,
+            confidence: 1.0,
+            status: EvidenceStatus::Missing,
+        }],
+        ownership: env_var.ownership.clone(),
+        snapshot: snapshot.clone(),
+        suggested_fix: Some(format!(
+            "Document `{}` in your Markdown documentation frontmatter by adding it to the `entities` list.",
+            env_var.stable_key.0
+        )),
+        payload: json!({
+            "env_var": env_var.stable_key.0,
+            "missing_relation": "documents",
+        }),
+    }
+}
+
 fn entities_of_kind(entities: &[Entity], kind: EntityKind) -> Vec<&Entity> {
     entities
         .iter()
@@ -341,6 +431,7 @@ fn diagnostic_slug(kind: &DiagnosticKind) -> &'static str {
         DiagnosticKind::ApiEndpointImplementedButNotDocumented => "api_endpoint_not_documented",
         DiagnosticKind::ApiRequestSchemaMismatch => "api_request_schema_mismatch",
         DiagnosticKind::ApiResponseSchemaMismatch => "api_response_schema_mismatch",
+        DiagnosticKind::MissingEnvVar => "missing_env_var",
         _ => "api_consistency",
     }
 }
@@ -639,6 +730,52 @@ mod tests {
             diagnostic.kind,
             DiagnosticKind::ApiRequestSchemaMismatch | DiagnosticKind::ApiResponseSchemaMismatch
         )));
+    }
+
+    #[tokio::test]
+    async fn reports_undocumented_env_var_and_accepts_documented_one() {
+        let env_var = entity(
+            "ent_env_db",
+            "env://DATABASE_URL",
+            EntityKind::EnvVar,
+            "src/main.rs",
+        );
+        let doc_page = entity(
+            "ent_doc_page",
+            "doc://docs/config.md",
+            EntityKind::DocumentationPage,
+            "docs/config.md",
+        );
+
+        // Scenario 1: Undocumented env var
+        let diagnostics = EnvDocsChecker
+            .check(input(
+                vec![env_var.clone()],
+                Vec::new(),
+                vec![env_var.clone()],
+                Vec::new(),
+            ))
+            .await
+            .unwrap();
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].kind, DiagnosticKind::MissingEnvVar);
+        assert_eq!(diagnostics[0].entities[0], env_var.id);
+
+        // Scenario 2: Documented env var
+        let documents_rel = relation("rel_doc_env", RelationKind::Documents, &doc_page, &env_var);
+
+        let diagnostics2 = EnvDocsChecker
+            .check(input(
+                vec![env_var.clone(), doc_page],
+                vec![documents_rel.clone()],
+                vec![env_var],
+                vec![documents_rel],
+            ))
+            .await
+            .unwrap();
+
+        assert_eq!(diagnostics2.len(), 0);
     }
 
     fn input(

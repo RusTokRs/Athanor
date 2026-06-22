@@ -137,6 +137,7 @@ pub(crate) fn diagnostic_matches_scope(kind: &DiagnosticKind, scope: DiagnosticS
                 | DiagnosticKind::DuplicateDocumentationId
                 | DiagnosticKind::OrphanDoc
                 | DiagnosticKind::TranslationOutdated
+                | DiagnosticKind::MissingEnvVar
         ),
     }
 }
