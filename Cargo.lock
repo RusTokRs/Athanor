@@ -426,6 +426,7 @@ dependencies = [
  "athanor-store-jsonl",
  "athanor-store-memory",
  "athanor-store-surrealdb",
+ "futures",
  "serde",
  "serde_json",
  "tokio",

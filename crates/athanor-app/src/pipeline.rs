@@ -11,6 +11,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::{AffectedFileSet, IndexState};
+use futures::stream::{self, StreamExt};
 
 pub struct IndexPipeline {
     store: Box<dyn KnowledgeStore>,
@@ -294,50 +295,6 @@ impl IndexPipeline {
                     .with_context(|| format!("source {} failed", source.name()))?,
             );
         }
-
-        files.sort_by(|left, right| left.path.cmp(&right.path));
-        Ok(files)
-    }
-
-    async fn extract(
-        &self,
-        repo: &RepoId,
-        snapshot: &SnapshotId,
-        files: &[SourceFile],
-    ) -> Result<(Vec<Entity>, Vec<Fact>)> {
-        let mut entities = Vec::new();
-        let mut facts = Vec::new();
-
-        for file in files {
-            for extractor in &self.extractors {
-                if !extractor.supports(file) {
-                    continue;
-                }
-
-                let output = extractor
-                    .extract(ExtractInput {
-                        repo: repo.clone(),
-                        snapshot: snapshot.clone(),
-                        source: file.clone(),
-                    })
-                    .await
-                    .with_context(|| {
-                        format!("extractor {} failed for {}", extractor.name(), file.path)
-                    })?;
-
-                validate_entities(extractor.name(), &output.entities)?;
-                validate_facts(extractor.name(), &output.facts)?;
-                entities.extend(output.entities);
-                facts.extend(output.facts);
-            }
-        }
-
-        Ok((entities, facts))
-    }
-
-    async fn link(
-        &self,
-        snapshot: &SnapshotId,
         entities: &[Entity],
         facts: &[Fact],
         affected: &AffectedSubset,
