@@ -2,11 +2,12 @@ use std::cmp::Reverse;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
 
+use crate::config::load_config;
+use crate::store::init_store;
 use anyhow::{Context, Result, bail};
 use athanor_core::{CanonicalSnapshot, CanonicalSnapshotStore, SearchIndex};
 use athanor_domain::{ContextLevel, ContextPack, ContextPackId, Entity};
 use athanor_extractor_basic::stable_hash;
-use athanor_store_jsonl::JsonlKnowledgeStore;
 use serde_json::json;
 
 use crate::project_path::normalize_canonical_path;
@@ -93,7 +94,8 @@ pub async fn context_project(options: ContextOptions) -> Result<ContextPack> {
             .canonicalize()
             .with_context(|| format!("failed to canonicalize {}", options.root.display()))?,
     );
-    let store = JsonlKnowledgeStore::new(root.join(".athanor/store/canonical/jsonl"));
+    let config = load_config(&root)?;
+    let store = init_store(&root, &config).await?;
     let snapshot = store
         .load_latest_snapshot()
         .await

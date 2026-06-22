@@ -10,6 +10,31 @@ use serde::{Deserialize, Serialize};
 pub struct ProjectConfig {
     pub docs: DocsConfig,
     pub api: ApiConfig,
+    pub storage: StorageConfig,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default)]
+pub struct StorageConfig {
+    pub mode: StorageMode,
+    pub path: String,
+}
+
+impl Default for StorageConfig {
+    fn default() -> Self {
+        Self {
+            mode: StorageMode::Jsonl,
+            path: ".athanor/store/canonical/jsonl".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum StorageMode {
+    Jsonl,
+    SurrealEmbedded,
+    SurrealMemory,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

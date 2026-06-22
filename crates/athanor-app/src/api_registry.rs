@@ -1,10 +1,11 @@
 use std::collections::{BTreeSet, HashMap};
 use std::path::PathBuf;
 
+use crate::config::load_config;
+use crate::store::init_store;
 use anyhow::{Context, Result};
 use athanor_core::CanonicalSnapshotStore;
 use athanor_domain::{EntityKind, RelationKind};
-use athanor_store_jsonl::JsonlKnowledgeStore;
 use serde::Serialize;
 
 use crate::project_path::normalize_canonical_path;
@@ -41,7 +42,8 @@ pub async fn query_api_registry(options: ApiRegistryOptions) -> Result<ApiRegist
             .canonicalize()
             .with_context(|| format!("failed to canonicalize {}", options.root.display()))?,
     );
-    let store = JsonlKnowledgeStore::new(root.join(".athanor/store/canonical/jsonl"));
+    let config = load_config(&root)?;
+    let store = init_store(&root, &config).await?;
     let canonical = store
         .load_latest_snapshot()
         .await
@@ -133,6 +135,7 @@ mod tests {
         Entity, EntityId, LanguageCode, Relation, RelationId, RelationStatus, SnapshotBase,
         StableKey,
     };
+    use athanor_store_jsonl::JsonlKnowledgeStore;
     use serde_json::json;
     use std::fs;
 

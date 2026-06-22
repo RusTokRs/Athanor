@@ -1,9 +1,9 @@
 use std::path::PathBuf;
 
+use crate::store::init_store;
 use anyhow::{Context, Result};
 use athanor_core::CanonicalSnapshotStore;
 use athanor_domain::{Diagnostic, DiagnosticKind, DiagnosticStatus, Severity};
-use athanor_store_jsonl::JsonlKnowledgeStore;
 use serde::{Deserialize, Serialize};
 
 use crate::project_path::normalize_canonical_path;
@@ -49,7 +49,7 @@ pub async fn check_project(options: DiagnosticCheckOptions) -> Result<Diagnostic
             .with_context(|| format!("failed to canonicalize {}", options.root.display()))?,
     );
     let config = load_config(&root)?;
-    let store = JsonlKnowledgeStore::new(root.join(".athanor/store/canonical/jsonl"));
+    let store = init_store(&root, &config).await?;
     let snapshot = store
         .load_latest_snapshot()
         .await

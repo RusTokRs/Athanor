@@ -4,14 +4,13 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use athanor_core::CanonicalSnapshotStore;
 use athanor_domain::{RepoId, SnapshotBase};
-use athanor_store_jsonl::JsonlKnowledgeStore;
 use athanor_store_memory::MemoryKnowledgeStore;
 use serde::Serialize;
 
 use crate::project_path::normalize_canonical_path;
 use crate::{
     AdapterValidationReport, IncrementalIndexContext, IndexState, IndexStateStore,
-    JsonlReadModelWriter, RuntimeBuilder,
+    JsonlReadModelWriter, RuntimeBuilder, config::load_config, store::init_store,
 };
 
 #[derive(Debug, Clone)]
@@ -66,7 +65,8 @@ pub async fn index_project(options: IndexOptions) -> Result<IndexReport> {
     let output_dir = root.join(".athanor/generated/current/jsonl");
     let validation_report = validation_report_path(&root, options.validation_report.as_deref());
     let validation_result = validation_result_path(&root, options.validation_result.as_deref());
-    let canonical_store = JsonlKnowledgeStore::new(root.join(".athanor/store/canonical/jsonl"));
+    let config = load_config(&root)?;
+    let canonical_store = init_store(&root, &config).await?;
     let previous_snapshot = match previous_state.snapshot.as_ref() {
         Some(snapshot) => canonical_store
             .load_snapshot(&athanor_domain::SnapshotId(snapshot.clone()))

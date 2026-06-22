@@ -1,9 +1,10 @@
 use std::path::PathBuf;
 
+use crate::config::load_config;
+use crate::store::init_store;
 use anyhow::{Context, Result, bail};
 use athanor_core::{CanonicalSnapshot, CanonicalSnapshotStore};
 use athanor_domain::{Diagnostic, Entity, Fact, Relation};
-use athanor_store_jsonl::JsonlKnowledgeStore;
 use serde::Serialize;
 
 use crate::project_path::normalize_canonical_path;
@@ -42,7 +43,8 @@ pub async fn explain_project(options: ExplainOptions) -> Result<EntityExplanatio
             .canonicalize()
             .with_context(|| format!("failed to canonicalize {}", options.root.display()))?,
     );
-    let store = JsonlKnowledgeStore::new(root.join(".athanor/store/canonical/jsonl"));
+    let config = load_config(&root)?;
+    let store = init_store(&root, &config).await?;
     let snapshot = store
         .load_latest_snapshot()
         .await

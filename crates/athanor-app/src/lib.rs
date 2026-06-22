@@ -18,6 +18,7 @@ pub mod read_model;
 pub mod report;
 pub mod runtime;
 pub mod search;
+pub mod store;
 pub mod wiki;
 
 pub use api::*;
@@ -37,4 +38,5 @@ pub use read_model::*;
 pub use report::*;
 pub use runtime::*;
 pub use search::*;
+pub use store::*;
 pub use wiki::*;

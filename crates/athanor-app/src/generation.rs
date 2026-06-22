@@ -1,6 +1,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::config::load_config;
+use crate::store::init_store;
 use anyhow::{Context, Result, bail};
 use athanor_core::{CanonicalSnapshotStore, ProjectInput, Projector};
 use athanor_projector_html::{
@@ -10,7 +12,6 @@ use athanor_projector_support::{NewDirectoryPublication, replace_output_file, wr
 use athanor_projector_wiki::{
     MarkdownWikiProjector, WIKI_PROJECTION_SCHEMA, WikiProjectionPayload,
 };
-use athanor_store_jsonl::JsonlKnowledgeStore;
 use serde::{Deserialize, Serialize};
 
 use crate::JsonlReadModelWriter;
@@ -79,7 +80,8 @@ pub async fn generate_project(options: GenerationOptions) -> Result<GenerationRe
     let generation = next_generation_id(&generations_dir)?;
     let generation_dir = generations_dir.join(&generation);
     let current_pointer = generated_root.join("current.json");
-    let store = JsonlKnowledgeStore::new(root.join(".athanor/store/canonical/jsonl"));
+    let config = load_config(&root)?;
+    let store = init_store(&root, &config).await?;
     let snapshot = store
         .load_latest_snapshot()
         .await
@@ -215,6 +217,7 @@ fn next_generation_id(generations_dir: &Path) -> Result<String> {
 mod tests {
     use athanor_core::KnowledgeStore;
     use athanor_domain::{RepoId, SnapshotBase};
+    use athanor_store_jsonl::JsonlKnowledgeStore;
 
     use super::*;
 

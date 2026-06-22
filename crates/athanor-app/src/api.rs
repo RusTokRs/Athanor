@@ -3,6 +3,8 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+use crate::config::load_config;
+use crate::store::init_store;
 use anyhow::{Context, Result, bail};
 use athanor_core::{CanonicalSnapshot, CanonicalSnapshotStore};
 use athanor_domain::{
@@ -11,7 +13,6 @@ use athanor_domain::{
 };
 use athanor_extractor_basic::stable_hash;
 use athanor_projector_support::replace_output_file;
-use athanor_store_jsonl::JsonlKnowledgeStore;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -117,7 +118,8 @@ pub struct ApiContractDiff {
 
 pub async fn snapshot_api_contract(options: ApiSnapshotOptions) -> Result<ApiSnapshotReport> {
     let root = canonical_root(&options.root)?;
-    let store = JsonlKnowledgeStore::new(root.join(".athanor/store/canonical/jsonl"));
+    let config = load_config(&root)?;
+    let store = init_store(&root, &config).await?;
     let canonical = store
         .load_latest_snapshot()
         .await

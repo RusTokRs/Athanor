@@ -1,10 +1,11 @@
+use crate::config::load_config;
+use crate::store::init_store;
 use anyhow::{Context, Result, bail};
 use athanor_core::{
     CanonicalSnapshot, CanonicalSnapshotStore, SearchDocument, SearchIndex, SearchQuery,
 };
 use athanor_domain::Entity;
 use athanor_search_tantivy::TantivySearchIndex;
-use athanor_store_jsonl::JsonlKnowledgeStore;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -50,7 +51,8 @@ pub async fn search_project(options: SearchOptions) -> Result<SearchReport> {
             .with_context(|| format!("failed to canonicalize {}", options.root.display()))?,
     );
 
-    let store = JsonlKnowledgeStore::new(root.join(".athanor/store/canonical/jsonl"));
+    let config = load_config(&root)?;
+    let store = init_store(&root, &config).await?;
     let snapshot = store
         .load_latest_snapshot()
         .await

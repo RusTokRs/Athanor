@@ -3,9 +3,7 @@ use athanor_core::{
     CanonicalSnapshot, CanonicalSnapshotStore, CoreError, CoreResult, DiagnosticQuery, EntityQuery,
     KnowledgeStore, RelationQuery,
 };
-use athanor_domain::{
-    Diagnostic, Entity, Fact, Relation, RepoId, SnapshotBase, SnapshotId, StableKey,
-};
+use athanor_domain::{Diagnostic, Entity, Fact, Relation, RepoId, SnapshotBase, SnapshotId};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use surrealdb::Surreal;
@@ -16,8 +14,12 @@ pub struct SurrealKnowledgeStore {
     db: Surreal<Any>,
 }
 
+use serde::de;
+use surrealdb::sql::Thing;
+
 #[derive(Debug, Serialize, Deserialize)]
 struct SnapshotRecord {
+    #[serde(deserialize_with = "deserialize_id")]
     id: String,
     repo: String,
     base_branch: Option<String>,
@@ -27,10 +29,24 @@ struct SnapshotRecord {
     committed: bool,
 }
 
+fn deserialize_id<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: de::Deserializer<'de>,
+{
+    let thing = Thing::deserialize(deserializer)?;
+    match thing.id {
+        surrealdb::sql::Id::String(s) => Ok(s),
+        other => Ok(other.to_string()),
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 struct CounterRecord {
     count: u64,
 }
+
+#[derive(Debug, Deserialize)]
+struct DummyRecord {}
 
 impl SurrealKnowledgeStore {
     pub async fn connect(uri: &str) -> Result<Self, CoreError> {
@@ -51,33 +67,24 @@ impl SurrealKnowledgeStore {
 impl KnowledgeStore for SurrealKnowledgeStore {
     async fn begin_snapshot(&self, repo: RepoId, base: SnapshotBase) -> CoreResult<SnapshotId> {
         let counter_id = ("meta", "snapshot_counter");
-        let counter: Option<CounterRecord> = self
-            .db
-            .select(counter_id)
-            .await
-            .map_err(|err| CoreError::Adapter(format!("failed to fetch snapshot counter: {err}")))?;
+        let counter: Option<CounterRecord> = self.db.select(counter_id).await.map_err(|err| {
+            CoreError::Adapter(format!("failed to fetch snapshot counter: {err}"))
+        })?;
 
         let count = match counter {
             Some(mut c) => {
                 c.count += 1;
-                let _: Option<CounterRecord> = self
-                    .db
-                    .update(counter_id)
-                    .content(c)
-                    .await
-                    .map_err(|err| {
+                let next_count = c.count;
+                let _: Option<CounterRecord> =
+                    self.db.update(counter_id).content(c).await.map_err(|err| {
                         CoreError::Adapter(format!("failed to update snapshot counter: {err}"))
                     })?;
-                c.count
+                next_count
             }
             None => {
                 let c = CounterRecord { count: 1 };
-                let _: Option<CounterRecord> = self
-                    .db
-                    .create(counter_id)
-                    .content(c)
-                    .await
-                    .map_err(|err| {
+                let _: Option<CounterRecord> =
+                    self.db.create(counter_id).content(c).await.map_err(|err| {
                         CoreError::Adapter(format!("failed to create snapshot counter: {err}"))
                     })?;
                 1
@@ -110,10 +117,18 @@ impl KnowledgeStore for SurrealKnowledgeStore {
     async fn put_entities(&self, snapshot: SnapshotId, entities: Vec<Entity>) -> CoreResult<()> {
         for entity in entities {
             let record_id = format!("{}_{}", snapshot.0, entity.id.0);
-            let _: Option<serde_json::Value> = self
+            let mut val = serde_json::to_value(&entity)
+                .map_err(|err| CoreError::Adapter(format!("failed to serialize entity: {err}")))?;
+            if let serde_json::Value::Object(map) = &mut val {
+                map.insert("original_id".to_string(), json!(entity.id.0));
+                map.remove("id");
+                map.insert("snapshot".to_string(), json!(snapshot.0));
+            }
+
+            let _: Option<DummyRecord> = self
                 .db
                 .create(("entity", &record_id))
-                .content(entity)
+                .content(val)
                 .await
                 .map_err(|err| CoreError::Adapter(format!("failed to insert entity: {err}")))?;
         }
@@ -123,10 +138,17 @@ impl KnowledgeStore for SurrealKnowledgeStore {
     async fn put_facts(&self, snapshot: SnapshotId, facts: Vec<Fact>) -> CoreResult<()> {
         for fact in facts {
             let record_id = format!("{}_{}", snapshot.0, fact.id.0);
-            let _: Option<serde_json::Value> = self
+            let mut val = serde_json::to_value(&fact)
+                .map_err(|err| CoreError::Adapter(format!("failed to serialize fact: {err}")))?;
+            if let serde_json::Value::Object(map) = &mut val {
+                map.insert("original_id".to_string(), json!(fact.id.0));
+                map.remove("id");
+            }
+
+            let _: Option<DummyRecord> = self
                 .db
                 .create(("fact", &record_id))
-                .content(fact)
+                .content(val)
                 .await
                 .map_err(|err| CoreError::Adapter(format!("failed to insert fact: {err}")))?;
         }
@@ -140,10 +162,18 @@ impl KnowledgeStore for SurrealKnowledgeStore {
     ) -> CoreResult<()> {
         for relation in relations {
             let record_id = format!("{}_{}", snapshot.0, relation.id.0);
-            let _: Option<serde_json::Value> = self
+            let mut val = serde_json::to_value(&relation).map_err(|err| {
+                CoreError::Adapter(format!("failed to serialize relation: {err}"))
+            })?;
+            if let serde_json::Value::Object(map) = &mut val {
+                map.insert("original_id".to_string(), json!(relation.id.0));
+                map.remove("id");
+            }
+
+            let _: Option<DummyRecord> = self
                 .db
                 .create(("relation", &record_id))
-                .content(relation)
+                .content(val)
                 .await
                 .map_err(|err| CoreError::Adapter(format!("failed to insert relation: {err}")))?;
         }
@@ -157,14 +187,20 @@ impl KnowledgeStore for SurrealKnowledgeStore {
     ) -> CoreResult<()> {
         for diagnostic in diagnostics {
             let record_id = format!("{}_{}", snapshot.0, diagnostic.id.0);
-            let _: Option<serde_json::Value> = self
+            let mut val = serde_json::to_value(&diagnostic).map_err(|err| {
+                CoreError::Adapter(format!("failed to serialize diagnostic: {err}"))
+            })?;
+            if let serde_json::Value::Object(map) = &mut val {
+                map.insert("original_id".to_string(), json!(diagnostic.id.0));
+                map.remove("id");
+            }
+
+            let _: Option<DummyRecord> = self
                 .db
                 .create(("diagnostic", &record_id))
-                .content(diagnostic)
+                .content(val)
                 .await
-                .map_err(|err| {
-                    CoreError::Adapter(format!("failed to insert diagnostic: {err}"))
-                })?;
+                .map_err(|err| CoreError::Adapter(format!("failed to insert diagnostic: {err}")))?;
         }
         Ok(())
     }
@@ -174,7 +210,7 @@ impl KnowledgeStore for SurrealKnowledgeStore {
         let mut params = serde_json::Map::new();
 
         if let Some(stable_key) = &query.stable_key {
-            sql.push_str(" AND stable_key.0 = $stable_key");
+            sql.push_str(" AND stable_key = $stable_key");
             params.insert("stable_key".to_string(), json!(stable_key.0));
         }
 
@@ -184,7 +220,9 @@ impl KnowledgeStore for SurrealKnowledgeStore {
         }
 
         if let Some(text) = &query.text {
-            sql.push_str(" AND (name CONTAINS $text OR title CONTAINS $text OR aliases CONTAINS $text)");
+            sql.push_str(
+                " AND (name CONTAINS $text OR title CONTAINS $text OR aliases CONTAINS $text)",
+            );
             params.insert("text".to_string(), json!(text));
         }
 
@@ -200,11 +238,11 @@ impl KnowledgeStore for SurrealKnowledgeStore {
             .await
             .map_err(|err| CoreError::Adapter(format!("query entities failed: {err}")))?;
 
-        let entities: Vec<Entity> = response
+        let db_val: surrealdb::Value = response
             .take(0)
             .map_err(|err| CoreError::Adapter(format!("failed to parse query entities: {err}")))?;
 
-        Ok(entities)
+        deserialize_list(db_val)
     }
 
     async fn query_relations(&self, query: RelationQuery) -> CoreResult<Vec<Relation>> {
@@ -217,12 +255,12 @@ impl KnowledgeStore for SurrealKnowledgeStore {
         }
 
         if let Some(from) = &query.from {
-            sql.push_str(" AND from.0 = $from");
+            sql.push_str(" AND from = $from");
             params.insert("from".to_string(), json!(from.0));
         }
 
         if let Some(to) = &query.to {
-            sql.push_str(" AND to.0 = $to");
+            sql.push_str(" AND to = $to");
             params.insert("to".to_string(), json!(to.0));
         }
 
@@ -238,11 +276,11 @@ impl KnowledgeStore for SurrealKnowledgeStore {
             .await
             .map_err(|err| CoreError::Adapter(format!("query relations failed: {err}")))?;
 
-        let relations: Vec<Relation> = response
+        let db_val: surrealdb::Value = response
             .take(0)
             .map_err(|err| CoreError::Adapter(format!("failed to parse query relations: {err}")))?;
 
-        Ok(relations)
+        deserialize_list(db_val)
     }
 
     async fn query_diagnostics(&self, query: DiagnosticQuery) -> CoreResult<Vec<Diagnostic>> {
@@ -276,25 +314,24 @@ impl KnowledgeStore for SurrealKnowledgeStore {
             .await
             .map_err(|err| CoreError::Adapter(format!("query diagnostics failed: {err}")))?;
 
-        let diagnostics: Vec<Diagnostic> = response
-            .take(0)
-            .map_err(|err| {
-                CoreError::Adapter(format!("failed to parse query diagnostics: {err}"))
-            })?;
+        let db_val: surrealdb::Value = response.take(0).map_err(|err| {
+            CoreError::Adapter(format!("failed to parse query diagnostics: {err}"))
+        })?;
 
-        Ok(diagnostics)
+        deserialize_list(db_val)
     }
 
     async fn commit_snapshot(&self, snapshot: SnapshotId) -> CoreResult<()> {
-        let sql = "UPDATE ONLY snapshot SET committed = true WHERE id = $snapshot";
-        let _: Option<serde_json::Value> = self
+        let sql = format!("UPDATE ONLY snapshot:{} SET committed = true", snapshot.0);
+        let _: Option<DummyRecord> = self
             .db
             .query(sql)
-            .bind(("snapshot", snapshot.0))
             .await
             .map_err(|err| CoreError::Adapter(format!("failed to commit snapshot: {err}")))?
             .take(0)
-            .map_err(|err| CoreError::Adapter(format!("failed to parse committed snapshot: {err}")))?;
+            .map_err(|err| {
+                CoreError::Adapter(format!("failed to parse committed snapshot: {err}"))
+            })?;
 
         Ok(())
     }
@@ -315,45 +352,53 @@ impl CanonicalSnapshotStore for SurrealKnowledgeStore {
 
         let mut entities_res = self
             .db
-            .query("SELECT * FROM entity WHERE snapshot.0 = $snapshot")
+            .query("SELECT * FROM entity WHERE snapshot = $snapshot")
             .bind(("snapshot", snapshot.0.clone()))
             .await
-            .map_err(|err| CoreError::Adapter(format!("failed to load snapshot entities: {err}")))?;
-        let entities: Vec<Entity> = entities_res
-            .take(0)
-            .map_err(|err| CoreError::Adapter(format!("failed to parse snapshot entities: {err}")))?;
+            .map_err(|err| {
+                CoreError::Adapter(format!("failed to load snapshot entities: {err}"))
+            })?;
+        let entities_db_val: surrealdb::Value = entities_res.take(0).map_err(|err| {
+            CoreError::Adapter(format!("failed to parse snapshot entities: {err}"))
+        })?;
+        let entities = deserialize_list(entities_db_val)?;
 
         let mut facts_res = self
             .db
-            .query("SELECT * FROM fact WHERE snapshot.0 = $snapshot")
+            .query("SELECT * FROM fact WHERE snapshot = $snapshot")
             .bind(("snapshot", snapshot.0.clone()))
             .await
             .map_err(|err| CoreError::Adapter(format!("failed to load snapshot facts: {err}")))?;
-        let facts: Vec<Fact> = facts_res
+        let facts_db_val: surrealdb::Value = facts_res
             .take(0)
             .map_err(|err| CoreError::Adapter(format!("failed to parse snapshot facts: {err}")))?;
+        let facts = deserialize_list(facts_db_val)?;
 
         let mut relations_res = self
             .db
-            .query("SELECT * FROM relation WHERE snapshot.0 = $snapshot")
+            .query("SELECT * FROM relation WHERE snapshot = $snapshot")
             .bind(("snapshot", snapshot.0.clone()))
             .await
-            .map_err(|err| CoreError::Adapter(format!("failed to load snapshot relations: {err}")))?;
-        let relations: Vec<Relation> = relations_res
-            .take(0)
-            .map_err(|err| CoreError::Adapter(format!("failed to parse snapshot relations: {err}")))?;
+            .map_err(|err| {
+                CoreError::Adapter(format!("failed to load snapshot relations: {err}"))
+            })?;
+        let relations_db_val: surrealdb::Value = relations_res.take(0).map_err(|err| {
+            CoreError::Adapter(format!("failed to parse snapshot relations: {err}"))
+        })?;
+        let relations = deserialize_list(relations_db_val)?;
 
         let mut diagnostics_res = self
             .db
-            .query("SELECT * FROM diagnostic WHERE snapshot.0 = $snapshot")
+            .query("SELECT * FROM diagnostic WHERE snapshot = $snapshot")
             .bind(("snapshot", snapshot.0.clone()))
             .await
-            .map_err(|err| CoreError::Adapter(format!("failed to load snapshot diagnostics: {err}")))?;
-        let diagnostics: Vec<Diagnostic> = diagnostics_res
-            .take(0)
             .map_err(|err| {
-                CoreError::Adapter(format!("failed to parse snapshot diagnostics: {err}"))
+                CoreError::Adapter(format!("failed to load snapshot diagnostics: {err}"))
             })?;
+        let diagnostics_db_val: surrealdb::Value = diagnostics_res.take(0).map_err(|err| {
+            CoreError::Adapter(format!("failed to parse snapshot diagnostics: {err}"))
+        })?;
+        let diagnostics = deserialize_list(diagnostics_db_val)?;
 
         Ok(Some(CanonicalSnapshot {
             snapshot: Some(snapshot.clone()),
@@ -373,11 +418,9 @@ impl CanonicalSnapshotStore for SurrealKnowledgeStore {
                 CoreError::Adapter(format!("failed to query latest committed snapshot: {err}"))
             })?;
 
-        let snapshots: Vec<SnapshotRecord> = response
-            .take(0)
-            .map_err(|err| {
-                CoreError::Adapter(format!("failed to parse latest snapshot query: {err}"))
-            })?;
+        let snapshots: Vec<SnapshotRecord> = response.take(0).map_err(|err| {
+            CoreError::Adapter(format!("failed to parse latest snapshot query: {err}"))
+        })?;
 
         if let Some(latest) = snapshots.first() {
             self.load_snapshot(&SnapshotId(latest.id.clone())).await
@@ -387,11 +430,119 @@ impl CanonicalSnapshotStore for SurrealKnowledgeStore {
     }
 }
 
+#[allow(clippy::collapsible_if)]
+fn restore_original_id(val: &mut serde_json::Value) {
+    if let serde_json::Value::Object(map) = val {
+        if let Some(orig_id) = map.remove("original_id") {
+            map.insert("id".to_string(), orig_id);
+        }
+    }
+}
+
+fn ast_to_flat_json(val: serde_json::Value) -> serde_json::Value {
+    match val {
+        serde_json::Value::Object(mut map) => {
+            if map.len() == 1 {
+                let key = map.keys().next().unwrap().clone();
+                match key.as_str() {
+                    "None" | "Null" => serde_json::Value::Null,
+                    "Bool" | "Strand" | "Uuid" | "Datetime" | "Duration" | "Number" | "Int"
+                    | "Float" | "Decimal" | "String" => {
+                        let inner = map.remove(&key).unwrap();
+                        ast_to_flat_json(inner)
+                    }
+                    "Array" => {
+                        let inner = map.remove("Array").unwrap();
+                        match inner {
+                            serde_json::Value::Array(arr) => serde_json::Value::Array(
+                                arr.into_iter().map(ast_to_flat_json).collect(),
+                            ),
+                            other => ast_to_flat_json(other),
+                        }
+                    }
+                    "Object" => {
+                        let inner = map.remove("Object").unwrap();
+                        match inner {
+                            serde_json::Value::Object(inner_map) => serde_json::Value::Object(
+                                inner_map
+                                    .into_iter()
+                                    .map(|(k, v)| (k, ast_to_flat_json(v)))
+                                    .collect(),
+                            ),
+                            other => ast_to_flat_json(other),
+                        }
+                    }
+                    "Thing" => {
+                        if let Some(serde_json::Value::Object(mut thing_map)) = map.remove("Thing")
+                        {
+                            if let Some(id_val) = thing_map.remove("id") {
+                                ast_to_flat_json(id_val)
+                            } else {
+                                serde_json::Value::Object(
+                                    thing_map
+                                        .into_iter()
+                                        .map(|(k, v)| (k, ast_to_flat_json(v)))
+                                        .collect(),
+                                )
+                            }
+                        } else {
+                            serde_json::Value::Object(map)
+                        }
+                    }
+                    _ => serde_json::Value::Object(
+                        map.into_iter()
+                            .map(|(k, v)| (k, ast_to_flat_json(v)))
+                            .collect(),
+                    ),
+                }
+            } else {
+                serde_json::Value::Object(
+                    map.into_iter()
+                        .map(|(k, v)| (k, ast_to_flat_json(v)))
+                        .collect(),
+                )
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            serde_json::Value::Array(arr.into_iter().map(ast_to_flat_json).collect())
+        }
+        other => other,
+    }
+}
+
+fn deserialize_list<T>(val: surrealdb::Value) -> Result<Vec<T>, CoreError>
+where
+    T: for<'de> Deserialize<'de>,
+{
+    let json_val = serde_json::to_value(&val).map_err(|err| {
+        CoreError::Adapter(format!("failed to convert surrealdb value to json: {err}"))
+    })?;
+
+    let flat_val = ast_to_flat_json(json_val);
+
+    if let serde_json::Value::Array(arr) = flat_val {
+        let mut results = Vec::with_capacity(arr.len());
+        for mut item in arr {
+            restore_original_id(&mut item);
+            let object: T = serde_json::from_value(item).map_err(|err| {
+                CoreError::Adapter(format!("failed to deserialize object: {err}"))
+            })?;
+            results.push(object);
+        }
+        Ok(results)
+    } else {
+        Err(CoreError::Adapter(format!(
+            "expected array result, got JSON: {:?}",
+            val
+        )))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use athanor_core::KnowledgeStore;
-    use athanor_domain::{EntityId, EntityKind, SourceLocation};
+    use athanor_domain::{EntityId, EntityKind, SourceLocation, StableKey};
 
     async fn temp_store() -> SurrealKnowledgeStore {
         SurrealKnowledgeStore::connect("mem://").await.unwrap()

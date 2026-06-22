@@ -1,11 +1,12 @@
 use std::path::PathBuf;
 
+use crate::config::load_config;
+use crate::store::init_store;
 use anyhow::{Context, Result, bail};
 use athanor_core::{CanonicalSnapshotStore, ProjectInput, Projector};
 use athanor_projector_html::{
     HTML_REPORT_PROJECTION_SCHEMA, HtmlReportProjectionPayload, HtmlReportProjector,
 };
-use athanor_store_jsonl::JsonlKnowledgeStore;
 
 use crate::project_path::normalize_canonical_path;
 
@@ -43,7 +44,8 @@ pub async fn project_html_report(options: HtmlReportOptions) -> Result<HtmlRepor
             }
         })
         .unwrap_or_else(|| root.join(".athanor/generated/current/html"));
-    let store = JsonlKnowledgeStore::new(root.join(".athanor/store/canonical/jsonl"));
+    let config = load_config(&root)?;
+    let store = init_store(&root, &config).await?;
     let snapshot = store
         .load_latest_snapshot()
         .await
@@ -96,6 +98,7 @@ mod tests {
 
     use athanor_core::KnowledgeStore;
     use athanor_domain::{RepoId, SnapshotBase};
+    use athanor_store_jsonl::JsonlKnowledgeStore;
 
     use super::*;
 

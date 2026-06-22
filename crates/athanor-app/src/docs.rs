@@ -1,10 +1,10 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
+use crate::store::init_store;
 use anyhow::{Context, Result};
 use athanor_core::CanonicalSnapshotStore;
 use athanor_domain::{Diagnostic, DiagnosticStatus, Entity, EntityKind, Severity};
-use athanor_store_jsonl::JsonlKnowledgeStore;
 use serde::Serialize;
 
 use crate::check::{DiagnosticScope, diagnostic_matches_scope};
@@ -96,7 +96,7 @@ async fn load_docs_snapshot(
             .with_context(|| format!("failed to canonicalize {}", root.display()))?,
     );
     let config = load_config(&root)?;
-    let store = JsonlKnowledgeStore::new(root.join(".athanor/store/canonical/jsonl"));
+    let store = init_store(&root, &config).await?;
     let canonical = store
         .load_latest_snapshot()
         .await

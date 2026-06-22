@@ -1,11 +1,12 @@
 use std::collections::{HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 
+use crate::config::load_config;
+use crate::store::init_store;
 use anyhow::{Context, Result, bail};
 use athanor_core::{CanonicalSnapshot, CanonicalSnapshotStore, SourceProvider};
 use athanor_domain::{Diagnostic, Entity, EntityId, Relation, RelationKind};
 use athanor_source_fs::LocalFileSystemSource;
-use athanor_store_jsonl::JsonlKnowledgeStore;
 use serde::Serialize;
 
 use crate::index_state::IndexStateStore;
@@ -57,7 +58,8 @@ pub async fn impact_project(options: ImpactOptions) -> Result<ImpactAnalysis> {
             .with_context(|| format!("failed to canonicalize {}", options.root.display()))?,
     );
 
-    let store = JsonlKnowledgeStore::new(root.join(".athanor/store/canonical/jsonl"));
+    let config = load_config(&root)?;
+    let store = init_store(&root, &config).await?;
     let snapshot = store
         .load_latest_snapshot()
         .await

@@ -85,6 +85,7 @@ Ownership should list every source file that can invalidate the emitted object. 
 | `athanor-source-fs` | `SourceProvider` | Discover local files. |
 | `athanor-store-memory` | `KnowledgeStore` | In-memory canonical object store. |
 | `athanor-store-jsonl` | `KnowledgeStore`, `CanonicalSnapshotStore` | Durable local JSONL canonical snapshot store. |
+| `athanor-store-surrealdb` | `KnowledgeStore`, `CanonicalSnapshotStore` | Standalone database store adapter backed by SurrealDB. |
 | `athanor-search-tantivy` | `SearchIndex` | Index and search canonical entities using Tantivy. |
 | `athanor-extractor-basic` | `Extractor` | Emit file entities and file discovery facts. |
 | `athanor-extractor-markdown` | `Extractor` | Parse YAML documentation frontmatter and CommonMark/GFM headings, then emit documentation page/section knowledge. |
