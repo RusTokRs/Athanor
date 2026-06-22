@@ -80,8 +80,7 @@ impl Linker for RustLinker {
             if let Some(imports) = entity.payload.get("imports").and_then(|v| v.as_array()) {
                 for import_val in imports {
                     if let Some(import_path) = import_val.as_str() {
-                        if let Some(resolved) =
-                            resolve_path(qn, import_path, &[], &qualified_names)
+                        if let Some(resolved) = resolve_path(qn, import_path, &[], &qualified_names)
                         {
                             if let Some(target) = rust_entities
                                 .iter()
@@ -169,10 +168,16 @@ impl Linker for RustLinker {
             if rel.kind != RelationKind::Calls {
                 continue;
             }
-            let Some(caller) = rust_entities.iter().find(|e| e.id == rel.from && e.kind == EntityKind::TestCase) else {
+            let Some(caller) = rust_entities
+                .iter()
+                .find(|e| e.id == rel.from && e.kind == EntityKind::TestCase)
+            else {
                 continue;
             };
-            let Some(callee) = rust_entities.iter().find(|e| e.id == rel.to && e.kind == EntityKind::Function) else {
+            let Some(callee) = rust_entities
+                .iter()
+                .find(|e| e.id == rel.to && e.kind == EntityKind::Function)
+            else {
                 continue;
             };
             if either_affected(caller, callee, &affected_ids) {

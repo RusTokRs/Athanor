@@ -13,6 +13,7 @@ mod project_path;
 pub mod read_model;
 pub mod report;
 pub mod runtime;
+pub mod search;
 pub mod wiki;
 
 pub use check::*;
@@ -27,4 +28,5 @@ pub use pipeline::*;
 pub use read_model::*;
 pub use report::*;
 pub use runtime::*;
+pub use search::*;
 pub use wiki::*;

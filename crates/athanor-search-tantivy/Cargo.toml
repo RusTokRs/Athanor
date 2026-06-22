@@ -1,0 +1,23 @@
+[package]
+name = "athanor-search-tantivy"
+version = "0.1.0"
+edition = "2024"
+authors.workspace = true
+description.workspace = true
+homepage.workspace = true
+license.workspace = true
+publish = false
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+athanor-core = { path = "../athanor-core" }
+athanor-domain = { path = "../athanor-domain" }
+tantivy = "0.26.1"
+serde_json = "1.0"
+async-trait = "0.1"
+anyhow = "1.0"
+
+[dev-dependencies]
+tokio = { workspace = true }
+

@@ -3,7 +3,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
-use athanor_core::{CanonicalSnapshot, CanonicalSnapshotStore};
+use athanor_core::{CanonicalSnapshot, CanonicalSnapshotStore, SearchIndex};
 use athanor_domain::{ContextLevel, ContextPack, ContextPackId, Entity};
 use athanor_extractor_basic::stable_hash;
 use athanor_store_jsonl::JsonlKnowledgeStore;
@@ -111,11 +111,41 @@ pub async fn context_project(options: ContextOptions) -> Result<ContextPack> {
         bail!("context token, file, and entity limits must be greater than zero");
     }
 
+    let snapshot_id = snapshot
+        .snapshot
+        .as_ref()
+        .map(|s| s.0.clone())
+        .unwrap_or_else(|| "unknown".to_string());
+    let index_dir = root.join(".athanor/generated/current/search");
+
+    let direct_matches = if let Ok(index) =
+        crate::search::get_or_build_search_index(&snapshot, &snapshot_id, &index_dir).await
+    {
+        if let Ok(search_results) = index
+            .search(athanor_core::SearchQuery {
+                query: options.task.clone(),
+                limit: limits.max_entities,
+            })
+            .await
+        {
+            let ids = search_results
+                .into_iter()
+                .map(|res| athanor_domain::EntityId(res.id))
+                .collect::<Vec<_>>();
+            Some(ids)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     Ok(generate_context_pack(
         &snapshot,
         &options.task,
         options.level,
         limits,
+        direct_matches,
     ))
 }
 
@@ -124,6 +154,7 @@ pub fn generate_context_pack(
     task: &str,
     level: ContextLevel,
     limits: ContextLimits,
+    direct_matches: Option<Vec<athanor_domain::EntityId>>,
 ) -> ContextPack {
     let terms = tokenize(task);
     let mut ranked = snapshot
@@ -138,14 +169,46 @@ pub fn generate_context_pack(
 
     let mut selected_ids = Vec::new();
     let mut selected_files = BTreeSet::new();
-    for id in ranked.iter().map(|(_, entity)| entity.id.clone()) {
-        try_select_entity(snapshot, id, &mut selected_ids, &mut selected_files, limits);
-        if selected_ids.len() == limits.max_entities {
-            break;
-        }
-    }
 
-    let direct_ids = selected_ids.clone();
+    let direct_ids = match &direct_matches {
+        Some(matches) if !matches.is_empty() => {
+            let mut ids = Vec::new();
+            for id in matches {
+                if try_select_entity(
+                    snapshot,
+                    id.clone(),
+                    &mut selected_ids,
+                    &mut selected_files,
+                    limits,
+                ) {
+                    ids.push(id.clone());
+                }
+                if selected_ids.len() == limits.max_entities {
+                    break;
+                }
+            }
+            ids
+        }
+        _ => {
+            let mut ids = Vec::new();
+            for id in ranked.iter().map(|(_, entity)| entity.id.clone()) {
+                if try_select_entity(
+                    snapshot,
+                    id.clone(),
+                    &mut selected_ids,
+                    &mut selected_files,
+                    limits,
+                ) {
+                    ids.push(id.clone());
+                }
+                if selected_ids.len() == limits.max_entities {
+                    break;
+                }
+            }
+            ids
+        }
+    };
+
     let mut frontier = selected_ids.clone();
     for _ in 0..limits.max_depth {
         let frontier_set = frontier.iter().cloned().collect::<HashSet<_>>();
@@ -495,6 +558,7 @@ mod tests {
             "change auth",
             ContextLevel::Normal,
             ContextLimits::for_level(ContextLevel::Normal),
+            None,
         );
 
         assert_eq!(pack.entities, vec![file.id, section.id]);
@@ -525,6 +589,7 @@ mod tests {
             "authentication",
             ContextLevel::Normal,
             ContextLimits::for_level(ContextLevel::Normal),
+            None,
         );
 
         assert!(pack.entities.is_empty());
@@ -558,6 +623,7 @@ mod tests {
             "auth",
             ContextLevel::Summary,
             ContextLimits::for_level(ContextLevel::Summary),
+            None,
         );
 
         assert_eq!(pack.level, ContextLevel::Summary);
@@ -604,7 +670,7 @@ mod tests {
             max_depth: 0,
         };
 
-        let pack = generate_context_pack(&snapshot, "auth", ContextLevel::Normal, limits);
+        let pack = generate_context_pack(&snapshot, "auth", ContextLevel::Normal, limits, None);
 
         assert_eq!(pack.entities.len(), 1);
         assert_eq!(pack.files.len(), 1);

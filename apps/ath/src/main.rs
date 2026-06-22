@@ -152,6 +152,20 @@ enum Command {
         #[arg(default_value = ".")]
         path: PathBuf,
     },
+    /// Search the project's knowledge base.
+    Search {
+        /// Search query terms.
+        query: String,
+        /// Project root. Defaults to the current directory.
+        #[arg(long, default_value = ".")]
+        path: PathBuf,
+        /// Maximum number of search results to return.
+        #[arg(long, default_value_t = 10)]
+        limit: usize,
+        /// Print the search results as JSON.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -340,6 +354,38 @@ async fn main() -> Result<()> {
                 "updated current pointer at {}",
                 report.current_pointer.display()
             );
+        }
+        Some(Command::Search {
+            query,
+            path,
+            limit,
+            json,
+        }) => {
+            let report = athanor_app::search_project(athanor_app::SearchOptions {
+                root: path,
+                query: query.clone(),
+                limit,
+            })
+            .await?;
+
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                println!(
+                    "search results for query \"{}\" in snapshot {}:",
+                    query, report.snapshot
+                );
+                if report.results.is_empty() {
+                    println!("No results found.");
+                } else {
+                    for item in &report.results {
+                        println!(
+                            "[{:.4}] {} ({}) — {}",
+                            item.score, item.name, item.kind, item.stable_key
+                        );
+                    }
+                }
+            }
         }
         None => {
             println!("Athanor {}", env!("CARGO_PKG_VERSION"));

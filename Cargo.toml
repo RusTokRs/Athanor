@@ -19,6 +19,7 @@ members = [
     "crates/athanor-source-fs",
     "crates/athanor-store-jsonl",
     "crates/athanor-store-memory",
+    "crates/athanor-search-tantivy",
 ]
 resolver = "3"
 

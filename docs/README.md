@@ -49,6 +49,7 @@ High-level adapter docs:
 - [Markdown checker](adapters/checker-markdown.md)
 - [API consistency checker](adapters/checker-api.md)
 - [JSONL store](adapters/store-jsonl.md)
+- [Tantivy search index](adapters/search-tantivy.md)
 - [Markdown wiki projector](adapters/projector-wiki.md)
 - [HTML report projector](adapters/projector-html.md)
 
@@ -64,6 +65,7 @@ Crate-local adapter docs:
 - [`athanor-checker-markdown`](../crates/athanor-checker-markdown/README.md)
 - [`athanor-checker-api`](../crates/athanor-checker-api/README.md)
 - [`athanor-store-jsonl`](../crates/athanor-store-jsonl/README.md)
+- [`athanor-search-tantivy`](../crates/athanor-search-tantivy/README.md)
 - [`athanor-projector-wiki`](../crates/athanor-projector-wiki/README.md)
 - [`athanor-projector-html`](../crates/athanor-projector-html/README.md)
 - [`athanor-projector-support`](../crates/athanor-projector-support/README.md)
