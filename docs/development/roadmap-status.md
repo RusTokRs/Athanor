@@ -850,7 +850,26 @@ Purpose:
 - reports `api_request_schema_mismatch` and `api_response_schema_mismatch` when local component references do not resolve
 - preserves evidence and ownership on all new relations and diagnostics
 - keeps external references, inline-schema materialization, and Rust type comparison deferred
-- advances persisted index state to v6 so existing projects build schema relations and diagnostics once
+### Rust Relation Graph Slice
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-extractor-rust`
+- `crates/athanor-linker-rust`
+- `crates/athanor-app/src/runtime.rs`
+- `docs/adapters/linker-rust.md`
+
+Purpose:
+
+- adds the built-in `builtin.linker.rust` adapter
+- walks function block expressions to find path/method calls
+- extracts `use` tree paths (imports)
+- detects `#[test]` / `#[tokio::test]` attributes to map them to `EntityKind::TestCase`
+- connects parent modules/symbols to child entities via `Contains` relations
+- resolves relative imports and local calls dynamically looking up declared imports of parent modules
+- scopes incremental output to pairs with at least one affected entity
 
 ## In Progress
 
@@ -860,13 +879,7 @@ None.
 
 This backlog contains prioritized initiatives based on recent project research and technical debt analysis.
 
-### P1: Engine Extensions & Core Features (Next Up)
-
-1. **Rust Relation Graph Slice**
-   - **Goal**: Add imports, static call graphs, module containment, and `tested_by` relations on top of the syn-based extractor.
-   - **Why**: Critical for high-precision impact analysis, diagnostics, and AI context packs.
-
-2. **Lexical Search Read-Model**
+1. **Lexical Search Read-Model**
    - **Goal**: Implement `SearchIndex` via Tantivy as a disposable read-model and add the `ath search` CLI command.
    - **Why**: Seed AI context packs with lexical lookup before expanding relations, bypassing store pollution.
 

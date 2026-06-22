@@ -17,6 +17,7 @@ use athanor_extractor_openapi::OpenApiExtractor;
 use athanor_extractor_rust::RustExtractor;
 use athanor_linker_api::ApiKnowledgeLinker;
 use athanor_linker_markdown::MarkdownContainmentLinker;
+use athanor_linker_rust::RustLinker;
 use athanor_source_fs::LocalFileSystemSource;
 use serde::{Deserialize, Serialize};
 
@@ -101,6 +102,7 @@ impl AdapterRegistry {
             .builtin_extractor_rust()
             .builtin_linker_markdown_containment()
             .builtin_linker_api_knowledge()
+            .builtin_linker_rust()
             .builtin_checker_markdown_structure()
             .builtin_checker_api_consistency()
     }
@@ -153,6 +155,7 @@ impl AdapterRegistry {
             (AdapterPluginKind::Linker, "builtin.linker.api_knowledge") => {
                 Ok(self.builtin_linker_api_knowledge())
             }
+            (AdapterPluginKind::Linker, "builtin.linker.rust") => Ok(self.builtin_linker_rust()),
             (AdapterPluginKind::Checker, "builtin.checker.markdown_structure") => {
                 Ok(self.builtin_checker_markdown_structure())
             }
@@ -295,6 +298,10 @@ impl AdapterRegistry {
         self.register_linker_id("builtin.linker.api_knowledge", || {
             Box::new(ApiKnowledgeLinker)
         })
+    }
+
+    fn builtin_linker_rust(self) -> Self {
+        self.register_linker_id("builtin.linker.rust", || Box::new(RustLinker))
     }
 
     fn builtin_checker_markdown_structure(self) -> Self {

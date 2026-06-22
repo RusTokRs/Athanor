@@ -24,6 +24,7 @@ athanor-extractor-openapi = { path = "../athanor-extractor-openapi" }
 athanor-extractor-rust = { path = "../athanor-extractor-rust" }
 athanor-linker-markdown = { path = "../athanor-linker-markdown" }
 athanor-linker-api = { path = "../athanor-linker-api" }
+athanor-linker-rust = { path = "../athanor-linker-rust" }
 athanor-projector-wiki = { path = "../athanor-projector-wiki" }
 athanor-projector-html = { path = "../athanor-projector-html" }
 athanor-projector-support = { path = "../athanor-projector-support" }

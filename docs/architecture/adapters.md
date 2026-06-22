@@ -91,6 +91,7 @@ Ownership should list every source file that can invalidate the emitted object. 
 | `athanor-extractor-rust` | `Extractor` | Emit Rust module, function, and symbol definitions. |
 | `athanor-linker-api` | `Linker` | Link OpenAPI operations to Rust functions, Markdown documentation, and component schemas. |
 | `athanor-linker-markdown` | `Linker` | Link Markdown containment and exact frontmatter entity/concept references. |
+| `athanor-linker-rust` | `Linker` | Link Rust module containment, imports, static function call graph, and test cases. |
 | `athanor-checker-markdown` | `Checker` | Diagnose Markdown structure, unresolved frontmatter references, and duplicate document identities. |
 | `athanor-checker-api` | `Checker` | Diagnose missing API implementation/documentation links and unresolved local schema references. |
 | `athanor-projector-wiki` | `Projector` | Project the latest canonical snapshot into a neutral Markdown wiki. |
@@ -165,6 +166,7 @@ builtin.extractor.openapi
 builtin.extractor.rust
 builtin.linker.api_knowledge
 builtin.linker.markdown_containment
+builtin.linker.rust
 builtin.checker.markdown_structure
 builtin.checker.api_consistency
 ```
