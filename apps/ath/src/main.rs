@@ -3,10 +3,11 @@ use std::path::PathBuf;
 use anyhow::Result;
 use athanor_app::{
     ContextLimitOverrides, ContextOptions, DiagnosticCheckOptions, DiagnosticCheckReport,
-    DiagnosticScope, DocsCheckOptions, DocsCheckReport, EntityExplanation, ExplainOptions,
-    GenerationOptions, HtmlReportOptions, ImpactAnalysis, ImpactOptions, IndexOptions, InitOptions,
-    WikiOptions, check_docs, check_project, context_project, explain_project, generate_project,
-    impact_project, index_project, init_project, project_html_report, project_wiki,
+    DiagnosticScope, DocsCheckOptions, DocsCheckReport, DocsDriftOptions, DocsDriftReport,
+    EntityExplanation, ExplainOptions, GenerationOptions, HtmlReportOptions, ImpactAnalysis,
+    ImpactOptions, IndexOptions, InitOptions, WikiOptions, check_docs, check_project,
+    context_project, docs_drift, explain_project, generate_project, impact_project, index_project,
+    init_project, project_html_report, project_wiki,
 };
 use athanor_domain::ContextLevel;
 use clap::{Parser, Subcommand, ValueEnum};
@@ -215,6 +216,15 @@ enum DocsCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Report editable documents not verified against the latest snapshot.
+    Drift {
+        /// Project root. Defaults to the current directory.
+        #[arg(long, default_value = ".")]
+        path: PathBuf,
+        /// Print the complete drift report as JSON.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[tokio::main]
@@ -363,6 +373,16 @@ async fn main() -> Result<()> {
             }
             if !report.passed {
                 anyhow::bail!("documentation completeness gate failed");
+            }
+        }
+        Some(Command::Docs {
+            command: DocsCommand::Drift { path, json },
+        }) => {
+            let report = docs_drift(DocsDriftOptions { root: path }).await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                print_docs_drift_report(&report);
             }
         }
         Some(Command::Wiki { path, output }) => {
@@ -561,6 +581,23 @@ fn print_docs_check_report(report: &DocsCheckReport) -> Result<()> {
         );
     }
     Ok(())
+}
+
+fn print_docs_drift_report(report: &DocsDriftReport) {
+    println!(
+        "documentation drift in {}: {} of {} editable documents require verification",
+        report.snapshot,
+        report.drifted_documents.len(),
+        report.editable_documents
+    );
+    for document in &report.drifted_documents {
+        println!(
+            "{} at {} (last verified: {})",
+            document.reason,
+            document.path,
+            document.verified_snapshot.as_deref().unwrap_or("never")
+        );
+    }
 }
 
 fn serialized_name(value: &impl serde::Serialize) -> Result<String> {

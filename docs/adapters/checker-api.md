@@ -18,8 +18,9 @@ This crate houses two checkers:
 ### 1. API Consistency Checker (`ApiConsistencyChecker`)
 Reports OpenAPI operations without linked Rust implementations, implemented operations
 without linked Markdown documentation, and local request/response component `$ref` values without
-the corresponding schema relation. It consumes canonical entities and relations only; it does not
-parse source files itself.
+the corresponding schema relation. It also validates extracted `ApiExample` values against their
+declared schemas and emits `api_example_invalid` diagnostics. It consumes canonical entities and
+relations only; it does not parse source files itself.
 
 Documentation is satisfied by `documents_api`, `documents_operation`, or a verified generic
 `documents` relation such as an exact Markdown frontmatter declaration.
@@ -29,9 +30,12 @@ Reports environment variables used in the codebase but missing from the project'
 
 Diagnostics include evidence and ownership. Relevant function, documentation, and relation changes trigger reevaluation. File additions and removals force a full rebuild at the pipeline level to keep absence diagnostics correct.
 
-The schema checks are intentionally structural: they verify that a same-document component
-reference resolves to an extracted `ApiSchema`. They do not compare OpenAPI schema fields with Rust
-types or validate inline and external schemas.
+Example validation uses adapter-private `jsonschema` 0.46.5 with Draft 4 for OpenAPI 3.0 and Draft
+2020-12 for OpenAPI 3.1. Same-document component schemas are assembled into an in-memory validation
+document. Default resolver features are disabled, so validation cannot read files or use the
+network. Compiled validators are cached by normalized schema during one checker run. External
+schema references are skipped, and OpenAPI 3.0 keywords beyond Draft 4 compatibility remain a
+documented limitation.
 
 The checker is local and side-effect free. Deeper schema, status-code, authentication, permission, and breaking-change checks are deferred.
 

@@ -27,6 +27,7 @@ impl Linker for ApiKnowledgeLinker {
             .collect::<HashSet<_>>();
         let endpoints = entities_of_kind(&input.entities, EntityKind::ApiEndpoint);
         let schemas = entities_of_kind(&input.entities, EntityKind::ApiSchema);
+        let examples = entities_of_kind(&input.entities, EntityKind::ApiExample);
         let functions = entities_of_kind(&input.entities, EntityKind::Function);
         let documents = input
             .entities
@@ -42,6 +43,21 @@ impl Linker for ApiKnowledgeLinker {
         let mut relation_ids = HashSet::new();
 
         for endpoint in endpoints {
+            for example in examples.iter().filter(|example| {
+                example
+                    .payload
+                    .get("endpoint")
+                    .and_then(serde_json::Value::as_str)
+                    == Some(endpoint.stable_key.0.as_str())
+            }) {
+                if either_affected(example, endpoint, &affected) {
+                    push_unique(
+                        &mut relations,
+                        &mut relation_ids,
+                        example_relation(&input.snapshot, example, endpoint, self.name()),
+                    );
+                }
+            }
             for (payload_key, kind) in [
                 ("request_schemas", RelationKind::SchemaForRequest),
                 ("response_schemas", RelationKind::SchemaForResponse),
@@ -134,6 +150,29 @@ impl Linker for ApiKnowledgeLinker {
 
         Ok(relations)
     }
+}
+
+fn example_relation(
+    snapshot: &SnapshotId,
+    example: &Entity,
+    endpoint: &Entity,
+    linker: &str,
+) -> Relation {
+    let mut relation = relation(
+        snapshot,
+        example,
+        endpoint,
+        RelationKind::ExampleFor,
+        linker,
+        "openapi_example_declaration",
+        &endpoint.stable_key.0,
+        1.0,
+    );
+    relation.status = RelationStatus::Verified;
+    for evidence in &mut relation.evidence {
+        evidence.status = EvidenceStatus::Verified;
+    }
+    relation
 }
 
 fn entities_of_kind(entities: &[Entity], kind: EntityKind) -> Vec<&Entity> {
@@ -286,6 +325,7 @@ fn relation_kind_name(kind: &RelationKind) -> &'static str {
         RelationKind::DocumentsApi => "documents_api",
         RelationKind::SchemaForRequest => "schema_for_request",
         RelationKind::SchemaForResponse => "schema_for_response",
+        RelationKind::ExampleFor => "example_for",
         _ => "api_relation",
     }
 }
@@ -463,6 +503,38 @@ mod tests {
             relation.kind == RelationKind::SchemaForResponse
                 && relation.payload["schema_use"]["status_code"] == "200"
         }));
+    }
+
+    #[tokio::test]
+    async fn links_examples_to_their_endpoint() {
+        let endpoint = endpoint();
+        let example = entity(
+            "ent_example",
+            "api-example://openapi.yaml#example",
+            EntityKind::ApiExample,
+            "login example",
+            "openapi.yaml",
+            json!({"endpoint": "api://POST:/login"}),
+        );
+        let entities = vec![endpoint.clone(), example.clone()];
+
+        let relations = ApiKnowledgeLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: entities.clone(),
+                facts: Vec::new(),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let relation = relations
+            .iter()
+            .find(|relation| relation.kind == RelationKind::ExampleFor)
+            .unwrap();
+        assert_eq!(relation.from, example.id);
+        assert_eq!(relation.to, endpoint.id);
+        assert_eq!(relation.status, RelationStatus::Verified);
     }
 
     #[tokio::test]

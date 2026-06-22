@@ -85,6 +85,19 @@ impl Extractor for OpenApiExtractor {
                         "route",
                         line,
                     ));
+                    for example in operation_examples(source_context, &endpoint, operation, content)
+                    {
+                        facts.push(declaration_fact(
+                            self.name(),
+                            &input,
+                            &example,
+                            &file_id,
+                            FactKind::Other("api_example_declared".to_string()),
+                            "example",
+                            example.source.as_ref().and_then(|source| source.line_start),
+                        ));
+                        entities.push(example);
+                    }
                     entities.push(endpoint);
                 }
             }
@@ -113,6 +126,155 @@ impl Extractor for OpenApiExtractor {
         }
 
         Ok(ExtractOutput { entities, facts })
+    }
+}
+
+fn operation_examples(
+    source: OpenApiSourceContext<'_>,
+    endpoint: &Entity,
+    operation: &Map<String, Value>,
+    content: &str,
+) -> Vec<Entity> {
+    let mut examples = Vec::new();
+    if let Some(media) = operation
+        .get("requestBody")
+        .and_then(Value::as_object)
+        .and_then(|body| body.get("content"))
+        .and_then(Value::as_object)
+    {
+        collect_media_examples(
+            source,
+            endpoint,
+            "request",
+            None,
+            media,
+            content,
+            &mut examples,
+        );
+    }
+    if let Some(responses) = operation.get("responses").and_then(Value::as_object) {
+        for (status, response) in responses {
+            if let Some(media) = response.get("content").and_then(Value::as_object) {
+                collect_media_examples(
+                    source,
+                    endpoint,
+                    "response",
+                    Some(status),
+                    media,
+                    content,
+                    &mut examples,
+                );
+            }
+        }
+    }
+    examples
+}
+
+#[allow(clippy::too_many_arguments)]
+fn collect_media_examples(
+    source: OpenApiSourceContext<'_>,
+    endpoint: &Entity,
+    direction: &str,
+    status_code: Option<&str>,
+    media: &Map<String, Value>,
+    content: &str,
+    output: &mut Vec<Entity>,
+) {
+    for (media_type, media_value) in media {
+        let schema = media_value.get("schema").cloned();
+        let schema_reference = schema
+            .as_ref()
+            .and_then(|schema| schema.get("$ref"))
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        if let Some(value) = media_value.get("example") {
+            output.push(example_entity(
+                source,
+                endpoint,
+                direction,
+                status_code,
+                media_type,
+                "default",
+                value,
+                schema.as_ref(),
+                schema_reference.as_deref(),
+                key_line(content, "example"),
+            ));
+        }
+        if let Some(named) = media_value.get("examples").and_then(Value::as_object) {
+            for (name, example) in named {
+                let Some(value) = example.get("value") else {
+                    continue;
+                };
+                output.push(example_entity(
+                    source,
+                    endpoint,
+                    direction,
+                    status_code,
+                    media_type,
+                    name,
+                    value,
+                    schema.as_ref(),
+                    schema_reference.as_deref(),
+                    key_line(content, name),
+                ));
+            }
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn example_entity(
+    source: OpenApiSourceContext<'_>,
+    endpoint: &Entity,
+    direction: &str,
+    status_code: Option<&str>,
+    media_type: &str,
+    example_name: &str,
+    value: &Value,
+    schema: Option<&Value>,
+    schema_reference: Option<&str>,
+    line: Option<u32>,
+) -> Entity {
+    let identity = format!(
+        "{}\0{}\0{direction}\0{}\0{media_type}\0{example_name}",
+        source.path,
+        endpoint.stable_key.0,
+        status_code.unwrap_or_default()
+    );
+    let hash = stable_hash(identity.as_bytes());
+    let stable_key = StableKey(format!("api-example://{}#{hash:016x}", source.path));
+    Entity {
+        id: EntityId(format!("ent_api_example_{hash:016x}")),
+        stable_key,
+        kind: EntityKind::ApiExample,
+        name: format!("{} {direction} {media_type} {example_name}", endpoint.name),
+        title: None,
+        source: Some(SourceLocation {
+            path: source.path.to_string(),
+            line_start: line.or_else(|| {
+                endpoint
+                    .source
+                    .as_ref()
+                    .and_then(|source| source.line_start)
+            }),
+            line_end: line.or_else(|| endpoint.source.as_ref().and_then(|source| source.line_end)),
+        }),
+        language: Some(LanguageCode("openapi".to_string())),
+        aliases: Vec::new(),
+        ownership: ownership_for_file(source.path),
+        payload: json!({
+            "openapi_version": source.version,
+            "parser_backend": source.parser_backend,
+            "endpoint": endpoint.stable_key.0,
+            "direction": direction,
+            "status_code": status_code,
+            "media_type": media_type,
+            "example_name": example_name,
+            "value": value,
+            "schema": schema,
+            "schema_reference": schema_reference,
+        }),
     }
 }
 
@@ -454,6 +616,58 @@ mod tests {
         assert_eq!(output.entities.len(), 1);
         assert_eq!(output.entities[0].stable_key.0, "api://GET:/health");
         assert_eq!(output.entities[0].name, "GET /health");
+    }
+
+    #[tokio::test]
+    async fn extracts_request_and_response_examples() {
+        let output = OpenApiExtractor
+            .extract(input(
+                "openapi.yaml",
+                r#"openapi: 3.0.3
+info: { title: API, version: '1' }
+paths:
+  /users:
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/User' }
+            example: { name: Alice }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+              examples:
+                invalid: { value: { name: 42 } }
+components:
+  schemas:
+    User:
+      type: object
+      required: [name]
+      properties: { name: { type: string } }
+"#,
+            ))
+            .await
+            .unwrap();
+
+        let examples = output
+            .entities
+            .iter()
+            .filter(|entity| entity.kind == EntityKind::ApiExample)
+            .collect::<Vec<_>>();
+        assert_eq!(examples.len(), 2);
+        assert!(examples.iter().all(|example| {
+            example.payload["endpoint"] == "api://POST:/users"
+                && example.payload["schema_reference"] == "#/components/schemas/User"
+        }));
+        assert!(
+            output
+                .facts
+                .iter()
+                .any(|fact| { fact.kind == FactKind::Other("api_example_declared".to_string()) })
+        );
     }
 
     #[tokio::test]

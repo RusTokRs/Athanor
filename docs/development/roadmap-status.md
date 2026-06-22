@@ -63,6 +63,8 @@ ath check docs
 ath check docs --json
 ath docs check
 ath docs check --json
+ath docs drift
+ath docs drift --json
 ath wiki
 ath wiki --output <directory>
 ath report html
@@ -527,6 +529,25 @@ Purpose:
 - excludes generated documentation and never rewrites editable source files
 - advances persisted index state to v11 so existing projects capture explicit frontmatter field metadata once
 
+### Editable Documentation Drift Report
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-app/src/docs.rs`
+- `apps/ath/src/main.rs`
+- `docs/development/docs-completeness-policy.md`
+
+Purpose:
+
+- adds `ath docs drift` and `ath docs drift --json`
+- reads the latest durable canonical snapshot without re-indexing
+- selects editable documentation under `docs.editable_path`
+- distinguishes current pages from pages with missing or stale `last_verified_snapshot` metadata
+- emits the stable `athanor.docs_drift.v1` JSON report
+- remains informational and never modifies documentation or fails solely because drift exists
+
 ### Automated CI/CD Baseline
 
 Status: implemented; local CI contract verified, first hosted matrix run pending.
@@ -850,6 +871,30 @@ Purpose:
 - reports `api_request_schema_mismatch` and `api_response_schema_mismatch` when local component references do not resolve
 - preserves evidence and ownership on all new relations and diagnostics
 - keeps external references, inline-schema materialization, and Rust type comparison deferred
+
+### OpenAPI Example Extraction And Validation
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-extractor-openapi`
+- `crates/athanor-linker-api`
+- `crates/athanor-checker-api`
+- `crates/athanor-app/src/index_state.rs`
+
+Purpose:
+
+- materializes media-type `example` and `examples.*.value` entries as canonical `ApiExample` entities
+- preserves endpoint, direction, media type, response status, example name, value, and schema metadata
+- emits verified `example_for` relations from examples to their declaring endpoint
+- validates examples with adapter-private `jsonschema` 0.46.5
+- selects Draft 4 for OpenAPI 3.0 and Draft 2020-12 for OpenAPI 3.1
+- disables file and network resolvers and caches validators by normalized schema per checker run
+- reports `api_example_invalid` diagnostics with evidence and ownership
+- advances persisted index state to v12 so existing projects rebuild OpenAPI knowledge once
+- keeps external/schema-level examples and external schema references deferred
+
 ### Rust Relation Graph Slice
 
 Status: verified.
@@ -966,7 +1011,7 @@ None.
 
 This backlog contains prioritized initiatives based on recent project research and technical debt analysis.
 
-None.
+1. Add immutable API contract snapshots and `ath api diff` for deterministic breaking-change review.
 
 ## Verification Commands
 

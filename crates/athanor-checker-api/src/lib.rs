@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet, hash_map::Entry};
 
 use async_trait::async_trait;
 use athanor_core::{CheckInput, Checker, CoreResult};
@@ -21,6 +21,8 @@ impl Checker for ApiConsistencyChecker {
     async fn check(&self, input: CheckInput) -> CoreResult<Vec<Diagnostic>> {
         let endpoints = entities_of_kind(&input.entities, EntityKind::ApiEndpoint);
         let functions = entities_of_kind(&input.entities, EntityKind::Function);
+        let examples = entities_of_kind(&input.entities, EntityKind::ApiExample);
+        let schemas = entities_of_kind(&input.entities, EntityKind::ApiSchema);
         let schemas_affected = input
             .affected
             .entities
@@ -156,7 +158,166 @@ impl Checker for ApiConsistencyChecker {
             }
         }
 
+        let examples_affected = input
+            .affected
+            .entities
+            .iter()
+            .any(|entity| entity.kind == EntityKind::ApiExample);
+        if examples_affected || schemas_affected {
+            diagnostics.extend(validate_examples(
+                &examples,
+                &schemas,
+                &affected_ids,
+                schemas_affected,
+                self.name(),
+                &input.snapshot,
+            ));
+        }
+
         Ok(diagnostics)
+    }
+}
+
+fn validate_examples(
+    examples: &[&Entity],
+    schemas: &[&Entity],
+    affected_ids: &HashSet<EntityId>,
+    schemas_affected: bool,
+    checker: &str,
+    snapshot: &SnapshotId,
+) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut validators = HashMap::<String, jsonschema::Validator>::new();
+
+    for example in examples {
+        if !schemas_affected && !affected_ids.contains(&example.id) {
+            continue;
+        }
+        let Some(instance) = example.payload.get("value") else {
+            continue;
+        };
+        let Some(schema) = example
+            .payload
+            .get("schema")
+            .filter(|schema| !schema.is_null())
+        else {
+            continue;
+        };
+        if example
+            .payload
+            .get("schema_reference")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|reference| !reference.starts_with("#/components/schemas/"))
+        {
+            continue;
+        }
+
+        let validation_schema = validation_schema(example, schema, schemas);
+        let cache_key = serde_json::to_string(&validation_schema).unwrap_or_default();
+        let validator = match validators.entry(cache_key) {
+            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Vacant(entry) => {
+                let version = example
+                    .payload
+                    .get("openapi_version")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("3.0.0");
+                let draft = if version.starts_with("3.1.") {
+                    jsonschema::Draft::Draft202012
+                } else {
+                    jsonschema::Draft::Draft4
+                };
+                match jsonschema::options()
+                    .with_draft(draft)
+                    .build(&validation_schema)
+                {
+                    Ok(validator) => entry.insert(validator),
+                    Err(error) => {
+                        diagnostics.push(invalid_example_diagnostic(
+                            example,
+                            checker,
+                            snapshot,
+                            vec![format!("schema compilation failed: {error}")],
+                        ));
+                        continue;
+                    }
+                }
+            }
+        };
+        let errors = validator
+            .iter_errors(instance)
+            .map(|error| error.to_string())
+            .collect::<Vec<_>>();
+        if !errors.is_empty() {
+            diagnostics.push(invalid_example_diagnostic(
+                example, checker, snapshot, errors,
+            ));
+        }
+    }
+    diagnostics
+}
+
+fn validation_schema(
+    example: &Entity,
+    schema: &serde_json::Value,
+    schemas: &[&Entity],
+) -> serde_json::Value {
+    let source_path = example.source.as_ref().map(|source| source.path.as_str());
+    let components = schemas
+        .iter()
+        .filter(|candidate| {
+            candidate.source.as_ref().map(|source| source.path.as_str()) == source_path
+        })
+        .filter_map(|candidate| {
+            candidate
+                .payload
+                .get("schema")
+                .cloned()
+                .map(|schema| (candidate.name.clone(), schema))
+        })
+        .collect::<serde_json::Map<_, _>>();
+    json!({
+        "components": { "schemas": components },
+        "allOf": [schema],
+    })
+}
+
+fn invalid_example_diagnostic(
+    example: &Entity,
+    checker: &str,
+    snapshot: &SnapshotId,
+    errors: Vec<String>,
+) -> Diagnostic {
+    let id_material = format!("api_example_invalid\0{}", example.stable_key.0);
+    let source = example.source.as_ref();
+    Diagnostic {
+        id: DiagnosticId(format!(
+            "diag_api_{:016x}",
+            stable_hash(id_material.as_bytes())
+        )),
+        kind: DiagnosticKind::ApiExampleInvalid,
+        severity: Severity::High,
+        status: DiagnosticStatus::Open,
+        title: "OpenAPI example does not match its schema".to_string(),
+        message: errors.join("; "),
+        entities: vec![example.id.clone()],
+        evidence: vec![Evidence {
+            source_file: source.map(|source| source.path.clone()),
+            line_start: source.and_then(|source| source.line_start),
+            line_end: source.and_then(|source| source.line_end),
+            extractor: Some(checker.to_string()),
+            commit_hash: None,
+            confidence: 1.0,
+            status: EvidenceStatus::Conflicting,
+        }],
+        ownership: example.ownership.clone(),
+        snapshot: snapshot.clone(),
+        suggested_fix: Some("Update the example value or its declared OpenAPI schema.".to_string()),
+        payload: json!({
+            "example": example.stable_key.0,
+            "endpoint": example.payload.get("endpoint"),
+            "errors": errors,
+        }),
     }
 }
 
@@ -431,6 +592,7 @@ fn diagnostic_slug(kind: &DiagnosticKind) -> &'static str {
         DiagnosticKind::ApiEndpointImplementedButNotDocumented => "api_endpoint_not_documented",
         DiagnosticKind::ApiRequestSchemaMismatch => "api_request_schema_mismatch",
         DiagnosticKind::ApiResponseSchemaMismatch => "api_response_schema_mismatch",
+        DiagnosticKind::ApiExampleInvalid => "api_example_invalid",
         DiagnosticKind::MissingEnvVar => "missing_env_var",
         _ => "api_consistency",
     }
@@ -776,6 +938,67 @@ mod tests {
             .unwrap();
 
         assert_eq!(diagnostics2.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn reports_invalid_openapi_examples_and_accepts_valid_ones() {
+        let schema = api_schema(
+            "User",
+            json!({
+                "type": "object",
+                "required": ["name"],
+                "properties": {"name": {"type": "string"}}
+            }),
+        );
+        let valid = api_example("ent_valid", json!({"name": "Alice"}));
+        let invalid = api_example("ent_invalid", json!({"name": 42}));
+
+        let diagnostics = ApiConsistencyChecker
+            .check(input(
+                vec![schema.clone(), valid.clone(), invalid.clone()],
+                Vec::new(),
+                vec![schema, valid, invalid.clone()],
+                Vec::new(),
+            ))
+            .await
+            .unwrap();
+
+        let invalid_diagnostics = diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.kind == DiagnosticKind::ApiExampleInvalid)
+            .collect::<Vec<_>>();
+        assert_eq!(invalid_diagnostics.len(), 1);
+        assert_eq!(invalid_diagnostics[0].entities, vec![invalid.id]);
+        assert!(!invalid_diagnostics[0].evidence.is_empty());
+    }
+
+    fn api_schema(name: &str, schema: serde_json::Value) -> Entity {
+        let mut entity = entity(
+            "ent_schema",
+            &format!("api-schema://openapi.yaml#{name}"),
+            EntityKind::ApiSchema,
+            "openapi.yaml",
+        );
+        entity.name = name.to_string();
+        entity.payload = json!({"schema": schema});
+        entity
+    }
+
+    fn api_example(id: &str, value: serde_json::Value) -> Entity {
+        let mut entity = entity(
+            id,
+            &format!("api-example://openapi.yaml#{id}"),
+            EntityKind::ApiExample,
+            "openapi.yaml",
+        );
+        entity.payload = json!({
+            "openapi_version": "3.0.3",
+            "endpoint": "api://POST:/users",
+            "value": value,
+            "schema": {"$ref": "#/components/schemas/User"},
+            "schema_reference": "#/components/schemas/User"
+        });
+        entity
     }
 
     fn input(

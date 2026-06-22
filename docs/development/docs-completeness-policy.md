@@ -9,8 +9,9 @@ status: verified
 
 # Documentation Completeness Policy
 
-`ath docs check` is the CI-oriented gate for editable Markdown documentation. It reads the latest
-canonical snapshot; run `ath index` first when source files changed.
+`ath docs check` is the CI-oriented gate for editable Markdown documentation. `ath docs drift` is
+the read-only verification-age report. Both read the latest canonical snapshot; run `ath index`
+first when source files changed.
 
 ## Configuration
 
@@ -43,12 +44,18 @@ When `athanor.toml` is absent, these defaults still apply.
 ```bash
 cargo run -p ath --quiet -- docs check
 cargo run -p ath --quiet -- docs check --json
+cargo run -p ath --quiet -- docs drift
+cargo run -p ath --quiet -- docs drift --json
 ```
 
 The command returns success only when every selected editable page satisfies the policy and no
 selected open documentation diagnostic reaches the configured threshold. JSON output uses
 `athanor.docs_check.v1`. Generated documentation is always excluded, and the command never edits
 source files or re-indexes the project.
+
+`ath docs drift` lists editable pages whose `last_verified_snapshot` is absent or differs from the
+latest canonical snapshot. It does not apply the completeness policy or fail because drift exists.
+JSON output uses `athanor.docs_drift.v1` and includes current and drifted document counts.
 
 The repository CI workflow indexes the checkout first and then runs this gate on every operating
 system in its matrix.

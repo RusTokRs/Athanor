@@ -12,6 +12,7 @@ use crate::check::{DiagnosticScope, diagnostic_matches_scope};
 use crate::project_path::normalize_canonical_path;
 
 pub const DOCS_CHECK_SCHEMA: &str = "athanor.docs_check.v1";
+pub const DOCS_DRIFT_SCHEMA: &str = "athanor.docs_drift.v1";
 
 #[derive(Debug, Clone)]
 pub struct DocsCheckOptions {
@@ -34,6 +35,28 @@ pub struct DocsCheckReport {
     pub editable_documents: usize,
     pub policy_violations: Vec<DocsPolicyViolation>,
     pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone)]
+pub struct DocsDriftOptions {
+    pub root: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DriftedDocument {
+    pub path: String,
+    pub stable_key: String,
+    pub verified_snapshot: Option<String>,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DocsDriftReport {
+    pub schema: String,
+    pub snapshot: String,
+    pub editable_documents: usize,
+    pub current_documents: usize,
+    pub drifted_documents: Vec<DriftedDocument>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -86,11 +109,39 @@ impl Default for CompletenessPolicy {
 }
 
 pub async fn check_docs(options: DocsCheckOptions) -> Result<DocsCheckReport> {
+    let (canonical, config) = load_docs_snapshot(&options.root).await?;
+    let snapshot = canonical
+        .snapshot
+        .as_ref()
+        .map_or_else(|| "unknown".to_string(), |snapshot| snapshot.0.clone());
+
+    Ok(build_docs_check_report(
+        snapshot,
+        &canonical.entities,
+        &canonical.diagnostics,
+        &config.docs,
+    ))
+}
+
+pub async fn docs_drift(options: DocsDriftOptions) -> Result<DocsDriftReport> {
+    let (canonical, config) = load_docs_snapshot(&options.root).await?;
+    let snapshot = canonical
+        .snapshot
+        .as_ref()
+        .map_or_else(|| "unknown".to_string(), |snapshot| snapshot.0.clone());
+    Ok(build_docs_drift_report(
+        snapshot,
+        &canonical.entities,
+        &config.docs,
+    ))
+}
+
+async fn load_docs_snapshot(
+    root: &Path,
+) -> Result<(athanor_core::CanonicalSnapshot, ProjectConfig)> {
     let root = normalize_canonical_path(
-        options
-            .root
-            .canonicalize()
-            .with_context(|| format!("failed to canonicalize {}", options.root.display()))?,
+        root.canonicalize()
+            .with_context(|| format!("failed to canonicalize {}", root.display()))?,
     );
     let config = load_config(&root)?;
     let store = JsonlKnowledgeStore::new(root.join(".athanor/store/canonical/jsonl"));
@@ -104,17 +155,7 @@ pub async fn check_docs(options: DocsCheckOptions) -> Result<DocsCheckReport> {
                 root.display()
             )
         })?;
-    let snapshot = canonical
-        .snapshot
-        .as_ref()
-        .map_or_else(|| "unknown".to_string(), |snapshot| snapshot.0.clone());
-
-    Ok(build_docs_check_report(
-        snapshot,
-        &canonical.entities,
-        &canonical.diagnostics,
-        &config.docs,
-    ))
+    Ok((canonical, config))
 }
 
 fn load_config(root: &Path) -> Result<ProjectConfig> {
@@ -178,6 +219,53 @@ fn build_docs_check_report(
         editable_documents: pages.len(),
         policy_violations,
         diagnostics,
+    }
+}
+
+fn build_docs_drift_report(
+    snapshot: String,
+    entities: &[Entity],
+    config: &DocsConfig,
+) -> DocsDriftReport {
+    let editable_path = normalize_policy_path(&config.editable_path);
+    let pages = entities
+        .iter()
+        .filter(|entity| is_editable_page(entity, &editable_path))
+        .collect::<Vec<_>>();
+    let mut drifted_documents = pages
+        .iter()
+        .filter_map(|page| {
+            let verified_snapshot = page.payload["last_verified_snapshot"]
+                .as_str()
+                .map(str::to_string);
+            if verified_snapshot.as_deref() == Some(snapshot.as_str()) {
+                return None;
+            }
+            Some(DriftedDocument {
+                path: page
+                    .source
+                    .as_ref()
+                    .map_or_else(|| page.name.clone(), |source| source.path.clone()),
+                stable_key: page.stable_key.0.clone(),
+                reason: if verified_snapshot.is_some() {
+                    "verified_against_older_snapshot".to_string()
+                } else {
+                    "missing_verification_snapshot".to_string()
+                },
+                verified_snapshot,
+            })
+        })
+        .collect::<Vec<_>>();
+    drifted_documents.sort_by(|left, right| {
+        (&left.path, &left.stable_key).cmp(&(&right.path, &right.stable_key))
+    });
+
+    DocsDriftReport {
+        schema: DOCS_DRIFT_SCHEMA.to_string(),
+        snapshot,
+        editable_documents: pages.len(),
+        current_documents: pages.len() - drifted_documents.len(),
+        drifted_documents,
     }
 }
 
@@ -330,6 +418,39 @@ mod tests {
             &DocsConfig::default(),
         );
         assert!(report.passed);
+    }
+
+    #[test]
+    fn reports_missing_and_stale_document_verification() {
+        let current = page(
+            "docs/current.md",
+            "editable",
+            json!({"last_verified_snapshot": "snap_current"}),
+        );
+        let stale = page(
+            "docs/stale.md",
+            "editable",
+            json!({"last_verified_snapshot": "snap_previous"}),
+        );
+        let missing = page("docs/missing.md", "editable", json!({}));
+
+        let report = build_docs_drift_report(
+            "snap_current".to_string(),
+            &[current, stale, missing],
+            &DocsConfig::default(),
+        );
+
+        assert_eq!(report.editable_documents, 3);
+        assert_eq!(report.current_documents, 1);
+        assert_eq!(report.drifted_documents.len(), 2);
+        assert_eq!(
+            report.drifted_documents[0].reason,
+            "missing_verification_snapshot"
+        );
+        assert_eq!(
+            report.drifted_documents[1].reason,
+            "verified_against_older_snapshot"
+        );
     }
 
     fn page(path: &str, layer: &str, payload: serde_json::Value) -> Entity {

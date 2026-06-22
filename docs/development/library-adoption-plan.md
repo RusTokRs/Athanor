@@ -106,7 +106,7 @@ Project: <https://github.com/x52dev/oas3-rs>
 
 ### JSON Schema Validation: `jsonschema`
 
-Status: adopt in Phase 4 when API example and payload validation starts.
+Status: adopted and verified with `jsonschema` 0.46.5 for OpenAPI media-example validation.
 
 Use it to validate JSON examples and instances against OpenAPI-compatible schemas. Do not implement
 a custom JSON Schema evaluator. Keep network and file reference resolution disabled by default so
@@ -118,6 +118,10 @@ Acceptance criteria:
 - validation errors map to Athanor diagnostics with evidence
 - remote resolution is opt-in and testable
 - validators are cached per canonical schema within one run
+
+Implemented in `athanor-checker-api` with default features disabled. OpenAPI 3.0 selects Draft 4;
+OpenAPI 3.1 selects Draft 2020-12. Same-document component schemas are assembled in memory, while
+external references are skipped so indexing remains offline and deterministic.
 
 Project: <https://github.com/Stranger6667/jsonschema>
 

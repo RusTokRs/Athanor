@@ -88,9 +88,9 @@ Ownership should list every source file that can invalidate the emitted object. 
 | `athanor-search-tantivy` | `SearchIndex` | Index and search canonical entities using Tantivy. |
 | `athanor-extractor-basic` | `Extractor` | Emit file entities and file discovery facts. |
 | `athanor-extractor-markdown` | `Extractor` | Parse YAML documentation frontmatter and CommonMark/GFM headings, then emit documentation page/section knowledge. |
-| `athanor-extractor-openapi` | `Extractor` | Parse OpenAPI 3.1 through `oas3`, retain a 3.0 fallback, and emit operation/schema knowledge. |
+| `athanor-extractor-openapi` | `Extractor` | Parse OpenAPI 3.1 through `oas3`, retain a 3.0 fallback, and emit operation/schema/example knowledge. |
 | `athanor-extractor-rust` | `Extractor` | Emit Rust module, function, and symbol definitions. |
-| `athanor-linker-api` | `Linker` | Link OpenAPI operations to Rust functions, Markdown documentation, and component schemas. |
+| `athanor-linker-api` | `Linker` | Link OpenAPI operations to Rust functions, Markdown documentation, component schemas, and examples. |
 | `athanor-linker-markdown` | `Linker` | Link Markdown containment and exact frontmatter entity/concept references. |
 | `athanor-linker-rust` | `Linker` | Link Rust module containment, imports, static function call graph, and test cases. |
 | `athanor-checker-markdown` | `Checker` | Diagnose Markdown structure, unresolved frontmatter references, and duplicate document identities. |

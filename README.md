@@ -77,6 +77,8 @@ Run the CI-oriented completeness gate for editable documentation:
 ```bash
 cargo run -p ath --quiet -- docs check
 cargo run -p ath --quiet -- docs check --json
+cargo run -p ath --quiet -- docs drift
+cargo run -p ath --quiet -- docs drift --json
 ```
 
 Build the neutral Markdown wiki from the latest canonical snapshot:

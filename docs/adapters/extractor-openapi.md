@@ -13,7 +13,9 @@ Crate: `athanor-extractor-openapi`
 
 Port: `Extractor`
 
-The adapter parses OpenAPI 3.0.x and 3.1.x YAML and JSON documents. It emits canonical API endpoint and component-schema entities, plus declaration facts connected to the canonical source-file entity.
+The adapter parses OpenAPI 3.0.x and 3.1.x YAML and JSON documents. It emits canonical API endpoint,
+component-schema, and request/response example entities, plus declaration facts connected to the
+canonical source-file entity.
 
 Parsing is replaceable behind a private `OpenApiDocumentParser` boundary. OpenAPI 3.1 uses `oas3`
 0.22; OpenAPI 3.0 uses a normalized-value fallback with `serde_yaml_ng` for YAML. Both feed a
@@ -25,6 +27,10 @@ Endpoint keys use `api://METHOD:/path`. Schema keys include the specification pa
 Endpoint payloads normalize request and response schema `$ref` uses from OpenAPI media content.
 Request uses retain media type; response uses retain status code and media type. Nested schema
 references are collected recursively for later linking and checking.
+
+Media-type `example` values and `examples.*.value` entries become `ApiExample` entities. Their
+payloads preserve endpoint identity, direction, media type, optional response status, example name,
+value, and declared schema. External example references and schema-level examples remain deferred.
 
 The adapter is local and side-effect free. It preserves `$ref` values but leaves resolution to the
 API linker. It does not resolve external references, merge specifications, infer handlers, or

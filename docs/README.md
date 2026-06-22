@@ -153,6 +153,8 @@ Editable documentation can be checked against the project completeness policy:
 ```bash
 cargo run -p ath --quiet -- docs check
 cargo run -p ath --quiet -- docs check --json
+cargo run -p ath --quiet -- docs drift
+cargo run -p ath --quiet -- docs drift --json
 ```
 
 The latest canonical snapshot can be projected into a disposable Markdown wiki:

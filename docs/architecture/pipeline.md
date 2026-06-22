@@ -57,12 +57,12 @@ flowchart TD
 1. `athanor-source-fs` discovers project files and returns `SourceFile` values.
 2. `athanor-extractor-basic` creates file entities and `file_discovered` facts.
 3. `athanor-extractor-markdown` parses optional YAML frontmatter plus CommonMark/GFM heading events, then creates identity/language-aware documentation page/section entities and `doc_section_found` facts.
-4. `athanor-extractor-openapi` dispatches OpenAPI 3.1 to `oas3` and 3.0 to a maintained-YAML legacy parser, then extracts operations, component schemas, and normalized request/response schema uses.
+4. `athanor-extractor-openapi` dispatches OpenAPI 3.1 to `oas3` and 3.0 to a maintained-YAML legacy parser, then extracts operations, component schemas, request/response schema uses, and media examples.
 5. `athanor-extractor-rust` parses Rust files into module, function, and symbol entities plus `symbol_defined` facts.
 6. `athanor-linker-markdown` creates `contains` relations plus verified `documents` relations for exact entity/concept keys declared in Markdown frontmatter.
-7. `athanor-linker-api` links OpenAPI operations to matching Rust handlers, Markdown API documentation, and same-document request/response component schemas.
+7. `athanor-linker-api` links OpenAPI operations to matching Rust handlers, Markdown API documentation, same-document request/response component schemas, and declared examples.
 8. `athanor-checker-markdown` creates documentation structure, unresolved-reference, and duplicate-identity diagnostics.
-9. `athanor-checker-api` diagnoses OpenAPI operations without linked implementations or documentation and local component schema references that did not resolve.
+9. `athanor-checker-api` diagnoses OpenAPI operations without linked implementations or documentation, local component schema references that did not resolve, and examples that violate their declared schemas.
 10. `RuntimeBuilder` discovers adapter plugin manifests from `.athanor/adapters/*.json` and `.athanor/plugins/*/athanor-adapter.json`, then applies enabled adapter entries that match known app-layer factory ids.
 11. `RuntimeBuilder` builds the configured `IndexPipeline` from an `AdapterRegistry`.
 12. `IndexStateStore` classifies discovered files as changed, unchanged, or removed by comparing them with the previous state.
@@ -80,6 +80,7 @@ flowchart TD
 24. On demand, `ath report html` loads the same snapshot and performs a staged replacement of a self-contained HTML report.
 25. On demand, `ath generate` projects JSONL, wiki, and HTML into one immutable generation, writes a complete generation manifest, and then switches `current.json` to that generation.
 26. On demand, `ath docs check` evaluates editable documentation under the configured path against frontmatter completeness and diagnostic severity policy.
+27. On demand, `ath docs drift` reports editable documentation not verified against the latest canonical snapshot.
 
 ## Pipeline Assembly
 
@@ -94,6 +95,7 @@ flowchart TD
 - `explain_project`: exact stable-key entity explanation from the latest canonical snapshot.
 - `check_project`: scoped API/documentation diagnostic reporting from the latest canonical snapshot.
 - `check_docs`: configurable editable-documentation completeness gate from the latest canonical snapshot.
+- `docs_drift`: read-only editable-document verification-age report from the latest canonical snapshot.
 - `project_wiki`: Markdown wiki projection from the latest canonical snapshot.
 - `project_html_report`: static HTML report projection from the latest canonical snapshot.
 - `generate_project`: coordinated immutable JSONL/wiki/HTML generation and portable current-pointer publication.
@@ -192,6 +194,11 @@ diagnostics meet the configured severity threshold. `--json` emits the stable
 
 The gate does not re-index or modify documentation. Generated documentation is excluded even when
 it is present in a canonical snapshot.
+
+`ath docs drift` uses the same editable path selection but does not apply status, required-field,
+or diagnostic thresholds. It reports pages with a missing or non-current `last_verified_snapshot`;
+`--json` emits `athanor.docs_drift.v1`. Drift is informational and does not produce a failing exit
+status.
 
 The default built-in registry currently assembles:
 
@@ -308,7 +315,7 @@ checkers:
   snapshots/<snapshot-id>/
 ```
 
-Generated JSONL files and Markdown wiki pages under `.athanor/generated/current` are read models. They are not the source of truth and may be deleted and rebuilt. `validation-report.json` is written only for adapter contract validation failures and is removed after a successful index run. `validation-result.json` is written only for successful `--validate-only` runs and is removed after validation failures or normal index runs. Durable canonical snapshots live under `.athanor/store/canonical/jsonl`. The state file records the last indexed file paths, content hashes, language hints, and snapshot id so later runs can classify changed, unchanged, and removed files. Its schema is versioned so changes to built-in extraction, linking, or checking semantics can force a safe one-time full rebuild; explicit frontmatter field tracking advances it to `athanor.index_state.v11`.
+Generated JSONL files and Markdown wiki pages under `.athanor/generated/current` are read models. They are not the source of truth and may be deleted and rebuilt. `validation-report.json` is written only for adapter contract validation failures and is removed after a successful index run. `validation-result.json` is written only for successful `--validate-only` runs and is removed after validation failures or normal index runs. Durable canonical snapshots live under `.athanor/store/canonical/jsonl`. The state file records the last indexed file paths, content hashes, language hints, and snapshot id so later runs can classify changed, unchanged, and removed files. Its schema is versioned so changes to built-in extraction, linking, or checking semantics can force a safe one-time full rebuild; OpenAPI example extraction and validation advance it to `athanor.index_state.v12`.
 
 ## Current Limitations
 
@@ -318,7 +325,7 @@ Generated JSONL files and Markdown wiki pages under `.athanor/generated/current`
 - Diagnostic check views expose open findings but do not yet implement CI exit thresholds, strict mode, suppression configuration, or historical comparison.
 - The completeness gate has a project-level severity threshold but does not yet support per-kind suppressions or baseline comparison.
 - Rust extraction does not expand macros, emit trait method declarations, or infer imports, calls, and framework routes.
-- OpenAPI extraction supports 3.0.x and 3.1.x through replaceable parser backends but does not support Swagger 2.x/OpenAPI 3.2, resolve external references, merge specifications, or infer code handlers.
+- OpenAPI extraction supports 3.0.x and 3.1.x through replaceable parser backends but does not support Swagger 2.x/OpenAPI 3.2, resolve external references, merge specifications, or infer code handlers. Example validation is offline and covers media-type inline/named values; external and schema-level examples remain deferred.
 - API knowledge linking is lexical for code/docs and resolves only same-document component schemas; framework route metadata, call graphs, and Rust schema/type links are not implemented.
 - API consistency diagnostics check unresolved local component schema references but do not compare schema fields with Rust types or check status codes, auth, or permissions yet.
 - The current CLI still performs a full source discovery pass before classifying changed files.
@@ -332,4 +339,4 @@ Generated JSONL files and Markdown wiki pages under `.athanor/generated/current`
 
 ## Next Good Step
 
-Add the Rust relation graph slice from the P1 roadmap.
+Add immutable API contract snapshots and `ath api diff` as the next Phase 4 API-contract slice.
