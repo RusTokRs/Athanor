@@ -939,6 +939,25 @@ Purpose:
 - generates and writes two secondary index files on snapshot commit: `path_index.json` and `stable_key_index.json`
 - optimizes memory usage by parsing JSONL line-by-line / chunk-by-chunk using a reusable line buffer
 
+### Security & Supply-Chain Automation
+
+Status: verified.
+
+Implemented in:
+
+- `deny.toml`
+- `.github/workflows/ci.yml`
+- `.github/workflows/security.yml`
+- `docs/development/ci.md`
+
+Purpose:
+
+- integrates dependency security and license compliance checks using `cargo-deny` in the main CI workflow
+- configures nightly vulnerability scans using `cargo-audit` in a scheduled GitHub Actions workflow
+- enforces open-source license compliance (restricting to permissive licenses like MIT/Apache-2.0 and banning GPL/AGPL copyleft)
+- monitors crate advisories and checks for duplicate dependency versions
+- documents all supply-chain security checks in the developer guidelines
+
 ## In Progress
 
 None.
@@ -947,11 +966,7 @@ None.
 
 This backlog contains prioritized initiatives based on recent project research and technical debt analysis.
 
-### P2: Transports & Operations
-
-1. **Security & Supply-Chain Automation**
-   - **Goal**: Integrate `cargo-deny`, `cargo-audit` checks, and nightly vulnerability scan workflows.
-   - **Why**: Mitigate supply-chain risks and ensure attestation readiness.
+None.
 
 ## Verification Commands
 
