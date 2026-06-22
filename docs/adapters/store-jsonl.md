@@ -44,8 +44,17 @@ snapshots/<snapshot-id>/
   facts.jsonl
   relations.jsonl
   diagnostics.jsonl
+  path_index.json
+  stable_key_index.json
   manifest.json
 ```
+
+## Secondary Indexes
+To optimize performance and scale for large repositories, Athanor builds and writes two secondary index files when a snapshot is committed:
+- **`stable_key_index.json`**: Maps each canonical entity's `stable_key` to its internal `entity_id`. This allows rapid target resolutions during query commands without scanning the full entities file.
+- **`path_index.json`**: Maps each source file path to the lists of all associated canonical object IDs (entities, facts, relations, diagnostics) declared in or owned by that file.
+
+Additionally, the JSONL reader uses a streaming line-buffered approach (`BufReader::read_line` with a reusable buffer) to parse items line-by-line/chunk-by-chunk to eliminate memory and IO spikes on huge snapshots.
 
 ## Commands And Network
 

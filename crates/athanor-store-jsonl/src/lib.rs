@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -250,13 +250,167 @@ struct LatestSnapshot {
     snapshot: String,
 }
 
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct PathIndexEntry {
+    #[serde(default)]
+    pub entities: Vec<String>,
+    #[serde(default)]
+    pub facts: Vec<String>,
+    #[serde(default)]
+    pub relations: Vec<String>,
+    #[serde(default)]
+    pub diagnostics: Vec<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PathIndex {
+    pub schema: String,
+    pub snapshot: String,
+    pub entries: HashMap<String, PathIndexEntry>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct StableKeyIndex {
+    pub schema: String,
+    pub snapshot: String,
+    pub entries: HashMap<String, String>,
+}
+
+fn collect_entity_paths(entity: &Entity) -> Vec<String> {
+    let mut paths = HashSet::new();
+    for o in &entity.ownership {
+        paths.insert(o.source_file.clone());
+    }
+    if let Some(source) = &entity.source {
+        paths.insert(source.path.clone());
+    }
+    paths.into_iter().collect()
+}
+
+fn collect_fact_paths(fact: &Fact) -> Vec<String> {
+    let mut paths = HashSet::new();
+    for o in &fact.ownership {
+        paths.insert(o.source_file.clone());
+    }
+    for ev in &fact.evidence {
+        if let Some(source_file) = &ev.source_file {
+            paths.insert(source_file.clone());
+        }
+    }
+    paths.into_iter().collect()
+}
+
+fn collect_relation_paths(relation: &Relation) -> Vec<String> {
+    let mut paths = HashSet::new();
+    for o in &relation.ownership {
+        paths.insert(o.source_file.clone());
+    }
+    for ev in &relation.evidence {
+        if let Some(source_file) = &ev.source_file {
+            paths.insert(source_file.clone());
+        }
+    }
+    paths.into_iter().collect()
+}
+
+fn collect_diagnostic_paths(diagnostic: &Diagnostic) -> Vec<String> {
+    let mut paths = HashSet::new();
+    for o in &diagnostic.ownership {
+        paths.insert(o.source_file.clone());
+    }
+    for ev in &diagnostic.evidence {
+        if let Some(source_file) = &ev.source_file {
+            paths.insert(source_file.clone());
+        }
+    }
+    paths.into_iter().collect()
+}
+
 fn write_snapshot(root: &Path, snapshot: &SnapshotId, data: &SnapshotData) -> CoreResult<()> {
     let snapshot_dir = root.join("snapshots").join(&snapshot.0);
+
+    if let Some(parent) = snapshot_dir.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|err| CoreError::Adapter(format!("failed to create store dir: {err}")))?;
+    }
+
+    fs::create_dir_all(&snapshot_dir)
+        .map_err(|err| CoreError::Adapter(format!("failed to create snapshot dir: {err}")))?;
 
     write_jsonl(&snapshot_dir.join("entities.jsonl"), &data.entities)?;
     write_jsonl(&snapshot_dir.join("facts.jsonl"), &data.facts)?;
     write_jsonl(&snapshot_dir.join("relations.jsonl"), &data.relations)?;
     write_jsonl(&snapshot_dir.join("diagnostics.jsonl"), &data.diagnostics)?;
+
+    // Build StableKeyIndex
+    let mut stable_key_entries = HashMap::new();
+    for entity in &data.entities {
+        stable_key_entries.insert(entity.stable_key.0.clone(), entity.id.0.clone());
+    }
+    let stable_key_index = StableKeyIndex {
+        schema: "athanor.stable_key_index.v1".to_string(),
+        snapshot: snapshot.0.clone(),
+        entries: stable_key_entries,
+    };
+
+    // Build PathIndex
+    let mut path_entries = HashMap::<String, PathIndexEntry>::new();
+    for entity in &data.entities {
+        for path in collect_entity_paths(entity) {
+            path_entries
+                .entry(path)
+                .or_default()
+                .entities
+                .push(entity.id.0.clone());
+        }
+    }
+    for fact in &data.facts {
+        for path in collect_fact_paths(fact) {
+            path_entries
+                .entry(path)
+                .or_default()
+                .facts
+                .push(fact.id.0.clone());
+        }
+    }
+    for relation in &data.relations {
+        for path in collect_relation_paths(relation) {
+            path_entries
+                .entry(path)
+                .or_default()
+                .relations
+                .push(relation.id.0.clone());
+        }
+    }
+    for diagnostic in &data.diagnostics {
+        for path in collect_diagnostic_paths(diagnostic) {
+            path_entries
+                .entry(path)
+                .or_default()
+                .diagnostics
+                .push(diagnostic.id.0.clone());
+        }
+    }
+    let path_index = PathIndex {
+        schema: "athanor.path_index.v1".to_string(),
+        snapshot: snapshot.0.clone(),
+        entries: path_entries,
+    };
+
+    // Write Indexes
+    fs::write(
+        snapshot_dir.join("stable_key_index.json"),
+        serde_json::to_string_pretty(&stable_key_index)
+            .map_err(|err| CoreError::Adapter(format!("failed to serialize stable key index: {err}")))?,
+    )
+    .map_err(|err| CoreError::Adapter(format!("failed to write stable key index: {err}")))?;
+
+    fs::write(
+        snapshot_dir.join("path_index.json"),
+        serde_json::to_string_pretty(&path_index)
+            .map_err(|err| CoreError::Adapter(format!("failed to serialize path index: {err}")))?,
+    )
+    .map_err(|err| CoreError::Adapter(format!("failed to write path index: {err}")))?;
 
     let manifest = json!({
         "schema": "athanor.canonical_snapshot.v1",
@@ -323,19 +477,27 @@ fn read_jsonl<T: serde::de::DeserializeOwned>(path: &Path) -> CoreResult<Vec<T>>
 
     let file = File::open(path)
         .map_err(|err| CoreError::Adapter(format!("failed to open JSONL file: {err}")))?;
-    let reader = BufReader::new(file);
+    let mut reader = BufReader::new(file);
     let mut items = Vec::new();
+    let mut line = String::new();
 
-    for line in reader.lines() {
-        let line =
-            line.map_err(|err| CoreError::Adapter(format!("failed to read JSONL line: {err}")))?;
+    loop {
+        line.clear();
+        let bytes_read = reader
+            .read_line(&mut line)
+            .map_err(|err| CoreError::Adapter(format!("failed to read JSONL line: {err}")))?;
 
-        if line.trim().is_empty() {
+        if bytes_read == 0 {
+            break;
+        }
+
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
             continue;
         }
 
         items.push(
-            serde_json::from_str(&line)
+            serde_json::from_str(trimmed)
                 .map_err(|err| CoreError::Adapter(format!("failed to parse JSONL item: {err}")))?,
         );
     }
@@ -436,6 +598,70 @@ mod tests {
 
         assert_eq!(reloaded.snapshot, Some(snapshot));
         assert_eq!(reloaded.entities, vec![entity]);
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn writes_stable_key_and_path_indexes_on_commit() {
+        let root = std::env::temp_dir().join(format!(
+            "athanor-jsonl-store-index-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let store = JsonlKnowledgeStore::new(&root);
+        let snapshot = store
+            .begin_snapshot(
+                RepoId("repo_test".to_string()),
+                SnapshotBase {
+                    branch: None,
+                    commit: None,
+                    parent_snapshot: None,
+                    working_tree: true,
+                },
+            )
+            .await
+            .unwrap();
+            
+        let entity = Entity {
+            id: EntityId("ent_file_readme".to_string()),
+            stable_key: StableKey("file://README.md".to_string()),
+            kind: EntityKind::File,
+            name: "README.md".to_string(),
+            title: None,
+            source: Some(SourceLocation {
+                path: "README.md".to_string(),
+                line_start: None,
+                line_end: None,
+            }),
+            language: None,
+            aliases: Vec::new(),
+            ownership: Vec::new(),
+            payload: json!({}),
+        };
+
+        store
+            .put_entities(snapshot.clone(), vec![entity.clone()])
+            .await
+            .unwrap();
+        store.commit_snapshot(snapshot.clone()).await.unwrap();
+
+        let snapshot_dir = root.join("snapshots").join(&snapshot.0);
+        
+        let stable_key_path = snapshot_dir.join("stable_key_index.json");
+        assert!(stable_key_path.exists());
+        let stable_key_content = fs::read_to_string(&stable_key_path).unwrap();
+        let stable_key_index: StableKeyIndex = serde_json::from_str(&stable_key_content).unwrap();
+        assert_eq!(stable_key_index.entries.get("file://README.md").unwrap(), "ent_file_readme");
+
+        let path_index_path = snapshot_dir.join("path_index.json");
+        assert!(path_index_path.exists());
+        let path_index_content = fs::read_to_string(&path_index_path).unwrap();
+        let path_index: PathIndex = serde_json::from_str(&path_index_content).unwrap();
+        let entry = path_index.entries.get("README.md").unwrap();
+        assert_eq!(entry.entities, vec!["ent_file_readme".to_string()]);
 
         fs::remove_dir_all(root).unwrap();
     }
