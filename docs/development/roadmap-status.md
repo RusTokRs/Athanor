@@ -784,19 +784,49 @@ None.
 
 ## Next
 
-Recommended next task:
+This backlog contains prioritized initiatives based on recent project research and technical debt analysis.
 
-```text
-Add frontmatter completeness policy and an `ath docs check` gate for editable documentation.
-```
+### P0: Quality & Hygiene Baseline (Next Up)
 
-Why:
+1. **Completeness Policy & Gate**
+   - **Goal**: Configure completeness policies and a dedicated `ath docs check` gate for editable documentation.
+   - **Why**: Prevent drift before patch workflows are introduced.
 
-- Phase 3 has JSONL, Markdown, and HTML outputs plus snapshot-consistent immutable publication.
-- Markdown pages can declare stable identity, language, layer, type, references, and verification metadata.
-- Declared entity/concept references now become verified relations or actionable diagnostics.
-- Existing source Markdown remains backward compatible and therefore does not yet require frontmatter.
-- A configurable completeness policy and dedicated docs check gate are the next step before drift and patch workflows.
+2. **Automated CI/CD Baseline**
+   - **Goal**: Add `.github/workflows/ci.yml` matrix workflow.
+   - **Why**: Convert manual validation rules (rustfmt, clippy, tests, index smoke tests) into an automated PR check.
+
+3. **Metadata & Configuration Hygiene**
+   - **Goal**: Fix package repository URLs (upstream drift) and keep `README.md` status descriptions synchronized.
+   - **Why**: Clean up workspace metadata and align expectations for team members and AI agents.
+
+### P1: Engine Extensions & Core Features
+
+1. **Rust Relation Graph Slice**
+   - **Goal**: Add imports, static call graphs, module containment, and `tested_by` relations on top of the syn-based extractor.
+   - **Why**: Critical for high-precision impact analysis, diagnostics, and AI context packs.
+
+2. **Lexical Search Read-Model**
+   - **Goal**: Implement `SearchIndex` via Tantivy as a disposable read-model and add the `ath search` CLI command.
+   - **Why**: Seed AI context packs with lexical lookup before expanding relations, bypassing store pollution.
+
+3. **Code Impact Analysis**
+   - **Goal**: Implement `ath impact <stable-key | path>` query command.
+   - **Why**: Traverse ownership, dependency graphs, and diagnostics to calculate direct and transitive blast radius.
+
+4. **Large-Repository Scale & Performance**
+   - **Goal**: Introduce secondary indexes (path -> object IDs, stable-key -> entity ID) and chunked JSONL loading.
+   - **Why**: Eliminate the memory and IO bottleneck of loading full snapshots on huge repos.
+
+### P2: Transports & Operations
+
+1. **Agent Transport Layer**
+   - **Goal**: Stabilize machine-readable JSON output contracts and implement socket/HTTP (Axum) or MCP server adapters.
+   - **Why**: Allow external orchestration agents to consume Athanor queries easily.
+
+2. **Security & Supply-Chain Automation**
+   - **Goal**: Integrate `cargo-deny`, `cargo-audit` checks, and nightly vulnerability scan workflows.
+   - **Why**: Mitigate supply-chain risks and ensure attestation readiness.
 
 ## Verification Commands
 

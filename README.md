@@ -10,11 +10,12 @@ Athanor currently ships a verified indexing vertical slice:
 
 ```text
 local files
-  -> file and Markdown extraction
-  -> Markdown containment links
-  -> Markdown structure diagnostics
+  -> file, Markdown, OpenAPI, and Rust extraction
+  -> Markdown containment, document references, and cross-source API links
+  -> Markdown structure, unresolved reference, duplicate ID, and API consistency checks
   -> JSONL canonical store
-  -> JSONL read model
+  -> Coordinated read models (JSONL, Markdown Wiki, and HTML browser report)
+  -> Immutable coordinator publication with snapshot-consistent generation pointers
 ```
 
 The implementation is intentionally adapter-first. Domain and core crates define canonical types and ports; source discovery, extraction, linking, checking, and storage live in adapter crates.

@@ -20,6 +20,29 @@ cargo run -p ath -- index .
 cargo run -p ath -- index . --validate-only
 ```
 
+## Target Architecture
+
+```mermaid
+flowchart TD
+    A[Sources: FS / docs / OpenAPI / future adapters] --> B[Extract canonical objects]
+    B --> C[Canonical store]
+    C --> D[Ownership index]
+    C --> E[Stable-key index]
+    C --> F[Entity relation graph]
+    C --> G[Diagnostic index]
+
+    D --> H[Incremental invalidation planner]
+    E --> I[Explain / lookup]
+    F --> J[Impact / context expansion]
+    G --> K[Check views]
+
+    C --> L[JSONL generations]
+    C --> M[Wiki / HTML]
+    C --> N[Lexical search]
+    N --> J
+    J --> O[Agent API / CLI / future MCP]
+```
+
 ## Current Flow
 
 1. `athanor-source-fs` discovers project files and returns `SourceFile` values.
@@ -136,7 +159,7 @@ exact and currently explains one canonical entity at a time.
 
 `ath check api` and `ath check docs` read open diagnostics from the latest durable canonical snapshot
 without re-indexing. The app layer classifies diagnostic kinds into API and documentation scopes,
-sorts results by severity and diagnostic id, and returns:
+`ath check docs` command is sorted by severity and diagnostic id, and returns:
 
 - snapshot id and requested scope
 - total, critical, high, medium, and low counts
