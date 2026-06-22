@@ -71,6 +71,8 @@ ath api diff --from <snapshot> --to <snapshot>
 ath api diff --json
 ath api breaking-changes --from <snapshot> --to <snapshot>
 ath api breaking-changes --json
+ath check api --strict
+ath check api --strict --json
 ath wiki
 ath wiki --output <directory>
 ath report html
@@ -922,7 +924,27 @@ Purpose:
 - applies field-level schema rules for type changes, required-set changes, removed properties, and property type changes
 - keeps descriptions, optional property additions, additions, and example-only changes informational
 - adds `ath api breaking-changes` as a non-zero-exit CI gate over the same deterministic diff
-- leaves canonical evidence-backed breaking-change diagnostics for the next slice
+- keeps persisted diff diagnostics separate from immutable canonical indexing snapshots
+
+### Evidence-Backed API Breaking Diagnostics And Strict Gate
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-app/src/api.rs`
+- `apps/ath/src/main.rs`
+- `docs/architecture/pipeline.md`
+
+Purpose:
+
+- advances API contract snapshots and diffs to v2 with entity identity, source, and ownership
+- emits `api_breaking_change_detected` domain diagnostics for every breaking diff entry
+- guarantees non-empty evidence and ownership, including an artifact fallback for v1 snapshots
+- persists deterministic diff reports under `.athanor/api/diffs/<from>--<to>.json`
+- adds `ath check api --strict` to combine current open API diagnostics with contract breaking changes
+- returns a non-zero exit status from strict mode when either diagnostic source has findings
+- preserves the read-only success behavior of `ath check api` without `--strict`
 
 ### Rust Relation Graph Slice
 
@@ -1040,7 +1062,7 @@ None.
 
 This backlog contains prioritized initiatives based on recent project research and technical debt analysis.
 
-1. Persist evidence-backed `api_breaking_change_detected` diagnostics and add strict API policy.
+1. Add the API registry view and enforce the configured API source-of-truth policy.
 
 ## Verification Commands
 

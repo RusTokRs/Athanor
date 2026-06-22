@@ -145,6 +145,9 @@ enum Command {
         /// Print the complete diagnostic report as JSON.
         #[arg(long)]
         json: bool,
+        /// Fail on open API diagnostics or breaking contract changes.
+        #[arg(long)]
+        strict: bool,
     },
     /// Check editable documentation against the configured completeness policy.
     Docs {
@@ -389,13 +392,48 @@ async fn main() -> Result<()> {
                 print_impact_analysis(&analysis)?;
             }
         }
-        Some(Command::Check { scope, path, json }) => {
+        Some(Command::Check {
+            scope,
+            path,
+            json,
+            strict,
+        }) => {
+            let scope: DiagnosticScope = scope.into();
             let report = check_project(DiagnosticCheckOptions {
-                root: path,
-                scope: scope.into(),
+                root: path.clone(),
+                scope,
             })
             .await?;
-            if json {
+            if strict {
+                if scope != DiagnosticScope::Api {
+                    anyhow::bail!("--strict is currently supported only for `ath check api`");
+                }
+                let diff = diff_api_contracts(ApiDiffOptions {
+                    root: path,
+                    from: None,
+                    to: None,
+                })?;
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "schema": "athanor.api_strict_check.v1",
+                            "diagnostics": report,
+                            "contract": diff,
+                        }))?
+                    );
+                } else {
+                    print_check_report(&report)?;
+                    print_api_contract_diff(&diff)?;
+                }
+                if report.counts.total > 0 || diff.breaking_changes > 0 {
+                    anyhow::bail!(
+                        "strict API check failed with {} open diagnostics and {} breaking changes",
+                        report.counts.total,
+                        diff.breaking_changes
+                    );
+                }
+            } else if json {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
                 print_check_report(&report)?;

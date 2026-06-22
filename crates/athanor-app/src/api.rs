@@ -400,7 +400,9 @@ fn compare_items(
                         .collect(),
                 ));
             }
-            (Some(left), Some(right)) if *left != *right => {
+            (Some(left), Some(right))
+                if left.name != right.name || left.payload != right.payload =>
+            {
                 let reasons = compatibility_reasons(policy, &left.payload, &right.payload);
                 output.push(ApiContractChange {
                     kind: changed_kind.clone(),
@@ -452,16 +454,14 @@ fn merge_ownership(left: &[Ownership], right: &[Ownership]) -> Vec<Ownership> {
     ownership
 }
 
-fn breaking_change_diagnostic(
-    change: &ApiContractChange,
-    from: &str,
-    to: &str,
-) -> Diagnostic {
-    let material = format!("api_breaking_change_detected\0{from}\0{to}\0{}", change.stable_key);
+fn breaking_change_diagnostic(change: &ApiContractChange, from: &str, to: &str) -> Diagnostic {
+    let material = format!(
+        "api_breaking_change_detected\0{from}\0{to}\0{}",
+        change.stable_key
+    );
     let source = change.source.as_ref();
     let mut ownership = change.ownership.clone();
-    if ownership.is_empty()
-    {
+    if ownership.is_empty() {
         ownership.push(Ownership {
             source_file: source.map_or_else(
                 || format!(".athanor/api/snapshots/{from}.json"),
@@ -629,6 +629,12 @@ mod tests {
         );
         let diff = build_api_contract_diff(&before, &after);
         assert_eq!(diff.breaking_changes, 2);
+        assert_eq!(diff.diagnostics.len(), 2);
+        assert!(diff.diagnostics.iter().all(|diagnostic| {
+            diagnostic.kind == DiagnosticKind::ApiBreakingChangeDetected
+                && !diagnostic.evidence.is_empty()
+                && !diagnostic.ownership.is_empty()
+        }));
         assert!(
             diff.changes
                 .iter()
@@ -701,6 +707,28 @@ mod tests {
         assert!(schema_reasons.contains(&"required_field_added".to_string()));
         assert!(schema_reasons.contains(&"schema_property_removed".to_string()));
         assert!(schema_reasons.contains(&"property_type_changed:id".to_string()));
+    }
+
+    #[test]
+    fn ignores_provenance_only_changes_between_snapshot_versions() {
+        let before = contract(
+            "snap_old",
+            vec![item("api://GET:/users", json!({"responses": ["200"]}))],
+            Vec::new(),
+        );
+        let mut after_item = item("api://GET:/users", json!({"responses": ["200"]}));
+        after_item.entity_id = Some(EntityId("ent_users".to_string()));
+        after_item.source = Some(SourceLocation {
+            path: "openapi.yaml".to_string(),
+            line_start: Some(1),
+            line_end: Some(1),
+        });
+        after_item.ownership = vec![Ownership {
+            source_file: "openapi.yaml".to_string(),
+        }];
+        let after = contract("snap_new", vec![after_item], Vec::new());
+
+        assert!(build_api_contract_diff(&before, &after).changes.is_empty());
     }
 
     fn contract(

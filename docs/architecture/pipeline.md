@@ -220,8 +220,15 @@ informational. Every breaking change carries machine-readable reasons.
 
 `ath api breaking-changes` evaluates the same diff and returns a non-zero exit status when any
 breaking change exists, making it suitable for CI once a baseline snapshot is available. The gate
-does not mutate canonical storage and does not yet persist `api_breaking_change_detected`
-diagnostics.
+does not mutate canonical storage. Every comparison persists a versioned diff artifact under
+`.athanor/api/diffs/<from>--<to>.json`. Breaking entries include evidence-backed, ownership-aware
+`api_breaking_change_detected` domain diagnostics. Contract snapshot v2 retains entity identity,
+source, and ownership; comparisons with older v1 snapshots fall back to the immutable snapshot
+artifact itself as evidence.
+
+`ath check api --strict` combines open diagnostics from the latest canonical snapshot with the
+latest API contract comparison. It returns a non-zero exit status when either side has findings.
+Without `--strict`, `ath check api` remains the existing read-only diagnostic view.
 
 The default built-in registry currently assembles:
 
@@ -340,6 +347,7 @@ checkers:
 .athanor/api/
   latest.json
   snapshots/<snapshot-id>.json
+  diffs/<from>--<to>.json
 ```
 
 Generated JSONL files and Markdown wiki pages under `.athanor/generated/current` are read models. They are not the source of truth and may be deleted and rebuilt. `validation-report.json` is written only for adapter contract validation failures and is removed after a successful index run. `validation-result.json` is written only for successful `--validate-only` runs and is removed after validation failures or normal index runs. Durable canonical snapshots live under `.athanor/store/canonical/jsonl`. The state file records the last indexed file paths, content hashes, language hints, and snapshot id so later runs can classify changed, unchanged, and removed files. Its schema is versioned so changes to built-in extraction, linking, or checking semantics can force a safe one-time full rebuild; OpenAPI example extraction and validation advance it to `athanor.index_state.v12`.
@@ -349,7 +357,7 @@ Generated JSONL files and Markdown wiki pages under `.athanor/generated/current`
 - Process source adapters perform a full discovery request per indexing run; streaming discovery and source-level change feeds are not implemented.
 - Context generation uses deterministic lexical matching and approximate token accounting; model-specific tokenizers and semantic search are not implemented.
 - Entity explanation requires an exact stable key and does not yet provide fuzzy lookup, history, or cross-snapshot comparison.
-- Diagnostic check views expose open findings but do not yet implement CI exit thresholds, strict mode, suppression configuration, or historical comparison.
+- Diagnostic check views expose open findings; API strict mode adds a CI threshold and historical contract comparison, while per-kind suppression remains deferred.
 - The completeness gate has a project-level severity threshold but does not yet support per-kind suppressions or baseline comparison.
 - Rust extraction does not expand macros, emit trait method declarations, or infer imports, calls, and framework routes.
 - OpenAPI extraction supports 3.0.x and 3.1.x through replaceable parser backends but does not support Swagger 2.x/OpenAPI 3.2, resolve external references, merge specifications, or infer code handlers. Example validation is offline and covers media-type inline/named values; external and schema-level examples remain deferred.
@@ -366,4 +374,4 @@ Generated JSONL files and Markdown wiki pages under `.athanor/generated/current`
 
 ## Next Good Step
 
-Persist evidence-backed `api_breaking_change_detected` diagnostics and add strict API policy.
+Add the API registry view and explicit source-of-truth policy enforcement.
