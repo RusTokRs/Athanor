@@ -1,13 +1,17 @@
 use std::collections::HashMap;
 
+mod frontmatter;
+
 use async_trait::async_trait;
-use athanor_core::{CoreResult, ExtractInput, ExtractOutput, Extractor, SourceFile};
+use athanor_core::{CoreError, CoreResult, ExtractInput, ExtractOutput, Extractor, SourceFile};
 use athanor_domain::{
     Entity, EntityId, EntityKind, Fact, FactId, FactKind, LanguageCode, SourceLocation, StableKey,
 };
 use athanor_extractor_basic::{evidence_for_file, ownership_for_file, stable_hash};
 use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 use serde_json::json;
+
+use frontmatter::{DocumentationLayer, MarkdownFrontmatter, parse_markdown_frontmatter};
 
 #[derive(Debug, Clone, Default)]
 pub struct MarkdownExtractor;
@@ -26,16 +30,30 @@ impl Extractor for MarkdownExtractor {
         let Some(content) = input.source.content.as_deref() else {
             return Ok(ExtractOutput::default());
         };
-        let headings = markdown_headings(content);
+        let parsed = parse_markdown_frontmatter(content)?;
+        let metadata = parsed.metadata.unwrap_or_default();
+        let headings = markdown_headings(content, parsed.body_offset);
+        let page_key = page_stable_key(&input.source.path, &metadata)?;
+        let language = metadata
+            .language
+            .as_deref()
+            .map(validate_non_empty_language)
+            .transpose()?
+            .map_or_else(
+                || LanguageCode("markdown".to_string()),
+                |language| LanguageCode(language.to_string()),
+            );
+        let documentation_layer = metadata
+            .documentation_layer
+            .unwrap_or_else(|| inferred_documentation_layer(&input.source.path));
 
-        let page_key = StableKey(format!("doc://{}", input.source.path));
         let page_id = EntityId(format!(
             "ent_doc_page_{:016x}",
             stable_hash(page_key.0.as_bytes())
         ));
         let page = Entity {
             id: page_id.clone(),
-            stable_key: page_key,
+            stable_key: page_key.clone(),
             kind: EntityKind::DocumentationPage,
             name: input.source.path.clone(),
             title: headings
@@ -47,11 +65,19 @@ impl Extractor for MarkdownExtractor {
                 line_start: Some(1),
                 line_end: line_count(content),
             }),
-            language: Some(LanguageCode("markdown".to_string())),
+            language: Some(language.clone()),
             aliases: Vec::new(),
             ownership: ownership_for_file(&input.source.path),
             payload: json!({
                 "content_hash": input.source.content_hash,
+                "frontmatter_present": parsed.body_offset > 0,
+                "documentation_layer": documentation_layer.as_str(),
+                "documentation_kind": metadata.kind.as_deref(),
+                "source_language": metadata.source_language.as_deref(),
+                "concepts": &metadata.concepts,
+                "entities": &metadata.entities,
+                "last_verified_snapshot": metadata.last_verified_snapshot.as_deref(),
+                "status": metadata.status.as_deref(),
             }),
         };
 
@@ -61,7 +87,7 @@ impl Extractor for MarkdownExtractor {
 
         for heading in headings {
             let slug = unique_slug(&heading.title, &mut seen_slugs);
-            let section_key = StableKey(format!("doc://{}#{}", input.source.path, slug));
+            let section_key = StableKey(format!("{}#{}", page_key.0, slug));
             let section_id = EntityId(format!(
                 "ent_doc_section_{:016x}",
                 stable_hash(section_key.0.as_bytes())
@@ -78,12 +104,15 @@ impl Extractor for MarkdownExtractor {
                     line_start: Some(heading.line),
                     line_end: Some(heading.line),
                 }),
-                language: Some(LanguageCode("markdown".to_string())),
+                language: Some(language.clone()),
                 aliases: Vec::new(),
                 ownership: ownership_for_file(&input.source.path),
                 payload: json!({
                     "level": heading.level,
                     "slug": slug,
+                    "documentation_page": page_key.0,
+                    "documentation_layer": documentation_layer.as_str(),
+                    "documentation_kind": metadata.kind.as_deref(),
                 }),
             });
 
@@ -124,7 +153,37 @@ struct MarkdownHeading {
     line: u32,
 }
 
-fn markdown_headings(content: &str) -> Vec<MarkdownHeading> {
+fn page_stable_key(path: &str, metadata: &MarkdownFrontmatter) -> CoreResult<StableKey> {
+    let Some(id) = metadata.id.as_deref() else {
+        return Ok(StableKey(format!("doc://{path}")));
+    };
+    if id.is_empty() || id.trim() != id || !id.starts_with("doc://") || id.contains('#') {
+        return Err(CoreError::InvalidInput(format!(
+            "Markdown frontmatter id must be a non-empty `doc://` page key without a fragment: {id:?}"
+        )));
+    }
+    Ok(StableKey(id.to_string()))
+}
+
+fn validate_non_empty_language(language: &str) -> CoreResult<&str> {
+    if language.is_empty() || language.trim() != language {
+        return Err(CoreError::InvalidInput(
+            "Markdown frontmatter language must be a non-empty trimmed code".to_string(),
+        ));
+    }
+    Ok(language)
+}
+
+fn inferred_documentation_layer(path: &str) -> DocumentationLayer {
+    let normalized = path.replace('\\', "/");
+    if normalized.starts_with(".athanor/generated/") {
+        DocumentationLayer::Generated
+    } else {
+        DocumentationLayer::Editable
+    }
+}
+
+fn markdown_headings(content: &str, body_offset: usize) -> Vec<MarkdownHeading> {
     let mut options = Options::empty();
     options.insert(Options::ENABLE_TABLES);
     options.insert(Options::ENABLE_FOOTNOTES);
@@ -133,13 +192,14 @@ fn markdown_headings(content: &str) -> Vec<MarkdownHeading> {
 
     let mut headings = Vec::new();
     let mut current: Option<MarkdownHeading> = None;
-    for (event, range) in Parser::new_ext(content, options).into_offset_iter() {
+    let body = &content[body_offset.min(content.len())..];
+    for (event, range) in Parser::new_ext(body, options).into_offset_iter() {
         match event {
             Event::Start(Tag::Heading { level, .. }) => {
                 current = Some(MarkdownHeading {
                     level: heading_level(level),
                     title: String::new(),
-                    line: line_for_offset(content, range.start),
+                    line: line_for_offset(content, body_offset + range.start),
                 });
             }
             Event::Text(text) | Event::Code(text) => {
@@ -350,6 +410,90 @@ mod tests {
             section.stable_key.0,
             "doc://docs/auth.md#login-with-tokens-and-code"
         );
+    }
+
+    #[tokio::test]
+    async fn applies_frontmatter_identity_language_and_documentation_metadata() {
+        let content = r#"---
+id: doc://product/authentication
+kind: api_documentation
+language: en
+source_language: ru
+documentation_layer: editable
+concepts:
+  - concept://authentication
+entities:
+  - api://POST:/login
+last_verified_snapshot: snap_reference
+status: verified
+---
+# Authentication
+
+## Login
+"#;
+        let output = extract(content).await;
+        let page = output
+            .entities
+            .iter()
+            .find(|entity| entity.kind == EntityKind::DocumentationPage)
+            .unwrap();
+        let section = output
+            .entities
+            .iter()
+            .find(|entity| entity.name == "Login")
+            .unwrap();
+
+        assert_eq!(page.stable_key.0, "doc://product/authentication");
+        assert_eq!(page.language.as_ref().unwrap().0, "en");
+        assert_eq!(page.payload["frontmatter_present"], true);
+        assert_eq!(page.payload["documentation_layer"], "editable");
+        assert_eq!(page.payload["documentation_kind"], "api_documentation");
+        assert_eq!(page.payload["source_language"], "ru");
+        assert_eq!(page.payload["concepts"][0], "concept://authentication");
+        assert_eq!(page.payload["entities"][0], "api://POST:/login");
+        assert_eq!(page.payload["last_verified_snapshot"], "snap_reference");
+        assert_eq!(page.payload["status"], "verified");
+        assert_eq!(section.stable_key.0, "doc://product/authentication#login");
+        assert_eq!(section.language.as_ref().unwrap().0, "en");
+        assert_eq!(section.source.as_ref().unwrap().line_start, Some(16));
+        assert!(
+            !output
+                .entities
+                .iter()
+                .any(|entity| entity.name == "status: verified")
+        );
+    }
+
+    #[tokio::test]
+    async fn rejects_invalid_frontmatter_page_identity() {
+        let error = MarkdownExtractor
+            .extract(ExtractInput {
+                repo: RepoId("repo_test".to_string()),
+                snapshot: SnapshotId("snap_test".to_string()),
+                source: SourceFile {
+                    path: "docs/auth.md".to_string(),
+                    language_hint: Some("markdown".to_string()),
+                    content_hash: Some("hash".to_string()),
+                    content: Some("---\nid: auth-page\n---\n# Auth\n".to_string()),
+                },
+            })
+            .await
+            .unwrap_err();
+
+        assert!(error.to_string().contains("must be a non-empty `doc://`"));
+    }
+
+    #[tokio::test]
+    async fn defaults_source_markdown_to_editable_documentation() {
+        let output = extract("# Auth\n").await;
+        let page = output
+            .entities
+            .iter()
+            .find(|entity| entity.kind == EntityKind::DocumentationPage)
+            .unwrap();
+
+        assert_eq!(page.payload["documentation_layer"], "editable");
+        assert_eq!(page.payload["frontmatter_present"], false);
     }
 
     async fn extract(content: &str) -> ExtractOutput {

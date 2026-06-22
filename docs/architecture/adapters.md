@@ -77,12 +77,12 @@ Ownership should list every source file that can invalidate the emitted object. 
 | `athanor-store-memory` | `KnowledgeStore` | In-memory canonical object store. |
 | `athanor-store-jsonl` | `KnowledgeStore`, `CanonicalSnapshotStore` | Durable local JSONL canonical snapshot store. |
 | `athanor-extractor-basic` | `Extractor` | Emit file entities and file discovery facts. |
-| `athanor-extractor-markdown` | `Extractor` | Parse CommonMark/GFM headings with `pulldown-cmark` and emit documentation page/section knowledge. |
+| `athanor-extractor-markdown` | `Extractor` | Parse YAML documentation frontmatter and CommonMark/GFM headings, then emit documentation page/section knowledge. |
 | `athanor-extractor-openapi` | `Extractor` | Parse OpenAPI 3.1 through `oas3`, retain a 3.0 fallback, and emit operation/schema knowledge. |
 | `athanor-extractor-rust` | `Extractor` | Emit Rust module, function, and symbol definitions. |
 | `athanor-linker-api` | `Linker` | Link OpenAPI operations to Rust functions, Markdown documentation, and component schemas. |
-| `athanor-linker-markdown` | `Linker` | Link Markdown file/page/section containment. |
-| `athanor-checker-markdown` | `Checker` | Diagnose basic Markdown documentation structure. |
+| `athanor-linker-markdown` | `Linker` | Link Markdown containment and exact frontmatter entity/concept references. |
+| `athanor-checker-markdown` | `Checker` | Diagnose Markdown structure, unresolved frontmatter references, and duplicate document identities. |
 | `athanor-checker-api` | `Checker` | Diagnose missing API implementation/documentation links and unresolved local schema references. |
 | `athanor-projector-wiki` | `Projector` | Project the latest canonical snapshot into a neutral Markdown wiki. |
 | `athanor-projector-html` | `Projector` | Project the latest canonical snapshot into a self-contained HTML report. |

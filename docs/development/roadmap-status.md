@@ -601,6 +601,55 @@ Purpose:
 - enables GFM extensions explicitly
 - advances persisted index state to v7 so existing projects rebuild Markdown structure once
 
+### Markdown Documentation Frontmatter
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-extractor-markdown/src/frontmatter.rs`
+- `crates/athanor-extractor-markdown/src/lib.rs`
+- `crates/athanor-app/src/index_state.rs`
+- `docs/adapters/extractor-markdown.md`
+
+Purpose:
+
+- parses optional leading YAML frontmatter through adapter-private `serde_yaml_ng`
+- supports explicit `doc://` page identity that remains stable across source path moves
+- applies explicit language to documentation pages and sections
+- classifies documentation as `editable` or `generated`
+- records documentation kind, source language, concepts, entity references, verification snapshot, and status
+- excludes frontmatter bytes from CommonMark heading extraction while preserving full-file evidence lines
+- keeps path-based identity and `markdown` language compatibility when frontmatter is absent
+- rejects malformed/unclosed frontmatter and invalid explicit identity/language values
+- advances persisted index state to v9 so existing projects rebuild documentation metadata once
+
+### Markdown Frontmatter Reference Linking And Diagnostics
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-domain/src/model.rs`
+- `crates/athanor-linker-markdown/src/lib.rs`
+- `crates/athanor-checker-markdown/src/lib.rs`
+- `crates/athanor-app/src/check.rs`
+- `crates/athanor-app/src/index_state.rs`
+
+Purpose:
+
+- adds canonical `documentation_reference_unresolved` and `duplicate_documentation_id` diagnostic kinds
+- resolves exact stable keys declared in Markdown `entities` and `concepts` frontmatter lists
+- emits verified generic `documents` relations from documentation pages to resolved targets
+- attaches declaration evidence and union ownership from page and target sources
+- rebuilds explicit relations when either side is affected
+- diagnoses unresolved references and ambiguous duplicate document identities
+- uses candidate-aware diagnostic ownership so target additions, removals, and renames invalidate findings
+- includes both new diagnostic kinds in `ath check docs`
+- lets API consistency checks accept verified generic `documents` relations from frontmatter
+- verifies incremental resolved → unresolved → resolved transitions when only the target file changes
+- advances persisted index state to v10 so existing projects build explicit relations and diagnostics once
+
 ### Replaceable OpenAPI Parser Backends
 
 Status: verified.
@@ -738,15 +787,16 @@ None.
 Recommended next task:
 
 ```text
-Add explicit documentation frontmatter extraction for stable identity, language, and editable/generated classification.
+Add frontmatter completeness policy and an `ath docs check` gate for editable documentation.
 ```
 
 Why:
 
-- Phase 3 now has JSONL, Markdown, and HTML outputs plus snapshot-consistent immutable publication.
-- The portable JSON pointer avoids platform-specific symlink privileges while preserving a final pointer-switch boundary.
-- Documentation entities already exist, but their identity and language are still inferred from paths and parser output.
-- Explicit frontmatter is the next Phase 4 contract needed before editable/generated documentation workflows and patch proposals.
+- Phase 3 has JSONL, Markdown, and HTML outputs plus snapshot-consistent immutable publication.
+- Markdown pages can declare stable identity, language, layer, type, references, and verification metadata.
+- Declared entity/concept references now become verified relations or actionable diagnostics.
+- Existing source Markdown remains backward compatible and therefore does not yet require frontmatter.
+- A configurable completeness policy and dedicated docs check gate are the next step before drift and patch workflows.
 
 ## Verification Commands
 

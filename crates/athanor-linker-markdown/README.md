@@ -1,12 +1,13 @@
 # athanor-linker-markdown
 
-Markdown containment linker adapter.
+Markdown containment and explicit-reference linker adapter.
 
 Implements: `Linker`
 
 ## What It Emits
 
 - `RelationKind::Contains`
+- `RelationKind::Documents`
 
 Relations include ownership copied from the related file/page/section entities.
 
@@ -15,11 +16,18 @@ Current relations:
 ```text
 file contains documentation_page
 documentation_page contains documentation_section
+documentation_page documents declared entity/concept
 ```
+
+`documents` relations come from exact stable keys declared in Markdown frontmatter `entities` and
+`concepts` lists. They are verified, include declaration evidence, and are owned by both the page
+and target source paths.
 
 ## Inputs
 
-Entities emitted by file and Markdown extractors. The adapter receives full extracted context plus an `AffectedSubset` and emits containment relations only for affected documentation paths.
+Entities emitted by all extractors. The adapter receives full extracted context plus an
+`AffectedSubset`, emits containment relations for affected documentation paths, and rebuilds an
+explicit relation when either its page or target is affected.
 
 ## Side Effects
 

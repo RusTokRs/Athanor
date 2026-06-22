@@ -24,12 +24,12 @@ cargo run -p ath -- index . --validate-only
 
 1. `athanor-source-fs` discovers project files and returns `SourceFile` values.
 2. `athanor-extractor-basic` creates file entities and `file_discovered` facts.
-3. `athanor-extractor-markdown` parses CommonMark/GFM heading events with `pulldown-cmark`, then creates documentation page/section entities and `doc_section_found` facts.
+3. `athanor-extractor-markdown` parses optional YAML frontmatter plus CommonMark/GFM heading events, then creates identity/language-aware documentation page/section entities and `doc_section_found` facts.
 4. `athanor-extractor-openapi` dispatches OpenAPI 3.1 to `oas3` and 3.0 to a maintained-YAML legacy parser, then extracts operations, component schemas, and normalized request/response schema uses.
 5. `athanor-extractor-rust` parses Rust files into module, function, and symbol entities plus `symbol_defined` facts.
-6. `athanor-linker-markdown` creates `contains` relations between files, documentation pages, and sections.
+6. `athanor-linker-markdown` creates `contains` relations plus verified `documents` relations for exact entity/concept keys declared in Markdown frontmatter.
 7. `athanor-linker-api` links OpenAPI operations to matching Rust handlers, Markdown API documentation, and same-document request/response component schemas.
-8. `athanor-checker-markdown` creates documentation structure diagnostics.
+8. `athanor-checker-markdown` creates documentation structure, unresolved-reference, and duplicate-identity diagnostics.
 9. `athanor-checker-api` diagnoses OpenAPI operations without linked implementations or documentation and local component schema references that did not resolve.
 10. `RuntimeBuilder` discovers adapter plugin manifests from `.athanor/adapters/*.json` and `.athanor/plugins/*/athanor-adapter.json`, then applies enabled adapter entries that match known app-layer factory ids.
 11. `RuntimeBuilder` builds the configured `IndexPipeline` from an `AdapterRegistry`.
@@ -262,7 +262,7 @@ checkers:
   snapshots/<snapshot-id>/
 ```
 
-Generated JSONL files and Markdown wiki pages under `.athanor/generated/current` are read models. They are not the source of truth and may be deleted and rebuilt. `validation-report.json` is written only for adapter contract validation failures and is removed after a successful index run. `validation-result.json` is written only for successful `--validate-only` runs and is removed after validation failures or normal index runs. Durable canonical snapshots live under `.athanor/store/canonical/jsonl`. The state file records the last indexed file paths, content hashes, language hints, and snapshot id so later runs can classify changed, unchanged, and removed files. Its schema is versioned so changes to built-in extraction, linking, or checking semantics can force a safe one-time full rebuild; the OpenAPI parser-adapter migration advances it to `athanor.index_state.v8`.
+Generated JSONL files and Markdown wiki pages under `.athanor/generated/current` are read models. They are not the source of truth and may be deleted and rebuilt. `validation-report.json` is written only for adapter contract validation failures and is removed after a successful index run. `validation-result.json` is written only for successful `--validate-only` runs and is removed after validation failures or normal index runs. Durable canonical snapshots live under `.athanor/store/canonical/jsonl`. The state file records the last indexed file paths, content hashes, language hints, and snapshot id so later runs can classify changed, unchanged, and removed files. Its schema is versioned so changes to built-in extraction, linking, or checking semantics can force a safe one-time full rebuild; frontmatter reference linking/checking advances it to `athanor.index_state.v10`.
 
 ## Current Limitations
 
@@ -277,6 +277,7 @@ Generated JSONL files and Markdown wiki pages under `.athanor/generated/current`
 - The current CLI still performs a full source discovery pass before classifying changed files.
 - The JSONL canonical store is a local development store, not a concurrent multi-process database.
 - Older canonical snapshots without ownership metadata are pruned by entity source paths and evidence source files.
+- Frontmatter references resolve by exact stable key only; aliases, fuzzy matching, external concept registries, and reference-type constraints are not implemented.
 - Wiki and HTML projection currently rebuild complete outputs and are selected directly by app services rather than projector plugin discovery.
 - The HTML report is a static overview without client-side filtering or per-entity detail pages.
 - Generation numbering and pointer updates are local single-process operations; concurrent generation publishers and garbage collection are not implemented.
@@ -284,4 +285,4 @@ Generated JSONL files and Markdown wiki pages under `.athanor/generated/current`
 
 ## Next Good Step
 
-Start Phase 4 with explicit documentation frontmatter extraction for stable document identity, language, and editable/generated classification.
+Add frontmatter completeness policy and an `ath docs check` gate for editable documentation.

@@ -10,8 +10,8 @@ rust-version.workspace = true
 async-trait.workspace = true
 athanor-core = { path = "../athanor-core" }
 athanor-domain = { path = "../athanor-domain" }
+athanor-extractor-basic = { path = "../athanor-extractor-basic" }
 serde_json.workspace = true
 
 [dev-dependencies]
-athanor-extractor-basic = { path = "../athanor-extractor-basic" }
 tokio.workspace = true

@@ -62,7 +62,9 @@ impl Checker for ApiConsistencyChecker {
             let documented = input.relations.iter().any(|relation| {
                 matches!(
                     relation.kind,
-                    RelationKind::DocumentsApi | RelationKind::DocumentsOperation
+                    RelationKind::Documents
+                        | RelationKind::DocumentsApi
+                        | RelationKind::DocumentsOperation
                 ) && relation.to == endpoint.id
             });
             let affected_relations = input
@@ -80,6 +82,7 @@ impl Checker for ApiConsistencyChecker {
                     matches!(
                         relation.kind,
                         RelationKind::ImplementedBy
+                            | RelationKind::Documents
                             | RelationKind::DocumentsApi
                             | RelationKind::DocumentsOperation
                     )
@@ -489,7 +492,7 @@ mod tests {
         );
         let documentation = relation(
             "rel_documentation",
-            RelationKind::DocumentsOperation,
+            RelationKind::Documents,
             &document,
             &endpoint,
         );

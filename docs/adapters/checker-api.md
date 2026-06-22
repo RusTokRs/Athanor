@@ -9,6 +9,9 @@ without linked Markdown documentation, and local request/response component `$re
 the corresponding schema relation. It consumes canonical entities and relations only; it does not
 parse source files itself.
 
+Documentation is satisfied by `documents_api`, `documents_operation`, or a verified generic
+`documents` relation such as an exact Markdown frontmatter declaration.
+
 Diagnostics include OpenAPI evidence and ownership covering the endpoint plus current candidate source files. Relevant function, documentation, and relation changes trigger reevaluation. File additions and removals force a full rebuild at the pipeline level to keep absence diagnostics correct.
 
 The schema checks are intentionally structural: they verify that a same-document component

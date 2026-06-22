@@ -382,6 +382,82 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn refreshes_frontmatter_relations_and_diagnostics_when_only_target_changes() {
+        let root = std::env::temp_dir().join(format!(
+            "athanor-frontmatter-incremental-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(root.join("docs")).unwrap();
+        fs::write(
+            root.join("docs/auth.md"),
+            "---\nid: doc://product/auth\nentities:\n  - api://POST:/login\n---\n# Auth\n",
+        )
+        .unwrap();
+        write_openapi_path(&root, "/login");
+
+        index_project(IndexOptions {
+            root: root.clone(),
+            validation_report: None,
+            validation_result: None,
+            validate_only: false,
+        })
+        .await
+        .unwrap();
+        let relations =
+            fs::read_to_string(root.join(".athanor/generated/current/jsonl/relations.jsonl"))
+                .unwrap();
+        let diagnostics =
+            fs::read_to_string(root.join(".athanor/generated/current/jsonl/diagnostics.jsonl"))
+                .unwrap();
+        assert!(relations.contains("markdown_frontmatter_reference"));
+        assert!(!diagnostics.contains("documentation_reference_unresolved"));
+
+        write_openapi_path(&root, "/signin");
+        let changed = index_project(IndexOptions {
+            root: root.clone(),
+            validation_report: None,
+            validation_result: None,
+            validate_only: false,
+        })
+        .await
+        .unwrap();
+        assert_eq!(changed.changed_files, 1);
+        let diagnostics =
+            fs::read_to_string(root.join(".athanor/generated/current/jsonl/diagnostics.jsonl"))
+                .unwrap();
+        assert!(diagnostics.contains("documentation_reference_unresolved"));
+
+        write_openapi_path(&root, "/login");
+        index_project(IndexOptions {
+            root: root.clone(),
+            validation_report: None,
+            validation_result: None,
+            validate_only: false,
+        })
+        .await
+        .unwrap();
+        let diagnostics =
+            fs::read_to_string(root.join(".athanor/generated/current/jsonl/diagnostics.jsonl"))
+                .unwrap();
+        assert!(!diagnostics.contains("documentation_reference_unresolved"));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    fn write_openapi_path(root: &Path, path: &str) {
+        fs::write(
+            root.join("openapi.yaml"),
+            format!(
+                "openapi: 3.0.3\ninfo:\n  title: Test\n  version: 1.0.0\npaths:\n  {path}:\n    post:\n      operationId: login\n      responses:\n        '200':\n          description: ok\n"
+            ),
+        )
+        .unwrap();
+    }
+
+    #[tokio::test]
     async fn validates_without_writing_outputs_or_state() {
         let root = std::env::temp_dir().join(format!(
             "athanor-validate-only-test-{}",

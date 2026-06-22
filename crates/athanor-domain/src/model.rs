@@ -136,6 +136,8 @@ pub enum EvidenceStatus {
 pub enum DiagnosticKind {
     EmptyDocumentationPage,
     DocumentationPageMissingTitle,
+    DocumentationReferenceUnresolved,
+    DuplicateDocumentationId,
     MissingDocumentation,
     StaleDocumentation,
     OpenapiMismatch,

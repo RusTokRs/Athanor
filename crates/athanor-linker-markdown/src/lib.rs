@@ -4,6 +4,7 @@ use athanor_domain::{
     Entity, EntityKind, Evidence, EvidenceStatus, Ownership, Relation, RelationId, RelationKind,
     RelationStatus, SnapshotId,
 };
+use athanor_extractor_basic::stable_hash;
 use serde_json::json;
 
 #[derive(Debug, Clone, Default)]
@@ -71,8 +72,56 @@ impl Linker for MarkdownContainmentLinker {
             }
         }
 
+        let affected_ids = input
+            .affected
+            .entities
+            .iter()
+            .map(|entity| &entity.id)
+            .collect::<std::collections::HashSet<_>>();
+        let all_pages = input
+            .entities
+            .iter()
+            .filter(|entity| entity.kind == EntityKind::DocumentationPage);
+        for page in all_pages {
+            for (reference_type, stable_key) in declared_references(page) {
+                let targets = input
+                    .entities
+                    .iter()
+                    .filter(|entity| entity.stable_key.0 == stable_key)
+                    .collect::<Vec<_>>();
+                if let [target] = targets.as_slice() {
+                    let target = *target;
+                    if affected_ids.contains(&page.id) || affected_ids.contains(&target.id) {
+                        relations.push(documents_relation(
+                            &input.snapshot,
+                            page,
+                            target,
+                            self.name(),
+                            reference_type,
+                        ));
+                    }
+                }
+            }
+        }
+
         Ok(relations)
     }
+}
+
+fn declared_references(entity: &Entity) -> Vec<(&'static str, &str)> {
+    ["entities", "concepts"]
+        .into_iter()
+        .flat_map(|field| {
+            entity
+                .payload
+                .get(field)
+                .and_then(serde_json::Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(serde_json::Value::as_str)
+                .map(move |stable_key| (field, stable_key))
+        })
+        .collect()
 }
 
 fn matching_file<'a>(page: &Entity, files: &'a [&Entity]) -> Option<&'a Entity> {
@@ -120,6 +169,39 @@ fn contains_relation(
     }
 }
 
+fn documents_relation(
+    snapshot: &SnapshotId,
+    page: &Entity,
+    target: &Entity,
+    linker: &str,
+    reference_type: &str,
+) -> Relation {
+    let id_material = format!(
+        "documents\0{}\0{}\0{reference_type}",
+        page.stable_key.0, target.stable_key.0
+    );
+    Relation {
+        id: RelationId(format!(
+            "rel_documents_{:016x}",
+            stable_hash(id_material.as_bytes())
+        )),
+        kind: RelationKind::Documents,
+        from: page.id.clone(),
+        to: target.id.clone(),
+        status: RelationStatus::Verified,
+        confidence: 1.0,
+        evidence: vec![evidence_for_declared_reference(page, linker)],
+        ownership: ownership_for_entities(page, target),
+        snapshot: snapshot.clone(),
+        payload: json!({
+            "from": page.stable_key.0,
+            "to": target.stable_key.0,
+            "reason": "markdown_frontmatter_reference",
+            "reference_type": reference_type,
+        }),
+    }
+}
+
 fn ownership_for_entities(from: &Entity, to: &Entity) -> Vec<Ownership> {
     let mut ownership = from.ownership.clone();
 
@@ -149,15 +231,17 @@ fn evidence_for_entities(from: &Entity, to: &Entity, linker: &str) -> Evidence {
     }
 }
 
-fn stable_hash(bytes: &[u8]) -> u64 {
-    let mut hash = 0xcbf29ce484222325u64;
-
-    for byte in bytes {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x100000001b3);
+fn evidence_for_declared_reference(page: &Entity, linker: &str) -> Evidence {
+    let source = page.source.as_ref();
+    Evidence {
+        source_file: source.map(|source| source.path.clone()),
+        line_start: source.and_then(|source| source.line_start),
+        line_end: source.and_then(|source| source.line_end),
+        extractor: Some(linker.to_string()),
+        commit_hash: None,
+        confidence: 1.0,
+        status: EvidenceStatus::Verified,
     }
-
-    hash
 }
 
 #[cfg(test)]
@@ -261,6 +345,88 @@ mod tests {
         assert_eq!(relations.len(), 1);
         assert_eq!(relations[0].from, auth_file.id);
         assert_eq!(relations[0].to, auth_page.id);
+    }
+
+    #[tokio::test]
+    async fn links_explicit_frontmatter_references_as_verified_documents_relations() {
+        let mut page = entity(
+            "ent_doc_page_auth",
+            "doc://docs/auth.md",
+            EntityKind::DocumentationPage,
+            "docs/auth.md",
+        );
+        page.payload = json!({
+            "entities": ["api://POST:/login"],
+            "concepts": []
+        });
+        let endpoint = entity(
+            "ent_endpoint_login",
+            "api://POST:/login",
+            EntityKind::ApiEndpoint,
+            "openapi.yaml",
+        );
+
+        let relations = MarkdownContainmentLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: vec![page.clone(), endpoint.clone()],
+                facts: Vec::new(),
+                affected: athanor_core::AffectedSubset::from_extracted(
+                    vec![page.clone()],
+                    Vec::new(),
+                ),
+            })
+            .await
+            .unwrap();
+
+        let relation = relations
+            .iter()
+            .find(|relation| relation.kind == RelationKind::Documents)
+            .unwrap();
+        assert_eq!(relation.from, page.id);
+        assert_eq!(relation.to, endpoint.id);
+        assert_eq!(relation.status, RelationStatus::Verified);
+        assert_eq!(relation.payload["reference_type"], "entities");
+        assert_eq!(relation.ownership.len(), 2);
+        assert_eq!(
+            relation.evidence[0].source_file.as_deref(),
+            Some("docs/auth.md")
+        );
+    }
+
+    #[tokio::test]
+    async fn rebuilds_explicit_relation_when_only_target_is_affected() {
+        let mut page = entity(
+            "ent_doc_page_auth",
+            "doc://docs/auth.md",
+            EntityKind::DocumentationPage,
+            "docs/auth.md",
+        );
+        page.payload = json!({ "entities": ["api://POST:/login"] });
+        let endpoint = entity(
+            "ent_endpoint_login",
+            "api://POST:/login",
+            EntityKind::ApiEndpoint,
+            "openapi.yaml",
+        );
+
+        let relations = MarkdownContainmentLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: vec![page, endpoint.clone()],
+                facts: Vec::new(),
+                affected: athanor_core::AffectedSubset::from_extracted(vec![endpoint], Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(
+            relations
+                .iter()
+                .filter(|relation| relation.kind == RelationKind::Documents)
+                .count(),
+            1
+        );
     }
 
     fn entity(id: &str, stable_key: &str, kind: EntityKind, path: &str) -> Entity {

@@ -155,12 +155,14 @@ Status: replacement completed and verified.
 The unmaintained `serde_yaml` dependency has been removed. The implemented direction is:
 
 - use the YAML backend selected by `oas3` inside the OpenAPI 3.1 parser adapter
-- use `serde_yaml_ng` for preflight normalization and the OpenAPI 3.0 legacy parser
+- use `serde_yaml_ng` for preflight normalization, the OpenAPI 3.0 legacy parser, and the
+  adapter-private Markdown frontmatter contract
 - do not expose YAML-library values outside parser adapters
 
-The current compatibility corpus covers OpenAPI 3.0.3, 3.1.0, and 3.1.1 in YAML and JSON. YAML
-anchors, aliases, tags, duplicate-key policy, and detailed error-location parity remain follow-up
-contract cases before generic YAML support expands beyond OpenAPI ingestion.
+The current compatibility corpus covers OpenAPI 3.0.3, 3.1.0, and 3.1.1 in YAML and JSON. Markdown
+frontmatter tests cover CRLF delimiters, body offsets, malformed YAML, and missing closing
+delimiters. YAML anchors, aliases, tags, duplicate-key policy, and detailed error-location parity
+remain follow-up contract cases before broader generic YAML ingestion.
 
 Projects:
 

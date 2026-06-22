@@ -8,12 +8,20 @@ Implements: `Checker`
 
 - `DiagnosticKind::DocumentationPageMissingTitle`
 - `DiagnosticKind::EmptyDocumentationPage`
+- `DiagnosticKind::DocumentationReferenceUnresolved`
+- `DiagnosticKind::DuplicateDocumentationId`
 
 Diagnostics include ownership copied from the diagnosed documentation page entity.
 
 ## Inputs
 
-Canonical entities and relations from the current pipeline. The adapter receives full extracted context plus an `AffectedSubset` and evaluates only affected documentation pages and affected containment relations.
+Canonical entities and relations from the current pipeline. Structure rules evaluate affected
+documentation pages. Frontmatter reference and identity rules use full canonical context whenever
+the affected subset is non-empty.
+
+Unresolved and duplicate diagnostics use candidate-aware ownership across the current entity
+registry. This invalidates them when a source changes that could introduce, remove, or rename the
+referenced target.
 
 This checker does not read files directly.
 

@@ -181,7 +181,9 @@ dependencies = [
  "athanor-domain",
  "athanor-extractor-basic",
  "pulldown-cmark",
+ "serde",
  "serde_json",
+ "serde_yaml_ng",
  "tokio",
 ]
 

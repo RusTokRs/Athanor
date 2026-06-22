@@ -133,6 +133,8 @@ fn diagnostic_matches_scope(kind: &DiagnosticKind, scope: DiagnosticScope) -> bo
                 | DiagnosticKind::DocumentationPageMissingTitle
                 | DiagnosticKind::MissingDocumentation
                 | DiagnosticKind::StaleDocumentation
+                | DiagnosticKind::DocumentationReferenceUnresolved
+                | DiagnosticKind::DuplicateDocumentationId
                 | DiagnosticKind::OrphanDoc
                 | DiagnosticKind::TranslationOutdated
         ),
@@ -204,6 +206,12 @@ mod tests {
                 DiagnosticStatus::Open,
             ),
             diagnostic(
+                "diag_docs_reference",
+                DiagnosticKind::DocumentationReferenceUnresolved,
+                Severity::Medium,
+                DiagnosticStatus::Open,
+            ),
+            diagnostic(
                 "diag_api",
                 DiagnosticKind::ApiMethodMismatch,
                 Severity::High,
@@ -214,7 +222,7 @@ mod tests {
         let report =
             build_check_report("snap_test".to_string(), DiagnosticScope::Docs, &diagnostics);
 
-        assert_eq!(report.counts.total, 1);
+        assert_eq!(report.counts.total, 2);
         assert_eq!(report.diagnostics[0].id.0, "diag_docs");
     }
 
