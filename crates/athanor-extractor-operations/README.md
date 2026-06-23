@@ -17,26 +17,40 @@ The current slice parses:
   filenames such as `docker-compose.yml`, `compose.yaml`, and `*.compose.yml`
 - GitHub Actions workflow, job, and step declarations from `.github/workflows/*.yml` and
   `.github/workflows/*.yaml`
+- Cargo package manifests from `Cargo.toml`
+- Kubernetes YAML manifests from common deployment paths and filenames
+- SQL database migrations from common migration paths and filenames
 
 Entities:
 
 - `EntityKind::EnvVar` with `env://<NAME>` stable keys
+- `EntityKind::DbMigration` for SQL migration files
+- `EntityKind::DbTable` for tables declared by SQL migrations
+- `EntityKind::Package` for Cargo packages and workspaces
+- `EntityKind::Dependency` for Cargo dependencies, dev-dependencies, build-dependencies,
+  workspace dependencies, and target-specific dependencies
 - `EntityKind::ScriptCommand` for Makefile targets and Dockerfile `RUN`, `CMD`, and `ENTRYPOINT`
   instructions
 - `EntityKind::ScriptCommand` for shell function declarations
 - `EntityKind::ScriptCommand` for docker-compose service `command` and `entrypoint` declarations
 - `EntityKind::ScriptCommand` for GitHub Actions workflows, jobs, `run` steps, and `uses` steps
+- `EntityKind::ScriptCommand` for Kubernetes container `command` and `args` declarations
 - `EntityKind::DockerService` for Dockerfile stages and docker-compose services
+- `EntityKind::DockerService` for Kubernetes workloads, services, ConfigMaps, Secrets, and related
+  manifest resources
 
 Facts:
 
 - `FactKind::EnvVarUsed` from the environment variable entity to the canonical file entity
+- `FactKind::MigrationCreatesTable` from SQL migration entities to table entities
+- `FactKind::SymbolDefined` from Cargo package, workspace, and dependency entities to the
+  canonical file entity
 - `FactKind::SymbolDefined` from operational command/stage entities to the canonical file entity
 
 Environment fact payloads mark the declaration source as `dotenv`, `dockerfile`, `shell`,
-`docker_compose`, or `github_actions`. Raw values are not stored, so real `.env`, Dockerfile
-defaults, exported shell values, compose environment values, or workflow environment values do not
-leak secrets into canonical snapshots.
+`docker_compose`, `github_actions`, or `kubernetes`. Raw values are not stored, so real `.env`,
+Dockerfile defaults, exported shell values, compose environment values, workflow environment values,
+or Kubernetes Secret/ConfigMap/container environment values do not leak into canonical snapshots.
 
 ## Inputs
 
@@ -61,9 +75,20 @@ None. The adapter does not run commands, use the network, or modify project file
 - GitHub Actions parsing is limited to workflow name, top-level `env`, jobs, job `runs-on`, job
   `env`, and step `run`, `uses`, and `env` declarations. It does not evaluate expressions,
   permissions, matrices, reusable workflows, service containers, caches, artifacts, or secrets.
+- Cargo manifest parsing is limited to package/workspace metadata and direct dependency sections.
+  It does not resolve inherited workspace fields, features, target expressions, patches,
+  replacements, profiles, or build scripts.
+- Kubernetes parsing is limited to YAML documents with `kind` and `metadata.name`. It recognizes
+  container images, container `command`/`args`, container `env`, and ConfigMap/Secret `data` keys,
+  but it does not evaluate Helm/Kustomize templates, `envFrom`, projected volumes, probes,
+  selectors, RBAC semantics, or rollout strategy.
+- SQL migration parsing recognizes simple `CREATE TABLE [IF NOT EXISTS] [schema.]table`
+  statements. It does not parse quoted dotted identifiers, column definitions, constraints,
+  `ALTER TABLE`, views, indexes, triggers, functions, down migrations, or ORM-specific migration
+  metadata.
 - Variable interpolation, shell command substitution, multiline values, and comments inside quoted
   values are not interpreted.
-- deployment configs and runbooks remain separate Phase 5 work.
+- runtime configuration and runbooks remain separate Phase 5 work.
 
 ## Test
 

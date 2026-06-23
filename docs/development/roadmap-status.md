@@ -1319,6 +1319,80 @@ Purpose:
 - advances persisted index state to v17 so existing projects rebuild operational knowledge once
 - keeps expression evaluation, permissions, matrices, reusable workflows, service containers, caches, artifacts, secrets, deployment, and runbook extraction deferred
 
+### Cargo Manifest Operational Extraction
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-extractor-operations`
+- `crates/athanor-extractor-operations/README.md`
+- `crates/athanor-app/src/index_state.rs`
+- `docs/adapters/extractor-operations.md`
+- `docs/architecture/adapters.md`
+- `docs/architecture/pipeline.md`
+
+Purpose:
+
+- extends the built-in `builtin.extractor.operations` adapter to `Cargo.toml`
+- parses Cargo package declarations as `Package` entities
+- parses Cargo workspace declarations and workspace members as `Package` entities
+- parses dependencies, dev-dependencies, build-dependencies, workspace dependencies, and target-specific dependencies as `Dependency` entities
+- records dependency version, path, git, registry, package alias, optional, and feature metadata when present
+- emits evidence-backed `symbol_defined` facts for package, workspace, and dependency declarations
+- advances persisted index state to v18 so existing projects rebuild operational knowledge once
+- keeps inherited workspace field resolution, target expression evaluation, patches, replacements, profiles, build scripts, other deployment configs, database migrations, runtime configuration, and runbook extraction deferred
+
+### Kubernetes Deployment Manifest Extraction
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-extractor-operations`
+- `crates/athanor-extractor-operations/README.md`
+- `crates/athanor-app/src/index_state.rs`
+- `docs/adapters/extractor-operations.md`
+- `docs/architecture/adapters.md`
+- `docs/architecture/pipeline.md`
+
+Purpose:
+
+- extends the built-in `builtin.extractor.operations` adapter to common Kubernetes YAML manifest paths and filenames
+- parses YAML documents with `kind` and `metadata.name` as deployment/service knowledge
+- records Kubernetes workloads, services, ConfigMaps, Secrets, and related manifest resources as `DockerService` entities
+- records container images and container names in resource payloads
+- parses container `command` and `args` declarations as `ScriptCommand` entities
+- parses container `env` declarations and ConfigMap/Secret `data` keys as redacted `EnvVar` knowledge
+- emits evidence-backed `symbol_defined` facts for Kubernetes resources and container commands
+- emits evidence-backed `env_var_used` facts for Kubernetes environment declarations
+- avoids storing raw Kubernetes Secret, ConfigMap, or container environment values in canonical snapshots
+- advances persisted index state to v19 so existing projects rebuild operational knowledge once
+- keeps Helm/Kustomize evaluation, `envFrom`, projected volumes, probes, selectors, RBAC semantics, rollout strategy, advanced database migration semantics, runtime configuration, and runbook extraction deferred
+
+### SQL Database Migration Extraction
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-extractor-operations`
+- `crates/athanor-extractor-operations/README.md`
+- `crates/athanor-app/src/index_state.rs`
+- `docs/adapters/extractor-operations.md`
+- `docs/architecture/adapters.md`
+- `docs/architecture/pipeline.md`
+
+Purpose:
+
+- extends the built-in `builtin.extractor.operations` adapter to SQL migration files in common migration paths and filenames
+- parses migration files as `DbMigration` entities
+- parses simple `CREATE TABLE [IF NOT EXISTS] [schema.]table` statements as `DbTable` entities
+- emits evidence-backed `symbol_defined` facts for SQL migration files
+- emits evidence-backed `migration_creates_table` facts from migrations to created tables
+- advances persisted index state to v20 so existing projects rebuild operational knowledge once
+- keeps quoted dotted identifiers, column details, constraints, `ALTER TABLE`, views, indexes, triggers, functions, down migrations, ORM-specific migration metadata, runtime configuration, and runbook extraction deferred
+
 ## In Progress
 
 None.
@@ -1333,7 +1407,7 @@ Status: planned.
 
 Scope:
 
-- extract operational entities from Cargo/package manifests, deployment configs, database migrations, and runtime configuration
+- extract operational entities from runtime configuration
 - add script, deployment, and runbook consistency checkers
 - extend environment checks beyond Rust, dotenv, and Dockerfile declarations to runtime configuration coverage
 - expand generated operations documentation drafts beyond environment variables

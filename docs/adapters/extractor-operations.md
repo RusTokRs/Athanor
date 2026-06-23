@@ -14,10 +14,11 @@ Crate: `athanor-extractor-operations`
 Port: `Extractor`
 
 The operations extractor reads operational configuration files and emits canonical operations
-knowledge. The current slice parses dotenv-style files, Makefile targets, Dockerfile stages,
-commands and environment declarations, shell script functions plus exported environment variables,
-docker-compose services, commands, and environment declarations, and GitHub Actions workflow jobs,
-steps, actions, and environment declarations.
+knowledge. The current slice parses dotenv-style files, Cargo package manifests, Makefile targets,
+Dockerfile stages, commands and environment declarations, shell script functions plus exported
+environment variables, docker-compose services, commands, and environment declarations, GitHub
+Actions workflow jobs, steps, actions, and environment declarations, Kubernetes YAML deployment
+manifests, and SQL database migrations.
 
 ## Inputs
 
@@ -25,12 +26,17 @@ Reads `SourceFile` values whose project-relative file name matches one of these 
 operations files and whose content is UTF-8 text:
 
 - `.env`, `.env.example`, `*.env`, and `*.env.example`
+- `Cargo.toml`
 - `Makefile`, `makefile`, and `*.mk`
 - `Dockerfile` and `*.Dockerfile`
 - `*.sh`, `*.bash`, and `*.zsh`
 - `docker-compose.yml`, `docker-compose.yaml`, `compose.yml`, `compose.yaml`, `*.compose.yml`,
   and `*.compose.yaml`
 - `.github/workflows/*.yml` and `.github/workflows/*.yaml`
+- Kubernetes-style YAML files in `k8s/`, `kubernetes/`, `deploy/`, or `deployments/`, and common
+  manifest filenames such as `deployment.yaml`, `service.yaml`, `configmap.yaml`, and `secret.yaml`
+- SQL migration files in `migrations/`, `db/`, `sqlx/`, `diesel/`, or `prisma/`, plus migration-like
+  `.sql` filenames
 
 Supported dotenv declarations:
 
@@ -43,6 +49,22 @@ Supported Makefile declarations:
 
 ```text
 target: prerequisite
+```
+
+Supported Cargo manifest declarations:
+
+```toml
+[package]
+name = "example"
+version = "0.1.0"
+
+[workspace]
+members = ["crates/example"]
+
+[dependencies]
+serde = "1"
+tokio = { version = "1", features = ["macros"] }
+local = { path = "../local" }
 ```
 
 Supported Dockerfile declarations:
@@ -97,16 +119,54 @@ jobs:
           TEST_KEY:
 ```
 
+Supported Kubernetes declarations:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+spec:
+  template:
+    spec:
+      containers:
+        - name: web
+          image: example/api:latest
+          command: ["ath", "serve"]
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+              secretKeyRef:
+                  name: api-secret
+                  key: database-url
+```
+
+Supported SQL migration declarations:
+
+```sql
+CREATE TABLE IF NOT EXISTS public.users (
+  id uuid primary key
+);
+```
+
 ## Outputs
 
 Entities:
 
 - `EntityKind::EnvVar` with stable keys like `env://DATABASE_URL`
+- `EntityKind::DbMigration` for SQL migration files
+- `EntityKind::DbTable` for tables declared by SQL migrations
+- `EntityKind::Package` for Cargo packages and workspaces
+- `EntityKind::Dependency` for Cargo dependencies, dev-dependencies, build-dependencies,
+  workspace dependencies, and target-specific dependencies
 - `EntityKind::ScriptCommand` for Makefile targets and Dockerfile command instructions
 - `EntityKind::ScriptCommand` for shell script functions
 - `EntityKind::ScriptCommand` for docker-compose service `command` and `entrypoint` declarations
 - `EntityKind::ScriptCommand` for GitHub Actions workflows, jobs, `run` steps, and `uses` steps
+- `EntityKind::ScriptCommand` for Kubernetes container `command` and `args` declarations
 - `EntityKind::DockerService` for Dockerfile stages and docker-compose services
+- `EntityKind::DockerService` for Kubernetes workloads, services, ConfigMaps, Secrets, and related
+  manifest resources
 
 Facts:
 
@@ -115,6 +175,9 @@ Facts:
 - `FactKind::EnvVarUsed` with `mechanism = "shell"` and `source_kind = "shell"`
 - `FactKind::EnvVarUsed` with `mechanism = "docker_compose"` and `source_kind = "docker_compose"`
 - `FactKind::EnvVarUsed` with `mechanism = "github_actions"` and `source_kind = "github_actions"`
+- `FactKind::EnvVarUsed` with `mechanism = "kubernetes"` and `source_kind = "kubernetes"`
+- `FactKind::MigrationCreatesTable` from SQL migration entities to table entities
+- `FactKind::SymbolDefined` for Cargo packages, workspaces, and dependencies
 - `FactKind::SymbolDefined` for Makefile targets, Dockerfile stages, Dockerfile command
   instructions, shell functions, docker-compose services or service commands, and GitHub Actions
   workflow/job/step declarations
@@ -151,7 +214,19 @@ declaration.
 - GitHub Actions parsing is limited to workflow name, top-level `env`, jobs, job `runs-on`, job
   `env`, and step `run`, `uses`, and `env` declarations. It does not evaluate expressions,
   permissions, matrices, reusable workflows, service containers, caches, artifacts, or secrets.
-- deployment configs and runbooks remain separate Phase 5 work.
+- Cargo manifest parsing is limited to package/workspace metadata and direct dependency sections.
+  It records dependency version/path/git/registry/package/optional/features metadata where present,
+  but it does not resolve inherited workspace fields, target expressions, patches, replacements,
+  profiles, or build scripts.
+- Kubernetes parsing is limited to YAML documents with `kind` and `metadata.name`. It recognizes
+  container images, container `command`/`args`, container `env`, and ConfigMap/Secret `data` keys,
+  but it does not evaluate Helm/Kustomize templates, `envFrom`, projected volumes, probes,
+  selectors, RBAC semantics, or rollout strategy.
+- SQL migration parsing recognizes simple `CREATE TABLE [IF NOT EXISTS] [schema.]table`
+  statements. It does not parse quoted dotted identifiers, column definitions, constraints,
+  `ALTER TABLE`, views, indexes, triggers, functions, down migrations, or ORM-specific migration
+  metadata.
+- runtime configuration and runbooks remain separate Phase 5 work.
 
 ## Tests
 

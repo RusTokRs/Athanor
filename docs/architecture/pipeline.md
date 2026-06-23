@@ -58,7 +58,7 @@ flowchart TD
 2. `athanor-extractor-basic` creates file entities and `file_discovered` facts.
 3. `athanor-extractor-markdown` parses optional YAML frontmatter plus CommonMark/GFM heading events, then creates identity/language-aware documentation page/section entities and `doc_section_found` facts.
 4. `athanor-extractor-openapi` dispatches OpenAPI 3.1 to `oas3` and 3.0 to a maintained-YAML legacy parser, then extracts operations, component schemas, request/response schema uses, and media examples.
-5. `athanor-extractor-operations` parses dotenv, Makefile, Dockerfile, shell script, docker-compose, and GitHub Actions sources into environment-variable, script-command, and Docker service/stage knowledge.
+5. `athanor-extractor-operations` parses dotenv, Cargo manifest, Makefile, Dockerfile, shell script, docker-compose, GitHub Actions, Kubernetes YAML, and SQL migration sources into environment-variable, package/dependency, script-command, deployment/service, and database migration knowledge.
 6. `athanor-extractor-rust` parses Rust files into module, function, symbol, and environment-variable entities plus `symbol_defined` and `env_var_used` facts.
 7. `athanor-linker-markdown` creates `contains` relations plus verified `documents` relations for exact entity/concept keys declared in Markdown frontmatter.
 8. `athanor-linker-api` links OpenAPI operations to matching Rust handlers, Markdown API documentation, same-document request/response component schemas, and declared examples.
@@ -393,7 +393,7 @@ checkers:
   <docs-patch-id>.json
 ```
 
-Generated JSONL files and Markdown wiki pages under `.athanor/generated/current` are read models. They are not the source of truth and may be deleted and rebuilt. `validation-report.json` is written only for adapter contract validation failures and is removed after a successful index run. `validation-result.json` is written only for successful `--validate-only` runs and is removed after validation failures or normal index runs. Durable canonical snapshots live under `.athanor/store/canonical/jsonl`. The state file records the last indexed file paths, content hashes, language hints, and snapshot id so later runs can classify changed, unchanged, and removed files. Its schema is versioned so changes to built-in extraction, linking, or checking semantics can force a safe one-time full rebuild; operations extraction for dotenv, Makefile, Dockerfile, shell script, docker-compose, and GitHub Actions knowledge advances it to `athanor.index_state.v17`.
+Generated JSONL files and Markdown wiki pages under `.athanor/generated/current` are read models. They are not the source of truth and may be deleted and rebuilt. `validation-report.json` is written only for adapter contract validation failures and is removed after a successful index run. `validation-result.json` is written only for successful `--validate-only` runs and is removed after validation failures or normal index runs. Durable canonical snapshots live under `.athanor/store/canonical/jsonl`. The state file records the last indexed file paths, content hashes, language hints, and snapshot id so later runs can classify changed, unchanged, and removed files. Its schema is versioned so changes to built-in extraction, linking, or checking semantics can force a safe one-time full rebuild; operations extraction for dotenv, Cargo manifest, Makefile, Dockerfile, shell script, docker-compose, GitHub Actions, Kubernetes, and SQL migration knowledge advances it to `athanor.index_state.v20`.
 
 ## Current Limitations
 
@@ -418,4 +418,4 @@ Generated JSONL files and Markdown wiki pages under `.athanor/generated/current`
 
 ## Next Good Step
 
-Continue the operations adapter slice by extracting operational knowledge from deployment configs or package manifests.
+Continue the operations adapter slice by extracting operational knowledge from runtime configuration files.
