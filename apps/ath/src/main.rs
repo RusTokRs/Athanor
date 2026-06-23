@@ -8,11 +8,15 @@ use athanor_app::{
     DocsCheckOptions, DocsCheckReport, DocsDriftOptions, DocsDriftReport, DocsProposeFixOptions,
     DocsProposeFixReport, EntityExplanation, ExplainOptions, GenerationOptions, HtmlReportOptions,
     ImpactAnalysis, ImpactOptions, IndexOptions, IndexReport, InitOptions,
-    OperationsDocsCheckOptions, OperationsDocsCheckReport, OverviewOptions, RepositoryOverview,
-    WikiOptions, check_affected, check_docs, check_operations_docs, check_project, context_project,
-    diff_api_contracts, docs_apply_patch, docs_drift, docs_propose_fix, explain_project,
-    generate_project, impact_project, index_project, init_project, overview_project,
-    project_html_report, project_wiki, snapshot_api_contract,
+    OperationsDocsCheckOptions, OperationsDocsCheckReport, OverviewOptions, RepairApplyOptions,
+    RepairApplyReport, RepairCleanupOptions, RepairCleanupReport, RepairInspectOptions,
+    RepairInspectReport, RepairRecoverCanonicalOptions, RepairRecoverCanonicalReport,
+    RepairRegenerateOptions, RepairRegenerateReport, RepositoryOverview, WikiOptions, apply_repair,
+    check_affected, check_docs, check_operations_docs, check_project, cleanup_repair,
+    context_project, diff_api_contracts, docs_apply_patch, docs_drift, docs_propose_fix,
+    explain_project, generate_project, impact_project, index_project, init_project, inspect_repair,
+    overview_project, project_html_report, project_wiki, recover_canonical_repair,
+    regenerate_repair, snapshot_api_contract,
 };
 use athanor_domain::ContextLevel;
 use clap::{Parser, Subcommand, ValueEnum};
@@ -221,6 +225,11 @@ enum Command {
         #[arg(default_value = ".")]
         path: PathBuf,
     },
+    /// Inspect repairable local Athanor artifacts.
+    Repair {
+        #[command(subcommand)]
+        command: RepairCommand,
+    },
     /// Search the project's knowledge base.
     Search {
         /// Search query terms.
@@ -253,6 +262,79 @@ enum ReportCommand {
         /// Report output directory. Relative paths are resolved from the project root.
         #[arg(long)]
         output: Option<PathBuf>,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum RepairCommand {
+    /// Inspect generated pointers, snapshots, and orphaned artifacts without changing files.
+    Inspect {
+        /// Project root. Defaults to the current directory.
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Print the complete repair inspection as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Remove orphaned immutable canonical and generated artifacts.
+    Cleanup {
+        /// Project root. Defaults to the current directory.
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Print the planned removals without deleting anything.
+        #[arg(long)]
+        dry_run: bool,
+        /// Number of newest orphan canonical snapshots to retain.
+        #[arg(long, default_value_t = 0)]
+        keep_canonical: usize,
+        /// Number of newest orphan generated generations to retain.
+        #[arg(long, default_value_t = 0)]
+        keep_generated: usize,
+        /// Print the complete cleanup report as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Regenerate stale or missing coordinated generated outputs.
+    Regenerate {
+        /// Project root. Defaults to the current directory.
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Report whether regeneration is needed without writing outputs.
+        #[arg(long)]
+        dry_run: bool,
+        /// Print the complete regeneration report as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Recover a missing or invalid canonical latest pointer.
+    RecoverCanonical {
+        /// Project root. Defaults to the current directory.
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Report the selected snapshot without writing latest.json.
+        #[arg(long)]
+        dry_run: bool,
+        /// Print the complete recovery report as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Apply all deterministic local artifact repairs.
+    Apply {
+        /// Project root. Defaults to the current directory.
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Report the planned repair stages without writing or deleting artifacts.
+        #[arg(long)]
+        dry_run: bool,
+        /// Number of newest orphan canonical snapshots to retain during cleanup.
+        #[arg(long, default_value_t = 0)]
+        keep_canonical: usize,
+        /// Number of newest orphan generated generations to retain during cleanup.
+        #[arg(long, default_value_t = 0)]
+        keep_generated: usize,
+        /// Print the complete apply report as JSON.
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -728,6 +810,86 @@ async fn main() -> Result<()> {
                 report.current_pointer.display()
             );
         }
+        Some(Command::Repair { command }) => match command {
+            RepairCommand::Inspect { path, json } => {
+                let report = inspect_repair(RepairInspectOptions { root: path })?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                } else {
+                    print_repair_inspect_report(&report);
+                }
+            }
+            RepairCommand::Cleanup {
+                path,
+                dry_run,
+                keep_canonical,
+                keep_generated,
+                json,
+            } => {
+                let report = cleanup_repair(RepairCleanupOptions {
+                    root: path,
+                    dry_run,
+                    keep_canonical,
+                    keep_generated,
+                })?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                } else {
+                    print_repair_cleanup_report(&report);
+                }
+            }
+            RepairCommand::Regenerate {
+                path,
+                dry_run,
+                json,
+            } => {
+                let report = regenerate_repair(RepairRegenerateOptions {
+                    root: path,
+                    dry_run,
+                })
+                .await?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                } else {
+                    print_repair_regenerate_report(&report);
+                }
+            }
+            RepairCommand::RecoverCanonical {
+                path,
+                dry_run,
+                json,
+            } => {
+                let report = recover_canonical_repair(RepairRecoverCanonicalOptions {
+                    root: path,
+                    dry_run,
+                })?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                } else {
+                    print_repair_recover_canonical_report(&report);
+                }
+            }
+            RepairCommand::Apply {
+                path,
+                dry_run,
+                keep_canonical,
+                keep_generated,
+                json,
+            } => {
+                let report = apply_repair(RepairApplyOptions {
+                    root: path,
+                    dry_run,
+                    keep_canonical,
+                    keep_generated,
+                })
+                .await?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                } else {
+                    print_repair_apply_report(&report);
+                }
+            }
+        },
         Some(Command::Search {
             query,
             path,
@@ -943,6 +1105,181 @@ fn print_index_report(report: &IndexReport, action: &str) -> Result<()> {
         println!("wrote JSONL to {}", report.output_dir.display());
     }
     Ok(())
+}
+
+fn print_repair_inspect_report(report: &RepairInspectReport) {
+    println!("repair inspection: {:?}", report.status);
+    println!(
+        "canonical snapshots: {} total, latest {}",
+        report.canonical.snapshot_count,
+        report
+            .canonical
+            .latest_snapshot
+            .as_deref()
+            .unwrap_or("(none)")
+    );
+    println!(
+        "generated generations: {} total, current {}",
+        report.generated.generation_count,
+        report
+            .generated
+            .current_generation
+            .as_deref()
+            .unwrap_or("(none)")
+    );
+    println!(
+        "orphans: {} canonical snapshots, {} generated generations",
+        report.canonical.orphan_snapshots.len(),
+        report.generated.orphan_generations.len()
+    );
+    if report.issues.is_empty() {
+        println!("issues: none");
+    } else {
+        println!("issues:");
+        for issue in &report.issues {
+            println!(
+                "  - {} at {}: {}",
+                issue.code,
+                issue.path.display(),
+                issue.message
+            );
+        }
+    }
+}
+
+fn print_repair_cleanup_report(report: &RepairCleanupReport) {
+    println!(
+        "repair cleanup{}: {} artifact(s), {} retained",
+        if report.dry_run { " dry run" } else { "" },
+        report.removed.len(),
+        report.retained.len()
+    );
+    for removal in &report.removed {
+        println!(
+            "  - {:?} {} at {}",
+            removal.kind,
+            removal.id,
+            removal.path.display()
+        );
+    }
+    if report.remaining_issues.is_empty() {
+        println!("remaining issues: none");
+    } else {
+        println!("remaining issues:");
+        for issue in &report.remaining_issues {
+            println!(
+                "  - {} at {}: {}",
+                issue.code,
+                issue.path.display(),
+                issue.message
+            );
+        }
+    }
+}
+
+fn print_repair_regenerate_report(report: &RepairRegenerateReport) {
+    println!(
+        "repair regenerate{}: {}",
+        if report.dry_run { " dry run" } else { "" },
+        if report.needed {
+            "needed"
+        } else {
+            "not needed"
+        }
+    );
+    if let Some(generated) = &report.generated {
+        println!(
+            "published generation {} for snapshot {}",
+            generated.generation, generated.snapshot
+        );
+        println!("generation dir: {}", generated.generation_dir.display());
+        println!("current pointer: {}", generated.current_pointer.display());
+    }
+    if report.remaining_issues.is_empty() {
+        println!("remaining issues: none");
+    } else {
+        println!("remaining issues:");
+        for issue in &report.remaining_issues {
+            println!(
+                "  - {} at {}: {}",
+                issue.code,
+                issue.path.display(),
+                issue.message
+            );
+        }
+    }
+}
+
+fn print_repair_recover_canonical_report(report: &RepairRecoverCanonicalReport) {
+    println!(
+        "repair recover-canonical{}: {}",
+        if report.dry_run { " dry run" } else { "" },
+        if report.needed {
+            "needed"
+        } else {
+            "not needed"
+        }
+    );
+    if let Some(snapshot) = &report.selected_snapshot {
+        println!("selected snapshot: {snapshot}");
+    }
+    if let Some(snapshot) = &report.recovered_snapshot {
+        println!("recovered latest pointer: {snapshot}");
+    }
+    if report.remaining_issues.is_empty() {
+        println!("remaining issues: none");
+    } else {
+        println!("remaining issues:");
+        for issue in &report.remaining_issues {
+            println!(
+                "  - {} at {}: {}",
+                issue.code,
+                issue.path.display(),
+                issue.message
+            );
+        }
+    }
+}
+
+fn print_repair_apply_report(report: &RepairApplyReport) {
+    println!(
+        "repair apply{}:",
+        if report.dry_run { " dry run" } else { "" }
+    );
+    println!(
+        "  canonical recovery: {}",
+        if report.canonical.needed {
+            "needed"
+        } else {
+            "not needed"
+        }
+    );
+    println!(
+        "  generated regeneration: {}",
+        if report.generated.needed {
+            "needed"
+        } else {
+            "not needed"
+        }
+    );
+    println!(
+        "  cleanup artifacts: {} planned/removed, {} retained",
+        report.cleanup.removed.len(),
+        report.cleanup.retained.len()
+    );
+    if report.remaining_issues.is_empty() {
+        println!("remaining issues: none");
+    } else {
+        println!("remaining issues:");
+        for issue in &report.remaining_issues {
+            println!(
+                "  - {} at {}: {}",
+                issue.code,
+                issue.path.display(),
+                issue.message
+            );
+        }
+    }
 }
 
 fn print_check_report(report: &DiagnosticCheckReport) -> Result<()> {

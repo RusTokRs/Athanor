@@ -86,12 +86,17 @@ flowchart TD
 31. On demand, `ath update --changed` runs the same incremental indexing path through an explicit update command, writes a new durable snapshot, refreshes JSONL read models, and updates persisted file change state.
 32. On demand, `ath check affected` compares current source discovery with persisted index state and reports latest-snapshot diagnostics touching changed or removed files without writing a new snapshot.
 33. On demand, `ath context --diff` builds a bounded context pack rooted in entities owned by changed or removed files without writing a new snapshot.
-34. On demand, `ath docs operations check` aggregates environment, script, deployment, and runbook documentation diagnostics and fails when any are open.
-35. On demand, `ath docs check` evaluates editable documentation under the configured path against frontmatter completeness and diagnostic severity policy.
-36. On demand, `ath docs drift` reports editable documentation not verified against the latest canonical snapshot.
-37. On demand, `ath docs propose-fix` writes a reviewable JSON patch proposal for editable documentation frontmatter policy and drift findings.
-38. On demand, `ath docs apply-patch <id-or-path>` explicitly applies one generated documentation patch proposal after verifying it still targets the latest canonical snapshot.
-39. On demand, `ath api snapshot` publishes the latest API contract immutably and `ath api diff` compares contract snapshots.
+34. On demand, `ath repair inspect` validates local canonical and generated pointers, manifests, and orphaned immutable artifacts without modifying files.
+35. On demand, `ath repair cleanup` removes orphaned immutable canonical snapshots and generated generations identified by repair inspection.
+36. On demand, `ath repair regenerate` publishes a fresh coordinated generated generation when the current generated pointer is stale, missing, or invalid.
+37. On demand, `ath repair recover-canonical` repoints a missing or invalid canonical latest pointer to the newest valid local canonical snapshot.
+38. On demand, `ath repair apply` runs canonical recovery, generated regeneration, and orphan cleanup in deterministic order.
+39. On demand, `ath docs operations check` aggregates environment, script, deployment, and runbook documentation diagnostics and fails when any are open.
+40. On demand, `ath docs check` evaluates editable documentation under the configured path against frontmatter completeness and diagnostic severity policy.
+41. On demand, `ath docs drift` reports editable documentation not verified against the latest canonical snapshot.
+42. On demand, `ath docs propose-fix` writes a reviewable JSON patch proposal for editable documentation frontmatter policy and drift findings.
+43. On demand, `ath docs apply-patch <id-or-path>` explicitly applies one generated documentation patch proposal after verifying it still targets the latest canonical snapshot.
+44. On demand, `ath api snapshot` publishes the latest API contract immutably and `ath api diff` compares contract snapshots.
 
 ## Pipeline Assembly
 
@@ -117,6 +122,11 @@ flowchart TD
 - `project_wiki`: Markdown wiki projection from the latest canonical snapshot.
 - `project_html_report`: static HTML report projection from the latest canonical snapshot.
 - `generate_project`: coordinated immutable JSONL/wiki/HTML generation and portable current-pointer publication.
+- `inspect_repair`: read-only local artifact pointer and manifest inspection.
+- `cleanup_repair`: deterministic orphan canonical snapshot and generated generation cleanup.
+- `regenerate_repair`: deterministic stale or missing generated-current repair through coordinated generation.
+- `recover_canonical_repair`: deterministic canonical latest-pointer recovery from local valid snapshots.
+- `apply_repair`: deterministic orchestration of canonical recovery, generated regeneration, and orphan cleanup.
 
 ## Markdown Wiki Projection
 
@@ -154,6 +164,64 @@ Generation ids are local zero-padded sequence numbers. The service builds the co
 After publication, the service replaces `.athanor/generated/current.json` with an `athanor.generated_current.v1` document containing the generation id, snapshot id, relative generation path, and manifest path. The pointer is the final write, so any projector failure leaves the previous current generation selected. A pointer-write failure can leave a complete unreferenced generation, which is safe and can be collected later.
 
 The JSON pointer is used instead of a filesystem symlink so publication works without elevated link privileges on Windows. Individual `ath index`, `ath wiki`, and `ath report html` commands continue to write direct compatibility outputs under `.athanor/generated/current`; only `ath generate` guarantees cross-format snapshot consistency.
+
+## Repair Inspection
+
+`ath repair inspect [path]` is a read-only consistency check for local Athanor artifacts. It inspects
+the JSONL canonical store pointer, canonical snapshot manifests, generated generation pointer,
+generation manifests, and immutable artifact directories. The command reports:
+
+- the latest canonical snapshot selected by `.athanor/store/canonical/jsonl/latest.json`
+- canonical snapshot directories not selected by the latest pointer
+- the current generated generation selected by `.athanor/generated/current.json`
+- generated generation directories not selected by the current pointer
+- invalid JSON, unsupported schemas, missing pointed-to directories, and stale generated outputs built from an older canonical snapshot
+
+`--json` emits `athanor.repair_inspect.v1`. The command does not delete, rewrite, or repoint any
+artifact.
+
+`ath repair cleanup [path]` consumes the same inspection logic and removes only unselected immutable
+artifact directories:
+
+- canonical snapshot directories not selected by `.athanor/store/canonical/jsonl/latest.json`
+- generated generation directories not selected by `.athanor/generated/current.json`
+
+`--dry-run` reports planned removals without deleting files. `--keep-canonical <N>` and
+`--keep-generated <N>` retain the newest N orphan canonical snapshots or generated generations while
+still allowing older orphans to be removed. `--json` emits `athanor.repair_cleanup.v1`, including
+the initial inspection, removed or planned removals, retained artifacts, and remaining issues after
+cleanup. The command does not rewrite pointers, regenerate stale outputs, or remove the current
+canonical snapshot or current generated generation.
+
+`ath repair regenerate [path]` repairs generated-current selection issues by running the same
+coordinated generation path as `ath generate`. It publishes a new immutable generation from the
+latest canonical snapshot and updates `.athanor/generated/current.json` only after JSONL, wiki, and
+HTML outputs succeed. It runs only when inspection reports a stale, missing, or invalid generated
+current pointer, or when the pointer references a missing generation directory. `--dry-run` reports
+whether regeneration is needed without writing outputs. `--json` emits
+`athanor.repair_regenerate.v1`, including the initial inspection, the published generation when one
+was created, and remaining issues. Old generated generations become cleanup candidates and are
+removed only by `ath repair cleanup`.
+
+`ath repair recover-canonical [path]` repairs a missing, invalid, or dangling
+`.athanor/store/canonical/jsonl/latest.json` pointer. It scans local canonical snapshot directories,
+selects the newest snapshot whose manifest has the supported schema and matching snapshot id, and
+atomically rewrites only `latest.json`. `--dry-run` reports the selected snapshot without writing.
+`--json` emits `athanor.repair_recover_canonical.v1`, including the initial inspection, selected
+snapshot, recovered snapshot when written, and remaining issues. The command does not create,
+modify, or delete canonical snapshot directories.
+
+`ath repair apply [path]` runs the deterministic repair stages in order:
+
+1. canonical latest-pointer recovery
+2. coordinated generated-current regeneration
+3. orphan canonical snapshot and generated generation cleanup
+
+`--dry-run` returns the planned stage reports without writing or deleting artifacts. Without
+`--dry-run`, the command may delete orphan canonical snapshots and orphan generated generations
+through the same rules as `ath repair cleanup`. `--keep-canonical <N>` and `--keep-generated <N>`
+are passed to the cleanup stage. `--json` emits `athanor.repair_apply.v1`, including each stage
+report and final remaining issues.
 
 ## Context Pack Generation
 
@@ -465,7 +533,7 @@ Generated JSONL files and Markdown wiki pages under `.athanor/generated/current`
 - Frontmatter references resolve by exact stable key only; aliases, fuzzy matching, external concept registries, and reference-type constraints are not implemented.
 - Wiki and HTML projection currently rebuild complete outputs and are selected directly by app services rather than projector plugin discovery.
 - The HTML report is a static overview without client-side filtering or per-entity detail pages.
-- Generation numbering and pointer updates are local single-process operations; concurrent generation publishers and garbage collection are not implemented.
+- Generation numbering and pointer updates are local single-process operations; concurrent generation publishers are not implemented.
 - Direct compatibility outputs under `.athanor/generated/current` are not coordinated; consumers requiring one snapshot must use `current.json` and `generations/`.
 - Documentation patch proposals currently create enriched API documentation pages for missing API docs diagnostics, refresh endpoint-specific managed API contract blocks in existing API documentation pages, stabilize explicit API frontmatter references, support pages that cover multiple endpoints, add coordination blocks for split endpoint documentation, flag stale route mentions in human-authored API narrative, include deterministic narrative rewrite drafts when a page has one unambiguous linked endpoint, and create operations documentation drafts for missing environment, runtime configuration, script, deployment, and stale runbook diagnostics.
 - Runbook extraction currently materializes page-level runbook entities from Markdown frontmatter and operation-step entities from ordered-list items. Step dependencies and richer runbook semantics remain deferred.

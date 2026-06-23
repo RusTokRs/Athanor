@@ -25,7 +25,7 @@ pub struct GenerationOptions {
     pub root: PathBuf,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct GenerationReport {
     pub root: PathBuf,
     pub generation: String,

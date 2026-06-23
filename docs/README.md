@@ -115,6 +115,23 @@ The coordinated generation command publishes all read models from one canonical 
 cargo run -p ath --quiet -- generate .
 ```
 
+Local generated and canonical artifacts can be inspected without modification:
+
+```bash
+cargo run -p ath --quiet -- repair inspect .
+cargo run -p ath --quiet -- repair inspect . --json
+cargo run -p ath --quiet -- repair cleanup . --dry-run
+cargo run -p ath --quiet -- repair cleanup . --dry-run --keep-canonical 3 --keep-generated 2
+cargo run -p ath --quiet -- repair cleanup .
+cargo run -p ath --quiet -- repair regenerate . --dry-run
+cargo run -p ath --quiet -- repair regenerate .
+cargo run -p ath --quiet -- repair recover-canonical . --dry-run
+cargo run -p ath --quiet -- repair recover-canonical .
+cargo run -p ath --quiet -- repair apply . --dry-run
+cargo run -p ath --quiet -- repair apply . --dry-run --keep-canonical 3 --keep-generated 2
+cargo run -p ath --quiet -- repair apply .
+```
+
 It writes immutable generation directories and updates a portable JSON pointer only after every output succeeds:
 
 ```text

@@ -99,6 +99,22 @@ ath wiki --output <directory>
 ath report html
 ath report html --output <directory>
 ath generate
+ath repair inspect
+ath repair inspect --json
+ath repair cleanup
+ath repair cleanup --dry-run
+ath repair cleanup --dry-run --keep-canonical <N> --keep-generated <N>
+ath repair cleanup --json
+ath repair regenerate
+ath repair regenerate --dry-run
+ath repair regenerate --json
+ath repair recover-canonical
+ath repair recover-canonical --dry-run
+ath repair recover-canonical --json
+ath repair apply
+ath repair apply --dry-run
+ath repair apply --dry-run --keep-canonical <N> --keep-generated <N>
+ath repair apply --json
 ```
 
 ### Indexing Vertical Slice
@@ -1705,6 +1721,105 @@ Purpose:
 - updates `.athanor/state/index-state.json` after successful output writes
 - reports changed, unchanged, and removed file counts through the existing index report
 
+### Repair Inspection
+
+Status: verified.
+
+Implemented in:
+
+- `apps/ath/src/main.rs`
+- `crates/athanor-app/src/repair.rs`
+
+Purpose:
+
+- adds `ath repair inspect` and `ath repair inspect --json`
+- validates local canonical latest pointers and snapshot manifests without modifying files
+- validates generated current pointers and generation manifests without modifying files
+- reports orphan canonical snapshots and generated generations for future cleanup
+- reports stale generated outputs when `.athanor/generated/current.json` points to a snapshot older than the latest canonical snapshot
+
+### Repair Cleanup
+
+Status: verified.
+
+Implemented in:
+
+- `apps/ath/src/main.rs`
+- `crates/athanor-app/src/repair.rs`
+- `docs/README.md`
+- `docs/architecture/pipeline.md`
+
+Purpose:
+
+- adds `ath repair cleanup`, `ath repair cleanup --dry-run`, and `ath repair cleanup --json`
+- removes orphan canonical snapshot directories not selected by `.athanor/store/canonical/jsonl/latest.json`
+- removes orphan generated generation directories not selected by `.athanor/generated/current.json`
+- supports `--keep-canonical <N>` and `--keep-generated <N>` to retain the newest N orphan artifacts of each kind
+- reports the initial repair inspection, removed or planned removals, and remaining issues as `athanor.repair_cleanup.v1`
+- refuses to remove paths outside the known canonical snapshot and generated generation roots
+- keeps pointer rewriting, stale generation republishing, and current artifact removal deferred
+
+### Repair Regenerate
+
+Status: verified.
+
+Implemented in:
+
+- `apps/ath/src/main.rs`
+- `crates/athanor-app/src/repair.rs`
+- `crates/athanor-app/src/generation.rs`
+- `docs/README.md`
+- `docs/architecture/pipeline.md`
+
+Purpose:
+
+- adds `ath repair regenerate`, `ath repair regenerate --dry-run`, and `ath repair regenerate --json`
+- detects stale, missing, or invalid generated-current pointers from the repair inspection report
+- reuses the coordinated `generate_project` path to publish JSONL, wiki, and HTML from the latest canonical snapshot
+- updates `.athanor/generated/current.json` only after the replacement generation is fully published
+- reports the initial inspection, whether regeneration was needed, the new generation when created, and remaining issues as `athanor.repair_regenerate.v1`
+- leaves old generated generation directories for explicit `ath repair cleanup`
+
+### Repair Canonical Pointer Recovery
+
+Status: verified.
+
+Implemented in:
+
+- `apps/ath/src/main.rs`
+- `crates/athanor-app/src/repair.rs`
+- `docs/README.md`
+- `docs/architecture/pipeline.md`
+
+Purpose:
+
+- adds `ath repair recover-canonical`, `ath repair recover-canonical --dry-run`, and `ath repair recover-canonical --json`
+- detects missing, invalid, or dangling `.athanor/store/canonical/jsonl/latest.json` pointers from the repair inspection report
+- selects the newest local canonical snapshot with a supported manifest schema and matching snapshot id
+- atomically rewrites only `latest.json` when recovery is needed and not a dry run
+- reports the initial inspection, selected snapshot, recovered snapshot, and remaining issues as `athanor.repair_recover_canonical.v1`
+- leaves canonical snapshot contents and cleanup policy unchanged
+
+### Repair Apply
+
+Status: verified.
+
+Implemented in:
+
+- `apps/ath/src/main.rs`
+- `crates/athanor-app/src/repair.rs`
+- `docs/README.md`
+- `docs/architecture/pipeline.md`
+
+Purpose:
+
+- adds `ath repair apply`, `ath repair apply --dry-run`, and `ath repair apply --json`
+- runs canonical latest-pointer recovery, generated-current regeneration, and orphan artifact cleanup in deterministic order
+- reports all stage outputs and final remaining issues as `athanor.repair_apply.v1`
+- keeps `--dry-run` read-only across every stage
+- passes `--keep-canonical <N>` and `--keep-generated <N>` retention settings to the cleanup stage
+- delegates artifact deletion to the same root-checked cleanup rules as `ath repair cleanup`
+
 ### Phase 6 Remainder - Affected Workflow And Repair
 
 Status: partially implemented.
@@ -1712,13 +1827,13 @@ Status: partially implemented.
 Scope:
 
 - extend affected processing to API snapshots, generated wiki/report pages, and documentation diagnostics
-- implement repair, garbage collection, and deterministic cleanup for obsolete generated and canonical artifacts
+- implement remaining repair application for generated pointer corruption beyond generated-current regeneration when it cannot be resolved by coordinated regeneration
 
 Acceptance:
 
 - changed-file workflows avoid full recomputation where safe
 - diff-based context and impact commands work before a new durable index is committed
-- repair and cleanup are deterministic and documented
+- repair cleanup, generated-output regeneration, canonical latest-pointer recovery, and full repair apply are deterministic and documented; remaining repair application is deterministic and documented
 
 ### Phase 6.5 - Agent Graph Navigation And Overview
 
