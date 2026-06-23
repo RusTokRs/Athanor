@@ -50,6 +50,11 @@ impl Linker for MarkdownContainmentLinker {
             .iter()
             .filter(|entity| entity.kind == EntityKind::Runbook)
             .collect::<Vec<_>>();
+        let operation_steps = input
+            .entities
+            .iter()
+            .filter(|entity| entity.kind == EntityKind::OperationStep)
+            .collect::<Vec<_>>();
 
         for page in pages {
             if let Some(file) = matching_file(page, &files) {
@@ -88,6 +93,20 @@ impl Linker for MarkdownContainmentLinker {
                     self.name(),
                     "documentation_page_contains_runbook",
                 ));
+
+                for step in operation_steps
+                    .iter()
+                    .copied()
+                    .filter(|step| same_source_path(runbook, step))
+                {
+                    relations.push(contains_relation(
+                        &input.snapshot,
+                        runbook,
+                        step,
+                        self.name(),
+                        "runbook_contains_operation_step",
+                    ));
+                }
             }
         }
 
@@ -313,6 +332,54 @@ mod tests {
             relation.kind == RelationKind::Contains
                 && relation.from == page.id
                 && relation.to == section.id
+        }));
+    }
+
+    #[tokio::test]
+    async fn links_runbooks_to_operation_steps() {
+        let page = entity(
+            "ent_doc_page_deploy",
+            "doc://docs/operations/deploy",
+            EntityKind::DocumentationPage,
+            "docs/operations/deploy.md",
+        );
+        let runbook = entity(
+            "ent_runbook_deploy",
+            "runbook://docs/operations/deploy",
+            EntityKind::Runbook,
+            "docs/operations/deploy.md",
+        );
+        let step = entity(
+            "ent_operation_step_deploy",
+            "runbook://docs/operations/deploy#step-1",
+            EntityKind::OperationStep,
+            "docs/operations/deploy.md",
+        );
+
+        let relations = MarkdownContainmentLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: vec![page.clone(), runbook.clone(), step.clone()].into(),
+                facts: Vec::new().into(),
+                affected: athanor_core::AffectedSubset::from_extracted(
+                    vec![page.clone(), runbook.clone(), step.clone()],
+                    Vec::new(),
+                ),
+            })
+            .await
+            .unwrap();
+
+        assert!(relations.iter().any(|relation| {
+            relation.kind == RelationKind::Contains
+                && relation.from == page.id
+                && relation.to == runbook.id
+                && relation.payload["reason"] == "documentation_page_contains_runbook"
+        }));
+        assert!(relations.iter().any(|relation| {
+            relation.kind == RelationKind::Contains
+                && relation.from == runbook.id
+                && relation.to == step.id
+                && relation.payload["reason"] == "runbook_contains_operation_step"
         }));
     }
 

@@ -9,6 +9,7 @@ Implements: `Extractor`
 - `EntityKind::DocumentationPage`
 - `EntityKind::DocumentationSection`
 - `EntityKind::Runbook` when frontmatter `kind` is `runbook` or `operations_runbook`
+- `EntityKind::OperationStep` for ordered-list items in runbook documents
 - `FactKind::DocSectionFound`
 
 All emitted objects include ownership metadata for the Markdown source file path.
@@ -68,6 +69,8 @@ inherited by section entities. Malformed YAML, unclosed frontmatter, invalid lan
 page ids that are not fragment-free `doc://` keys fail extraction.
 Runbook frontmatter emits a separate `runbook://...` entity whose payload records the source
 documentation page and operation targets from the page `entities` list.
+Runbook ordered-list items emit `operation_step` entities with `runbook://...#step-N` stable keys,
+source lines, sequence numbers, and normalized item text.
 
 ## Side Effects
 

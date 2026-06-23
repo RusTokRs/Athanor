@@ -1507,17 +1507,21 @@ Implemented in:
 Purpose:
 
 - emits canonical `Runbook` entities from Markdown frontmatter `kind: runbook` or `kind: operations_runbook`
+- emits canonical `OperationStep` entities from ordered-list items in runbook Markdown bodies
 - derives `runbook://...` stable keys from the source documentation page identity
+- derives `runbook://...#step-N` stable keys from runbook identity and step sequence
 - records runbook operation targets from frontmatter `entities`
 - links documentation pages to emitted runbook entities through verified `contains` relations
+- links emitted runbook entities to operation-step entities through verified `contains` relations
 - adds the built-in `builtin.checker.runbook_consistency` adapter
 - checks canonical `Runbook` entities for at least one known operational target
+- checks canonical `Runbook` entities for at least one extracted operation step
 - emits evidence-backed `stale_documentation` diagnostics with payload scope `runbooks`
 - exposes the findings through `ath check runbooks` and `ath check runbooks --json`
 - exposes the same `runbooks` scope through the MCP `check` tool
 - keeps the command read-only and non-failing, matching the other initial operational check views
-- advances persisted index state to v24 so existing projects rebuild runbook knowledge and diagnostics once
-- keeps ordered operation-step extraction and deeper runbook consistency rules deferred
+- advances persisted index state to v25 so existing projects rebuild runbook knowledge and diagnostics once
+- keeps step-to-target validation, dependencies, and richer runbook semantics deferred
 
 ## In Progress
 
@@ -1533,7 +1537,7 @@ Status: planned.
 
 Scope:
 
-- add ordered runbook operation-step extraction and deeper consistency rules
+- add step-to-target runbook validation and deeper consistency rules
 - extend environment checks beyond Rust, dotenv, and Dockerfile declarations to runtime configuration coverage
 - expand generated operations documentation drafts beyond environment variables
 - expose remaining operational checks through commands such as `ath docs operations check`

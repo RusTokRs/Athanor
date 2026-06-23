@@ -33,6 +33,7 @@ impl Extractor for MarkdownExtractor {
         let parsed = parse_markdown_frontmatter(content)?;
         let metadata = parsed.metadata.unwrap_or_default();
         let headings = markdown_headings(content, parsed.body_offset);
+        let operation_steps = markdown_operation_steps(content, parsed.body_offset);
         let page_key = page_stable_key(&input.source.path, &metadata)?;
         let language = metadata
             .language
@@ -90,7 +91,7 @@ impl Extractor for MarkdownExtractor {
                     "ent_runbook_{:016x}",
                     stable_hash(runbook_key.0.as_bytes())
                 )),
-                stable_key: runbook_key,
+                stable_key: runbook_key.clone(),
                 kind: EntityKind::Runbook,
                 name: input.source.path.clone(),
                 title: headings
@@ -113,6 +114,34 @@ impl Extractor for MarkdownExtractor {
                     "status": metadata.status.as_deref(),
                 }),
             });
+
+            for step in &operation_steps {
+                let step_key = StableKey(format!("{}#step-{}", runbook_key.0, step.sequence));
+                entities.push(Entity {
+                    id: EntityId(format!(
+                        "ent_operation_step_{:016x}",
+                        stable_hash(step_key.0.as_bytes())
+                    )),
+                    stable_key: step_key,
+                    kind: EntityKind::OperationStep,
+                    name: step.text.clone(),
+                    title: Some(step.text.clone()),
+                    source: Some(SourceLocation {
+                        path: input.source.path.clone(),
+                        line_start: Some(step.line_start),
+                        line_end: Some(step.line_end),
+                    }),
+                    language: Some(language.clone()),
+                    aliases: Vec::new(),
+                    ownership: ownership_for_file(&input.source.path),
+                    payload: json!({
+                        "runbook": runbook_key.0,
+                        "documentation_page": page_key.0,
+                        "sequence": step.sequence,
+                        "text": step.text,
+                    }),
+                });
+            }
         }
         let mut facts = Vec::new();
         let mut seen_slugs = HashMap::new();
@@ -183,6 +212,22 @@ struct MarkdownHeading {
     level: usize,
     title: String,
     line: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct MarkdownOperationStep {
+    sequence: usize,
+    text: String,
+    line_start: u32,
+    line_end: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct MarkdownOperationStepDraft {
+    sequence: usize,
+    text: String,
+    line_start: u32,
+    line_end: u32,
 }
 
 fn page_stable_key(path: &str, metadata: &MarkdownFrontmatter) -> CoreResult<StableKey> {
@@ -269,6 +314,73 @@ fn markdown_headings(content: &str, body_offset: usize) -> Vec<MarkdownHeading> 
         }
     }
     headings
+}
+
+fn markdown_operation_steps(content: &str, body_offset: usize) -> Vec<MarkdownOperationStep> {
+    let mut options = Options::empty();
+    options.insert(Options::ENABLE_TABLES);
+    options.insert(Options::ENABLE_FOOTNOTES);
+    options.insert(Options::ENABLE_STRIKETHROUGH);
+    options.insert(Options::ENABLE_TASKLISTS);
+
+    let mut ordered_list_depth = 0usize;
+    let mut current: Option<MarkdownOperationStepDraft> = None;
+    let mut steps = Vec::new();
+    let body = &content[body_offset.min(content.len())..];
+
+    for (event, range) in Parser::new_ext(body, options).into_offset_iter() {
+        let line_start = line_for_offset(content, body_offset + range.start);
+        let line_end = line_for_offset(content, body_offset + range.end);
+        match event {
+            Event::Start(Tag::List(Some(_))) => {
+                ordered_list_depth += 1;
+            }
+            Event::End(TagEnd::List(_)) => {
+                ordered_list_depth = ordered_list_depth.saturating_sub(1);
+            }
+            Event::Start(Tag::Item) if ordered_list_depth > 0 && current.is_none() => {
+                current = Some(MarkdownOperationStepDraft {
+                    sequence: steps.len() + 1,
+                    text: String::new(),
+                    line_start,
+                    line_end,
+                });
+            }
+            Event::Text(text) | Event::Code(text) => {
+                if let Some(step) = &mut current {
+                    if !step.text.is_empty() && !step.text.ends_with(' ') {
+                        step.text.push(' ');
+                    }
+                    step.text.push_str(text.trim());
+                    step.line_end = line_end;
+                }
+            }
+            Event::SoftBreak | Event::HardBreak => {
+                if let Some(step) = &mut current
+                    && !step.text.ends_with(' ')
+                {
+                    step.text.push(' ');
+                    step.line_end = line_end;
+                }
+            }
+            Event::End(TagEnd::Item) => {
+                if let Some(mut step) = current.take() {
+                    step.text = step.text.trim().to_string();
+                    if !step.text.is_empty() {
+                        steps.push(MarkdownOperationStep {
+                            sequence: step.sequence,
+                            text: step.text,
+                            line_start: step.line_start,
+                            line_end: step.line_end,
+                        });
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    steps
 }
 
 fn heading_level(level: HeadingLevel) -> usize {
@@ -533,6 +645,41 @@ entities:
             runbook.payload["documentation_page"],
             "doc://docs/operations/deploy"
         );
+    }
+
+    #[tokio::test]
+    async fn emits_operation_steps_for_runbook_ordered_list_items() {
+        let content = r#"---
+id: doc://docs/operations/deploy
+kind: runbook
+entities:
+  - script-command://Makefile#target:deploy
+---
+# Deploy
+
+1. Build the release
+2. Run `make deploy`
+
+- This note is not an operation step.
+"#;
+        let output = extract(content).await;
+        let steps = output
+            .entities
+            .iter()
+            .filter(|entity| entity.kind == EntityKind::OperationStep)
+            .collect::<Vec<_>>();
+
+        assert_eq!(steps.len(), 2);
+        assert_eq!(
+            steps[0].stable_key.0,
+            "runbook://docs/operations/deploy#step-1"
+        );
+        assert_eq!(steps[0].payload["sequence"], 1);
+        assert_eq!(
+            steps[0].payload["runbook"],
+            "runbook://docs/operations/deploy"
+        );
+        assert_eq!(steps[1].name, "Run make deploy");
     }
 
     #[tokio::test]

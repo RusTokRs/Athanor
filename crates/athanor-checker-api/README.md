@@ -18,6 +18,8 @@ Implements: `Checker`
   Markdown `documents` relation
 - `StaleDocumentation` with payload scope `runbooks` when a runbook does not reference any known
   operational entity target
+- `StaleDocumentation` with payload scope `runbooks` when a runbook has no extracted operation
+  steps
 
 Diagnostics are open and deterministic. Implementation/documentation absence diagnostics are owned
 by the endpoint plus current Rust or Markdown candidates. Schema diagnostics are owned by the
@@ -55,8 +57,9 @@ None. The checker does not run commands, use the network, or modify files.
   entity links; lexical mentions do not satisfy them.
 - Script checks cover `ScriptCommand` entities, and deployment checks cover `DockerService`
   entities.
-- Runbook consistency currently validates only that a runbook declares at least one known
-  operational stable key target; ordered operation-step extraction is deferred.
+- Runbook consistency currently validates that a runbook declares at least one known operational
+  stable key target and contains at least one ordered-list operation step; step-to-target
+  dependency validation is deferred.
 
 ## Test
 

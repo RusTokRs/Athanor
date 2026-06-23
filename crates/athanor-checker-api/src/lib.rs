@@ -529,6 +529,11 @@ impl Checker for RunbookConsistencyChecker {
             .iter()
             .map(|entity| (entity.stable_key.0.as_str(), entity))
             .collect::<HashMap<_, _>>();
+        let operation_steps = input
+            .entities
+            .iter()
+            .filter(|entity| entity.kind == EntityKind::OperationStep)
+            .collect::<Vec<_>>();
 
         let mut diagnostics = Vec::new();
         for runbook in runbooks {
@@ -536,7 +541,15 @@ impl Checker for RunbookConsistencyChecker {
             let target_affected = targets
                 .iter()
                 .any(|target| affected_stable_keys.contains(target.as_str()));
-            if !affected_ids.contains(&runbook.id) && !target_affected {
+            let step_affected = input.affected.entities.iter().any(|entity| {
+                entity.kind == EntityKind::OperationStep
+                    && entity
+                        .payload
+                        .get("runbook")
+                        .and_then(serde_json::Value::as_str)
+                        == Some(runbook.stable_key.0.as_str())
+            });
+            if !affected_ids.contains(&runbook.id) && !target_affected && !step_affected {
                 continue;
             }
 
@@ -550,6 +563,15 @@ impl Checker for RunbookConsistencyChecker {
                 diagnostics.push(runbook_without_operational_target_diagnostic(
                     runbook,
                     &targets,
+                    self.name(),
+                    &input.snapshot,
+                ));
+            }
+
+            let steps = runbook_operation_steps(runbook, &operation_steps);
+            if steps.is_empty() {
+                diagnostics.push(runbook_without_operation_steps_diagnostic(
+                    runbook,
                     self.name(),
                     &input.snapshot,
                 ));
@@ -671,6 +693,52 @@ fn runbook_without_operational_target_diagnostic(
     }
 }
 
+fn runbook_without_operation_steps_diagnostic(
+    runbook: &Entity,
+    checker: &str,
+    snapshot: &SnapshotId,
+) -> Diagnostic {
+    let kind = DiagnosticKind::StaleDocumentation;
+    let kind_slug = "runbook_missing_operation_steps";
+    let id_material = format!("{kind_slug}\0{}", runbook.stable_key.0);
+
+    Diagnostic {
+        id: DiagnosticId(format!(
+            "diag_runbook_{:016x}",
+            stable_hash(id_material.as_bytes())
+        )),
+        kind,
+        severity: Severity::Medium,
+        status: DiagnosticStatus::Open,
+        title: "Runbook has no operation steps".to_string(),
+        message: format!(
+            "Runbook `{}` does not contain any extracted operation steps.",
+            runbook.stable_key.0
+        ),
+        entities: vec![runbook.id.clone()],
+        evidence: vec![Evidence {
+            source_file: runbook.source.as_ref().map(|source| source.path.clone()),
+            line_start: runbook.source.as_ref().and_then(|source| source.line_start),
+            line_end: runbook.source.as_ref().and_then(|source| source.line_end),
+            extractor: Some(checker.to_string()),
+            commit_hash: None,
+            confidence: 1.0,
+            status: EvidenceStatus::Missing,
+        }],
+        ownership: runbook.ownership.clone(),
+        snapshot: snapshot.clone(),
+        suggested_fix: Some(
+            "Add ordered list items to the runbook body so Athanor can extract operation steps."
+                .to_string(),
+        ),
+        payload: json!({
+            "runbook": runbook.stable_key.0,
+            "missing": "operation_steps",
+            "scope": "runbooks",
+        }),
+    }
+}
+
 fn missing_script_documentation_diagnostic(
     script_command: &Entity,
     checker: &str,
@@ -752,6 +820,22 @@ fn runbook_operation_targets(runbook: &Entity) -> Vec<String> {
         .flatten()
         .filter_map(serde_json::Value::as_str)
         .map(str::to_string)
+        .collect()
+}
+
+fn runbook_operation_steps<'a>(
+    runbook: &Entity,
+    operation_steps: &[&'a Entity],
+) -> Vec<&'a Entity> {
+    operation_steps
+        .iter()
+        .copied()
+        .filter(|step| {
+            step.payload
+                .get("runbook")
+                .and_then(serde_json::Value::as_str)
+                == Some(runbook.stable_key.0.as_str())
+        })
         .collect()
 }
 
@@ -1411,11 +1495,51 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].kind, DiagnosticKind::StaleDocumentation);
-        assert_eq!(diagnostics[0].payload["scope"], "runbooks");
-        assert_eq!(diagnostics[0].entities[0], runbook.id);
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == DiagnosticKind::StaleDocumentation
+                && diagnostic.payload["scope"] == "runbooks"
+                && diagnostic.payload["operation_targets"].as_array().is_some()
+                && diagnostic.entities[0] == runbook.id
+        }));
 
+        let script = entity(
+            "ent_script_deploy",
+            "script-command://Makefile#target:deploy",
+            EntityKind::ScriptCommand,
+            "Makefile",
+        );
+        let mut step = entity(
+            "ent_step_deploy",
+            "runbook://docs/operations/deploy#step-1",
+            EntityKind::OperationStep,
+            "docs/operations/deploy.md",
+        );
+        step.payload = json!({"runbook": "runbook://docs/operations/deploy", "sequence": 1});
+        runbook.payload = json!({
+            "operation_targets": ["script-command://Makefile#target:deploy"]
+        });
+
+        let diagnostics = RunbookConsistencyChecker
+            .check(input(
+                vec![runbook.clone(), script, step],
+                Vec::new(),
+                vec![runbook],
+                Vec::new(),
+            ))
+            .await
+            .unwrap();
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[tokio::test]
+    async fn reports_runbook_without_operation_steps() {
+        let mut runbook = entity(
+            "ent_runbook_deploy",
+            "runbook://docs/operations/deploy",
+            EntityKind::Runbook,
+            "docs/operations/deploy.md",
+        );
         let script = entity(
             "ent_script_deploy",
             "script-command://Makefile#target:deploy",
@@ -1430,13 +1554,16 @@ mod tests {
             .check(input(
                 vec![runbook.clone(), script],
                 Vec::new(),
-                vec![runbook],
+                vec![runbook.clone()],
                 Vec::new(),
             ))
             .await
             .unwrap();
 
-        assert!(diagnostics.is_empty());
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].kind, DiagnosticKind::StaleDocumentation);
+        assert_eq!(diagnostics[0].payload["missing"], "operation_steps");
+        assert_eq!(diagnostics[0].entities[0], runbook.id);
     }
 
     #[tokio::test]

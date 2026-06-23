@@ -34,6 +34,7 @@ Entities:
 - `EntityKind::DocumentationPage`
 - `EntityKind::DocumentationSection`
 - `EntityKind::Runbook` when frontmatter `kind` is `runbook` or `operations_runbook`
+- `EntityKind::OperationStep` for ordered-list items in runbook documents
 
 Facts:
 
@@ -45,6 +46,7 @@ Stable keys:
 doc://path/to/file.md
 doc://path/to/file.md#section-slug
 runbook://path/to/file.md
+runbook://path/to/file.md#step-N
 ```
 
 An explicit frontmatter `id` replaces the path-derived page key. It must be a non-empty,
@@ -101,6 +103,11 @@ When `kind` is `runbook` or `operations_runbook`, the adapter also emits a `Runb
 documentation page and copies frontmatter `entities` into `operation_targets` so checker adapters
 can validate whether the runbook is tied to known operational knowledge.
 
+The same runbook pass emits one `OperationStep` entity for each ordered-list item in the runbook
+body. Step stable keys append `#step-N` to the runbook key, and payloads record the runbook key,
+documentation page, sequence number, and normalized item text. Unordered-list notes are left as
+ordinary Markdown text and are not operation steps.
+
 The frontmatter bytes are excluded from CommonMark parsing while full-file line offsets are
 preserved. YAML keys therefore cannot become false setext headings. `serde_yaml_ng` remains private
 to the adapter. Malformed YAML, a missing closing delimiter, invalid language, or invalid explicit
@@ -118,7 +125,7 @@ Each section fact includes:
 
 ## Ownership
 
-Emitted page entities, section entities, runbook entities, and section facts are owned by the Markdown source file path.
+Emitted page entities, section entities, runbook entities, operation-step entities, and section facts are owned by the Markdown source file path.
 
 ## Commands And Network
 
@@ -130,8 +137,8 @@ Emitted page entities, section entities, runbook entities, and section facts are
 
 - Only heading structure is materialized; paragraphs, links, and code blocks are not emitted as
   separate canonical entities yet.
-- Runbook extraction recognizes the page-level runbook identity and operation target declarations;
-  individual operation steps are not materialized yet.
+- Runbook operation-step extraction recognizes ordered list items only; checkboxes, prose
+  paragraphs, nested execution semantics, and step dependencies are not interpreted yet.
 - Frontmatter concept/entity references use exact stable-key resolution; aliases and fuzzy matching
   are not supported.
 - Stable slugs continue to use Athanor's existing slug algorithm rather than a renderer-specific

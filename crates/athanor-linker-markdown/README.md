@@ -9,13 +9,15 @@ Implements: `Linker`
 - `RelationKind::Contains`
 - `RelationKind::Documents`
 
-Relations include ownership copied from the related file/page/section entities.
+Relations include ownership copied from the related file/page/section/runbook/step entities.
 
 Current relations:
 
 ```text
 file contains documentation_page
 documentation_page contains documentation_section
+documentation_page contains runbook
+runbook contains operation_step
 documentation_page documents declared entity/concept
 ```
 

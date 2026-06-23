@@ -67,7 +67,9 @@ Reports runbook pages that are not tied to known operational knowledge. It check
 `kind = "operations_runbook"` and emits `DiagnosticKind::StaleDocumentation` with payload
 `scope = "runbooks"` when the runbook has no declared operation targets or none of its declared
 targets resolve to operational entities such as script commands, deployment resources,
-environment variables, runtime configuration keys, migrations, packages, or dependencies.
+environment variables, runtime configuration keys, migrations, packages, or dependencies. It also
+emits a scoped stale-documentation diagnostic when a runbook has no extracted ordered-list
+operation steps.
 
 The findings are exposed separately through:
 
@@ -89,7 +91,7 @@ schema references are skipped, and OpenAPI 3.0 keywords beyond Draft 4 compatibi
 documented limitation.
 
 The checker is local and side-effect free. Deeper schema, status-code, authentication, permission,
-breaking-change, rollout, and ordered runbook step checks are deferred.
+breaking-change, rollout, and step-to-target runbook checks are deferred.
 
 ## Configuration & Policy Enforcement
 
