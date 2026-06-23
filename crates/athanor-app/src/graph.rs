@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::path::PathBuf;
 
 use crate::config::load_config;
@@ -10,12 +10,32 @@ use athanor_domain::{Entity, Relation};
 use serde::Serialize;
 
 pub const GRAPH_EXPORT_SCHEMA: &str = "athanor.graph_export.v1";
+pub const GRAPH_PATH_SCHEMA: &str = "athanor.graph_path.v1";
+pub const GRAPH_RELATED_SCHEMA: &str = "athanor.graph_related.v1";
 
 #[derive(Debug, Clone)]
 pub struct GraphExportOptions {
     pub root: PathBuf,
     pub max_entities: usize,
     pub max_relations: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct GraphRelatedOptions {
+    pub root: PathBuf,
+    pub stable_key: String,
+    pub depth: usize,
+    pub max_entities: usize,
+    pub max_relations: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct GraphPathOptions {
+    pub root: PathBuf,
+    pub from_stable_key: String,
+    pub to_stable_key: String,
+    pub max_depth: usize,
+    pub max_visited: usize,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -55,6 +75,37 @@ pub struct GraphOmitted {
     pub reason: String,
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct GraphRelated {
+    pub schema: String,
+    pub snapshot: String,
+    pub root: GraphRelatedNode,
+    pub nodes: Vec<GraphRelatedNode>,
+    pub edges: Vec<GraphEdge>,
+    pub truncated: bool,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct GraphRelatedNode {
+    #[serde(flatten)]
+    pub entity: GraphNode,
+    pub distance: usize,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct GraphPath {
+    pub schema: String,
+    pub snapshot: String,
+    pub from: GraphNode,
+    pub to: GraphNode,
+    pub found: bool,
+    pub hops: Option<usize>,
+    pub nodes: Vec<GraphNode>,
+    pub edges: Vec<GraphEdge>,
+    pub visited: usize,
+    pub truncated: bool,
+}
+
 pub async fn export_graph(options: GraphExportOptions) -> Result<GraphExport> {
     if options.max_entities == 0 || options.max_relations == 0 {
         bail!("graph export entity and relation limits must be greater than zero");
@@ -84,6 +135,72 @@ pub async fn export_graph(options: GraphExportOptions) -> Result<GraphExport> {
         options.max_entities,
         options.max_relations,
     ))
+}
+
+pub async fn related_graph(options: GraphRelatedOptions) -> Result<GraphRelated> {
+    if options.max_entities == 0 || options.max_relations == 0 {
+        bail!("graph related entity and relation limits must be greater than zero");
+    }
+
+    let root = normalize_canonical_path(
+        options
+            .root
+            .canonicalize()
+            .with_context(|| format!("failed to canonicalize {}", options.root.display()))?,
+    );
+    let config = load_config(&root)?;
+    let store = init_store(&root, &config).await?;
+    let snapshot = store
+        .load_latest_snapshot()
+        .await
+        .context("failed to load latest canonical snapshot")?
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "no canonical snapshot found; run `ath index {}` first",
+                root.display()
+            )
+        })?;
+
+    build_related_graph(
+        &snapshot,
+        &options.stable_key,
+        options.depth,
+        options.max_entities,
+        options.max_relations,
+    )
+}
+
+pub async fn shortest_graph_path(options: GraphPathOptions) -> Result<GraphPath> {
+    if options.max_visited == 0 {
+        bail!("graph path max visited limit must be greater than zero");
+    }
+
+    let root = normalize_canonical_path(
+        options
+            .root
+            .canonicalize()
+            .with_context(|| format!("failed to canonicalize {}", options.root.display()))?,
+    );
+    let config = load_config(&root)?;
+    let store = init_store(&root, &config).await?;
+    let snapshot = store
+        .load_latest_snapshot()
+        .await
+        .context("failed to load latest canonical snapshot")?
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "no canonical snapshot found; run `ath index {}` first",
+                root.display()
+            )
+        })?;
+
+    build_shortest_graph_path(
+        &snapshot,
+        &options.from_stable_key,
+        &options.to_stable_key,
+        options.max_depth,
+        options.max_visited,
+    )
 }
 
 pub fn build_graph_export(
@@ -142,6 +259,278 @@ pub fn build_graph_export(
             reason: "graph_export_limits".to_string(),
         },
     }
+}
+
+pub fn build_related_graph(
+    snapshot: &CanonicalSnapshot,
+    stable_key: &str,
+    depth: usize,
+    max_entities: usize,
+    max_relations: usize,
+) -> Result<GraphRelated> {
+    if max_entities == 0 || max_relations == 0 {
+        bail!("graph related entity and relation limits must be greater than zero");
+    }
+
+    let entity_by_id = snapshot
+        .entities
+        .iter()
+        .map(|entity| (entity.id.0.as_str(), entity))
+        .collect::<HashMap<_, _>>();
+    let root_entity = snapshot
+        .entities
+        .iter()
+        .find(|entity| entity.stable_key.0 == stable_key)
+        .ok_or_else(|| {
+            anyhow::anyhow!("canonical entity not found for stable key `{stable_key}`")
+        })?;
+    let degree_by_id = degree_by_id(snapshot);
+    let mut adjacency = HashMap::<&str, Vec<(&Relation, &Entity)>>::new();
+    for relation in &snapshot.relations {
+        if let Some(entity) = entity_by_id.get(relation.to.0.as_str()) {
+            adjacency
+                .entry(relation.from.0.as_str())
+                .or_default()
+                .push((relation, entity));
+        }
+        if let Some(entity) = entity_by_id.get(relation.from.0.as_str()) {
+            adjacency
+                .entry(relation.to.0.as_str())
+                .or_default()
+                .push((relation, entity));
+        }
+    }
+    for neighbors in adjacency.values_mut() {
+        neighbors.sort_by(
+            |(left_relation, left_entity), (right_relation, right_entity)| {
+                left_entity
+                    .stable_key
+                    .0
+                    .cmp(&right_entity.stable_key.0)
+                    .then_with(|| left_relation.id.0.cmp(&right_relation.id.0))
+            },
+        );
+    }
+
+    let mut distances = HashMap::<String, usize>::new();
+    distances.insert(root_entity.id.0.clone(), 0);
+    let mut queue = VecDeque::from([(root_entity.id.0.clone(), 0)]);
+    let mut truncated = false;
+
+    while let Some((entity_id, current_depth)) = queue.pop_front() {
+        if current_depth >= depth {
+            continue;
+        }
+        for (_, neighbor) in adjacency
+            .get(entity_id.as_str())
+            .map(Vec::as_slice)
+            .unwrap_or_default()
+        {
+            if distances.contains_key(&neighbor.id.0) {
+                continue;
+            }
+            if distances.len() >= max_entities {
+                truncated = true;
+                continue;
+            }
+            let neighbor_depth = current_depth + 1;
+            distances.insert(neighbor.id.0.clone(), neighbor_depth);
+            queue.push_back((neighbor.id.0.clone(), neighbor_depth));
+        }
+    }
+
+    let selected_ids = distances.keys().cloned().collect::<BTreeSet<_>>();
+    let mut nodes = selected_ids
+        .iter()
+        .filter_map(|id| {
+            let entity = entity_by_id.get(id.as_str())?;
+            Some(GraphRelatedNode {
+                entity: graph_node(entity, *degree_by_id.get(id).unwrap_or(&0)),
+                distance: *distances.get(id).unwrap_or(&0),
+            })
+        })
+        .collect::<Vec<_>>();
+    nodes.sort_by(|left, right| {
+        left.distance
+            .cmp(&right.distance)
+            .then_with(|| left.entity.stable_key.cmp(&right.entity.stable_key))
+    });
+
+    let mut relations = snapshot
+        .relations
+        .iter()
+        .filter(|relation| {
+            selected_ids.contains(&relation.from.0) && selected_ids.contains(&relation.to.0)
+        })
+        .collect::<Vec<_>>();
+    relations.sort_by(|left, right| left.id.0.cmp(&right.id.0));
+    if relations.len() > max_relations {
+        truncated = true;
+        relations.truncate(max_relations);
+    }
+    let edges = relations.into_iter().map(graph_edge).collect::<Vec<_>>();
+    let root = nodes
+        .iter()
+        .find(|node| node.entity.id == root_entity.id.0)
+        .cloned()
+        .expect("root entity must be selected");
+
+    Ok(GraphRelated {
+        schema: GRAPH_RELATED_SCHEMA.to_string(),
+        snapshot: snapshot
+            .snapshot
+            .as_ref()
+            .map_or_else(|| "unknown".to_string(), |snapshot| snapshot.0.clone()),
+        root,
+        nodes,
+        edges,
+        truncated,
+    })
+}
+
+pub fn build_shortest_graph_path(
+    snapshot: &CanonicalSnapshot,
+    from_stable_key: &str,
+    to_stable_key: &str,
+    max_depth: usize,
+    max_visited: usize,
+) -> Result<GraphPath> {
+    if max_visited == 0 {
+        bail!("graph path max visited limit must be greater than zero");
+    }
+
+    let entity_by_id = snapshot
+        .entities
+        .iter()
+        .map(|entity| (entity.id.0.as_str(), entity))
+        .collect::<HashMap<_, _>>();
+    let from_entity = entity_by_stable_key(snapshot, from_stable_key, "source")?;
+    let to_entity = entity_by_stable_key(snapshot, to_stable_key, "target")?;
+    let degree_by_id = degree_by_id(snapshot);
+    let mut adjacency = HashMap::<&str, Vec<(&Relation, &Entity)>>::new();
+    for relation in &snapshot.relations {
+        if let Some(entity) = entity_by_id.get(relation.to.0.as_str()) {
+            adjacency
+                .entry(relation.from.0.as_str())
+                .or_default()
+                .push((relation, entity));
+        }
+        if let Some(entity) = entity_by_id.get(relation.from.0.as_str()) {
+            adjacency
+                .entry(relation.to.0.as_str())
+                .or_default()
+                .push((relation, entity));
+        }
+    }
+    for neighbors in adjacency.values_mut() {
+        neighbors.sort_by(
+            |(left_relation, left_entity), (right_relation, right_entity)| {
+                left_entity
+                    .stable_key
+                    .0
+                    .cmp(&right_entity.stable_key.0)
+                    .then_with(|| left_relation.id.0.cmp(&right_relation.id.0))
+            },
+        );
+    }
+
+    let mut queue = VecDeque::from([(from_entity.id.0.clone(), 0)]);
+    let mut visited = BTreeSet::from([from_entity.id.0.clone()]);
+    let mut parent = HashMap::<String, (String, &Relation)>::new();
+    let mut found = from_entity.id == to_entity.id;
+    let mut truncated = false;
+
+    while !found {
+        let Some((entity_id, depth)) = queue.pop_front() else {
+            break;
+        };
+        if depth >= max_depth {
+            if adjacency.get(entity_id.as_str()).is_some_and(|neighbors| {
+                neighbors
+                    .iter()
+                    .any(|(_, neighbor)| !visited.contains(&neighbor.id.0))
+            }) {
+                truncated = true;
+            }
+            continue;
+        }
+
+        for (relation, neighbor) in adjacency
+            .get(entity_id.as_str())
+            .map(Vec::as_slice)
+            .unwrap_or_default()
+        {
+            if visited.contains(&neighbor.id.0) {
+                continue;
+            }
+            if visited.len() >= max_visited {
+                truncated = true;
+                queue.clear();
+                break;
+            }
+            visited.insert(neighbor.id.0.clone());
+            parent.insert(neighbor.id.0.clone(), (entity_id.clone(), *relation));
+            if neighbor.id == to_entity.id {
+                found = true;
+                break;
+            }
+            queue.push_back((neighbor.id.0.clone(), depth + 1));
+        }
+    }
+
+    let mut path_ids = Vec::new();
+    let mut path_relations = Vec::new();
+    if found {
+        let mut current = to_entity.id.0.clone();
+        path_ids.push(current.clone());
+        while current != from_entity.id.0 {
+            let (previous, relation) = parent
+                .get(&current)
+                .expect("found graph path must have a complete parent chain");
+            path_relations.push(*relation);
+            current = previous.clone();
+            path_ids.push(current.clone());
+        }
+        path_ids.reverse();
+        path_relations.reverse();
+    }
+
+    Ok(GraphPath {
+        schema: GRAPH_PATH_SCHEMA.to_string(),
+        snapshot: snapshot
+            .snapshot
+            .as_ref()
+            .map_or_else(|| "unknown".to_string(), |snapshot| snapshot.0.clone()),
+        from: graph_node(
+            from_entity,
+            *degree_by_id.get(&from_entity.id.0).unwrap_or(&0),
+        ),
+        to: graph_node(to_entity, *degree_by_id.get(&to_entity.id.0).unwrap_or(&0)),
+        found,
+        hops: found.then_some(path_relations.len()),
+        nodes: path_ids
+            .iter()
+            .filter_map(|id| entity_by_id.get(id.as_str()))
+            .map(|entity| graph_node(entity, *degree_by_id.get(&entity.id.0).unwrap_or(&0)))
+            .collect(),
+        edges: path_relations.into_iter().map(graph_edge).collect(),
+        visited: visited.len(),
+        truncated,
+    })
+}
+
+fn entity_by_stable_key<'a>(
+    snapshot: &'a CanonicalSnapshot,
+    stable_key: &str,
+    role: &str,
+) -> Result<&'a Entity> {
+    snapshot
+        .entities
+        .iter()
+        .find(|entity| entity.stable_key.0 == stable_key)
+        .ok_or_else(|| {
+            anyhow::anyhow!("canonical {role} entity not found for stable key `{stable_key}`")
+        })
 }
 
 fn degree_by_id(snapshot: &CanonicalSnapshot) -> HashMap<String, usize> {
@@ -261,6 +650,214 @@ mod tests {
         assert_eq!(export.edges[0].evidence, vec!["docs/api/health.md:1"]);
         assert_eq!(export.omitted.nodes, 1);
         assert_eq!(export.omitted.edges, 1);
+    }
+
+    #[test]
+    fn explores_related_entities_by_bounded_distance() {
+        let endpoint = entity(
+            "ent_endpoint",
+            "api://GET:/health",
+            EntityKind::ApiEndpoint,
+            "health",
+        );
+        let handler = entity(
+            "ent_handler",
+            "rust://src/lib.rs#health",
+            EntityKind::Function,
+            "health",
+        );
+        let doc = entity(
+            "ent_doc",
+            "doc://docs/api/health.md",
+            EntityKind::DocumentationPage,
+            "Health API",
+        );
+        let schema = entity(
+            "ent_schema",
+            "api-schema://Health",
+            EntityKind::ApiSchema,
+            "Health",
+        );
+        let snapshot = CanonicalSnapshot {
+            snapshot: Some(SnapshotId("snap_test".to_string())),
+            entities: vec![
+                handler.clone(),
+                schema.clone(),
+                doc.clone(),
+                endpoint.clone(),
+            ],
+            relations: vec![
+                relation("rel_docs", RelationKind::Documents, &doc, &endpoint),
+                relation("rel_impl", RelationKind::ImplementedBy, &endpoint, &handler),
+                relation(
+                    "rel_schema",
+                    RelationKind::SchemaForResponse,
+                    &endpoint,
+                    &schema,
+                ),
+            ],
+            ..CanonicalSnapshot::default()
+        };
+
+        let related = build_related_graph(&snapshot, "api://GET:/health", 1, 3, 10).unwrap();
+
+        assert_eq!(related.schema, GRAPH_RELATED_SCHEMA);
+        assert_eq!(related.root.entity.stable_key, "api://GET:/health");
+        assert_eq!(
+            related
+                .nodes
+                .iter()
+                .map(|node| (node.distance, node.entity.stable_key.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                (0, "api://GET:/health"),
+                (1, "api-schema://Health"),
+                (1, "doc://docs/api/health.md"),
+            ]
+        );
+        assert_eq!(
+            related
+                .edges
+                .iter()
+                .map(|edge| edge.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["rel_docs", "rel_schema"]
+        );
+        assert!(related.truncated);
+    }
+
+    #[test]
+    fn reports_missing_related_graph_root() {
+        let error =
+            build_related_graph(&CanonicalSnapshot::default(), "missing://entity", 1, 10, 10)
+                .unwrap_err();
+
+        assert!(error.to_string().contains("missing://entity"));
+    }
+
+    #[test]
+    fn finds_deterministic_shortest_graph_path() {
+        let endpoint = entity(
+            "ent_endpoint",
+            "api://GET:/health",
+            EntityKind::ApiEndpoint,
+            "health",
+        );
+        let handler = entity(
+            "ent_handler",
+            "rust://src/lib.rs#health",
+            EntityKind::Function,
+            "health",
+        );
+        let doc = entity(
+            "ent_doc",
+            "doc://docs/api/health.md",
+            EntityKind::DocumentationPage,
+            "Health API",
+        );
+        let schema = entity(
+            "ent_schema",
+            "api-schema://Health",
+            EntityKind::ApiSchema,
+            "Health",
+        );
+        let snapshot = CanonicalSnapshot {
+            snapshot: Some(SnapshotId("snap_test".to_string())),
+            entities: vec![
+                schema.clone(),
+                handler.clone(),
+                endpoint.clone(),
+                doc.clone(),
+            ],
+            relations: vec![
+                relation("rel_docs", RelationKind::Documents, &doc, &endpoint),
+                relation("rel_impl", RelationKind::ImplementedBy, &endpoint, &handler),
+                relation(
+                    "rel_schema",
+                    RelationKind::SchemaForResponse,
+                    &endpoint,
+                    &schema,
+                ),
+            ],
+            ..CanonicalSnapshot::default()
+        };
+
+        let path = build_shortest_graph_path(
+            &snapshot,
+            "doc://docs/api/health.md",
+            "rust://src/lib.rs#health",
+            3,
+            10,
+        )
+        .unwrap();
+
+        assert_eq!(path.schema, GRAPH_PATH_SCHEMA);
+        assert!(path.found);
+        assert_eq!(path.hops, Some(2));
+        assert_eq!(
+            path.nodes
+                .iter()
+                .map(|node| node.stable_key.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "doc://docs/api/health.md",
+                "api://GET:/health",
+                "rust://src/lib.rs#health"
+            ]
+        );
+        assert_eq!(
+            path.edges
+                .iter()
+                .map(|edge| edge.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["rel_docs", "rel_impl"]
+        );
+        assert!(!path.truncated);
+    }
+
+    #[test]
+    fn reports_truncated_graph_path_search() {
+        let endpoint = entity(
+            "ent_endpoint",
+            "api://GET:/health",
+            EntityKind::ApiEndpoint,
+            "health",
+        );
+        let handler = entity(
+            "ent_handler",
+            "rust://src/lib.rs#health",
+            EntityKind::Function,
+            "health",
+        );
+        let doc = entity(
+            "ent_doc",
+            "doc://docs/api/health.md",
+            EntityKind::DocumentationPage,
+            "Health API",
+        );
+        let snapshot = CanonicalSnapshot {
+            entities: vec![handler.clone(), endpoint.clone(), doc.clone()],
+            relations: vec![
+                relation("rel_docs", RelationKind::Documents, &doc, &endpoint),
+                relation("rel_impl", RelationKind::ImplementedBy, &endpoint, &handler),
+            ],
+            ..CanonicalSnapshot::default()
+        };
+
+        let path = build_shortest_graph_path(
+            &snapshot,
+            "doc://docs/api/health.md",
+            "rust://src/lib.rs#health",
+            1,
+            10,
+        )
+        .unwrap();
+
+        assert!(!path.found);
+        assert_eq!(path.hops, None);
+        assert!(path.nodes.is_empty());
+        assert!(path.edges.is_empty());
+        assert!(path.truncated);
     }
 
     fn entity(id: &str, stable_key: &str, kind: EntityKind, name: &str) -> Entity {

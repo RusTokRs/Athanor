@@ -7,7 +7,8 @@ use athanor_app::{
     DiagnosticCheckReport, DiagnosticScope, DocsApplyPatchOptions, DocsApplyPatchReport,
     DocsCheckOptions, DocsCheckReport, DocsDriftOptions, DocsDriftReport, DocsProposeFixOptions,
     DocsProposeFixReport, EntityExplanation, ExplainOptions, GenerationOptions, GraphExportOptions,
-    HtmlReportOptions, ImpactAnalysis, ImpactOptions, IndexOptions, IndexReport, InitOptions,
+    GraphPath, GraphPathOptions, GraphRelated, GraphRelatedOptions, HtmlReportOptions,
+    ImpactAnalysis, ImpactOptions, IndexOptions, IndexReport, InitOptions,
     OperationsDocsCheckOptions, OperationsDocsCheckReport, OverviewOptions, RepairApplyOptions,
     RepairApplyReport, RepairCleanupOptions, RepairCleanupReport, RepairInspectOptions,
     RepairInspectReport, RepairRecoverCanonicalOptions, RepairRecoverCanonicalReport,
@@ -278,6 +279,45 @@ enum GraphCommand {
         /// Maximum number of graph edges to include.
         #[arg(long, default_value_t = 2_000)]
         max_relations: usize,
+    },
+    /// Explore entities related to one exact canonical stable key.
+    Related {
+        /// Exact canonical stable key to use as the graph root.
+        stable_key: String,
+        /// Project root. Defaults to the current directory.
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Maximum relation distance from the root.
+        #[arg(long, default_value_t = 1)]
+        depth: usize,
+        /// Maximum number of graph nodes to include.
+        #[arg(long, default_value_t = 50)]
+        max_entities: usize,
+        /// Maximum number of graph edges to include.
+        #[arg(long, default_value_t = 100)]
+        max_relations: usize,
+        /// Print the complete related graph as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Find a shortest canonical relation path between two exact stable keys.
+    Path {
+        /// Exact canonical stable key for the source entity.
+        from_stable_key: String,
+        /// Exact canonical stable key for the target entity.
+        to_stable_key: String,
+        /// Project root. Defaults to the current directory.
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Maximum relation distance to search.
+        #[arg(long, default_value_t = 6)]
+        max_depth: usize,
+        /// Maximum number of entities to visit during the search.
+        #[arg(long, default_value_t = 10_000)]
+        max_visited: usize,
+        /// Print the complete path report as JSON.
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -839,27 +879,70 @@ async fn main() -> Result<()> {
                 report.current_pointer.display()
             );
         }
-        Some(Command::Graph {
-            command:
-                GraphCommand::Export {
-                    path,
-                    format,
-                    max_entities,
-                    max_relations,
-                },
-        }) => {
-            let export = athanor_app::export_graph(GraphExportOptions {
-                root: path,
+        Some(Command::Graph { command }) => match command {
+            GraphCommand::Export {
+                path,
+                format,
                 max_entities,
                 max_relations,
-            })
-            .await?;
-            match format {
-                GraphExportFormatArg::Json => {
-                    println!("{}", serde_json::to_string_pretty(&export)?);
+            } => {
+                let export = athanor_app::export_graph(GraphExportOptions {
+                    root: path,
+                    max_entities,
+                    max_relations,
+                })
+                .await?;
+                match format {
+                    GraphExportFormatArg::Json => {
+                        println!("{}", serde_json::to_string_pretty(&export)?);
+                    }
                 }
             }
-        }
+            GraphCommand::Related {
+                stable_key,
+                path,
+                depth,
+                max_entities,
+                max_relations,
+                json,
+            } => {
+                let related = athanor_app::related_graph(GraphRelatedOptions {
+                    root: path,
+                    stable_key,
+                    depth,
+                    max_entities,
+                    max_relations,
+                })
+                .await?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&related)?);
+                } else {
+                    print_related_graph(&related);
+                }
+            }
+            GraphCommand::Path {
+                from_stable_key,
+                to_stable_key,
+                path,
+                max_depth,
+                max_visited,
+                json,
+            } => {
+                let path_report = athanor_app::shortest_graph_path(GraphPathOptions {
+                    root: path,
+                    from_stable_key,
+                    to_stable_key,
+                    max_depth,
+                    max_visited,
+                })
+                .await?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&path_report)?);
+                } else {
+                    print_graph_path(&path_report);
+                }
+            }
+        },
         Some(Command::Repair { command }) => match command {
             RepairCommand::Inspect { path, json } => {
                 let report = inspect_repair(RepairInspectOptions { root: path })?;
@@ -1144,6 +1227,82 @@ fn print_overview(overview: &RepositoryOverview) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn print_related_graph(related: &GraphRelated) {
+    println!(
+        "Related graph for {} (snapshot: {})",
+        related.root.entity.stable_key, related.snapshot
+    );
+    println!(
+        "{} entities, {} relations{}",
+        related.nodes.len(),
+        related.edges.len(),
+        if related.truncated {
+            " (truncated)"
+        } else {
+            ""
+        }
+    );
+    for node in &related.nodes {
+        let source = node.entity.source.as_deref().unwrap_or("unknown source");
+        println!(
+            "  - distance={} [{}] {} ({}) source={}",
+            node.distance, node.entity.kind, node.entity.name, node.entity.stable_key, source
+        );
+    }
+    if !related.edges.is_empty() {
+        println!("Relations:");
+        for edge in &related.edges {
+            println!(
+                "  - {} [{}] {} -> {}",
+                edge.id, edge.kind, edge.from, edge.to
+            );
+        }
+    }
+}
+
+fn print_graph_path(path: &GraphPath) {
+    println!(
+        "Graph path from {} to {} (snapshot: {})",
+        path.from.stable_key, path.to.stable_key, path.snapshot
+    );
+    if !path.found {
+        println!(
+            "No path found after visiting {} entities{}",
+            path.visited,
+            if path.truncated {
+                " (search truncated)"
+            } else {
+                ""
+            }
+        );
+        return;
+    }
+
+    println!(
+        "{} hops after visiting {} entities{}",
+        path.hops.unwrap_or_default(),
+        path.visited,
+        if path.truncated {
+            " (search truncated)"
+        } else {
+            ""
+        }
+    );
+    for (index, node) in path.nodes.iter().enumerate() {
+        let source = node.source.as_deref().unwrap_or("unknown source");
+        println!(
+            "  {index}. [{}] {} ({}) source={}",
+            node.kind, node.name, node.stable_key, source
+        );
+        if let Some(edge) = path.edges.get(index) {
+            println!(
+                "     via {} [{}] {} -> {}",
+                edge.id, edge.kind, edge.from, edge.to
+            );
+        }
+    }
 }
 
 fn print_named_counts(title: &str, counts: &[athanor_app::NamedCount]) {

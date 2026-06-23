@@ -101,6 +101,10 @@ ath report html --output <directory>
 ath generate
 ath graph export --format json
 ath graph export --format json --max-entities <N> --max-relations <N>
+ath graph related <stable-key>
+ath graph related <stable-key> --depth <N> --json
+ath graph path <from-stable-key> <to-stable-key>
+ath graph path <from-stable-key> <to-stable-key> --max-depth <N> --json
 ath repair inspect
 ath repair inspect --json
 ath repair cleanup
@@ -1699,6 +1703,49 @@ Purpose:
 - applies the existing `--top` limit to modules, boundaries, relation kinds, and sampled relation ids
 - keeps overview generation deterministic, read-only, and derived from the latest canonical snapshot
 
+### Related Entity Graph Navigation
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-app/src/graph.rs`
+- `apps/ath/src/main.rs`
+- `docs/README.md`
+- `docs/architecture/pipeline.md`
+
+Purpose:
+
+- adds `ath graph related <stable-key>` and JSON output
+- traverses incoming and outgoing canonical relations breadth-first from one exact stable key
+- bounds traversal depth, entity count, and relation count
+- sorts neighbors, nodes, and relations deterministically
+- reports per-node distance plus canonical entity and relation ids
+- retains relation status, confidence, and evidence anchors for traceability
+- marks results when entity or relation limits truncate the exploration
+- keeps graph navigation read-only and derived from the latest canonical snapshot
+
+### Shortest Graph Path Navigation
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-app/src/graph.rs`
+- `apps/ath/src/main.rs`
+- `docs/README.md`
+- `docs/architecture/pipeline.md`
+
+Purpose:
+
+- adds `ath graph path <from-stable-key> <to-stable-key>` and JSON output
+- searches incoming and outgoing canonical relations with deterministic breadth-first traversal
+- returns one ordered shortest path while retaining each relation's canonical direction
+- includes canonical entity ids, relation ids, status, confidence, and evidence anchors
+- bounds search by maximum depth and visited entity count
+- distinguishes complete no-path results from searches truncated by configured limits
+- keeps path navigation read-only and derived from the latest canonical snapshot
+
 ## In Progress
 
 None.
@@ -1890,7 +1937,7 @@ Scope:
 - extend the initial repository overview query beyond the implemented module structure and integration-boundary summaries as new canonical language relations become available
 - extend graph export beyond the implemented `ath graph export --format json` with later GraphML-compatible output, generated from canonical snapshots rather than replacing canonical storage
 - extend the HTML report with an interactive graph view, per-entity detail pages, filtering by kind/severity/source, and stable links back to canonical evidence
-- add graph navigation commands such as shortest path, hub/centrality views, cycle detection, and related-entity exploration over canonical relations
+- extend graph navigation beyond implemented related-entity exploration and shortest path with hub/centrality views and cycle detection over canonical relations
 - improve `ath impact` with explanatory relation paths and an optional future precision mode for deeper call/data-flow analysis once language adapters can support it
 - evaluate a multi-repository registry for future daemon and MCP use, keeping project selection explicit so one server cannot accidentally answer from the wrong repository
 - treat ideas from GitNexus, Graphify, code-review-graph, and similar code-graph tools as product patterns to adapt, not storage or source-of-truth replacements

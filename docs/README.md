@@ -200,6 +200,10 @@ cargo run -p ath --quiet -- context --diff --json
 cargo run -p ath --quiet -- context "task" --level summary --budget 2000
 cargo run -p ath --quiet -- context "task" --level deep --max-files 20 --max-depth 2
 cargo run -p ath --quiet -- graph export --format json
+cargo run -p ath --quiet -- graph related "api://GET:/health"
+cargo run -p ath --quiet -- graph related "api://GET:/health" --depth 2 --json
+cargo run -p ath --quiet -- graph path "doc://docs/api/health.md" "rust://src/lib.rs#health"
+cargo run -p ath --quiet -- graph path "doc://docs/api/health.md" "rust://src/lib.rs#health" --max-depth 4 --json
 ```
 
 Canonical entities can be explained directly from the latest snapshot:

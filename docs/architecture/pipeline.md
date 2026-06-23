@@ -111,6 +111,8 @@ flowchart TD
 - `context_project`: task-focused context-pack generation from the latest canonical snapshot.
 - `explain_project`: exact stable-key entity explanation from the latest canonical snapshot.
 - `export_graph`: bounded JSON graph export from the latest canonical snapshot.
+- `related_graph`: bounded related-entity exploration from one exact stable key.
+- `shortest_graph_path`: bounded shortest-path search between two exact stable keys.
 - `check_project`: scoped API, documentation, environment, script, deployment, and runbook diagnostic reporting from the latest canonical snapshot.
 - `check_affected`: read-only changed-file diagnostic reporting from latest canonical snapshot plus persisted index state.
 - `check_operations_docs`: aggregate environment, script, deployment, and runbook documentation diagnostics from one latest canonical snapshot load.
@@ -257,6 +259,22 @@ emits a bounded disposable graph read model. The JSON payload uses schema
 keeps edge evidence source anchors, and reports omitted node/edge counts when `--max-entities` or
 `--max-relations` limits truncate the export. The export is derived from canonical entities and
 relations only; it does not replace canonical storage and does not write generated artifacts.
+
+`ath graph related <stable-key>` performs a deterministic breadth-first traversal over incoming and
+outgoing canonical relations. `--depth`, `--max-entities`, and `--max-relations` bound the result.
+Text output provides compact agent-oriented navigation; `--json` emits
+`athanor.graph_related.v1`, including canonical entity ids, stable keys, relation ids, relation
+status and confidence, evidence anchors, per-node distance, and a truncation flag. The command
+requires an exact stable key, reads only the latest canonical snapshot, and does not write
+artifacts.
+
+`ath graph path <from-stable-key> <to-stable-key>` finds one deterministic shortest path while
+treating canonical relations as traversable in either direction. The returned relation objects
+retain their canonical direction, ids, status, confidence, and evidence anchors. `--max-depth` and
+`--max-visited` bound search work; reports distinguish a complete no-path result from a truncated
+search. `--json` emits `athanor.graph_path.v1` with the endpoint entities, ordered path nodes and
+edges, hop count, visited entity count, and truncation state. Missing endpoint stable keys are
+lookup errors. The command reads the latest canonical snapshot without writing artifacts.
 
 ## Entity Explanation
 
