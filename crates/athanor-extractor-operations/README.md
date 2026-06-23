@@ -20,12 +20,14 @@ The current slice parses:
 - Cargo package manifests from `Cargo.toml`
 - Kubernetes YAML manifests from common deployment paths and filenames
 - SQL database migrations from common migration paths and filenames
+- JSON, TOML, and YAML runtime configuration files from common config/settings paths and filenames
 
 Entities:
 
 - `EntityKind::EnvVar` with `env://<NAME>` stable keys
 - `EntityKind::DbMigration` for SQL migration files
 - `EntityKind::DbTable` for tables declared by SQL migrations
+- `EntityKind::Feature` for runtime configuration keys
 - `EntityKind::Package` for Cargo packages and workspaces
 - `EntityKind::Dependency` for Cargo dependencies, dev-dependencies, build-dependencies,
   workspace dependencies, and target-specific dependencies
@@ -48,9 +50,10 @@ Facts:
 - `FactKind::SymbolDefined` from operational command/stage entities to the canonical file entity
 
 Environment fact payloads mark the declaration source as `dotenv`, `dockerfile`, `shell`,
-`docker_compose`, `github_actions`, or `kubernetes`. Raw values are not stored, so real `.env`,
-Dockerfile defaults, exported shell values, compose environment values, workflow environment values,
-or Kubernetes Secret/ConfigMap/container environment values do not leak into canonical snapshots.
+`docker_compose`, `github_actions`, `kubernetes`, or `runtime_config`. Raw values are not stored, so
+real `.env`, Dockerfile defaults, exported shell values, compose environment values, workflow
+environment values, Kubernetes Secret/ConfigMap/container environment values, or runtime config
+values do not leak into canonical snapshots.
 
 ## Inputs
 
@@ -86,9 +89,12 @@ None. The adapter does not run commands, use the network, or modify project file
   statements. It does not parse quoted dotted identifiers, column definitions, constraints,
   `ALTER TABLE`, views, indexes, triggers, functions, down migrations, or ORM-specific migration
   metadata.
+- Runtime configuration parsing flattens scalar JSON, TOML, and YAML keys into redacted
+  configuration knowledge. It does not interpret framework-specific config schemas, environment
+  interpolation, includes/imports, profiles, encrypted values, or arrays of objects.
 - Variable interpolation, shell command substitution, multiline values, and comments inside quoted
   values are not interpreted.
-- runtime configuration and runbooks remain separate Phase 5 work.
+- runbooks remain separate Phase 5 work.
 
 ## Test
 

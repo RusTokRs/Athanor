@@ -90,13 +90,13 @@ Ownership should list every source file that can invalidate the emitted object. 
 | `athanor-extractor-basic` | `Extractor` | Emit file entities and file discovery facts. |
 | `athanor-extractor-markdown` | `Extractor` | Parse YAML documentation frontmatter and CommonMark/GFM headings, then emit documentation page/section knowledge. |
 | `athanor-extractor-openapi` | `Extractor` | Parse OpenAPI 3.1 through `oas3`, retain a 3.0 fallback, and emit operation/schema/example knowledge. |
-| `athanor-extractor-operations` | `Extractor` | Parse operations files such as dotenv, Cargo manifest, Makefile, Dockerfile, shell script, docker-compose, GitHub Actions, Kubernetes YAML, and SQL migration sources into environment, package/dependency, command, deployment/service, and database migration knowledge without storing raw secret values. |
+| `athanor-extractor-operations` | `Extractor` | Parse operations files such as dotenv, Cargo manifest, Makefile, Dockerfile, shell script, docker-compose, GitHub Actions, Kubernetes YAML, SQL migration, and runtime config sources into environment, package/dependency, command, deployment/service, database migration, and runtime configuration knowledge without storing raw secret values. |
 | `athanor-extractor-rust` | `Extractor` | Emit Rust module, function, and symbol definitions. |
 | `athanor-linker-api` | `Linker` | Link OpenAPI operations to Rust functions, Markdown documentation, component schemas, and examples. |
 | `athanor-linker-markdown` | `Linker` | Link Markdown containment and exact frontmatter entity/concept references. |
 | `athanor-linker-rust` | `Linker` | Link Rust module containment, imports, static function call graph, and test cases. |
 | `athanor-checker-markdown` | `Checker` | Diagnose Markdown structure, unresolved frontmatter references, and duplicate document identities. |
-| `athanor-checker-api` | `Checker` | Diagnose missing API implementation/documentation links, unresolved local schema references, invalid examples, and undocumented environment variables. |
+| `athanor-checker-api` | `Checker` | Diagnose missing API implementation/documentation links, unresolved local schema references, invalid examples, undocumented environment variables, and undocumented script commands. |
 | `athanor-projector-wiki` | `Projector` | Project the latest canonical snapshot into a neutral Markdown wiki. |
 | `athanor-projector-html` | `Projector` | Project the latest canonical snapshot into a self-contained HTML report. |
 
@@ -174,6 +174,7 @@ builtin.linker.rust
 builtin.checker.markdown_structure
 builtin.checker.api_consistency
 builtin.checker.env_docs
+builtin.checker.script_docs
 ```
 
 This is the first discovery layer. It gives the app layer a single current manifest contract and a validation path for adapter/plugin configuration. It does not dynamically load external Rust code yet; unknown adapter ids fail fast with a clear runtime-builder error. The optional `version` field describes the plugin package, not a separate generation of the adapter contract.

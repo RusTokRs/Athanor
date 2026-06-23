@@ -1,6 +1,6 @@
 # athanor-checker-api
 
-Basic API consistency checker adapter.
+API, environment, and script documentation checker adapter.
 
 Implements: `Checker`
 
@@ -11,6 +11,9 @@ Implements: `Checker`
 - `ApiRequestSchemaMismatch` when a local request schema `$ref` has no `schema_for_request` relation
 - `ApiResponseSchemaMismatch` when a local response schema `$ref` has no `schema_for_response` relation
 - `ApiExampleInvalid` when an extracted request or response example violates its declared schema
+- `MissingEnvVar` when an environment variable entity has no Markdown `documents` relation
+- `MissingDocumentation` with payload scope `scripts` when a script command entity has no Markdown
+  `documents` relation
 
 Diagnostics are open and deterministic. Implementation/documentation absence diagnostics are owned
 by the endpoint plus current Rust or Markdown candidates. Schema diagnostics are owned by the
@@ -22,7 +25,11 @@ uses the network. Validators are cached by normalized schema during one checker 
 
 ## Incremental Behavior
 
-The checker evaluates affected endpoints and reevaluates all endpoints when relevant Rust functions, Markdown entities, or API relations change. The pipeline performs a safe full rebuild when files are added or removed so absence diagnostics cannot remain stale across source-set changes.
+The API checker evaluates affected endpoints and reevaluates all endpoints when relevant Rust
+functions, Markdown entities, or API relations change. The environment and script documentation
+checkers evaluate affected environment/script entities and reevaluate when Markdown entities change.
+The pipeline performs a safe full rebuild when files are added or removed so absence diagnostics
+cannot remain stale across source-set changes.
 
 ## Side Effects
 
@@ -36,6 +43,10 @@ None. The checker does not run commands, use the network, or modify files.
 - Status-code, auth, and permission checks are deferred.
 - External schema references are skipped; OpenAPI 3.0-specific keywords outside JSON Schema Draft 4
   are not interpreted yet.
+- Environment and script documentation checks require explicit Markdown frontmatter entity links;
+  lexical mentions do not satisfy them.
+- Script documentation checks currently cover `ScriptCommand` entities only; deployment and runbook
+  consistency checks remain separate Phase 5 work.
 
 ## Test
 

@@ -26,6 +26,7 @@ impl Extractor for OperationsExtractor {
             || is_docker_compose_path(&source.path)
             || is_kubernetes_manifest_path(&source.path)
             || is_database_migration_path(&source.path)
+            || is_runtime_config_path(&source.path)
             || is_github_actions_workflow_path(&source.path)
     }
 
@@ -126,6 +127,17 @@ impl Extractor for OperationsExtractor {
 
         if is_database_migration_path(&input.source.path) {
             extract_database_migration(
+                self.name(),
+                &input,
+                &file_id,
+                content,
+                &mut entities,
+                &mut facts,
+            );
+        }
+
+        if is_runtime_config_path(&input.source.path) {
+            extract_runtime_config(
                 self.name(),
                 &input,
                 &file_id,
@@ -258,6 +270,14 @@ impl DatabaseTableDeclaration {
             |schema| format!("{schema}.{}", self.name),
         )
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RuntimeConfigEntry {
+    key: String,
+    value_kind: String,
+    line: u32,
+    redacted: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1171,6 +1191,99 @@ fn extract_database_migration(
             confidence: 1.0,
         });
     }
+}
+
+fn extract_runtime_config(
+    extractor: &str,
+    input: &ExtractInput,
+    file_id: &EntityId,
+    content: &str,
+    entities: &mut Vec<Entity>,
+    facts: &mut Vec<Fact>,
+) {
+    let entries = parse_runtime_config_entries(&input.source.path, content);
+    let mut environment = BTreeMap::new();
+
+    for entry in entries {
+        if is_env_name(config_key_leaf(&entry.key)) {
+            environment
+                .entry(config_key_leaf(&entry.key).to_string())
+                .or_insert(EnvDeclaration {
+                    line: entry.line,
+                    has_value: true,
+                });
+        }
+
+        let stable_key = StableKey(format!(
+            "config://{}#{}",
+            input.source.path,
+            sanitize_key_fragment(&entry.key)
+        ));
+        let entity_id = EntityId(format!(
+            "ent_feature_{:016x}",
+            stable_hash(stable_key.0.as_bytes())
+        ));
+        let ownership = ownership_for_file(&input.source.path);
+
+        entities.push(Entity {
+            id: entity_id.clone(),
+            stable_key: stable_key.clone(),
+            kind: EntityKind::Feature,
+            name: entry.key.clone(),
+            title: Some(format!("Runtime config {}", entry.key)),
+            source: Some(SourceLocation {
+                path: input.source.path.clone(),
+                line_start: Some(entry.line),
+                line_end: Some(entry.line),
+            }),
+            language: Some(LanguageCode(
+                runtime_config_language(&input.source.path).to_string(),
+            )),
+            aliases: Vec::new(),
+            ownership: ownership.clone(),
+            payload: json!({
+                "feature_kind": "runtime_config_key",
+                "key": entry.key,
+                "value_kind": entry.value_kind,
+                "value_redacted": entry.redacted,
+            }),
+        });
+
+        facts.push(Fact {
+            id: FactId(format!(
+                "fact_runtime_config_defined_{:016x}",
+                stable_hash(stable_key.0.as_bytes())
+            )),
+            kind: FactKind::SymbolDefined,
+            subject: entity_id,
+            object: Some(file_id.clone()),
+            value: json!({
+                "stable_key": stable_key.0,
+                "path": input.source.path,
+                "source_kind": "runtime_config",
+            }),
+            evidence: vec![evidence_for_file(
+                &input.source.path,
+                extractor,
+                Some(entry.line),
+                Some(entry.line),
+            )],
+            ownership,
+            snapshot: input.snapshot.clone(),
+            extractor: extractor.to_string(),
+            confidence: 1.0,
+        });
+    }
+
+    extract_env_declarations(
+        extractor,
+        input,
+        file_id,
+        "runtime_config",
+        environment,
+        entities,
+        facts,
+    );
 }
 
 fn extract_github_actions_workflow(
@@ -2226,6 +2339,119 @@ fn strip_sql_line_comment(line: &str) -> &str {
         .map_or(line, |(before_comment, _)| before_comment)
 }
 
+fn parse_runtime_config_entries(path: &str, content: &str) -> Vec<RuntimeConfigEntry> {
+    let Some(root) = parse_runtime_config_value(path, content) else {
+        return Vec::new();
+    };
+    let mut entries = Vec::new();
+    collect_runtime_config_entries(content, "", &root, &mut entries);
+    entries.sort_by(|left, right| left.key.cmp(&right.key));
+    entries
+}
+
+fn parse_runtime_config_value(path: &str, content: &str) -> Option<serde_json::Value> {
+    let file_name = file_name(path).to_ascii_lowercase();
+    if file_name.ends_with(".json") {
+        return serde_json::from_str::<serde_json::Value>(content).ok();
+    }
+    if file_name.ends_with(".toml") {
+        let value = toml::from_str::<toml::Value>(content).ok()?;
+        return serde_json::to_value(value).ok();
+    }
+    if file_name.ends_with(".yml") || file_name.ends_with(".yaml") {
+        return serde_yaml_ng::from_str::<serde_json::Value>(content).ok();
+    }
+    None
+}
+
+fn collect_runtime_config_entries(
+    content: &str,
+    prefix: &str,
+    value: &serde_json::Value,
+    entries: &mut Vec<RuntimeConfigEntry>,
+) {
+    match value {
+        serde_json::Value::Object(object) => {
+            for (key, value) in object {
+                let next = if prefix.is_empty() {
+                    key.clone()
+                } else {
+                    format!("{prefix}.{key}")
+                };
+                collect_runtime_config_entries(content, &next, value, entries);
+            }
+        }
+        serde_json::Value::Array(values) if values.iter().all(is_scalar_json_value) => {
+            if !prefix.is_empty() {
+                entries.push(RuntimeConfigEntry {
+                    key: prefix.to_string(),
+                    value_kind: "array".to_string(),
+                    line: config_key_line(content, config_key_leaf(prefix)).unwrap_or(1),
+                    redacted: true,
+                });
+            }
+        }
+        serde_json::Value::Array(_) => {}
+        _ => {
+            if !prefix.is_empty() {
+                entries.push(RuntimeConfigEntry {
+                    key: prefix.to_string(),
+                    value_kind: json_value_kind(value).to_string(),
+                    line: config_key_line(content, config_key_leaf(prefix)).unwrap_or(1),
+                    redacted: true,
+                });
+            }
+        }
+    }
+}
+
+fn is_scalar_json_value(value: &serde_json::Value) -> bool {
+    !matches!(
+        value,
+        serde_json::Value::Object(_) | serde_json::Value::Array(_)
+    )
+}
+
+fn json_value_kind(value: &serde_json::Value) -> &'static str {
+    match value {
+        serde_json::Value::Null => "null",
+        serde_json::Value::Bool(_) => "boolean",
+        serde_json::Value::Number(_) => "number",
+        serde_json::Value::String(_) => "string",
+        serde_json::Value::Array(_) => "array",
+        serde_json::Value::Object(_) => "object",
+    }
+}
+
+fn config_key_leaf(key: &str) -> &str {
+    key.rsplit('.').next().unwrap_or(key)
+}
+
+fn config_key_line(content: &str, key: &str) -> Option<u32> {
+    let quoted = format!("\"{key}\"");
+    let single_quoted = format!("'{key}'");
+    content.lines().enumerate().find_map(|(index, line)| {
+        let trimmed = line.trim_start();
+        (trimmed.starts_with(key)
+            || trimmed.starts_with(&quoted)
+            || trimmed.starts_with(&single_quoted)
+            || trimmed.starts_with(&format!("{key}:"))
+            || trimmed.starts_with(&format!("{key} =")))
+        .then_some((index + 1) as u32)
+    })
+}
+
+fn runtime_config_language(path: &str) -> &'static str {
+    let file_name = file_name(path).to_ascii_lowercase();
+    if file_name.ends_with(".json") {
+        "json"
+    } else if file_name.ends_with(".toml") {
+        "toml"
+    } else {
+        "yaml"
+    }
+}
+
 fn parse_github_actions_workflow(content: &str) -> Option<GithubActionsWorkflow> {
     let Ok(root) = serde_yaml_ng::from_str::<serde_json::Value>(content) else {
         return None;
@@ -2506,6 +2732,42 @@ fn is_database_migration_path(path: &str) -> bool {
             .chars()
             .next()
             .is_some_and(|character| character.is_ascii_digit())
+}
+
+fn is_runtime_config_path(path: &str) -> bool {
+    if is_cargo_manifest_path(path)
+        || is_docker_compose_path(path)
+        || is_kubernetes_manifest_path(path)
+        || is_github_actions_workflow_path(path)
+    {
+        return false;
+    }
+    let normalized = path.replace('\\', "/").to_ascii_lowercase();
+    let file_name = file_name(&normalized);
+    if !(file_name.ends_with(".json")
+        || file_name.ends_with(".toml")
+        || file_name.ends_with(".yml")
+        || file_name.ends_with(".yaml"))
+    {
+        return false;
+    }
+
+    normalized.starts_with("config/")
+        || normalized.contains("/config/")
+        || normalized.starts_with("configs/")
+        || normalized.contains("/configs/")
+        || normalized.starts_with("settings/")
+        || normalized.contains("/settings/")
+        || file_name == "config.json"
+        || file_name == "config.toml"
+        || file_name == "config.yml"
+        || file_name == "config.yaml"
+        || file_name.starts_with("settings.")
+        || file_name.starts_with("appsettings.")
+        || file_name.ends_with(".config.json")
+        || file_name.ends_with(".config.toml")
+        || file_name.ends_with(".config.yml")
+        || file_name.ends_with(".config.yaml")
 }
 
 fn is_github_actions_workflow_path(path: &str) -> bool {
@@ -3041,6 +3303,66 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn extracts_runtime_config_keys_without_values() {
+        let output = OperationsExtractor
+            .extract(ExtractInput {
+                repo: RepoId("repo_test".to_string()),
+                snapshot: SnapshotId("snap_test".to_string()),
+                source: SourceFile {
+                    path: "config/app.toml".to_string(),
+                    language_hint: Some("toml".to_string()),
+                    content_hash: Some("hash".to_string()),
+                    content: Some(
+                        "[server]\nport = 8080\nDATABASE_URL = \"postgres://example\"\n\n[features]\nenabled = [\"search\", \"docs\"]\n"
+                            .to_string(),
+                    ),
+                },
+            })
+            .await
+            .unwrap();
+
+        let config_keys = output
+            .entities
+            .iter()
+            .filter(|entity| entity.kind == EntityKind::Feature)
+            .map(|entity| {
+                (
+                    entity.stable_key.0.as_str(),
+                    entity.payload["value_kind"].clone(),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            config_keys,
+            vec![
+                ("config://config/app.toml#features.enabled", json!("array")),
+                (
+                    "config://config/app.toml#server.DATABASE_URL",
+                    json!("string")
+                ),
+                ("config://config/app.toml#server.port", json!("number")),
+            ]
+        );
+        assert!(
+            output
+                .entities
+                .iter()
+                .filter(|entity| entity.kind == EntityKind::Feature)
+                .all(|entity| entity.payload.get("value").is_none()
+                    && entity.payload["value_redacted"] == json!(true))
+        );
+        assert!(output.entities.iter().any(|entity| {
+            entity.kind == EntityKind::EnvVar && entity.stable_key.0 == "env://DATABASE_URL"
+        }));
+        assert!(
+            output
+                .facts
+                .iter()
+                .all(|fact| !fact.evidence.is_empty() && !fact.ownership.is_empty())
+        );
+    }
+
+    #[tokio::test]
     async fn extracts_github_actions_workflow_jobs_steps_and_env_without_values() {
         let output = OperationsExtractor
             .extract(ExtractInput {
@@ -3135,6 +3457,11 @@ mod tests {
         ));
         assert!(is_database_migration_path("db/schema/migration_init.sql"));
         assert!(!is_database_migration_path("docs/query.sql"));
+        assert!(is_runtime_config_path("config/app.toml"));
+        assert!(is_runtime_config_path("settings/appsettings.json"));
+        assert!(is_runtime_config_path("service.config.yaml"));
+        assert!(!is_runtime_config_path("Cargo.toml"));
+        assert!(!is_runtime_config_path("docker-compose.yml"));
         assert!(is_github_actions_workflow_path(".github/workflows/ci.yml"));
         assert!(is_github_actions_workflow_path(
             ".github/workflows/security.yaml"

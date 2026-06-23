@@ -18,7 +18,7 @@ knowledge. The current slice parses dotenv-style files, Cargo package manifests,
 Dockerfile stages, commands and environment declarations, shell script functions plus exported
 environment variables, docker-compose services, commands, and environment declarations, GitHub
 Actions workflow jobs, steps, actions, and environment declarations, Kubernetes YAML deployment
-manifests, and SQL database migrations.
+manifests, SQL database migrations, and runtime configuration files.
 
 ## Inputs
 
@@ -37,6 +37,8 @@ operations files and whose content is UTF-8 text:
   manifest filenames such as `deployment.yaml`, `service.yaml`, `configmap.yaml`, and `secret.yaml`
 - SQL migration files in `migrations/`, `db/`, `sqlx/`, `diesel/`, or `prisma/`, plus migration-like
   `.sql` filenames
+- JSON, TOML, or YAML config files in `config/`, `configs/`, or `settings/`, plus common
+  `config.*`, `settings.*`, `appsettings.*`, and `*.config.*` filenames
 
 Supported dotenv declarations:
 
@@ -149,6 +151,14 @@ CREATE TABLE IF NOT EXISTS public.users (
 );
 ```
 
+Supported runtime configuration declarations:
+
+```toml
+[server]
+port = 8080
+DATABASE_URL = "postgres://example"
+```
+
 ## Outputs
 
 Entities:
@@ -156,6 +166,7 @@ Entities:
 - `EntityKind::EnvVar` with stable keys like `env://DATABASE_URL`
 - `EntityKind::DbMigration` for SQL migration files
 - `EntityKind::DbTable` for tables declared by SQL migrations
+- `EntityKind::Feature` for runtime configuration keys
 - `EntityKind::Package` for Cargo packages and workspaces
 - `EntityKind::Dependency` for Cargo dependencies, dev-dependencies, build-dependencies,
   workspace dependencies, and target-specific dependencies
@@ -176,6 +187,7 @@ Facts:
 - `FactKind::EnvVarUsed` with `mechanism = "docker_compose"` and `source_kind = "docker_compose"`
 - `FactKind::EnvVarUsed` with `mechanism = "github_actions"` and `source_kind = "github_actions"`
 - `FactKind::EnvVarUsed` with `mechanism = "kubernetes"` and `source_kind = "kubernetes"`
+- `FactKind::EnvVarUsed` with `mechanism = "runtime_config"` and `source_kind = "runtime_config"`
 - `FactKind::MigrationCreatesTable` from SQL migration entities to table entities
 - `FactKind::SymbolDefined` for Cargo packages, workspaces, and dependencies
 - `FactKind::SymbolDefined` for Makefile targets, Dockerfile stages, Dockerfile command
@@ -226,7 +238,10 @@ declaration.
   statements. It does not parse quoted dotted identifiers, column definitions, constraints,
   `ALTER TABLE`, views, indexes, triggers, functions, down migrations, or ORM-specific migration
   metadata.
-- runtime configuration and runbooks remain separate Phase 5 work.
+- Runtime configuration parsing flattens scalar JSON, TOML, and YAML keys into redacted
+  configuration knowledge. It does not interpret framework-specific config schemas, environment
+  interpolation, includes/imports, profiles, encrypted values, or arrays of objects.
+- runbooks remain separate Phase 5 work.
 
 ## Tests
 

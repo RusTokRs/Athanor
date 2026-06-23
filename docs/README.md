@@ -152,6 +152,8 @@ cargo run -p ath --quiet -- check api
 cargo run -p ath --quiet -- check docs --json
 cargo run -p ath --quiet -- check env
 cargo run -p ath --quiet -- check env --json
+cargo run -p ath --quiet -- check scripts
+cargo run -p ath --quiet -- check scripts --json
 ```
 
 Editable documentation can be checked against the project completeness policy:

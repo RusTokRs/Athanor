@@ -64,6 +64,8 @@ ath check docs
 ath check docs --json
 ath check env
 ath check env --json
+ath check scripts
+ath check scripts --json
 ath docs check
 ath docs check --json
 ath docs drift
@@ -1391,7 +1393,58 @@ Purpose:
 - emits evidence-backed `symbol_defined` facts for SQL migration files
 - emits evidence-backed `migration_creates_table` facts from migrations to created tables
 - advances persisted index state to v20 so existing projects rebuild operational knowledge once
-- keeps quoted dotted identifiers, column details, constraints, `ALTER TABLE`, views, indexes, triggers, functions, down migrations, ORM-specific migration metadata, runtime configuration, and runbook extraction deferred
+- keeps quoted dotted identifiers, column details, constraints, `ALTER TABLE`, views, indexes, triggers, functions, down migrations, ORM-specific migration metadata, advanced runtime configuration semantics, and runbook extraction deferred
+
+### Runtime Configuration Extraction
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-extractor-operations`
+- `crates/athanor-extractor-operations/README.md`
+- `crates/athanor-app/src/index_state.rs`
+- `docs/adapters/extractor-operations.md`
+- `docs/architecture/adapters.md`
+- `docs/architecture/pipeline.md`
+
+Purpose:
+
+- extends the built-in `builtin.extractor.operations` adapter to JSON, TOML, and YAML runtime configuration files in common config/settings paths and filenames
+- flattens scalar configuration keys into redacted `Feature` entities
+- records scalar value kinds without storing raw configuration values
+- records env-like uppercase config keys as redacted `EnvVar` knowledge
+- emits evidence-backed `symbol_defined` facts for runtime configuration keys
+- emits evidence-backed `env_var_used` facts for env-like runtime configuration keys
+- advances persisted index state to v21 so existing projects rebuild operational knowledge once
+- keeps framework-specific config schemas, environment interpolation, includes/imports, profiles, encrypted values, arrays of objects, and runbook extraction deferred
+
+### Script Documentation Check View
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-checker-api`
+- `crates/athanor-checker-api/README.md`
+- `crates/athanor-app/src/check.rs`
+- `crates/athanor-app/src/runtime.rs`
+- `crates/athanor-transport-mcp/src/lib.rs`
+- `apps/ath/src/main.rs`
+- `docs/adapters/checker-api.md`
+- `docs/architecture/adapters.md`
+- `docs/architecture/pipeline.md`
+
+Purpose:
+
+- adds the built-in `builtin.checker.script_docs` adapter
+- checks canonical `ScriptCommand` entities for explicit Markdown `documents` relations
+- emits evidence-backed `missing_documentation` diagnostics with payload scope `scripts`
+- exposes the findings through `ath check scripts` and `ath check scripts --json`
+- exposes the same `scripts` scope through the MCP `check` tool
+- keeps the command read-only and non-failing, matching the initial API/docs/env check views
+- advances persisted index state to v22 so existing projects rebuild script documentation diagnostics once
+- keeps deployment and runbook consistency checkers deferred
 
 ## In Progress
 
@@ -1407,11 +1460,10 @@ Status: planned.
 
 Scope:
 
-- extract operational entities from runtime configuration
-- add script, deployment, and runbook consistency checkers
+- add deployment and runbook consistency checkers
 - extend environment checks beyond Rust, dotenv, and Dockerfile declarations to runtime configuration coverage
 - expand generated operations documentation drafts beyond environment variables
-- expose remaining operational checks through commands such as `ath docs operations check`, `ath check scripts`, and `ath check deployment`
+- expose remaining operational checks through commands such as `ath docs operations check` and `ath check deployment`
 
 Acceptance:
 
@@ -1434,6 +1486,28 @@ Acceptance:
 - changed-file workflows avoid full recomputation where safe
 - diff-based context and impact commands work before a new durable index is committed
 - repair and cleanup are deterministic and documented
+
+### Phase 6.5 - Agent Graph Navigation And Overview
+
+Status: planned.
+
+Scope:
+
+- add a repository overview query for agents and developers, summarizing module structure, architectural hubs, workflows, integration boundaries, open diagnostics, and evidence-backed source anchors within a bounded token budget
+- add graph export read models such as `ath graph export --format json` and later GraphML-compatible output, generated from canonical snapshots rather than replacing canonical storage
+- extend the HTML report with an interactive graph view, per-entity detail pages, filtering by kind/severity/source, and stable links back to canonical evidence
+- add graph navigation commands such as shortest path, hub/centrality views, cycle detection, and related-entity exploration over canonical relations
+- improve `ath impact` with explanatory relation paths and an optional future precision mode for deeper call/data-flow analysis once language adapters can support it
+- evaluate a multi-repository registry for future daemon and MCP use, keeping project selection explicit so one server cannot accidentally answer from the wrong repository
+- treat ideas from GitNexus, Graphify, code-review-graph, and similar code-graph tools as product patterns to adapt, not storage or source-of-truth replacements
+
+Acceptance:
+
+- every graph query result can be traced back to canonical entity, relation, diagnostic, and evidence ids
+- exported graph files and interactive reports are disposable read models that can be regenerated from the latest canonical snapshot
+- overview and graph-navigation outputs are bounded, deterministic, and suitable for agent context
+- multi-repository support keeps repository identity explicit in CLI, daemon, MCP, and generated artifacts
+- documentation explains the boundary between canonical knowledge, graph algorithms, and generated graph views
 
 ### Phase 7 - Daemon And Agent-Native Access
 

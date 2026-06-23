@@ -329,6 +329,7 @@ fn build_docs_check_report(
         .filter(|diagnostic| {
             diagnostic.status == DiagnosticStatus::Open
                 && diagnostic_matches_scope(&diagnostic.kind, DiagnosticScope::Docs)
+                && diagnostic.payload.get("scope").and_then(Value::as_str) != Some("scripts")
                 && severity_rank(diagnostic.severity)
                     <= severity_rank(config.completeness.minimum_diagnostic_severity)
                 && diagnostic

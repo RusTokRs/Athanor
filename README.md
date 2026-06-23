@@ -6,6 +6,22 @@ Athanor is a Rust-based code knowledge engine for AI agents and developers.
 
 It builds an incremental, evidence-backed knowledge model for a repository by discovering source files, extracting canonical facts, linking related objects, running checks, and exporting disposable read models.
 
+Unlike a conventional code graph viewer, Athanor treats the graph as one projection of a
+canonical knowledge model. Code, documentation, OpenAPI contracts, operational files, diagnostics,
+and generated reports are tied together through stable ids, source evidence, and ownership metadata
+so agents can ask bounded questions without losing the trail back to source files.
+
+| Capability | Conventional code graph tools | Athanor |
+| --- | --- | --- |
+| Source of truth | Graph or search index | Canonical snapshots with evidence and ownership |
+| Main purpose | Navigate code structure and dependencies | Verify, query, explain, and project repository knowledge |
+| Inputs | Usually source code and symbols | Code, Markdown docs, OpenAPI, runtime configuration, operations files, and adapters |
+| Agent context | Retrieval or graph lookup | Bounded `context`, `explain`, `impact`, and `check` queries |
+| Documentation | Optional generated docs or summaries | Docs drift checks, completeness gates, and reviewable patch proposals |
+| API contracts | Usually outside the core model | API registry, snapshots, diffs, breaking-change diagnostics, and strict checks |
+| Outputs | Graph UI or export | Rebuildable JSONL, wiki, HTML report, search index, and future graph views |
+| Extensibility | Tool-specific plugins | Adapter-first ports for sources, extractors, linkers, checkers, stores, search, projectors, and transports |
+
 ## Current Status
 
 Athanor currently ships a verified local-first knowledge-engine baseline:
@@ -28,8 +44,10 @@ and macOS. The implementation remains intentionally adapter-first: domain and co
 canonical types and ports, while format, storage, query presentation, and projection behavior stay
 outside those boundaries.
 
-The current baseline is an offline CLI and local JSONL store. Search indexing, impact analysis,
-network transports, and production multi-process storage remain roadmap work.
+The current baseline is an offline CLI with local JSONL canonical storage, lexical search,
+impact analysis, static projectors, and MCP transport. Production multi-process storage, daemonized
+access, semantic vectors, interactive graph views, and multi-repository workflows remain roadmap
+work.
 
 ## Quick Start
 

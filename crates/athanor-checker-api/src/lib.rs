@@ -411,6 +411,105 @@ fn missing_env_var_diagnostic(
     }
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct ScriptDocsChecker;
+
+#[async_trait]
+impl Checker for ScriptDocsChecker {
+    fn name(&self) -> &'static str {
+        "script-docs"
+    }
+
+    async fn check(&self, input: CheckInput) -> CoreResult<Vec<Diagnostic>> {
+        let script_commands = unique_entities_of_kind(&input.entities, EntityKind::ScriptCommand);
+        let docs_affected = input.affected.entities.iter().any(|entity| {
+            matches!(
+                entity.kind,
+                EntityKind::DocumentationPage | EntityKind::DocumentationSection
+            )
+        });
+        let affected_ids = input
+            .affected
+            .entities
+            .iter()
+            .map(|entity| entity.id.clone())
+            .collect::<HashSet<_>>();
+
+        let mut diagnostics = Vec::new();
+        for script_command in script_commands {
+            if !affected_ids.contains(&script_command.id) && !docs_affected {
+                continue;
+            }
+            let documented = input.relations.iter().any(|relation| {
+                relation.kind == RelationKind::Documents && relation.to == script_command.id
+            });
+            if !documented {
+                diagnostics.push(missing_script_documentation_diagnostic(
+                    script_command,
+                    self.name(),
+                    &input.snapshot,
+                ));
+            }
+        }
+
+        Ok(diagnostics)
+    }
+}
+
+fn missing_script_documentation_diagnostic(
+    script_command: &Entity,
+    checker: &str,
+    snapshot: &SnapshotId,
+) -> Diagnostic {
+    let kind = DiagnosticKind::MissingDocumentation;
+    let kind_slug = "missing_script_documentation";
+    let id_material = format!("{kind_slug}\0{}", script_command.stable_key.0);
+    Diagnostic {
+        id: DiagnosticId(format!(
+            "diag_script_{:016x}",
+            stable_hash(id_material.as_bytes())
+        )),
+        kind,
+        severity: Severity::Medium,
+        status: DiagnosticStatus::Open,
+        title: "Script command is not documented".to_string(),
+        message: format!(
+            "Script command `{}` is known to the operations graph but not documented.",
+            script_command.stable_key.0
+        ),
+        entities: vec![script_command.id.clone()],
+        evidence: vec![Evidence {
+            source_file: script_command
+                .source
+                .as_ref()
+                .map(|source| source.path.clone()),
+            line_start: script_command
+                .source
+                .as_ref()
+                .and_then(|source| source.line_start),
+            line_end: script_command
+                .source
+                .as_ref()
+                .and_then(|source| source.line_end),
+            extractor: Some(checker.to_string()),
+            commit_hash: None,
+            confidence: 1.0,
+            status: EvidenceStatus::Missing,
+        }],
+        ownership: script_command.ownership.clone(),
+        snapshot: snapshot.clone(),
+        suggested_fix: Some(format!(
+            "Document `{}` in Markdown frontmatter by adding it to an `entities` list.",
+            script_command.stable_key.0
+        )),
+        payload: json!({
+            "script_command": script_command.stable_key.0,
+            "missing_relation": "documents",
+            "scope": "scripts",
+        }),
+    }
+}
+
 fn entities_of_kind(entities: &[Entity], kind: EntityKind) -> Vec<&Entity> {
     entities
         .iter()
@@ -949,6 +1048,55 @@ mod tests {
             .unwrap();
 
         assert_eq!(diagnostics2.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn reports_undocumented_script_command_and_accepts_documented_one() {
+        let script = entity(
+            "ent_script_deploy",
+            "script-command://Makefile#target:deploy",
+            EntityKind::ScriptCommand,
+            "Makefile",
+        );
+        let doc_page = entity(
+            "ent_doc_page",
+            "doc://docs/operations/deploy.md",
+            EntityKind::DocumentationPage,
+            "docs/operations/deploy.md",
+        );
+
+        let diagnostics = ScriptDocsChecker
+            .check(input(
+                vec![script.clone()],
+                Vec::new(),
+                vec![script.clone()],
+                Vec::new(),
+            ))
+            .await
+            .unwrap();
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].kind, DiagnosticKind::MissingDocumentation);
+        assert_eq!(diagnostics[0].payload["scope"], "scripts");
+        assert_eq!(diagnostics[0].entities[0], script.id);
+
+        let documents_rel = relation(
+            "rel_doc_script",
+            RelationKind::Documents,
+            &doc_page,
+            &script,
+        );
+        let diagnostics = ScriptDocsChecker
+            .check(input(
+                vec![script.clone(), doc_page],
+                vec![documents_rel.clone()],
+                vec![script],
+                vec![documents_rel],
+            ))
+            .await
+            .unwrap();
+
+        assert!(diagnostics.is_empty());
     }
 
     #[tokio::test]

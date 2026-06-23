@@ -7,13 +7,13 @@ last_verified_snapshot: snap_jsonl_00000030
 status: verified
 ---
 
-# API Consistency & Environment Checker
+# API Consistency, Environment, And Script Checker
 
 Crate: `athanor-checker-api`
 
 Port: `Checker`
 
-This crate houses two checkers:
+This crate houses three checkers:
 
 ### 1. API Consistency Checker (`ApiConsistencyChecker`)
 Reports OpenAPI operations without linked Rust implementations, implemented operations
@@ -35,7 +35,22 @@ cargo run -p ath --quiet -- check env
 cargo run -p ath --quiet -- check env --json
 ```
 
-Diagnostics include evidence and ownership. Relevant function, documentation, and relation changes trigger reevaluation. File additions and removals force a full rebuild at the pipeline level to keep absence diagnostics correct.
+### 3. Script Command Documentation Checker (`ScriptDocsChecker`)
+Reports operational script commands that are known to the graph but missing from editable
+documentation. It checks `EntityKind::ScriptCommand` entities and emits
+`DiagnosticKind::MissingDocumentation` with payload `scope = "scripts"` when the command lacks a
+generic `RelationKind::Documents` relation from Markdown frontmatter.
+
+The findings are exposed separately through:
+
+```bash
+cargo run -p ath --quiet -- check scripts
+cargo run -p ath --quiet -- check scripts --json
+```
+
+Diagnostics include evidence and ownership. Relevant function, documentation, environment, script
+command, and relation changes trigger reevaluation. File additions and removals force a full rebuild
+at the pipeline level to keep absence diagnostics correct.
 
 Example validation uses adapter-private `jsonschema` 0.46.5 with Draft 4 for OpenAPI 3.0 and Draft
 2020-12 for OpenAPI 3.1. Same-document component schemas are assembled into an in-memory validation
@@ -44,7 +59,8 @@ network. Compiled validators are cached by normalized schema during one checker 
 schema references are skipped, and OpenAPI 3.0 keywords beyond Draft 4 compatibility remain a
 documented limitation.
 
-The checker is local and side-effect free. Deeper schema, status-code, authentication, permission, and breaking-change checks are deferred.
+The checker is local and side-effect free. Deeper schema, status-code, authentication, permission,
+breaking-change, deployment, and runbook checks are deferred.
 
 ## Configuration & Policy Enforcement
 

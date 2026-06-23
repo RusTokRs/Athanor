@@ -14,6 +14,7 @@ pub enum DiagnosticScope {
     Api,
     Docs,
     Env,
+    Scripts,
 }
 
 #[derive(Debug, Clone)]
@@ -85,6 +86,18 @@ pub fn build_check_report(
         .filter(|diagnostic| {
             if diagnostic.status != DiagnosticStatus::Open
                 || !diagnostic_matches_scope(&diagnostic.kind, scope)
+                || (scope == DiagnosticScope::Scripts
+                    && diagnostic
+                        .payload
+                        .get("scope")
+                        .and_then(serde_json::Value::as_str)
+                        != Some("scripts"))
+                || (scope == DiagnosticScope::Docs
+                    && diagnostic
+                        .payload
+                        .get("scope")
+                        .and_then(serde_json::Value::as_str)
+                        == Some("scripts"))
             {
                 return false;
             }
@@ -105,7 +118,7 @@ pub fn build_check_report(
                     }
                     _ => true,
                 },
-                DiagnosticScope::Docs | DiagnosticScope::Env => true,
+                DiagnosticScope::Docs | DiagnosticScope::Env | DiagnosticScope::Scripts => true,
             }
         })
         .cloned()
@@ -167,6 +180,7 @@ pub(crate) fn diagnostic_matches_scope(kind: &DiagnosticKind, scope: DiagnosticS
                 | DiagnosticKind::TranslationOutdated
         ),
         DiagnosticScope::Env => matches!(kind, DiagnosticKind::MissingEnvVar),
+        DiagnosticScope::Scripts => matches!(kind, DiagnosticKind::MissingDocumentation),
     }
 }
 
@@ -231,6 +245,13 @@ mod tests {
 
     #[test]
     fn filters_documentation_diagnostics() {
+        let mut script = diagnostic(
+            "diag_script",
+            DiagnosticKind::MissingDocumentation,
+            Severity::Medium,
+            DiagnosticStatus::Open,
+        );
+        script.payload = json!({"scope": "scripts"});
         let diagnostics = vec![
             diagnostic(
                 "diag_docs",
@@ -250,6 +271,7 @@ mod tests {
                 Severity::High,
                 DiagnosticStatus::Open,
             ),
+            script,
         ];
 
         let report = build_check_report(
@@ -289,6 +311,33 @@ mod tests {
 
         assert_eq!(report.counts.total, 1);
         assert_eq!(report.diagnostics[0].id.0, "diag_env");
+    }
+
+    #[test]
+    fn filters_script_diagnostics_by_payload_scope() {
+        let mut script = diagnostic(
+            "diag_script",
+            DiagnosticKind::MissingDocumentation,
+            Severity::Medium,
+            DiagnosticStatus::Open,
+        );
+        script.payload = json!({"scope": "scripts"});
+        let docs = diagnostic(
+            "diag_docs",
+            DiagnosticKind::MissingDocumentation,
+            Severity::Medium,
+            DiagnosticStatus::Open,
+        );
+
+        let report = build_check_report(
+            "snap_test".to_string(),
+            DiagnosticScope::Scripts,
+            &[docs, script],
+            &ApiConfig::default(),
+        );
+
+        assert_eq!(report.counts.total, 1);
+        assert_eq!(report.diagnostics[0].id.0, "diag_script");
     }
 
     #[test]

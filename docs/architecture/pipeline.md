@@ -58,12 +58,12 @@ flowchart TD
 2. `athanor-extractor-basic` creates file entities and `file_discovered` facts.
 3. `athanor-extractor-markdown` parses optional YAML frontmatter plus CommonMark/GFM heading events, then creates identity/language-aware documentation page/section entities and `doc_section_found` facts.
 4. `athanor-extractor-openapi` dispatches OpenAPI 3.1 to `oas3` and 3.0 to a maintained-YAML legacy parser, then extracts operations, component schemas, request/response schema uses, and media examples.
-5. `athanor-extractor-operations` parses dotenv, Cargo manifest, Makefile, Dockerfile, shell script, docker-compose, GitHub Actions, Kubernetes YAML, and SQL migration sources into environment-variable, package/dependency, script-command, deployment/service, and database migration knowledge.
+5. `athanor-extractor-operations` parses dotenv, Cargo manifest, Makefile, Dockerfile, shell script, docker-compose, GitHub Actions, Kubernetes YAML, SQL migration, and runtime config sources into environment-variable, package/dependency, script-command, deployment/service, database migration, and runtime configuration knowledge.
 6. `athanor-extractor-rust` parses Rust files into module, function, symbol, and environment-variable entities plus `symbol_defined` and `env_var_used` facts.
 7. `athanor-linker-markdown` creates `contains` relations plus verified `documents` relations for exact entity/concept keys declared in Markdown frontmatter.
 8. `athanor-linker-api` links OpenAPI operations to matching Rust handlers, Markdown API documentation, same-document request/response component schemas, and declared examples.
 9. `athanor-checker-markdown` creates documentation structure, unresolved-reference, and duplicate-identity diagnostics.
-10. `athanor-checker-api` diagnoses OpenAPI operations without linked implementations or documentation, local component schema references that did not resolve, examples that violate their declared schemas, and undocumented environment variables.
+10. `athanor-checker-api` diagnoses OpenAPI operations without linked implementations or documentation, local component schema references that did not resolve, examples that violate their declared schemas, undocumented environment variables, and undocumented script commands.
 11. `RuntimeBuilder` discovers adapter plugin manifests from `.athanor/adapters/*.json` and `.athanor/plugins/*/athanor-adapter.json`, then applies enabled adapter entries that match known app-layer factory ids.
 12. `RuntimeBuilder` builds the configured `IndexPipeline` from an `AdapterRegistry`.
 13. `IndexStateStore` classifies discovered files as changed, unchanged, or removed by comparing them with the previous state.
@@ -80,12 +80,13 @@ flowchart TD
 24. On demand, `ath wiki` loads the latest durable canonical snapshot and performs a staged replacement of the neutral Markdown wiki read model.
 25. On demand, `ath report html` loads the same snapshot and performs a staged replacement of a self-contained HTML report.
 26. On demand, `ath generate` projects JSONL, wiki, and HTML into one immutable generation, writes a complete generation manifest, and then switches `current.json` to that generation.
-27. On demand, `ath check env` reports environment variables used by Rust code or declared in dotenv files but not linked from editable documentation.
-28. On demand, `ath docs check` evaluates editable documentation under the configured path against frontmatter completeness and diagnostic severity policy.
-29. On demand, `ath docs drift` reports editable documentation not verified against the latest canonical snapshot.
-30. On demand, `ath docs propose-fix` writes a reviewable JSON patch proposal for editable documentation frontmatter policy and drift findings.
-31. On demand, `ath docs apply-patch <id-or-path>` explicitly applies one generated documentation patch proposal after verifying it still targets the latest canonical snapshot.
-32. On demand, `ath api snapshot` publishes the latest API contract immutably and `ath api diff` compares contract snapshots.
+27. On demand, `ath check env` reports environment variables used by Rust code or declared in operations/config files but not linked from editable documentation.
+28. On demand, `ath check scripts` reports operational script commands not linked from editable documentation.
+29. On demand, `ath docs check` evaluates editable documentation under the configured path against frontmatter completeness and diagnostic severity policy.
+30. On demand, `ath docs drift` reports editable documentation not verified against the latest canonical snapshot.
+31. On demand, `ath docs propose-fix` writes a reviewable JSON patch proposal for editable documentation frontmatter policy and drift findings.
+32. On demand, `ath docs apply-patch <id-or-path>` explicitly applies one generated documentation patch proposal after verifying it still targets the latest canonical snapshot.
+33. On demand, `ath api snapshot` publishes the latest API contract immutably and `ath api diff` compares contract snapshots.
 
 ## Pipeline Assembly
 
@@ -98,7 +99,7 @@ flowchart TD
 - `JsonlKnowledgeStore`: durable local canonical snapshot store used by the CLI.
 - `context_project`: task-focused context-pack generation from the latest canonical snapshot.
 - `explain_project`: exact stable-key entity explanation from the latest canonical snapshot.
-- `check_project`: scoped API, documentation, and environment diagnostic reporting from the latest canonical snapshot.
+- `check_project`: scoped API, documentation, environment, and script diagnostic reporting from the latest canonical snapshot.
 - `check_docs`: configurable editable-documentation completeness gate from the latest canonical snapshot.
 - `docs_drift`: read-only editable-document verification-age report from the latest canonical snapshot.
 - `docs_propose_fix`: patch-proposal generation for deterministic editable-document frontmatter remediation.
@@ -179,19 +180,21 @@ exact and currently explains one canonical entity at a time.
 
 ## Diagnostic Check Views
 
-`ath check api`, `ath check docs`, and `ath check env` read open diagnostics from the latest durable
+`ath check api`, `ath check docs`, `ath check env`, and `ath check scripts` read open diagnostics from the latest durable
 canonical snapshot without re-indexing. The app layer classifies diagnostic kinds into API,
-documentation, and environment scopes, sorts results by severity and diagnostic id, and returns:
+documentation, environment, and script scopes, sorts results by severity and diagnostic id, and returns:
 
 - snapshot id and requested scope
 - total, critical, high, medium, and low counts
 - complete canonical diagnostic objects
 
 The default CLI output is a compact source-oriented list. `--json` emits the
-`athanor.diagnostic_check.v1` report. `ath check env` is the first operations/config check view; it
-selects `missing_env_var` diagnostics produced from canonical `EnvVar` entities and `documents`
-relations. These commands are currently read-only views and return success after a valid query even
-when diagnostics exist; CI failure thresholds and strict-mode policy remain deferred.
+`athanor.diagnostic_check.v1` report. `ath check env` selects `missing_env_var` diagnostics produced
+from canonical `EnvVar` entities and `documents` relations. `ath check scripts` selects
+`missing_documentation` diagnostics whose payload scope is `scripts`, produced from canonical
+`ScriptCommand` entities and `documents` relations. These commands are currently read-only views and
+return success after a valid query even when diagnostics exist; CI failure thresholds and
+strict-mode policy remain deferred outside API strict mode.
 
 ## Editable Documentation Completeness Gate
 
@@ -290,6 +293,8 @@ linkers:
 checkers:
   MarkdownStructureChecker
   ApiConsistencyChecker
+  EnvDocsChecker
+  ScriptDocsChecker
 ```
 
 `ath index` is responsible for CLI-facing concerns:
@@ -393,7 +398,7 @@ checkers:
   <docs-patch-id>.json
 ```
 
-Generated JSONL files and Markdown wiki pages under `.athanor/generated/current` are read models. They are not the source of truth and may be deleted and rebuilt. `validation-report.json` is written only for adapter contract validation failures and is removed after a successful index run. `validation-result.json` is written only for successful `--validate-only` runs and is removed after validation failures or normal index runs. Durable canonical snapshots live under `.athanor/store/canonical/jsonl`. The state file records the last indexed file paths, content hashes, language hints, and snapshot id so later runs can classify changed, unchanged, and removed files. Its schema is versioned so changes to built-in extraction, linking, or checking semantics can force a safe one-time full rebuild; operations extraction for dotenv, Cargo manifest, Makefile, Dockerfile, shell script, docker-compose, GitHub Actions, Kubernetes, and SQL migration knowledge advances it to `athanor.index_state.v20`.
+Generated JSONL files and Markdown wiki pages under `.athanor/generated/current` are read models. They are not the source of truth and may be deleted and rebuilt. `validation-report.json` is written only for adapter contract validation failures and is removed after a successful index run. `validation-result.json` is written only for successful `--validate-only` runs and is removed after validation failures or normal index runs. Durable canonical snapshots live under `.athanor/store/canonical/jsonl`. The state file records the last indexed file paths, content hashes, language hints, and snapshot id so later runs can classify changed, unchanged, and removed files. Its schema is versioned so changes to built-in extraction, linking, or checking semantics can force a safe one-time full rebuild; operations extraction for dotenv, Cargo manifest, Makefile, Dockerfile, shell script, docker-compose, GitHub Actions, Kubernetes, SQL migration, and runtime configuration knowledge advances it to `athanor.index_state.v21`.
 
 ## Current Limitations
 
@@ -418,4 +423,4 @@ Generated JSONL files and Markdown wiki pages under `.athanor/generated/current`
 
 ## Next Good Step
 
-Continue the operations adapter slice by extracting operational knowledge from runtime configuration files.
+Continue the operations adapter slice by adding script, deployment, and runbook consistency checkers.
