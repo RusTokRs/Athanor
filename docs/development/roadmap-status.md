@@ -1169,7 +1169,26 @@ Purpose:
 - proposes generated narrative review blocks when human-authored API text mentions routes that do not match the page's current linked endpoints
 - preserves human-authored Markdown outside managed blocks
 - applies the update only through explicit `ath docs apply-patch`
-- keeps richer stale narrative rewrite proposals deferred
+- leaves direct human-authored narrative rewriting out of scope
+
+### Stale API Narrative Rewrite Drafts
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-app/src/docs.rs`
+- `docs/development/docs-completeness-policy.md`
+- `docs/architecture/pipeline.md`
+
+Purpose:
+
+- extends `ath docs propose-fix` stale API narrative handling beyond route review lists
+- includes reviewable original-line and draft-line suggestions in generated narrative review blocks
+- proposes deterministic route replacements only when an editable API page has exactly one linked current endpoint
+- skips direct rewrite drafts when multiple linked endpoint routes make the replacement ambiguous
+- preserves human-authored Markdown outside generated blocks
+- applies proposed content only through explicit `ath docs apply-patch`
 
 ### Environment Documentation Check View
 
@@ -1221,7 +1240,84 @@ Purpose:
 - emits evidence-backed `symbol_defined` facts for operational targets, stages, and commands
 - avoids storing raw dotenv or Dockerfile environment values in canonical snapshots
 - advances persisted index state to v14 so existing projects rebuild operational knowledge once
-- keeps shell scripts, docker-compose, CI, deployment, and runbook extraction deferred
+- keeps CI, deployment, and runbook extraction deferred
+
+### Shell Script Operational Extraction
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-extractor-operations`
+- `crates/athanor-extractor-operations/README.md`
+- `crates/athanor-app/src/index_state.rs`
+- `docs/adapters/extractor-operations.md`
+- `docs/architecture/adapters.md`
+- `docs/architecture/pipeline.md`
+
+Purpose:
+
+- extends the built-in `builtin.extractor.operations` adapter to `*.sh`, `*.bash`, and `*.zsh`
+- parses `export KEY=value` and `readonly KEY=value` as redacted `EnvVar` knowledge
+- parses `name() {`, `function name {`, and `function name() {` as `ScriptCommand` function entities
+- emits evidence-backed `env_var_used` facts for shell environment declarations
+- emits evidence-backed `symbol_defined` facts for shell function definitions
+- avoids storing raw shell environment values in canonical snapshots
+- advances persisted index state to v15 so existing projects rebuild operational knowledge once
+- keeps command invocation, sourced file, control-flow, trap, here-document, CI, deployment, and runbook extraction deferred
+
+### Docker Compose Operational Extraction
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-extractor-operations`
+- `crates/athanor-extractor-operations/Cargo.toml`
+- `crates/athanor-extractor-operations/README.md`
+- `crates/athanor-app/src/index_state.rs`
+- `docs/adapters/extractor-operations.md`
+- `docs/architecture/adapters.md`
+- `docs/architecture/pipeline.md`
+
+Purpose:
+
+- extends the built-in `builtin.extractor.operations` adapter to common docker-compose file names
+- parses top-level compose services as `DockerService` entities
+- records service image and build context metadata when present
+- parses service `command` and `entrypoint` declarations as `ScriptCommand` entities
+- parses compose service `environment` mapping and array forms as redacted `EnvVar` knowledge
+- emits evidence-backed `symbol_defined` facts for compose services and service commands
+- emits evidence-backed `env_var_used` facts for compose environment declarations
+- avoids storing raw compose environment values in canonical snapshots
+- advances persisted index state to v16 so existing projects rebuild operational knowledge once
+- keeps `env_file`, profiles, includes, extends, anchors, volume semantics, healthchecks, dependencies, networks, deployment, and runbook extraction deferred
+
+### GitHub Actions Operational Extraction
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-extractor-operations`
+- `crates/athanor-extractor-operations/README.md`
+- `crates/athanor-app/src/index_state.rs`
+- `docs/adapters/extractor-operations.md`
+- `docs/architecture/adapters.md`
+- `docs/architecture/pipeline.md`
+
+Purpose:
+
+- extends the built-in `builtin.extractor.operations` adapter to `.github/workflows/*.yml` and `.github/workflows/*.yaml`
+- parses workflow declarations as `ScriptCommand` entities
+- parses workflow jobs and `runs-on` metadata as `ScriptCommand` entities
+- parses step `run` commands and `uses` action references as `ScriptCommand` entities
+- parses top-level, job-level, and step-level `env` mappings as redacted `EnvVar` knowledge
+- emits evidence-backed `symbol_defined` facts for workflow, job, and step declarations
+- emits evidence-backed `env_var_used` facts for workflow environment declarations
+- avoids storing raw GitHub Actions environment values in canonical snapshots
+- advances persisted index state to v17 so existing projects rebuild operational knowledge once
+- keeps expression evaluation, permissions, matrices, reusable workflows, service containers, caches, artifacts, secrets, deployment, and runbook extraction deferred
 
 ## In Progress
 
@@ -1231,29 +1327,13 @@ None.
 
 This backlog tracks the remaining global plan from `start.md`. The entries below are prioritized by dependency order and current product value; each item should be moved into `Implemented` only after code, documentation, and required verification are complete.
 
-### Phase 4 Remainder - Documentation Patch Workflow
-
-Status: planned.
-
-Scope:
-
-- propose richer stale narrative API documentation rewrites beyond generated review blocks
-- keep generated drafts separate from editable source documentation
-
-Acceptance:
-
-- generated API documentation fixes are evidence-backed and reviewable before application
-- stale API narrative route findings can be proposed as reviewable patches rather than direct edits
-- editable docs are never overwritten without an explicit apply command
-- docs and API checks can confirm that an applied patch closes the relevant diagnostic
-
 ### Phase 5 - Operations, Configs, And Environment
 
 Status: planned.
 
 Scope:
 
-- extract operational entities from shell scripts, docker-compose, GitHub Actions, Cargo/package manifests, deployment configs, database migrations, and runtime configuration
+- extract operational entities from Cargo/package manifests, deployment configs, database migrations, and runtime configuration
 - add script, deployment, and runbook consistency checkers
 - extend environment checks beyond Rust, dotenv, and Dockerfile declarations to runtime configuration coverage
 - expand generated operations documentation drafts beyond environment variables

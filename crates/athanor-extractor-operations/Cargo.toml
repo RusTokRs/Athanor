@@ -17,6 +17,7 @@ athanor-core = { path = "../athanor-core" }
 athanor-domain = { path = "../athanor-domain" }
 athanor-extractor-basic = { path = "../athanor-extractor-basic" }
 serde_json.workspace = true
+serde_yaml_ng.workspace = true
 
 [dev-dependencies]
 tokio.workspace = true

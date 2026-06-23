@@ -86,7 +86,8 @@ evidence-backed API documentation drafts, and operations documentation drafts:
 - coordination blocks for endpoints documented by multiple editable API pages, so overview and
   operation pages can review the same endpoint-to-page map before applying generated edits
 - narrative review blocks when human-authored API page text mentions `METHOD /path` routes that do
-  not match the current endpoints linked to that page
+  not match the current endpoints linked to that page; when the page has exactly one linked current
+  endpoint, the block also includes original-line and draft-line rewrite suggestions for review
 - new Markdown operations pages for `missing_env_var` diagnostics, written under
   `<editable_path>/operations/` with frontmatter `entities` that points at the missing environment
   variable

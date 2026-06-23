@@ -530,6 +530,7 @@ dependencies = [
  "athanor-domain",
  "athanor-extractor-basic",
  "serde_json",
+ "serde_yaml_ng",
  "tokio",
 ]
 

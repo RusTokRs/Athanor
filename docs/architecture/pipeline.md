@@ -58,7 +58,7 @@ flowchart TD
 2. `athanor-extractor-basic` creates file entities and `file_discovered` facts.
 3. `athanor-extractor-markdown` parses optional YAML frontmatter plus CommonMark/GFM heading events, then creates identity/language-aware documentation page/section entities and `doc_section_found` facts.
 4. `athanor-extractor-openapi` dispatches OpenAPI 3.1 to `oas3` and 3.0 to a maintained-YAML legacy parser, then extracts operations, component schemas, request/response schema uses, and media examples.
-5. `athanor-extractor-operations` parses dotenv, Makefile, and Dockerfile sources into environment-variable, script-command, and Docker-stage knowledge.
+5. `athanor-extractor-operations` parses dotenv, Makefile, Dockerfile, shell script, docker-compose, and GitHub Actions sources into environment-variable, script-command, and Docker service/stage knowledge.
 6. `athanor-extractor-rust` parses Rust files into module, function, symbol, and environment-variable entities plus `symbol_defined` and `env_var_used` facts.
 7. `athanor-linker-markdown` creates `contains` relations plus verified `documents` relations for exact entity/concept keys declared in Markdown frontmatter.
 8. `athanor-linker-api` links OpenAPI operations to matching Rust handlers, Markdown API documentation, same-document request/response component schemas, and declared examples.
@@ -228,7 +228,9 @@ multiple editable API pages, the proposal also refreshes a generated coordinatio
 the related pages for review before application. The same pass strips existing Athanor-managed
 blocks, scans the remaining human-authored API page text for `METHOD /path` route mentions, and
 adds a narrative review block when those mentions no longer match the current endpoints linked to
-the page.
+the page. When the page has exactly one linked current endpoint, the same block includes a
+reviewable narrative rewrite draft that shows the original line and a deterministic route
+replacement without directly rewriting the human-authored paragraph.
 It also creates reviewable operations documentation drafts for `missing_env_var` diagnostics under
 the editable documentation operations path, using frontmatter `entities` declarations that point at
 the missing `env://` stable key.
@@ -391,7 +393,7 @@ checkers:
   <docs-patch-id>.json
 ```
 
-Generated JSONL files and Markdown wiki pages under `.athanor/generated/current` are read models. They are not the source of truth and may be deleted and rebuilt. `validation-report.json` is written only for adapter contract validation failures and is removed after a successful index run. `validation-result.json` is written only for successful `--validate-only` runs and is removed after validation failures or normal index runs. Durable canonical snapshots live under `.athanor/store/canonical/jsonl`. The state file records the last indexed file paths, content hashes, language hints, and snapshot id so later runs can classify changed, unchanged, and removed files. Its schema is versioned so changes to built-in extraction, linking, or checking semantics can force a safe one-time full rebuild; operations extraction for dotenv, Makefile, and Dockerfile knowledge advances it to `athanor.index_state.v14`.
+Generated JSONL files and Markdown wiki pages under `.athanor/generated/current` are read models. They are not the source of truth and may be deleted and rebuilt. `validation-report.json` is written only for adapter contract validation failures and is removed after a successful index run. `validation-result.json` is written only for successful `--validate-only` runs and is removed after validation failures or normal index runs. Durable canonical snapshots live under `.athanor/store/canonical/jsonl`. The state file records the last indexed file paths, content hashes, language hints, and snapshot id so later runs can classify changed, unchanged, and removed files. Its schema is versioned so changes to built-in extraction, linking, or checking semantics can force a safe one-time full rebuild; operations extraction for dotenv, Makefile, Dockerfile, shell script, docker-compose, and GitHub Actions knowledge advances it to `athanor.index_state.v17`.
 
 ## Current Limitations
 
@@ -412,8 +414,8 @@ Generated JSONL files and Markdown wiki pages under `.athanor/generated/current`
 - The HTML report is a static overview without client-side filtering or per-entity detail pages.
 - Generation numbering and pointer updates are local single-process operations; concurrent generation publishers and garbage collection are not implemented.
 - Direct compatibility outputs under `.athanor/generated/current` are not coordinated; consumers requiring one snapshot must use `current.json` and `generations/`.
-- Documentation patch proposals currently create enriched API documentation pages for missing API docs diagnostics, refresh endpoint-specific managed API contract blocks in existing API documentation pages, stabilize explicit API frontmatter references, support pages that cover multiple endpoints, add coordination blocks for split endpoint documentation, and flag stale route mentions in human-authored API narrative; richer narrative rewrites remain future work.
+- Documentation patch proposals currently create enriched API documentation pages for missing API docs diagnostics, refresh endpoint-specific managed API contract blocks in existing API documentation pages, stabilize explicit API frontmatter references, support pages that cover multiple endpoints, add coordination blocks for split endpoint documentation, flag stale route mentions in human-authored API narrative, and include deterministic narrative rewrite drafts when a page has one unambiguous linked endpoint.
 
 ## Next Good Step
 
-Extend documentation patch proposals from stale route review blocks toward richer narrative rewrite drafts.
+Continue the operations adapter slice by extracting operational knowledge from deployment configs or package manifests.

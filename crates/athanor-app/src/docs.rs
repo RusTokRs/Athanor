@@ -1058,7 +1058,8 @@ fn upsert_api_narrative_review_section(
     endpoints: &[&Entity],
     stale_mentions: &[String],
 ) -> String {
-    let section = api_narrative_review_section(endpoints, stale_mentions);
+    let rewrite_drafts = api_narrative_rewrite_drafts(content, endpoints, stale_mentions);
+    let section = api_narrative_review_section(endpoints, stale_mentions, &rewrite_drafts);
     let Some(start) = content.find(API_DOC_NARRATIVE_REVIEW_START) else {
         let mut updated = content.trim_end().to_string();
         updated.push_str("\n\n");
@@ -1121,7 +1122,19 @@ fn api_docs_coordination_section(endpoint: &Entity, documented_pages: &[&Entity]
     content
 }
 
-fn api_narrative_review_section(endpoints: &[&Entity], stale_mentions: &[String]) -> String {
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ApiNarrativeRewriteDraft {
+    stale_mention: String,
+    suggested_mention: String,
+    current_line: String,
+    draft_line: String,
+}
+
+fn api_narrative_review_section(
+    endpoints: &[&Entity],
+    stale_mentions: &[String],
+    rewrite_drafts: &[ApiNarrativeRewriteDraft],
+) -> String {
     let mut expected_routes = endpoints
         .iter()
         .filter_map(|endpoint| api_route_signature(endpoint))
@@ -1147,6 +1160,18 @@ fn api_narrative_review_section(endpoints: &[&Entity], stale_mentions: &[String]
     content.push_str("Current linked endpoint routes for this page:\n");
     for route in expected_routes {
         content.push_str(&format!("- `{route}`\n"));
+    }
+    if !rewrite_drafts.is_empty() {
+        content.push('\n');
+        content.push_str("Suggested narrative rewrite drafts:\n");
+        for draft in rewrite_drafts {
+            content.push_str(&format!(
+                "- Replace `{}` with `{}`\n",
+                draft.stale_mention, draft.suggested_mention
+            ));
+            content.push_str(&format!("  - Current: {}\n", draft.current_line));
+            content.push_str(&format!("  - Draft: {}\n", draft.draft_line));
+        }
     }
     content.push('\n');
     content.push_str(API_DOC_NARRATIVE_REVIEW_END);
@@ -1429,6 +1454,55 @@ fn stale_api_route_mentions(content: &str, endpoints: &[&Entity]) -> Vec<String>
     stale.sort();
     stale.dedup();
     stale
+}
+
+fn api_narrative_rewrite_drafts(
+    content: &str,
+    endpoints: &[&Entity],
+    stale_mentions: &[String],
+) -> Vec<ApiNarrativeRewriteDraft> {
+    let expected_routes = endpoints
+        .iter()
+        .filter_map(|endpoint| api_route_signature(endpoint))
+        .collect::<Vec<_>>();
+    let suggested_mention = match expected_routes.as_slice() {
+        [route] => route,
+        _ => return Vec::new(),
+    };
+    let stale_mentions = stale_mentions.iter().collect::<BTreeSet<_>>();
+    let narrative = strip_generated_api_sections(strip_frontmatter_text(content));
+    let mut drafts = Vec::new();
+    let mut seen = BTreeSet::new();
+    for line in narrative.lines() {
+        let mentions = api_route_mentions(line);
+        for stale_mention in mentions
+            .iter()
+            .filter(|mention| stale_mentions.contains(mention))
+        {
+            let current_line = line.trim().to_string();
+            if current_line.is_empty() {
+                continue;
+            }
+            let draft_line = current_line.replace(stale_mention, suggested_mention);
+            if draft_line == current_line {
+                continue;
+            }
+            let key = (stale_mention.clone(), current_line.clone());
+            if !seen.insert(key) {
+                continue;
+            }
+            drafts.push(ApiNarrativeRewriteDraft {
+                stale_mention: stale_mention.clone(),
+                suggested_mention: suggested_mention.clone(),
+                current_line,
+                draft_line,
+            });
+        }
+    }
+    drafts.sort_by(|left, right| {
+        (&left.stale_mention, &left.current_line).cmp(&(&right.stale_mention, &right.current_line))
+    });
+    drafts
 }
 
 fn api_route_signature(endpoint: &Entity) -> Option<String> {
@@ -2226,6 +2300,64 @@ mod tests {
         assert!(content.contains(API_DOC_NARRATIVE_REVIEW_START));
         assert!(content.contains("- `GET /login`"));
         assert!(content.contains("- `POST /login`"));
+        assert!(content.contains("Suggested narrative rewrite drafts:\n"));
+        assert!(content.contains("- Replace `GET /login` with `POST /login`\n"));
+        assert!(content.contains(
+            "  - Current: Clients still call GET /login during the legacy login flow.\n"
+        ));
+        assert!(
+            content.contains(
+                "  - Draft: Clients still call POST /login during the legacy login flow.\n"
+            )
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn skips_narrative_rewrite_draft_when_current_route_is_ambiguous() {
+        let root = temp_project_root("athanor-docs-ambiguous-narrative-test");
+        let doc_path = root.join("docs/api/auth.md");
+        fs::create_dir_all(doc_path.parent().unwrap()).unwrap();
+        fs::write(
+            &doc_path,
+            "---\nid: doc://docs/api/auth.md\nkind: api_documentation\nlanguage: en\nsource_language: en\nentities:\n  - api://POST:/login\n  - api://POST:/logout\nlast_verified_snapshot: snap_current\nstatus: verified\n---\n\n# Auth API\n\nLegacy clients still call GET /session in older examples.\n",
+        )
+        .unwrap();
+
+        let login = api_endpoint();
+        let logout = api_endpoint_with(
+            "ent_endpoint_logout",
+            "api://POST:/logout",
+            "logout",
+            "/logout",
+        );
+        let page = page(
+            "docs/api/auth.md",
+            "editable",
+            json!({
+                "documentation_kind": "api_documentation",
+                "frontmatter_fields": ["id", "kind", "language", "source_language", "entities", "last_verified_snapshot", "status"],
+                "entities": ["api://POST:/login", "api://POST:/logout"],
+                "last_verified_snapshot": "snap_current",
+                "status": "verified"
+            }),
+        );
+
+        let proposal = build_docs_patch_proposal(
+            "snap_current".to_string(),
+            &[login, logout, page],
+            &[],
+            &[],
+            &DocsConfig::default(),
+            Some(&root),
+        );
+
+        assert_eq!(proposal.operations.len(), 1);
+        let content = proposal.operations[0].content.as_deref().unwrap();
+        assert!(content.contains(API_DOC_NARRATIVE_REVIEW_START));
+        assert!(content.contains("- `GET /session`"));
+        assert!(!content.contains("Suggested narrative rewrite drafts:\n"));
 
         fs::remove_dir_all(root).unwrap();
     }
