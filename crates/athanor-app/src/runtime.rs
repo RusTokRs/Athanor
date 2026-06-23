@@ -6,7 +6,8 @@ use std::process::{Command, Stdio};
 
 use anyhow::{Context, Result, bail};
 use athanor_checker_api::{
-    ApiConsistencyChecker, DeploymentDocsChecker, EnvDocsChecker, ScriptDocsChecker,
+    ApiConsistencyChecker, DeploymentDocsChecker, EnvDocsChecker, RunbookConsistencyChecker,
+    ScriptDocsChecker,
 };
 use athanor_checker_markdown::MarkdownStructureChecker;
 use athanor_core::{
@@ -113,6 +114,7 @@ impl AdapterRegistry {
             .builtin_checker_env_docs()
             .builtin_checker_script_docs()
             .builtin_checker_deployment_docs()
+            .builtin_checker_runbook_consistency()
     }
 
     pub fn with_plugin_manifest(self, manifest: &AdapterPluginManifest) -> Result<Self> {
@@ -181,6 +183,9 @@ impl AdapterRegistry {
             }
             (AdapterPluginKind::Checker, "builtin.checker.deployment_docs") => {
                 Ok(self.builtin_checker_deployment_docs())
+            }
+            (AdapterPluginKind::Checker, "builtin.checker.runbook_consistency") => {
+                Ok(self.builtin_checker_runbook_consistency())
             }
             (AdapterPluginKind::Source, _) => self.external_process_source(adapter, manifest_dir),
             (AdapterPluginKind::Extractor, _) => {
@@ -355,6 +360,12 @@ impl AdapterRegistry {
     fn builtin_checker_deployment_docs(self) -> Self {
         self.register_checker_id("builtin.checker.deployment_docs", || {
             Box::new(DeploymentDocsChecker)
+        })
+    }
+
+    fn builtin_checker_runbook_consistency(self) -> Self {
+        self.register_checker_id("builtin.checker.runbook_consistency", || {
+            Box::new(RunbookConsistencyChecker)
         })
     }
 

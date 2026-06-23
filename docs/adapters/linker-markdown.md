@@ -24,6 +24,7 @@ Reads entities emitted by extractors:
 - `EntityKind::File`
 - `EntityKind::DocumentationPage`
 - `EntityKind::DocumentationSection`
+- `EntityKind::Runbook`
 - any canonical entity referenced by exact stable key from page payload `entities` or `concepts`
 
 The linker receives the full extracted context plus an `AffectedSubset`. It emits containment relations only for documentation paths represented in the affected entities while still using full-context file/page/section entities to build valid relations.
@@ -40,6 +41,7 @@ Current relation patterns:
 ```text
 file contains documentation_page
 documentation_page contains documentation_section
+documentation_page contains runbook
 documentation_page documents frontmatter-declared entity/concept
 ```
 

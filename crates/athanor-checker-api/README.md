@@ -1,6 +1,6 @@
 # athanor-checker-api
 
-API, environment, script, and deployment documentation checker adapter.
+API, environment, script, deployment, and runbook checker adapter.
 
 Implements: `Checker`
 
@@ -16,6 +16,8 @@ Implements: `Checker`
   `documents` relation
 - `MissingDocumentation` with payload scope `deployment` when a deployment/service entity has no
   Markdown `documents` relation
+- `StaleDocumentation` with payload scope `runbooks` when a runbook does not reference any known
+  operational entity target
 
 Diagnostics are open and deterministic. Implementation/documentation absence diagnostics are owned
 by the endpoint plus current Rust or Markdown candidates. Schema diagnostics are owned by the
@@ -30,7 +32,8 @@ uses the network. Validators are cached by normalized schema during one checker 
 The API checker evaluates affected endpoints and reevaluates all endpoints when relevant Rust
 functions, Markdown entities, or API relations change. The environment, script, and deployment
 documentation checkers evaluate affected environment/script/deployment entities and reevaluate when
-Markdown entities change.
+Markdown entities change. The runbook consistency checker evaluates affected runbooks and runbooks
+whose declared operation targets changed.
 The pipeline performs a safe full rebuild when files are added or removed so absence diagnostics
 cannot remain stale across source-set changes.
 
@@ -51,7 +54,9 @@ None. The checker does not run commands, use the network, or modify files.
 - Environment, script, and deployment documentation checks require explicit Markdown frontmatter
   entity links; lexical mentions do not satisfy them.
 - Script checks cover `ScriptCommand` entities, and deployment checks cover `DockerService`
-  entities. Runbook consistency checks remain separate Phase 5 work.
+  entities.
+- Runbook consistency currently validates only that a runbook declares at least one known
+  operational stable key target; ordered operation-step extraction is deferred.
 
 ## Test
 

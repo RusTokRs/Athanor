@@ -403,6 +403,7 @@ async fn call_tool(root: &std::path::Path, name: &str, args: Value) -> Result<St
                 "env" => athanor_app::DiagnosticScope::Env,
                 "scripts" => athanor_app::DiagnosticScope::Scripts,
                 "deployment" => athanor_app::DiagnosticScope::Deployment,
+                "runbooks" => athanor_app::DiagnosticScope::Runbooks,
                 _ => athanor_app::DiagnosticScope::Api,
             };
 

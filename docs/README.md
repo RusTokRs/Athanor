@@ -156,6 +156,8 @@ cargo run -p ath --quiet -- check scripts
 cargo run -p ath --quiet -- check scripts --json
 cargo run -p ath --quiet -- check deployment
 cargo run -p ath --quiet -- check deployment --json
+cargo run -p ath --quiet -- check runbooks
+cargo run -p ath --quiet -- check runbooks --json
 ```
 
 Editable documentation can be checked against the project completeness policy:

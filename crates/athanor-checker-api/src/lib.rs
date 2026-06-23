@@ -501,6 +501,65 @@ impl Checker for DeploymentDocsChecker {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct RunbookConsistencyChecker;
+
+#[async_trait]
+impl Checker for RunbookConsistencyChecker {
+    fn name(&self) -> &'static str {
+        "runbook-consistency"
+    }
+
+    async fn check(&self, input: CheckInput) -> CoreResult<Vec<Diagnostic>> {
+        let runbooks = unique_entities_of_kind(&input.entities, EntityKind::Runbook);
+        let affected_ids = input
+            .affected
+            .entities
+            .iter()
+            .map(|entity| entity.id.clone())
+            .collect::<HashSet<_>>();
+        let affected_stable_keys = input
+            .affected
+            .entities
+            .iter()
+            .map(|entity| entity.stable_key.0.as_str())
+            .collect::<HashSet<_>>();
+        let entities_by_stable_key = input
+            .entities
+            .iter()
+            .map(|entity| (entity.stable_key.0.as_str(), entity))
+            .collect::<HashMap<_, _>>();
+
+        let mut diagnostics = Vec::new();
+        for runbook in runbooks {
+            let targets = runbook_operation_targets(runbook);
+            let target_affected = targets
+                .iter()
+                .any(|target| affected_stable_keys.contains(target.as_str()));
+            if !affected_ids.contains(&runbook.id) && !target_affected {
+                continue;
+            }
+
+            let operational_targets = targets
+                .iter()
+                .filter_map(|target| entities_by_stable_key.get(target.as_str()).copied())
+                .filter(|entity| is_operational_runbook_target(&entity.kind))
+                .collect::<Vec<_>>();
+
+            if operational_targets.is_empty() {
+                diagnostics.push(runbook_without_operational_target_diagnostic(
+                    runbook,
+                    &targets,
+                    self.name(),
+                    &input.snapshot,
+                ));
+            }
+        }
+
+        Ok(diagnostics)
+    }
+}
+
 fn missing_deployment_documentation_diagnostic(
     deployment: &Entity,
     checker: &str,
@@ -548,6 +607,66 @@ fn missing_deployment_documentation_diagnostic(
             "deployment": deployment.stable_key.0,
             "missing_relation": "documents",
             "scope": "deployment",
+        }),
+    }
+}
+
+fn runbook_without_operational_target_diagnostic(
+    runbook: &Entity,
+    targets: &[String],
+    checker: &str,
+    snapshot: &SnapshotId,
+) -> Diagnostic {
+    let kind = DiagnosticKind::StaleDocumentation;
+    let kind_slug = "runbook_missing_operational_target";
+    let id_material = format!("{kind_slug}\0{}", runbook.stable_key.0);
+    let evidence_status = if targets.is_empty() {
+        EvidenceStatus::Missing
+    } else {
+        EvidenceStatus::Stale
+    };
+    let message = if targets.is_empty() {
+        format!(
+            "Runbook `{}` does not declare any operational entity targets.",
+            runbook.stable_key.0
+        )
+    } else {
+        format!(
+            "Runbook `{}` does not reference any known operational entity.",
+            runbook.stable_key.0
+        )
+    };
+
+    Diagnostic {
+        id: DiagnosticId(format!(
+            "diag_runbook_{:016x}",
+            stable_hash(id_material.as_bytes())
+        )),
+        kind,
+        severity: Severity::Medium,
+        status: DiagnosticStatus::Open,
+        title: "Runbook is not tied to operational knowledge".to_string(),
+        message,
+        entities: vec![runbook.id.clone()],
+        evidence: vec![Evidence {
+            source_file: runbook.source.as_ref().map(|source| source.path.clone()),
+            line_start: runbook.source.as_ref().and_then(|source| source.line_start),
+            line_end: runbook.source.as_ref().and_then(|source| source.line_end),
+            extractor: Some(checker.to_string()),
+            commit_hash: None,
+            confidence: 1.0,
+            status: evidence_status,
+        }],
+        ownership: runbook.ownership.clone(),
+        snapshot: snapshot.clone(),
+        suggested_fix: Some(
+            "Add at least one known operational stable key to the runbook frontmatter `entities` list."
+                .to_string(),
+        ),
+        payload: json!({
+            "runbook": runbook.stable_key.0,
+            "operation_targets": targets,
+            "scope": "runbooks",
         }),
     }
 }
@@ -622,6 +741,34 @@ fn unique_entities_of_kind(entities: &[Entity], kind: EntityKind) -> Vec<&Entity
         }
     }
     unique
+}
+
+fn runbook_operation_targets(runbook: &Entity) -> Vec<String> {
+    runbook
+        .payload
+        .get("operation_targets")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(serde_json::Value::as_str)
+        .map(str::to_string)
+        .collect()
+}
+
+fn is_operational_runbook_target(kind: &EntityKind) -> bool {
+    matches!(
+        kind,
+        EntityKind::Script
+            | EntityKind::ScriptCommand
+            | EntityKind::EnvVar
+            | EntityKind::DbTable
+            | EntityKind::DbMigration
+            | EntityKind::CiJob
+            | EntityKind::DockerService
+            | EntityKind::Feature
+            | EntityKind::Package
+            | EntityKind::Dependency
+    )
 }
 
 fn relation_touches(relation: &Relation, entity: &EntityId) -> bool {
@@ -1237,6 +1384,54 @@ mod tests {
                 vec![documents_rel.clone()],
                 vec![deployment],
                 vec![documents_rel],
+            ))
+            .await
+            .unwrap();
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[tokio::test]
+    async fn reports_runbook_without_operational_targets_and_accepts_linked_one() {
+        let mut runbook = entity(
+            "ent_runbook_deploy",
+            "runbook://docs/operations/deploy",
+            EntityKind::Runbook,
+            "docs/operations/deploy.md",
+        );
+        runbook.payload = json!({"operation_targets": []});
+
+        let diagnostics = RunbookConsistencyChecker
+            .check(input(
+                vec![runbook.clone()],
+                Vec::new(),
+                vec![runbook.clone()],
+                Vec::new(),
+            ))
+            .await
+            .unwrap();
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].kind, DiagnosticKind::StaleDocumentation);
+        assert_eq!(diagnostics[0].payload["scope"], "runbooks");
+        assert_eq!(diagnostics[0].entities[0], runbook.id);
+
+        let script = entity(
+            "ent_script_deploy",
+            "script-command://Makefile#target:deploy",
+            EntityKind::ScriptCommand,
+            "Makefile",
+        );
+        runbook.payload = json!({
+            "operation_targets": ["script-command://Makefile#target:deploy"]
+        });
+
+        let diagnostics = RunbookConsistencyChecker
+            .check(input(
+                vec![runbook.clone(), script],
+                Vec::new(),
+                vec![runbook],
+                Vec::new(),
             ))
             .await
             .unwrap();

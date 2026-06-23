@@ -7,13 +7,13 @@ last_verified_snapshot: snap_jsonl_00000030
 status: verified
 ---
 
-# API Consistency, Environment, Script, And Deployment Checker
+# API Consistency, Environment, Script, Deployment, And Runbook Checker
 
 Crate: `athanor-checker-api`
 
 Port: `Checker`
 
-This crate houses four checkers:
+This crate houses five checkers:
 
 ### 1. API Consistency Checker (`ApiConsistencyChecker`)
 Reports OpenAPI operations without linked Rust implementations, implemented operations
@@ -61,9 +61,25 @@ cargo run -p ath --quiet -- check deployment
 cargo run -p ath --quiet -- check deployment --json
 ```
 
+### 5. Runbook Consistency Checker (`RunbookConsistencyChecker`)
+Reports runbook pages that are not tied to known operational knowledge. It checks
+`EntityKind::Runbook` entities emitted from Markdown frontmatter `kind = "runbook"` or
+`kind = "operations_runbook"` and emits `DiagnosticKind::StaleDocumentation` with payload
+`scope = "runbooks"` when the runbook has no declared operation targets or none of its declared
+targets resolve to operational entities such as script commands, deployment resources,
+environment variables, runtime configuration keys, migrations, packages, or dependencies.
+
+The findings are exposed separately through:
+
+```bash
+cargo run -p ath --quiet -- check runbooks
+cargo run -p ath --quiet -- check runbooks --json
+```
+
 Diagnostics include evidence and ownership. Relevant function, documentation, environment, script
-command, deployment, and relation changes trigger reevaluation. File additions and removals force a
-full rebuild at the pipeline level to keep absence diagnostics correct.
+command, deployment, runbook, operation-target, and relation changes trigger reevaluation. File
+additions and removals force a full rebuild at the pipeline level to keep absence diagnostics
+correct.
 
 Example validation uses adapter-private `jsonschema` 0.46.5 with Draft 4 for OpenAPI 3.0 and Draft
 2020-12 for OpenAPI 3.1. Same-document component schemas are assembled into an in-memory validation
@@ -73,7 +89,7 @@ schema references are skipped, and OpenAPI 3.0 keywords beyond Draft 4 compatibi
 documented limitation.
 
 The checker is local and side-effect free. Deeper schema, status-code, authentication, permission,
-breaking-change, rollout, and runbook checks are deferred.
+breaking-change, rollout, and ordered runbook step checks are deferred.
 
 ## Configuration & Policy Enforcement
 

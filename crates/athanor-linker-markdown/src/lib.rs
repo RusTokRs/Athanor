@@ -45,6 +45,11 @@ impl Linker for MarkdownContainmentLinker {
             .iter()
             .filter(|entity| entity.kind == EntityKind::DocumentationSection)
             .collect::<Vec<_>>();
+        let runbooks = input
+            .entities
+            .iter()
+            .filter(|entity| entity.kind == EntityKind::Runbook)
+            .collect::<Vec<_>>();
 
         for page in pages {
             if let Some(file) = matching_file(page, &files) {
@@ -68,6 +73,20 @@ impl Linker for MarkdownContainmentLinker {
                     section,
                     self.name(),
                     "documentation_page_contains_section",
+                ));
+            }
+
+            for runbook in runbooks
+                .iter()
+                .copied()
+                .filter(|runbook| same_source_path(page, runbook))
+            {
+                relations.push(contains_relation(
+                    &input.snapshot,
+                    page,
+                    runbook,
+                    self.name(),
+                    "documentation_page_contains_runbook",
                 ));
             }
         }

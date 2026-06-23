@@ -33,6 +33,7 @@ Entities:
 
 - `EntityKind::DocumentationPage`
 - `EntityKind::DocumentationSection`
+- `EntityKind::Runbook` when frontmatter `kind` is `runbook` or `operations_runbook`
 
 Facts:
 
@@ -43,6 +44,7 @@ Stable keys:
 ```text
 doc://path/to/file.md
 doc://path/to/file.md#section-slug
+runbook://path/to/file.md
 ```
 
 An explicit frontmatter `id` replaces the path-derived page key. It must be a non-empty,
@@ -94,6 +96,11 @@ Markdown without frontmatter remains compatible: page identity is path-derived, 
 `markdown`, and the documentation layer defaults to `editable`. Paths under
 `.athanor/generated/` default to `generated` when such a source is explicitly supplied.
 
+When `kind` is `runbook` or `operations_runbook`, the adapter also emits a `Runbook` entity with a
+`runbook://` stable key derived from the page identity. Its payload records the source
+documentation page and copies frontmatter `entities` into `operation_targets` so checker adapters
+can validate whether the runbook is tied to known operational knowledge.
+
 The frontmatter bytes are excluded from CommonMark parsing while full-file line offsets are
 preserved. YAML keys therefore cannot become false setext headings. `serde_yaml_ng` remains private
 to the adapter. Malformed YAML, a missing closing delimiter, invalid language, or invalid explicit
@@ -111,7 +118,7 @@ Each section fact includes:
 
 ## Ownership
 
-Emitted page entities, section entities, and section facts are owned by the Markdown source file path.
+Emitted page entities, section entities, runbook entities, and section facts are owned by the Markdown source file path.
 
 ## Commands And Network
 
@@ -123,6 +130,8 @@ Emitted page entities, section entities, and section facts are owned by the Mark
 
 - Only heading structure is materialized; paragraphs, links, and code blocks are not emitted as
   separate canonical entities yet.
+- Runbook extraction recognizes the page-level runbook identity and operation target declarations;
+  individual operation steps are not materialized yet.
 - Frontmatter concept/entity references use exact stable-key resolution; aliases and fuzzy matching
   are not supported.
 - Stable slugs continue to use Athanor's existing slug algorithm rather than a renderer-specific

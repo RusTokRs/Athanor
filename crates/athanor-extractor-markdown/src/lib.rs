@@ -83,6 +83,37 @@ impl Extractor for MarkdownExtractor {
         };
 
         let mut entities = vec![page];
+        if is_runbook_document(metadata.kind.as_deref()) {
+            let runbook_key = runbook_stable_key(&page_key);
+            entities.push(Entity {
+                id: EntityId(format!(
+                    "ent_runbook_{:016x}",
+                    stable_hash(runbook_key.0.as_bytes())
+                )),
+                stable_key: runbook_key,
+                kind: EntityKind::Runbook,
+                name: input.source.path.clone(),
+                title: headings
+                    .iter()
+                    .find(|heading| heading.level == 1)
+                    .map(|heading| heading.title.clone()),
+                source: Some(SourceLocation {
+                    path: input.source.path.clone(),
+                    line_start: Some(1),
+                    line_end: line_count(content),
+                }),
+                language: Some(language.clone()),
+                aliases: Vec::new(),
+                ownership: ownership_for_file(&input.source.path),
+                payload: json!({
+                    "documentation_page": page_key.0,
+                    "documentation_kind": metadata.kind.as_deref(),
+                    "operation_targets": &metadata.entities,
+                    "last_verified_snapshot": metadata.last_verified_snapshot.as_deref(),
+                    "status": metadata.status.as_deref(),
+                }),
+            });
+        }
         let mut facts = Vec::new();
         let mut seen_slugs = HashMap::new();
 
@@ -164,6 +195,17 @@ fn page_stable_key(path: &str, metadata: &MarkdownFrontmatter) -> CoreResult<Sta
         )));
     }
     Ok(StableKey(id.to_string()))
+}
+
+fn is_runbook_document(kind: Option<&str>) -> bool {
+    matches!(kind, Some("runbook" | "operations_runbook"))
+}
+
+fn runbook_stable_key(page_key: &StableKey) -> StableKey {
+    StableKey(format!(
+        "runbook://{}",
+        page_key.0.strip_prefix("doc://").unwrap_or(&page_key.0)
+    ))
 }
 
 fn validate_non_empty_language(language: &str) -> CoreResult<&str> {
@@ -462,6 +504,34 @@ status: verified
                 .entities
                 .iter()
                 .any(|entity| entity.name == "status: verified")
+        );
+    }
+
+    #[tokio::test]
+    async fn emits_runbook_entity_for_runbook_frontmatter() {
+        let content = r#"---
+id: doc://docs/operations/deploy
+kind: runbook
+entities:
+  - script-command://Makefile#target:deploy
+---
+# Deploy
+"#;
+        let output = extract(content).await;
+        let runbook = output
+            .entities
+            .iter()
+            .find(|entity| entity.kind == EntityKind::Runbook)
+            .unwrap();
+
+        assert_eq!(runbook.stable_key.0, "runbook://docs/operations/deploy");
+        assert_eq!(
+            runbook.payload["operation_targets"][0],
+            "script-command://Makefile#target:deploy"
+        );
+        assert_eq!(
+            runbook.payload["documentation_page"],
+            "doc://docs/operations/deploy"
         );
     }
 

@@ -68,6 +68,8 @@ ath check scripts
 ath check scripts --json
 ath check deployment
 ath check deployment --json
+ath check runbooks
+ath check runbooks --json
 ath docs check
 ath docs check --json
 ath docs drift
@@ -169,6 +171,10 @@ linkers:
 checkers:
   MarkdownStructureChecker
   ApiConsistencyChecker
+  EnvDocsChecker
+  ScriptDocsChecker
+  DeploymentDocsChecker
+  RunbookConsistencyChecker
 ```
 
 Current CLI store:
@@ -1446,7 +1452,7 @@ Purpose:
 - exposes the same `scripts` scope through the MCP `check` tool
 - keeps the command read-only and non-failing, matching the initial API/docs/env check views
 - advances persisted index state to v22 so existing projects rebuild script documentation diagnostics once
-- keeps rollout and runbook consistency checkers deferred
+- keeps rollout and deeper runbook consistency checks deferred
 
 ### Deployment Documentation Check View
 
@@ -1474,7 +1480,44 @@ Purpose:
 - exposes the same `deployment` scope through the MCP `check` tool
 - keeps the command read-only and non-failing, matching the initial API/docs/env/scripts check views
 - advances persisted index state to v23 so existing projects rebuild deployment documentation diagnostics once
-- keeps rollout and runbook consistency checkers deferred
+- keeps rollout and deeper runbook consistency checks deferred
+
+### Runbook Consistency Check View
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-extractor-markdown`
+- `crates/athanor-extractor-markdown/README.md`
+- `crates/athanor-linker-markdown`
+- `crates/athanor-checker-api`
+- `crates/athanor-checker-api/README.md`
+- `crates/athanor-app/src/check.rs`
+- `crates/athanor-app/src/runtime.rs`
+- `crates/athanor-transport-mcp/src/lib.rs`
+- `apps/ath/src/main.rs`
+- `docs/adapters/extractor-markdown.md`
+- `docs/adapters/linker-markdown.md`
+- `docs/adapters/checker-api.md`
+- `docs/adapters/transport-mcp.md`
+- `docs/architecture/adapters.md`
+- `docs/architecture/pipeline.md`
+
+Purpose:
+
+- emits canonical `Runbook` entities from Markdown frontmatter `kind: runbook` or `kind: operations_runbook`
+- derives `runbook://...` stable keys from the source documentation page identity
+- records runbook operation targets from frontmatter `entities`
+- links documentation pages to emitted runbook entities through verified `contains` relations
+- adds the built-in `builtin.checker.runbook_consistency` adapter
+- checks canonical `Runbook` entities for at least one known operational target
+- emits evidence-backed `stale_documentation` diagnostics with payload scope `runbooks`
+- exposes the findings through `ath check runbooks` and `ath check runbooks --json`
+- exposes the same `runbooks` scope through the MCP `check` tool
+- keeps the command read-only and non-failing, matching the other initial operational check views
+- advances persisted index state to v24 so existing projects rebuild runbook knowledge and diagnostics once
+- keeps ordered operation-step extraction and deeper runbook consistency rules deferred
 
 ## In Progress
 
@@ -1490,7 +1533,7 @@ Status: planned.
 
 Scope:
 
-- add runbook consistency checkers
+- add ordered runbook operation-step extraction and deeper consistency rules
 - extend environment checks beyond Rust, dotenv, and Dockerfile declarations to runtime configuration coverage
 - expand generated operations documentation drafts beyond environment variables
 - expose remaining operational checks through commands such as `ath docs operations check`

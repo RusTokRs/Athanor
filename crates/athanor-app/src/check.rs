@@ -16,6 +16,7 @@ pub enum DiagnosticScope {
     Env,
     Scripts,
     Deployment,
+    Runbooks,
 }
 
 #[derive(Debug, Clone)]
@@ -99,6 +100,12 @@ pub fn build_check_report(
                         .get("scope")
                         .and_then(serde_json::Value::as_str)
                         != Some("deployment"))
+                || (scope == DiagnosticScope::Runbooks
+                    && diagnostic
+                        .payload
+                        .get("scope")
+                        .and_then(serde_json::Value::as_str)
+                        != Some("runbooks"))
                 || (scope == DiagnosticScope::Docs
                     && diagnostic
                         .payload
@@ -128,7 +135,8 @@ pub fn build_check_report(
                 DiagnosticScope::Docs
                 | DiagnosticScope::Env
                 | DiagnosticScope::Scripts
-                | DiagnosticScope::Deployment => true,
+                | DiagnosticScope::Deployment
+                | DiagnosticScope::Runbooks => true,
             }
         })
         .cloned()
@@ -192,6 +200,10 @@ pub(crate) fn diagnostic_matches_scope(kind: &DiagnosticKind, scope: DiagnosticS
         DiagnosticScope::Env => matches!(kind, DiagnosticKind::MissingEnvVar),
         DiagnosticScope::Scripts => matches!(kind, DiagnosticKind::MissingDocumentation),
         DiagnosticScope::Deployment => matches!(kind, DiagnosticKind::MissingDocumentation),
+        DiagnosticScope::Runbooks => matches!(
+            kind,
+            DiagnosticKind::MissingDocumentation | DiagnosticKind::StaleDocumentation
+        ),
     }
 }
 
@@ -384,6 +396,33 @@ mod tests {
 
         assert_eq!(report.counts.total, 1);
         assert_eq!(report.diagnostics[0].id.0, "diag_deployment");
+    }
+
+    #[test]
+    fn filters_runbook_diagnostics_by_payload_scope() {
+        let mut runbook = diagnostic(
+            "diag_runbook",
+            DiagnosticKind::StaleDocumentation,
+            Severity::Medium,
+            DiagnosticStatus::Open,
+        );
+        runbook.payload = json!({"scope": "runbooks"});
+        let docs = diagnostic(
+            "diag_docs",
+            DiagnosticKind::StaleDocumentation,
+            Severity::Medium,
+            DiagnosticStatus::Open,
+        );
+
+        let report = build_check_report(
+            "snap_test".to_string(),
+            DiagnosticScope::Runbooks,
+            &[docs, runbook],
+            &ApiConfig::default(),
+        );
+
+        assert_eq!(report.counts.total, 1);
+        assert_eq!(report.diagnostics[0].id.0, "diag_runbook");
     }
 
     #[test]

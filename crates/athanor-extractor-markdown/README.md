@@ -8,6 +8,7 @@ Implements: `Extractor`
 
 - `EntityKind::DocumentationPage`
 - `EntityKind::DocumentationSection`
+- `EntityKind::Runbook` when frontmatter `kind` is `runbook` or `operations_runbook`
 - `FactKind::DocSectionFound`
 
 All emitted objects include ownership metadata for the Markdown source file path.
@@ -65,6 +66,8 @@ app-layer completeness policies can distinguish defaults from authored metadata.
 Frontmatter metadata is stored in the page payload and identity, language, layer, and kind are
 inherited by section entities. Malformed YAML, unclosed frontmatter, invalid language values, and
 page ids that are not fragment-free `doc://` keys fail extraction.
+Runbook frontmatter emits a separate `runbook://...` entity whose payload records the source
+documentation page and operation targets from the page `entities` list.
 
 ## Side Effects
 
