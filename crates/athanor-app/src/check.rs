@@ -15,6 +15,7 @@ pub enum DiagnosticScope {
     Docs,
     Env,
     Scripts,
+    Deployment,
 }
 
 #[derive(Debug, Clone)]
@@ -92,12 +93,18 @@ pub fn build_check_report(
                         .get("scope")
                         .and_then(serde_json::Value::as_str)
                         != Some("scripts"))
+                || (scope == DiagnosticScope::Deployment
+                    && diagnostic
+                        .payload
+                        .get("scope")
+                        .and_then(serde_json::Value::as_str)
+                        != Some("deployment"))
                 || (scope == DiagnosticScope::Docs
                     && diagnostic
                         .payload
                         .get("scope")
                         .and_then(serde_json::Value::as_str)
-                        == Some("scripts"))
+                        .is_some())
             {
                 return false;
             }
@@ -118,7 +125,10 @@ pub fn build_check_report(
                     }
                     _ => true,
                 },
-                DiagnosticScope::Docs | DiagnosticScope::Env | DiagnosticScope::Scripts => true,
+                DiagnosticScope::Docs
+                | DiagnosticScope::Env
+                | DiagnosticScope::Scripts
+                | DiagnosticScope::Deployment => true,
             }
         })
         .cloned()
@@ -181,6 +191,7 @@ pub(crate) fn diagnostic_matches_scope(kind: &DiagnosticKind, scope: DiagnosticS
         ),
         DiagnosticScope::Env => matches!(kind, DiagnosticKind::MissingEnvVar),
         DiagnosticScope::Scripts => matches!(kind, DiagnosticKind::MissingDocumentation),
+        DiagnosticScope::Deployment => matches!(kind, DiagnosticKind::MissingDocumentation),
     }
 }
 
@@ -252,6 +263,13 @@ mod tests {
             DiagnosticStatus::Open,
         );
         script.payload = json!({"scope": "scripts"});
+        let mut deployment = diagnostic(
+            "diag_deployment",
+            DiagnosticKind::MissingDocumentation,
+            Severity::Medium,
+            DiagnosticStatus::Open,
+        );
+        deployment.payload = json!({"scope": "deployment"});
         let diagnostics = vec![
             diagnostic(
                 "diag_docs",
@@ -272,6 +290,7 @@ mod tests {
                 DiagnosticStatus::Open,
             ),
             script,
+            deployment,
         ];
 
         let report = build_check_report(
@@ -338,6 +357,33 @@ mod tests {
 
         assert_eq!(report.counts.total, 1);
         assert_eq!(report.diagnostics[0].id.0, "diag_script");
+    }
+
+    #[test]
+    fn filters_deployment_diagnostics_by_payload_scope() {
+        let mut deployment = diagnostic(
+            "diag_deployment",
+            DiagnosticKind::MissingDocumentation,
+            Severity::Medium,
+            DiagnosticStatus::Open,
+        );
+        deployment.payload = json!({"scope": "deployment"});
+        let docs = diagnostic(
+            "diag_docs",
+            DiagnosticKind::MissingDocumentation,
+            Severity::Medium,
+            DiagnosticStatus::Open,
+        );
+
+        let report = build_check_report(
+            "snap_test".to_string(),
+            DiagnosticScope::Deployment,
+            &[docs, deployment],
+            &ApiConfig::default(),
+        );
+
+        assert_eq!(report.counts.total, 1);
+        assert_eq!(report.diagnostics[0].id.0, "diag_deployment");
     }
 
     #[test]

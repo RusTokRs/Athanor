@@ -1,6 +1,6 @@
 # athanor-checker-api
 
-API, environment, and script documentation checker adapter.
+API, environment, script, and deployment documentation checker adapter.
 
 Implements: `Checker`
 
@@ -14,6 +14,8 @@ Implements: `Checker`
 - `MissingEnvVar` when an environment variable entity has no Markdown `documents` relation
 - `MissingDocumentation` with payload scope `scripts` when a script command entity has no Markdown
   `documents` relation
+- `MissingDocumentation` with payload scope `deployment` when a deployment/service entity has no
+  Markdown `documents` relation
 
 Diagnostics are open and deterministic. Implementation/documentation absence diagnostics are owned
 by the endpoint plus current Rust or Markdown candidates. Schema diagnostics are owned by the
@@ -26,8 +28,9 @@ uses the network. Validators are cached by normalized schema during one checker 
 ## Incremental Behavior
 
 The API checker evaluates affected endpoints and reevaluates all endpoints when relevant Rust
-functions, Markdown entities, or API relations change. The environment and script documentation
-checkers evaluate affected environment/script entities and reevaluate when Markdown entities change.
+functions, Markdown entities, or API relations change. The environment, script, and deployment
+documentation checkers evaluate affected environment/script/deployment entities and reevaluate when
+Markdown entities change.
 The pipeline performs a safe full rebuild when files are added or removed so absence diagnostics
 cannot remain stale across source-set changes.
 
@@ -45,8 +48,10 @@ None. The checker does not run commands, use the network, or modify files.
   are not interpreted yet.
 - Environment and script documentation checks require explicit Markdown frontmatter entity links;
   lexical mentions do not satisfy them.
-- Script documentation checks currently cover `ScriptCommand` entities only; deployment and runbook
-  consistency checks remain separate Phase 5 work.
+- Environment, script, and deployment documentation checks require explicit Markdown frontmatter
+  entity links; lexical mentions do not satisfy them.
+- Script checks cover `ScriptCommand` entities, and deployment checks cover `DockerService`
+  entities. Runbook consistency checks remain separate Phase 5 work.
 
 ## Test
 

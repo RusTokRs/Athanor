@@ -456,6 +456,102 @@ impl Checker for ScriptDocsChecker {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct DeploymentDocsChecker;
+
+#[async_trait]
+impl Checker for DeploymentDocsChecker {
+    fn name(&self) -> &'static str {
+        "deployment-docs"
+    }
+
+    async fn check(&self, input: CheckInput) -> CoreResult<Vec<Diagnostic>> {
+        let deployments = unique_entities_of_kind(&input.entities, EntityKind::DockerService);
+        let docs_affected = input.affected.entities.iter().any(|entity| {
+            matches!(
+                entity.kind,
+                EntityKind::DocumentationPage | EntityKind::DocumentationSection
+            )
+        });
+        let affected_ids = input
+            .affected
+            .entities
+            .iter()
+            .map(|entity| entity.id.clone())
+            .collect::<HashSet<_>>();
+
+        let mut diagnostics = Vec::new();
+        for deployment in deployments {
+            if !affected_ids.contains(&deployment.id) && !docs_affected {
+                continue;
+            }
+            let documented = input.relations.iter().any(|relation| {
+                relation.kind == RelationKind::Documents && relation.to == deployment.id
+            });
+            if !documented {
+                diagnostics.push(missing_deployment_documentation_diagnostic(
+                    deployment,
+                    self.name(),
+                    &input.snapshot,
+                ));
+            }
+        }
+
+        Ok(diagnostics)
+    }
+}
+
+fn missing_deployment_documentation_diagnostic(
+    deployment: &Entity,
+    checker: &str,
+    snapshot: &SnapshotId,
+) -> Diagnostic {
+    let kind = DiagnosticKind::MissingDocumentation;
+    let kind_slug = "missing_deployment_documentation";
+    let id_material = format!("{kind_slug}\0{}", deployment.stable_key.0);
+    Diagnostic {
+        id: DiagnosticId(format!(
+            "diag_deployment_{:016x}",
+            stable_hash(id_material.as_bytes())
+        )),
+        kind,
+        severity: Severity::Medium,
+        status: DiagnosticStatus::Open,
+        title: "Deployment resource is not documented".to_string(),
+        message: format!(
+            "Deployment resource `{}` is known to the operations graph but not documented.",
+            deployment.stable_key.0
+        ),
+        entities: vec![deployment.id.clone()],
+        evidence: vec![Evidence {
+            source_file: deployment.source.as_ref().map(|source| source.path.clone()),
+            line_start: deployment
+                .source
+                .as_ref()
+                .and_then(|source| source.line_start),
+            line_end: deployment
+                .source
+                .as_ref()
+                .and_then(|source| source.line_end),
+            extractor: Some(checker.to_string()),
+            commit_hash: None,
+            confidence: 1.0,
+            status: EvidenceStatus::Missing,
+        }],
+        ownership: deployment.ownership.clone(),
+        snapshot: snapshot.clone(),
+        suggested_fix: Some(format!(
+            "Document `{}` in Markdown frontmatter by adding it to an `entities` list.",
+            deployment.stable_key.0
+        )),
+        payload: json!({
+            "deployment": deployment.stable_key.0,
+            "missing_relation": "documents",
+            "scope": "deployment",
+        }),
+    }
+}
+
 fn missing_script_documentation_diagnostic(
     script_command: &Entity,
     checker: &str,
@@ -1091,6 +1187,55 @@ mod tests {
                 vec![script.clone(), doc_page],
                 vec![documents_rel.clone()],
                 vec![script],
+                vec![documents_rel],
+            ))
+            .await
+            .unwrap();
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[tokio::test]
+    async fn reports_undocumented_deployment_and_accepts_documented_one() {
+        let deployment = entity(
+            "ent_deployment_api",
+            "kubernetes://k8s/deployment.yaml#Deployment:api",
+            EntityKind::DockerService,
+            "k8s/deployment.yaml",
+        );
+        let doc_page = entity(
+            "ent_doc_page",
+            "doc://docs/operations/deploy.md",
+            EntityKind::DocumentationPage,
+            "docs/operations/deploy.md",
+        );
+
+        let diagnostics = DeploymentDocsChecker
+            .check(input(
+                vec![deployment.clone()],
+                Vec::new(),
+                vec![deployment.clone()],
+                Vec::new(),
+            ))
+            .await
+            .unwrap();
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].kind, DiagnosticKind::MissingDocumentation);
+        assert_eq!(diagnostics[0].payload["scope"], "deployment");
+        assert_eq!(diagnostics[0].entities[0], deployment.id);
+
+        let documents_rel = relation(
+            "rel_doc_deployment",
+            RelationKind::Documents,
+            &doc_page,
+            &deployment,
+        );
+        let diagnostics = DeploymentDocsChecker
+            .check(input(
+                vec![deployment.clone(), doc_page],
+                vec![documents_rel.clone()],
+                vec![deployment],
                 vec![documents_rel],
             ))
             .await

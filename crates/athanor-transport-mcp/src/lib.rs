@@ -261,7 +261,7 @@ fn get_tools_list() -> Value {
                     "properties": {
                         "scope": {
                             "type": "string",
-                            "enum": ["api", "docs", "env", "scripts"],
+                            "enum": ["api", "docs", "env", "scripts", "deployment"],
                             "description": "Diagnostic scope to check."
                         }
                     },
@@ -402,6 +402,7 @@ async fn call_tool(root: &std::path::Path, name: &str, args: Value) -> Result<St
                 "docs" => athanor_app::DiagnosticScope::Docs,
                 "env" => athanor_app::DiagnosticScope::Env,
                 "scripts" => athanor_app::DiagnosticScope::Scripts,
+                "deployment" => athanor_app::DiagnosticScope::Deployment,
                 _ => athanor_app::DiagnosticScope::Api,
             };
 

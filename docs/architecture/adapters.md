@@ -96,7 +96,7 @@ Ownership should list every source file that can invalidate the emitted object. 
 | `athanor-linker-markdown` | `Linker` | Link Markdown containment and exact frontmatter entity/concept references. |
 | `athanor-linker-rust` | `Linker` | Link Rust module containment, imports, static function call graph, and test cases. |
 | `athanor-checker-markdown` | `Checker` | Diagnose Markdown structure, unresolved frontmatter references, and duplicate document identities. |
-| `athanor-checker-api` | `Checker` | Diagnose missing API implementation/documentation links, unresolved local schema references, invalid examples, undocumented environment variables, and undocumented script commands. |
+| `athanor-checker-api` | `Checker` | Diagnose missing API implementation/documentation links, unresolved local schema references, invalid examples, undocumented environment variables, undocumented script commands, and undocumented deployment resources. |
 | `athanor-projector-wiki` | `Projector` | Project the latest canonical snapshot into a neutral Markdown wiki. |
 | `athanor-projector-html` | `Projector` | Project the latest canonical snapshot into a self-contained HTML report. |
 
@@ -175,6 +175,7 @@ builtin.checker.markdown_structure
 builtin.checker.api_consistency
 builtin.checker.env_docs
 builtin.checker.script_docs
+builtin.checker.deployment_docs
 ```
 
 This is the first discovery layer. It gives the app layer a single current manifest contract and a validation path for adapter/plugin configuration. It does not dynamically load external Rust code yet; unknown adapter ids fail fast with a clear runtime-builder error. The optional `version` field describes the plugin package, not a separate generation of the adapter contract.

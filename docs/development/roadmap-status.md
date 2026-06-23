@@ -66,6 +66,8 @@ ath check env
 ath check env --json
 ath check scripts
 ath check scripts --json
+ath check deployment
+ath check deployment --json
 ath docs check
 ath docs check --json
 ath docs drift
@@ -1444,7 +1446,35 @@ Purpose:
 - exposes the same `scripts` scope through the MCP `check` tool
 - keeps the command read-only and non-failing, matching the initial API/docs/env check views
 - advances persisted index state to v22 so existing projects rebuild script documentation diagnostics once
-- keeps deployment and runbook consistency checkers deferred
+- keeps rollout and runbook consistency checkers deferred
+
+### Deployment Documentation Check View
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-checker-api`
+- `crates/athanor-checker-api/README.md`
+- `crates/athanor-app/src/check.rs`
+- `crates/athanor-app/src/runtime.rs`
+- `crates/athanor-transport-mcp/src/lib.rs`
+- `apps/ath/src/main.rs`
+- `docs/adapters/checker-api.md`
+- `docs/adapters/transport-mcp.md`
+- `docs/architecture/adapters.md`
+- `docs/architecture/pipeline.md`
+
+Purpose:
+
+- adds the built-in `builtin.checker.deployment_docs` adapter
+- checks canonical `DockerService` deployment/service entities for explicit Markdown `documents` relations
+- emits evidence-backed `missing_documentation` diagnostics with payload scope `deployment`
+- exposes the findings through `ath check deployment` and `ath check deployment --json`
+- exposes the same `deployment` scope through the MCP `check` tool
+- keeps the command read-only and non-failing, matching the initial API/docs/env/scripts check views
+- advances persisted index state to v23 so existing projects rebuild deployment documentation diagnostics once
+- keeps rollout and runbook consistency checkers deferred
 
 ## In Progress
 
@@ -1460,10 +1490,10 @@ Status: planned.
 
 Scope:
 
-- add deployment and runbook consistency checkers
+- add runbook consistency checkers
 - extend environment checks beyond Rust, dotenv, and Dockerfile declarations to runtime configuration coverage
 - expand generated operations documentation drafts beyond environment variables
-- expose remaining operational checks through commands such as `ath docs operations check` and `ath check deployment`
+- expose remaining operational checks through commands such as `ath docs operations check`
 
 Acceptance:
 

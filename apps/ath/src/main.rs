@@ -41,6 +41,7 @@ enum DiagnosticScopeArg {
     Docs,
     Env,
     Scripts,
+    Deployment,
 }
 
 impl From<DiagnosticScopeArg> for DiagnosticScope {
@@ -50,6 +51,7 @@ impl From<DiagnosticScopeArg> for DiagnosticScope {
             DiagnosticScopeArg::Docs => Self::Docs,
             DiagnosticScopeArg::Env => Self::Env,
             DiagnosticScopeArg::Scripts => Self::Scripts,
+            DiagnosticScopeArg::Deployment => Self::Deployment,
         }
     }
 }

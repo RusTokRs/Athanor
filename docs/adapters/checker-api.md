@@ -7,13 +7,13 @@ last_verified_snapshot: snap_jsonl_00000030
 status: verified
 ---
 
-# API Consistency, Environment, And Script Checker
+# API Consistency, Environment, Script, And Deployment Checker
 
 Crate: `athanor-checker-api`
 
 Port: `Checker`
 
-This crate houses three checkers:
+This crate houses four checkers:
 
 ### 1. API Consistency Checker (`ApiConsistencyChecker`)
 Reports OpenAPI operations without linked Rust implementations, implemented operations
@@ -48,9 +48,22 @@ cargo run -p ath --quiet -- check scripts
 cargo run -p ath --quiet -- check scripts --json
 ```
 
+### 4. Deployment Documentation Checker (`DeploymentDocsChecker`)
+Reports deployment and service resources that are known to the graph but missing from editable
+documentation. It checks `EntityKind::DockerService` entities and emits
+`DiagnosticKind::MissingDocumentation` with payload `scope = "deployment"` when the resource lacks a
+generic `RelationKind::Documents` relation from Markdown frontmatter.
+
+The findings are exposed separately through:
+
+```bash
+cargo run -p ath --quiet -- check deployment
+cargo run -p ath --quiet -- check deployment --json
+```
+
 Diagnostics include evidence and ownership. Relevant function, documentation, environment, script
-command, and relation changes trigger reevaluation. File additions and removals force a full rebuild
-at the pipeline level to keep absence diagnostics correct.
+command, deployment, and relation changes trigger reevaluation. File additions and removals force a
+full rebuild at the pipeline level to keep absence diagnostics correct.
 
 Example validation uses adapter-private `jsonschema` 0.46.5 with Draft 4 for OpenAPI 3.0 and Draft
 2020-12 for OpenAPI 3.1. Same-document component schemas are assembled into an in-memory validation
@@ -60,7 +73,7 @@ schema references are skipped, and OpenAPI 3.0 keywords beyond Draft 4 compatibi
 documented limitation.
 
 The checker is local and side-effect free. Deeper schema, status-code, authentication, permission,
-breaking-change, deployment, and runbook checks are deferred.
+breaking-change, rollout, and runbook checks are deferred.
 
 ## Configuration & Policy Enforcement
 
