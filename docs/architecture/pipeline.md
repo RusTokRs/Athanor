@@ -240,6 +240,12 @@ All ranked sections use the command's `--top` bound. `--json` emits the stable
 `athanor.overview.v1` payload. The text output is intended as a quick agent/developer starting
 point before using `ath context`, `ath explain`, or `ath impact` for narrower questions.
 
+`ath impact <target>` and `ath impact --diff` report impacted entities, files, and diagnostics from
+the latest canonical snapshot. Impacted entities include the raw canonical relation flow and a
+stable `path_steps` explanation with relation ids, relation kinds, traversal direction, endpoint
+entity ids, stable keys, and names. The text output prints the full relation chain for each impacted
+entity so agents can explain why the entity is included instead of only reporting reachability.
+
 `ath context <task>` reads the latest durable canonical snapshot without running indexing again. `ath context --diff` also reads the latest snapshot, compares current source discovery with `.athanor/state/index-state.json`, and uses entities from changed or removed files as direct context roots without committing a new snapshot. The initial context generator:
 
 - tokenizes the task deterministically
@@ -480,7 +486,8 @@ checkers:
 - writing adapter validation reports to `.athanor/generated/current/validation-report.json` or the `--validation-report` path when validation fails
 - writing successful validation-only result JSON to `.athanor/generated/current/validation-result.json` or the `--validation-result` path
 - supporting `--validate-only` for adapter contract validation without writing snapshots, state, or read models
-- initializing standard tracing output; detailed indexing logs can be enabled with `RUST_LOG=athanor_app=info`
+- initializing standard tracing output; detailed indexing logs can be enabled with `RUST_LOG=athanor_app=info` and adapter-level diagnostics with `RUST_LOG=athanor_app=debug`
+- writing tracing output to `stderr` so normal text output and JSON payloads remain isolated on `stdout`
 
 `RuntimeBuilder` and `AdapterRegistry` are responsible for adapter assembly:
 
@@ -496,6 +503,7 @@ checkers:
 
 - discovering sources
 - classifying affected files from persisted state
+- emitting structured tracing fields for source discovery counts, affected-file classification, full-rebuild reasons, adapter inputs and outputs, validation boundaries, canonical object counts, and snapshot commits
 - running extractors for changed files when a previous canonical snapshot is available, with up to 16 concurrent extraction tasks
 - falling back to full extraction when the previous canonical snapshot is missing
 - merging unchanged canonical objects from the previous canonical snapshot

@@ -1963,29 +1963,28 @@ fn print_impact_analysis(analysis: &ImpactAnalysis) -> Result<()> {
 
             println!("  Depth {}:", depth);
             for item in items_at_depth {
-                let relation_info = if let Some(flow) = item.path.last() {
-                    let rel_kind = serialized_name(&flow.relation.kind)?;
-                    match flow.direction {
-                        athanor_app::FlowDirection::Forward => {
-                            let prev_name = find_entity_name(analysis, &flow.relation.from);
-                            format!("via {} --{}--> [this]", prev_name, rel_kind)
-                        }
-                        athanor_app::FlowDirection::Backward => {
-                            let prev_name = find_entity_name(analysis, &flow.relation.to);
-                            format!("via [this] --{}--> {}", rel_kind, prev_name)
-                        }
-                    }
-                } else {
+                let relation_info = if item.path_steps.is_empty() {
                     "direct".to_string()
+                } else {
+                    item.path_steps
+                        .iter()
+                        .map(|step| {
+                            format!(
+                                "{} --{}:{}--> {}",
+                                step.from.name, step.relation_kind, step.relation_id, step.to.name
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join(" | ")
                 };
 
                 println!(
-                    "    - [{}] {} ({}) ({})",
+                    "    - [{}] {} ({})",
                     serialized_name(&item.entity.kind)?,
                     item.entity.name,
-                    item.entity.stable_key.0,
-                    relation_info
+                    item.entity.stable_key.0
                 );
+                println!("      path: {relation_info}");
             }
         }
     }
@@ -2009,20 +2008,6 @@ fn print_impact_analysis(analysis: &ImpactAnalysis) -> Result<()> {
     }
 
     Ok(())
-}
-
-fn find_entity_name(analysis: &ImpactAnalysis, id: &athanor_domain::EntityId) -> String {
-    if let Some(entity) = analysis.starting_entities.iter().find(|e| e.id == *id) {
-        return entity.name.clone();
-    }
-    if let Some(item) = analysis
-        .impacted_entities
-        .iter()
-        .find(|i| i.entity.id == *id)
-    {
-        return item.entity.name.clone();
-    }
-    id.0.clone()
 }
 
 fn print_api_registry_report(report: &athanor_app::ApiRegistryReport) -> Result<()> {

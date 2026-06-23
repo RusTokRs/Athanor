@@ -1,4 +1,4 @@
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 
 use crate::config::load_config;
@@ -30,6 +30,23 @@ pub struct ImpactedEntity {
     pub entity: Entity,
     pub depth: usize,
     pub path: Vec<RelationFlow>,
+    pub path_steps: Vec<ImpactPathStep>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ImpactPathStep {
+    pub relation_id: String,
+    pub relation_kind: String,
+    pub direction: FlowDirection,
+    pub from: ImpactPathEndpoint,
+    pub to: ImpactPathEndpoint,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ImpactPathEndpoint {
+    pub entity_id: String,
+    pub stable_key: String,
+    pub name: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -167,6 +184,11 @@ pub fn impact_snapshot(
 ) -> ImpactAnalysis {
     let mut queue = VecDeque::new();
     let mut visited = HashSet::new();
+    let entity_by_id = snapshot
+        .entities
+        .iter()
+        .map(|entity| (entity.id.clone(), entity))
+        .collect::<HashMap<_, _>>();
 
     for entity in &starting_entities {
         queue.push_back((entity.id.clone(), 0, Vec::new()));
@@ -197,6 +219,7 @@ pub fn impact_snapshot(
                         impacted_entities.push(ImpactedEntity {
                             entity: next_entity.clone(),
                             depth: depth + 1,
+                            path_steps: impact_path_steps(&next_path, &entity_by_id),
                             path: next_path,
                         });
                     }
@@ -217,6 +240,7 @@ pub fn impact_snapshot(
                         impacted_entities.push(ImpactedEntity {
                             entity: next_entity.clone(),
                             depth: depth + 1,
+                            path_steps: impact_path_steps(&next_path, &entity_by_id),
                             path: next_path,
                         });
                     }
@@ -295,6 +319,53 @@ fn propagates_impact(kind: &RelationKind) -> (bool, bool) {
 
         _ => (false, false),
     }
+}
+
+fn impact_path_steps(
+    path: &[RelationFlow],
+    entity_by_id: &HashMap<EntityId, &Entity>,
+) -> Vec<ImpactPathStep> {
+    path.iter()
+        .map(|flow| {
+            let (from_id, to_id) = match flow.direction {
+                FlowDirection::Forward => (&flow.relation.from, &flow.relation.to),
+                FlowDirection::Backward => (&flow.relation.to, &flow.relation.from),
+            };
+
+            ImpactPathStep {
+                relation_id: flow.relation.id.0.clone(),
+                relation_kind: serialized_relation_kind(&flow.relation.kind),
+                direction: flow.direction,
+                from: impact_path_endpoint(from_id, entity_by_id),
+                to: impact_path_endpoint(to_id, entity_by_id),
+            }
+        })
+        .collect()
+}
+
+fn impact_path_endpoint(
+    id: &EntityId,
+    entity_by_id: &HashMap<EntityId, &Entity>,
+) -> ImpactPathEndpoint {
+    entity_by_id.get(id).map_or_else(
+        || ImpactPathEndpoint {
+            entity_id: id.0.clone(),
+            stable_key: id.0.clone(),
+            name: id.0.clone(),
+        },
+        |entity| ImpactPathEndpoint {
+            entity_id: entity.id.0.clone(),
+            stable_key: entity.stable_key.0.clone(),
+            name: entity.name.clone(),
+        },
+    )
+}
+
+fn serialized_relation_kind(kind: &RelationKind) -> String {
+    serde_json::to_value(kind)
+        .ok()
+        .and_then(|value| value.as_str().map(str::to_string))
+        .unwrap_or_else(|| format!("{kind:?}"))
 }
 
 fn resolve_project_relative_path(root: &Path, target: &str) -> Option<String> {
@@ -434,5 +505,25 @@ mod tests {
 
         assert_eq!(analysis.impacted_diagnostics.len(), 1);
         assert_eq!(analysis.impacted_diagnostics[0].id.0, "diag_1");
+
+        let doc_impact = analysis
+            .impacted_entities
+            .iter()
+            .find(|impact| impact.entity.id == doc.id)
+            .expect("documentation page should be impacted through endpoint");
+        assert_eq!(doc_impact.path_steps.len(), 3);
+        assert_eq!(doc_impact.path_steps[0].relation_id, "rel_call");
+        assert_eq!(doc_impact.path_steps[0].relation_kind, "calls");
+        assert_eq!(
+            doc_impact.path_steps[0].from.stable_key,
+            callee.stable_key.0
+        );
+        assert_eq!(doc_impact.path_steps[0].to.stable_key, caller.stable_key.0);
+        assert_eq!(doc_impact.path_steps[2].relation_id, "rel_doc");
+        assert_eq!(
+            doc_impact.path_steps[2].from.stable_key,
+            endpoint.stable_key.0
+        );
+        assert_eq!(doc_impact.path_steps[2].to.stable_key, doc.stable_key.0);
     }
 }

@@ -1132,6 +1132,8 @@ Purpose:
 - optimizes Rust linker qualified-name and entity-id resolution with hash maps
 - optimizes API linker example, schema, and operation-id matching with lookup maps
 - initializes standard CLI tracing output and emits indexing/runtime logs through tracing
+- emits structured debug diagnostics for source discovery counts, affected-file classification, full-rebuild reasons, adapter input/output counts, canonical object storage counts, and snapshot commits
+- keeps logs on `stderr`, preserving normal CLI text and JSON responses on `stdout`
 
 ### Security & Supply-Chain Automation
 
@@ -1989,7 +1991,7 @@ Scope:
 - extend graph export beyond the implemented `ath graph export --format json` with GraphML-compatible output, generated from canonical snapshots rather than replacing canonical storage (initial GraphML output implemented)
 - extend the HTML report with an interactive graph view, per-entity detail pages, filtering by kind/severity/source, and stable links back to canonical evidence
 - extend graph navigation beyond implemented related-entity exploration, shortest path, degree-centrality hubs, and directed cycle detection with optional richer centrality algorithms over canonical relations
-- improve `ath impact` with explanatory relation paths and an optional future precision mode for deeper call/data-flow analysis once language adapters can support it
+- improve `ath impact` with explanatory relation paths and an optional future precision mode for deeper call/data-flow analysis once language adapters can support it (initial path-step explanations implemented)
 - evaluate a multi-repository registry for future daemon and MCP use, keeping project selection explicit so one server cannot accidentally answer from the wrong repository
 - treat ideas from GitNexus, Graphify, code-review-graph, and similar code-graph tools as product patterns to adapt, not storage or source-of-truth replacements
 

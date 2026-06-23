@@ -10,7 +10,7 @@ use athanor_core::{
 use athanor_domain::{Diagnostic, Entity, Fact, Relation, RepoId, SnapshotBase, SnapshotId};
 use serde::Serialize;
 use serde_json::Value;
-use tracing::{error, info};
+use tracing::{Instrument, debug, debug_span, error, info};
 
 use crate::{AffectedFileSet, IndexState};
 use futures::stream::{self, StreamExt};
@@ -197,6 +197,8 @@ impl IndexPipeline {
         base: SnapshotBase,
         incremental: IncrementalIndexContext,
     ) -> Result<IndexPipelineOutput> {
+        let previous_snapshot_available = incremental.previous_snapshot.is_some();
+
         info!("starting source discovery");
         let files = self.discover_sources().await?;
         info!(file_count = files.len(), "completed source discovery");
@@ -207,14 +209,28 @@ impl IndexPipeline {
             .iter()
             .any(|path| !incremental.previous_state.files.contains_key(path));
         if has_added_files || !affected_files.removed.is_empty() {
+            debug!(
+                added_files = has_added_files,
+                removed_files = affected_files.removed.len(),
+                "forcing full extraction because file additions or removals can affect absence diagnostics"
+            );
             affected_files.changed = files.iter().map(|file| file.path.clone()).collect();
             affected_files.unchanged.clear();
         }
 
-        if incremental.previous_snapshot.is_none() {
+        if !previous_snapshot_available {
+            debug!("forcing full extraction because no previous canonical snapshot is available");
             affected_files.changed = files.iter().map(|file| file.path.clone()).collect();
             affected_files.unchanged.clear();
         }
+
+        debug!(
+            changed_files = affected_files.changed.len(),
+            unchanged_files = affected_files.unchanged.len(),
+            removed_files = affected_files.removed.len(),
+            previous_snapshot_available,
+            "classified affected files"
+        );
 
         let snapshot = self
             .store
@@ -248,10 +264,22 @@ impl IndexPipeline {
                 &affected_files.changed,
                 &affected_files.removed,
             );
+        debug!(
+            carried_entities = entities.len(),
+            carried_facts = facts.len(),
+            carried_relations = prior_relations.len(),
+            carried_diagnostics = prior_diagnostics.len(),
+            "carried forward previous canonical objects"
+        );
         entities.extend(extracted_entities);
         facts.extend(extracted_facts);
         entities = canonicalize_entities(entities);
         facts = canonicalize_facts(facts);
+        debug!(
+            entities = entities.len(),
+            facts = facts.len(),
+            "canonicalized merged extracted objects"
+        );
 
         info!("starting linking");
         let relations = self
@@ -276,6 +304,13 @@ impl IndexPipeline {
         prior_diagnostics.extend(diagnostics);
         prior_relations = canonicalize_relations(prior_relations);
         prior_diagnostics = canonicalize_diagnostics(prior_diagnostics);
+        debug!(
+            entities = entities.len(),
+            facts = facts.len(),
+            relations = prior_relations.len(),
+            diagnostics = prior_diagnostics.len(),
+            "storing canonical objects"
+        );
 
         self.store
             .put_entities(snapshot.clone(), entities.clone())
@@ -314,12 +349,19 @@ impl IndexPipeline {
         let mut files = Vec::new();
 
         for source in &self.sources {
-            files.extend(
-                source
-                    .discover()
-                    .await
-                    .with_context(|| format!("source {} failed", source.name()))?,
+            let source_name = source.name();
+            let span = debug_span!("discover_source", source = source_name);
+            let discovered = source
+                .discover()
+                .instrument(span)
+                .await
+                .with_context(|| format!("source {} failed", source_name))?;
+            debug!(
+                source = source_name,
+                file_count = discovered.len(),
+                "source discovery produced files"
             );
+            files.extend(discovered);
         }
 
         Ok(files)
@@ -348,18 +390,34 @@ impl IndexPipeline {
 
         let mut outputs = stream::iter(tasks)
             .map(|(extractor, source)| async move {
+                let extractor_name = extractor.name();
+                let span = debug_span!(
+                    "extract_source",
+                    extractor = extractor_name,
+                    file = %source.path
+                );
                 let input = ExtractInput {
                     repo: repo.clone(),
                     snapshot: snapshot.clone(),
                     source,
                 };
-                let output = extractor
-                    .extract(input)
-                    .await
-                    .with_context(|| format!("extractor {} failed", extractor.name()))?;
+                let output = async {
+                    extractor
+                        .extract(input)
+                        .await
+                        .with_context(|| format!("extractor {} failed", extractor_name))
+                }
+                .instrument(span)
+                .await?;
 
-                validate_entities(extractor.name(), &output.entities)?;
-                validate_facts(extractor.name(), &output.facts)?;
+                validate_entities(extractor_name, &output.entities)?;
+                validate_facts(extractor_name, &output.facts)?;
+                debug!(
+                    extractor = extractor_name,
+                    entities = output.entities.len(),
+                    facts = output.facts.len(),
+                    "extractor emitted canonical objects"
+                );
                 Ok::<_, anyhow::Error>(output)
             })
             .buffer_unordered(EXTRACTION_CONCURRENCY_LIMIT);
@@ -395,6 +453,17 @@ impl IndexPipeline {
         let facts = Arc::<[Fact]>::from(facts.to_vec());
 
         for linker in &self.linkers {
+            let linker_name = linker.name();
+            let span = debug_span!("link_canonical_objects", linker = linker_name);
+            debug!(
+                linker = linker_name,
+                entities = entities.len(),
+                facts = facts.len(),
+                affected_entities = affected.entities.len(),
+                affected_facts = affected.facts.len(),
+                affected_relations = affected.relations.len(),
+                "running linker"
+            );
             let output = linker
                 .link(LinkInput {
                     snapshot: snapshot.clone(),
@@ -402,11 +471,17 @@ impl IndexPipeline {
                     facts: facts.clone(),
                     affected: affected.clone(),
                 })
+                .instrument(span)
                 .await
                 .inspect_err(|error| error!(linker = linker.name(), %error, "linker failed"))
-                .with_context(|| format!("linker {} failed", linker.name()))?;
+                .with_context(|| format!("linker {} failed", linker_name))?;
 
-            validate_relations(linker.name(), &output)?;
+            validate_relations(linker_name, &output)?;
+            debug!(
+                linker = linker_name,
+                relations = output.len(),
+                "linker emitted relations"
+            );
             relations.extend(output);
         }
 
@@ -427,6 +502,18 @@ impl IndexPipeline {
         let relations = Arc::<[Relation]>::from(relations.to_vec());
 
         for checker in &self.checkers {
+            let checker_name = checker.name();
+            let span = debug_span!("check_canonical_objects", checker = checker_name);
+            debug!(
+                checker = checker_name,
+                entities = entities.len(),
+                facts = facts.len(),
+                relations = relations.len(),
+                affected_entities = affected.entities.len(),
+                affected_facts = affected.facts.len(),
+                affected_relations = affected.relations.len(),
+                "running checker"
+            );
             let output = checker
                 .check(CheckInput {
                     snapshot: snapshot.clone(),
@@ -435,11 +522,17 @@ impl IndexPipeline {
                     relations: relations.clone(),
                     affected: affected.clone(),
                 })
+                .instrument(span)
                 .await
                 .inspect_err(|error| error!(checker = checker.name(), %error, "checker failed"))
-                .with_context(|| format!("checker {} failed", checker.name()))?;
+                .with_context(|| format!("checker {} failed", checker_name))?;
 
-            validate_diagnostics(checker.name(), &output)?;
+            validate_diagnostics(checker_name, &output)?;
+            debug!(
+                checker = checker_name,
+                diagnostics = output.len(),
+                "checker emitted diagnostics"
+            );
             diagnostics.extend(output);
         }
 

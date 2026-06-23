@@ -181,6 +181,15 @@ cargo run -p ath --quiet -- index . --validate-only
 cargo run -p ath --quiet -- index . --validate-only --validation-result .athanor/generated/current/validation-result.json
 ```
 
+Detailed indexing diagnostics can be enabled through `RUST_LOG` without changing command output:
+
+```bash
+RUST_LOG=athanor_app=info cargo run -p ath --quiet -- index .
+RUST_LOG=athanor_app=debug cargo run -p ath --quiet -- index .
+```
+
+Tracing output is written to `stderr`, so JSON and normal command output remain on `stdout`.
+
 Changed files can be committed into a fresh durable snapshot through the explicit update command:
 
 ```bash
