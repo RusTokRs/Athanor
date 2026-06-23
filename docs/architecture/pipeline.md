@@ -114,6 +114,7 @@ flowchart TD
 - `related_graph`: bounded related-entity exploration from one exact stable key.
 - `shortest_graph_path`: bounded shortest-path search between two exact stable keys.
 - `graph_hubs`: bounded degree-centrality ranking over canonical relations.
+- `graph_cycles`: bounded directed-cycle detection over canonical relations.
 - `check_project`: scoped API, documentation, environment, script, deployment, and runbook diagnostic reporting from the latest canonical snapshot.
 - `check_affected`: read-only changed-file diagnostic reporting from latest canonical snapshot plus persisted index state.
 - `check_operations_docs`: aggregate environment, script, deployment, and runbook documentation diagnostics from one latest canonical snapshot load.
@@ -283,6 +284,14 @@ and sorts ties by incoming degree, outgoing degree, and stable key. `--kind` fil
 serialized canonical entity kind, `--limit` bounds ranked entities, and `--max-relation-ids` bounds
 trace ids per direction. `--json` emits `athanor.graph_hubs.v1`. The command excludes disconnected
 entities and reads the latest canonical snapshot without writing artifacts.
+
+`ath graph cycles` finds simple directed cycles while preserving canonical relation direction.
+Search roots and outgoing relations are ordered deterministically, and cycles discovered from
+different starting entities are deduplicated by canonical rotation of their relation ids.
+`--max-depth` bounds cycle length, `--max-starts` bounds search roots, and `--limit` bounds unique
+results. `--json` emits `athanor.graph_cycles.v1` with ordered canonical nodes and evidence-bearing
+edges plus explicit truncation and omitted-start counts. The command reads the latest canonical
+snapshot without writing artifacts.
 
 ## Entity Explanation
 

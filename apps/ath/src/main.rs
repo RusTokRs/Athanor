@@ -6,16 +6,17 @@ use athanor_app::{
     ApiSnapshotReport, ContextLimitOverrides, ContextOptions, DiagnosticCheckOptions,
     DiagnosticCheckReport, DiagnosticScope, DocsApplyPatchOptions, DocsApplyPatchReport,
     DocsCheckOptions, DocsCheckReport, DocsDriftOptions, DocsDriftReport, DocsProposeFixOptions,
-    DocsProposeFixReport, EntityExplanation, ExplainOptions, GenerationOptions, GraphExportOptions,
-    GraphHubs, GraphHubsOptions, GraphPath, GraphPathOptions, GraphRelated, GraphRelatedOptions,
-    HtmlReportOptions, ImpactAnalysis, ImpactOptions, IndexOptions, IndexReport, InitOptions,
-    OperationsDocsCheckOptions, OperationsDocsCheckReport, OverviewOptions, RepairApplyOptions,
-    RepairApplyReport, RepairCleanupOptions, RepairCleanupReport, RepairInspectOptions,
-    RepairInspectReport, RepairRecoverCanonicalOptions, RepairRecoverCanonicalReport,
-    RepairRegenerateOptions, RepairRegenerateReport, RepositoryOverview, WikiOptions, apply_repair,
-    check_affected, check_docs, check_operations_docs, check_project, cleanup_repair,
-    context_project, diff_api_contracts, docs_apply_patch, docs_drift, docs_propose_fix,
-    explain_project, generate_project, impact_project, index_project, init_project, inspect_repair,
+    DocsProposeFixReport, EntityExplanation, ExplainOptions, GenerationOptions, GraphCycles,
+    GraphCyclesOptions, GraphExportOptions, GraphHubs, GraphHubsOptions, GraphPath,
+    GraphPathOptions, GraphRelated, GraphRelatedOptions, HtmlReportOptions, ImpactAnalysis,
+    ImpactOptions, IndexOptions, IndexReport, InitOptions, OperationsDocsCheckOptions,
+    OperationsDocsCheckReport, OverviewOptions, RepairApplyOptions, RepairApplyReport,
+    RepairCleanupOptions, RepairCleanupReport, RepairInspectOptions, RepairInspectReport,
+    RepairRecoverCanonicalOptions, RepairRecoverCanonicalReport, RepairRegenerateOptions,
+    RepairRegenerateReport, RepositoryOverview, WikiOptions, apply_repair, check_affected,
+    check_docs, check_operations_docs, check_project, cleanup_repair, context_project,
+    diff_api_contracts, docs_apply_patch, docs_drift, docs_propose_fix, explain_project,
+    generate_project, impact_project, index_project, init_project, inspect_repair,
     overview_project, project_html_report, project_wiki, recover_canonical_repair,
     regenerate_repair, snapshot_api_contract,
 };
@@ -334,6 +335,24 @@ enum GraphCommand {
         #[arg(long, default_value_t = 20)]
         max_relation_ids: usize,
         /// Print the complete hub report as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Find bounded directed cycles in canonical relations.
+    Cycles {
+        /// Project root. Defaults to the current directory.
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Maximum number of unique cycles to return.
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+        /// Maximum number of relations in one cycle.
+        #[arg(long, default_value_t = 8)]
+        max_depth: usize,
+        /// Maximum number of graph entities used as cycle search roots.
+        #[arg(long, default_value_t = 1_000)]
+        max_starts: usize,
+        /// Print the complete cycle report as JSON.
         #[arg(long)]
         json: bool,
     },
@@ -980,6 +999,26 @@ async fn main() -> Result<()> {
                     print_graph_hubs(&report);
                 }
             }
+            GraphCommand::Cycles {
+                path,
+                limit,
+                max_depth,
+                max_starts,
+                json,
+            } => {
+                let report = athanor_app::graph_cycles(GraphCyclesOptions {
+                    root: path,
+                    limit,
+                    max_depth,
+                    max_starts,
+                })
+                .await?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                } else {
+                    print_graph_cycles(&report);
+                }
+            }
         },
         Some(Command::Repair { command }) => match command {
             RepairCommand::Inspect { path, json } => {
@@ -1366,6 +1405,51 @@ fn print_graph_hubs(report: &GraphHubs) {
             hub.outgoing_degree,
             source
         );
+    }
+}
+
+fn print_graph_cycles(report: &GraphCycles) {
+    println!(
+        "Directed graph cycles (snapshot: {}, starts: {}, omitted starts: {})",
+        report.snapshot, report.start_entities, report.omitted_start_entities
+    );
+    if report.cycles.is_empty() {
+        println!(
+            "  (none{})",
+            if report.truncated {
+                "; search truncated"
+            } else {
+                ""
+            }
+        );
+        return;
+    }
+    for (index, cycle) in report.cycles.iter().enumerate() {
+        let stable_keys = cycle
+            .nodes
+            .iter()
+            .map(|node| node.stable_key.as_str())
+            .collect::<Vec<_>>()
+            .join(" -> ");
+        println!(
+            "  {}. length={} {} -> {}",
+            index + 1,
+            cycle.length,
+            stable_keys,
+            cycle.nodes[0].stable_key
+        );
+        println!(
+            "     relations: {}",
+            cycle
+                .edges
+                .iter()
+                .map(|edge| edge.id.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
+    if report.truncated {
+        println!("  search truncated by configured limits");
     }
 }
 

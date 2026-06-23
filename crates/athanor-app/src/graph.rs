@@ -846,9 +846,10 @@ fn search_cycles<'a>(
         return;
     };
     if edges.len() >= max_depth {
-        if outgoing.iter().any(|relation| {
-            relation.to.0 == start || !on_path.contains(&relation.to.0)
-        }) {
+        if outgoing
+            .iter()
+            .any(|relation| relation.to.0 == start || !on_path.contains(&relation.to.0))
+        {
             *truncated = true;
         }
         return;
@@ -876,16 +877,7 @@ fn search_cycles<'a>(
         path.push(target.to_string());
         edges.push(*relation);
         search_cycles(
-            start,
-            target,
-            adjacency,
-            path,
-            edges,
-            on_path,
-            max_depth,
-            limit,
-            discovered,
-            cycles,
+            start, target, adjacency, path, edges, on_path, max_depth, limit, discovered, cycles,
             truncated,
         );
         edges.pop();
@@ -903,7 +895,10 @@ fn canonical_cycle_key(relations: &[&Relation]) -> String {
 }
 
 fn cycle_key_from_edges(edges: &[GraphEdge]) -> String {
-    let ids = edges.iter().map(|edge| edge.id.as_str()).collect::<Vec<_>>();
+    let ids = edges
+        .iter()
+        .map(|edge| edge.id.as_str())
+        .collect::<Vec<_>>();
     minimum_rotation(&ids)
 }
 
@@ -1351,6 +1346,79 @@ mod tests {
         assert_eq!(report.kind.as_deref(), Some("function"));
         assert_eq!(report.hubs.len(), 1);
         assert_eq!(report.hubs[0].entity.stable_key, "rust://src/lib.rs#health");
+    }
+
+    #[test]
+    fn finds_unique_directed_graph_cycles() {
+        let first = entity("ent_first", "symbol://first", EntityKind::Function, "first");
+        let second = entity(
+            "ent_second",
+            "symbol://second",
+            EntityKind::Function,
+            "second",
+        );
+        let third = entity("ent_third", "symbol://third", EntityKind::Function, "third");
+        let snapshot = CanonicalSnapshot {
+            snapshot: Some(SnapshotId("snap_test".to_string())),
+            entities: vec![third.clone(), first.clone(), second.clone()],
+            relations: vec![
+                relation("rel_first_second", RelationKind::Calls, &first, &second),
+                relation("rel_second_third", RelationKind::Calls, &second, &third),
+                relation("rel_third_first", RelationKind::Calls, &third, &first),
+            ],
+            ..CanonicalSnapshot::default()
+        };
+
+        let report = build_graph_cycles(&snapshot, 10, 4, 10).unwrap();
+
+        assert_eq!(report.schema, GRAPH_CYCLES_SCHEMA);
+        assert_eq!(report.cycles.len(), 1);
+        assert_eq!(report.cycles[0].length, 3);
+        assert_eq!(
+            report.cycles[0]
+                .nodes
+                .iter()
+                .map(|node| node.stable_key.as_str())
+                .collect::<Vec<_>>(),
+            vec!["symbol://first", "symbol://second", "symbol://third"]
+        );
+        assert_eq!(
+            report.cycles[0]
+                .edges
+                .iter()
+                .map(|edge| edge.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["rel_first_second", "rel_second_third", "rel_third_first"]
+        );
+        assert!(!report.truncated);
+    }
+
+    #[test]
+    fn marks_cycle_search_truncated_by_depth_and_start_limit() {
+        let first = entity("ent_first", "symbol://first", EntityKind::Function, "first");
+        let second = entity(
+            "ent_second",
+            "symbol://second",
+            EntityKind::Function,
+            "second",
+        );
+        let third = entity("ent_third", "symbol://third", EntityKind::Function, "third");
+        let snapshot = CanonicalSnapshot {
+            entities: vec![first.clone(), second.clone(), third.clone()],
+            relations: vec![
+                relation("rel_first_second", RelationKind::Calls, &first, &second),
+                relation("rel_second_third", RelationKind::Calls, &second, &third),
+                relation("rel_third_first", RelationKind::Calls, &third, &first),
+            ],
+            ..CanonicalSnapshot::default()
+        };
+
+        let report = build_graph_cycles(&snapshot, 10, 2, 1).unwrap();
+
+        assert!(report.cycles.is_empty());
+        assert_eq!(report.start_entities, 1);
+        assert_eq!(report.omitted_start_entities, 2);
+        assert!(report.truncated);
     }
 
     fn entity(id: &str, stable_key: &str, kind: EntityKind, name: &str) -> Entity {
