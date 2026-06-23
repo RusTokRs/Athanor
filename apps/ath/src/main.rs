@@ -2,19 +2,20 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use athanor_app::{
-    AffectedCheckOptions, AffectedCheckReport, ApiContractDiff, ApiDiffOptions, ApiSnapshotOptions,
-    ApiSnapshotReport, ContextLimitOverrides, ContextOptions, DiagnosticCheckOptions,
-    DiagnosticCheckReport, DiagnosticScope, DocsApplyPatchOptions, DocsApplyPatchReport,
-    DocsCheckOptions, DocsCheckReport, DocsDriftOptions, DocsDriftReport, DocsProposeFixOptions,
-    DocsProposeFixReport, EntityExplanation, ExplainOptions, GenerationOptions, GraphCycles,
-    GraphCyclesOptions, GraphExportOptions, GraphHubs, GraphHubsOptions, GraphPath,
-    GraphPathOptions, GraphRelated, GraphRelatedOptions, HtmlReportOptions, ImpactAnalysis,
-    ImpactOptions, IndexOptions, IndexReport, InitOptions, OperationsDocsCheckOptions,
-    OperationsDocsCheckReport, OverviewOptions, RepairApplyOptions, RepairApplyReport,
-    RepairCleanupOptions, RepairCleanupReport, RepairInspectOptions, RepairInspectReport,
-    RepairRecoverCanonicalOptions, RepairRecoverCanonicalReport, RepairRegenerateOptions,
-    RepairRegenerateReport, RepositoryOverview, WikiOptions, apply_repair, check_affected,
-    check_docs, check_operations_docs, check_project, cleanup_repair, context_project,
+    AffectedCheckOptions, AffectedCheckReport, ApiCleanupOptions, ApiCleanupReport,
+    ApiContractDiff, ApiDiffOptions, ApiSnapshotOptions, ApiSnapshotReport, ContextLimitOverrides,
+    ContextOptions, DiagnosticCheckOptions, DiagnosticCheckReport, DiagnosticScope,
+    DocsApplyPatchOptions, DocsApplyPatchReport, DocsCheckOptions, DocsCheckReport,
+    DocsDriftOptions, DocsDriftReport, DocsProposeFixOptions, DocsProposeFixReport,
+    EntityExplanation, ExplainOptions, GenerationOptions, GraphCycles, GraphCyclesOptions,
+    GraphExportOptions, GraphHubs, GraphHubsOptions, GraphPath, GraphPathOptions, GraphRelated,
+    GraphRelatedOptions, HtmlReportOptions, ImpactAnalysis, ImpactOptions, IndexOptions,
+    IndexReport, InitOptions, OperationsDocsCheckOptions, OperationsDocsCheckReport,
+    OverviewOptions, RepairApplyOptions, RepairApplyReport, RepairCleanupOptions,
+    RepairCleanupReport, RepairInspectOptions, RepairInspectReport, RepairRecoverCanonicalOptions,
+    RepairRecoverCanonicalReport, RepairRegenerateOptions, RepairRegenerateReport,
+    RepositoryOverview, WikiOptions, apply_repair, check_affected, check_docs,
+    check_operations_docs, check_project, cleanup_api_contracts, cleanup_repair, context_project,
     diff_api_contracts, docs_apply_patch, docs_drift, docs_propose_fix, explain_project,
     generate_project, impact_project, index_project, init_project, inspect_repair,
     overview_project, project_html_report, project_wiki, recover_canonical_repair,
@@ -548,6 +549,24 @@ enum ApiCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Remove old API contract snapshots and diff artifacts by retention policy.
+    Cleanup {
+        /// Project root. Defaults to the current directory.
+        #[arg(long, default_value = ".")]
+        path: PathBuf,
+        /// Print planned removals without deleting artifacts.
+        #[arg(long)]
+        dry_run: bool,
+        /// Total API contract snapshots to retain. The latest pointer snapshot is always retained.
+        #[arg(long, default_value_t = 2)]
+        keep_snapshots: usize,
+        /// Diff artifacts to retain when both endpoint snapshots are also retained.
+        #[arg(long, default_value_t = 2)]
+        keep_diffs: usize,
+        /// Print the cleanup report as JSON.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[tokio::main]
@@ -882,6 +901,28 @@ async fn main() -> Result<()> {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
                 print_api_registry_report(&report)?;
+            }
+        }
+        Some(Command::Api {
+            command:
+                ApiCommand::Cleanup {
+                    path,
+                    dry_run,
+                    keep_snapshots,
+                    keep_diffs,
+                    json,
+                },
+        }) => {
+            let report = cleanup_api_contracts(ApiCleanupOptions {
+                root: path,
+                dry_run,
+                keep_snapshots,
+                keep_diffs,
+            })?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                print_api_cleanup_report(&report);
             }
         }
         Some(Command::Wiki { path, output }) => {
@@ -1908,6 +1949,23 @@ fn print_api_contract_diff(diff: &ApiContractDiff) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn print_api_cleanup_report(report: &ApiCleanupReport) {
+    println!(
+        "API cleanup: {} removed, {} retained{}",
+        report.removed.len(),
+        report.retained.len(),
+        if report.dry_run { " (dry run)" } else { "" }
+    );
+    for artifact in &report.removed {
+        println!(
+            "  remove {:?} {} at {}",
+            artifact.kind,
+            artifact.id,
+            artifact.path.display()
+        );
+    }
 }
 
 fn serialized_name(value: &impl serde::Serialize) -> Result<String> {

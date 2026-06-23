@@ -265,10 +265,16 @@ cargo run -p ath --quiet -- docs operations check --json
 cargo run -p ath --quiet -- api snapshot
 cargo run -p ath --quiet -- api diff --from <snapshot> --to <snapshot>
 cargo run -p ath --quiet -- api breaking-changes --from <snapshot> --to <snapshot>
+cargo run -p ath --quiet -- api cleanup --dry-run
+cargo run -p ath --quiet -- api cleanup --keep-snapshots 2 --keep-diffs 2
 cargo run -p ath --quiet -- api registry
 cargo run -p ath --quiet -- api registry --json
 cargo run -p ath --quiet -- check api --strict
 ```
+
+API contract snapshots and diffs are managed separately from `ath index` so contract history is not
+deleted accidentally during frequent re-indexing. Use `ath api cleanup` to apply explicit retention;
+the latest API contract snapshot is always retained.
 
 The latest canonical snapshot can be projected into a disposable Markdown wiki:
 

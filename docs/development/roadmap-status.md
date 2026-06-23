@@ -92,6 +92,10 @@ ath api diff --from <snapshot> --to <snapshot>
 ath api diff --json
 ath api breaking-changes --from <snapshot> --to <snapshot>
 ath api breaking-changes --json
+ath api cleanup
+ath api cleanup --dry-run
+ath api cleanup --keep-snapshots <N> --keep-diffs <N>
+ath api cleanup --json
 ath check api --strict
 ath check api --strict --json
 ath wiki
@@ -999,6 +1003,26 @@ Purpose:
 - keeps descriptions, optional property additions, additions, and example-only changes informational
 - adds `ath api breaking-changes` as a non-zero-exit CI gate over the same deterministic diff
 - keeps persisted diff diagnostics separate from immutable canonical indexing snapshots
+
+### API Contract Artifact Cleanup
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-app/src/api.rs`
+- `apps/ath/src/main.rs`
+- `docs/README.md`
+- `docs/architecture/pipeline.md`
+
+Purpose:
+
+- adds `ath api cleanup`, `ath api cleanup --dry-run`, and `ath api cleanup --json`
+- applies explicit retention to `.athanor/api/snapshots` and `.athanor/api/diffs`
+- defaults to retaining the latest two API contract snapshots and two diff artifacts
+- always retains the latest API contract snapshot selected by `.athanor/api/latest.json`
+- removes diff artifacts whose endpoint snapshots are no longer retained
+- keeps API contract cleanup separate from `ath index` so frequent indexing does not silently delete comparison history
 
 ### Evidence-Backed API Breaking Diagnostics And Strict Gate
 
@@ -1980,6 +2004,25 @@ Acceptance:
 - changed-file workflows avoid full recomputation where safe
 - diff-based context and impact commands work before a new durable index is committed
 - repair cleanup, generated-output regeneration, canonical latest-pointer recovery, and full repair apply are deterministic and documented
+
+### API Retention Automation
+
+Status: planned.
+
+Scope:
+
+- add `[api.retention]` configuration for API contract artifact retention
+- support `auto_cleanup`, `keep_snapshots`, and `keep_diffs` policy fields
+- run API cleanup automatically after successful `ath api snapshot` and `ath api diff` when enabled
+- keep `ath index` non-destructive and separate from API contract history cleanup
+- add CLI overrides for one-off retention behavior, including disabling cleanup for a single command
+
+Acceptance:
+
+- API retention defaults are safe and documented
+- automatic cleanup never removes the latest API contract snapshot selected by `.athanor/api/latest.json`
+- automatic cleanup removes only files inside `.athanor/api/snapshots` and `.athanor/api/diffs`
+- manual `ath api cleanup` remains available for explicit maintenance and dry-run inspection
 
 ### Phase 6.5 - Agent Graph Navigation And Overview
 

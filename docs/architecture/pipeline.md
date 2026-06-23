@@ -96,7 +96,7 @@ flowchart TD
 41. On demand, `ath docs drift` reports editable documentation not verified against the latest canonical snapshot.
 42. On demand, `ath docs propose-fix` writes a reviewable JSON patch proposal for editable documentation frontmatter policy and drift findings.
 43. On demand, `ath docs apply-patch <id-or-path>` explicitly applies one generated documentation patch proposal after verifying it still targets the latest canonical snapshot.
-44. On demand, `ath api snapshot` publishes the latest API contract immutably and `ath api diff` compares contract snapshots.
+44. On demand, `ath api snapshot` publishes the latest API contract immutably, `ath api diff` compares contract snapshots, and `ath api cleanup` removes old API contract artifacts only through explicit retention.
 
 ## Pipeline Assembly
 
@@ -445,6 +445,12 @@ artifact itself as evidence.
 latest API contract comparison. It returns a non-zero exit status when either side has findings.
 Without `--strict`, `ath check api` remains the existing read-only diagnostic view.
 
+`ath api cleanup` applies explicit retention to `.athanor/api/snapshots` and `.athanor/api/diffs`.
+It does not run during `ath index`, because API contract history is part of the release/comparison
+workflow rather than a disposable index byproduct. The command supports `--dry-run`,
+`--keep-snapshots`, and `--keep-diffs`; the latest API contract snapshot selected by
+`.athanor/api/latest.json` is always retained even when the snapshot retention count is lower.
+
 The default built-in registry currently assembles:
 
 ```text
@@ -578,7 +584,7 @@ checkers:
   <docs-patch-id>.json
 ```
 
-Generated JSONL files and Markdown wiki pages under `.athanor/generated/current` are read models. They are not the source of truth and may be deleted and rebuilt. `validation-report.json` is written only for adapter contract validation failures and is removed after a successful index run. `validation-result.json` is written only for successful `--validate-only` runs and is removed after validation failures or normal index runs. Durable canonical snapshots live under `.athanor/store/canonical/jsonl`. The state file records the last indexed file paths, content hashes, language hints, and snapshot id so later runs can classify changed, unchanged, and removed files. Its schema is versioned so changes to built-in extraction, linking, or checking semantics can force a safe one-time full rebuild; runbook target coverage checks advance it to `athanor.index_state.v29`.
+Generated JSONL files and Markdown wiki pages under `.athanor/generated/current` are read models. They are not the source of truth and may be deleted and rebuilt. `validation-report.json` is written only for adapter contract validation failures and is removed after a successful index run. `validation-result.json` is written only for successful `--validate-only` runs and is removed after validation failures or normal index runs. Durable canonical snapshots live under `.athanor/store/canonical/jsonl`. API contract snapshots and diffs under `.athanor/api` are generated artifacts, but they are retained explicitly because they form the contract comparison baseline. The state file records the last indexed file paths, content hashes, language hints, and snapshot id so later runs can classify changed, unchanged, and removed files. Its schema is versioned so changes to built-in extraction, linking, or checking semantics can force a safe one-time full rebuild; runbook target coverage checks advance it to `athanor.index_state.v29`.
 
 ## Current Limitations
 
