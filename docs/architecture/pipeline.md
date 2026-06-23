@@ -110,7 +110,7 @@ flowchart TD
 - `overview_project`: bounded repository orientation from the latest canonical snapshot.
 - `context_project`: task-focused context-pack generation from the latest canonical snapshot.
 - `explain_project`: exact stable-key entity explanation from the latest canonical snapshot.
-- `export_graph`: bounded JSON graph export from the latest canonical snapshot.
+- `export_graph`: bounded JSON/GraphML graph export from the latest canonical snapshot.
 - `related_graph`: bounded related-entity exploration from one exact stable key.
 - `shortest_graph_path`: bounded shortest-path search between two exact stable keys.
 - `graph_hubs`: bounded degree-centrality ranking over canonical relations.
@@ -255,12 +255,15 @@ point before using `ath context`, `ath explain`, or `ath impact` for narrower qu
 
 The token budget is a deterministic estimate based on serialized canonical payload bytes divided by four; it is a size guard, not tokenizer-specific accounting. This remains an app-layer lexical slice rather than a `SearchIndex` implementation. Tantivy, vectors, and semantic ranking remain future adapters or services.
 
-`ath graph export --format json` reads the latest durable canonical snapshot without re-indexing and
-emits a bounded disposable graph read model. The JSON payload uses schema
+`ath graph export --format json` and `ath graph export --format graphml` read the latest durable canonical snapshot without re-indexing and
+emit a bounded disposable graph read model. The JSON payload uses schema
 `athanor.graph_export.v1`, ranks nodes by relation degree and stable key for deterministic output,
 keeps edge evidence source anchors, and reports omitted node/edge counts when `--max-entities` or
-`--max-relations` limits truncate the export. The export is derived from canonical entities and
-relations only; it does not replace canonical storage and does not write generated artifacts.
+`--max-relations` limits truncate the export. The GraphML output serializes the same bounded nodes
+and edges with canonical ids, stable keys, kinds, names, source anchors, degrees, statuses,
+confidence values, and evidence anchors for graph tooling. The export is derived from canonical
+entities and relations only; it does not replace canonical storage and does not write generated
+artifacts.
 
 `ath graph related <stable-key>` performs a deterministic breadth-first traversal over incoming and
 outgoing canonical relations. `--depth`, `--max-entities`, and `--max-relations` bound the result.

@@ -381,6 +381,70 @@ pub fn build_graph_export(
     }
 }
 
+pub fn graph_export_to_graphml(export: &GraphExport) -> String {
+    let mut output = String::new();
+    output.push_str(r#"<?xml version="1.0" encoding="UTF-8"?>"#);
+    output.push('\n');
+    output.push_str(r#"<graphml xmlns="http://graphml.graphdrawing.org/xmlns">"#);
+    output.push('\n');
+    output.push_str(
+        r#"  <key id="stable_key" for="node" attr.name="stable_key" attr.type="string"/>"#,
+    );
+    output.push('\n');
+    output.push_str(r#"  <key id="kind" for="all" attr.name="kind" attr.type="string"/>"#);
+    output.push('\n');
+    output.push_str(r#"  <key id="name" for="node" attr.name="name" attr.type="string"/>"#);
+    output.push('\n');
+    output.push_str(r#"  <key id="source" for="node" attr.name="source" attr.type="string"/>"#);
+    output.push('\n');
+    output.push_str(r#"  <key id="degree" for="node" attr.name="degree" attr.type="int"/>"#);
+    output.push('\n');
+    output.push_str(r#"  <key id="status" for="edge" attr.name="status" attr.type="string"/>"#);
+    output.push('\n');
+    output.push_str(
+        r#"  <key id="confidence" for="edge" attr.name="confidence" attr.type="double"/>"#,
+    );
+    output.push('\n');
+    output.push_str(r#"  <key id="evidence" for="edge" attr.name="evidence" attr.type="string"/>"#);
+    output.push('\n');
+    output.push_str(&format!(
+        r#"  <graph id="{}" edgedefault="directed">"#,
+        xml_escape(&export.snapshot)
+    ));
+    output.push('\n');
+    for node in &export.nodes {
+        output.push_str(&format!(r#"    <node id="{}">"#, xml_escape(&node.id)));
+        output.push('\n');
+        graphml_data(&mut output, "stable_key", &node.stable_key);
+        graphml_data(&mut output, "kind", &node.kind);
+        graphml_data(&mut output, "name", &node.name);
+        if let Some(source) = &node.source {
+            graphml_data(&mut output, "source", source);
+        }
+        graphml_data(&mut output, "degree", &node.degree.to_string());
+        output.push_str("    </node>\n");
+    }
+    for edge in &export.edges {
+        output.push_str(&format!(
+            r#"    <edge id="{}" source="{}" target="{}">"#,
+            xml_escape(&edge.id),
+            xml_escape(&edge.from),
+            xml_escape(&edge.to)
+        ));
+        output.push('\n');
+        graphml_data(&mut output, "kind", &edge.kind);
+        graphml_data(&mut output, "status", &edge.status);
+        graphml_data(&mut output, "confidence", &edge.confidence.to_string());
+        if !edge.evidence.is_empty() {
+            graphml_data(&mut output, "evidence", &edge.evidence.join(";"));
+        }
+        output.push_str("    </edge>\n");
+    }
+    output.push_str("  </graph>\n");
+    output.push_str("</graphml>\n");
+    output
+}
+
 pub fn build_related_graph(
     snapshot: &CanonicalSnapshot,
     stable_key: &str,
@@ -975,6 +1039,24 @@ fn graph_edge(relation: &Relation) -> GraphEdge {
     }
 }
 
+fn graphml_data(output: &mut String, key: &str, value: &str) {
+    output.push_str(&format!(
+        r#"      <data key="{}">{}</data>"#,
+        xml_escape(key),
+        xml_escape(value)
+    ));
+    output.push('\n');
+}
+
+fn xml_escape(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
 fn serialized_name(value: &impl serde::Serialize) -> String {
     serde_json::to_value(value)
         .ok()
@@ -1045,6 +1127,50 @@ mod tests {
         assert_eq!(export.edges[0].evidence, vec!["docs/api/health.md:1"]);
         assert_eq!(export.omitted.nodes, 1);
         assert_eq!(export.omitted.edges, 1);
+    }
+
+    #[test]
+    fn renders_graph_export_as_graphml_with_escaped_values() {
+        let endpoint = entity(
+            "ent_endpoint",
+            "api://GET:/health?format=<json>",
+            EntityKind::ApiEndpoint,
+            "health & status",
+        );
+        let handler = entity(
+            "ent_handler",
+            "rust://src/lib.rs#health",
+            EntityKind::Function,
+            "health",
+        );
+        let snapshot = CanonicalSnapshot {
+            snapshot: Some(SnapshotId("snap_test".to_string())),
+            entities: vec![handler.clone(), endpoint.clone()],
+            relations: vec![relation(
+                "rel_impl",
+                RelationKind::ImplementedBy,
+                &endpoint,
+                &handler,
+            )],
+            ..CanonicalSnapshot::default()
+        };
+
+        let graphml = graph_export_to_graphml(&build_graph_export(&snapshot, 10, 10));
+
+        assert!(graphml.starts_with("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"));
+        assert!(graphml.contains("<graphml xmlns=\"http://graphml.graphdrawing.org/xmlns\">"));
+        assert!(graphml.contains("<graph id=\"snap_test\" edgedefault=\"directed\">"));
+        assert!(graphml.contains("<node id=\"ent_endpoint\">"));
+        assert!(
+            graphml
+                .contains("<data key=\"stable_key\">api://GET:/health?format=&lt;json&gt;</data>")
+        );
+        assert!(graphml.contains("<data key=\"name\">health &amp; status</data>"));
+        assert!(
+            graphml
+                .contains("<edge id=\"rel_impl\" source=\"ent_endpoint\" target=\"ent_handler\">")
+        );
+        assert!(graphml.ends_with("</graphml>\n"));
     }
 
     #[test]

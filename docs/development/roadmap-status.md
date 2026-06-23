@@ -100,6 +100,7 @@ ath report html
 ath report html --output <directory>
 ath generate
 ath graph export --format json
+ath graph export --format graphml
 ath graph export --format json --max-entities <N> --max-relations <N>
 ath graph related <stable-key>
 ath graph related <stable-key> --depth <N> --json
@@ -1666,7 +1667,7 @@ Purpose:
 - advances persisted index state to v26 so existing projects rebuild canonical API knowledge once
 - keeps source discovery broad enough to retain fixture file entities while scoping product API extraction in the OpenAPI adapter
 
-### Canonical Graph JSON Export
+### Canonical Graph JSON And GraphML Export
 
 Status: verified.
 
@@ -1680,8 +1681,10 @@ Implemented in:
 Purpose:
 
 - adds `ath graph export --format json`
+- adds `ath graph export --format graphml`
 - reads the latest durable canonical snapshot without re-indexing
 - emits the stable `athanor.graph_export.v1` JSON graph payload
+- emits a GraphML-compatible representation of the same bounded graph for external graph tooling
 - ranks nodes deterministically by relation degree and stable key
 - includes canonical node ids, stable keys, kinds, names, source anchors, degrees, relation ids, relation kinds, endpoints, status, confidence, and evidence anchors
 - bounds output with `--max-entities` and `--max-relations`
@@ -1978,12 +1981,12 @@ Acceptance:
 
 ### Phase 6.5 - Agent Graph Navigation And Overview
 
-Status: planned.
+Status: in progress.
 
 Scope:
 
 - extend the initial repository overview query beyond the implemented module structure and integration-boundary summaries as new canonical language relations become available
-- extend graph export beyond the implemented `ath graph export --format json` with later GraphML-compatible output, generated from canonical snapshots rather than replacing canonical storage
+- extend graph export beyond the implemented `ath graph export --format json` with GraphML-compatible output, generated from canonical snapshots rather than replacing canonical storage (initial GraphML output implemented)
 - extend the HTML report with an interactive graph view, per-entity detail pages, filtering by kind/severity/source, and stable links back to canonical evidence
 - extend graph navigation beyond implemented related-entity exploration, shortest path, degree-centrality hubs, and directed cycle detection with optional richer centrality algorithms over canonical relations
 - improve `ath impact` with explanatory relation paths and an optional future precision mode for deeper call/data-flow analysis once language adapters can support it

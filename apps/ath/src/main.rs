@@ -57,6 +57,7 @@ enum DiagnosticScopeArg {
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum GraphExportFormatArg {
     Json,
+    Graphml,
 }
 
 impl DiagnosticScopeArg {
@@ -932,6 +933,9 @@ async fn main() -> Result<()> {
                 match format {
                     GraphExportFormatArg::Json => {
                         println!("{}", serde_json::to_string_pretty(&export)?);
+                    }
+                    GraphExportFormatArg::Graphml => {
+                        print!("{}", athanor_app::graph_export_to_graphml(&export));
                     }
                 }
             }
