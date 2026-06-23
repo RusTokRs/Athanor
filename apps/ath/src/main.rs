@@ -7,10 +7,10 @@ use athanor_app::{
     DocsApplyPatchOptions, DocsApplyPatchReport, DocsCheckOptions, DocsCheckReport,
     DocsDriftOptions, DocsDriftReport, DocsProposeFixOptions, DocsProposeFixReport,
     EntityExplanation, ExplainOptions, GenerationOptions, HtmlReportOptions, ImpactAnalysis,
-    ImpactOptions, IndexOptions, InitOptions, WikiOptions, check_docs, check_project,
-    context_project, diff_api_contracts, docs_apply_patch, docs_drift, docs_propose_fix,
-    explain_project, generate_project, impact_project, index_project, init_project,
-    project_html_report, project_wiki, snapshot_api_contract,
+    ImpactOptions, IndexOptions, InitOptions, OverviewOptions, RepositoryOverview, WikiOptions,
+    check_docs, check_project, context_project, diff_api_contracts, docs_apply_patch, docs_drift,
+    docs_propose_fix, explain_project, generate_project, impact_project, index_project,
+    init_project, overview_project, project_html_report, project_wiki, snapshot_api_contract,
 };
 use athanor_domain::ContextLevel;
 use clap::{Parser, Subcommand, ValueEnum};
@@ -127,6 +127,18 @@ enum Command {
         /// Print the complete explanation as JSON.
         #[arg(long)]
         json: bool,
+    },
+    /// Summarize the latest canonical snapshot for repository orientation.
+    Overview {
+        /// Project root. Defaults to the current directory.
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Print the complete overview as JSON.
+        #[arg(long)]
+        json: bool,
+        /// Maximum number of ranked items per section.
+        #[arg(long, default_value_t = 10)]
+        top: usize,
     },
     /// Calculate direct and transitive blast radius of changes.
     Impact {
@@ -414,6 +426,14 @@ async fn main() -> Result<()> {
                 println!("{}", serde_json::to_string_pretty(&explanation)?);
             } else {
                 print_explanation(&explanation)?;
+            }
+        }
+        Some(Command::Overview { path, json, top }) => {
+            let overview = overview_project(OverviewOptions { root: path, top }).await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&overview)?);
+            } else {
+                print_overview(&overview)?;
             }
         }
         Some(Command::Impact {
@@ -735,6 +755,90 @@ fn print_explanation(explanation: &EntityExplanation) -> Result<()> {
         );
     }
     Ok(())
+}
+
+fn print_overview(overview: &RepositoryOverview) -> Result<()> {
+    println!("Athanor overview (snapshot: {})", overview.snapshot);
+    println!(
+        "canonical objects: {} entities, {} facts, {} relations, {} diagnostics ({} open)",
+        overview.totals.entities,
+        overview.totals.facts,
+        overview.totals.relations,
+        overview.totals.diagnostics,
+        overview.totals.open_diagnostics
+    );
+    println!("source files: {}", overview.totals.source_files);
+    println!();
+
+    println!(
+        "API: {} endpoints, {} schemas, {} examples, {} documented, {} implemented",
+        overview.api.endpoints,
+        overview.api.schemas,
+        overview.api.examples,
+        overview.api.documented_endpoints,
+        overview.api.implemented_endpoints
+    );
+    println!(
+        "Docs: {} pages, {} sections, {} runbooks, {} operation steps, {} operations pages",
+        overview.docs.pages,
+        overview.docs.sections,
+        overview.docs.runbooks,
+        overview.docs.operation_steps,
+        overview.docs.operations_pages
+    );
+    println!(
+        "Operations: {} env vars, {} script commands, {} deployment resources, {} migrations, {} packages, {} dependencies",
+        overview.operations.environment_variables,
+        overview.operations.script_commands,
+        overview.operations.deployment_resources,
+        overview.operations.database_migrations,
+        overview.operations.packages,
+        overview.operations.dependencies
+    );
+    println!();
+
+    print_named_counts("Top entity kinds", &overview.entity_kinds);
+    print_named_counts("Top relation kinds", &overview.relation_kinds);
+    print_named_counts("Top source roots", &overview.source_roots);
+
+    println!("Graph hubs:");
+    if overview.graph_hubs.is_empty() {
+        println!("  (none)");
+    } else {
+        for hub in &overview.graph_hubs {
+            let source = hub.source.as_deref().unwrap_or("unknown source");
+            println!(
+                "  - [{}] {} ({}) degree={} source={}",
+                hub.kind, hub.name, hub.stable_key, hub.degree, source
+            );
+        }
+    }
+
+    println!("Open diagnostics:");
+    if overview.open_diagnostics.is_empty() {
+        println!("  (none)");
+    } else {
+        for diagnostic in &overview.open_diagnostics {
+            let source = diagnostic.source.as_deref().unwrap_or("unknown source");
+            println!(
+                "  - [{}] {} at {} - {}",
+                diagnostic.severity, diagnostic.kind, source, diagnostic.title
+            );
+        }
+    }
+
+    Ok(())
+}
+
+fn print_named_counts(title: &str, counts: &[athanor_app::NamedCount]) {
+    println!("{title}:");
+    if counts.is_empty() {
+        println!("  (none)");
+    } else {
+        for item in counts {
+            println!("  - {}: {}", item.name, item.count);
+        }
+    }
 }
 
 fn print_check_report(report: &DiagnosticCheckReport) -> Result<()> {

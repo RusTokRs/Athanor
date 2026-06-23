@@ -2,8 +2,8 @@
 id: doc://docs/architecture/adapters.md
 kind: architecture
 language: en
+last_verified_snapshot: snap_jsonl_00000090
 source_language: en
-last_verified_snapshot: snap_jsonl_00000030
 status: verified
 ---
 
@@ -89,7 +89,7 @@ Ownership should list every source file that can invalidate the emitted object. 
 | `athanor-search-tantivy` | `SearchIndex` | Index and search canonical entities using Tantivy. |
 | `athanor-extractor-basic` | `Extractor` | Emit file entities and file discovery facts. |
 | `athanor-extractor-markdown` | `Extractor` | Parse YAML documentation frontmatter and CommonMark/GFM headings, then emit documentation page/section, runbook, and operation-step knowledge. |
-| `athanor-extractor-openapi` | `Extractor` | Parse OpenAPI 3.1 through `oas3`, retain a 3.0 fallback, and emit operation/schema/example knowledge. |
+| `athanor-extractor-openapi` | `Extractor` | Parse project OpenAPI 3.1 through `oas3`, retain a 3.0 fallback, ignore test fixture specs during project discovery, and emit operation/schema/example knowledge. |
 | `athanor-extractor-operations` | `Extractor` | Parse operations files such as dotenv, Cargo manifest, Makefile, Dockerfile, shell script, docker-compose, GitHub Actions, Kubernetes YAML, SQL migration, and runtime config sources into environment, package/dependency, command, deployment/service, database migration, and runtime configuration knowledge without storing raw secret values. |
 | `athanor-extractor-rust` | `Extractor` | Emit Rust module, function, and symbol definitions. |
 | `athanor-linker-api` | `Linker` | Link OpenAPI operations to Rust functions, Markdown documentation, component schemas, and examples. |

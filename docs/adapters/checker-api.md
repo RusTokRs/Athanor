@@ -2,11 +2,10 @@
 id: doc://docs/adapters/checker-api.md
 kind: module_documentation
 language: en
+last_verified_snapshot: snap_jsonl_00000090
 source_language: en
-last_verified_snapshot: snap_jsonl_00000030
 status: verified
 ---
-
 # API Consistency, Environment, Script, Deployment, And Runbook Checker
 
 Crate: `athanor-checker-api`

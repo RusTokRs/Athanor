@@ -1,3 +1,9 @@
 /target/
+
+# Athanor local runtime state and generated artifacts.
+# Includes canonical snapshots, generated read models, diagnostics.jsonl,
+# validation reports, docs patch proposals, search indexes, wiki, and HTML output.
 /.athanor/
+
+# Local project config may contain machine-specific paths or policy choices.
 /athanor.toml

@@ -2,11 +2,10 @@
 id: doc://docs/development/library-adoption-plan.md
 kind: developer_guide
 language: en
+last_verified_snapshot: snap_jsonl_00000090
 source_language: en
-last_verified_snapshot: snap_jsonl_00000030
 status: verified
 ---
-
 # Library Adoption Plan
 
 This document records where Athanor should use maintained third-party libraries instead of

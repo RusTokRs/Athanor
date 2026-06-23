@@ -2,11 +2,10 @@
 id: doc://docs/adapters/extractor-basic.md
 kind: module_documentation
 language: en
+last_verified_snapshot: snap_jsonl_00000090
 source_language: en
-last_verified_snapshot: snap_jsonl_00000030
 status: verified
 ---
-
 # Basic Extractor Adapter
 
 Crate: `athanor-extractor-basic`

@@ -26,12 +26,13 @@ impl Extractor for OpenApiExtractor {
     }
 
     fn supports(&self, source: &SourceFile) -> bool {
-        is_openapi_file_name(&source.path)
-            || (matches!(source.language_hint.as_deref(), Some("yaml" | "json"))
-                && source
-                    .content
-                    .as_deref()
-                    .is_some_and(has_openapi_root_marker))
+        !is_test_fixture_path(&source.path)
+            && (is_openapi_file_name(&source.path)
+                || (matches!(source.language_hint.as_deref(), Some("yaml" | "json"))
+                    && source
+                        .content
+                        .as_deref()
+                        .is_some_and(has_openapi_root_marker)))
     }
 
     async fn extract(&self, input: ExtractInput) -> CoreResult<ExtractOutput> {
@@ -513,6 +514,13 @@ fn is_openapi_file_name(path: &str) -> bool {
     ) || name.contains(".openapi.")
 }
 
+fn is_test_fixture_path(path: &str) -> bool {
+    path.split('/')
+        .collect::<Vec<_>>()
+        .windows(2)
+        .any(|parts| matches!(parts, ["tests", "fixtures"] | ["test", "fixtures"]))
+}
+
 fn operation_line(content: &str, path: &str, method: &str) -> Option<u32> {
     let path_index = content.lines().position(|line| line.contains(path))?;
     content
@@ -748,6 +756,18 @@ components:
             language_hint: Some("yaml".to_string()),
             content_hash: None,
             content: Some("name: example".to_string()),
+        };
+
+        assert!(!OpenApiExtractor.supports(&source));
+    }
+
+    #[test]
+    fn ignores_openapi_test_fixtures_during_project_discovery() {
+        let source = SourceFile {
+            path: "crates/athanor-extractor-openapi/tests/fixtures/basic.openapi.yaml".to_string(),
+            language_hint: Some("yaml".to_string()),
+            content_hash: None,
+            content: Some(include_str!("../tests/fixtures/basic.openapi.yaml").to_string()),
         };
 
         assert!(!OpenApiExtractor.supports(&source));

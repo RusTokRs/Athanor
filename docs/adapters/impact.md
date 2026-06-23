@@ -2,11 +2,10 @@
 id: doc://docs/adapters/impact.md
 kind: developer_guide
 language: en
+last_verified_snapshot: snap_jsonl_00000090
 source_language: en
-last_verified_snapshot: snap_jsonl_00000036
 status: verified
 ---
-
 # Code Impact Analysis (ath impact)
 
 The Code Impact Analysis module calculates the direct and transitive blast radius of code modifications. It traverses dependency relations, ownership, and diagnostics inside the latest canonical snapshot.

@@ -2,11 +2,10 @@
 id: doc://docs/development/agent-workflow.md
 kind: developer_guide
 language: en
+last_verified_snapshot: snap_jsonl_00000090
 source_language: en
-last_verified_snapshot: snap_jsonl_00000030
 status: verified
 ---
-
 # Agent Workflow
 
 This document defines the working procedure for agents implementing Athanor.

@@ -25,6 +25,8 @@ Every emitted object has source-file ownership. Facts include source evidence an
 ## Inputs
 
 UTF-8 YAML or JSON `SourceFile` values whose name is `openapi.*`, `swagger.*`, or `*.openapi.*`, or whose content contains a root OpenAPI marker.
+Project-discovered files under `tests/fixtures` are ignored so parser contract fixtures do not
+become product API knowledge during self-indexing.
 
 Only OpenAPI 3.x documents are accepted.
 

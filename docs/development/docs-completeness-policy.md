@@ -2,11 +2,10 @@
 id: doc://docs/development/docs-completeness-policy.md
 kind: developer_guide
 language: en
+last_verified_snapshot: snap_jsonl_00000090
 source_language: en
-last_verified_snapshot: snap_jsonl_00000030
 status: verified
 ---
-
 # Documentation Completeness Policy
 
 `ath docs check` is the CI-oriented gate for editable Markdown documentation. `ath docs drift` is

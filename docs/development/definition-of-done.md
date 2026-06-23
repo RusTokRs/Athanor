@@ -2,11 +2,10 @@
 id: doc://docs/development/definition-of-done.md
 kind: developer_guide
 language: en
+last_verified_snapshot: snap_jsonl_00000090
 source_language: en
-last_verified_snapshot: snap_jsonl_00000030
 status: verified
 ---
-
 # Definition of Done
 
 A feature is not done until it is implemented, verified, and documented.

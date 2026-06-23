@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fmt;
 use std::sync::Arc;
 
@@ -250,6 +250,8 @@ impl IndexPipeline {
             );
         entities.extend(extracted_entities);
         facts.extend(extracted_facts);
+        entities = canonicalize_entities(entities);
+        facts = canonicalize_facts(facts);
 
         info!("starting linking");
         let relations = self
@@ -272,6 +274,8 @@ impl IndexPipeline {
         info!(diagnostics = diagnostics.len(), "completed checking");
         prior_relations.extend(relations);
         prior_diagnostics.extend(diagnostics);
+        prior_relations = canonicalize_relations(prior_relations);
+        prior_diagnostics = canonicalize_diagnostics(prior_diagnostics);
 
         self.store
             .put_entities(snapshot.clone(), entities.clone())
@@ -376,10 +380,7 @@ impl IndexPipeline {
             }
         }
 
-        entities.sort_by(|left, right| left.id.0.cmp(&right.id.0));
-        facts.sort_by(|left, right| left.id.0.cmp(&right.id.0));
-
-        Ok((entities, facts))
+        Ok((canonicalize_entities(entities), canonicalize_facts(facts)))
     }
 
     async fn link(
@@ -612,6 +613,38 @@ fn carried_forward_read_model(
     (entities, facts, relations, diagnostics)
 }
 
+fn canonicalize_entities(entities: Vec<Entity>) -> Vec<Entity> {
+    let mut by_id = BTreeMap::new();
+    for entity in entities {
+        by_id.insert(entity.id.0.clone(), entity);
+    }
+    by_id.into_values().collect()
+}
+
+fn canonicalize_facts(facts: Vec<Fact>) -> Vec<Fact> {
+    let mut by_id = BTreeMap::new();
+    for fact in facts {
+        by_id.insert(fact.id.0.clone(), fact);
+    }
+    by_id.into_values().collect()
+}
+
+fn canonicalize_relations(relations: Vec<Relation>) -> Vec<Relation> {
+    let mut by_id = BTreeMap::new();
+    for relation in relations {
+        by_id.insert(relation.id.0.clone(), relation);
+    }
+    by_id.into_values().collect()
+}
+
+fn canonicalize_diagnostics(diagnostics: Vec<Diagnostic>) -> Vec<Diagnostic> {
+    let mut by_id = BTreeMap::new();
+    for diagnostic in diagnostics {
+        by_id.insert(diagnostic.id.0.clone(), diagnostic);
+    }
+    by_id.into_values().collect()
+}
+
 fn entity_owned_by_any_path(entity: &Entity, paths: &BTreeSet<String>) -> bool {
     ownership_belongs_to_any_path(&entity.ownership, paths)
         || belongs_to_any_path(
@@ -669,8 +702,9 @@ fn replace_payload_snapshot(value: &mut Value, snapshot: &SnapshotId) {
 mod tests {
     use athanor_core::CanonicalSnapshot;
     use athanor_domain::{
-        EntityId, EntityKind, Evidence, EvidenceStatus, FactId, FactKind, Ownership, RelationId,
-        RelationKind, RelationStatus, SourceLocation, StableKey,
+        DiagnosticId, DiagnosticKind, DiagnosticStatus, EntityId, EntityKind, Evidence,
+        EvidenceStatus, FactId, FactKind, Ownership, RelationId, RelationKind, RelationStatus,
+        Severity, SourceLocation, StableKey,
     };
     use serde_json::json;
 
@@ -708,6 +742,20 @@ mod tests {
         );
 
         assert!(relations.is_empty());
+    }
+
+    #[test]
+    fn canonicalizes_diagnostics_by_id_with_latest_winning() {
+        let previous = diagnostic("diag_duplicate", "old title", "snap_previous");
+        let current = diagnostic("diag_duplicate", "new title", "snap_next");
+        let other = diagnostic("diag_other", "other title", "snap_next");
+
+        let diagnostics = canonicalize_diagnostics(vec![previous, current, other]);
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics[0].id.0, "diag_duplicate");
+        assert_eq!(diagnostics[0].title, "new title");
+        assert_eq!(diagnostics[1].id.0, "diag_other");
     }
 
     #[test]
@@ -802,6 +850,23 @@ mod tests {
             evidence: vec![evidence("docs/left.md")],
             ownership: vec![ownership("docs/left.md")],
             snapshot: SnapshotId("snap_test".to_string()),
+            payload: json!({}),
+        }
+    }
+
+    fn diagnostic(id: &str, title: &str, snapshot: &str) -> Diagnostic {
+        Diagnostic {
+            id: DiagnosticId(id.to_string()),
+            kind: DiagnosticKind::MissingDocumentation,
+            severity: Severity::Medium,
+            status: DiagnosticStatus::Open,
+            title: title.to_string(),
+            message: title.to_string(),
+            entities: vec![EntityId("ent_left".to_string())],
+            evidence: vec![evidence("docs/left.md")],
+            ownership: vec![ownership("docs/left.md")],
+            snapshot: SnapshotId(snapshot.to_string()),
+            suggested_fix: None,
             payload: json!({}),
         }
     }

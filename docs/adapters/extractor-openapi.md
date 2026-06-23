@@ -2,11 +2,10 @@
 id: doc://docs/adapters/extractor-openapi.md
 kind: module_documentation
 language: en
+last_verified_snapshot: snap_jsonl_00000090
 source_language: en
-last_verified_snapshot: snap_jsonl_00000030
 status: verified
 ---
-
 # OpenAPI Extractor
 
 Crate: `athanor-extractor-openapi`
@@ -35,6 +34,10 @@ value, and declared schema. External example references and schema-level example
 The adapter is local and side-effect free. It preserves `$ref` values but leaves resolution to the
 API linker. It does not resolve external references, merge specifications, infer handlers, or
 compare OpenAPI operations with code and documentation.
+
+Project-discovered OpenAPI files under `tests/fixtures` are ignored. This keeps parser contract
+fixtures available to adapter tests without allowing intentionally incomplete fixture endpoints to
+appear as product API diagnostics during repository self-indexing.
 
 The contract corpus covers OpenAPI 3.0.3, 3.1.0, and 3.1.1 in both YAML and JSON. Swagger 2.x and
 OpenAPI 3.2 are not supported.

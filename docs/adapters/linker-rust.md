@@ -2,11 +2,10 @@
 id: doc://docs/adapters/linker-rust.md
 kind: adapter
 language: en
+last_verified_snapshot: snap_jsonl_00000090
 source_language: en
-last_verified_snapshot: snap_jsonl_00000034
 status: verified
 ---
-
 # Rust Linker Adapter
 
 The Rust relation linker maps module containment, static calls, imports, and test coverage dependencies within Rust codebases.

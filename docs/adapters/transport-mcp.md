@@ -2,11 +2,10 @@
 id: doc://docs/adapters/transport-mcp.md
 kind: adapter
 language: en
+last_verified_snapshot: snap_jsonl_00000090
 source_language: en
-last_verified_snapshot: snap_jsonl_00000039
 status: verified
 ---
-
 # Model Context Protocol (MCP) Transport Adapter
 
 The `athanor-transport-mcp` adapter exposes Athanor's query and execution functions as Model Context Protocol (MCP) tools over stdio (stdin/stdout).

@@ -2,11 +2,10 @@
 id: doc://docs/development/roadmap-status.md
 kind: developer_guide
 language: en
+last_verified_snapshot: snap_jsonl_00000090
 source_language: en
-last_verified_snapshot: snap_jsonl_00000030
 status: verified
 ---
-
 # Roadmap Status
 
 This file tracks what has actually been implemented. It is intentionally separate from `start.md`, which is the full architectural plan.
@@ -54,6 +53,8 @@ ath init
 ath index
 ath index --validate-only
 ath index --validate-only --validation-result <path>
+ath overview
+ath overview --json
 ath context <task>
 ath context <task> --json
 ath explain <stable-key>
@@ -471,6 +472,27 @@ Purpose:
 - includes files and diagnostics associated with the selected entities
 - emits the canonical `ContextPack` model with a self-contained JSON payload
 - keeps search-backend and CLI presentation details out of domain/core
+
+### Repository Overview Query
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-app/src/overview.rs`
+- `apps/ath/src/main.rs`
+- `docs/architecture/pipeline.md`
+
+Purpose:
+
+- adds `ath overview [path]` and `ath overview [path] --json`
+- loads the latest durable canonical snapshot without re-indexing
+- reports canonical object totals, top entity kinds, top relation kinds, and top source roots
+- summarizes API, documentation, and operations coverage counters
+- ranks graph hubs by relation degree with stable keys and source anchors
+- includes compact open diagnostic summaries for quick repository orientation
+- emits the stable `athanor.overview.v1` JSON payload
+- keeps the command as an app-layer read-only query over canonical snapshots, not a new store or graph source of truth
 
 ### Explicit Context Limits And Levels
 
@@ -1542,6 +1564,43 @@ Purpose:
 - includes source evidence, canonical entity kind, and review notes without modifying editable documentation until `docs apply-patch`
 - keeps runbook-diagnostic draft generation deferred
 
+### Canonical Merge Deduplication
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-app/src/pipeline.rs`
+- `docs/architecture/pipeline.md`
+
+Purpose:
+
+- canonicalizes merged entities, facts, relations, and diagnostics by canonical id before storage
+- removes duplicate canonical diagnostics that can be carried forward from older snapshots
+- ensures current-run objects replace carried objects on id conflicts during incremental indexing
+- keeps generated JSONL read models and scoped check views backed by the deduplicated canonical snapshot
+- avoids moving conflict policy into the JSONL store adapter, preserving the app-layer ownership of incremental merge behavior
+
+### OpenAPI Test Fixture Exclusion
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-extractor-openapi`
+- `crates/athanor-extractor-openapi/README.md`
+- `crates/athanor-app/src/index_state.rs`
+- `docs/adapters/extractor-openapi.md`
+- `docs/architecture/adapters.md`
+- `docs/architecture/pipeline.md`
+
+Purpose:
+
+- prevents OpenAPI files under `tests/fixtures` from being extracted as product API knowledge during repository self-indexing
+- keeps intentionally incomplete parser and contract fixtures available to adapter tests without creating false-positive API diagnostics
+- advances persisted index state to v26 so existing projects rebuild canonical API knowledge once
+- keeps source discovery broad enough to retain fixture file entities while scoping product API extraction in the OpenAPI adapter
+
 ## In Progress
 
 None.
@@ -1589,7 +1648,7 @@ Status: planned.
 
 Scope:
 
-- add a repository overview query for agents and developers, summarizing module structure, architectural hubs, workflows, integration boundaries, open diagnostics, and evidence-backed source anchors within a bounded token budget
+- extend the initial repository overview query with richer module structure and integration-boundary summaries
 - add graph export read models such as `ath graph export --format json` and later GraphML-compatible output, generated from canonical snapshots rather than replacing canonical storage
 - extend the HTML report with an interactive graph view, per-entity detail pages, filtering by kind/severity/source, and stable links back to canonical evidence
 - add graph navigation commands such as shortest path, hub/centrality views, cycle detection, and related-entity exploration over canonical relations

@@ -2,8 +2,8 @@
 id: doc://docs/README.md
 kind: project_overview
 language: en
+last_verified_snapshot: snap_jsonl_00000090
 source_language: en
-last_verified_snapshot: snap_jsonl_00000030
 status: verified
 ---
 
@@ -34,6 +34,37 @@ Use this file to find the right document before changing code, adapters, plugins
 - [Library adoption plan](development/library-adoption-plan.md): approved dependencies, adapter boundaries, risks, and acceptance criteria.
 - [Documentation completeness policy](development/docs-completeness-policy.md): `athanor.toml` policy fields and the `ath docs check` CI gate.
 - [Roadmap status](development/roadmap-status.md): current verified implementation status and next recommended task.
+
+## Operations Documentation
+
+Environment variables:
+
+- [CARGO_PKG_VERSION](operations/env-cargo-pkg-version.md)
+- [CARGO_TERM_COLOR](operations/env-cargo-term-color.md)
+- [RUST_BACKTRACE](operations/env-rust-backtrace.md)
+
+GitHub Actions workflows and jobs:
+
+- [CI workflow](operations/script-script-command-github-workflows-ci-yml-github-actions-workflow.md)
+- [CI quality job](operations/script-script-command-github-workflows-ci-yml-github-actions-job-quality.md)
+- [CI security job](operations/script-script-command-github-workflows-ci-yml-github-actions-job-security.md)
+- [Security audit workflow](operations/script-script-command-github-workflows-security-yml-github-actions-workflow.md)
+- [Security audit job](operations/script-script-command-github-workflows-security-yml-github-actions-job-audit.md)
+
+GitHub Actions steps:
+
+- [CI quality checkout step](operations/script-script-command-github-workflows-ci-yml-github-actions-job-quality-step-1-uses.md)
+- [CI quality toolchain step](operations/script-script-command-github-workflows-ci-yml-github-actions-job-quality-step-2-uses.md)
+- [CI quality cache step](operations/script-script-command-github-workflows-ci-yml-github-actions-job-quality-step-3-uses.md)
+- [CI formatting step](operations/script-script-command-github-workflows-ci-yml-github-actions-job-quality-step-4-run.md)
+- [CI workspace tests step](operations/script-script-command-github-workflows-ci-yml-github-actions-job-quality-step-5-run.md)
+- [CI Clippy step](operations/script-script-command-github-workflows-ci-yml-github-actions-job-quality-step-6-run.md)
+- [CI indexing smoke step](operations/script-script-command-github-workflows-ci-yml-github-actions-job-quality-step-7-run.md)
+- [CI docs check step](operations/script-script-command-github-workflows-ci-yml-github-actions-job-quality-step-8-run.md)
+- [CI security checkout step](operations/script-script-command-github-workflows-ci-yml-github-actions-job-security-step-1-uses.md)
+- [CI cargo-deny step](operations/script-script-command-github-workflows-ci-yml-github-actions-job-security-step-2-uses.md)
+- [Security audit checkout step](operations/script-script-command-github-workflows-security-yml-github-actions-job-audit-step-1-uses.md)
+- [Security audit run step](operations/script-script-command-github-workflows-security-yml-github-actions-job-audit-step-2-uses.md)
 
 ## Adapter Documentation
 
@@ -129,9 +160,11 @@ cargo run -p ath --quiet -- index . --validate-only
 cargo run -p ath --quiet -- index . --validate-only --validation-result .athanor/generated/current/validation-result.json
 ```
 
-Task-focused context packs can be read from the latest canonical snapshot:
+Repository overview and task-focused context packs can be read from the latest canonical snapshot:
 
 ```bash
+cargo run -p ath --quiet -- overview .
+cargo run -p ath --quiet -- overview . --json
 cargo run -p ath --quiet -- context "task"
 cargo run -p ath --quiet -- context "task" --json
 cargo run -p ath --quiet -- context "task" --level summary --budget 2000

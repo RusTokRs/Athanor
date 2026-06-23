@@ -32,7 +32,7 @@ local files
   -> Markdown containment, document references, and cross-source API links
   -> Markdown structure, unresolved reference, duplicate ID, and API consistency checks
   -> JSONL canonical store
-  -> context, explain, and scoped diagnostic queries
+  -> overview, context, explain, and scoped diagnostic queries
   -> configurable editable-documentation completeness gate
   -> coordinated JSONL, Markdown wiki, and HTML read models
   -> immutable snapshot-consistent generation pointers
@@ -44,10 +44,10 @@ and macOS. The implementation remains intentionally adapter-first: domain and co
 canonical types and ports, while format, storage, query presentation, and projection behavior stay
 outside those boundaries.
 
-The current baseline is an offline CLI with local JSONL canonical storage, lexical search,
-impact analysis, static projectors, and MCP transport. Production multi-process storage, daemonized
-access, semantic vectors, interactive graph views, and multi-repository workflows remain roadmap
-work.
+The current baseline is an offline CLI with local JSONL canonical storage, repository overview,
+lexical search, impact analysis, static projectors, and MCP transport. Production multi-process
+storage, daemonized access, semantic vectors, interactive graph views, and multi-repository
+workflows remain roadmap work.
 
 ## Quick Start
 
@@ -67,6 +67,13 @@ Validate adapter contracts without writing snapshots, state, or read models:
 
 ```bash
 cargo run -p ath --quiet -- index . --validate-only
+```
+
+Summarize the latest canonical snapshot for repository orientation:
+
+```bash
+cargo run -p ath --quiet -- overview .
+cargo run -p ath --quiet -- overview . --json
 ```
 
 Build a task-focused context pack from the latest canonical snapshot:

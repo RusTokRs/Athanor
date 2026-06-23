@@ -2,11 +2,10 @@
 id: doc://docs/adapters/search-tantivy.md
 kind: adapter
 language: en
+last_verified_snapshot: snap_jsonl_00000090
 source_language: en
-last_verified_snapshot: snap_jsonl_00000036
 status: verified
 ---
-
 # Tantivy Search Index Adapter
 
 The Tantivy search index adapter implements the `SearchIndex` port to support fast BM25 lexical querying over Athanor's canonical entities.

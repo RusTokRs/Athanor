@@ -2,11 +2,10 @@
 id: doc://docs/architecture/pipeline.md
 kind: architecture
 language: en
+last_verified_snapshot: snap_jsonl_00000090
 source_language: en
-last_verified_snapshot: snap_jsonl_00000030
 status: verified
 ---
-
 # Indexing Pipeline
 
 Status: implemented, reusable app-layer pipeline with app-layer adapter registry, incremental merge, JSONL read-model writer, Markdown wiki projection, and static HTML reporting from canonical snapshots.
@@ -57,7 +56,7 @@ flowchart TD
 1. `athanor-source-fs` discovers project files and returns `SourceFile` values.
 2. `athanor-extractor-basic` creates file entities and `file_discovered` facts.
 3. `athanor-extractor-markdown` parses optional YAML frontmatter plus CommonMark/GFM heading events, then creates identity/language-aware documentation page/section entities, runbook entities for runbook frontmatter, operation-step entities for runbook ordered-list items, and `doc_section_found` facts.
-4. `athanor-extractor-openapi` dispatches OpenAPI 3.1 to `oas3` and 3.0 to a maintained-YAML legacy parser, then extracts operations, component schemas, request/response schema uses, and media examples.
+4. `athanor-extractor-openapi` dispatches project OpenAPI 3.1 to `oas3` and 3.0 to a maintained-YAML legacy parser, ignores OpenAPI files under `tests/fixtures` during project discovery, then extracts operations, component schemas, request/response schema uses, and media examples.
 5. `athanor-extractor-operations` parses dotenv, Cargo manifest, Makefile, Dockerfile, shell script, docker-compose, GitHub Actions, Kubernetes YAML, SQL migration, and runtime config sources into environment-variable, package/dependency, script-command, deployment/service, database migration, and runtime configuration knowledge.
 6. `athanor-extractor-rust` parses Rust files into module, function, symbol, and environment-variable entities plus `symbol_defined` and `env_var_used` facts.
 7. `athanor-linker-markdown` creates `contains` relations plus verified `documents` relations for exact entity/concept keys declared in Markdown frontmatter.
@@ -69,7 +68,7 @@ flowchart TD
 13. `IndexStateStore` classifies discovered files as changed, unchanged, or removed by comparing them with the previous state.
 14. File additions or removals trigger a safe full rebuild so absence diagnostics cannot remain stale.
 15. `IndexPipeline` extracts changed files only when a previous canonical snapshot is available from `CanonicalSnapshotStore`; extractor/source-file tasks run concurrently with a fixed limit of 16 in-flight tasks.
-16. `IndexPipeline` carries unchanged canonical objects forward from the previous canonical snapshot, rewrites carried snapshot ids to the new snapshot, and drops objects whose ownership includes changed or removed paths.
+16. `IndexPipeline` carries unchanged canonical objects forward from the previous canonical snapshot, rewrites carried snapshot ids to the new snapshot, drops objects whose ownership includes changed or removed paths, and canonicalizes merged objects by id so duplicated carried/new objects cannot persist in the next snapshot.
 17. `IndexPipeline` builds an affected subset from newly extracted objects, then passes it to linkers and checkers alongside the merged full context. In-process linker and checker inputs share full-context entity, fact, and relation lists through `Arc<[T]>` to avoid cloning the complete lists per adapter.
 18. `IndexPipeline` validates newly emitted canonical objects for required evidence and ownership metadata.
 19. If validation fails, `ath index` writes the aggregated adapter validation report to the configured validation report path.
@@ -99,6 +98,7 @@ flowchart TD
 - `RuntimeBuilder`: app-layer runtime assembly for a project root, registry, and discovered adapter plugin manifests.
 - `JsonlReadModelWriter`: reusable JSONL export for generated read models.
 - `JsonlKnowledgeStore`: durable local canonical snapshot store used by the CLI.
+- `overview_project`: bounded repository orientation from the latest canonical snapshot.
 - `context_project`: task-focused context-pack generation from the latest canonical snapshot.
 - `explain_project`: exact stable-key entity explanation from the latest canonical snapshot.
 - `check_project`: scoped API, documentation, environment, script, deployment, and runbook diagnostic reporting from the latest canonical snapshot.
@@ -150,6 +150,13 @@ After publication, the service replaces `.athanor/generated/current.json` with a
 The JSON pointer is used instead of a filesystem symlink so publication works without elevated link privileges on Windows. Individual `ath index`, `ath wiki`, and `ath report html` commands continue to write direct compatibility outputs under `.athanor/generated/current`; only `ath generate` guarantees cross-format snapshot consistency.
 
 ## Context Pack Generation
+
+`ath overview [path]` reads the latest durable canonical snapshot without re-indexing and returns a
+bounded repository orientation report. The app-layer report includes canonical object totals, top
+entity and relation kinds, top source roots, API/documentation/operations counters, graph hubs by
+relation degree, and compact open diagnostic summaries. `--json` emits the stable
+`athanor.overview.v1` payload. The text output is intended as a quick agent/developer starting
+point before using `ath context`, `ath explain`, or `ath impact` for narrower questions.
 
 `ath context <task>` reads the latest durable canonical snapshot without running indexing again. The initial context generator:
 
@@ -339,6 +346,7 @@ checkers:
 - falling back to full extraction when the previous canonical snapshot is missing
 - merging unchanged canonical objects from the previous canonical snapshot
 - pruning carried canonical objects by explicit ownership metadata, with source/evidence fallback for older snapshots
+- canonicalizing merged entities, facts, relations, and diagnostics by canonical id before storage, with current-run objects replacing carried objects on id conflicts
 - deriving the affected subset from newly extracted objects for downstream adapters
 - running linkers over the affected subset with shared full merged context available
 - running checkers over the affected subset with shared full merged context available
@@ -408,7 +416,7 @@ checkers:
   <docs-patch-id>.json
 ```
 
-Generated JSONL files and Markdown wiki pages under `.athanor/generated/current` are read models. They are not the source of truth and may be deleted and rebuilt. `validation-report.json` is written only for adapter contract validation failures and is removed after a successful index run. `validation-result.json` is written only for successful `--validate-only` runs and is removed after validation failures or normal index runs. Durable canonical snapshots live under `.athanor/store/canonical/jsonl`. The state file records the last indexed file paths, content hashes, language hints, and snapshot id so later runs can classify changed, unchanged, and removed files. Its schema is versioned so changes to built-in extraction, linking, or checking semantics can force a safe one-time full rebuild; ordered runbook operation-step extraction and consistency checks advance it to `athanor.index_state.v25`.
+Generated JSONL files and Markdown wiki pages under `.athanor/generated/current` are read models. They are not the source of truth and may be deleted and rebuilt. `validation-report.json` is written only for adapter contract validation failures and is removed after a successful index run. `validation-result.json` is written only for successful `--validate-only` runs and is removed after validation failures or normal index runs. Durable canonical snapshots live under `.athanor/store/canonical/jsonl`. The state file records the last indexed file paths, content hashes, language hints, and snapshot id so later runs can classify changed, unchanged, and removed files. Its schema is versioned so changes to built-in extraction, linking, or checking semantics can force a safe one-time full rebuild; OpenAPI test-fixture exclusion advances it to `athanor.index_state.v26`.
 
 ## Current Limitations
 
