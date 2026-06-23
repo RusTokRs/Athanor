@@ -415,6 +415,7 @@ dependencies = [
  "athanor-extractor-basic",
  "athanor-extractor-markdown",
  "athanor-extractor-openapi",
+ "athanor-extractor-operations",
  "athanor-extractor-rust",
  "athanor-linker-api",
  "athanor-linker-markdown",
@@ -430,6 +431,7 @@ dependencies = [
  "futures",
  "serde",
  "serde_json",
+ "serde_yaml_ng",
  "tokio",
  "toml",
  "tracing",
@@ -516,6 +518,18 @@ dependencies = [
  "oas3",
  "serde_json",
  "serde_yaml_ng",
+ "tokio",
+]
+
+[[package]]
+name = "athanor-extractor-operations"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "athanor-core",
+ "athanor-domain",
+ "athanor-extractor-basic",
+ "serde_json",
  "tokio",
 ]
 

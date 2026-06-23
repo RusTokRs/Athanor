@@ -58,30 +58,34 @@ flowchart TD
 2. `athanor-extractor-basic` creates file entities and `file_discovered` facts.
 3. `athanor-extractor-markdown` parses optional YAML frontmatter plus CommonMark/GFM heading events, then creates identity/language-aware documentation page/section entities and `doc_section_found` facts.
 4. `athanor-extractor-openapi` dispatches OpenAPI 3.1 to `oas3` and 3.0 to a maintained-YAML legacy parser, then extracts operations, component schemas, request/response schema uses, and media examples.
-5. `athanor-extractor-rust` parses Rust files into module, function, and symbol entities plus `symbol_defined` facts.
-6. `athanor-linker-markdown` creates `contains` relations plus verified `documents` relations for exact entity/concept keys declared in Markdown frontmatter.
-7. `athanor-linker-api` links OpenAPI operations to matching Rust handlers, Markdown API documentation, same-document request/response component schemas, and declared examples.
-8. `athanor-checker-markdown` creates documentation structure, unresolved-reference, and duplicate-identity diagnostics.
-9. `athanor-checker-api` diagnoses OpenAPI operations without linked implementations or documentation, local component schema references that did not resolve, and examples that violate their declared schemas.
-10. `RuntimeBuilder` discovers adapter plugin manifests from `.athanor/adapters/*.json` and `.athanor/plugins/*/athanor-adapter.json`, then applies enabled adapter entries that match known app-layer factory ids.
-11. `RuntimeBuilder` builds the configured `IndexPipeline` from an `AdapterRegistry`.
-12. `IndexStateStore` classifies discovered files as changed, unchanged, or removed by comparing them with the previous state.
-13. File additions or removals trigger a safe full rebuild so absence diagnostics cannot remain stale.
-14. `IndexPipeline` extracts changed files only when a previous canonical snapshot is available from `CanonicalSnapshotStore`; extractor/source-file tasks run concurrently with a fixed limit of 16 in-flight tasks.
-15. `IndexPipeline` carries unchanged canonical objects forward from the previous canonical snapshot, rewrites carried snapshot ids to the new snapshot, and drops objects whose ownership includes changed or removed paths.
-16. `IndexPipeline` builds an affected subset from newly extracted objects, then passes it to linkers and checkers alongside the merged full context. In-process linker and checker inputs share full-context entity, fact, and relation lists through `Arc<[T]>` to avoid cloning the complete lists per adapter.
-17. `IndexPipeline` validates newly emitted canonical objects for required evidence and ownership metadata.
-18. If validation fails, `ath index` writes the aggregated adapter validation report to the configured validation report path.
-19. In `--validate-only` mode, the CLI writes a structured validation result artifact for successful runs, then stops without persisting a canonical snapshot, read model, or index state.
-20. Otherwise, `IndexPipeline` stores the merged canonical objects for the current run through `KnowledgeStore`.
-21. `JsonlReadModelWriter` exports JSONL read models to `.athanor/generated/current/jsonl`.
-22. `IndexStateStore` persists file hash state to `.athanor/state/index-state.json` for the next run.
-23. On demand, `ath wiki` loads the latest durable canonical snapshot and performs a staged replacement of the neutral Markdown wiki read model.
-24. On demand, `ath report html` loads the same snapshot and performs a staged replacement of a self-contained HTML report.
-25. On demand, `ath generate` projects JSONL, wiki, and HTML into one immutable generation, writes a complete generation manifest, and then switches `current.json` to that generation.
-26. On demand, `ath docs check` evaluates editable documentation under the configured path against frontmatter completeness and diagnostic severity policy.
-27. On demand, `ath docs drift` reports editable documentation not verified against the latest canonical snapshot.
-28. On demand, `ath api snapshot` publishes the latest API contract immutably and `ath api diff` compares contract snapshots.
+5. `athanor-extractor-operations` parses dotenv, Makefile, and Dockerfile sources into environment-variable, script-command, and Docker-stage knowledge.
+6. `athanor-extractor-rust` parses Rust files into module, function, symbol, and environment-variable entities plus `symbol_defined` and `env_var_used` facts.
+7. `athanor-linker-markdown` creates `contains` relations plus verified `documents` relations for exact entity/concept keys declared in Markdown frontmatter.
+8. `athanor-linker-api` links OpenAPI operations to matching Rust handlers, Markdown API documentation, same-document request/response component schemas, and declared examples.
+9. `athanor-checker-markdown` creates documentation structure, unresolved-reference, and duplicate-identity diagnostics.
+10. `athanor-checker-api` diagnoses OpenAPI operations without linked implementations or documentation, local component schema references that did not resolve, examples that violate their declared schemas, and undocumented environment variables.
+11. `RuntimeBuilder` discovers adapter plugin manifests from `.athanor/adapters/*.json` and `.athanor/plugins/*/athanor-adapter.json`, then applies enabled adapter entries that match known app-layer factory ids.
+12. `RuntimeBuilder` builds the configured `IndexPipeline` from an `AdapterRegistry`.
+13. `IndexStateStore` classifies discovered files as changed, unchanged, or removed by comparing them with the previous state.
+14. File additions or removals trigger a safe full rebuild so absence diagnostics cannot remain stale.
+15. `IndexPipeline` extracts changed files only when a previous canonical snapshot is available from `CanonicalSnapshotStore`; extractor/source-file tasks run concurrently with a fixed limit of 16 in-flight tasks.
+16. `IndexPipeline` carries unchanged canonical objects forward from the previous canonical snapshot, rewrites carried snapshot ids to the new snapshot, and drops objects whose ownership includes changed or removed paths.
+17. `IndexPipeline` builds an affected subset from newly extracted objects, then passes it to linkers and checkers alongside the merged full context. In-process linker and checker inputs share full-context entity, fact, and relation lists through `Arc<[T]>` to avoid cloning the complete lists per adapter.
+18. `IndexPipeline` validates newly emitted canonical objects for required evidence and ownership metadata.
+19. If validation fails, `ath index` writes the aggregated adapter validation report to the configured validation report path.
+20. In `--validate-only` mode, the CLI writes a structured validation result artifact for successful runs, then stops without persisting a canonical snapshot, read model, or index state.
+21. Otherwise, `IndexPipeline` stores the merged canonical objects for the current run through `KnowledgeStore`.
+22. `JsonlReadModelWriter` exports JSONL read models to `.athanor/generated/current/jsonl`.
+23. `IndexStateStore` persists file hash state to `.athanor/state/index-state.json` for the next run.
+24. On demand, `ath wiki` loads the latest durable canonical snapshot and performs a staged replacement of the neutral Markdown wiki read model.
+25. On demand, `ath report html` loads the same snapshot and performs a staged replacement of a self-contained HTML report.
+26. On demand, `ath generate` projects JSONL, wiki, and HTML into one immutable generation, writes a complete generation manifest, and then switches `current.json` to that generation.
+27. On demand, `ath check env` reports environment variables used by Rust code or declared in dotenv files but not linked from editable documentation.
+28. On demand, `ath docs check` evaluates editable documentation under the configured path against frontmatter completeness and diagnostic severity policy.
+29. On demand, `ath docs drift` reports editable documentation not verified against the latest canonical snapshot.
+30. On demand, `ath docs propose-fix` writes a reviewable JSON patch proposal for editable documentation frontmatter policy and drift findings.
+31. On demand, `ath docs apply-patch <id-or-path>` explicitly applies one generated documentation patch proposal after verifying it still targets the latest canonical snapshot.
+32. On demand, `ath api snapshot` publishes the latest API contract immutably and `ath api diff` compares contract snapshots.
 
 ## Pipeline Assembly
 
@@ -94,9 +98,11 @@ flowchart TD
 - `JsonlKnowledgeStore`: durable local canonical snapshot store used by the CLI.
 - `context_project`: task-focused context-pack generation from the latest canonical snapshot.
 - `explain_project`: exact stable-key entity explanation from the latest canonical snapshot.
-- `check_project`: scoped API/documentation diagnostic reporting from the latest canonical snapshot.
+- `check_project`: scoped API, documentation, and environment diagnostic reporting from the latest canonical snapshot.
 - `check_docs`: configurable editable-documentation completeness gate from the latest canonical snapshot.
 - `docs_drift`: read-only editable-document verification-age report from the latest canonical snapshot.
+- `docs_propose_fix`: patch-proposal generation for deterministic editable-document frontmatter remediation.
+- `docs_apply_patch`: explicit patch application for generated documentation proposals.
 - `snapshot_api_contract`: immutable endpoint/schema/example contract publication from the latest canonical snapshot.
 - `diff_api_contracts`: deterministic comparison of two published API contract snapshots.
 - `project_wiki`: Markdown wiki projection from the latest canonical snapshot.
@@ -173,18 +179,19 @@ exact and currently explains one canonical entity at a time.
 
 ## Diagnostic Check Views
 
-`ath check api` and `ath check docs` read open diagnostics from the latest durable canonical snapshot
-without re-indexing. The app layer classifies diagnostic kinds into API and documentation scopes,
-sorts results by severity and diagnostic id, and returns:
+`ath check api`, `ath check docs`, and `ath check env` read open diagnostics from the latest durable
+canonical snapshot without re-indexing. The app layer classifies diagnostic kinds into API,
+documentation, and environment scopes, sorts results by severity and diagnostic id, and returns:
 
 - snapshot id and requested scope
 - total, critical, high, medium, and low counts
 - complete canonical diagnostic objects
 
 The default CLI output is a compact source-oriented list. `--json` emits the
-`athanor.diagnostic_check.v1` report. These commands are currently read-only views and return success
-after a valid query even when diagnostics exist; CI failure thresholds and strict-mode policy remain
-deferred.
+`athanor.diagnostic_check.v1` report. `ath check env` is the first operations/config check view; it
+selects `missing_env_var` diagnostics produced from canonical `EnvVar` entities and `documents`
+relations. These commands are currently read-only views and return success after a valid query even
+when diagnostics exist; CI failure thresholds and strict-mode policy remain deferred.
 
 ## Editable Documentation Completeness Gate
 
@@ -202,6 +209,21 @@ it is present in a canonical snapshot.
 or diagnostic thresholds. It reports pages with a missing or non-current `last_verified_snapshot`;
 `--json` emits `athanor.docs_drift.v1`. Drift is informational and does not produce a failing exit
 status.
+
+`ath docs propose-fix` reads the same latest snapshot and writes an `athanor.docs_patch.v1` JSON
+proposal under `.athanor/patches/docs/` by default. The current proposal generator is intentionally
+deterministic. It covers Markdown frontmatter remediation for policy and drift findings, and creates
+reviewable Markdown API page drafts for `api_endpoint_implemented_but_not_documented` diagnostics.
+Generated API pages include frontmatter `entities` declarations that point at the missing endpoint,
+so a later index can convert the reviewed page into a canonical `documents` relation.
+It also creates reviewable operations documentation drafts for `missing_env_var` diagnostics under
+the editable documentation operations path, using frontmatter `entities` declarations that point at
+the missing `env://` stable key.
+
+`ath docs apply-patch <patch-id-or-path>` applies one proposal explicitly. Apply verifies that the
+proposal snapshot equals the current canonical snapshot before rewriting or creating editable
+Markdown files. Create operations refuse to overwrite existing paths. This preserves the rule that
+generated documentation tooling may propose changes, but editable docs are not silently overwritten.
 
 ## API Contract Snapshots
 
@@ -243,6 +265,7 @@ extractors:
   FileExtractor
   MarkdownExtractor
   OpenApiExtractor
+  OperationsExtractor
   RustExtractor
 
 linkers:
@@ -350,9 +373,12 @@ checkers:
   latest.json
   snapshots/<snapshot-id>.json
   diffs/<from>--<to>.json
+
+.athanor/patches/docs/
+  <docs-patch-id>.json
 ```
 
-Generated JSONL files and Markdown wiki pages under `.athanor/generated/current` are read models. They are not the source of truth and may be deleted and rebuilt. `validation-report.json` is written only for adapter contract validation failures and is removed after a successful index run. `validation-result.json` is written only for successful `--validate-only` runs and is removed after validation failures or normal index runs. Durable canonical snapshots live under `.athanor/store/canonical/jsonl`. The state file records the last indexed file paths, content hashes, language hints, and snapshot id so later runs can classify changed, unchanged, and removed files. Its schema is versioned so changes to built-in extraction, linking, or checking semantics can force a safe one-time full rebuild; OpenAPI example extraction and validation advance it to `athanor.index_state.v12`.
+Generated JSONL files and Markdown wiki pages under `.athanor/generated/current` are read models. They are not the source of truth and may be deleted and rebuilt. `validation-report.json` is written only for adapter contract validation failures and is removed after a successful index run. `validation-result.json` is written only for successful `--validate-only` runs and is removed after validation failures or normal index runs. Durable canonical snapshots live under `.athanor/store/canonical/jsonl`. The state file records the last indexed file paths, content hashes, language hints, and snapshot id so later runs can classify changed, unchanged, and removed files. Its schema is versioned so changes to built-in extraction, linking, or checking semantics can force a safe one-time full rebuild; operations extraction for dotenv, Makefile, and Dockerfile knowledge advances it to `athanor.index_state.v14`.
 
 ## Current Limitations
 
@@ -373,7 +399,8 @@ Generated JSONL files and Markdown wiki pages under `.athanor/generated/current`
 - The HTML report is a static overview without client-side filtering or per-entity detail pages.
 - Generation numbering and pointer updates are local single-process operations; concurrent generation publishers and garbage collection are not implemented.
 - Direct compatibility outputs under `.athanor/generated/current` are not coordinated; consumers requiring one snapshot must use `current.json` and `generations/`.
+- Documentation patch proposals currently create skeletal API documentation pages only for missing API docs diagnostics; richer content updates and multi-page edits remain future work.
 
 ## Next Good Step
 
-Add the API registry view and explicit source-of-truth policy enforcement.
+Extend documentation patch proposals to API documentation generation/update drafts backed by the API registry.

@@ -261,7 +261,7 @@ fn get_tools_list() -> Value {
                     "properties": {
                         "scope": {
                             "type": "string",
-                            "enum": ["api", "docs"],
+                            "enum": ["api", "docs", "env"],
                             "description": "Diagnostic scope to check."
                         }
                     },
@@ -400,6 +400,7 @@ async fn call_tool(root: &std::path::Path, name: &str, args: Value) -> Result<St
                 .context("missing scope")?;
             let scope = match scope_str {
                 "docs" => athanor_app::DiagnosticScope::Docs,
+                "env" => athanor_app::DiagnosticScope::Env,
                 _ => athanor_app::DiagnosticScope::Api,
             };
 

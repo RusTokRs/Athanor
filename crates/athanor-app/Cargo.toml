@@ -21,6 +21,7 @@ athanor-domain = { path = "../athanor-domain" }
 athanor-extractor-basic = { path = "../athanor-extractor-basic" }
 athanor-extractor-markdown = { path = "../athanor-extractor-markdown" }
 athanor-extractor-openapi = { path = "../athanor-extractor-openapi" }
+athanor-extractor-operations = { path = "../athanor-extractor-operations" }
 athanor-extractor-rust = { path = "../athanor-extractor-rust" }
 athanor-linker-markdown = { path = "../athanor-linker-markdown" }
 athanor-linker-api = { path = "../athanor-linker-api" }
@@ -35,6 +36,7 @@ athanor-store-surrealdb = { path = "../athanor-store-surrealdb", optional = true
 athanor-search-tantivy = { path = "../athanor-search-tantivy" }
 serde.workspace = true
 serde_json.workspace = true
+serde_yaml_ng.workspace = true
 toml.workspace = true
 tracing.workspace = true
 futures = "0.3"

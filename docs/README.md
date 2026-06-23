@@ -42,6 +42,7 @@ High-level adapter docs:
 - [Basic extractor](adapters/extractor-basic.md)
 - [Markdown extractor](adapters/extractor-markdown.md)
 - [OpenAPI extractor](adapters/extractor-openapi.md)
+- [Operations extractor](adapters/extractor-operations.md)
 - [Rust extractor](adapters/extractor-rust.md)
 - [API knowledge linker](adapters/linker-api.md)
 - [Markdown linker](adapters/linker-markdown.md)
@@ -61,6 +62,7 @@ Crate-local adapter docs:
 - [`athanor-extractor-basic`](../crates/athanor-extractor-basic/README.md)
 - [`athanor-extractor-markdown`](../crates/athanor-extractor-markdown/README.md)
 - [`athanor-extractor-openapi`](../crates/athanor-extractor-openapi/README.md)
+- [`athanor-extractor-operations`](../crates/athanor-extractor-operations/README.md)
 - [`athanor-extractor-rust`](../crates/athanor-extractor-rust/README.md)
 - [`athanor-linker-api`](../crates/athanor-linker-api/README.md)
 - [`athanor-linker-markdown`](../crates/athanor-linker-markdown/README.md)
@@ -148,6 +150,8 @@ Open canonical diagnostics can be inspected by scope:
 ```bash
 cargo run -p ath --quiet -- check api
 cargo run -p ath --quiet -- check docs --json
+cargo run -p ath --quiet -- check env
+cargo run -p ath --quiet -- check env --json
 ```
 
 Editable documentation can be checked against the project completeness policy:
@@ -157,6 +161,8 @@ cargo run -p ath --quiet -- docs check
 cargo run -p ath --quiet -- docs check --json
 cargo run -p ath --quiet -- docs drift
 cargo run -p ath --quiet -- docs drift --json
+cargo run -p ath --quiet -- docs propose-fix
+cargo run -p ath --quiet -- docs apply-patch <patch-id-or-path>
 cargo run -p ath --quiet -- api snapshot
 cargo run -p ath --quiet -- api diff --from <snapshot> --to <snapshot>
 cargo run -p ath --quiet -- api breaking-changes --from <snapshot> --to <snapshot>

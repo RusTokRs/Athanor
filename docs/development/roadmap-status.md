@@ -30,6 +30,7 @@ Crates:
 - `athanor-extractor-basic`
 - `athanor-extractor-markdown`
 - `athanor-extractor-openapi`
+- `athanor-extractor-operations`
 - `athanor-extractor-rust`
 - `athanor-linker-api`
 - `athanor-linker-markdown`
@@ -61,10 +62,15 @@ ath check api
 ath check api --json
 ath check docs
 ath check docs --json
+ath check env
+ath check env --json
 ath docs check
 ath docs check --json
 ath docs drift
 ath docs drift --json
+ath docs propose-fix
+ath docs propose-fix --output <path>
+ath docs apply-patch <patch-id-or-path>
 ath api snapshot
 ath api snapshot --json
 ath api diff --from <snapshot> --to <snapshot>
@@ -149,6 +155,7 @@ extractors:
   FileExtractor
   MarkdownExtractor
   OpenApiExtractor
+  OperationsExtractor
   RustExtractor
 
 linkers:
@@ -1095,15 +1102,235 @@ Purpose:
 - Parses `source_of_truth` policy configurations (`hybrid`, `openapi_first`, `code_first`) from `athanor.toml`.
 - Dynamically filters diagnostic findings on API checks (`ath check api`) according to the selected policy.
 
+### Documentation Frontmatter Patch Workflow
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-app/src/docs.rs`
+- `apps/ath/src/main.rs`
+- `docs/development/docs-completeness-policy.md`
+- `docs/architecture/pipeline.md`
+
+Purpose:
+
+- adds `ath docs propose-fix`
+- adds `ath docs apply-patch <patch-id-or-path>`
+- writes reviewable `athanor.docs_patch.v1` JSON proposals under `.athanor/patches/docs/` by default
+- proposes deterministic frontmatter fixes for documentation completeness and drift findings
+- proposes skeletal Markdown API documentation pages for implemented endpoints that lack linked documentation
+- proposes skeletal Markdown operations pages for undocumented environment variables
+- applies proposals only through an explicit command
+- refuses to overwrite existing files for create operations
+- rejects stale proposals whose snapshot does not match the latest canonical snapshot
+- keeps rich content generation and existing API documentation update drafts deferred
+
+### Environment Documentation Check View
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-extractor-rust/src/lib.rs`
+- `crates/athanor-checker-api/src/lib.rs`
+- `crates/athanor-app/src/check.rs`
+- `apps/ath/src/main.rs`
+- `crates/athanor-transport-mcp/src/lib.rs`
+- `docs/adapters/extractor-rust.md`
+- `docs/adapters/checker-api.md`
+- `docs/architecture/pipeline.md`
+
+Purpose:
+
+- extracts Rust environment-variable usage as canonical `EnvVar` entities and `env_var_used` facts
+- checks whether environment variables are linked from editable Markdown documentation through `documents` relations
+- exposes the findings through `ath check env` and `ath check env --json`
+- keeps environment diagnostics separate from generic documentation structure diagnostics
+- exposes the same `env` scope through the MCP `check` tool
+- integrates `missing_env_var` diagnostics with `ath docs propose-fix` so agents can review and apply operations documentation drafts
+
+### Operations File Extraction
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-extractor-operations`
+- `crates/athanor-app/src/runtime.rs`
+- `crates/athanor-app/src/index_state.rs`
+- `docs/adapters/extractor-operations.md`
+- `docs/architecture/adapters.md`
+- `docs/architecture/pipeline.md`
+
+Purpose:
+
+- adds the built-in `builtin.extractor.operations` adapter
+- parses dotenv-style files such as `.env.example`, `.env`, and `*.env`
+- emits canonical `EnvVar` entities from `KEY=value` and `export KEY=value` declarations
+- emits redacted `env_var_used` facts with declaration evidence and ownership
+- parses Makefile targets from `Makefile`, `makefile`, and `*.mk` as `ScriptCommand` entities
+- parses Dockerfile stages as `DockerService` entities
+- parses Dockerfile `RUN`, `CMD`, and `ENTRYPOINT` instructions as `ScriptCommand` entities
+- parses Dockerfile `ENV` declarations as redacted environment-variable knowledge
+- emits evidence-backed `symbol_defined` facts for operational targets, stages, and commands
+- avoids storing raw dotenv or Dockerfile environment values in canonical snapshots
+- advances persisted index state to v14 so existing projects rebuild operational knowledge once
+- keeps shell scripts, docker-compose, CI, deployment, and runbook extraction deferred
+
 ## In Progress
 
 None.
 
 ## Next
 
-This backlog contains prioritized initiatives based on recent project research and technical debt analysis.
+This backlog tracks the remaining global plan from `start.md`. The entries below are prioritized by dependency order and current product value; each item should be moved into `Implemented` only after code, documentation, and required verification are complete.
 
-None.
+### Phase 4 Remainder - Documentation Patch Workflow
+
+Status: planned.
+
+Scope:
+
+- extend API documentation generation/update workflows from the API registry
+- extend patch proposals beyond skeletal missing-doc pages into richer evidence-backed content drafts
+- keep generated drafts separate from editable source documentation
+
+Acceptance:
+
+- generated API documentation fixes are evidence-backed and reviewable before application
+- editable docs are never overwritten without an explicit apply command
+- docs and API checks can confirm that an applied patch closes the relevant diagnostic
+
+### Phase 5 - Operations, Configs, And Environment
+
+Status: planned.
+
+Scope:
+
+- extract operational entities from shell scripts, docker-compose, GitHub Actions, Cargo/package manifests, deployment configs, database migrations, and runtime configuration
+- add script, deployment, and runbook consistency checkers
+- extend environment checks beyond Rust, dotenv, and Dockerfile declarations to runtime configuration coverage
+- expand generated operations documentation drafts beyond environment variables
+- expose remaining operational checks through commands such as `ath docs operations check`, `ath check scripts`, and `ath check deployment`
+
+Acceptance:
+
+- operational facts, relations, and diagnostics include evidence and ownership
+- check commands can report undocumented or stale operational knowledge without changing source files
+- architecture and adapter documentation describe the new adapter boundaries
+
+### Phase 6 Remainder - Affected Workflow And Repair
+
+Status: planned.
+
+Scope:
+
+- add user-facing affected commands such as `ath update --changed`, `ath check affected`, and `ath context --diff`
+- extend affected processing to API snapshots, generated wiki/report pages, and documentation diagnostics
+- implement repair, garbage collection, and deterministic cleanup for obsolete generated and canonical artifacts
+
+Acceptance:
+
+- changed-file workflows avoid full recomputation where safe
+- diff-based context and impact commands work before a new durable index is committed
+- repair and cleanup are deterministic and documented
+
+### Phase 7 - Daemon And Agent-Native Access
+
+Status: planned.
+
+Scope:
+
+- add `athd` daemon entrypoint with file watcher, local socket, locks, hot cache, and agent command protocol
+- add job system, cancellation, backpressure, debounce, and output-size controls for long-running indexing and projection work
+- keep MCP as one transport adapter, not the only agent access path
+
+Acceptance:
+
+- daemon commands can start, stop, report status, and serve read-only context queries
+- long-running jobs can be cancelled without corrupting snapshots or generated outputs
+- logs and diagnostics remain off the structured protocol channel
+
+### Phase 8 - I18n And Concepts
+
+Status: planned.
+
+Scope:
+
+- implement concept mapping, glossary/alias handling, language detection, and cross-language context selection
+- add `translation_of` and translation drift relations and diagnostics
+- expose commands such as `ath concept map`, `ath docs i18n check`, and `ath docs propose-translation`
+
+Acceptance:
+
+- multilingual documentation can share canonical knowledge without duplicating source of truth
+- translation drift is reported as diagnostics with evidence
+- generated translation proposals are patch-based drafts
+
+### Phase 9 Remainder - Semantic Search And Vectors
+
+Status: planned.
+
+Scope:
+
+- add embedding provider and vector index adapters after benchmark and offline requirements are defined
+- add local semantic retrieval and hybrid lexical/vector search over canonical read models
+- keep vectors disposable and rebuildable from canonical snapshots
+
+Acceptance:
+
+- vector search results include evidence and source canonical object ids
+- semantic retrieval is optional and does not change canonical truth
+- resource limits and secret-handling rules cover embedding workflows
+
+### Phase 10 - Rustok Adapter
+
+Status: planned.
+
+Scope:
+
+- add Postgres/SeaORM storage and read-model adapters for Rustok mode
+- add Rustok/Loco routes, permission integration, compatible errors, and dashboards
+- support API registry, diagnostics, docs drift, breaking changes, invalid examples, and translation drift views in Rustok
+
+Acceptance:
+
+- standalone builds do not require Postgres/SeaORM
+- Rustok-mode builds do not require SurrealDB
+- Postgres/JSONB read models remain projections of canonical Athanor knowledge
+
+### Phase 11 Remainder - Community Modules Foundation
+
+Status: planned.
+
+Scope:
+
+- complete module manifest, module registry, CLI module management, permission model, compatibility matrix, extension SDK docs, and adapter contract tests
+- expose commands such as `ath module list` and `ath module enable <module>`
+- keep community modules independent from a Rustok marketplace
+
+Acceptance:
+
+- modules can be discovered, validated, enabled, and disabled without changing core/domain contracts
+- adapter contract tests are reusable by external module authors
+- compatibility and security constraints are documented
+
+### Phase 12 - Advanced Language And Framework Support
+
+Status: planned.
+
+Scope:
+
+- deepen TypeScript/JavaScript, Python, Go, PHP, Java, C#, and C/C++ support through adapters
+- add framework adapters and optional LSP/SCIP/LSIF import/export paths
+- preserve adapter-first boundaries for every language and framework integration
+
+Acceptance:
+
+- each language/framework slice ships as an isolated adapter with focused tests and docs
+- imported external indexes remain read-model inputs, not replacements for canonical contracts
+- new adapters satisfy evidence, ownership, and validation requirements
 
 ## Verification Commands
 

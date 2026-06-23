@@ -28,6 +28,13 @@ Documentation is satisfied by `documents_api`, `documents_operation`, or a verif
 ### 2. Environment Variables Documentation Checker (`EnvDocsChecker`)
 Reports environment variables used in the codebase but missing from the project's documentation. It checks `EntityKind::EnvVar` entities and flags them with `DiagnosticKind::MissingEnvVar` if they lack a `RelationKind::Documents` relation from a Markdown page or section.
 
+The findings are exposed separately through:
+
+```bash
+cargo run -p ath --quiet -- check env
+cargo run -p ath --quiet -- check env --json
+```
+
 Diagnostics include evidence and ownership. Relevant function, documentation, and relation changes trigger reevaluation. File additions and removals force a full rebuild at the pipeline level to keep absence diagnostics correct.
 
 Example validation uses adapter-private `jsonschema` 0.46.5 with Draft 4 for OpenAPI 3.0 and Draft

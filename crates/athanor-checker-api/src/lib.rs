@@ -331,7 +331,7 @@ impl Checker for EnvDocsChecker {
     }
 
     async fn check(&self, input: CheckInput) -> CoreResult<Vec<Diagnostic>> {
-        let env_vars = entities_of_kind(&input.entities, EntityKind::EnvVar);
+        let env_vars = unique_entities_of_kind(&input.entities, EntityKind::EnvVar);
         let docs_affected = input.affected.entities.iter().any(|entity| {
             matches!(
                 entity.kind,
@@ -416,6 +416,17 @@ fn entities_of_kind(entities: &[Entity], kind: EntityKind) -> Vec<&Entity> {
         .iter()
         .filter(|entity| entity.kind == kind)
         .collect()
+}
+
+fn unique_entities_of_kind(entities: &[Entity], kind: EntityKind) -> Vec<&Entity> {
+    let mut seen = HashSet::new();
+    let mut unique = Vec::new();
+    for entity in entities.iter().filter(|entity| entity.kind == kind) {
+        if seen.insert(entity.stable_key.0.clone()) {
+            unique.push(entity);
+        }
+    }
+    unique
 }
 
 fn relation_touches(relation: &Relation, entity: &EntityId) -> bool {

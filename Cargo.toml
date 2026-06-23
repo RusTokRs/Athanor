@@ -9,6 +9,7 @@ members = [
     "crates/athanor-extractor-basic",
     "crates/athanor-extractor-markdown",
     "crates/athanor-extractor-openapi",
+    "crates/athanor-extractor-operations",
     "crates/athanor-extractor-rust",
     "crates/athanor-linker-markdown",
     "crates/athanor-linker-api",

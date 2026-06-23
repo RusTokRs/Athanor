@@ -13,6 +13,7 @@ use crate::project_path::normalize_canonical_path;
 pub enum DiagnosticScope {
     Api,
     Docs,
+    Env,
 }
 
 #[derive(Debug, Clone)]
@@ -104,7 +105,7 @@ pub fn build_check_report(
                     }
                     _ => true,
                 },
-                DiagnosticScope::Docs => true,
+                DiagnosticScope::Docs | DiagnosticScope::Env => true,
             }
         })
         .cloned()
@@ -164,8 +165,8 @@ pub(crate) fn diagnostic_matches_scope(kind: &DiagnosticKind, scope: DiagnosticS
                 | DiagnosticKind::DuplicateDocumentationId
                 | DiagnosticKind::OrphanDoc
                 | DiagnosticKind::TranslationOutdated
-                | DiagnosticKind::MissingEnvVar
         ),
+        DiagnosticScope::Env => matches!(kind, DiagnosticKind::MissingEnvVar),
     }
 }
 
@@ -260,6 +261,34 @@ mod tests {
 
         assert_eq!(report.counts.total, 2);
         assert_eq!(report.diagnostics[0].id.0, "diag_docs");
+    }
+
+    #[test]
+    fn filters_environment_diagnostics() {
+        let diagnostics = vec![
+            diagnostic(
+                "diag_env",
+                DiagnosticKind::MissingEnvVar,
+                Severity::Medium,
+                DiagnosticStatus::Open,
+            ),
+            diagnostic(
+                "diag_docs",
+                DiagnosticKind::DocumentationPageMissingTitle,
+                Severity::Medium,
+                DiagnosticStatus::Open,
+            ),
+        ];
+
+        let report = build_check_report(
+            "snap_test".to_string(),
+            DiagnosticScope::Env,
+            &diagnostics,
+            &ApiConfig::default(),
+        );
+
+        assert_eq!(report.counts.total, 1);
+        assert_eq!(report.diagnostics[0].id.0, "diag_env");
     }
 
     #[test]

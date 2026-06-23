@@ -14,6 +14,7 @@ use athanor_core::{
 use athanor_extractor_basic::FileExtractor;
 use athanor_extractor_markdown::MarkdownExtractor;
 use athanor_extractor_openapi::OpenApiExtractor;
+use athanor_extractor_operations::OperationsExtractor;
 use athanor_extractor_rust::RustExtractor;
 use athanor_linker_api::ApiKnowledgeLinker;
 use athanor_linker_markdown::MarkdownContainmentLinker;
@@ -100,6 +101,7 @@ impl AdapterRegistry {
             .builtin_extractor_file()
             .builtin_extractor_markdown()
             .builtin_extractor_openapi()
+            .builtin_extractor_operations()
             .builtin_extractor_rust()
             .builtin_linker_markdown_containment()
             .builtin_linker_api_knowledge()
@@ -147,6 +149,9 @@ impl AdapterRegistry {
             }
             (AdapterPluginKind::Extractor, "builtin.extractor.openapi") => {
                 Ok(self.builtin_extractor_openapi())
+            }
+            (AdapterPluginKind::Extractor, "builtin.extractor.operations") => {
+                Ok(self.builtin_extractor_operations())
             }
             (AdapterPluginKind::Extractor, "builtin.extractor.rust") => {
                 Ok(self.builtin_extractor_rust())
@@ -287,6 +292,12 @@ impl AdapterRegistry {
 
     fn builtin_extractor_openapi(self) -> Self {
         self.register_extractor_id("builtin.extractor.openapi", || Box::new(OpenApiExtractor))
+    }
+
+    fn builtin_extractor_operations(self) -> Self {
+        self.register_extractor_id("builtin.extractor.operations", || {
+            Box::new(OperationsExtractor)
+        })
     }
 
     fn builtin_extractor_rust(self) -> Self {
