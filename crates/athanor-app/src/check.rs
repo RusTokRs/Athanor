@@ -1,7 +1,10 @@
 use std::collections::{BTreeSet, HashSet};
-use std::path::PathBuf;
+use std::fs;
+use std::path::{Path, PathBuf};
 
+use crate::docs::{DriftedDocument, build_docs_drift_report};
 use crate::index_state::{AffectedFileSet, IndexStateStore};
+use crate::repair::{RepairInspectOptions, RepairIssue, inspect_repair};
 use crate::store::init_store;
 use anyhow::{Context, Result};
 use athanor_core::{CanonicalSnapshotStore, SourceProvider};
@@ -56,8 +59,29 @@ pub struct AffectedCheckReport {
     pub schema: String,
     pub snapshot: String,
     pub affected_files: AffectedFileCounts,
+    pub stale_artifacts: Vec<AffectedArtifactStatus>,
+    pub documentation_drift: Vec<DriftedDocument>,
     pub counts: DiagnosticCounts,
     pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AffectedArtifactStatus {
+    pub kind: AffectedArtifactKind,
+    pub path: PathBuf,
+    pub message: String,
+    pub suggested_command: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AffectedArtifactKind {
+    GeneratedCurrent,
+    GeneratedGeneration,
+    Wiki,
+    HtmlReport,
+    ApiContract,
+    ApiDiff,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
@@ -172,6 +196,13 @@ pub async fn check_affected(options: AffectedCheckOptions) -> Result<AffectedChe
 
     Ok(AffectedCheckReport {
         schema: "athanor.affected_check.v1".to_string(),
+        stale_artifacts: affected_artifact_statuses(&root, &snapshot_id)?,
+        documentation_drift: affected_documentation_drift(
+            snapshot_id.clone(),
+            &snapshot.entities,
+            &config.docs,
+            &affected_paths,
+        ),
         snapshot: snapshot_id,
         affected_files: AffectedFileCounts {
             changed: affected_files.changed.len(),
@@ -407,6 +438,167 @@ fn diagnostic_counts(diagnostics: &[Diagnostic]) -> DiagnosticCounts {
     counts
 }
 
+fn affected_artifact_statuses(
+    root: &Path,
+    latest_snapshot: &str,
+) -> Result<Vec<AffectedArtifactStatus>> {
+    let mut statuses = Vec::new();
+
+    let repair = inspect_repair(RepairInspectOptions {
+        root: root.to_path_buf(),
+    })
+    .context("failed to inspect generated artifact status")?;
+    statuses.extend(
+        repair
+            .issues
+            .iter()
+            .filter_map(repair_issue_to_artifact_status),
+    );
+
+    inspect_snapshot_manifest(
+        root,
+        ".athanor/generated/current/wiki/manifest.json",
+        latest_snapshot,
+        AffectedArtifactKind::Wiki,
+        "cargo run -p ath --quiet -- wiki .",
+        &mut statuses,
+    )?;
+    inspect_snapshot_manifest(
+        root,
+        ".athanor/generated/current/html/manifest.json",
+        latest_snapshot,
+        AffectedArtifactKind::HtmlReport,
+        "cargo run -p ath --quiet -- report html .",
+        &mut statuses,
+    )?;
+    let api_contract_stale = inspect_snapshot_manifest(
+        root,
+        ".athanor/api/latest.json",
+        latest_snapshot,
+        AffectedArtifactKind::ApiContract,
+        "cargo run -p ath --quiet -- api snapshot",
+        &mut statuses,
+    )?;
+    if api_contract_stale && root.join(".athanor/api/diffs").is_dir() {
+        statuses.push(AffectedArtifactStatus {
+            kind: AffectedArtifactKind::ApiDiff,
+            path: PathBuf::from(".athanor/api/diffs"),
+            message: "API diff artifacts may not include the latest API contract snapshot"
+                .to_string(),
+            suggested_command: "cargo run -p ath --quiet -- api diff --from <snapshot> --to <snapshot>"
+                .to_string(),
+        });
+    }
+
+    statuses.sort_by(|left, right| {
+        (
+            artifact_kind_rank(left.kind),
+            left.path.clone(),
+            left.message.clone(),
+        )
+            .cmp(&(
+                artifact_kind_rank(right.kind),
+                right.path.clone(),
+                right.message.clone(),
+            ))
+    });
+    statuses.dedup();
+    Ok(statuses)
+}
+
+fn affected_documentation_drift(
+    snapshot: String,
+    entities: &[Entity],
+    config: &crate::config::DocsConfig,
+    affected_paths: &BTreeSet<String>,
+) -> Vec<DriftedDocument> {
+    let mut drifted_documents = build_docs_drift_report(snapshot, entities, config)
+        .drifted_documents
+        .into_iter()
+        .filter(|document| affected_paths.contains(&document.path))
+        .collect::<Vec<_>>();
+    drifted_documents.sort_by(|left, right| {
+        (&left.path, &left.stable_key).cmp(&(&right.path, &right.stable_key))
+    });
+    drifted_documents
+}
+
+fn repair_issue_to_artifact_status(issue: &RepairIssue) -> Option<AffectedArtifactStatus> {
+    match issue.code.as_str() {
+        "missing_generated_current"
+        | "invalid_generated_current_schema"
+        | "invalid_generated_current_path"
+        | "invalid_generated_current_manifest_path"
+        | "invalid_generated_current_json"
+        | "missing_current_generation"
+        | "missing_current_generation_manifest"
+        | "invalid_current_generation_manifest_schema"
+        | "current_generation_manifest_id_mismatch"
+        | "current_generation_manifest_snapshot_mismatch"
+        | "stale_current_generation_snapshot" => Some(AffectedArtifactStatus {
+            kind: AffectedArtifactKind::GeneratedCurrent,
+            path: issue.path.clone(),
+            message: issue.message.clone(),
+            suggested_command: "cargo run -p ath --quiet -- repair regenerate . --dry-run"
+                .to_string(),
+        }),
+        "orphan_generated_generation" | "stale_generation_snapshot" => {
+            Some(AffectedArtifactStatus {
+                kind: AffectedArtifactKind::GeneratedGeneration,
+                path: issue.path.clone(),
+                message: issue.message.clone(),
+                suggested_command: "cargo run -p ath --quiet -- repair cleanup . --dry-run"
+                    .to_string(),
+            })
+        }
+        _ => None,
+    }
+}
+
+fn inspect_snapshot_manifest(
+    root: &Path,
+    relative_path: &str,
+    latest_snapshot: &str,
+    kind: AffectedArtifactKind,
+    suggested_command: &str,
+    statuses: &mut Vec<AffectedArtifactStatus>,
+) -> Result<bool> {
+    let path = root.join(relative_path);
+    if !path.exists() {
+        return Ok(false);
+    }
+
+    let content =
+        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
+    let value: serde_json::Value = serde_json::from_str(&content)
+        .with_context(|| format!("failed to parse {}", path.display()))?;
+    let snapshot = value.get("snapshot").and_then(serde_json::Value::as_str);
+    let stale = snapshot != Some(latest_snapshot);
+    if stale {
+        let artifact_snapshot = snapshot.unwrap_or("unknown");
+        statuses.push(AffectedArtifactStatus {
+            kind,
+            path: PathBuf::from(relative_path),
+            message: format!(
+                "artifact was generated from {artifact_snapshot}, latest canonical snapshot is {latest_snapshot}"
+            ),
+            suggested_command: suggested_command.to_string(),
+        });
+    }
+    Ok(stale)
+}
+
+fn artifact_kind_rank(kind: AffectedArtifactKind) -> u8 {
+    match kind {
+        AffectedArtifactKind::GeneratedCurrent => 0,
+        AffectedArtifactKind::GeneratedGeneration => 1,
+        AffectedArtifactKind::Wiki => 2,
+        AffectedArtifactKind::HtmlReport => 3,
+        AffectedArtifactKind::ApiContract => 4,
+        AffectedArtifactKind::ApiDiff => 5,
+    }
+}
+
 pub(crate) fn diagnostic_matches_scope(kind: &DiagnosticKind, scope: DiagnosticScope) -> bool {
     match scope {
         DiagnosticScope::Api => matches!(
@@ -475,6 +667,10 @@ fn sum_counts<const N: usize>(reports: [&DiagnosticCheckReport; N]) -> Diagnosti
 
 #[cfg(test)]
 mod tests {
+    use std::env;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
     use athanor_domain::{DiagnosticId, EntityId, SnapshotId};
     use serde_json::json;
 
@@ -521,6 +717,124 @@ mod tests {
         assert_eq!(report.counts.high, 1);
         assert_eq!(report.counts.medium, 1);
         assert_eq!(report.diagnostics[0].id.0, "diag_api_high");
+    }
+
+    #[test]
+    fn reports_stale_snapshot_manifests_for_affected_artifacts() {
+        let root = test_root("affected-artifacts");
+        write_json(
+            &root.join(".athanor/generated/current/wiki/manifest.json"),
+            r#"{"schema":"athanor.wiki_manifest.v1","snapshot":"snap_old"}"#,
+        );
+        write_json(
+            &root.join(".athanor/generated/current/html/manifest.json"),
+            r#"{"schema":"athanor.html_report_manifest.v1","snapshot":"snap_old"}"#,
+        );
+        write_json(
+            &root.join(".athanor/api/latest.json"),
+            r#"{"schema":"athanor.api_contract_latest.v1","snapshot":"snap_old"}"#,
+        );
+        fs::create_dir_all(root.join(".athanor/api/diffs")).unwrap();
+
+        let mut statuses = Vec::new();
+        let wiki_stale = inspect_snapshot_manifest(
+            &root,
+            ".athanor/generated/current/wiki/manifest.json",
+            "snap_new",
+            AffectedArtifactKind::Wiki,
+            "wiki",
+            &mut statuses,
+        )
+        .unwrap();
+        let html_stale = inspect_snapshot_manifest(
+            &root,
+            ".athanor/generated/current/html/manifest.json",
+            "snap_new",
+            AffectedArtifactKind::HtmlReport,
+            "html",
+            &mut statuses,
+        )
+        .unwrap();
+        let api_stale = inspect_snapshot_manifest(
+            &root,
+            ".athanor/api/latest.json",
+            "snap_new",
+            AffectedArtifactKind::ApiContract,
+            "api snapshot",
+            &mut statuses,
+        )
+        .unwrap();
+        if api_stale && root.join(".athanor/api/diffs").is_dir() {
+            statuses.push(AffectedArtifactStatus {
+                kind: AffectedArtifactKind::ApiDiff,
+                path: PathBuf::from(".athanor/api/diffs"),
+                message: "API diff artifacts may not include the latest API contract snapshot"
+                    .to_string(),
+                suggested_command: "api diff".to_string(),
+            });
+        }
+
+        assert!(wiki_stale);
+        assert!(html_stale);
+        assert!(api_stale);
+        let kinds = statuses
+            .iter()
+            .map(|status| status.kind)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            kinds,
+            vec![
+                AffectedArtifactKind::Wiki,
+                AffectedArtifactKind::HtmlReport,
+                AffectedArtifactKind::ApiContract,
+                AffectedArtifactKind::ApiDiff,
+            ]
+        );
+        assert!(statuses[0].message.contains("snap_old"));
+        assert!(statuses[0].message.contains("snap_new"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn maps_repair_issues_to_affected_artifact_statuses() {
+        let generated = repair_issue_to_artifact_status(&RepairIssue {
+            code: "stale_current_generation_snapshot".to_string(),
+            path: PathBuf::from(".athanor/generated/current.json"),
+            message: "generated is stale".to_string(),
+        })
+        .unwrap();
+        let orphan = repair_issue_to_artifact_status(&RepairIssue {
+            code: "orphan_generated_generation".to_string(),
+            path: PathBuf::from(".athanor/generated/generations/00000001"),
+            message: "orphan generation".to_string(),
+        })
+        .unwrap();
+        let unrelated = repair_issue_to_artifact_status(&RepairIssue {
+            code: "missing_canonical_latest".to_string(),
+            path: PathBuf::from(".athanor/store/canonical/jsonl/latest.json"),
+            message: "canonical latest missing".to_string(),
+        });
+
+        assert_eq!(generated.kind, AffectedArtifactKind::GeneratedCurrent);
+        assert_eq!(orphan.kind, AffectedArtifactKind::GeneratedGeneration);
+        assert!(generated.suggested_command.contains("repair regenerate"));
+        assert!(orphan.suggested_command.contains("repair cleanup"));
+        assert!(unrelated.is_none());
+    }
+
+    fn write_json(path: &Path, content: &str) {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, content).unwrap();
+    }
+
+    fn test_root(name: &str) -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = env::temp_dir().join(format!("athanor-{name}-{}-{nonce}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        root
     }
 
     #[test]
@@ -677,6 +991,26 @@ mod tests {
             &affected_paths,
             &affected_entity_ids
         ));
+    }
+
+    #[test]
+    fn reports_documentation_drift_only_for_affected_documents() {
+        let changed = editable_doc("ent_changed_doc", "docs/changed.md", Some("snap_old"));
+        let unchanged = editable_doc("ent_unchanged_doc", "docs/unchanged.md", Some("snap_old"));
+        let current = editable_doc("ent_current_doc", "docs/current.md", Some("snap_current"));
+        let affected_paths =
+            BTreeSet::from(["docs/changed.md".to_string(), "docs/current.md".to_string()]);
+
+        let drift = affected_documentation_drift(
+            "snap_current".to_string(),
+            &[changed, unchanged, current],
+            &crate::config::DocsConfig::default(),
+            &affected_paths,
+        );
+
+        assert_eq!(drift.len(), 1);
+        assert_eq!(drift[0].path, "docs/changed.md");
+        assert_eq!(drift[0].verified_snapshot.as_deref(), Some("snap_old"));
     }
 
     #[test]
@@ -910,5 +1244,14 @@ mod tests {
             }],
             payload: json!({}),
         }
+    }
+
+    fn editable_doc(id: &str, path: &str, verified_snapshot: Option<&str>) -> Entity {
+        let mut entity = entity(id, path);
+        entity.payload = json!({
+            "documentation_layer": "editable",
+            "last_verified_snapshot": verified_snapshot,
+        });
+        entity
     }
 }

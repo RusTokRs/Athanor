@@ -84,7 +84,7 @@ flowchart TD
 29. On demand, `ath check deployment` reports deployment and service resources not linked from editable documentation.
 30. On demand, `ath check runbooks` reports runbooks that do not reference known operational targets or have no extracted operation steps.
 31. On demand, `ath update --changed` runs the same incremental indexing path through an explicit update command, writes a new durable snapshot, refreshes JSONL read models, and updates persisted file change state.
-32. On demand, `ath check affected` compares current source discovery with persisted index state and reports latest-snapshot diagnostics touching changed or removed files without writing a new snapshot.
+32. On demand, `ath check affected` compares current source discovery with persisted index state and reports latest-snapshot diagnostics plus stale local artifact status for changed workflows without writing a new snapshot.
 33. On demand, `ath context --diff` builds a bounded context pack rooted in entities owned by changed or removed files without writing a new snapshot.
 34. On demand, `ath repair inspect` validates local canonical and generated pointers, manifests, and orphaned immutable artifacts without modifying files.
 35. On demand, `ath repair cleanup` removes orphaned immutable canonical snapshots and generated generations identified by repair inspection.
@@ -110,6 +110,7 @@ flowchart TD
 - `overview_project`: bounded repository orientation from the latest canonical snapshot.
 - `context_project`: task-focused context-pack generation from the latest canonical snapshot.
 - `explain_project`: exact stable-key entity explanation from the latest canonical snapshot.
+- `export_graph`: bounded JSON graph export from the latest canonical snapshot.
 - `check_project`: scoped API, documentation, environment, script, deployment, and runbook diagnostic reporting from the latest canonical snapshot.
 - `check_affected`: read-only changed-file diagnostic reporting from latest canonical snapshot plus persisted index state.
 - `check_operations_docs`: aggregate environment, script, deployment, and runbook documentation diagnostics from one latest canonical snapshot load.
@@ -197,11 +198,12 @@ canonical snapshot or current generated generation.
 coordinated generation path as `ath generate`. It publishes a new immutable generation from the
 latest canonical snapshot and updates `.athanor/generated/current.json` only after JSONL, wiki, and
 HTML outputs succeed. It runs only when inspection reports a stale, missing, or invalid generated
-current pointer, or when the pointer references a missing generation directory. `--dry-run` reports
-whether regeneration is needed without writing outputs. `--json` emits
-`athanor.repair_regenerate.v1`, including the initial inspection, the published generation when one
-was created, and remaining issues. Old generated generations become cleanup candidates and are
-removed only by `ath repair cleanup`.
+current pointer, when the pointer references a missing generation directory, when pointer path
+fields do not match the expected generation layout, or when the selected generation manifest is
+missing, invalid, or disagrees with the current pointer. `--dry-run` reports whether regeneration is
+needed without writing outputs. `--json` emits `athanor.repair_regenerate.v1`, including the initial
+inspection, the published generation when one was created, and remaining issues. Old generated
+generations become cleanup candidates and are removed only by `ath repair cleanup`.
 
 `ath repair recover-canonical [path]` repairs a missing, invalid, or dangling
 `.athanor/store/canonical/jsonl/latest.json` pointer. It scans local canonical snapshot directories,
@@ -246,6 +248,13 @@ point before using `ath context`, `ath explain`, or `ath impact` for narrower qu
 - reports effective limits, approximate serialized token usage, omitted object counts, and whether relevance or limits caused omission in the JSON payload
 
 The token budget is a deterministic estimate based on serialized canonical payload bytes divided by four; it is a size guard, not tokenizer-specific accounting. This remains an app-layer lexical slice rather than a `SearchIndex` implementation. Tantivy, vectors, and semantic ranking remain future adapters or services.
+
+`ath graph export --format json` reads the latest durable canonical snapshot without re-indexing and
+emits a bounded disposable graph read model. The JSON payload uses schema
+`athanor.graph_export.v1`, ranks nodes by relation degree and stable key for deterministic output,
+keeps edge evidence source anchors, and reports omitted node/edge counts when `--max-entities` or
+`--max-relations` limits truncate the export. The export is derived from canonical entities and
+relations only; it does not replace canonical storage and does not write generated artifacts.
 
 ## Entity Explanation
 
@@ -293,12 +302,19 @@ files, writes a fresh canonical snapshot, refreshes `.athanor/generated/current/
 `.athanor/state/index-state.json` after success. The command requires `--changed` so accidental
 full-style update entrypoints stay explicit; `--json` emits the serialized index report.
 
-`ath check affected` is a read-only changed-file diagnostic view. It loads the latest canonical
-snapshot, reads `.athanor/state/index-state.json`, discovers current source files, and compares the
-current file hashes with the last committed index state. Open diagnostics are selected when they
-touch changed or removed files through attached entity ids, ownership metadata, or evidence source
-files. `--json` emits `athanor.affected_check.v1` with affected file counts and the matching
-diagnostics. The command does not run extraction, linking, checking, or write a new snapshot.
+`ath check affected` is a read-only changed-file diagnostic and artifact-status view. It loads the
+latest canonical snapshot, reads `.athanor/state/index-state.json`, discovers current source files,
+and compares the current file hashes with the last committed index state. Open diagnostics are
+selected when they touch changed or removed files through attached entity ids, ownership metadata,
+or evidence source files. Editable documentation drift is reported only for affected documents
+whose `last_verified_snapshot` differs from the latest canonical snapshot. The same report also
+inspects local generated artifacts without modifying them: `.athanor/generated/current.json`,
+immutable generated generations, direct wiki and HTML report manifests under
+`.athanor/generated/current`, `.athanor/api/latest.json`, and existing API diff directories.
+`--json` emits `athanor.affected_check.v1` with affected file counts, matching diagnostics,
+affected `documentation_drift`, and `stale_artifacts` entries with suggested explicit commands.
+The command does not run extraction, linking, checking, regeneration, repair apply, cleanup,
+documentation patching, or write a new snapshot.
 
 ## Editable Documentation Completeness Gate
 

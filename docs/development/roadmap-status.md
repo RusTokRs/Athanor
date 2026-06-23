@@ -99,6 +99,8 @@ ath wiki --output <directory>
 ath report html
 ath report html --output <directory>
 ath generate
+ath graph export --format json
+ath graph export --format json --max-entities <N> --max-relations <N>
 ath repair inspect
 ath repair inspect --json
 ath repair cleanup
@@ -1656,6 +1658,28 @@ Purpose:
 - advances persisted index state to v26 so existing projects rebuild canonical API knowledge once
 - keeps source discovery broad enough to retain fixture file entities while scoping product API extraction in the OpenAPI adapter
 
+### Canonical Graph JSON Export
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-app/src/graph.rs`
+- `apps/ath/src/main.rs`
+- `docs/README.md`
+- `docs/architecture/pipeline.md`
+
+Purpose:
+
+- adds `ath graph export --format json`
+- reads the latest durable canonical snapshot without re-indexing
+- emits the stable `athanor.graph_export.v1` JSON graph payload
+- ranks nodes deterministically by relation degree and stable key
+- includes canonical node ids, stable keys, kinds, names, source anchors, degrees, relation ids, relation kinds, endpoints, status, confidence, and evidence anchors
+- bounds output with `--max-entities` and `--max-relations`
+- reports omitted node and edge counts when limits truncate the disposable read model
+- keeps graph export as an app-layer query over canonical entities and relations, not a new store or source of truth
+
 ## In Progress
 
 None.
@@ -1680,8 +1704,10 @@ Purpose:
 - adds `ath check affected` and `ath check affected --json`
 - compares current source discovery with `.athanor/state/index-state.json`
 - reports open diagnostics from the latest canonical snapshot that touch changed or removed files through attached entities, ownership, or evidence
-- emits stable `athanor.affected_check.v1` JSON with affected file counts and diagnostics
-- keeps the command read-only and does not commit a new index snapshot
+- reports editable documentation drift only for affected documents whose `last_verified_snapshot` differs from the latest canonical snapshot
+- reports stale or potentially stale local artifacts for coordinated generated generations, direct wiki output, direct HTML report output, API contract latest pointers, and API diff directories
+- emits stable `athanor.affected_check.v1` JSON with affected file counts, affected documentation drift, stale artifact statuses, and diagnostics
+- keeps the command read-only and does not commit a new index snapshot, patch documentation, regenerate outputs, run repair apply, or delete artifacts
 
 ### Diff-Based Context Packs
 
@@ -1775,6 +1801,7 @@ Purpose:
 
 - adds `ath repair regenerate`, `ath repair regenerate --dry-run`, and `ath repair regenerate --json`
 - detects stale, missing, or invalid generated-current pointers from the repair inspection report
+- detects corrupted current generated generation state, including invalid pointer paths, missing current manifests, manifest schema mismatches, manifest generation id mismatches, and manifest snapshot mismatches
 - reuses the coordinated `generate_project` path to publish JSONL, wiki, and HTML from the latest canonical snapshot
 - updates `.athanor/generated/current.json` only after the replacement generation is fully published
 - reports the initial inspection, whether regeneration was needed, the new generation when created, and remaining issues as `athanor.repair_regenerate.v1`
@@ -1822,18 +1849,18 @@ Purpose:
 
 ### Phase 6 Remainder - Affected Workflow And Repair
 
-Status: partially implemented.
+Status: verified.
 
 Scope:
 
-- extend affected processing to API snapshots, generated wiki/report pages, and documentation diagnostics
-- implement remaining repair application for generated pointer corruption beyond generated-current regeneration when it cannot be resolved by coordinated regeneration
+- completed affected workflow artifact and documentation drift reporting
+- completed generated-current repair handling for stale pointers, missing pointers, invalid pointers, invalid pointer paths, missing current generation directories, missing current manifests, and current manifest mismatches
 
 Acceptance:
 
 - changed-file workflows avoid full recomputation where safe
 - diff-based context and impact commands work before a new durable index is committed
-- repair cleanup, generated-output regeneration, canonical latest-pointer recovery, and full repair apply are deterministic and documented; remaining repair application is deterministic and documented
+- repair cleanup, generated-output regeneration, canonical latest-pointer recovery, and full repair apply are deterministic and documented
 
 ### Phase 6.5 - Agent Graph Navigation And Overview
 
@@ -1842,7 +1869,7 @@ Status: planned.
 Scope:
 
 - extend the initial repository overview query with richer module structure and integration-boundary summaries
-- add graph export read models such as `ath graph export --format json` and later GraphML-compatible output, generated from canonical snapshots rather than replacing canonical storage
+- extend graph export beyond the implemented `ath graph export --format json` with later GraphML-compatible output, generated from canonical snapshots rather than replacing canonical storage
 - extend the HTML report with an interactive graph view, per-entity detail pages, filtering by kind/severity/source, and stable links back to canonical evidence
 - add graph navigation commands such as shortest path, hub/centrality views, cycle detection, and related-entity exploration over canonical relations
 - improve `ath impact` with explanatory relation paths and an optional future precision mode for deeper call/data-flow analysis once language adapters can support it

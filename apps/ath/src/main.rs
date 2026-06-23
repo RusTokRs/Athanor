@@ -6,8 +6,8 @@ use athanor_app::{
     ApiSnapshotReport, ContextLimitOverrides, ContextOptions, DiagnosticCheckOptions,
     DiagnosticCheckReport, DiagnosticScope, DocsApplyPatchOptions, DocsApplyPatchReport,
     DocsCheckOptions, DocsCheckReport, DocsDriftOptions, DocsDriftReport, DocsProposeFixOptions,
-    DocsProposeFixReport, EntityExplanation, ExplainOptions, GenerationOptions, HtmlReportOptions,
-    ImpactAnalysis, ImpactOptions, IndexOptions, IndexReport, InitOptions,
+    DocsProposeFixReport, EntityExplanation, ExplainOptions, GenerationOptions, GraphExportOptions,
+    HtmlReportOptions, ImpactAnalysis, ImpactOptions, IndexOptions, IndexReport, InitOptions,
     OperationsDocsCheckOptions, OperationsDocsCheckReport, OverviewOptions, RepairApplyOptions,
     RepairApplyReport, RepairCleanupOptions, RepairCleanupReport, RepairInspectOptions,
     RepairInspectReport, RepairRecoverCanonicalOptions, RepairRecoverCanonicalReport,
@@ -50,6 +50,11 @@ enum DiagnosticScopeArg {
     Scripts,
     Deployment,
     Runbooks,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum GraphExportFormatArg {
+    Json,
 }
 
 impl DiagnosticScopeArg {
@@ -225,6 +230,11 @@ enum Command {
         #[arg(default_value = ".")]
         path: PathBuf,
     },
+    /// Query and export the canonical entity graph.
+    Graph {
+        #[command(subcommand)]
+        command: GraphCommand,
+    },
     /// Inspect repairable local Athanor artifacts.
     Repair {
         #[command(subcommand)]
@@ -249,6 +259,25 @@ enum Command {
         /// Project root. Defaults to the current directory.
         #[arg(default_value = ".")]
         path: PathBuf,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum GraphCommand {
+    /// Export a bounded JSON graph from the latest canonical snapshot.
+    Export {
+        /// Project root. Defaults to the current directory.
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Export format.
+        #[arg(long, value_enum, default_value_t = GraphExportFormatArg::Json)]
+        format: GraphExportFormatArg,
+        /// Maximum number of graph nodes to include.
+        #[arg(long, default_value_t = 500)]
+        max_entities: usize,
+        /// Maximum number of graph edges to include.
+        #[arg(long, default_value_t = 2_000)]
+        max_relations: usize,
     },
 }
 
@@ -810,6 +839,27 @@ async fn main() -> Result<()> {
                 report.current_pointer.display()
             );
         }
+        Some(Command::Graph {
+            command:
+                GraphCommand::Export {
+                    path,
+                    format,
+                    max_entities,
+                    max_relations,
+                },
+        }) => {
+            let export = athanor_app::export_graph(GraphExportOptions {
+                root: path,
+                max_entities,
+                max_relations,
+            })
+            .await?;
+            match format {
+                GraphExportFormatArg::Json => {
+                    println!("{}", serde_json::to_string_pretty(&export)?);
+                }
+            }
+        }
         Some(Command::Repair { command }) => match command {
             RepairCommand::Inspect { path, json } => {
                 let report = inspect_repair(RepairInspectOptions { root: path })?;
@@ -1338,6 +1388,32 @@ fn print_affected_check_report(report: &AffectedCheckReport) -> Result<()> {
         report.affected_files.unchanged,
         report.affected_files.removed
     );
+    if !report.stale_artifacts.is_empty() {
+        println!("stale artifacts: {}", report.stale_artifacts.len());
+        for artifact in &report.stale_artifacts {
+            println!(
+                "{} at {}: {} (run `{}`)",
+                serialized_name(&artifact.kind)?,
+                artifact.path.display(),
+                artifact.message,
+                artifact.suggested_command
+            );
+        }
+    }
+    if !report.documentation_drift.is_empty() {
+        println!(
+            "affected documentation drift: {}",
+            report.documentation_drift.len()
+        );
+        for document in &report.documentation_drift {
+            println!(
+                "{}: {} (verified: {})",
+                document.path,
+                document.reason,
+                document.verified_snapshot.as_deref().unwrap_or("missing")
+            );
+        }
+    }
     for diagnostic in &report.diagnostics {
         let location = diagnostic
             .evidence

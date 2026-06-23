@@ -356,7 +356,7 @@ fn build_docs_check_report(
     }
 }
 
-fn build_docs_drift_report(
+pub(crate) fn build_docs_drift_report(
     snapshot: String,
     entities: &[Entity],
     config: &DocsConfig,

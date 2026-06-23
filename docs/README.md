@@ -132,6 +132,10 @@ cargo run -p ath --quiet -- repair apply . --dry-run --keep-canonical 3 --keep-g
 cargo run -p ath --quiet -- repair apply .
 ```
 
+`repair regenerate` handles stale or corrupted generated-current selection by publishing a fresh
+coordinated generation. It covers invalid pointer paths, missing selected generation directories,
+and missing or mismatched current generation manifests.
+
 It writes immutable generation directories and updates a portable JSON pointer only after every output succeeds:
 
 ```text
@@ -195,6 +199,7 @@ cargo run -p ath --quiet -- context --diff
 cargo run -p ath --quiet -- context --diff --json
 cargo run -p ath --quiet -- context "task" --level summary --budget 2000
 cargo run -p ath --quiet -- context "task" --level deep --max-files 20 --max-depth 2
+cargo run -p ath --quiet -- graph export --format json
 ```
 
 Canonical entities can be explained directly from the latest snapshot:
@@ -220,6 +225,13 @@ cargo run -p ath --quiet -- check runbooks --json
 cargo run -p ath --quiet -- check affected
 cargo run -p ath --quiet -- check affected --json
 ```
+
+`check affected` is read-only. In addition to matching open diagnostics, it reports stale or
+potentially stale local artifacts tied to the latest canonical snapshot: coordinated generated
+generations, direct wiki and HTML report outputs, API contract latest pointers, and API diff
+directories. It also reports editable documentation drift only for affected documents whose
+`last_verified_snapshot` does not match the latest canonical snapshot. It suggests explicit
+follow-up commands but does not regenerate, rewrite, or delete artifacts.
 
 Editable documentation can be checked against the project completeness policy:
 

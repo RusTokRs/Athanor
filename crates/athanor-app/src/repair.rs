@@ -160,7 +160,7 @@ struct CanonicalManifest {
     snapshot: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 struct GenerationManifest {
     schema: String,
     generation: String,
@@ -470,10 +470,34 @@ fn inspect_generated(
                 ),
             ));
         }
+        let expected_path = Path::new("generations").join(&current.generation);
+        if Path::new(&current.path) != expected_path {
+            issues.push(issue(
+                "invalid_generated_current_path",
+                current_path.clone(),
+                format!(
+                    "current generation path {} does not match expected {}",
+                    current.path,
+                    expected_path.display()
+                ),
+            ));
+        }
+        let expected_manifest = expected_path.join("manifest.json");
+        if Path::new(&current.manifest) != expected_manifest {
+            issues.push(issue(
+                "invalid_generated_current_manifest_path",
+                current_path.clone(),
+                format!(
+                    "current generation manifest path {} does not match expected {}",
+                    current.manifest,
+                    expected_manifest.display()
+                ),
+            ));
+        }
         if !generations.contains(&current.generation) {
             issues.push(issue(
                 "missing_current_generation",
-                generated_root.join(&current.path),
+                generations_root.join(&current.generation),
                 format!("current generation {} has no directory", current.generation),
             ));
         }
@@ -502,42 +526,30 @@ fn inspect_generated(
 
     for generation in &generations {
         let manifest_path = generations_root.join(generation).join("manifest.json");
-        if let Some(manifest) = read_json::<GenerationManifest>(&manifest_path, issues)? {
-            if manifest.schema != GENERATED_GENERATION_SCHEMA {
-                issues.push(issue(
-                    "invalid_generation_manifest_schema",
-                    manifest_path.clone(),
-                    format!(
-                        "generation manifest has unsupported schema {}",
-                        manifest.schema
-                    ),
-                ));
-            }
-            if manifest.generation != *generation {
-                issues.push(issue(
-                    "generation_manifest_id_mismatch",
-                    manifest_path.clone(),
-                    format!(
-                        "generation manifest id {} does not match directory {generation}",
-                        manifest.generation
-                    ),
-                ));
-            }
-            if canonical
-                .latest_snapshot
-                .as_ref()
-                .is_some_and(|snapshot| snapshot != &manifest.snapshot)
+        let Some(manifest) = inspect_generation_manifest(
+            generation,
+            &manifest_path,
+            canonical.latest_snapshot.as_deref(),
+            issues,
+        )?
+        else {
+            if current_generation.as_deref() == Some(generation.as_str()) && !manifest_path.exists()
             {
                 issues.push(issue(
-                    "stale_generation_snapshot",
+                    "missing_current_generation_manifest",
                     manifest_path,
-                    format!(
-                        "generation {generation} was built from snapshot {}, latest canonical snapshot is {}",
-                        manifest.snapshot,
-                        canonical.latest_snapshot.as_deref().unwrap_or("unknown")
-                    ),
+                    format!("current generation {generation} has no manifest.json"),
                 ));
             }
+            continue;
+        };
+        if current_generation.as_deref() == Some(generation.as_str()) {
+            inspect_current_generation_manifest(
+                &manifest,
+                current.as_ref(),
+                &manifest_path,
+                issues,
+            );
         }
     }
 
@@ -552,6 +564,90 @@ fn inspect_generated(
         generation_count: generations.len(),
         orphan_generations,
     })
+}
+
+fn inspect_generation_manifest(
+    generation: &str,
+    manifest_path: &Path,
+    latest_snapshot: Option<&str>,
+    issues: &mut Vec<RepairIssue>,
+) -> Result<Option<GenerationManifest>> {
+    let Some(manifest) = read_json::<GenerationManifest>(manifest_path, issues)? else {
+        return Ok(None);
+    };
+    if manifest.schema != GENERATED_GENERATION_SCHEMA {
+        issues.push(issue(
+            "invalid_generation_manifest_schema",
+            manifest_path.to_path_buf(),
+            format!(
+                "generation manifest has unsupported schema {}",
+                manifest.schema
+            ),
+        ));
+    }
+    if manifest.generation != generation {
+        issues.push(issue(
+            "generation_manifest_id_mismatch",
+            manifest_path.to_path_buf(),
+            format!(
+                "generation manifest id {} does not match directory {generation}",
+                manifest.generation
+            ),
+        ));
+    }
+    if latest_snapshot.is_some_and(|snapshot| snapshot != manifest.snapshot) {
+        issues.push(issue(
+            "stale_generation_snapshot",
+            manifest_path.to_path_buf(),
+            format!(
+                "generation {generation} was built from snapshot {}, latest canonical snapshot is {}",
+                manifest.snapshot,
+                latest_snapshot.unwrap_or("unknown")
+            ),
+        ));
+    }
+    Ok(Some(manifest))
+}
+
+fn inspect_current_generation_manifest(
+    manifest: &GenerationManifest,
+    current: Option<&CurrentGeneration>,
+    manifest_path: &Path,
+    issues: &mut Vec<RepairIssue>,
+) {
+    let Some(current) = current else {
+        return;
+    };
+    if manifest.schema != GENERATED_GENERATION_SCHEMA {
+        issues.push(issue(
+            "invalid_current_generation_manifest_schema",
+            manifest_path.to_path_buf(),
+            format!(
+                "current generation manifest has unsupported schema {}",
+                manifest.schema
+            ),
+        ));
+    }
+    if manifest.generation != current.generation {
+        issues.push(issue(
+            "current_generation_manifest_id_mismatch",
+            manifest_path.to_path_buf(),
+            format!(
+                "current generation manifest id {} does not match current pointer {}",
+                manifest.generation, current.generation
+            ),
+        ));
+    }
+    if manifest.snapshot != current.snapshot {
+        issues.push(issue(
+            "current_generation_manifest_snapshot_mismatch",
+            manifest_path.to_path_buf(),
+            format!(
+                "current generation manifest snapshot {} does not match current pointer {}",
+                manifest.snapshot, current.snapshot
+            ),
+        ));
+    }
 }
 
 fn list_directory_names(path: &Path) -> Result<BTreeSet<String>> {
@@ -636,6 +732,12 @@ fn is_generated_pointer_issue(issue: &RepairIssue) -> bool {
         issue.code.as_str(),
         "invalid_generated_current_schema"
             | "missing_current_generation"
+            | "invalid_generated_current_path"
+            | "invalid_generated_current_manifest_path"
+            | "missing_current_generation_manifest"
+            | "invalid_current_generation_manifest_schema"
+            | "current_generation_manifest_id_mismatch"
+            | "current_generation_manifest_snapshot_mismatch"
             | "stale_current_generation_snapshot"
             | "missing_generated_current"
     ) || (issue.code == "invalid_json"
@@ -991,6 +1093,122 @@ mod tests {
                 .remaining_issues
                 .iter()
                 .any(|issue| issue.code == "stale_current_generation_snapshot")
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn regenerate_repairs_corrupt_current_generation_manifest() {
+        let root = temp_root();
+        let canonical_root = root.join(".athanor/store/canonical/jsonl");
+        let generated_root = root.join(".athanor/generated");
+        let store = JsonlKnowledgeStore::new(&canonical_root);
+        let snapshot = store
+            .begin_snapshot(
+                RepoId("repo_test".to_string()),
+                SnapshotBase {
+                    branch: None,
+                    commit: None,
+                    parent_snapshot: None,
+                    working_tree: true,
+                },
+            )
+            .await
+            .unwrap();
+        store.commit_snapshot(snapshot.clone()).await.unwrap();
+        fs::create_dir_all(generated_root.join("generations/00000001")).unwrap();
+        fs::write(
+            generated_root.join("current.json"),
+            format!(
+                r#"{{"schema":"athanor.generated_current.v1","generation":"00000001","snapshot":"{}","path":"generations/00000001","manifest":"generations/00000001/manifest.json"}}"#,
+                snapshot.0
+            ),
+        )
+        .unwrap();
+        fs::write(
+            generated_root.join("generations/00000001/manifest.json"),
+            r#"{"schema":"athanor.generated_generation.v1","generation":"00000009","snapshot":"snap_jsonl_00000000"}"#,
+        )
+        .unwrap();
+
+        let inspection = inspect_repair(RepairInspectOptions { root: root.clone() }).unwrap();
+        assert!(
+            inspection
+                .issues
+                .iter()
+                .any(|issue| { issue.code == "current_generation_manifest_id_mismatch" })
+        );
+        assert!(
+            inspection
+                .issues
+                .iter()
+                .any(|issue| { issue.code == "current_generation_manifest_snapshot_mismatch" })
+        );
+
+        let report = regenerate_repair(RepairRegenerateOptions {
+            root: root.clone(),
+            dry_run: false,
+        })
+        .await
+        .unwrap();
+
+        assert!(report.needed);
+        let generated = report.generated.as_ref().unwrap();
+        assert_eq!(generated.generation, "00000002");
+        assert_eq!(generated.snapshot, snapshot.0);
+        assert!(!report.remaining_issues.iter().any(|issue| {
+            matches!(
+                issue.code.as_str(),
+                "current_generation_manifest_id_mismatch"
+                    | "current_generation_manifest_snapshot_mismatch"
+            )
+        }));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn inspect_reports_invalid_current_pointer_paths() {
+        let root = temp_root();
+        let canonical_root = root.join(".athanor/store/canonical/jsonl");
+        let generated_root = root.join(".athanor/generated");
+        fs::create_dir_all(canonical_root.join("snapshots/snap_jsonl_00000001")).unwrap();
+        fs::create_dir_all(generated_root.join("generations/00000001")).unwrap();
+        fs::write(
+            canonical_root.join("latest.json"),
+            r#"{"snapshot":"snap_jsonl_00000001"}"#,
+        )
+        .unwrap();
+        fs::write(
+            canonical_root.join("snapshots/snap_jsonl_00000001/manifest.json"),
+            r#"{"schema":"athanor.canonical_snapshot.v1","snapshot":"snap_jsonl_00000001"}"#,
+        )
+        .unwrap();
+        fs::write(
+            generated_root.join("current.json"),
+            r#"{"schema":"athanor.generated_current.v1","generation":"00000001","snapshot":"snap_jsonl_00000001","path":"../outside","manifest":"../outside/manifest.json"}"#,
+        )
+        .unwrap();
+        fs::write(
+            generated_root.join("generations/00000001/manifest.json"),
+            r#"{"schema":"athanor.generated_generation.v1","generation":"00000001","snapshot":"snap_jsonl_00000001"}"#,
+        )
+        .unwrap();
+
+        let report = inspect_repair(RepairInspectOptions { root: root.clone() }).unwrap();
+
+        assert!(
+            report
+                .issues
+                .iter()
+                .any(|issue| { issue.code == "invalid_generated_current_path" })
+        );
+        assert!(
+            report
+                .issues
+                .iter()
+                .any(|issue| { issue.code == "invalid_generated_current_manifest_path" })
         );
 
         fs::remove_dir_all(root).unwrap();
