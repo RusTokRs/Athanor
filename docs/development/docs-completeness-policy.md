@@ -64,15 +64,27 @@ JSON output uses `athanor.docs_drift.v1` and includes current and drifted docume
 
 `ath docs propose-fix` writes a versioned `athanor.docs_patch.v1` JSON proposal under
 `.athanor/patches/docs/` by default. The proposal is reviewable and contains one operation per
-editable Markdown file. It currently supports deterministic frontmatter remediation and a first
-evidence-backed API documentation draft:
+editable Markdown file. It currently supports deterministic frontmatter remediation,
+evidence-backed API documentation drafts, and operations documentation drafts:
 
 - missing required fields that have safe defaults, such as `id`, `kind`, `language`,
   `source_language`, `last_verified_snapshot`, and `status`
 - disallowed `status` values, replaced with the first configured allowed status
 - missing or stale `last_verified_snapshot`, updated to the latest canonical snapshot
 - new Markdown API pages for `api_endpoint_implemented_but_not_documented` diagnostics, written
-  under `<editable_path>/api/` with frontmatter `entities` that points at the missing endpoint
+  under `<editable_path>/api/` with frontmatter `entities` that points at the missing endpoint;
+  these drafts include the endpoint contract plus linked handler, schema, example, security,
+  response, and source evidence when those canonical graph objects are available
+- updates to existing editable API documentation pages that already declare or link to one or more
+  API endpoints; these proposals insert or refresh endpoint-specific Athanor-managed Markdown
+  blocks delimited by
+  `<!-- athanor:api-doc:start ... -->` and `<!-- athanor:api-doc:end -->` while preserving
+  human-authored text outside the blocks
+- frontmatter `entities` stabilization for editable API documentation pages that are already linked
+  to endpoints through canonical documentation relations but do not explicitly declare those
+  endpoint stable keys
+- coordination blocks for endpoints documented by multiple editable API pages, so overview and
+  operation pages can review the same endpoint-to-page map before applying generated edits
 - new Markdown operations pages for `missing_env_var` diagnostics, written under
   `<editable_path>/operations/` with frontmatter `entities` that points at the missing environment
   variable

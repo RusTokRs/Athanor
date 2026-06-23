@@ -1119,12 +1119,56 @@ Purpose:
 - adds `ath docs apply-patch <patch-id-or-path>`
 - writes reviewable `athanor.docs_patch.v1` JSON proposals under `.athanor/patches/docs/` by default
 - proposes deterministic frontmatter fixes for documentation completeness and drift findings
-- proposes skeletal Markdown API documentation pages for implemented endpoints that lack linked documentation
+- proposes Markdown API documentation pages for implemented endpoints that lack linked documentation
 - proposes skeletal Markdown operations pages for undocumented environment variables
 - applies proposals only through an explicit command
 - refuses to overwrite existing files for create operations
 - rejects stale proposals whose snapshot does not match the latest canonical snapshot
-- keeps rich content generation and existing API documentation update drafts deferred
+- keeps existing API documentation update drafts deferred
+
+### API Documentation Draft Enrichment
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-app/src/docs.rs`
+- `docs/development/docs-completeness-policy.md`
+- `docs/architecture/pipeline.md`
+
+Purpose:
+
+- enriches `ath docs propose-fix` API documentation create drafts from the canonical API graph
+- includes endpoint method, path, operation id, tags, declared response codes, and security payloads
+- includes linked Rust handler source when an `implemented_by` relation is available
+- includes linked request/response schemas from `schema_for_request` and `schema_for_response` relations
+- includes linked examples from `example_for` relations
+- preserves diagnostic evidence and review-before-apply semantics
+- keeps narrative rewrites and multi-page API documentation edits deferred
+
+### Existing API Documentation Patch Updates
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-app/src/docs.rs`
+- `docs/development/docs-completeness-policy.md`
+- `docs/architecture/pipeline.md`
+
+Purpose:
+
+- extends `ath docs propose-fix` beyond create-only API documentation drafts
+- finds existing editable API pages that declare an endpoint in frontmatter or are linked through canonical documentation relations
+- limits managed contract updates to pages marked as API documentation
+- proposes endpoint-specific Athanor-managed API contract blocks delimited by `athanor:api-doc` comments
+- refreshes existing managed blocks when endpoint contract facts or graph relations change
+- supports multiple endpoint blocks in one API documentation page
+- adds missing endpoint stable keys to API page frontmatter `entities` when canonical documentation relations already link the page to the endpoint
+- proposes generated coordination blocks when one endpoint is documented by multiple editable API pages
+- preserves human-authored Markdown outside managed blocks
+- applies the update only through explicit `ath docs apply-patch`
+- keeps stale narrative rewrite proposals deferred
 
 ### Environment Documentation Check View
 
@@ -1192,13 +1236,13 @@ Status: planned.
 
 Scope:
 
-- extend API documentation generation/update workflows from the API registry
-- extend patch proposals beyond skeletal missing-doc pages into richer evidence-backed content drafts
+- detect stale narrative API documentation beyond the managed contract block
 - keep generated drafts separate from editable source documentation
 
 Acceptance:
 
 - generated API documentation fixes are evidence-backed and reviewable before application
+- stale API narrative findings can be proposed as reviewable patches rather than direct edits
 - editable docs are never overwritten without an explicit apply command
 - docs and API checks can confirm that an applied patch closes the relevant diagnostic
 

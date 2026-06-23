@@ -215,7 +215,17 @@ proposal under `.athanor/patches/docs/` by default. The current proposal generat
 deterministic. It covers Markdown frontmatter remediation for policy and drift findings, and creates
 reviewable Markdown API page drafts for `api_endpoint_implemented_but_not_documented` diagnostics.
 Generated API pages include frontmatter `entities` declarations that point at the missing endpoint,
-so a later index can convert the reviewed page into a canonical `documents` relation.
+so a later index can convert the reviewed page into a canonical `documents` relation. API drafts use
+the canonical API graph when available: linked Rust handlers, request and response schema
+relations, examples, response codes, tags, security payloads, and diagnostic evidence are included
+without re-parsing source files. Existing editable API documentation pages that already declare or
+link to endpoints receive proposed endpoint-specific Athanor-managed contract block updates;
+human-authored content outside those blocks is preserved, and the source file is changed only after
+explicit `docs apply-patch`. When an editable API page is linked to an endpoint only through
+canonical documentation relations, the same proposal can add the endpoint stable key to frontmatter
+`entities` so future indexes retain an exact declared reference. When one endpoint is documented by
+multiple editable API pages, the proposal also refreshes a generated coordination block that lists
+the related pages for review before application.
 It also creates reviewable operations documentation drafts for `missing_env_var` diagnostics under
 the editable documentation operations path, using frontmatter `entities` declarations that point at
 the missing `env://` stable key.
@@ -399,8 +409,8 @@ Generated JSONL files and Markdown wiki pages under `.athanor/generated/current`
 - The HTML report is a static overview without client-side filtering or per-entity detail pages.
 - Generation numbering and pointer updates are local single-process operations; concurrent generation publishers and garbage collection are not implemented.
 - Direct compatibility outputs under `.athanor/generated/current` are not coordinated; consumers requiring one snapshot must use `current.json` and `generations/`.
-- Documentation patch proposals currently create skeletal API documentation pages only for missing API docs diagnostics; richer content updates and multi-page edits remain future work.
+- Documentation patch proposals currently create enriched API documentation pages for missing API docs diagnostics, refresh endpoint-specific managed API contract blocks in existing API documentation pages, stabilize explicit API frontmatter references, support pages that cover multiple endpoints, and add coordination blocks for split endpoint documentation; stale narrative updates remain future work.
 
 ## Next Good Step
 
-Extend documentation patch proposals to API documentation generation/update drafts backed by the API registry.
+Extend documentation patch proposals to detect stale narrative API documentation beyond managed blocks.

@@ -1,11 +1,14 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
 use crate::store::init_store;
 use anyhow::{Context, Result};
 use athanor_core::CanonicalSnapshotStore;
-use athanor_domain::{Diagnostic, DiagnosticKind, DiagnosticStatus, Entity, EntityKind, Severity};
+use athanor_domain::{
+    Diagnostic, DiagnosticKind, DiagnosticStatus, Entity, EntityKind, Relation, RelationKind,
+    Severity,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -15,6 +18,10 @@ use crate::project_path::normalize_canonical_path;
 pub const DOCS_CHECK_SCHEMA: &str = "athanor.docs_check.v1";
 pub const DOCS_DRIFT_SCHEMA: &str = "athanor.docs_drift.v1";
 pub const DOCS_PATCH_SCHEMA: &str = "athanor.docs_patch.v1";
+const API_DOC_MANAGED_START_PREFIX: &str = "<!-- athanor:api-doc:start ";
+const API_DOC_MANAGED_END: &str = "<!-- athanor:api-doc:end -->";
+const API_DOC_COORDINATION_START_PREFIX: &str = "<!-- athanor:api-docs-coordination:start ";
+const API_DOC_COORDINATION_END: &str = "<!-- athanor:api-docs-coordination:end -->";
 
 #[derive(Debug, Clone)]
 pub struct DocsCheckOptions {
@@ -160,8 +167,10 @@ pub async fn docs_propose_fix(options: DocsProposeFixOptions) -> Result<DocsProp
     let proposal = build_docs_patch_proposal(
         snapshot,
         &canonical.entities,
+        &canonical.relations,
         &canonical.diagnostics,
         &config.docs,
+        Some(&root),
     );
     let path = match options.output {
         Some(output) => resolve_project_output(&root, &output)?,
@@ -224,6 +233,16 @@ pub async fn docs_apply_patch(options: DocsApplyPatchOptions) -> Result<DocsAppl
                     operation.path
                 );
             }
+            let content = if operation.changes.is_empty() {
+                content.clone()
+            } else {
+                apply_frontmatter_changes(content, &operation.changes).with_context(|| {
+                    format!(
+                        "failed to update frontmatter in proposed {}",
+                        operation.path
+                    )
+                })?
+            };
             if let Some(parent) = path.parent() {
                 fs::create_dir_all(parent)
                     .with_context(|| format!("failed to create {}", parent.display()))?;
@@ -380,8 +399,10 @@ fn build_docs_drift_report(
 fn build_docs_patch_proposal(
     snapshot: String,
     entities: &[Entity],
+    relations: &[Relation],
     diagnostics: &[Diagnostic],
     config: &DocsConfig,
+    project_root: Option<&Path>,
 ) -> DocsPatchProposal {
     let check = build_docs_check_report(snapshot.clone(), entities, diagnostics, config);
     let drift = build_docs_drift_report(snapshot.clone(), entities, config);
@@ -446,10 +467,67 @@ fn build_docs_patch_proposal(
                 path: path.clone(),
                 stable_key: format!("doc://{path}"),
                 create: true,
-                content: Some(api_doc_content(&snapshot, endpoint, diagnostic, &path)),
+                content: Some(api_doc_content(
+                    &snapshot, endpoint, diagnostic, &path, entities, relations,
+                )),
                 changes: Vec::new(),
             },
         );
+    }
+
+    if let Some(project_root) = project_root {
+        for endpoint in entities
+            .iter()
+            .filter(|entity| entity.kind == EntityKind::ApiEndpoint)
+        {
+            let documented_pages =
+                documented_api_pages(endpoint, &pages_by_path, entities, relations);
+            let has_split_documentation = documented_pages.len() > 1;
+            for page in &documented_pages {
+                let Some(path) = page_path(page) else {
+                    continue;
+                };
+                if changes_by_path
+                    .get(&path)
+                    .is_some_and(|operation| operation.create)
+                {
+                    continue;
+                }
+                if let Some(change) = explicit_api_entity_reference_change(page, endpoint) {
+                    push_patch_change(&mut changes_by_path, &path, page, change);
+                }
+                let Ok(source_path) = safe_project_path(project_root, &path) else {
+                    continue;
+                };
+                let Ok(existing) = fs::read_to_string(source_path) else {
+                    continue;
+                };
+                let base_content = changes_by_path
+                    .get(&path)
+                    .and_then(|operation| operation.content.as_deref())
+                    .unwrap_or(existing.as_str());
+                let mut updated =
+                    upsert_api_doc_managed_section(base_content, endpoint, entities, relations);
+                if has_split_documentation {
+                    updated =
+                        upsert_api_docs_coordination_section(&updated, endpoint, &documented_pages);
+                }
+                if updated == base_content {
+                    continue;
+                }
+                let operation =
+                    changes_by_path
+                        .entry(path.clone())
+                        .or_insert_with(|| DocsPatchOperation {
+                            path: path.clone(),
+                            stable_key: page.stable_key.0.clone(),
+                            create: false,
+                            content: None,
+                            changes: Vec::new(),
+                        });
+                operation.content = Some(updated);
+            }
+        }
     }
 
     for diagnostic in diagnostics.iter().filter(|diagnostic| {
@@ -616,6 +694,8 @@ fn api_doc_content(
     endpoint: &Entity,
     diagnostic: &Diagnostic,
     path: &str,
+    entities: &[Entity],
+    relations: &[Relation],
 ) -> String {
     let method = endpoint.payload["method"]
         .as_str()
@@ -635,6 +715,13 @@ fn api_doc_content(
         .payload
         .get("operation_id")
         .and_then(serde_json::Value::as_str);
+    let tags = string_array(&endpoint.payload["tags"]);
+    let responses = string_array(&endpoint.payload["responses"]);
+    let security = endpoint
+        .payload
+        .get("security")
+        .filter(|value| !value.is_null());
+    let context = api_doc_context(endpoint, entities, relations);
     let title = format!("{method} {route}");
 
     let mut content = String::new();
@@ -656,10 +743,77 @@ fn api_doc_content(
     if let Some(operation_id) = operation_id {
         content.push_str(&format!("- Operation ID: `{operation_id}`\n"));
     }
+    if !tags.is_empty() {
+        content.push_str(&format!("- Tags: {}\n", inline_code_list(&tags)));
+    }
+    if !responses.is_empty() {
+        content.push_str(&format!(
+            "- Declared responses: {}\n",
+            inline_code_list(&responses)
+        ));
+    }
+    if let Some(security) = security {
+        content.push_str(&format!("- Security: `{}`\n", compact_json(security)));
+    }
     content.push_str(&format!(
         "- Canonical entity: `{}`\n\n",
         endpoint.stable_key.0
     ));
+    if let Some(handler) = &context.handler {
+        content.push_str("## Implementation\n\n");
+        content.push_str(&format!("- Handler: `{}`\n", handler.stable_key.0));
+        if let Some(source) = &handler.source {
+            content.push_str(&format!("- Source: `{}`", source.path));
+            if let Some(line) = source.line_start {
+                content.push_str(&format!(":{line}"));
+            }
+            content.push('\n');
+        }
+        content.push('\n');
+    }
+    if !context.request_schemas.is_empty() || !context.response_schemas.is_empty() {
+        content.push_str("## Schemas\n\n");
+        for schema in &context.request_schemas {
+            content.push_str(&format!(
+                "- Request: `{}` ({})\n",
+                schema.schema.stable_key.0,
+                schema.metadata()
+            ));
+        }
+        for schema in &context.response_schemas {
+            content.push_str(&format!(
+                "- Response: `{}` ({})\n",
+                schema.schema.stable_key.0,
+                schema.metadata()
+            ));
+        }
+        content.push('\n');
+    }
+    if !context.examples.is_empty() {
+        content.push_str("## Examples\n\n");
+        for example in &context.examples {
+            let direction = example
+                .payload
+                .get("direction")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("example");
+            let media_type = example
+                .payload
+                .get("media_type")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("unknown media type");
+            let name = example
+                .payload
+                .get("example_name")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or(example.name.as_str());
+            content.push_str(&format!(
+                "- `{name}`: {direction} `{media_type}` via `{}`\n",
+                example.stable_key.0
+            ));
+        }
+        content.push('\n');
+    }
     content.push_str("## Evidence\n\n");
     if diagnostic.evidence.is_empty() {
         content.push_str("- `unknown source`\n");
@@ -678,6 +832,461 @@ fn api_doc_content(
         diagnostic.id.0
     ));
     content
+}
+
+fn documented_api_pages<'a>(
+    endpoint: &Entity,
+    pages_by_path: &'a BTreeMap<String, &'a Entity>,
+    entities: &'a [Entity],
+    relations: &[Relation],
+) -> Vec<&'a Entity> {
+    let by_id = entities
+        .iter()
+        .map(|entity| (&entity.id, entity))
+        .collect::<HashMap<_, _>>();
+    let mut pages = BTreeMap::<String, &'a Entity>::new();
+
+    for page in pages_by_path.values() {
+        if !is_api_documentation_page(page) {
+            continue;
+        }
+        if page.payload["entities"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(serde_json::Value::as_str)
+            .any(|stable_key| stable_key == endpoint.stable_key.0)
+            && let Some(path) = page_path(page)
+        {
+            pages.insert(path, *page);
+        }
+    }
+
+    for relation in relations.iter().filter(|relation| {
+        relation.to == endpoint.id
+            && matches!(
+                relation.kind,
+                RelationKind::Documents
+                    | RelationKind::DocumentsApi
+                    | RelationKind::DocumentsOperation
+            )
+    }) {
+        let Some(document) = by_id.get(&relation.from).copied() else {
+            continue;
+        };
+        if !matches!(
+            document.kind,
+            EntityKind::DocumentationPage | EntityKind::DocumentationSection
+        ) {
+            continue;
+        }
+        let Some(source_path) = document.source.as_ref().map(|source| source.path.clone()) else {
+            continue;
+        };
+        let Some(page) = pages_by_path.get(&source_path).copied() else {
+            continue;
+        };
+        if !is_api_documentation_page(page) {
+            continue;
+        }
+        pages.insert(source_path, page);
+    }
+
+    pages.into_values().collect()
+}
+
+fn is_api_documentation_page(page: &Entity) -> bool {
+    page.payload["documentation_kind"].as_str() == Some("api_documentation")
+        || page.payload["kind"].as_str() == Some("api_documentation")
+}
+
+fn explicit_api_entity_reference_change(
+    page: &Entity,
+    endpoint: &Entity,
+) -> Option<DocsFrontmatterChange> {
+    let mut entities = page
+        .payload
+        .get("entities")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(serde_json::Value::as_str)
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    if entities
+        .iter()
+        .any(|stable_key| stable_key == endpoint.stable_key.0.as_str())
+    {
+        return None;
+    }
+    entities.push(endpoint.stable_key.0.clone());
+    entities.sort();
+    entities.dedup();
+    Some(DocsFrontmatterChange {
+        field: "entities".to_string(),
+        old_value: page.payload.get("entities").cloned(),
+        new_value: Value::Array(entities.into_iter().map(Value::String).collect()),
+        reason: format!(
+            "API documentation page is linked to `{}` but does not declare it in frontmatter",
+            endpoint.stable_key.0
+        ),
+    })
+}
+
+fn upsert_api_doc_managed_section(
+    content: &str,
+    endpoint: &Entity,
+    entities: &[Entity],
+    relations: &[Relation],
+) -> String {
+    let section = api_doc_managed_section(endpoint, entities, relations);
+    let start_marker = api_doc_managed_start_marker(endpoint);
+    let Some(start) = content.find(&start_marker) else {
+        let mut updated = content.trim_end().to_string();
+        updated.push_str("\n\n");
+        updated.push_str(&section);
+        return updated;
+    };
+    let Some(relative_end) = content[start..].find(API_DOC_MANAGED_END) else {
+        let mut updated = content.trim_end().to_string();
+        updated.push_str("\n\n");
+        updated.push_str(&section);
+        return updated;
+    };
+    let end = start + relative_end + API_DOC_MANAGED_END.len();
+    let mut updated = String::new();
+    updated.push_str(content[..start].trim_end());
+    updated.push_str("\n\n");
+    updated.push_str(&section);
+    updated.push_str(content[end..].trim_start_matches(['\r', '\n']));
+    updated
+}
+
+fn upsert_api_docs_coordination_section(
+    content: &str,
+    endpoint: &Entity,
+    documented_pages: &[&Entity],
+) -> String {
+    let section = api_docs_coordination_section(endpoint, documented_pages);
+    let start_marker = api_docs_coordination_start_marker(endpoint);
+    let Some(start) = content.find(&start_marker) else {
+        let mut updated = content.trim_end().to_string();
+        updated.push_str("\n\n");
+        updated.push_str(&section);
+        return updated;
+    };
+    let Some(relative_end) = content[start..].find(API_DOC_COORDINATION_END) else {
+        let mut updated = content.trim_end().to_string();
+        updated.push_str("\n\n");
+        updated.push_str(&section);
+        return updated;
+    };
+    let end = start + relative_end + API_DOC_COORDINATION_END.len();
+    let mut updated = String::new();
+    updated.push_str(content[..start].trim_end());
+    updated.push_str("\n\n");
+    updated.push_str(&section);
+    updated.push_str(content[end..].trim_start_matches(['\r', '\n']));
+    updated
+}
+
+fn api_doc_managed_start_marker(endpoint: &Entity) -> String {
+    format!(
+        "{API_DOC_MANAGED_START_PREFIX}{} -->",
+        endpoint.stable_key.0
+    )
+}
+
+fn api_docs_coordination_start_marker(endpoint: &Entity) -> String {
+    format!(
+        "{API_DOC_COORDINATION_START_PREFIX}{} -->",
+        endpoint.stable_key.0
+    )
+}
+
+fn api_docs_coordination_section(endpoint: &Entity, documented_pages: &[&Entity]) -> String {
+    let mut pages = documented_pages
+        .iter()
+        .filter_map(|page| page_path(page).map(|path| (*page, path)))
+        .collect::<Vec<_>>();
+    pages.sort_by(|(left_page, left_path), (right_page, right_path)| {
+        (&left_page.stable_key.0, left_path).cmp(&(&right_page.stable_key.0, right_path))
+    });
+
+    let mut content = String::new();
+    content.push_str(&format!(
+        "{API_DOC_COORDINATION_START_PREFIX}{} -->\n",
+        endpoint.stable_key.0
+    ));
+    content.push('\n');
+    content.push_str("## Athanor API Documentation Map\n\n");
+    content.push_str(&format!("- Endpoint: `{}`\n", endpoint.stable_key.0));
+    content.push_str("- Related editable API pages:\n");
+    for (page, path) in pages {
+        content.push_str(&format!("- `{}` at `{path}`\n", page.stable_key.0));
+    }
+    content.push('\n');
+    content.push_str(API_DOC_COORDINATION_END);
+    content.push('\n');
+    content
+}
+
+fn api_doc_managed_section(
+    endpoint: &Entity,
+    entities: &[Entity],
+    relations: &[Relation],
+) -> String {
+    let mut content = String::new();
+    content.push_str(&format!(
+        "{API_DOC_MANAGED_START_PREFIX}{} -->\n",
+        endpoint.stable_key.0
+    ));
+    content.push('\n');
+    content.push_str("## Athanor API Contract\n\n");
+    push_api_contract_lines(&mut content, endpoint, entities, relations);
+    content.push_str(API_DOC_MANAGED_END);
+    content.push('\n');
+    content
+}
+
+fn push_api_contract_lines(
+    content: &mut String,
+    endpoint: &Entity,
+    entities: &[Entity],
+    relations: &[Relation],
+) {
+    let method = endpoint.payload["method"]
+        .as_str()
+        .unwrap_or("UNKNOWN")
+        .to_ascii_uppercase();
+    let route = endpoint
+        .payload
+        .get("path")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or(endpoint.name.as_str());
+    let operation_id = endpoint
+        .payload
+        .get("operation_id")
+        .and_then(serde_json::Value::as_str);
+    let tags = string_array(&endpoint.payload["tags"]);
+    let responses = string_array(&endpoint.payload["responses"]);
+    let security = endpoint
+        .payload
+        .get("security")
+        .filter(|value| !value.is_null());
+    let context = api_doc_context(endpoint, entities, relations);
+
+    content.push_str(&format!("- Method: `{method}`\n"));
+    content.push_str(&format!("- Path: `{route}`\n"));
+    if let Some(operation_id) = operation_id {
+        content.push_str(&format!("- Operation ID: `{operation_id}`\n"));
+    }
+    if !tags.is_empty() {
+        content.push_str(&format!("- Tags: {}\n", inline_code_list(&tags)));
+    }
+    if !responses.is_empty() {
+        content.push_str(&format!(
+            "- Declared responses: {}\n",
+            inline_code_list(&responses)
+        ));
+    }
+    if let Some(security) = security {
+        content.push_str(&format!("- Security: `{}`\n", compact_json(security)));
+    }
+    content.push_str(&format!(
+        "- Canonical entity: `{}`\n",
+        endpoint.stable_key.0
+    ));
+    if let Some(handler) = &context.handler {
+        content.push_str(&format!("- Handler: `{}`", handler.stable_key.0));
+        if let Some(source) = &handler.source {
+            content.push_str(&format!(" from `{}`", source.path));
+            if let Some(line) = source.line_start {
+                content.push_str(&format!(":{line}"));
+            }
+        }
+        content.push('\n');
+    }
+    for schema in &context.request_schemas {
+        content.push_str(&format!(
+            "- Request schema: `{}` ({})\n",
+            schema.schema.stable_key.0,
+            schema.metadata()
+        ));
+    }
+    for schema in &context.response_schemas {
+        content.push_str(&format!(
+            "- Response schema: `{}` ({})\n",
+            schema.schema.stable_key.0,
+            schema.metadata()
+        ));
+    }
+    for example in &context.examples {
+        let direction = example
+            .payload
+            .get("direction")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("example");
+        let media_type = example
+            .payload
+            .get("media_type")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("unknown media type");
+        let name = example
+            .payload
+            .get("example_name")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or(example.name.as_str());
+        content.push_str(&format!(
+            "- Example `{name}`: {direction} `{media_type}` via `{}`\n",
+            example.stable_key.0
+        ));
+    }
+}
+
+struct ApiDocContext<'a> {
+    handler: Option<&'a Entity>,
+    request_schemas: Vec<ApiSchemaDocLink<'a>>,
+    response_schemas: Vec<ApiSchemaDocLink<'a>>,
+    examples: Vec<&'a Entity>,
+}
+
+struct ApiSchemaDocLink<'a> {
+    schema: &'a Entity,
+    media_type: Option<String>,
+    status_code: Option<String>,
+}
+
+impl ApiSchemaDocLink<'_> {
+    fn metadata(&self) -> String {
+        let mut parts = Vec::new();
+        if let Some(status_code) = &self.status_code {
+            parts.push(format!("status `{status_code}`"));
+        }
+        if let Some(media_type) = &self.media_type {
+            parts.push(format!("media `{media_type}`"));
+        }
+        if parts.is_empty() {
+            "linked schema".to_string()
+        } else {
+            parts.join(", ")
+        }
+    }
+}
+
+fn api_doc_context<'a>(
+    endpoint: &Entity,
+    entities: &'a [Entity],
+    relations: &[Relation],
+) -> ApiDocContext<'a> {
+    let by_id = entities
+        .iter()
+        .map(|entity| (&entity.id, entity))
+        .collect::<HashMap<_, _>>();
+
+    let mut handler = None;
+    let mut request_schemas = Vec::new();
+    let mut response_schemas = Vec::new();
+    let mut examples = Vec::new();
+
+    for relation in relations {
+        match relation.kind {
+            RelationKind::ImplementedBy if relation.from == endpoint.id => {
+                handler = by_id.get(&relation.to).copied();
+            }
+            RelationKind::SchemaForRequest if relation.from == endpoint.id => {
+                if let Some(schema) = by_id.get(&relation.to).copied() {
+                    request_schemas.push(ApiSchemaDocLink {
+                        schema,
+                        media_type: relation
+                            .payload
+                            .get("media_type")
+                            .and_then(serde_json::Value::as_str)
+                            .map(str::to_string),
+                        status_code: None,
+                    });
+                }
+            }
+            RelationKind::SchemaForResponse if relation.from == endpoint.id => {
+                if let Some(schema) = by_id.get(&relation.to).copied() {
+                    response_schemas.push(ApiSchemaDocLink {
+                        schema,
+                        media_type: relation
+                            .payload
+                            .get("media_type")
+                            .and_then(serde_json::Value::as_str)
+                            .map(str::to_string),
+                        status_code: relation
+                            .payload
+                            .get("status_code")
+                            .and_then(serde_json::Value::as_str)
+                            .map(str::to_string),
+                    });
+                }
+            }
+            RelationKind::ExampleFor if relation.to == endpoint.id => {
+                if let Some(example) = by_id.get(&relation.from).copied() {
+                    examples.push(example);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    request_schemas.sort_by(|left, right| {
+        (
+            &left.schema.stable_key.0,
+            &left.status_code,
+            &left.media_type,
+        )
+            .cmp(&(
+                &right.schema.stable_key.0,
+                &right.status_code,
+                &right.media_type,
+            ))
+    });
+    response_schemas.sort_by(|left, right| {
+        (
+            &left.status_code,
+            &left.schema.stable_key.0,
+            &left.media_type,
+        )
+            .cmp(&(
+                &right.status_code,
+                &right.schema.stable_key.0,
+                &right.media_type,
+            ))
+    });
+    examples.sort_by(|left, right| left.stable_key.0.cmp(&right.stable_key.0));
+
+    ApiDocContext {
+        handler,
+        request_schemas,
+        response_schemas,
+        examples,
+    }
+}
+
+fn string_array(value: &Value) -> Vec<String> {
+    value
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(serde_json::Value::as_str)
+        .map(str::to_string)
+        .collect()
+}
+
+fn inline_code_list(values: &[String]) -> String {
+    values
+        .iter()
+        .map(|value| format!("`{value}`"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn compact_json(value: &Value) -> String {
+    serde_json::to_string(value).unwrap_or_else(|_| value.to_string())
 }
 
 fn env_doc_path(editable_path: &str, env_var: &Entity) -> String {
@@ -1084,7 +1693,9 @@ mod tests {
             "snap_current".to_string(),
             &[page],
             &[],
+            &[],
             &DocsConfig::default(),
+            None,
         );
 
         assert_eq!(proposal.schema, DOCS_PATCH_SCHEMA);
@@ -1115,8 +1726,10 @@ mod tests {
         let proposal = build_docs_patch_proposal(
             "snap_current".to_string(),
             &[endpoint],
+            &[],
             &[diagnostic],
             &DocsConfig::default(),
+            None,
         );
 
         assert_eq!(proposal.operations.len(), 1);
@@ -1131,6 +1744,329 @@ mod tests {
     }
 
     #[test]
+    fn enriches_api_documentation_draft_from_api_graph() {
+        let endpoint = api_endpoint();
+        let handler = handler_entity();
+        let request_schema = api_schema("LoginRequest");
+        let response_schema = api_schema("LoginResponse");
+        let example = api_example(&endpoint);
+        let diagnostic = api_missing_docs_diagnostic(&endpoint);
+        let relations = vec![
+            relation(
+                "rel_impl",
+                RelationKind::ImplementedBy,
+                &endpoint,
+                &handler,
+                json!({}),
+            ),
+            relation(
+                "rel_request_schema",
+                RelationKind::SchemaForRequest,
+                &endpoint,
+                &request_schema,
+                json!({"media_type": "application/json"}),
+            ),
+            relation(
+                "rel_response_schema",
+                RelationKind::SchemaForResponse,
+                &endpoint,
+                &response_schema,
+                json!({"status_code": "200", "media_type": "application/json"}),
+            ),
+            relation(
+                "rel_example",
+                RelationKind::ExampleFor,
+                &example,
+                &endpoint,
+                json!({}),
+            ),
+        ];
+
+        let proposal = build_docs_patch_proposal(
+            "snap_current".to_string(),
+            &[
+                endpoint.clone(),
+                handler,
+                request_schema,
+                response_schema,
+                example,
+            ],
+            &relations,
+            &[diagnostic],
+            &DocsConfig::default(),
+            None,
+        );
+
+        let content = proposal.operations[0].content.as_deref().unwrap();
+        assert!(content.contains("## Implementation\n\n"));
+        assert!(content.contains("- Handler: `symbol://rust:auth::login`\n"));
+        assert!(content.contains("## Schemas\n\n"));
+        assert!(content.contains("- Request: `api-schema://openapi.yaml#LoginRequest`"));
+        assert!(content.contains("- Response: `api-schema://openapi.yaml#LoginResponse`"));
+        assert!(content.contains("status `200`, media `application/json`"));
+        assert!(content.contains("## Examples\n\n"));
+        assert!(content.contains("`success`: response `application/json`"));
+    }
+
+    #[test]
+    fn proposes_existing_api_documentation_update_with_managed_block() {
+        let root = temp_project_root("athanor-docs-existing-api-test");
+        let doc_path = root.join("docs/api/login.md");
+        fs::create_dir_all(doc_path.parent().unwrap()).unwrap();
+        fs::write(
+            &doc_path,
+            "---\nid: doc://docs/api/login.md\nkind: api_documentation\nlanguage: en\nsource_language: en\nentities:\n  - api://POST:/login\nlast_verified_snapshot: snap_previous\nstatus: verified\n---\n\n# Login\n\nHuman-authored notes stay here.\n",
+        )
+        .unwrap();
+
+        let endpoint = api_endpoint();
+        let page = page(
+            "docs/api/login.md",
+            "editable",
+            json!({
+                "documentation_kind": "api_documentation",
+                "frontmatter_fields": ["id", "kind", "language", "source_language", "entities", "last_verified_snapshot", "status"],
+                "entities": ["api://POST:/login"],
+                "last_verified_snapshot": "snap_previous",
+                "status": "verified"
+            }),
+        );
+        let handler = handler_entity();
+        let relations = vec![relation(
+            "rel_impl",
+            RelationKind::ImplementedBy,
+            &endpoint,
+            &handler,
+            json!({}),
+        )];
+
+        let proposal = build_docs_patch_proposal(
+            "snap_current".to_string(),
+            &[endpoint, page, handler],
+            &relations,
+            &[],
+            &DocsConfig::default(),
+            Some(&root),
+        );
+
+        assert_eq!(proposal.operations.len(), 1);
+        let operation = &proposal.operations[0];
+        assert_eq!(operation.path, "docs/api/login.md");
+        assert!(!operation.create);
+        let content = operation.content.as_deref().unwrap();
+        assert!(content.contains("Human-authored notes stay here."));
+        assert!(content.contains("<!-- athanor:api-doc:start api://POST:/login -->"));
+        assert!(content.contains("## Athanor API Contract\n\n"));
+        assert!(content.contains("- Handler: `symbol://rust:auth::login` from `src/auth.rs`:42"));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn proposes_multiple_api_blocks_for_one_existing_api_page() {
+        let root = temp_project_root("athanor-docs-multi-api-test");
+        let doc_path = root.join("docs/api/auth.md");
+        fs::create_dir_all(doc_path.parent().unwrap()).unwrap();
+        fs::write(
+            &doc_path,
+            "---\nid: doc://docs/api/auth.md\nkind: api_documentation\nlanguage: en\nsource_language: en\nentities:\n  - api://POST:/login\n  - api://POST:/logout\nlast_verified_snapshot: snap_current\nstatus: verified\n---\n\n# Auth API\n",
+        )
+        .unwrap();
+
+        let login = api_endpoint();
+        let logout = api_endpoint_with(
+            "ent_endpoint_logout",
+            "api://POST:/logout",
+            "logout",
+            "/logout",
+        );
+        let page = page(
+            "docs/api/auth.md",
+            "editable",
+            json!({
+                "documentation_kind": "api_documentation",
+                "frontmatter_fields": ["id", "kind", "language", "source_language", "entities", "last_verified_snapshot", "status"],
+                "entities": ["api://POST:/login", "api://POST:/logout"],
+                "last_verified_snapshot": "snap_current",
+                "status": "verified"
+            }),
+        );
+
+        let proposal = build_docs_patch_proposal(
+            "snap_current".to_string(),
+            &[login, logout, page],
+            &[],
+            &[],
+            &DocsConfig::default(),
+            Some(&root),
+        );
+
+        assert_eq!(proposal.operations.len(), 1);
+        let content = proposal.operations[0].content.as_deref().unwrap();
+        assert!(content.contains("<!-- athanor:api-doc:start api://POST:/login -->"));
+        assert!(content.contains("<!-- athanor:api-doc:start api://POST:/logout -->"));
+        assert!(content.contains("- Path: `/login`"));
+        assert!(content.contains("- Path: `/logout`"));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn proposes_coordination_blocks_for_split_api_documentation() {
+        let root = temp_project_root("athanor-docs-split-api-test");
+        let overview_path = root.join("docs/api/auth.md");
+        let operation_path = root.join("docs/api/post-login.md");
+        fs::create_dir_all(overview_path.parent().unwrap()).unwrap();
+        fs::write(
+            &overview_path,
+            "---\nid: doc://docs/api/auth.md\nkind: api_documentation\nlanguage: en\nsource_language: en\nentities:\n  - api://POST:/login\nlast_verified_snapshot: snap_current\nstatus: verified\n---\n\n# Auth API\n",
+        )
+        .unwrap();
+        fs::write(
+            &operation_path,
+            "---\nid: doc://docs/api/post-login.md\nkind: api_documentation\nlanguage: en\nsource_language: en\nentities:\n  - api://POST:/login\nlast_verified_snapshot: snap_current\nstatus: verified\n---\n\n# POST /login\n",
+        )
+        .unwrap();
+
+        let endpoint = api_endpoint();
+        let overview = page(
+            "docs/api/auth.md",
+            "editable",
+            json!({
+                "documentation_kind": "api_documentation",
+                "frontmatter_fields": ["id", "kind", "language", "source_language", "entities", "last_verified_snapshot", "status"],
+                "entities": ["api://POST:/login"],
+                "last_verified_snapshot": "snap_current",
+                "status": "verified"
+            }),
+        );
+        let operation = page(
+            "docs/api/post-login.md",
+            "editable",
+            json!({
+                "documentation_kind": "api_documentation",
+                "frontmatter_fields": ["id", "kind", "language", "source_language", "entities", "last_verified_snapshot", "status"],
+                "entities": ["api://POST:/login"],
+                "last_verified_snapshot": "snap_current",
+                "status": "verified"
+            }),
+        );
+
+        let proposal = build_docs_patch_proposal(
+            "snap_current".to_string(),
+            &[endpoint, overview, operation],
+            &[],
+            &[],
+            &DocsConfig::default(),
+            Some(&root),
+        );
+
+        assert_eq!(proposal.operations.len(), 2);
+        for operation in &proposal.operations {
+            let content = operation.content.as_deref().unwrap();
+            assert!(
+                content.contains("<!-- athanor:api-docs-coordination:start api://POST:/login -->")
+            );
+            assert!(content.contains("## Athanor API Documentation Map\n\n"));
+            assert!(content.contains("`doc://docs/api/auth.md` at `docs/api/auth.md`"));
+            assert!(content.contains("`doc://docs/api/post-login.md` at `docs/api/post-login.md`"));
+        }
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn does_not_insert_api_block_into_non_api_documentation_page() {
+        let root = temp_project_root("athanor-docs-non-api-test");
+        let doc_path = root.join("docs/overview.md");
+        fs::create_dir_all(doc_path.parent().unwrap()).unwrap();
+        fs::write(
+            &doc_path,
+            "---\nid: doc://docs/overview.md\nkind: project_overview\nlanguage: en\nsource_language: en\nentities:\n  - api://POST:/login\nlast_verified_snapshot: snap_current\nstatus: verified\n---\n\n# Overview\n",
+        )
+        .unwrap();
+
+        let endpoint = api_endpoint();
+        let page = page(
+            "docs/overview.md",
+            "editable",
+            json!({
+                "documentation_kind": "project_overview",
+                "frontmatter_fields": ["id", "kind", "language", "source_language", "entities", "last_verified_snapshot", "status"],
+                "entities": ["api://POST:/login"],
+                "last_verified_snapshot": "snap_current",
+                "status": "verified"
+            }),
+        );
+
+        let proposal = build_docs_patch_proposal(
+            "snap_current".to_string(),
+            &[endpoint, page],
+            &[],
+            &[],
+            &DocsConfig::default(),
+            Some(&root),
+        );
+
+        assert!(proposal.operations.is_empty());
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn proposes_explicit_entity_reference_for_linked_api_page() {
+        let root = temp_project_root("athanor-docs-api-reference-test");
+        let doc_path = root.join("docs/api/login.md");
+        fs::create_dir_all(doc_path.parent().unwrap()).unwrap();
+        fs::write(
+            &doc_path,
+            "---\nid: doc://docs/api/login.md\nkind: api_documentation\nlanguage: en\nsource_language: en\nlast_verified_snapshot: snap_current\nstatus: verified\n---\n\n# Login API\n",
+        )
+        .unwrap();
+
+        let endpoint = api_endpoint();
+        let page = page(
+            "docs/api/login.md",
+            "editable",
+            json!({
+                "documentation_kind": "api_documentation",
+                "frontmatter_fields": ["id", "kind", "language", "source_language", "last_verified_snapshot", "status"],
+                "last_verified_snapshot": "snap_current",
+                "status": "verified"
+            }),
+        );
+        let relations = vec![relation(
+            "rel_doc",
+            RelationKind::DocumentsApi,
+            &page,
+            &endpoint,
+            json!({}),
+        )];
+
+        let proposal = build_docs_patch_proposal(
+            "snap_current".to_string(),
+            &[endpoint, page],
+            &relations,
+            &[],
+            &DocsConfig::default(),
+            Some(&root),
+        );
+
+        assert_eq!(proposal.operations.len(), 1);
+        let operation = &proposal.operations[0];
+        assert_eq!(operation.path, "docs/api/login.md");
+        assert!(operation.changes.iter().any(|change| {
+            change.field == "entities"
+                && change.new_value == json!(["api://POST:/login"])
+                && change.reason.contains("does not declare it")
+        }));
+        let content = operation.content.as_deref().unwrap();
+        assert!(content.contains("<!-- athanor:api-doc:start api://POST:/login -->"));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn proposes_environment_documentation_creation_for_missing_env_docs() {
         let env_var = env_var();
         let diagnostic = missing_env_var_diagnostic(&env_var);
@@ -1138,8 +2074,10 @@ mod tests {
         let proposal = build_docs_patch_proposal(
             "snap_current".to_string(),
             &[env_var],
+            &[],
             &[diagnostic],
             &DocsConfig::default(),
+            None,
         );
 
         assert_eq!(proposal.operations.len(), 1);
@@ -1206,12 +2144,16 @@ mod tests {
     }
 
     fn api_endpoint() -> Entity {
+        api_endpoint_with("ent_endpoint", "api://POST:/login", "login", "/login")
+    }
+
+    fn api_endpoint_with(id: &str, stable_key: &str, operation_id: &str, path: &str) -> Entity {
         Entity {
-            id: EntityId("ent_endpoint".to_string()),
-            stable_key: StableKey("api://POST:/login".to_string()),
+            id: EntityId(id.to_string()),
+            stable_key: StableKey(stable_key.to_string()),
             kind: EntityKind::ApiEndpoint,
-            name: "POST /login".to_string(),
-            title: Some("Login".to_string()),
+            name: format!("POST {path}"),
+            title: Some(operation_id.to_string()),
             source: Some(SourceLocation {
                 path: "openapi.yaml".to_string(),
                 line_start: Some(10),
@@ -1224,11 +2166,111 @@ mod tests {
             }],
             payload: json!({
                 "method": "POST",
-                "path": "/login",
-                "operation_id": "login",
-                "summary": "Authenticate a user."
+                "path": path,
+                "operation_id": operation_id,
+                "summary": format!("{} endpoint.", operation_id)
             }),
         }
+    }
+
+    fn handler_entity() -> Entity {
+        Entity {
+            id: EntityId("ent_handler_login".to_string()),
+            stable_key: StableKey("symbol://rust:auth::login".to_string()),
+            kind: EntityKind::Function,
+            name: "login".to_string(),
+            title: None,
+            source: Some(SourceLocation {
+                path: "src/auth.rs".to_string(),
+                line_start: Some(42),
+                line_end: Some(52),
+            }),
+            language: Some(LanguageCode("rust".to_string())),
+            aliases: Vec::new(),
+            ownership: vec![Ownership {
+                source_file: "src/auth.rs".to_string(),
+            }],
+            payload: json!({}),
+        }
+    }
+
+    fn api_schema(name: &str) -> Entity {
+        Entity {
+            id: EntityId(format!("ent_schema_{name}")),
+            stable_key: StableKey(format!("api-schema://openapi.yaml#{name}")),
+            kind: EntityKind::ApiSchema,
+            name: name.to_string(),
+            title: None,
+            source: Some(SourceLocation {
+                path: "openapi.yaml".to_string(),
+                line_start: Some(80),
+                line_end: Some(90),
+            }),
+            language: Some(LanguageCode("openapi".to_string())),
+            aliases: Vec::new(),
+            ownership: vec![Ownership {
+                source_file: "openapi.yaml".to_string(),
+            }],
+            payload: json!({}),
+        }
+    }
+
+    fn api_example(endpoint: &Entity) -> Entity {
+        Entity {
+            id: EntityId("ent_example_login_success".to_string()),
+            stable_key: StableKey("api-example://openapi.yaml#success".to_string()),
+            kind: EntityKind::ApiExample,
+            name: "login response application/json success".to_string(),
+            title: None,
+            source: Some(SourceLocation {
+                path: "openapi.yaml".to_string(),
+                line_start: Some(100),
+                line_end: Some(110),
+            }),
+            language: Some(LanguageCode("openapi".to_string())),
+            aliases: Vec::new(),
+            ownership: vec![Ownership {
+                source_file: "openapi.yaml".to_string(),
+            }],
+            payload: json!({
+                "endpoint": endpoint.stable_key.0,
+                "direction": "response",
+                "status_code": "200",
+                "media_type": "application/json",
+                "example_name": "success"
+            }),
+        }
+    }
+
+    fn relation(
+        id: &str,
+        kind: RelationKind,
+        from: &Entity,
+        to: &Entity,
+        payload: serde_json::Value,
+    ) -> Relation {
+        Relation {
+            id: athanor_domain::RelationId(id.to_string()),
+            kind,
+            from: from.id.clone(),
+            to: to.id.clone(),
+            status: athanor_domain::RelationStatus::Verified,
+            confidence: 1.0,
+            evidence: Vec::new(),
+            ownership: Vec::new(),
+            snapshot: athanor_domain::SnapshotId("snap_current".to_string()),
+            payload,
+        }
+    }
+
+    fn temp_project_root(prefix: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "{prefix}-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ))
     }
 
     fn api_missing_docs_diagnostic(endpoint: &Entity) -> Diagnostic {
