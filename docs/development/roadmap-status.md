@@ -1523,6 +1523,25 @@ Purpose:
 - advances persisted index state to v25 so existing projects rebuild runbook knowledge and diagnostics once
 - keeps step-to-target validation, dependencies, and richer runbook semantics deferred
 
+### Operations Documentation Draft Expansion
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-app/src/docs.rs`
+- `docs/development/docs-completeness-policy.md`
+- `docs/architecture/pipeline.md`
+
+Purpose:
+
+- extends `ath docs propose-fix` operations draft generation beyond `missing_env_var`
+- creates reviewable Markdown operations pages for scoped script `missing_documentation` diagnostics
+- creates reviewable Markdown operations pages for scoped deployment `missing_documentation` diagnostics
+- writes drafts under `<editable_path>/operations/` with frontmatter `entities` pointing at the missing operational stable key
+- includes source evidence, canonical entity kind, and review notes without modifying editable documentation until `docs apply-patch`
+- keeps runbook-diagnostic draft generation deferred
+
 ## In Progress
 
 None.
@@ -1539,7 +1558,7 @@ Scope:
 
 - add step-to-target runbook validation and deeper consistency rules
 - extend environment checks beyond Rust, dotenv, and Dockerfile declarations to runtime configuration coverage
-- expand generated operations documentation drafts beyond environment variables
+- expand generated operations documentation drafts to runbook diagnostics
 - expose remaining operational checks through commands such as `ath docs operations check`
 
 Acceptance:

@@ -241,9 +241,10 @@ adds a narrative review block when those mentions no longer match the current en
 the page. When the page has exactly one linked current endpoint, the same block includes a
 reviewable narrative rewrite draft that shows the original line and a deterministic route
 replacement without directly rewriting the human-authored paragraph.
-It also creates reviewable operations documentation drafts for `missing_env_var` diagnostics under
-the editable documentation operations path, using frontmatter `entities` declarations that point at
-the missing `env://` stable key.
+It also creates reviewable operations documentation drafts for `missing_env_var`, scoped script
+`missing_documentation`, and scoped deployment `missing_documentation` diagnostics under the
+editable documentation operations path, using frontmatter `entities` declarations that point at the
+missing operational stable key.
 
 `ath docs apply-patch <patch-id-or-path>` applies one proposal explicitly. Apply verifies that the
 proposal snapshot equals the current canonical snapshot before rewriting or creating editable
@@ -428,9 +429,9 @@ Generated JSONL files and Markdown wiki pages under `.athanor/generated/current`
 - The HTML report is a static overview without client-side filtering or per-entity detail pages.
 - Generation numbering and pointer updates are local single-process operations; concurrent generation publishers and garbage collection are not implemented.
 - Direct compatibility outputs under `.athanor/generated/current` are not coordinated; consumers requiring one snapshot must use `current.json` and `generations/`.
-- Documentation patch proposals currently create enriched API documentation pages for missing API docs diagnostics, refresh endpoint-specific managed API contract blocks in existing API documentation pages, stabilize explicit API frontmatter references, support pages that cover multiple endpoints, add coordination blocks for split endpoint documentation, flag stale route mentions in human-authored API narrative, and include deterministic narrative rewrite drafts when a page has one unambiguous linked endpoint.
+- Documentation patch proposals currently create enriched API documentation pages for missing API docs diagnostics, refresh endpoint-specific managed API contract blocks in existing API documentation pages, stabilize explicit API frontmatter references, support pages that cover multiple endpoints, add coordination blocks for split endpoint documentation, flag stale route mentions in human-authored API narrative, include deterministic narrative rewrite drafts when a page has one unambiguous linked endpoint, and create operations documentation drafts for missing environment, script, and deployment documentation.
 - Runbook extraction currently materializes page-level runbook entities from Markdown frontmatter and operation-step entities from ordered-list items. Step dependencies, step-to-target validation, and richer runbook semantics remain deferred.
 
 ## Next Good Step
 
-Continue the operations adapter slice by adding step-to-target runbook validation or operations documentation drafts beyond environment variables.
+Continue the operations adapter slice by adding step-to-target runbook validation or generated operations drafts for runbook diagnostics.

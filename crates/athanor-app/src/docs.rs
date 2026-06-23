@@ -631,6 +631,55 @@ fn build_docs_patch_proposal(
         );
     }
 
+    for diagnostic in diagnostics.iter().filter(|diagnostic| {
+        diagnostic.status == DiagnosticStatus::Open
+            && diagnostic.kind == DiagnosticKind::MissingDocumentation
+            && diagnostic
+                .payload
+                .get("scope")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|scope| matches!(scope, "scripts" | "deployment"))
+    }) {
+        let Some((entity_kind, payload_key, path_prefix, title_prefix)) =
+            operation_doc_diagnostic_shape(diagnostic)
+        else {
+            continue;
+        };
+        let Some(stable_key) = diagnostic
+            .payload
+            .get(payload_key)
+            .and_then(serde_json::Value::as_str)
+        else {
+            continue;
+        };
+        let Some(entity) = entities
+            .iter()
+            .find(|entity| entity.kind == entity_kind && entity.stable_key.0 == stable_key)
+        else {
+            continue;
+        };
+        let path = operation_doc_path(&config.editable_path, path_prefix, entity);
+        if pages_by_path.contains_key(&path) || changes_by_path.contains_key(&path) {
+            continue;
+        }
+        changes_by_path.insert(
+            path.clone(),
+            DocsPatchOperation {
+                path: path.clone(),
+                stable_key: format!("doc://{path}"),
+                create: true,
+                content: Some(operation_doc_content(
+                    &snapshot,
+                    entity,
+                    diagnostic,
+                    &path,
+                    title_prefix,
+                )),
+                changes: Vec::new(),
+            },
+        );
+    }
+
     let operations = changes_by_path.into_values().collect::<Vec<_>>();
     DocsPatchProposal {
         schema: DOCS_PATCH_SCHEMA.to_string(),
@@ -1587,25 +1636,7 @@ fn env_doc_path(editable_path: &str, env_var: &Entity) -> String {
         .0
         .strip_prefix("env://")
         .unwrap_or(env_var.name.as_str());
-    let slug = name
-        .chars()
-        .map(|character| {
-            if character.is_ascii_alphanumeric() {
-                character.to_ascii_lowercase()
-            } else {
-                '-'
-            }
-        })
-        .collect::<String>()
-        .split('-')
-        .filter(|part| !part.is_empty())
-        .collect::<Vec<_>>()
-        .join("-");
-    let slug = if slug.is_empty() {
-        "variable".to_string()
-    } else {
-        slug
-    };
+    let slug = slug_for_path(name, "variable");
     format!(
         "{}/operations/env-{}.md",
         normalize_policy_path(editable_path),
@@ -1662,6 +1693,133 @@ fn env_doc_content(
         diagnostic.id.0
     ));
     content
+}
+
+fn operation_doc_diagnostic_shape(
+    diagnostic: &Diagnostic,
+) -> Option<(EntityKind, &'static str, &'static str, &'static str)> {
+    match diagnostic
+        .payload
+        .get("scope")
+        .and_then(serde_json::Value::as_str)
+    {
+        Some("scripts") => Some((
+            EntityKind::ScriptCommand,
+            "script_command",
+            "script",
+            "Script Command",
+        )),
+        Some("deployment") => Some((
+            EntityKind::DockerService,
+            "deployment",
+            "deployment",
+            "Deployment Resource",
+        )),
+        _ => None,
+    }
+}
+
+fn operation_doc_path(editable_path: &str, prefix: &str, entity: &Entity) -> String {
+    let slug = slug_for_path(&entity.stable_key.0, entity.name.as_str());
+    format!(
+        "{}/operations/{}-{}.md",
+        normalize_policy_path(editable_path),
+        prefix,
+        slug
+    )
+}
+
+fn operation_doc_content(
+    snapshot: &str,
+    entity: &Entity,
+    diagnostic: &Diagnostic,
+    path: &str,
+    title_prefix: &str,
+) -> String {
+    let title = entity.title.as_deref().unwrap_or(entity.name.as_str());
+    let mut content = String::new();
+    content.push_str("---\n");
+    content.push_str(&format!("id: doc://{path}\n"));
+    content.push_str("kind: operations_documentation\n");
+    content.push_str("language: en\n");
+    content.push_str("source_language: en\n");
+    content.push_str("entities:\n");
+    content.push_str(&format!("  - {}\n", entity.stable_key.0));
+    content.push_str(&format!("last_verified_snapshot: {snapshot}\n"));
+    content.push_str("status: verified\n");
+    content.push_str("---\n\n");
+    content.push_str(&format!("# {title_prefix} `{title}`\n\n"));
+    content.push_str("## Purpose\n\n");
+    content.push_str("Document when this operational item is used, who owns it, and what successful execution or operation means.\n\n");
+    content.push_str("## Contract\n\n");
+    content.push_str(&format!("- Canonical entity: `{}`\n", entity.stable_key.0));
+    content.push_str(&format!(
+        "- Entity kind: `{}`\n",
+        serialized_entity_kind(&entity.kind)
+    ));
+    if let Some(source) = &entity.source {
+        content.push_str(&format!("- Source: `{}`", source.path));
+        if let Some(line) = source.line_start {
+            content.push_str(&format!(":{line}"));
+        }
+        content.push('\n');
+    }
+    content.push('\n');
+    content.push_str("## Procedure\n\n");
+    content.push_str("1. Review the source definition and confirm prerequisites.\n");
+    content.push_str("2. Execute or operate this item according to the project runbook.\n");
+    content.push_str("3. Record outcomes, rollback notes, and follow-up actions.\n\n");
+    content.push_str("## Evidence\n\n");
+    if diagnostic.evidence.is_empty() {
+        content.push_str("- `unknown source`\n");
+    } else {
+        for evidence in &diagnostic.evidence {
+            let source = evidence.source_file.as_deref().unwrap_or("unknown source");
+            let line = evidence
+                .line_start
+                .map_or_else(String::new, |line| format!(":{line}"));
+            content.push_str(&format!("- `{source}{line}`\n"));
+        }
+    }
+    content.push_str("\n## Notes\n\n");
+    content.push_str(&format!(
+        "Generated from diagnostic `{}`. Review this page before relying on it as operational documentation.\n",
+        diagnostic.id.0
+    ));
+    content
+}
+
+fn slug_for_path(input: &str, fallback: &str) -> String {
+    let slug = input
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() {
+                character.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>()
+        .split('-')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+    if slug.is_empty() {
+        fallback.to_string()
+    } else {
+        slug
+    }
+}
+
+fn serialized_entity_kind(kind: &EntityKind) -> &'static str {
+    match kind {
+        EntityKind::ScriptCommand => "script_command",
+        EntityKind::DockerService => "docker_service",
+        EntityKind::EnvVar => "env_var",
+        EntityKind::Runbook => "runbook",
+        EntityKind::OperationStep => "operation_step",
+        _ => "other",
+    }
 }
 
 fn is_editable_page(entity: &Entity, editable_path: &str) -> bool {
@@ -2484,6 +2642,72 @@ mod tests {
     }
 
     #[test]
+    fn proposes_script_documentation_creation_for_missing_script_docs() {
+        let script = script_command();
+        let diagnostic = missing_operation_doc_diagnostic(
+            &script,
+            "diag_missing_script",
+            "script_command",
+            "scripts",
+        );
+
+        let proposal = build_docs_patch_proposal(
+            "snap_current".to_string(),
+            &[script],
+            &[],
+            &[diagnostic],
+            &DocsConfig::default(),
+            None,
+        );
+
+        assert_eq!(proposal.operations.len(), 1);
+        let operation = &proposal.operations[0];
+        assert_eq!(
+            operation.path,
+            "docs/operations/script-script-command-makefile-target-deploy.md"
+        );
+        assert!(operation.create);
+        let content = operation.content.as_deref().unwrap();
+        assert!(content.contains("kind: operations_documentation\n"));
+        assert!(content.contains("  - script-command://Makefile#target:deploy\n"));
+        assert!(content.contains("# Script Command `deploy`\n"));
+        assert!(content.contains("- Entity kind: `script_command`\n"));
+    }
+
+    #[test]
+    fn proposes_deployment_documentation_creation_for_missing_deployment_docs() {
+        let deployment = deployment_resource();
+        let diagnostic = missing_operation_doc_diagnostic(
+            &deployment,
+            "diag_missing_deployment",
+            "deployment",
+            "deployment",
+        );
+
+        let proposal = build_docs_patch_proposal(
+            "snap_current".to_string(),
+            &[deployment],
+            &[],
+            &[diagnostic],
+            &DocsConfig::default(),
+            None,
+        );
+
+        assert_eq!(proposal.operations.len(), 1);
+        let operation = &proposal.operations[0];
+        assert_eq!(
+            operation.path,
+            "docs/operations/deployment-kubernetes-k8s-deployment-yaml-deployment-api.md"
+        );
+        assert!(operation.create);
+        let content = operation.content.as_deref().unwrap();
+        assert!(content.contains("kind: operations_documentation\n"));
+        assert!(content.contains("  - kubernetes://k8s/deployment.yaml#Deployment:api\n"));
+        assert!(content.contains("# Deployment Resource `api`\n"));
+        assert!(content.contains("- Entity kind: `docker_service`\n"));
+    }
+
+    #[test]
     fn applies_frontmatter_changes_without_touching_body() {
         let content = "---\nid: doc://docs/auth.md\nstatus: draft\n---\n# Auth\n";
         let updated = apply_frontmatter_changes(
@@ -2715,6 +2939,48 @@ mod tests {
         }
     }
 
+    fn script_command() -> Entity {
+        Entity {
+            id: EntityId("ent_script_deploy".to_string()),
+            stable_key: StableKey("script-command://Makefile#target:deploy".to_string()),
+            kind: EntityKind::ScriptCommand,
+            name: "deploy".to_string(),
+            title: None,
+            source: Some(SourceLocation {
+                path: "Makefile".to_string(),
+                line_start: Some(12),
+                line_end: Some(12),
+            }),
+            language: Some(LanguageCode("makefile".to_string())),
+            aliases: Vec::new(),
+            ownership: vec![Ownership {
+                source_file: "Makefile".to_string(),
+            }],
+            payload: json!({}),
+        }
+    }
+
+    fn deployment_resource() -> Entity {
+        Entity {
+            id: EntityId("ent_deployment_api".to_string()),
+            stable_key: StableKey("kubernetes://k8s/deployment.yaml#Deployment:api".to_string()),
+            kind: EntityKind::DockerService,
+            name: "api".to_string(),
+            title: None,
+            source: Some(SourceLocation {
+                path: "k8s/deployment.yaml".to_string(),
+                line_start: Some(3),
+                line_end: Some(20),
+            }),
+            language: Some(LanguageCode("yaml".to_string())),
+            aliases: Vec::new(),
+            ownership: vec![Ownership {
+                source_file: "k8s/deployment.yaml".to_string(),
+            }],
+            payload: json!({}),
+        }
+    }
+
     fn missing_env_var_diagnostic(env_var: &Entity) -> Diagnostic {
         Diagnostic {
             id: athanor_domain::DiagnosticId("diag_missing_env".to_string()),
@@ -2739,6 +3005,40 @@ mod tests {
             payload: json!({
                 "env_var": env_var.stable_key.0,
                 "missing_relation": "documents"
+            }),
+        }
+    }
+
+    fn missing_operation_doc_diagnostic(
+        entity: &Entity,
+        id: &str,
+        payload_key: &str,
+        scope: &str,
+    ) -> Diagnostic {
+        Diagnostic {
+            id: athanor_domain::DiagnosticId(id.to_string()),
+            kind: DiagnosticKind::MissingDocumentation,
+            severity: Severity::Medium,
+            status: DiagnosticStatus::Open,
+            title: "Operational entity is not documented".to_string(),
+            message: "Operational entity is known but not documented.".to_string(),
+            entities: vec![entity.id.clone()],
+            evidence: vec![athanor_domain::Evidence {
+                source_file: entity.source.as_ref().map(|source| source.path.clone()),
+                line_start: entity.source.as_ref().and_then(|source| source.line_start),
+                line_end: entity.source.as_ref().and_then(|source| source.line_end),
+                extractor: Some("operation-docs".to_string()),
+                commit_hash: None,
+                confidence: 1.0,
+                status: athanor_domain::EvidenceStatus::Missing,
+            }],
+            ownership: entity.ownership.clone(),
+            snapshot: athanor_domain::SnapshotId("snap_current".to_string()),
+            suggested_fix: Some("Document the operational entity.".to_string()),
+            payload: json!({
+                payload_key: entity.stable_key.0,
+                "missing_relation": "documents",
+                "scope": scope,
             }),
         }
     }

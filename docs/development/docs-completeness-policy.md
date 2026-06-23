@@ -88,9 +88,9 @@ evidence-backed API documentation drafts, and operations documentation drafts:
 - narrative review blocks when human-authored API page text mentions `METHOD /path` routes that do
   not match the current endpoints linked to that page; when the page has exactly one linked current
   endpoint, the block also includes original-line and draft-line rewrite suggestions for review
-- new Markdown operations pages for `missing_env_var` diagnostics, written under
-  `<editable_path>/operations/` with frontmatter `entities` that points at the missing environment
-  variable
+- new Markdown operations pages for `missing_env_var`, scoped script `missing_documentation`, and
+  scoped deployment `missing_documentation` diagnostics, written under `<editable_path>/operations/`
+  with frontmatter `entities` that points at the missing operational entity
 
 `ath docs apply-patch <patch-id-or-path>` applies one proposal explicitly. A bare patch id resolves
 to `.athanor/patches/docs/<id>.json`; a JSON path can also be supplied. Apply fails if the proposal
