@@ -230,7 +230,9 @@ report and final remaining issues.
 `ath overview [path]` reads the latest durable canonical snapshot without re-indexing and returns a
 bounded repository orientation report. The app-layer report includes canonical object totals, top
 entity and relation kinds, top source roots, API/documentation/operations counters, graph hubs by
-relation degree, and compact open diagnostic summaries. `--json` emits the stable
+relation degree, module summaries ranked by direct `defines`/`contains` members, cross-source-root
+integration boundaries with canonical relation ids, and compact open diagnostic summaries.
+All ranked sections use the command's `--top` bound. `--json` emits the stable
 `athanor.overview.v1` payload. The text output is intended as a quick agent/developer starting
 point before using `ath context`, `ath explain`, or `ath impact` for narrower questions.
 

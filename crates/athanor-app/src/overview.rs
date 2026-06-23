@@ -28,8 +28,30 @@ pub struct RepositoryOverview {
     pub api: ApiOverview,
     pub docs: DocsOverview,
     pub operations: OperationsOverview,
+    pub module_structure: Vec<ModuleOverview>,
+    pub integration_boundaries: Vec<IntegrationBoundaryOverview>,
     pub graph_hubs: Vec<EntityOverview>,
     pub open_diagnostics: Vec<DiagnosticOverview>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct ModuleOverview {
+    pub stable_key: String,
+    pub name: String,
+    pub source: Option<String>,
+    pub direct_members: usize,
+    pub relation_ids: Vec<String>,
+    pub omitted_relation_ids: usize,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct IntegrationBoundaryOverview {
+    pub from_root: String,
+    pub to_root: String,
+    pub relations: usize,
+    pub relation_kinds: Vec<NamedCount>,
+    pub relation_ids: Vec<String>,
+    pub omitted_relation_ids: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Default, PartialEq, Eq)]
@@ -162,9 +184,116 @@ pub fn build_repository_overview(snapshot: &CanonicalSnapshot, top: usize) -> Re
         api: api_overview(snapshot),
         docs: docs_overview(snapshot),
         operations: operations_overview(snapshot),
+        module_structure: module_structure(snapshot, top),
+        integration_boundaries: integration_boundaries(snapshot, top),
         graph_hubs: graph_hubs(snapshot, top),
         open_diagnostics: diagnostic_overviews(snapshot, top),
     }
+}
+
+fn module_structure(snapshot: &CanonicalSnapshot, top: usize) -> Vec<ModuleOverview> {
+    let mut members = HashMap::<String, Vec<String>>::new();
+    for relation in &snapshot.relations {
+        if matches!(
+            relation.kind,
+            RelationKind::Defines | RelationKind::Contains
+        ) {
+            members
+                .entry(relation.from.0.clone())
+                .or_default()
+                .push(relation.id.0.clone());
+        }
+    }
+
+    let mut modules = snapshot
+        .entities
+        .iter()
+        .filter(|entity| entity.kind == EntityKind::Module)
+        .map(|entity| {
+            let mut relation_ids = members.remove(&entity.id.0).unwrap_or_default();
+            relation_ids.sort();
+            let direct_members = relation_ids.len();
+            relation_ids.truncate(top);
+            ModuleOverview {
+                stable_key: entity.stable_key.0.clone(),
+                name: entity.name.clone(),
+                source: entity_source_anchor(entity),
+                direct_members,
+                omitted_relation_ids: direct_members.saturating_sub(relation_ids.len()),
+                relation_ids,
+            }
+        })
+        .collect::<Vec<_>>();
+    modules.sort_by(|left, right| {
+        right
+            .direct_members
+            .cmp(&left.direct_members)
+            .then_with(|| left.stable_key.cmp(&right.stable_key))
+    });
+    modules.truncate(top);
+    modules
+}
+
+fn integration_boundaries(
+    snapshot: &CanonicalSnapshot,
+    top: usize,
+) -> Vec<IntegrationBoundaryOverview> {
+    let root_by_id = snapshot
+        .entities
+        .iter()
+        .filter_map(|entity| entity_source_root(entity).map(|root| (entity.id.0.clone(), root)))
+        .collect::<HashMap<_, _>>();
+    let mut grouped = BTreeMap::<(String, String), Vec<&athanor_domain::Relation>>::new();
+
+    for relation in &snapshot.relations {
+        let Some(from_root) = root_by_id.get(&relation.from.0) else {
+            continue;
+        };
+        let Some(to_root) = root_by_id.get(&relation.to.0) else {
+            continue;
+        };
+        if from_root != to_root {
+            grouped
+                .entry((from_root.clone(), to_root.clone()))
+                .or_default()
+                .push(relation);
+        }
+    }
+
+    let mut boundaries = grouped
+        .into_iter()
+        .map(|((from_root, to_root), relations)| {
+            let mut relation_ids = relations
+                .iter()
+                .map(|relation| relation.id.0.clone())
+                .collect::<Vec<_>>();
+            relation_ids.sort();
+            let relation_count = relation_ids.len();
+            relation_ids.truncate(top);
+            IntegrationBoundaryOverview {
+                from_root,
+                to_root,
+                relations: relation_count,
+                relation_kinds: top_counts(
+                    relations
+                        .iter()
+                        .map(|relation| serialized_name(&relation.kind)),
+                    top,
+                ),
+                omitted_relation_ids: relation_count.saturating_sub(relation_ids.len()),
+                relation_ids,
+            }
+        })
+        .collect::<Vec<_>>();
+    boundaries.sort_by(|left, right| {
+        right
+            .relations
+            .cmp(&left.relations)
+            .then_with(|| left.from_root.cmp(&right.from_root))
+            .then_with(|| left.to_root.cmp(&right.to_root))
+    });
+    boundaries.truncate(top);
+    boundaries
 }
 
 fn api_overview(snapshot: &CanonicalSnapshot) -> ApiOverview {
@@ -296,6 +425,15 @@ fn entity_overview(entity: &Entity, degree: usize) -> EntityOverview {
         }),
         degree,
     }
+}
+
+fn entity_source_anchor(entity: &Entity) -> Option<String> {
+    entity.source.as_ref().map(|source| {
+        source.line_start.map_or_else(
+            || source.path.clone(),
+            |line| format!("{}:{line}", source.path),
+        )
+    })
 }
 
 fn count_kind(snapshot: &CanonicalSnapshot, kind: EntityKind) -> usize {
@@ -450,6 +588,74 @@ mod tests {
             overview.open_diagnostics[0].source.as_deref(),
             Some("docs/api/health.md:1")
         );
+        assert_eq!(overview.integration_boundaries.len(), 2);
+        assert_eq!(overview.integration_boundaries[0].relations, 1);
+        assert_eq!(overview.integration_boundaries[0].relation_ids.len(), 1);
+    }
+
+    #[test]
+    fn summarizes_modules_and_bounds_boundary_relation_ids() {
+        let module = entity(
+            "ent_module",
+            EntityKind::Module,
+            "rust://crates/example/src/lib.rs",
+            "example",
+            "crates/example/src/lib.rs",
+        );
+        let first = entity(
+            "ent_first",
+            EntityKind::Function,
+            "rust://crates/example/src/lib.rs#first",
+            "first",
+            "crates/example/src/lib.rs",
+        );
+        let second = entity(
+            "ent_second",
+            EntityKind::Function,
+            "rust://crates/example/src/lib.rs#second",
+            "second",
+            "crates/example/src/lib.rs",
+        );
+        let doc = entity(
+            "ent_doc",
+            EntityKind::DocumentationPage,
+            "doc://docs/example.md",
+            "Example",
+            "docs/example.md",
+        );
+        let snapshot = CanonicalSnapshot {
+            snapshot: Some(SnapshotId("snap_test".to_string())),
+            entities: vec![module.clone(), first.clone(), second.clone(), doc.clone()],
+            relations: vec![
+                relation("rel_define_first", RelationKind::Defines, &module, &first),
+                relation("rel_define_second", RelationKind::Defines, &module, &second),
+                relation("rel_doc_first", RelationKind::Documents, &doc, &first),
+                relation("rel_doc_second", RelationKind::Documents, &doc, &second),
+            ],
+            ..CanonicalSnapshot::default()
+        };
+
+        let overview = build_repository_overview(&snapshot, 1);
+
+        assert_eq!(overview.module_structure.len(), 1);
+        assert_eq!(overview.module_structure[0].direct_members, 2);
+        assert_eq!(
+            overview.module_structure[0].relation_ids,
+            vec!["rel_define_first"]
+        );
+        assert_eq!(overview.module_structure[0].omitted_relation_ids, 1);
+        assert_eq!(overview.integration_boundaries.len(), 1);
+        assert_eq!(
+            overview.integration_boundaries[0].from_root,
+            "docs/example.md"
+        );
+        assert_eq!(overview.integration_boundaries[0].to_root, "crates/example");
+        assert_eq!(overview.integration_boundaries[0].relations, 2);
+        assert_eq!(
+            overview.integration_boundaries[0].relation_ids,
+            vec!["rel_doc_first"]
+        );
+        assert_eq!(overview.integration_boundaries[0].omitted_relation_ids, 1);
     }
 
     fn entity(id: &str, kind: EntityKind, stable_key: &str, name: &str, path: &str) -> Entity {

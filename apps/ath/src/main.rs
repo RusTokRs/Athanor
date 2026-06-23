@@ -1092,6 +1092,31 @@ fn print_overview(overview: &RepositoryOverview) -> Result<()> {
     print_named_counts("Top relation kinds", &overview.relation_kinds);
     print_named_counts("Top source roots", &overview.source_roots);
 
+    println!("Module structure:");
+    if overview.module_structure.is_empty() {
+        println!("  (none)");
+    } else {
+        for module in &overview.module_structure {
+            let source = module.source.as_deref().unwrap_or("unknown source");
+            println!(
+                "  - {} ({}) members={} source={}",
+                module.name, module.stable_key, module.direct_members, source
+            );
+        }
+    }
+
+    println!("Integration boundaries:");
+    if overview.integration_boundaries.is_empty() {
+        println!("  (none)");
+    } else {
+        for boundary in &overview.integration_boundaries {
+            println!(
+                "  - {} -> {}: {} relations",
+                boundary.from_root, boundary.to_root, boundary.relations
+            );
+        }
+    }
+
     println!("Graph hubs:");
     if overview.graph_hubs.is_empty() {
         println!("  (none)");

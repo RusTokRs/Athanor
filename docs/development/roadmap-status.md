@@ -1680,6 +1680,25 @@ Purpose:
 - reports omitted node and edge counts when limits truncate the disposable read model
 - keeps graph export as an app-layer query over canonical entities and relations, not a new store or source of truth
 
+### Repository Overview Structure Summaries
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-app/src/overview.rs`
+- `apps/ath/src/main.rs`
+- `docs/architecture/pipeline.md`
+
+Purpose:
+
+- extends `ath overview` with bounded canonical module structure summaries
+- ranks modules by direct `defines` and `contains` members, then stable key
+- aggregates directional integration boundaries from canonical relations crossing source roots
+- includes relation-kind counts and bounded canonical relation ids for traceability
+- applies the existing `--top` limit to modules, boundaries, relation kinds, and sampled relation ids
+- keeps overview generation deterministic, read-only, and derived from the latest canonical snapshot
+
 ## In Progress
 
 None.
@@ -1868,7 +1887,7 @@ Status: planned.
 
 Scope:
 
-- extend the initial repository overview query with richer module structure and integration-boundary summaries
+- extend the initial repository overview query beyond the implemented module structure and integration-boundary summaries as new canonical language relations become available
 - extend graph export beyond the implemented `ath graph export --format json` with later GraphML-compatible output, generated from canonical snapshots rather than replacing canonical storage
 - extend the HTML report with an interactive graph view, per-entity detail pages, filtering by kind/severity/source, and stable links back to canonical evidence
 - add graph navigation commands such as shortest path, hub/centrality views, cycle detection, and related-entity exploration over canonical relations
