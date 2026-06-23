@@ -85,6 +85,8 @@ evidence-backed API documentation drafts, and operations documentation drafts:
   endpoint stable keys
 - coordination blocks for endpoints documented by multiple editable API pages, so overview and
   operation pages can review the same endpoint-to-page map before applying generated edits
+- narrative review blocks when human-authored API page text mentions `METHOD /path` routes that do
+  not match the current endpoints linked to that page
 - new Markdown operations pages for `missing_env_var` diagnostics, written under
   `<editable_path>/operations/` with frontmatter `entities` that points at the missing environment
   variable

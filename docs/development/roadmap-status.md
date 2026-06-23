@@ -1166,9 +1166,10 @@ Purpose:
 - supports multiple endpoint blocks in one API documentation page
 - adds missing endpoint stable keys to API page frontmatter `entities` when canonical documentation relations already link the page to the endpoint
 - proposes generated coordination blocks when one endpoint is documented by multiple editable API pages
+- proposes generated narrative review blocks when human-authored API text mentions routes that do not match the page's current linked endpoints
 - preserves human-authored Markdown outside managed blocks
 - applies the update only through explicit `ath docs apply-patch`
-- keeps stale narrative rewrite proposals deferred
+- keeps richer stale narrative rewrite proposals deferred
 
 ### Environment Documentation Check View
 
@@ -1236,13 +1237,13 @@ Status: planned.
 
 Scope:
 
-- detect stale narrative API documentation beyond the managed contract block
+- propose richer stale narrative API documentation rewrites beyond generated review blocks
 - keep generated drafts separate from editable source documentation
 
 Acceptance:
 
 - generated API documentation fixes are evidence-backed and reviewable before application
-- stale API narrative findings can be proposed as reviewable patches rather than direct edits
+- stale API narrative route findings can be proposed as reviewable patches rather than direct edits
 - editable docs are never overwritten without an explicit apply command
 - docs and API checks can confirm that an applied patch closes the relevant diagnostic
 

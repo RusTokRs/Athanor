@@ -22,6 +22,8 @@ const API_DOC_MANAGED_START_PREFIX: &str = "<!-- athanor:api-doc:start ";
 const API_DOC_MANAGED_END: &str = "<!-- athanor:api-doc:end -->";
 const API_DOC_COORDINATION_START_PREFIX: &str = "<!-- athanor:api-docs-coordination:start ";
 const API_DOC_COORDINATION_END: &str = "<!-- athanor:api-docs-coordination:end -->";
+const API_DOC_NARRATIVE_REVIEW_START: &str = "<!-- athanor:api-narrative-review:start -->";
+const API_DOC_NARRATIVE_REVIEW_END: &str = "<!-- athanor:api-narrative-review:end -->";
 
 #[derive(Debug, Clone)]
 pub struct DocsCheckOptions {
@@ -528,6 +530,67 @@ fn build_docs_patch_proposal(
                 operation.content = Some(updated);
             }
         }
+
+        let endpoints = entities
+            .iter()
+            .filter(|entity| entity.kind == EntityKind::ApiEndpoint)
+            .collect::<Vec<_>>();
+        for page in &pages {
+            if !is_api_documentation_page(page) {
+                continue;
+            }
+            let Some(path) = page_path(page) else {
+                continue;
+            };
+            if changes_by_path
+                .get(&path)
+                .is_some_and(|operation| operation.create)
+            {
+                continue;
+            }
+            let page_endpoints = endpoints
+                .iter()
+                .copied()
+                .filter(|endpoint| {
+                    documented_api_pages(endpoint, &pages_by_path, entities, relations)
+                        .iter()
+                        .any(|documented_page| documented_page.id == page.id)
+                })
+                .collect::<Vec<_>>();
+            if page_endpoints.is_empty() {
+                continue;
+            }
+            let Ok(source_path) = safe_project_path(project_root, &path) else {
+                continue;
+            };
+            let Ok(existing) = fs::read_to_string(source_path) else {
+                continue;
+            };
+            let base_content = changes_by_path
+                .get(&path)
+                .and_then(|operation| operation.content.as_deref())
+                .unwrap_or(existing.as_str());
+            let stale_mentions = stale_api_route_mentions(base_content, &page_endpoints);
+            if stale_mentions.is_empty() {
+                continue;
+            }
+            let updated =
+                upsert_api_narrative_review_section(base_content, &page_endpoints, &stale_mentions);
+            if updated == base_content {
+                continue;
+            }
+            let operation =
+                changes_by_path
+                    .entry(path.clone())
+                    .or_insert_with(|| DocsPatchOperation {
+                        path: path.clone(),
+                        stable_key: page.stable_key.0.clone(),
+                        create: false,
+                        content: None,
+                        changes: Vec::new(),
+                    });
+            operation.content = Some(updated);
+        }
     }
 
     for diagnostic in diagnostics.iter().filter(|diagnostic| {
@@ -990,6 +1053,33 @@ fn upsert_api_docs_coordination_section(
     updated
 }
 
+fn upsert_api_narrative_review_section(
+    content: &str,
+    endpoints: &[&Entity],
+    stale_mentions: &[String],
+) -> String {
+    let section = api_narrative_review_section(endpoints, stale_mentions);
+    let Some(start) = content.find(API_DOC_NARRATIVE_REVIEW_START) else {
+        let mut updated = content.trim_end().to_string();
+        updated.push_str("\n\n");
+        updated.push_str(&section);
+        return updated;
+    };
+    let Some(relative_end) = content[start..].find(API_DOC_NARRATIVE_REVIEW_END) else {
+        let mut updated = content.trim_end().to_string();
+        updated.push_str("\n\n");
+        updated.push_str(&section);
+        return updated;
+    };
+    let end = start + relative_end + API_DOC_NARRATIVE_REVIEW_END.len();
+    let mut updated = String::new();
+    updated.push_str(content[..start].trim_end());
+    updated.push_str("\n\n");
+    updated.push_str(&section);
+    updated.push_str(content[end..].trim_start_matches(['\r', '\n']));
+    updated
+}
+
 fn api_doc_managed_start_marker(endpoint: &Entity) -> String {
     format!(
         "{API_DOC_MANAGED_START_PREFIX}{} -->",
@@ -1027,6 +1117,39 @@ fn api_docs_coordination_section(endpoint: &Entity, documented_pages: &[&Entity]
     }
     content.push('\n');
     content.push_str(API_DOC_COORDINATION_END);
+    content.push('\n');
+    content
+}
+
+fn api_narrative_review_section(endpoints: &[&Entity], stale_mentions: &[String]) -> String {
+    let mut expected_routes = endpoints
+        .iter()
+        .filter_map(|endpoint| api_route_signature(endpoint))
+        .collect::<Vec<_>>();
+    expected_routes.sort();
+    expected_routes.dedup();
+
+    let mut stale_mentions = stale_mentions.to_vec();
+    stale_mentions.sort();
+    stale_mentions.dedup();
+
+    let mut content = String::new();
+    content.push_str(API_DOC_NARRATIVE_REVIEW_START);
+    content.push('\n');
+    content.push('\n');
+    content.push_str("## Athanor API Narrative Review\n\n");
+    content
+        .push_str("Potentially stale API route mentions found outside Athanor-managed blocks:\n");
+    for mention in stale_mentions {
+        content.push_str(&format!("- `{mention}`\n"));
+    }
+    content.push('\n');
+    content.push_str("Current linked endpoint routes for this page:\n");
+    for route in expected_routes {
+        content.push_str(&format!("- `{route}`\n"));
+    }
+    content.push('\n');
+    content.push_str(API_DOC_NARRATIVE_REVIEW_END);
     content.push('\n');
     content
 }
@@ -1287,6 +1410,96 @@ fn inline_code_list(values: &[String]) -> String {
 
 fn compact_json(value: &Value) -> String {
     serde_json::to_string(value).unwrap_or_else(|_| value.to_string())
+}
+
+fn stale_api_route_mentions(content: &str, endpoints: &[&Entity]) -> Vec<String> {
+    let expected = endpoints
+        .iter()
+        .filter_map(|endpoint| api_route_signature(endpoint))
+        .collect::<BTreeSet<_>>();
+    if expected.is_empty() {
+        return Vec::new();
+    }
+
+    let narrative = strip_generated_api_sections(strip_frontmatter_text(content));
+    let mut stale = api_route_mentions(&narrative)
+        .into_iter()
+        .filter(|mention| !expected.contains(mention))
+        .collect::<Vec<_>>();
+    stale.sort();
+    stale.dedup();
+    stale
+}
+
+fn api_route_signature(endpoint: &Entity) -> Option<String> {
+    let method = endpoint.payload["method"].as_str()?.to_ascii_uppercase();
+    let path = endpoint.payload["path"].as_str()?;
+    Some(format!("{method} {path}"))
+}
+
+fn api_route_mentions(content: &str) -> Vec<String> {
+    const METHODS: &[&str] = &[
+        "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "TRACE",
+    ];
+    let mut mentions = Vec::new();
+    for line in content.lines() {
+        let words = line
+            .split_whitespace()
+            .map(|word| word.trim_matches(route_token_trim_chars))
+            .filter(|word| !word.is_empty())
+            .collect::<Vec<_>>();
+        for pair in words.windows(2) {
+            let method = pair[0].to_ascii_uppercase();
+            let route = pair[1].trim_end_matches(['.', ',', ';', ':']);
+            if METHODS.contains(&method.as_str()) && route.starts_with('/') {
+                mentions.push(format!("{method} {route}"));
+            }
+        }
+    }
+    mentions
+}
+
+fn route_token_trim_chars(character: char) -> bool {
+    matches!(
+        character,
+        '`' | '*' | '_' | '[' | ']' | '(' | ')' | '"' | '\'' | ':' | ','
+    )
+}
+
+fn strip_frontmatter_text(content: &str) -> &str {
+    split_frontmatter(content).map_or(content, |(_, body)| body)
+}
+
+fn strip_generated_api_sections(content: &str) -> String {
+    let mut stripped = content.to_string();
+    for (start, end) in [
+        (API_DOC_MANAGED_START_PREFIX, API_DOC_MANAGED_END),
+        (API_DOC_COORDINATION_START_PREFIX, API_DOC_COORDINATION_END),
+        (API_DOC_NARRATIVE_REVIEW_START, API_DOC_NARRATIVE_REVIEW_END),
+    ] {
+        stripped = strip_generated_sections_with_markers(&stripped, start, end);
+    }
+    stripped
+}
+
+fn strip_generated_sections_with_markers(
+    content: &str,
+    start_marker: &str,
+    end_marker: &str,
+) -> String {
+    let mut remaining = content;
+    let mut stripped = String::new();
+    while let Some(start) = remaining.find(start_marker) {
+        stripped.push_str(&remaining[..start]);
+        let after_start = &remaining[start..];
+        let Some(relative_end) = after_start.find(end_marker) else {
+            break;
+        };
+        let end = start + relative_end + end_marker.len();
+        remaining = &remaining[end..];
+    }
+    stripped.push_str(remaining);
+    stripped
 }
 
 fn env_doc_path(editable_path: &str, env_var: &Entity) -> String {
@@ -1971,6 +2184,48 @@ mod tests {
             assert!(content.contains("`doc://docs/api/auth.md` at `docs/api/auth.md`"));
             assert!(content.contains("`doc://docs/api/post-login.md` at `docs/api/post-login.md`"));
         }
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn proposes_narrative_review_for_stale_api_route_mentions() {
+        let root = temp_project_root("athanor-docs-stale-narrative-test");
+        let doc_path = root.join("docs/api/login.md");
+        fs::create_dir_all(doc_path.parent().unwrap()).unwrap();
+        fs::write(
+            &doc_path,
+            "---\nid: doc://docs/api/login.md\nkind: api_documentation\nlanguage: en\nsource_language: en\nentities:\n  - api://POST:/login\nlast_verified_snapshot: snap_current\nstatus: verified\n---\n\n# Login API\n\nClients still call GET /login during the legacy login flow.\n",
+        )
+        .unwrap();
+
+        let endpoint = api_endpoint();
+        let page = page(
+            "docs/api/login.md",
+            "editable",
+            json!({
+                "documentation_kind": "api_documentation",
+                "frontmatter_fields": ["id", "kind", "language", "source_language", "entities", "last_verified_snapshot", "status"],
+                "entities": ["api://POST:/login"],
+                "last_verified_snapshot": "snap_current",
+                "status": "verified"
+            }),
+        );
+
+        let proposal = build_docs_patch_proposal(
+            "snap_current".to_string(),
+            &[endpoint, page],
+            &[],
+            &[],
+            &DocsConfig::default(),
+            Some(&root),
+        );
+
+        assert_eq!(proposal.operations.len(), 1);
+        let content = proposal.operations[0].content.as_deref().unwrap();
+        assert!(content.contains(API_DOC_NARRATIVE_REVIEW_START));
+        assert!(content.contains("- `GET /login`"));
+        assert!(content.contains("- `POST /login`"));
 
         fs::remove_dir_all(root).unwrap();
     }

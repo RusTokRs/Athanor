@@ -225,7 +225,10 @@ explicit `docs apply-patch`. When an editable API page is linked to an endpoint 
 canonical documentation relations, the same proposal can add the endpoint stable key to frontmatter
 `entities` so future indexes retain an exact declared reference. When one endpoint is documented by
 multiple editable API pages, the proposal also refreshes a generated coordination block that lists
-the related pages for review before application.
+the related pages for review before application. The same pass strips existing Athanor-managed
+blocks, scans the remaining human-authored API page text for `METHOD /path` route mentions, and
+adds a narrative review block when those mentions no longer match the current endpoints linked to
+the page.
 It also creates reviewable operations documentation drafts for `missing_env_var` diagnostics under
 the editable documentation operations path, using frontmatter `entities` declarations that point at
 the missing `env://` stable key.
@@ -409,8 +412,8 @@ Generated JSONL files and Markdown wiki pages under `.athanor/generated/current`
 - The HTML report is a static overview without client-side filtering or per-entity detail pages.
 - Generation numbering and pointer updates are local single-process operations; concurrent generation publishers and garbage collection are not implemented.
 - Direct compatibility outputs under `.athanor/generated/current` are not coordinated; consumers requiring one snapshot must use `current.json` and `generations/`.
-- Documentation patch proposals currently create enriched API documentation pages for missing API docs diagnostics, refresh endpoint-specific managed API contract blocks in existing API documentation pages, stabilize explicit API frontmatter references, support pages that cover multiple endpoints, and add coordination blocks for split endpoint documentation; stale narrative updates remain future work.
+- Documentation patch proposals currently create enriched API documentation pages for missing API docs diagnostics, refresh endpoint-specific managed API contract blocks in existing API documentation pages, stabilize explicit API frontmatter references, support pages that cover multiple endpoints, add coordination blocks for split endpoint documentation, and flag stale route mentions in human-authored API narrative; richer narrative rewrites remain future work.
 
 ## Next Good Step
 
-Extend documentation patch proposals to detect stale narrative API documentation beyond managed blocks.
+Extend documentation patch proposals from stale route review blocks toward richer narrative rewrite drafts.
