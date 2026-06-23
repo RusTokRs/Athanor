@@ -204,6 +204,8 @@ cargo run -p ath --quiet -- graph related "api://GET:/health"
 cargo run -p ath --quiet -- graph related "api://GET:/health" --depth 2 --json
 cargo run -p ath --quiet -- graph path "doc://docs/api/health.md" "rust://src/lib.rs#health"
 cargo run -p ath --quiet -- graph path "doc://docs/api/health.md" "rust://src/lib.rs#health" --max-depth 4 --json
+cargo run -p ath --quiet -- graph hubs
+cargo run -p ath --quiet -- graph hubs --kind module --limit 10 --json
 ```
 
 Canonical entities can be explained directly from the latest snapshot:

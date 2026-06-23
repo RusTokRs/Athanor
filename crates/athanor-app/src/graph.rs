@@ -10,6 +10,8 @@ use athanor_domain::{Entity, Relation};
 use serde::Serialize;
 
 pub const GRAPH_EXPORT_SCHEMA: &str = "athanor.graph_export.v1";
+pub const GRAPH_CYCLES_SCHEMA: &str = "athanor.graph_cycles.v1";
+pub const GRAPH_HUBS_SCHEMA: &str = "athanor.graph_hubs.v1";
 pub const GRAPH_PATH_SCHEMA: &str = "athanor.graph_path.v1";
 pub const GRAPH_RELATED_SCHEMA: &str = "athanor.graph_related.v1";
 
@@ -36,6 +38,22 @@ pub struct GraphPathOptions {
     pub to_stable_key: String,
     pub max_depth: usize,
     pub max_visited: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct GraphHubsOptions {
+    pub root: PathBuf,
+    pub limit: usize,
+    pub kind: Option<String>,
+    pub max_relation_ids: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct GraphCyclesOptions {
+    pub root: PathBuf,
+    pub limit: usize,
+    pub max_depth: usize,
+    pub max_starts: usize,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -104,6 +122,44 @@ pub struct GraphPath {
     pub edges: Vec<GraphEdge>,
     pub visited: usize,
     pub truncated: bool,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct GraphHubs {
+    pub schema: String,
+    pub snapshot: String,
+    pub kind: Option<String>,
+    pub hubs: Vec<GraphHub>,
+    pub omitted: usize,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct GraphHub {
+    #[serde(flatten)]
+    pub entity: GraphNode,
+    pub incoming_degree: usize,
+    pub outgoing_degree: usize,
+    pub incoming_relation_ids: Vec<String>,
+    pub outgoing_relation_ids: Vec<String>,
+    pub omitted_incoming_relation_ids: usize,
+    pub omitted_outgoing_relation_ids: usize,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct GraphCycles {
+    pub schema: String,
+    pub snapshot: String,
+    pub cycles: Vec<GraphCycle>,
+    pub start_entities: usize,
+    pub omitted_start_entities: usize,
+    pub truncated: bool,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct GraphCycle {
+    pub length: usize,
+    pub nodes: Vec<GraphNode>,
+    pub edges: Vec<GraphEdge>,
 }
 
 pub async fn export_graph(options: GraphExportOptions) -> Result<GraphExport> {
@@ -200,6 +256,70 @@ pub async fn shortest_graph_path(options: GraphPathOptions) -> Result<GraphPath>
         &options.to_stable_key,
         options.max_depth,
         options.max_visited,
+    )
+}
+
+pub async fn graph_hubs(options: GraphHubsOptions) -> Result<GraphHubs> {
+    if options.limit == 0 || options.max_relation_ids == 0 {
+        bail!("graph hubs limits must be greater than zero");
+    }
+
+    let root = normalize_canonical_path(
+        options
+            .root
+            .canonicalize()
+            .with_context(|| format!("failed to canonicalize {}", options.root.display()))?,
+    );
+    let config = load_config(&root)?;
+    let store = init_store(&root, &config).await?;
+    let snapshot = store
+        .load_latest_snapshot()
+        .await
+        .context("failed to load latest canonical snapshot")?
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "no canonical snapshot found; run `ath index {}` first",
+                root.display()
+            )
+        })?;
+
+    build_graph_hubs(
+        &snapshot,
+        options.limit,
+        options.kind.as_deref(),
+        options.max_relation_ids,
+    )
+}
+
+pub async fn graph_cycles(options: GraphCyclesOptions) -> Result<GraphCycles> {
+    if options.limit == 0 || options.max_depth == 0 || options.max_starts == 0 {
+        bail!("graph cycle limits must be greater than zero");
+    }
+
+    let root = normalize_canonical_path(
+        options
+            .root
+            .canonicalize()
+            .with_context(|| format!("failed to canonicalize {}", options.root.display()))?,
+    );
+    let config = load_config(&root)?;
+    let store = init_store(&root, &config).await?;
+    let snapshot = store
+        .load_latest_snapshot()
+        .await
+        .context("failed to load latest canonical snapshot")?
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "no canonical snapshot found; run `ath index {}` first",
+                root.display()
+            )
+        })?;
+
+    build_graph_cycles(
+        &snapshot,
+        options.limit,
+        options.max_depth,
+        options.max_starts,
     )
 }
 
@@ -517,6 +637,286 @@ pub fn build_shortest_graph_path(
         visited: visited.len(),
         truncated,
     })
+}
+
+pub fn build_graph_hubs(
+    snapshot: &CanonicalSnapshot,
+    limit: usize,
+    kind: Option<&str>,
+    max_relation_ids: usize,
+) -> Result<GraphHubs> {
+    if limit == 0 || max_relation_ids == 0 {
+        bail!("graph hubs limits must be greater than zero");
+    }
+
+    let mut incoming = HashMap::<String, Vec<String>>::new();
+    let mut outgoing = HashMap::<String, Vec<String>>::new();
+    for relation in &snapshot.relations {
+        outgoing
+            .entry(relation.from.0.clone())
+            .or_default()
+            .push(relation.id.0.clone());
+        incoming
+            .entry(relation.to.0.clone())
+            .or_default()
+            .push(relation.id.0.clone());
+    }
+
+    let mut hubs = snapshot
+        .entities
+        .iter()
+        .filter(|entity| kind.is_none_or(|kind| serialized_name(&entity.kind) == kind))
+        .filter_map(|entity| {
+            let mut incoming_ids = incoming.remove(&entity.id.0).unwrap_or_default();
+            let mut outgoing_ids = outgoing.remove(&entity.id.0).unwrap_or_default();
+            incoming_ids.sort();
+            outgoing_ids.sort();
+            let incoming_degree = incoming_ids.len();
+            let outgoing_degree = outgoing_ids.len();
+            let degree = incoming_degree + outgoing_degree;
+            if degree == 0 {
+                return None;
+            }
+            incoming_ids.truncate(max_relation_ids);
+            outgoing_ids.truncate(max_relation_ids);
+            Some(GraphHub {
+                entity: graph_node(entity, degree),
+                incoming_degree,
+                outgoing_degree,
+                omitted_incoming_relation_ids: incoming_degree.saturating_sub(incoming_ids.len()),
+                omitted_outgoing_relation_ids: outgoing_degree.saturating_sub(outgoing_ids.len()),
+                incoming_relation_ids: incoming_ids,
+                outgoing_relation_ids: outgoing_ids,
+            })
+        })
+        .collect::<Vec<_>>();
+    hubs.sort_by(|left, right| {
+        right
+            .entity
+            .degree
+            .cmp(&left.entity.degree)
+            .then_with(|| right.incoming_degree.cmp(&left.incoming_degree))
+            .then_with(|| right.outgoing_degree.cmp(&left.outgoing_degree))
+            .then_with(|| left.entity.stable_key.cmp(&right.entity.stable_key))
+    });
+    let matched = hubs.len();
+    hubs.truncate(limit);
+
+    Ok(GraphHubs {
+        schema: GRAPH_HUBS_SCHEMA.to_string(),
+        snapshot: snapshot
+            .snapshot
+            .as_ref()
+            .map_or_else(|| "unknown".to_string(), |snapshot| snapshot.0.clone()),
+        kind: kind.map(str::to_string),
+        omitted: matched.saturating_sub(hubs.len()),
+        hubs,
+    })
+}
+
+pub fn build_graph_cycles(
+    snapshot: &CanonicalSnapshot,
+    limit: usize,
+    max_depth: usize,
+    max_starts: usize,
+) -> Result<GraphCycles> {
+    if limit == 0 || max_depth == 0 || max_starts == 0 {
+        bail!("graph cycle limits must be greater than zero");
+    }
+
+    let entity_by_id = snapshot
+        .entities
+        .iter()
+        .map(|entity| (entity.id.0.as_str(), entity))
+        .collect::<HashMap<_, _>>();
+    let degree_by_id = degree_by_id(snapshot);
+    let mut adjacency = HashMap::<&str, Vec<&Relation>>::new();
+    for relation in &snapshot.relations {
+        if entity_by_id.contains_key(relation.from.0.as_str())
+            && entity_by_id.contains_key(relation.to.0.as_str())
+        {
+            adjacency
+                .entry(relation.from.0.as_str())
+                .or_default()
+                .push(relation);
+        }
+    }
+    for relations in adjacency.values_mut() {
+        relations.sort_by(|left, right| {
+            let left_target = entity_by_id
+                .get(left.to.0.as_str())
+                .map(|entity| entity.stable_key.0.as_str())
+                .unwrap_or_default();
+            let right_target = entity_by_id
+                .get(right.to.0.as_str())
+                .map(|entity| entity.stable_key.0.as_str())
+                .unwrap_or_default();
+            left_target
+                .cmp(right_target)
+                .then_with(|| left.id.0.cmp(&right.id.0))
+        });
+    }
+
+    let mut starts = snapshot
+        .entities
+        .iter()
+        .filter(|entity| adjacency.contains_key(entity.id.0.as_str()))
+        .collect::<Vec<_>>();
+    starts.sort_by(|left, right| left.stable_key.0.cmp(&right.stable_key.0));
+    let total_starts = starts.len();
+    starts.truncate(max_starts);
+
+    let mut discovered = BTreeSet::<String>::new();
+    let mut raw_cycles = Vec::<(Vec<String>, Vec<&Relation>)>::new();
+    let mut truncated = total_starts > starts.len();
+    for start in &starts {
+        if raw_cycles.len() >= limit {
+            truncated = true;
+            break;
+        }
+        let mut path = vec![start.id.0.clone()];
+        let mut edges = Vec::new();
+        let mut on_path = BTreeSet::from([start.id.0.clone()]);
+        search_cycles(
+            start.id.0.as_str(),
+            start.id.0.as_str(),
+            &adjacency,
+            &mut path,
+            &mut edges,
+            &mut on_path,
+            max_depth,
+            limit,
+            &mut discovered,
+            &mut raw_cycles,
+            &mut truncated,
+        );
+    }
+
+    let mut cycles = raw_cycles
+        .into_iter()
+        .map(|(node_ids, relations)| GraphCycle {
+            length: relations.len(),
+            nodes: node_ids
+                .iter()
+                .filter_map(|id| entity_by_id.get(id.as_str()))
+                .map(|entity| graph_node(entity, *degree_by_id.get(&entity.id.0).unwrap_or(&0)))
+                .collect(),
+            edges: relations.into_iter().map(graph_edge).collect(),
+        })
+        .collect::<Vec<_>>();
+    cycles.sort_by(|left, right| {
+        left.length.cmp(&right.length).then_with(|| {
+            cycle_key_from_edges(&left.edges).cmp(&cycle_key_from_edges(&right.edges))
+        })
+    });
+    cycles.truncate(limit);
+
+    Ok(GraphCycles {
+        schema: GRAPH_CYCLES_SCHEMA.to_string(),
+        snapshot: snapshot
+            .snapshot
+            .as_ref()
+            .map_or_else(|| "unknown".to_string(), |snapshot| snapshot.0.clone()),
+        cycles,
+        start_entities: starts.len(),
+        omitted_start_entities: total_starts.saturating_sub(starts.len()),
+        truncated,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn search_cycles<'a>(
+    start: &str,
+    current: &str,
+    adjacency: &HashMap<&str, Vec<&'a Relation>>,
+    path: &mut Vec<String>,
+    edges: &mut Vec<&'a Relation>,
+    on_path: &mut BTreeSet<String>,
+    max_depth: usize,
+    limit: usize,
+    discovered: &mut BTreeSet<String>,
+    cycles: &mut Vec<(Vec<String>, Vec<&'a Relation>)>,
+    truncated: &mut bool,
+) {
+    if cycles.len() >= limit {
+        *truncated = true;
+        return;
+    }
+    let Some(outgoing) = adjacency.get(current) else {
+        return;
+    };
+    if edges.len() >= max_depth {
+        if outgoing.iter().any(|relation| {
+            relation.to.0 == start || !on_path.contains(&relation.to.0)
+        }) {
+            *truncated = true;
+        }
+        return;
+    }
+
+    for relation in outgoing {
+        if cycles.len() >= limit {
+            *truncated = true;
+            return;
+        }
+        let target = relation.to.0.as_str();
+        if target == start {
+            let mut cycle_edges = edges.clone();
+            cycle_edges.push(*relation);
+            let key = canonical_cycle_key(&cycle_edges);
+            if discovered.insert(key) {
+                cycles.push((path.clone(), cycle_edges));
+            }
+            continue;
+        }
+        if on_path.contains(target) {
+            continue;
+        }
+        on_path.insert(target.to_string());
+        path.push(target.to_string());
+        edges.push(*relation);
+        search_cycles(
+            start,
+            target,
+            adjacency,
+            path,
+            edges,
+            on_path,
+            max_depth,
+            limit,
+            discovered,
+            cycles,
+            truncated,
+        );
+        edges.pop();
+        path.pop();
+        on_path.remove(target);
+    }
+}
+
+fn canonical_cycle_key(relations: &[&Relation]) -> String {
+    let ids = relations
+        .iter()
+        .map(|relation| relation.id.0.as_str())
+        .collect::<Vec<_>>();
+    minimum_rotation(&ids)
+}
+
+fn cycle_key_from_edges(edges: &[GraphEdge]) -> String {
+    let ids = edges.iter().map(|edge| edge.id.as_str()).collect::<Vec<_>>();
+    minimum_rotation(&ids)
+}
+
+fn minimum_rotation(ids: &[&str]) -> String {
+    (0..ids.len())
+        .map(|offset| {
+            (0..ids.len())
+                .map(|index| ids[(offset + index) % ids.len()])
+                .collect::<Vec<_>>()
+                .join("\u{1f}")
+        })
+        .min()
+        .unwrap_or_default()
 }
 
 fn entity_by_stable_key<'a>(
@@ -858,6 +1258,99 @@ mod tests {
         assert!(path.nodes.is_empty());
         assert!(path.edges.is_empty());
         assert!(path.truncated);
+    }
+
+    #[test]
+    fn ranks_graph_hubs_and_bounds_relation_ids() {
+        let endpoint = entity(
+            "ent_endpoint",
+            "api://GET:/health",
+            EntityKind::ApiEndpoint,
+            "health",
+        );
+        let handler = entity(
+            "ent_handler",
+            "rust://src/lib.rs#health",
+            EntityKind::Function,
+            "health",
+        );
+        let doc = entity(
+            "ent_doc",
+            "doc://docs/api/health.md",
+            EntityKind::DocumentationPage,
+            "Health API",
+        );
+        let schema = entity(
+            "ent_schema",
+            "api-schema://Health",
+            EntityKind::ApiSchema,
+            "Health",
+        );
+        let snapshot = CanonicalSnapshot {
+            snapshot: Some(SnapshotId("snap_test".to_string())),
+            entities: vec![
+                handler.clone(),
+                schema.clone(),
+                doc.clone(),
+                endpoint.clone(),
+            ],
+            relations: vec![
+                relation("rel_docs", RelationKind::Documents, &doc, &endpoint),
+                relation("rel_impl", RelationKind::ImplementedBy, &endpoint, &handler),
+                relation(
+                    "rel_schema",
+                    RelationKind::SchemaForResponse,
+                    &endpoint,
+                    &schema,
+                ),
+            ],
+            ..CanonicalSnapshot::default()
+        };
+
+        let report = build_graph_hubs(&snapshot, 2, None, 1).unwrap();
+
+        assert_eq!(report.schema, GRAPH_HUBS_SCHEMA);
+        assert_eq!(report.hubs.len(), 2);
+        assert_eq!(report.omitted, 2);
+        assert_eq!(report.hubs[0].entity.stable_key, "api://GET:/health");
+        assert_eq!(report.hubs[0].entity.degree, 3);
+        assert_eq!(report.hubs[0].incoming_degree, 1);
+        assert_eq!(report.hubs[0].outgoing_degree, 2);
+        assert_eq!(report.hubs[0].incoming_relation_ids, vec!["rel_docs"]);
+        assert_eq!(report.hubs[0].outgoing_relation_ids, vec!["rel_impl"]);
+        assert_eq!(report.hubs[0].omitted_outgoing_relation_ids, 1);
+    }
+
+    #[test]
+    fn filters_graph_hubs_by_serialized_entity_kind() {
+        let endpoint = entity(
+            "ent_endpoint",
+            "api://GET:/health",
+            EntityKind::ApiEndpoint,
+            "health",
+        );
+        let handler = entity(
+            "ent_handler",
+            "rust://src/lib.rs#health",
+            EntityKind::Function,
+            "health",
+        );
+        let snapshot = CanonicalSnapshot {
+            entities: vec![handler.clone(), endpoint.clone()],
+            relations: vec![relation(
+                "rel_impl",
+                RelationKind::ImplementedBy,
+                &endpoint,
+                &handler,
+            )],
+            ..CanonicalSnapshot::default()
+        };
+
+        let report = build_graph_hubs(&snapshot, 10, Some("function"), 10).unwrap();
+
+        assert_eq!(report.kind.as_deref(), Some("function"));
+        assert_eq!(report.hubs.len(), 1);
+        assert_eq!(report.hubs[0].entity.stable_key, "rust://src/lib.rs#health");
     }
 
     fn entity(id: &str, stable_key: &str, kind: EntityKind, name: &str) -> Entity {

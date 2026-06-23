@@ -113,6 +113,7 @@ flowchart TD
 - `export_graph`: bounded JSON graph export from the latest canonical snapshot.
 - `related_graph`: bounded related-entity exploration from one exact stable key.
 - `shortest_graph_path`: bounded shortest-path search between two exact stable keys.
+- `graph_hubs`: bounded degree-centrality ranking over canonical relations.
 - `check_project`: scoped API, documentation, environment, script, deployment, and runbook diagnostic reporting from the latest canonical snapshot.
 - `check_affected`: read-only changed-file diagnostic reporting from latest canonical snapshot plus persisted index state.
 - `check_operations_docs`: aggregate environment, script, deployment, and runbook documentation diagnostics from one latest canonical snapshot load.
@@ -275,6 +276,13 @@ retain their canonical direction, ids, status, confidence, and evidence anchors.
 search. `--json` emits `athanor.graph_path.v1` with the endpoint entities, ordered path nodes and
 edges, hop count, visited entity count, and truncation state. Missing endpoint stable keys are
 lookup errors. The command reads the latest canonical snapshot without writing artifacts.
+
+`ath graph hubs` ranks connected canonical entities by degree centrality. The report separates
+incoming and outgoing degree, retains bounded sorted incoming and outgoing canonical relation ids,
+and sorts ties by incoming degree, outgoing degree, and stable key. `--kind` filters by the
+serialized canonical entity kind, `--limit` bounds ranked entities, and `--max-relation-ids` bounds
+trace ids per direction. `--json` emits `athanor.graph_hubs.v1`. The command excludes disconnected
+entities and reads the latest canonical snapshot without writing artifacts.
 
 ## Entity Explanation
 

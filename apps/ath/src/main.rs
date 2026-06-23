@@ -7,8 +7,8 @@ use athanor_app::{
     DiagnosticCheckReport, DiagnosticScope, DocsApplyPatchOptions, DocsApplyPatchReport,
     DocsCheckOptions, DocsCheckReport, DocsDriftOptions, DocsDriftReport, DocsProposeFixOptions,
     DocsProposeFixReport, EntityExplanation, ExplainOptions, GenerationOptions, GraphExportOptions,
-    GraphPath, GraphPathOptions, GraphRelated, GraphRelatedOptions, HtmlReportOptions,
-    ImpactAnalysis, ImpactOptions, IndexOptions, IndexReport, InitOptions,
+    GraphHubs, GraphHubsOptions, GraphPath, GraphPathOptions, GraphRelated, GraphRelatedOptions,
+    HtmlReportOptions, ImpactAnalysis, ImpactOptions, IndexOptions, IndexReport, InitOptions,
     OperationsDocsCheckOptions, OperationsDocsCheckReport, OverviewOptions, RepairApplyOptions,
     RepairApplyReport, RepairCleanupOptions, RepairCleanupReport, RepairInspectOptions,
     RepairInspectReport, RepairRecoverCanonicalOptions, RepairRecoverCanonicalReport,
@@ -316,6 +316,24 @@ enum GraphCommand {
         #[arg(long, default_value_t = 10_000)]
         max_visited: usize,
         /// Print the complete path report as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Rank canonical graph hubs by degree centrality.
+    Hubs {
+        /// Project root. Defaults to the current directory.
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Maximum number of ranked hubs to return.
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+        /// Optional serialized entity kind, such as module or api_endpoint.
+        #[arg(long)]
+        kind: Option<String>,
+        /// Maximum incoming and outgoing relation ids retained per hub.
+        #[arg(long, default_value_t = 20)]
+        max_relation_ids: usize,
+        /// Print the complete hub report as JSON.
         #[arg(long)]
         json: bool,
     },
@@ -942,6 +960,26 @@ async fn main() -> Result<()> {
                     print_graph_path(&path_report);
                 }
             }
+            GraphCommand::Hubs {
+                path,
+                limit,
+                kind,
+                max_relation_ids,
+                json,
+            } => {
+                let report = athanor_app::graph_hubs(GraphHubsOptions {
+                    root: path,
+                    limit,
+                    kind,
+                    max_relation_ids,
+                })
+                .await?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                } else {
+                    print_graph_hubs(&report);
+                }
+            }
         },
         Some(Command::Repair { command }) => match command {
             RepairCommand::Inspect { path, json } => {
@@ -1302,6 +1340,32 @@ fn print_graph_path(path: &GraphPath) {
                 edge.id, edge.kind, edge.from, edge.to
             );
         }
+    }
+}
+
+fn print_graph_hubs(report: &GraphHubs) {
+    let kind = report.kind.as_deref().unwrap_or("all kinds");
+    println!(
+        "Graph hubs for {kind} (snapshot: {}, omitted: {})",
+        report.snapshot, report.omitted
+    );
+    if report.hubs.is_empty() {
+        println!("  (none)");
+        return;
+    }
+    for (index, hub) in report.hubs.iter().enumerate() {
+        let source = hub.entity.source.as_deref().unwrap_or("unknown source");
+        println!(
+            "  {}. [{}] {} ({}) degree={} incoming={} outgoing={} source={}",
+            index + 1,
+            hub.entity.kind,
+            hub.entity.name,
+            hub.entity.stable_key,
+            hub.entity.degree,
+            hub.incoming_degree,
+            hub.outgoing_degree,
+            source
+        );
     }
 }
 

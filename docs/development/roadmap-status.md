@@ -105,6 +105,8 @@ ath graph related <stable-key>
 ath graph related <stable-key> --depth <N> --json
 ath graph path <from-stable-key> <to-stable-key>
 ath graph path <from-stable-key> <to-stable-key> --max-depth <N> --json
+ath graph hubs
+ath graph hubs --kind <entity-kind> --limit <N> --json
 ath repair inspect
 ath repair inspect --json
 ath repair cleanup
@@ -1746,6 +1748,28 @@ Purpose:
 - distinguishes complete no-path results from searches truncated by configured limits
 - keeps path navigation read-only and derived from the latest canonical snapshot
 
+### Graph Hub Degree Centrality
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-app/src/graph.rs`
+- `apps/ath/src/main.rs`
+- `docs/README.md`
+- `docs/architecture/pipeline.md`
+
+Purpose:
+
+- adds `ath graph hubs` and JSON output
+- ranks connected canonical entities by total degree
+- reports incoming and outgoing degree separately
+- retains bounded sorted incoming and outgoing canonical relation ids
+- supports filtering by serialized canonical entity kind
+- bounds ranked entities and relation ids per direction
+- sorts ties deterministically by incoming degree, outgoing degree, and stable key
+- keeps centrality reporting read-only and derived from the latest canonical snapshot
+
 ## In Progress
 
 None.
@@ -1937,7 +1961,7 @@ Scope:
 - extend the initial repository overview query beyond the implemented module structure and integration-boundary summaries as new canonical language relations become available
 - extend graph export beyond the implemented `ath graph export --format json` with later GraphML-compatible output, generated from canonical snapshots rather than replacing canonical storage
 - extend the HTML report with an interactive graph view, per-entity detail pages, filtering by kind/severity/source, and stable links back to canonical evidence
-- extend graph navigation beyond implemented related-entity exploration and shortest path with hub/centrality views and cycle detection over canonical relations
+- extend graph navigation beyond implemented related-entity exploration, shortest path, and degree-centrality hubs with cycle detection and optional richer centrality algorithms over canonical relations
 - improve `ath impact` with explanatory relation paths and an optional future precision mode for deeper call/data-flow analysis once language adapters can support it
 - evaluate a multi-repository registry for future daemon and MCP use, keeping project selection explicit so one server cannot accidentally answer from the wrong repository
 - treat ideas from GitNexus, Graphify, code-review-graph, and similar code-graph tools as product patterns to adapt, not storage or source-of-truth replacements
