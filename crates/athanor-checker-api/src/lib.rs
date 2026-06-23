@@ -332,6 +332,11 @@ impl Checker for EnvDocsChecker {
 
     async fn check(&self, input: CheckInput) -> CoreResult<Vec<Diagnostic>> {
         let env_vars = unique_entities_of_kind(&input.entities, EntityKind::EnvVar);
+        let runtime_config_keys = input
+            .entities
+            .iter()
+            .filter(|entity| is_runtime_config_key(entity))
+            .collect::<Vec<_>>();
         let docs_affected = input.affected.entities.iter().any(|entity| {
             matches!(
                 entity.kind,
@@ -356,6 +361,22 @@ impl Checker for EnvDocsChecker {
                 if !documented {
                     diagnostics.push(missing_env_var_diagnostic(
                         env_var,
+                        self.name(),
+                        &input.snapshot,
+                    ));
+                }
+            }
+        }
+
+        for config_key in runtime_config_keys {
+            let config_key_affected = affected_ids.contains(&config_key.id);
+            if config_key_affected || docs_affected {
+                let documented = input.relations.iter().any(|relation| {
+                    relation.kind == RelationKind::Documents && relation.to == config_key.id
+                });
+                if !documented {
+                    diagnostics.push(missing_runtime_config_key_documentation_diagnostic(
+                        config_key,
                         self.name(),
                         &input.snapshot,
                     ));
@@ -407,6 +428,51 @@ fn missing_env_var_diagnostic(
         payload: json!({
             "env_var": env_var.stable_key.0,
             "missing_relation": "documents",
+        }),
+    }
+}
+
+fn missing_runtime_config_key_documentation_diagnostic(
+    config_key: &Entity,
+    checker: &str,
+    snapshot: &SnapshotId,
+) -> Diagnostic {
+    let kind = DiagnosticKind::MissingDocumentation;
+    let kind_slug = "missing_runtime_config_key_documentation";
+    let id_material = format!("{kind_slug}\0{}", config_key.stable_key.0);
+    Diagnostic {
+        id: DiagnosticId(format!(
+            "diag_env_{:016x}",
+            stable_hash(id_material.as_bytes())
+        )),
+        kind,
+        severity: Severity::Medium,
+        status: DiagnosticStatus::Open,
+        title: "Runtime configuration key is not documented".to_string(),
+        message: format!(
+            "Runtime configuration key `{}` is known to the operations graph but not documented.",
+            config_key.stable_key.0
+        ),
+        entities: vec![config_key.id.clone()],
+        evidence: vec![Evidence {
+            source_file: config_key.source.as_ref().map(|s| s.path.clone()),
+            line_start: config_key.source.as_ref().and_then(|s| s.line_start),
+            line_end: config_key.source.as_ref().and_then(|s| s.line_end),
+            extractor: Some(checker.to_string()),
+            commit_hash: None,
+            confidence: 1.0,
+            status: EvidenceStatus::Missing,
+        }],
+        ownership: config_key.ownership.clone(),
+        snapshot: snapshot.clone(),
+        suggested_fix: Some(format!(
+            "Document `{}` in Markdown frontmatter by adding it to an `entities` list.",
+            config_key.stable_key.0
+        )),
+        payload: json!({
+            "config_key": config_key.stable_key.0,
+            "missing_relation": "documents",
+            "scope": "env",
         }),
     }
 }
@@ -575,6 +641,24 @@ impl Checker for RunbookConsistencyChecker {
                     self.name(),
                     &input.snapshot,
                 ));
+            } else if !runbook_steps_reference_targets(&steps, &operational_targets) {
+                diagnostics.push(runbook_steps_without_target_reference_diagnostic(
+                    runbook,
+                    &operational_targets,
+                    self.name(),
+                    &input.snapshot,
+                ));
+            } else {
+                let uncovered_targets =
+                    runbook_targets_without_step_references(&steps, &operational_targets);
+                if !uncovered_targets.is_empty() {
+                    diagnostics.push(runbook_steps_missing_target_coverage_diagnostic(
+                        runbook,
+                        &uncovered_targets,
+                        self.name(),
+                        &input.snapshot,
+                    ));
+                }
             }
         }
 
@@ -739,6 +823,114 @@ fn runbook_without_operation_steps_diagnostic(
     }
 }
 
+fn runbook_steps_without_target_reference_diagnostic(
+    runbook: &Entity,
+    targets: &[&Entity],
+    checker: &str,
+    snapshot: &SnapshotId,
+) -> Diagnostic {
+    let kind = DiagnosticKind::StaleDocumentation;
+    let kind_slug = "runbook_steps_without_target_reference";
+    let id_material = format!("{kind_slug}\0{}", runbook.stable_key.0);
+    let target_keys = targets
+        .iter()
+        .map(|target| target.stable_key.0.clone())
+        .collect::<Vec<_>>();
+
+    Diagnostic {
+        id: DiagnosticId(format!(
+            "diag_runbook_{:016x}",
+            stable_hash(id_material.as_bytes())
+        )),
+        kind,
+        severity: Severity::Medium,
+        status: DiagnosticStatus::Open,
+        title: "Runbook steps do not reference operational targets".to_string(),
+        message: format!(
+            "Runbook `{}` declares operational targets, but its extracted operation steps do not reference them.",
+            runbook.stable_key.0
+        ),
+        entities: vec![runbook.id.clone()],
+        evidence: vec![Evidence {
+            source_file: runbook.source.as_ref().map(|source| source.path.clone()),
+            line_start: runbook.source.as_ref().and_then(|source| source.line_start),
+            line_end: runbook.source.as_ref().and_then(|source| source.line_end),
+            extractor: Some(checker.to_string()),
+            commit_hash: None,
+            confidence: 1.0,
+            status: EvidenceStatus::Stale,
+        }],
+        ownership: runbook.ownership.clone(),
+        snapshot: snapshot.clone(),
+        suggested_fix: Some(
+            "Mention at least one declared operational target stable key or name in an ordered runbook step."
+                .to_string(),
+        ),
+        payload: json!({
+            "runbook": runbook.stable_key.0,
+            "operation_targets": target_keys,
+            "missing": "step_target_reference",
+            "scope": "runbooks",
+        }),
+    }
+}
+
+fn runbook_steps_missing_target_coverage_diagnostic(
+    runbook: &Entity,
+    targets: &[&Entity],
+    checker: &str,
+    snapshot: &SnapshotId,
+) -> Diagnostic {
+    let kind = DiagnosticKind::StaleDocumentation;
+    let kind_slug = "runbook_steps_missing_target_coverage";
+    let target_keys = targets
+        .iter()
+        .map(|target| target.stable_key.0.clone())
+        .collect::<Vec<_>>();
+    let id_material = format!(
+        "{kind_slug}\0{}\0{}",
+        runbook.stable_key.0,
+        target_keys.join("\0")
+    );
+
+    Diagnostic {
+        id: DiagnosticId(format!(
+            "diag_runbook_{:016x}",
+            stable_hash(id_material.as_bytes())
+        )),
+        kind,
+        severity: Severity::Medium,
+        status: DiagnosticStatus::Open,
+        title: "Runbook steps do not cover every operational target".to_string(),
+        message: format!(
+            "Runbook `{}` declares operational targets that are not referenced by any extracted operation step.",
+            runbook.stable_key.0
+        ),
+        entities: vec![runbook.id.clone()],
+        evidence: vec![Evidence {
+            source_file: runbook.source.as_ref().map(|source| source.path.clone()),
+            line_start: runbook.source.as_ref().and_then(|source| source.line_start),
+            line_end: runbook.source.as_ref().and_then(|source| source.line_end),
+            extractor: Some(checker.to_string()),
+            commit_hash: None,
+            confidence: 1.0,
+            status: EvidenceStatus::Stale,
+        }],
+        ownership: runbook.ownership.clone(),
+        snapshot: snapshot.clone(),
+        suggested_fix: Some(
+            "Mention every declared operational target stable key or name in at least one ordered runbook step."
+                .to_string(),
+        ),
+        payload: json!({
+            "runbook": runbook.stable_key.0,
+            "operation_targets": target_keys,
+            "missing": "step_target_coverage",
+            "scope": "runbooks",
+        }),
+    }
+}
+
 fn missing_script_documentation_diagnostic(
     script_command: &Entity,
     checker: &str,
@@ -837,6 +1029,65 @@ fn runbook_operation_steps<'a>(
                 == Some(runbook.stable_key.0.as_str())
         })
         .collect()
+}
+
+fn runbook_steps_reference_targets(steps: &[&Entity], targets: &[&Entity]) -> bool {
+    targets
+        .iter()
+        .any(|target| runbook_steps_reference_target(steps, target))
+}
+
+fn runbook_targets_without_step_references<'a>(
+    steps: &[&Entity],
+    targets: &[&'a Entity],
+) -> Vec<&'a Entity> {
+    targets
+        .iter()
+        .copied()
+        .filter(|target| !runbook_steps_reference_target(steps, target))
+        .collect()
+}
+
+fn runbook_steps_reference_target(steps: &[&Entity], target: &Entity) -> bool {
+    steps.iter().any(|step| {
+        let text = operation_step_text(step).to_ascii_lowercase();
+        !text.is_empty()
+            && target_reference_terms(target).iter().any(|term| {
+                let term = term.to_ascii_lowercase();
+                !term.is_empty() && text.contains(&term)
+            })
+    })
+}
+
+fn operation_step_text(step: &Entity) -> String {
+    step.payload
+        .get("text")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
+        .unwrap_or_else(|| {
+            step.title
+                .as_deref()
+                .unwrap_or(step.name.as_str())
+                .to_string()
+        })
+}
+
+fn target_reference_terms(target: &Entity) -> Vec<&str> {
+    let mut terms = vec![target.stable_key.0.as_str(), target.name.as_str()];
+    if let Some(title) = target.title.as_deref() {
+        terms.push(title);
+    }
+    terms.extend(target.aliases.iter().map(String::as_str));
+    terms
+}
+
+fn is_runtime_config_key(entity: &Entity) -> bool {
+    entity.kind == EntityKind::Feature
+        && entity
+            .payload
+            .get("feature_kind")
+            .and_then(serde_json::Value::as_str)
+            == Some("runtime_config_key")
 }
 
 fn is_operational_runbook_target(kind: &EntityKind) -> bool {
@@ -1378,6 +1629,66 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn reports_undocumented_runtime_config_key_and_accepts_documented_one() {
+        let mut config_key = entity(
+            "ent_config_server_port",
+            "config://config/app.toml#server.port",
+            EntityKind::Feature,
+            "config/app.toml",
+        );
+        config_key.name = "server.port".to_string();
+        config_key.payload = json!({
+            "feature_kind": "runtime_config_key",
+            "key": "server.port",
+            "value_kind": "number",
+            "value_redacted": true,
+        });
+        let doc_page = entity(
+            "ent_doc_page",
+            "doc://docs/operations/config.md",
+            EntityKind::DocumentationPage,
+            "docs/operations/config.md",
+        );
+
+        let diagnostics = EnvDocsChecker
+            .check(input(
+                vec![config_key.clone()],
+                Vec::new(),
+                vec![config_key.clone()],
+                Vec::new(),
+            ))
+            .await
+            .unwrap();
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].kind, DiagnosticKind::MissingDocumentation);
+        assert_eq!(diagnostics[0].payload["scope"], "env");
+        assert_eq!(
+            diagnostics[0].payload["config_key"],
+            "config://config/app.toml#server.port"
+        );
+        assert_eq!(diagnostics[0].entities[0], config_key.id);
+
+        let documents_rel = relation(
+            "rel_doc_config",
+            RelationKind::Documents,
+            &doc_page,
+            &config_key,
+        );
+        let diagnostics = EnvDocsChecker
+            .check(input(
+                vec![config_key.clone(), doc_page],
+                vec![documents_rel.clone()],
+                vec![config_key],
+                vec![documents_rel],
+            ))
+            .await
+            .unwrap();
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[tokio::test]
     async fn reports_undocumented_script_command_and_accepts_documented_one() {
         let script = entity(
             "ent_script_deploy",
@@ -1508,13 +1819,19 @@ mod tests {
             EntityKind::ScriptCommand,
             "Makefile",
         );
+        let mut script = script;
+        script.name = "deploy".to_string();
         let mut step = entity(
             "ent_step_deploy",
             "runbook://docs/operations/deploy#step-1",
             EntityKind::OperationStep,
             "docs/operations/deploy.md",
         );
-        step.payload = json!({"runbook": "runbook://docs/operations/deploy", "sequence": 1});
+        step.payload = json!({
+            "runbook": "runbook://docs/operations/deploy",
+            "sequence": 1,
+            "text": "Run deploy",
+        });
         runbook.payload = json!({
             "operation_targets": ["script-command://Makefile#target:deploy"]
         });
@@ -1530,6 +1847,113 @@ mod tests {
             .unwrap();
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[tokio::test]
+    async fn reports_runbook_steps_without_target_references() {
+        let mut runbook = entity(
+            "ent_runbook_deploy",
+            "runbook://docs/operations/deploy",
+            EntityKind::Runbook,
+            "docs/operations/deploy.md",
+        );
+        runbook.payload = json!({
+            "operation_targets": ["script-command://Makefile#target:deploy"]
+        });
+        let mut script = entity(
+            "ent_script_deploy",
+            "script-command://Makefile#target:deploy",
+            EntityKind::ScriptCommand,
+            "Makefile",
+        );
+        script.name = "deploy".to_string();
+        let mut step = entity(
+            "ent_step_deploy",
+            "runbook://docs/operations/deploy#step-1",
+            EntityKind::OperationStep,
+            "docs/operations/deploy.md",
+        );
+        step.payload = json!({
+            "runbook": "runbook://docs/operations/deploy",
+            "sequence": 1,
+            "text": "Notify the team",
+        });
+
+        let diagnostics = RunbookConsistencyChecker
+            .check(input(
+                vec![runbook.clone(), script, step],
+                Vec::new(),
+                vec![runbook.clone()],
+                Vec::new(),
+            ))
+            .await
+            .unwrap();
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].kind, DiagnosticKind::StaleDocumentation);
+        assert_eq!(diagnostics[0].payload["missing"], "step_target_reference");
+        assert_eq!(diagnostics[0].payload["scope"], "runbooks");
+        assert_eq!(diagnostics[0].entities[0], runbook.id);
+    }
+
+    #[tokio::test]
+    async fn reports_runbook_steps_that_do_not_cover_every_target() {
+        let mut runbook = entity(
+            "ent_runbook_deploy",
+            "runbook://docs/operations/deploy",
+            EntityKind::Runbook,
+            "docs/operations/deploy.md",
+        );
+        runbook.payload = json!({
+            "operation_targets": [
+                "script-command://Makefile#target:deploy",
+                "script-command://Makefile#target:rollback"
+            ]
+        });
+        let mut deploy = entity(
+            "ent_script_deploy",
+            "script-command://Makefile#target:deploy",
+            EntityKind::ScriptCommand,
+            "Makefile",
+        );
+        deploy.name = "deploy".to_string();
+        let mut rollback = entity(
+            "ent_script_rollback",
+            "script-command://Makefile#target:rollback",
+            EntityKind::ScriptCommand,
+            "Makefile",
+        );
+        rollback.name = "rollback".to_string();
+        let mut step = entity(
+            "ent_step_deploy",
+            "runbook://docs/operations/deploy#step-1",
+            EntityKind::OperationStep,
+            "docs/operations/deploy.md",
+        );
+        step.payload = json!({
+            "runbook": "runbook://docs/operations/deploy",
+            "sequence": 1,
+            "text": "Run deploy",
+        });
+
+        let diagnostics = RunbookConsistencyChecker
+            .check(input(
+                vec![runbook.clone(), deploy, rollback, step],
+                Vec::new(),
+                vec![runbook.clone()],
+                Vec::new(),
+            ))
+            .await
+            .unwrap();
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].kind, DiagnosticKind::StaleDocumentation);
+        assert_eq!(diagnostics[0].payload["missing"], "step_target_coverage");
+        assert_eq!(
+            diagnostics[0].payload["operation_targets"],
+            json!(["script-command://Makefile#target:rollback"])
+        );
+        assert_eq!(diagnostics[0].entities[0], runbook.id);
     }
 
     #[tokio::test]

@@ -633,12 +633,11 @@ fn build_docs_patch_proposal(
 
     for diagnostic in diagnostics.iter().filter(|diagnostic| {
         diagnostic.status == DiagnosticStatus::Open
-            && diagnostic.kind == DiagnosticKind::MissingDocumentation
-            && diagnostic
-                .payload
-                .get("scope")
-                .and_then(serde_json::Value::as_str)
-                .is_some_and(|scope| matches!(scope, "scripts" | "deployment"))
+            && matches!(
+                diagnostic.kind,
+                DiagnosticKind::MissingDocumentation | DiagnosticKind::StaleDocumentation
+            )
+            && operation_doc_diagnostic_shape(diagnostic).is_some()
     }) {
         let Some((entity_kind, payload_key, path_prefix, title_prefix)) =
             operation_doc_diagnostic_shape(diagnostic)
@@ -1715,6 +1714,13 @@ fn operation_doc_diagnostic_shape(
             "deployment",
             "Deployment Resource",
         )),
+        Some("env") => Some((
+            EntityKind::Feature,
+            "config_key",
+            "config",
+            "Runtime Config Key",
+        )),
+        Some("runbooks") => Some((EntityKind::Runbook, "runbook", "runbook", "Runbook")),
         _ => None,
     }
 }
@@ -1736,7 +1742,11 @@ fn operation_doc_content(
     path: &str,
     title_prefix: &str,
 ) -> String {
-    let title = entity.title.as_deref().unwrap_or(entity.name.as_str());
+    let title = if entity.kind == EntityKind::Feature {
+        entity.name.as_str()
+    } else {
+        entity.title.as_deref().unwrap_or(entity.name.as_str())
+    };
     let mut content = String::new();
     content.push_str("---\n");
     content.push_str(&format!("id: doc://{path}\n"));
@@ -1766,9 +1776,17 @@ fn operation_doc_content(
     }
     content.push('\n');
     content.push_str("## Procedure\n\n");
-    content.push_str("1. Review the source definition and confirm prerequisites.\n");
-    content.push_str("2. Execute or operate this item according to the project runbook.\n");
-    content.push_str("3. Record outcomes, rollback notes, and follow-up actions.\n\n");
+    if entity.kind == EntityKind::Runbook {
+        content.push_str("1. Review the runbook frontmatter and confirm operational targets.\n");
+        content.push_str("2. Add ordered operation steps that Athanor can extract.\n");
+        content.push_str(
+            "3. Re-index and verify `ath check runbooks` no longer reports this diagnostic.\n\n",
+        );
+    } else {
+        content.push_str("1. Review the source definition and confirm prerequisites.\n");
+        content.push_str("2. Execute or operate this item according to the project runbook.\n");
+        content.push_str("3. Record outcomes, rollback notes, and follow-up actions.\n\n");
+    }
     content.push_str("## Evidence\n\n");
     if diagnostic.evidence.is_empty() {
         content.push_str("- `unknown source`\n");
@@ -1816,6 +1834,7 @@ fn serialized_entity_kind(kind: &EntityKind) -> &'static str {
         EntityKind::ScriptCommand => "script_command",
         EntityKind::DockerService => "docker_service",
         EntityKind::EnvVar => "env_var",
+        EntityKind::Feature => "feature",
         EntityKind::Runbook => "runbook",
         EntityKind::OperationStep => "operation_step",
         _ => "other",
@@ -2708,6 +2727,68 @@ mod tests {
     }
 
     #[test]
+    fn proposes_runtime_config_documentation_creation_for_missing_config_docs() {
+        let config_key = runtime_config_key();
+        let diagnostic = missing_operation_doc_diagnostic(
+            &config_key,
+            "diag_missing_config",
+            "config_key",
+            "env",
+        );
+
+        let proposal = build_docs_patch_proposal(
+            "snap_current".to_string(),
+            &[config_key],
+            &[],
+            &[diagnostic],
+            &DocsConfig::default(),
+            None,
+        );
+
+        assert_eq!(proposal.operations.len(), 1);
+        let operation = &proposal.operations[0];
+        assert_eq!(
+            operation.path,
+            "docs/operations/config-config-config-app-toml-server-port.md"
+        );
+        assert!(operation.create);
+        let content = operation.content.as_deref().unwrap();
+        assert!(content.contains("kind: operations_documentation\n"));
+        assert!(content.contains("  - config://config/app.toml#server.port\n"));
+        assert!(content.contains("# Runtime Config Key `server.port`\n"));
+        assert!(content.contains("- Entity kind: `feature`\n"));
+    }
+
+    #[test]
+    fn proposes_runbook_documentation_creation_for_runbook_diagnostics() {
+        let runbook = runbook();
+        let diagnostic = stale_runbook_diagnostic(&runbook);
+
+        let proposal = build_docs_patch_proposal(
+            "snap_current".to_string(),
+            &[runbook],
+            &[],
+            &[diagnostic],
+            &DocsConfig::default(),
+            None,
+        );
+
+        assert_eq!(proposal.operations.len(), 1);
+        let operation = &proposal.operations[0];
+        assert_eq!(
+            operation.path,
+            "docs/operations/runbook-runbook-docs-operations-deploy.md"
+        );
+        assert!(operation.create);
+        let content = operation.content.as_deref().unwrap();
+        assert!(content.contains("kind: operations_documentation\n"));
+        assert!(content.contains("  - runbook://docs/operations/deploy\n"));
+        assert!(content.contains("# Runbook `Deploy Runbook`\n"));
+        assert!(content.contains("- Entity kind: `runbook`\n"));
+        assert!(content.contains("Add ordered operation steps"));
+    }
+
+    #[test]
     fn applies_frontmatter_changes_without_touching_body() {
         let content = "---\nid: doc://docs/auth.md\nstatus: draft\n---\n# Auth\n";
         let updated = apply_frontmatter_changes(
@@ -2981,6 +3062,55 @@ mod tests {
         }
     }
 
+    fn runtime_config_key() -> Entity {
+        Entity {
+            id: EntityId("ent_config_server_port".to_string()),
+            stable_key: StableKey("config://config/app.toml#server.port".to_string()),
+            kind: EntityKind::Feature,
+            name: "server.port".to_string(),
+            title: Some("Runtime config server.port".to_string()),
+            source: Some(SourceLocation {
+                path: "config/app.toml".to_string(),
+                line_start: Some(2),
+                line_end: Some(2),
+            }),
+            language: Some(LanguageCode("toml".to_string())),
+            aliases: Vec::new(),
+            ownership: vec![Ownership {
+                source_file: "config/app.toml".to_string(),
+            }],
+            payload: json!({
+                "feature_kind": "runtime_config_key",
+                "key": "server.port",
+                "value_kind": "number",
+                "value_redacted": true,
+            }),
+        }
+    }
+
+    fn runbook() -> Entity {
+        Entity {
+            id: EntityId("ent_runbook_deploy".to_string()),
+            stable_key: StableKey("runbook://docs/operations/deploy".to_string()),
+            kind: EntityKind::Runbook,
+            name: "deploy".to_string(),
+            title: Some("Deploy Runbook".to_string()),
+            source: Some(SourceLocation {
+                path: "docs/operations/deploy.md".to_string(),
+                line_start: Some(1),
+                line_end: Some(20),
+            }),
+            language: Some(LanguageCode("en".to_string())),
+            aliases: Vec::new(),
+            ownership: vec![Ownership {
+                source_file: "docs/operations/deploy.md".to_string(),
+            }],
+            payload: json!({
+                "operation_targets": []
+            }),
+        }
+    }
+
     fn missing_env_var_diagnostic(env_var: &Entity) -> Diagnostic {
         Diagnostic {
             id: athanor_domain::DiagnosticId("diag_missing_env".to_string()),
@@ -3039,6 +3169,36 @@ mod tests {
                 payload_key: entity.stable_key.0,
                 "missing_relation": "documents",
                 "scope": scope,
+            }),
+        }
+    }
+
+    fn stale_runbook_diagnostic(runbook: &Entity) -> Diagnostic {
+        Diagnostic {
+            id: athanor_domain::DiagnosticId("diag_stale_runbook".to_string()),
+            kind: DiagnosticKind::StaleDocumentation,
+            severity: Severity::Medium,
+            status: DiagnosticStatus::Open,
+            title: "Runbook is not tied to operational knowledge".to_string(),
+            message: "Runbook has no known operational targets.".to_string(),
+            entities: vec![runbook.id.clone()],
+            evidence: vec![athanor_domain::Evidence {
+                source_file: runbook.source.as_ref().map(|source| source.path.clone()),
+                line_start: runbook.source.as_ref().and_then(|source| source.line_start),
+                line_end: runbook.source.as_ref().and_then(|source| source.line_end),
+                extractor: Some("runbook-consistency".to_string()),
+                commit_hash: None,
+                confidence: 1.0,
+                status: athanor_domain::EvidenceStatus::Stale,
+            }],
+            ownership: runbook.ownership.clone(),
+            snapshot: athanor_domain::SnapshotId("snap_current".to_string()),
+            suggested_fix: Some(
+                "Add known operational targets and ordered operation steps.".to_string(),
+            ),
+            payload: json!({
+                "runbook": runbook.stable_key.0,
+                "scope": "runbooks",
             }),
         }
     }

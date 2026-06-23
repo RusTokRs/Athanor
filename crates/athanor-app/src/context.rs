@@ -3,11 +3,13 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
 
 use crate::config::load_config;
+use crate::index_state::IndexStateStore;
 use crate::store::init_store;
 use anyhow::{Context, Result, bail};
-use athanor_core::{CanonicalSnapshot, CanonicalSnapshotStore, SearchIndex};
+use athanor_core::{CanonicalSnapshot, CanonicalSnapshotStore, SearchIndex, SourceProvider};
 use athanor_domain::{ContextLevel, ContextPack, ContextPackId, Entity};
 use athanor_extractor_basic::stable_hash;
+use athanor_source_fs::LocalFileSystemSource;
 use serde_json::json;
 
 use crate::project_path::normalize_canonical_path;
@@ -79,12 +81,13 @@ impl ContextLimitOverrides {
 pub struct ContextOptions {
     pub root: PathBuf,
     pub task: String,
+    pub diff: bool,
     pub level: ContextLevel,
     pub limits: ContextLimitOverrides,
 }
 
 pub async fn context_project(options: ContextOptions) -> Result<ContextPack> {
-    if options.task.trim().is_empty() {
+    if options.task.trim().is_empty() && !options.diff {
         bail!("context task must not be empty");
     }
 
@@ -118,6 +121,63 @@ pub async fn context_project(options: ContextOptions) -> Result<ContextPack> {
         .as_ref()
         .map(|s| s.0.clone())
         .unwrap_or_else(|| "unknown".to_string());
+
+    if options.diff {
+        let state_store = IndexStateStore::new(root.join(".athanor/state/index-state.json"));
+        let previous_state = state_store.load().context("failed to load index state")?;
+        let source = LocalFileSystemSource::new(&root);
+        let current_files = source
+            .discover()
+            .await
+            .context("failed to discover source files for diff context")?;
+        let affected_files = previous_state.affected_files(&current_files);
+        let affected_paths = affected_files
+            .changed
+            .iter()
+            .chain(affected_files.removed.iter())
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        let direct_matches = snapshot
+            .entities
+            .iter()
+            .filter(|entity| {
+                entity
+                    .ownership
+                    .iter()
+                    .any(|ownership| affected_paths.contains(&ownership.source_file))
+                    || entity
+                        .source
+                        .as_ref()
+                        .is_some_and(|source| affected_paths.contains(&source.path))
+            })
+            .map(|entity| entity.id.clone())
+            .collect::<Vec<_>>();
+        let task = if options.task.trim().is_empty() {
+            "changed files".to_string()
+        } else {
+            options.task.clone()
+        };
+        let mut pack = generate_context_pack_internal(
+            &snapshot,
+            &task,
+            options.level,
+            limits,
+            Some(direct_matches),
+            false,
+        );
+        if let Some(payload) = pack.payload.as_object_mut() {
+            payload.insert(
+                "diff".to_string(),
+                json!({
+                    "changed_files": affected_files.changed.len(),
+                    "unchanged_files": affected_files.unchanged.len(),
+                    "removed_files": affected_files.removed.len(),
+                }),
+            );
+        }
+        return Ok(pack);
+    }
+
     let index_dir = root.join(".athanor/generated/current/search");
 
     let direct_matches = if let Ok(index) =
@@ -158,6 +218,17 @@ pub fn generate_context_pack(
     limits: ContextLimits,
     direct_matches: Option<Vec<athanor_domain::EntityId>>,
 ) -> ContextPack {
+    generate_context_pack_internal(snapshot, task, level, limits, direct_matches, true)
+}
+
+fn generate_context_pack_internal(
+    snapshot: &CanonicalSnapshot,
+    task: &str,
+    level: ContextLevel,
+    limits: ContextLimits,
+    direct_matches: Option<Vec<athanor_domain::EntityId>>,
+    fallback_to_ranked: bool,
+) -> ContextPack {
     let terms = tokenize(task);
     let mut ranked = snapshot
         .entities
@@ -191,6 +262,7 @@ pub fn generate_context_pack(
             }
             ids
         }
+        Some(_) if !fallback_to_ranked => Vec::new(),
         _ => {
             let mut ids = Vec::new();
             for id in ranked.iter().map(|(_, entity)| entity.id.clone()) {
@@ -597,6 +669,33 @@ mod tests {
         assert!(pack.entities.is_empty());
         assert_eq!(pack.confidence, 0.0);
         assert!(pack.summary.starts_with("No canonical entities matched"));
+    }
+
+    #[test]
+    fn direct_selection_without_fallback_returns_empty_pack() {
+        let snapshot = CanonicalSnapshot {
+            snapshot: Some(SnapshotId("snap_test".to_string())),
+            entities: vec![entity(
+                "ent_file",
+                "file://docs/auth.md",
+                "auth",
+                "docs/auth.md",
+            )],
+            ..CanonicalSnapshot::default()
+        };
+
+        let pack = generate_context_pack_internal(
+            &snapshot,
+            "auth",
+            ContextLevel::Normal,
+            ContextLimits::for_level(ContextLevel::Normal),
+            Some(Vec::new()),
+            false,
+        );
+
+        assert!(pack.entities.is_empty());
+        assert!(pack.files.is_empty());
+        assert_eq!(pack.payload["direct_matches"], 0);
     }
 
     #[test]

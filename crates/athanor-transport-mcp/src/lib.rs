@@ -360,6 +360,7 @@ async fn call_tool(root: &std::path::Path, name: &str, args: Value) -> Result<St
             let report = athanor_app::context_project(athanor_app::ContextOptions {
                 root: root.to_path_buf(),
                 task,
+                diff: false,
                 level,
                 limits: athanor_app::ContextLimitOverrides {
                     max_tokens,

@@ -1,9 +1,12 @@
+use std::collections::{BTreeSet, HashSet};
 use std::path::PathBuf;
 
+use crate::index_state::{AffectedFileSet, IndexStateStore};
 use crate::store::init_store;
 use anyhow::{Context, Result};
-use athanor_core::CanonicalSnapshotStore;
-use athanor_domain::{Diagnostic, DiagnosticKind, DiagnosticStatus, Severity};
+use athanor_core::{CanonicalSnapshotStore, SourceProvider};
+use athanor_domain::{Diagnostic, DiagnosticKind, DiagnosticStatus, Entity, EntityId, Severity};
+use athanor_source_fs::LocalFileSystemSource;
 use serde::{Deserialize, Serialize};
 
 use crate::project_path::normalize_canonical_path;
@@ -43,6 +46,43 @@ pub struct DiagnosticCheckReport {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+#[derive(Debug, Clone)]
+pub struct AffectedCheckOptions {
+    pub root: PathBuf,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AffectedCheckReport {
+    pub schema: String,
+    pub snapshot: String,
+    pub affected_files: AffectedFileCounts,
+    pub counts: DiagnosticCounts,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct AffectedFileCounts {
+    pub changed: usize,
+    pub unchanged: usize,
+    pub removed: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct OperationsDocsCheckOptions {
+    pub root: PathBuf,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct OperationsDocsCheckReport {
+    pub schema: String,
+    pub snapshot: String,
+    pub counts: DiagnosticCounts,
+    pub env: DiagnosticCheckReport,
+    pub scripts: DiagnosticCheckReport,
+    pub deployment: DiagnosticCheckReport,
+    pub runbooks: DiagnosticCheckReport,
+}
+
 use crate::config::{ApiConfig, ApiSourceOfTruth, load_config};
 
 pub async fn check_project(options: DiagnosticCheckOptions) -> Result<DiagnosticCheckReport> {
@@ -77,6 +117,134 @@ pub async fn check_project(options: DiagnosticCheckOptions) -> Result<Diagnostic
     ))
 }
 
+pub async fn check_affected(options: AffectedCheckOptions) -> Result<AffectedCheckReport> {
+    let root = normalize_canonical_path(
+        options
+            .root
+            .canonicalize()
+            .with_context(|| format!("failed to canonicalize {}", options.root.display()))?,
+    );
+    let config = load_config(&root)?;
+    let store = init_store(&root, &config).await?;
+    let snapshot = store
+        .load_latest_snapshot()
+        .await
+        .context("failed to load latest canonical snapshot")?
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "no canonical snapshot found; run `ath index {}` first",
+                root.display()
+            )
+        })?;
+    let snapshot_id = snapshot
+        .snapshot
+        .as_ref()
+        .map_or_else(|| "unknown".to_string(), |snapshot| snapshot.0.clone());
+
+    let state_store = IndexStateStore::new(root.join(".athanor/state/index-state.json"));
+    let previous_state = state_store.load().context("failed to load index state")?;
+    let source = LocalFileSystemSource::new(&root);
+    let current_files = source
+        .discover()
+        .await
+        .context("failed to discover source files for affected check")?;
+    let affected_files = previous_state.affected_files(&current_files);
+    let affected_paths = affected_path_set(&affected_files);
+    let affected_entity_ids = affected_entity_ids(&snapshot.entities, &affected_paths);
+
+    let mut diagnostics = snapshot
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| {
+            diagnostic.status == DiagnosticStatus::Open
+                && diagnostic_touches_paths_or_entities(
+                    diagnostic,
+                    &affected_paths,
+                    &affected_entity_ids,
+                )
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    diagnostics
+        .sort_by_key(|diagnostic| (severity_rank(diagnostic.severity), diagnostic.id.0.clone()));
+
+    let counts = diagnostic_counts(&diagnostics);
+
+    Ok(AffectedCheckReport {
+        schema: "athanor.affected_check.v1".to_string(),
+        snapshot: snapshot_id,
+        affected_files: AffectedFileCounts {
+            changed: affected_files.changed.len(),
+            unchanged: affected_files.unchanged.len(),
+            removed: affected_files.removed.len(),
+        },
+        counts,
+        diagnostics,
+    })
+}
+
+pub async fn check_operations_docs(
+    options: OperationsDocsCheckOptions,
+) -> Result<OperationsDocsCheckReport> {
+    let root = normalize_canonical_path(
+        options
+            .root
+            .canonicalize()
+            .with_context(|| format!("failed to canonicalize {}", options.root.display()))?,
+    );
+    let config = load_config(&root)?;
+    let store = init_store(&root, &config).await?;
+    let snapshot = store
+        .load_latest_snapshot()
+        .await
+        .context("failed to load latest canonical snapshot")?
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "no canonical snapshot found; run `ath index {}` first",
+                root.display()
+            )
+        })?;
+    let snapshot_id = snapshot
+        .snapshot
+        .as_ref()
+        .map_or_else(|| "unknown".to_string(), |snapshot| snapshot.0.clone());
+
+    let env = build_check_report(
+        snapshot_id.clone(),
+        DiagnosticScope::Env,
+        &snapshot.diagnostics,
+        &config.api,
+    );
+    let scripts = build_check_report(
+        snapshot_id.clone(),
+        DiagnosticScope::Scripts,
+        &snapshot.diagnostics,
+        &config.api,
+    );
+    let deployment = build_check_report(
+        snapshot_id.clone(),
+        DiagnosticScope::Deployment,
+        &snapshot.diagnostics,
+        &config.api,
+    );
+    let runbooks = build_check_report(
+        snapshot_id.clone(),
+        DiagnosticScope::Runbooks,
+        &snapshot.diagnostics,
+        &config.api,
+    );
+
+    Ok(OperationsDocsCheckReport {
+        schema: "athanor.operations_docs_check.v1".to_string(),
+        snapshot: snapshot_id,
+        counts: sum_counts([&env, &scripts, &deployment, &runbooks]),
+        env,
+        scripts,
+        deployment,
+        runbooks,
+    })
+}
+
 pub fn build_check_report(
     snapshot: String,
     scope: DiagnosticScope,
@@ -100,6 +268,13 @@ pub fn build_check_report(
                         .get("scope")
                         .and_then(serde_json::Value::as_str)
                         != Some("deployment"))
+                || (scope == DiagnosticScope::Env
+                    && diagnostic.kind == DiagnosticKind::MissingDocumentation
+                    && diagnostic
+                        .payload
+                        .get("scope")
+                        .and_then(serde_json::Value::as_str)
+                        != Some("env"))
                 || (scope == DiagnosticScope::Runbooks
                     && diagnostic
                         .payload
@@ -166,6 +341,72 @@ pub fn build_check_report(
     }
 }
 
+fn affected_path_set(affected_files: &AffectedFileSet) -> BTreeSet<String> {
+    affected_files
+        .changed
+        .iter()
+        .chain(affected_files.removed.iter())
+        .cloned()
+        .collect()
+}
+
+fn affected_entity_ids(
+    entities: &[Entity],
+    affected_paths: &BTreeSet<String>,
+) -> HashSet<EntityId> {
+    entities
+        .iter()
+        .filter(|entity| {
+            entity
+                .ownership
+                .iter()
+                .any(|ownership| affected_paths.contains(&ownership.source_file))
+                || entity
+                    .source
+                    .as_ref()
+                    .is_some_and(|source| affected_paths.contains(&source.path))
+        })
+        .map(|entity| entity.id.clone())
+        .collect()
+}
+
+fn diagnostic_touches_paths_or_entities(
+    diagnostic: &Diagnostic,
+    affected_paths: &BTreeSet<String>,
+    affected_entity_ids: &HashSet<EntityId>,
+) -> bool {
+    diagnostic
+        .entities
+        .iter()
+        .any(|entity| affected_entity_ids.contains(entity))
+        || diagnostic
+            .ownership
+            .iter()
+            .any(|ownership| affected_paths.contains(&ownership.source_file))
+        || diagnostic.evidence.iter().any(|evidence| {
+            evidence
+                .source_file
+                .as_ref()
+                .is_some_and(|path| affected_paths.contains(path))
+        })
+}
+
+fn diagnostic_counts(diagnostics: &[Diagnostic]) -> DiagnosticCounts {
+    let mut counts = DiagnosticCounts {
+        total: diagnostics.len(),
+        ..DiagnosticCounts::default()
+    };
+    for diagnostic in diagnostics {
+        match diagnostic.severity {
+            Severity::Critical => counts.critical += 1,
+            Severity::High => counts.high += 1,
+            Severity::Medium => counts.medium += 1,
+            Severity::Low => counts.low += 1,
+        }
+    }
+    counts
+}
+
 pub(crate) fn diagnostic_matches_scope(kind: &DiagnosticKind, scope: DiagnosticScope) -> bool {
     match scope {
         DiagnosticScope::Api => matches!(
@@ -197,7 +438,10 @@ pub(crate) fn diagnostic_matches_scope(kind: &DiagnosticKind, scope: DiagnosticS
                 | DiagnosticKind::OrphanDoc
                 | DiagnosticKind::TranslationOutdated
         ),
-        DiagnosticScope::Env => matches!(kind, DiagnosticKind::MissingEnvVar),
+        DiagnosticScope::Env => matches!(
+            kind,
+            DiagnosticKind::MissingEnvVar | DiagnosticKind::MissingDocumentation
+        ),
         DiagnosticScope::Scripts => matches!(kind, DiagnosticKind::MissingDocumentation),
         DiagnosticScope::Deployment => matches!(kind, DiagnosticKind::MissingDocumentation),
         DiagnosticScope::Runbooks => matches!(
@@ -214,6 +458,19 @@ fn severity_rank(severity: Severity) -> u8 {
         Severity::Medium => 2,
         Severity::Low => 3,
     }
+}
+
+fn sum_counts<const N: usize>(reports: [&DiagnosticCheckReport; N]) -> DiagnosticCounts {
+    reports
+        .into_iter()
+        .fold(DiagnosticCounts::default(), |mut counts, report| {
+            counts.total += report.counts.total;
+            counts.critical += report.counts.critical;
+            counts.high += report.counts.high;
+            counts.medium += report.counts.medium;
+            counts.low += report.counts.low;
+            counts
+        })
 }
 
 #[cfg(test)]
@@ -318,6 +575,20 @@ mod tests {
 
     #[test]
     fn filters_environment_diagnostics() {
+        let mut config = diagnostic(
+            "diag_config",
+            DiagnosticKind::MissingDocumentation,
+            Severity::Medium,
+            DiagnosticStatus::Open,
+        );
+        config.payload = json!({"scope": "env"});
+        let mut script = diagnostic(
+            "diag_script",
+            DiagnosticKind::MissingDocumentation,
+            Severity::Medium,
+            DiagnosticStatus::Open,
+        );
+        script.payload = json!({"scope": "scripts"});
         let diagnostics = vec![
             diagnostic(
                 "diag_env",
@@ -325,6 +596,8 @@ mod tests {
                 Severity::Medium,
                 DiagnosticStatus::Open,
             ),
+            config,
+            script,
             diagnostic(
                 "diag_docs",
                 DiagnosticKind::DocumentationPageMissingTitle,
@@ -340,8 +613,70 @@ mod tests {
             &ApiConfig::default(),
         );
 
-        assert_eq!(report.counts.total, 1);
-        assert_eq!(report.diagnostics[0].id.0, "diag_env");
+        assert_eq!(report.counts.total, 2);
+        assert_eq!(
+            report
+                .diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.id.0.as_str())
+                .collect::<Vec<_>>(),
+            vec!["diag_config", "diag_env"]
+        );
+    }
+
+    #[test]
+    fn filters_affected_diagnostics_by_changed_files_and_entities() {
+        let changed = entity("ent_changed", "docs/changed.md");
+        let unrelated = entity("ent_unrelated", "docs/unrelated.md");
+        let affected_paths = BTreeSet::from(["docs/changed.md".to_string()]);
+        let affected_entity_ids =
+            affected_entity_ids(&[changed.clone(), unrelated.clone()], &affected_paths);
+
+        let mut attached = diagnostic(
+            "diag_attached",
+            DiagnosticKind::MissingDocumentation,
+            Severity::Medium,
+            DiagnosticStatus::Open,
+        );
+        attached.entities = vec![changed.id.clone()];
+        let mut evidence = diagnostic(
+            "diag_evidence",
+            DiagnosticKind::MissingDocumentation,
+            Severity::Medium,
+            DiagnosticStatus::Open,
+        );
+        evidence.evidence = vec![athanor_domain::Evidence {
+            source_file: Some("docs/changed.md".to_string()),
+            line_start: Some(1),
+            line_end: Some(1),
+            extractor: Some("test".to_string()),
+            commit_hash: None,
+            confidence: 1.0,
+            status: athanor_domain::EvidenceStatus::Missing,
+        }];
+        let mut other = diagnostic(
+            "diag_other",
+            DiagnosticKind::MissingDocumentation,
+            Severity::Medium,
+            DiagnosticStatus::Open,
+        );
+        other.entities = vec![unrelated.id.clone()];
+
+        assert!(diagnostic_touches_paths_or_entities(
+            &attached,
+            &affected_paths,
+            &affected_entity_ids
+        ));
+        assert!(diagnostic_touches_paths_or_entities(
+            &evidence,
+            &affected_paths,
+            &affected_entity_ids
+        ));
+        assert!(!diagnostic_touches_paths_or_entities(
+            &other,
+            &affected_paths,
+            &affected_entity_ids
+        ));
     }
 
     #[test]
@@ -552,6 +887,27 @@ mod tests {
             ownership: Vec::new(),
             snapshot: SnapshotId("snap_test".to_string()),
             suggested_fix: None,
+            payload: json!({}),
+        }
+    }
+
+    fn entity(id: &str, path: &str) -> Entity {
+        Entity {
+            id: EntityId(id.to_string()),
+            stable_key: athanor_domain::StableKey(format!("doc://{path}")),
+            kind: athanor_domain::EntityKind::DocumentationPage,
+            name: path.to_string(),
+            title: None,
+            source: Some(athanor_domain::SourceLocation {
+                path: path.to_string(),
+                line_start: Some(1),
+                line_end: Some(1),
+            }),
+            language: None,
+            aliases: Vec::new(),
+            ownership: vec![athanor_domain::Ownership {
+                source_file: path.to_string(),
+            }],
             payload: json!({}),
         }
     }

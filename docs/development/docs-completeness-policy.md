@@ -50,6 +50,8 @@ cargo run -p ath --quiet -- docs propose-fix
 cargo run -p ath --quiet -- docs propose-fix --output .athanor/patches/docs/manual.json
 cargo run -p ath --quiet -- docs apply-patch docs_patch_snap_jsonl_00000030
 cargo run -p ath --quiet -- docs apply-patch .athanor/patches/docs/manual.json
+cargo run -p ath --quiet -- docs operations check
+cargo run -p ath --quiet -- docs operations check --json
 ```
 
 The command returns success only when every selected editable page satisfies the policy and no
@@ -60,6 +62,12 @@ source files or re-indexes the project.
 `ath docs drift` lists editable pages whose `last_verified_snapshot` is absent or differs from the
 latest canonical snapshot. It does not apply the completeness policy or fail because drift exists.
 JSON output uses `athanor.docs_drift.v1` and includes current and drifted document counts.
+
+`ath docs operations check` aggregates environment, script, deployment, and runbook documentation
+diagnostics from the latest canonical snapshot. Text output prints one operational summary and the
+same per-scope details as `ath check env`, `ath check scripts`, `ath check deployment`, and
+`ath check runbooks`. JSON output uses `athanor.operations_docs_check.v1`. The command is read-only
+and returns a non-zero process status when any operational documentation diagnostic is open.
 
 `ath docs propose-fix` writes a versioned `athanor.docs_patch.v1` JSON proposal under
 `.athanor/patches/docs/` by default. The proposal is reviewable and contains one operation per
@@ -87,9 +95,11 @@ evidence-backed API documentation drafts, and operations documentation drafts:
 - narrative review blocks when human-authored API page text mentions `METHOD /path` routes that do
   not match the current endpoints linked to that page; when the page has exactly one linked current
   endpoint, the block also includes original-line and draft-line rewrite suggestions for review
-- new Markdown operations pages for `missing_env_var`, scoped script `missing_documentation`, and
-  scoped deployment `missing_documentation` diagnostics, written under `<editable_path>/operations/`
-  with frontmatter `entities` that points at the missing operational entity
+- new Markdown operations pages for `missing_env_var`, scoped runtime configuration
+  `missing_documentation`, scoped script `missing_documentation`, scoped deployment
+  `missing_documentation`, and scoped runbook `stale_documentation` diagnostics, written under
+  `<editable_path>/operations/` with frontmatter `entities` that points at the missing or stale
+  operational entity
 
 `ath docs apply-patch <patch-id-or-path>` applies one proposal explicitly. A bare patch id resolves
 to `.athanor/patches/docs/<id>.json`; a JSON path can also be supplied. Apply fails if the proposal

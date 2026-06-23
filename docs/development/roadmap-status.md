@@ -53,12 +53,18 @@ ath init
 ath index
 ath index --validate-only
 ath index --validate-only --validation-result <path>
+ath update --changed
+ath update --changed --json
 ath overview
 ath overview --json
 ath context <task>
 ath context <task> --json
+ath context --diff
+ath context --diff --json
 ath explain <stable-key>
 ath explain <stable-key> --json
+ath check affected
+ath check affected --json
 ath check api
 ath check api --json
 ath check docs
@@ -78,6 +84,8 @@ ath docs drift --json
 ath docs propose-fix
 ath docs propose-fix --output <path>
 ath docs apply-patch <patch-id-or-path>
+ath docs operations check
+ath docs operations check --json
 ath api snapshot
 ath api snapshot --json
 ath api diff --from <snapshot> --to <snapshot>
@@ -1229,22 +1237,31 @@ Status: verified.
 Implemented in:
 
 - `crates/athanor-extractor-rust/src/lib.rs`
+- `crates/athanor-extractor-operations`
 - `crates/athanor-checker-api/src/lib.rs`
 - `crates/athanor-app/src/check.rs`
+- `crates/athanor-app/src/docs.rs`
+- `crates/athanor-app/src/index_state.rs`
 - `apps/ath/src/main.rs`
 - `crates/athanor-transport-mcp/src/lib.rs`
 - `docs/adapters/extractor-rust.md`
+- `docs/adapters/extractor-operations.md`
 - `docs/adapters/checker-api.md`
 - `docs/architecture/pipeline.md`
+- `docs/development/docs-completeness-policy.md`
 
 Purpose:
 
 - extracts Rust environment-variable usage as canonical `EnvVar` entities and `env_var_used` facts
+- uses runtime configuration `Feature` entities from the operations extractor as environment-scope documentation targets
 - checks whether environment variables are linked from editable Markdown documentation through `documents` relations
+- checks whether runtime configuration keys are linked from editable Markdown documentation through `documents` relations
 - exposes the findings through `ath check env` and `ath check env --json`
 - keeps environment diagnostics separate from generic documentation structure diagnostics
 - exposes the same `env` scope through the MCP `check` tool
 - integrates `missing_env_var` diagnostics with `ath docs propose-fix` so agents can review and apply operations documentation drafts
+- integrates scoped runtime configuration `missing_documentation` diagnostics with `ath docs propose-fix`
+- advances persisted index state to v28 so existing projects rebuild environment-scope documentation diagnostics once
 
 ### Operations File Extraction
 
@@ -1538,12 +1555,14 @@ Purpose:
 - adds the built-in `builtin.checker.runbook_consistency` adapter
 - checks canonical `Runbook` entities for at least one known operational target
 - checks canonical `Runbook` entities for at least one extracted operation step
+- checks extracted operation steps for an explicit reference to at least one declared operational target stable key, name, title, or alias
+- checks that every declared operational target is covered by at least one extracted operation step
 - emits evidence-backed `stale_documentation` diagnostics with payload scope `runbooks`
 - exposes the findings through `ath check runbooks` and `ath check runbooks --json`
 - exposes the same `runbooks` scope through the MCP `check` tool
 - keeps the command read-only and non-failing, matching the other initial operational check views
-- advances persisted index state to v25 so existing projects rebuild runbook knowledge and diagnostics once
-- keeps step-to-target validation, dependencies, and richer runbook semantics deferred
+- advances persisted index state to v29 so existing projects rebuild runbook knowledge and diagnostics once
+- keeps step dependencies and richer runbook semantics deferred
 
 ### Operations Documentation Draft Expansion
 
@@ -1560,9 +1579,29 @@ Purpose:
 - extends `ath docs propose-fix` operations draft generation beyond `missing_env_var`
 - creates reviewable Markdown operations pages for scoped script `missing_documentation` diagnostics
 - creates reviewable Markdown operations pages for scoped deployment `missing_documentation` diagnostics
-- writes drafts under `<editable_path>/operations/` with frontmatter `entities` pointing at the missing operational stable key
+- creates reviewable Markdown operations pages for scoped runbook `stale_documentation` diagnostics
+- writes drafts under `<editable_path>/operations/` with frontmatter `entities` pointing at the missing or stale operational stable key
 - includes source evidence, canonical entity kind, and review notes without modifying editable documentation until `docs apply-patch`
-- keeps runbook-diagnostic draft generation deferred
+
+### Operations Documentation Check Workflow
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-app/src/check.rs`
+- `apps/ath/src/main.rs`
+- `docs/development/docs-completeness-policy.md`
+- `docs/architecture/pipeline.md`
+
+Purpose:
+
+- adds `ath docs operations check` and `ath docs operations check --json`
+- aggregates environment, script, deployment, and runbook documentation diagnostics from one latest canonical snapshot load
+- reuses the same scoped reports as `ath check env`, `ath check scripts`, `ath check deployment`, and `ath check runbooks`
+- emits stable `athanor.operations_docs_check.v1` JSON with total counts and per-scope reports
+- returns a non-zero process status when any operational documentation diagnostic is open
+- keeps source files read-only and leaves remediation to `ath docs propose-fix` and `ath docs apply-patch`
 
 ### Canonical Merge Deduplication
 
@@ -1609,30 +1648,69 @@ None.
 
 This backlog tracks the remaining global plan from `start.md`. The entries below are prioritized by dependency order and current product value; each item should be moved into `Implemented` only after code, documentation, and required verification are complete.
 
-### Phase 5 - Operations, Configs, And Environment
+### Affected Diagnostic Check
 
-Status: planned.
+Status: verified.
 
-Scope:
+Implemented in:
 
-- add step-to-target runbook validation and deeper consistency rules
-- extend environment checks beyond Rust, dotenv, and Dockerfile declarations to runtime configuration coverage
-- expand generated operations documentation drafts to runbook diagnostics
-- expose remaining operational checks through commands such as `ath docs operations check`
+- `crates/athanor-app/src/check.rs`
+- `apps/ath/src/main.rs`
+- `docs/README.md`
+- `docs/architecture/pipeline.md`
 
-Acceptance:
+Purpose:
 
-- operational facts, relations, and diagnostics include evidence and ownership
-- check commands can report undocumented or stale operational knowledge without changing source files
-- architecture and adapter documentation describe the new adapter boundaries
+- adds `ath check affected` and `ath check affected --json`
+- compares current source discovery with `.athanor/state/index-state.json`
+- reports open diagnostics from the latest canonical snapshot that touch changed or removed files through attached entities, ownership, or evidence
+- emits stable `athanor.affected_check.v1` JSON with affected file counts and diagnostics
+- keeps the command read-only and does not commit a new index snapshot
+
+### Diff-Based Context Packs
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-app/src/context.rs`
+- `apps/ath/src/main.rs`
+- `crates/athanor-transport-mcp/src/lib.rs`
+- `docs/README.md`
+- `docs/architecture/pipeline.md`
+
+Purpose:
+
+- adds `ath context --diff` and `ath context --diff --json`
+- compares current source discovery with `.athanor/state/index-state.json`
+- selects canonical entities from changed or removed files as direct context roots
+- expands related entities using the existing context-pack limits and relation depth
+- emits the normal `athanor.context_pack.v1` payload plus diff file counts
+- keeps the command read-only and does not commit a new index snapshot
+
+### Changed-File Update Command
+
+Status: verified.
+
+Implemented in:
+
+- `apps/ath/src/main.rs`
+- `crates/athanor-app/src/index.rs`
+
+Purpose:
+
+- adds `ath update --changed` and `ath update --changed --json`
+- exposes the existing incremental indexing path as an explicit update command
+- writes a new durable canonical snapshot and JSONL read model
+- updates `.athanor/state/index-state.json` after successful output writes
+- reports changed, unchanged, and removed file counts through the existing index report
 
 ### Phase 6 Remainder - Affected Workflow And Repair
 
-Status: planned.
+Status: partially implemented.
 
 Scope:
 
-- add user-facing affected commands such as `ath update --changed`, `ath check affected`, and `ath context --diff`
 - extend affected processing to API snapshots, generated wiki/report pages, and documentation diagnostics
 - implement repair, garbage collection, and deterministic cleanup for obsolete generated and canonical artifacts
 

@@ -2,15 +2,17 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use athanor_app::{
-    ApiContractDiff, ApiDiffOptions, ApiSnapshotOptions, ApiSnapshotReport, ContextLimitOverrides,
-    ContextOptions, DiagnosticCheckOptions, DiagnosticCheckReport, DiagnosticScope,
-    DocsApplyPatchOptions, DocsApplyPatchReport, DocsCheckOptions, DocsCheckReport,
-    DocsDriftOptions, DocsDriftReport, DocsProposeFixOptions, DocsProposeFixReport,
-    EntityExplanation, ExplainOptions, GenerationOptions, HtmlReportOptions, ImpactAnalysis,
-    ImpactOptions, IndexOptions, InitOptions, OverviewOptions, RepositoryOverview, WikiOptions,
-    check_docs, check_project, context_project, diff_api_contracts, docs_apply_patch, docs_drift,
-    docs_propose_fix, explain_project, generate_project, impact_project, index_project,
-    init_project, overview_project, project_html_report, project_wiki, snapshot_api_contract,
+    AffectedCheckOptions, AffectedCheckReport, ApiContractDiff, ApiDiffOptions, ApiSnapshotOptions,
+    ApiSnapshotReport, ContextLimitOverrides, ContextOptions, DiagnosticCheckOptions,
+    DiagnosticCheckReport, DiagnosticScope, DocsApplyPatchOptions, DocsApplyPatchReport,
+    DocsCheckOptions, DocsCheckReport, DocsDriftOptions, DocsDriftReport, DocsProposeFixOptions,
+    DocsProposeFixReport, EntityExplanation, ExplainOptions, GenerationOptions, HtmlReportOptions,
+    ImpactAnalysis, ImpactOptions, IndexOptions, IndexReport, InitOptions,
+    OperationsDocsCheckOptions, OperationsDocsCheckReport, OverviewOptions, RepositoryOverview,
+    WikiOptions, check_affected, check_docs, check_operations_docs, check_project, context_project,
+    diff_api_contracts, docs_apply_patch, docs_drift, docs_propose_fix, explain_project,
+    generate_project, impact_project, index_project, init_project, overview_project,
+    project_html_report, project_wiki, snapshot_api_contract,
 };
 use athanor_domain::ContextLevel;
 use clap::{Parser, Subcommand, ValueEnum};
@@ -37,6 +39,7 @@ impl From<ContextLevelArg> for ContextLevel {
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum DiagnosticScopeArg {
+    Affected,
     Api,
     Docs,
     Env,
@@ -45,15 +48,16 @@ enum DiagnosticScopeArg {
     Runbooks,
 }
 
-impl From<DiagnosticScopeArg> for DiagnosticScope {
-    fn from(value: DiagnosticScopeArg) -> Self {
-        match value {
-            DiagnosticScopeArg::Api => Self::Api,
-            DiagnosticScopeArg::Docs => Self::Docs,
-            DiagnosticScopeArg::Env => Self::Env,
-            DiagnosticScopeArg::Scripts => Self::Scripts,
-            DiagnosticScopeArg::Deployment => Self::Deployment,
-            DiagnosticScopeArg::Runbooks => Self::Runbooks,
+impl DiagnosticScopeArg {
+    fn diagnostic_scope(self) -> Option<DiagnosticScope> {
+        match self {
+            Self::Affected => None,
+            Self::Api => Some(DiagnosticScope::Api),
+            Self::Docs => Some(DiagnosticScope::Docs),
+            Self::Env => Some(DiagnosticScope::Env),
+            Self::Scripts => Some(DiagnosticScope::Scripts),
+            Self::Deployment => Some(DiagnosticScope::Deployment),
+            Self::Runbooks => Some(DiagnosticScope::Runbooks),
         }
     }
 }
@@ -88,10 +92,22 @@ enum Command {
         #[arg(long)]
         validate_only: bool,
     },
+    /// Update the project index from changed files.
+    Update {
+        /// Project root. Defaults to the current directory.
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Only process files changed since the last index state.
+        #[arg(long)]
+        changed: bool,
+        /// Print the complete update report as JSON.
+        #[arg(long)]
+        json: bool,
+    },
     /// Build a task-focused context pack from the latest canonical snapshot.
     Context {
-        /// Task or question used to select relevant project knowledge.
-        task: String,
+        /// Task or question used to select relevant project knowledge. Optional with --diff.
+        task: Option<String>,
         /// Project root. Defaults to the current directory.
         #[arg(long, default_value = ".")]
         path: PathBuf,
@@ -116,6 +132,9 @@ enum Command {
         /// Maximum relation traversal depth.
         #[arg(long)]
         max_depth: Option<usize>,
+        /// Build context from files changed since the last index state.
+        #[arg(long)]
+        diff: bool,
     },
     /// Explain one canonical entity from the latest snapshot.
     Explain {
@@ -280,6 +299,24 @@ enum DocsCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Inspect operational documentation diagnostics.
+    Operations {
+        #[command(subcommand)]
+        command: DocsOperationsCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum DocsOperationsCommand {
+    /// Check environment, script, deployment, and runbook documentation diagnostics.
+    Check {
+        /// Project root. Defaults to the current directory.
+        #[arg(long, default_value = ".")]
+        path: PathBuf,
+        /// Print the complete operational documentation report as JSON.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -351,26 +388,27 @@ async fn main() -> Result<()> {
                 validate_only,
             })
             .await?;
-            if report.validate_only {
-                println!(
-                    "validated {} files against adapter contracts using snapshot {}",
-                    report.files_indexed, report.snapshot
-                );
-                if let Some(validation_result) = &report.validation_result {
-                    println!("wrote validation result to {}", validation_result.display());
-                }
-            } else {
-                println!(
-                    "indexed {} files into snapshot {}",
-                    report.files_indexed, report.snapshot
-                );
+            print_index_report(&report, "indexed")?;
+        }
+        Some(Command::Update {
+            path,
+            changed,
+            json,
+        }) => {
+            if !changed {
+                anyhow::bail!("update requires --changed");
             }
-            println!(
-                "affected files: {} changed, {} unchanged, {} removed",
-                report.changed_files, report.unchanged_files, report.removed_files
-            );
-            if !report.validate_only {
-                println!("wrote JSONL to {}", report.output_dir.display());
+            let report = index_project(IndexOptions {
+                root: path,
+                validation_report: None,
+                validation_result: None,
+                validate_only: false,
+            })
+            .await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                print_index_report(&report, "updated")?;
             }
         }
         Some(Command::Context {
@@ -383,10 +421,12 @@ async fn main() -> Result<()> {
             max_entities,
             max_diagnostics,
             max_depth,
+            diff,
         }) => {
             let pack = context_project(ContextOptions {
                 root: path,
-                task,
+                task: task.unwrap_or_default(),
+                diff,
                 level: level.into(),
                 limits: ContextLimitOverrides {
                     max_tokens,
@@ -462,7 +502,27 @@ async fn main() -> Result<()> {
             json,
             strict,
         }) => {
-            let scope: DiagnosticScope = scope.into();
+            if matches!(scope, DiagnosticScopeArg::Affected) {
+                if strict {
+                    anyhow::bail!("--strict is currently supported only for `ath check api`");
+                }
+                let report = check_affected(AffectedCheckOptions { root: path }).await?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                } else {
+                    print_affected_check_report(&report)?;
+                }
+                if report.counts.total > 0 {
+                    anyhow::bail!(
+                        "affected check failed with {} open diagnostics",
+                        report.counts.total
+                    );
+                }
+                return Ok(());
+            }
+            let scope = scope
+                .diagnostic_scope()
+                .expect("non-affected diagnostic scope expected");
             let config = athanor_app::config::load_config(&path)?;
             let is_strict = strict || (scope == DiagnosticScope::Api && config.api.strict);
             let report = check_project(DiagnosticCheckOptions {
@@ -546,6 +606,25 @@ async fn main() -> Result<()> {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
                 print_docs_apply_patch_report(&report);
+            }
+        }
+        Some(Command::Docs {
+            command:
+                DocsCommand::Operations {
+                    command: DocsOperationsCommand::Check { path, json },
+                },
+        }) => {
+            let report = check_operations_docs(OperationsDocsCheckOptions { root: path }).await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                print_operations_docs_check_report(&report)?;
+            }
+            if report.counts.total > 0 {
+                anyhow::bail!(
+                    "operational documentation check failed with {} open diagnostics",
+                    report.counts.total
+                );
             }
         }
         Some(Command::Api {
@@ -841,6 +920,31 @@ fn print_named_counts(title: &str, counts: &[athanor_app::NamedCount]) {
     }
 }
 
+fn print_index_report(report: &IndexReport, action: &str) -> Result<()> {
+    if report.validate_only {
+        println!(
+            "validated {} files against adapter contracts using snapshot {}",
+            report.files_indexed, report.snapshot
+        );
+        if let Some(validation_result) = &report.validation_result {
+            println!("wrote validation result to {}", validation_result.display());
+        }
+    } else {
+        println!(
+            "{action} {} files into snapshot {}",
+            report.files_indexed, report.snapshot
+        );
+    }
+    println!(
+        "affected files: {} changed, {} unchanged, {} removed",
+        report.changed_files, report.unchanged_files, report.removed_files
+    );
+    if !report.validate_only {
+        println!("wrote JSONL to {}", report.output_dir.display());
+    }
+    Ok(())
+}
+
 fn print_check_report(report: &DiagnosticCheckReport) -> Result<()> {
     println!(
         "{} diagnostics in {}: {} open ({} critical, {} high, {} medium, {} low)",
@@ -872,6 +976,51 @@ fn print_check_report(report: &DiagnosticCheckReport) -> Result<()> {
             .unwrap_or_else(|| "unknown source".to_string());
         println!(
             "{} {} at {} — {}",
+            serialized_name(&diagnostic.severity)?,
+            serialized_name(&diagnostic.kind)?,
+            location,
+            diagnostic.title
+        );
+    }
+    Ok(())
+}
+
+fn print_affected_check_report(report: &AffectedCheckReport) -> Result<()> {
+    println!(
+        "affected diagnostics in {}: {} open ({} critical, {} high, {} medium, {} low)",
+        report.snapshot,
+        report.counts.total,
+        report.counts.critical,
+        report.counts.high,
+        report.counts.medium,
+        report.counts.low
+    );
+    println!(
+        "affected files: {} changed, {} unchanged, {} removed",
+        report.affected_files.changed,
+        report.affected_files.unchanged,
+        report.affected_files.removed
+    );
+    for diagnostic in &report.diagnostics {
+        let location = diagnostic
+            .evidence
+            .iter()
+            .find_map(|evidence| {
+                evidence.source_file.as_ref().map(|path| {
+                    evidence
+                        .line_start
+                        .map_or_else(|| path.clone(), |line| format!("{path}:{line}"))
+                })
+            })
+            .or_else(|| {
+                diagnostic
+                    .ownership
+                    .first()
+                    .map(|ownership| ownership.source_file.clone())
+            })
+            .unwrap_or_else(|| "unknown source".to_string());
+        println!(
+            "{} {} at {} вЂ” {}",
             serialized_name(&diagnostic.severity)?,
             serialized_name(&diagnostic.kind)?,
             location,
@@ -954,6 +1103,28 @@ fn print_docs_apply_patch_report(report: &DocsApplyPatchReport) {
         "applied docs patch {} for snapshot {}: {} files changed, {} frontmatter changes",
         report.id, report.snapshot, report.files_changed, report.changes_applied
     );
+}
+
+fn print_operations_docs_check_report(report: &OperationsDocsCheckReport) -> Result<()> {
+    println!(
+        "operational documentation in {}: {} open ({} critical, {} high, {} medium, {} low)",
+        report.snapshot,
+        report.counts.total,
+        report.counts.critical,
+        report.counts.high,
+        report.counts.medium,
+        report.counts.low
+    );
+    for scoped in [
+        &report.env,
+        &report.scripts,
+        &report.deployment,
+        &report.runbooks,
+    ] {
+        println!();
+        print_check_report(scoped)?;
+    }
+    Ok(())
 }
 
 fn print_api_snapshot_report(report: &ApiSnapshotReport) {

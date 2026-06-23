@@ -160,6 +160,13 @@ cargo run -p ath --quiet -- index . --validate-only
 cargo run -p ath --quiet -- index . --validate-only --validation-result .athanor/generated/current/validation-result.json
 ```
 
+Changed files can be committed into a fresh durable snapshot through the explicit update command:
+
+```bash
+cargo run -p ath --quiet -- update . --changed
+cargo run -p ath --quiet -- update . --changed --json
+```
+
 Repository overview and task-focused context packs can be read from the latest canonical snapshot:
 
 ```bash
@@ -167,6 +174,8 @@ cargo run -p ath --quiet -- overview .
 cargo run -p ath --quiet -- overview . --json
 cargo run -p ath --quiet -- context "task"
 cargo run -p ath --quiet -- context "task" --json
+cargo run -p ath --quiet -- context --diff
+cargo run -p ath --quiet -- context --diff --json
 cargo run -p ath --quiet -- context "task" --level summary --budget 2000
 cargo run -p ath --quiet -- context "task" --level deep --max-files 20 --max-depth 2
 ```
@@ -191,6 +200,8 @@ cargo run -p ath --quiet -- check deployment
 cargo run -p ath --quiet -- check deployment --json
 cargo run -p ath --quiet -- check runbooks
 cargo run -p ath --quiet -- check runbooks --json
+cargo run -p ath --quiet -- check affected
+cargo run -p ath --quiet -- check affected --json
 ```
 
 Editable documentation can be checked against the project completeness policy:
@@ -202,6 +213,8 @@ cargo run -p ath --quiet -- docs drift
 cargo run -p ath --quiet -- docs drift --json
 cargo run -p ath --quiet -- docs propose-fix
 cargo run -p ath --quiet -- docs apply-patch <patch-id-or-path>
+cargo run -p ath --quiet -- docs operations check
+cargo run -p ath --quiet -- docs operations check --json
 cargo run -p ath --quiet -- api snapshot
 cargo run -p ath --quiet -- api diff --from <snapshot> --to <snapshot>
 cargo run -p ath --quiet -- api breaking-changes --from <snapshot> --to <snapshot>

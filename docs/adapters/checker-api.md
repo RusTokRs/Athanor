@@ -24,8 +24,13 @@ relations only; it does not parse source files itself.
 Documentation is satisfied by `documents_api`, `documents_operation`, or a verified generic
 `documents` relation such as an exact Markdown frontmatter declaration.
 
-### 2. Environment Variables Documentation Checker (`EnvDocsChecker`)
-Reports environment variables used in the codebase but missing from the project's documentation. It checks `EntityKind::EnvVar` entities and flags them with `DiagnosticKind::MissingEnvVar` if they lack a `RelationKind::Documents` relation from a Markdown page or section.
+### 2. Environment And Runtime Configuration Documentation Checker (`EnvDocsChecker`)
+Reports environment variables and runtime configuration keys used in the codebase but missing from
+the project's documentation. It checks `EntityKind::EnvVar` entities and flags them with
+`DiagnosticKind::MissingEnvVar` if they lack a `RelationKind::Documents` relation from a Markdown
+page or section. It also checks runtime configuration `EntityKind::Feature` entities whose payload
+has `feature_kind = "runtime_config_key"` and emits `DiagnosticKind::MissingDocumentation` with
+payload `scope = "env"` when they are not documented.
 
 The findings are exposed separately through:
 
@@ -68,7 +73,10 @@ Reports runbook pages that are not tied to known operational knowledge. It check
 targets resolve to operational entities such as script commands, deployment resources,
 environment variables, runtime configuration keys, migrations, packages, or dependencies. It also
 emits a scoped stale-documentation diagnostic when a runbook has no extracted ordered-list
-operation steps.
+operation steps, or when the extracted operation steps do not mention any declared operational
+target stable key, name, title, or alias. When some targets are mentioned but others are not, it
+also reports the uncovered operational targets so a runbook can describe deploy, rollback,
+verification, and related procedures explicitly.
 
 The findings are exposed separately through:
 
@@ -77,8 +85,8 @@ cargo run -p ath --quiet -- check runbooks
 cargo run -p ath --quiet -- check runbooks --json
 ```
 
-Diagnostics include evidence and ownership. Relevant function, documentation, environment, script
-command, deployment, runbook, operation-target, and relation changes trigger reevaluation. File
+Diagnostics include evidence and ownership. Relevant function, documentation, environment, runtime
+configuration, script command, deployment, runbook, operation-target, and relation changes trigger reevaluation. File
 additions and removals force a full rebuild at the pipeline level to keep absence diagnostics
 correct.
 
@@ -90,7 +98,7 @@ schema references are skipped, and OpenAPI 3.0 keywords beyond Draft 4 compatibi
 documented limitation.
 
 The checker is local and side-effect free. Deeper schema, status-code, authentication, permission,
-breaking-change, rollout, and step-to-target runbook checks are deferred.
+breaking-change, rollout, and step dependency checks are deferred.
 
 ## Configuration & Policy Enforcement
 
