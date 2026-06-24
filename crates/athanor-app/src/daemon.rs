@@ -15,8 +15,9 @@ use tokio::sync::{Semaphore, mpsc};
 use athanor_domain::ContextLevel;
 
 use crate::{
-    ContextLimitOverrides, ContextOptions, IndexOptions, OverviewOptions, context_project,
-    index_project, overview_project,
+    ContextLimitOverrides, ContextOptions, GenerationOptions, HtmlReportOptions, IndexOptions,
+    OverviewOptions, WikiOptions, context_project, generate_project, index_project,
+    overview_project, project_html_report, project_wiki,
 };
 
 pub const DAEMON_ENDPOINT_SCHEMA: &str = "athanor.daemon_endpoint.v1";
@@ -76,11 +77,16 @@ pub enum DaemonCommand {
         job_id: String,
     },
     Index,
+    Generate,
+    Wiki,
+    HtmlReport,
     Overview {
         top: usize,
     },
     Context {
         task: String,
+        #[serde(default)]
+        diff: bool,
         level: ContextLevel,
         limits: ContextLimitOverrides,
     },
@@ -104,6 +110,9 @@ pub struct DaemonResponse {
 pub enum DaemonJobKind {
     DaemonLifecycle,
     Index,
+    Generate,
+    Wiki,
+    HtmlReport,
     Overview,
     Context,
 }
@@ -567,6 +576,283 @@ async fn execute_request(
                 ),
             }
         }
+        DaemonCommand::Generate => {
+            if has_running_job(&state, DaemonJobKind::Generate).unwrap_or(false) {
+                return (
+                    error_response(
+                        &request.request_id,
+                        &state.endpoint.project_id,
+                        "generate job is already running",
+                    ),
+                    false,
+                );
+            }
+            match start_daemon_job(
+                &state,
+                DaemonJobKind::Generate,
+                "generate read models".to_string(),
+            ) {
+                Ok(job_id) => {
+                    let job = get_daemon_job(&state, &job_id).ok();
+                    let job_state = Arc::clone(&state);
+                    let job_id_for_task = job_id.clone();
+                    let root = state.endpoint.root.clone();
+                    if let Err(error) = std::thread::Builder::new()
+                        .name(format!("athd-generate-{job_id_for_task}"))
+                        .spawn(move || {
+                            let result = tokio::runtime::Builder::new_current_thread()
+                                .enable_all()
+                                .build()
+                                .map_err(anyhow::Error::from)
+                                .and_then(|runtime| {
+                                    runtime.block_on(generate_project(GenerationOptions { root }))
+                                });
+                            match result {
+                                Ok(report) => {
+                                    tracing::info!(
+                                        job_id = %job_id_for_task,
+                                        generation = %report.generation,
+                                        snapshot = %report.snapshot,
+                                        "daemon generate job completed"
+                                    );
+                                    let _ = finish_daemon_job(
+                                        &job_state,
+                                        &job_id_for_task,
+                                        DaemonJobStatus::Succeeded,
+                                        Some(serde_json::json!({
+                                            "generation": report.generation,
+                                            "generation_dir": report.generation_dir,
+                                            "current_pointer": report.current_pointer,
+                                            "snapshot": report.snapshot,
+                                            "entities": report.entities,
+                                            "facts": report.facts,
+                                            "relations": report.relations,
+                                            "diagnostics": report.diagnostics,
+                                        })),
+                                        None,
+                                    );
+                                }
+                                Err(error) => {
+                                    let _ = finish_daemon_job(
+                                        &job_state,
+                                        &job_id_for_task,
+                                        DaemonJobStatus::Failed,
+                                        None,
+                                        Some(error.to_string()),
+                                    );
+                                }
+                            }
+                        })
+                    {
+                        let _ = finish_daemon_job(
+                            &state,
+                            &job_id,
+                            DaemonJobStatus::Failed,
+                            None,
+                            Some(error.to_string()),
+                        );
+                    }
+                    (
+                        success_response(
+                            &request.request_id,
+                            &state.endpoint.project_id,
+                            serde_json::to_value(job).unwrap_or(Value::Null),
+                        ),
+                        false,
+                    )
+                }
+                Err(error) => (
+                    error_response(
+                        &request.request_id,
+                        &state.endpoint.project_id,
+                        &error.to_string(),
+                    ),
+                    false,
+                ),
+            }
+        }
+        DaemonCommand::Wiki => {
+            if has_running_job(&state, DaemonJobKind::Wiki).unwrap_or(false) {
+                return (
+                    error_response(
+                        &request.request_id,
+                        &state.endpoint.project_id,
+                        "wiki job is already running",
+                    ),
+                    false,
+                );
+            }
+            match start_daemon_job(&state, DaemonJobKind::Wiki, "project wiki".to_string()) {
+                Ok(job_id) => {
+                    let job = get_daemon_job(&state, &job_id).ok();
+                    let job_state = Arc::clone(&state);
+                    let job_id_for_task = job_id.clone();
+                    let root = state.endpoint.root.clone();
+                    if let Err(error) = std::thread::Builder::new()
+                        .name(format!("athd-wiki-{job_id_for_task}"))
+                        .spawn(move || {
+                            let result = tokio::runtime::Builder::new_current_thread()
+                                .enable_all()
+                                .build()
+                                .map_err(anyhow::Error::from)
+                                .and_then(|runtime| {
+                                    runtime
+                                        .block_on(project_wiki(WikiOptions { root, output: None }))
+                                });
+                            match result {
+                                Ok(report) => {
+                                    tracing::info!(
+                                        job_id = %job_id_for_task,
+                                        snapshot = %report.snapshot,
+                                        output = %report.output_dir.display(),
+                                        "daemon wiki job completed"
+                                    );
+                                    let _ = finish_daemon_job(
+                                        &job_state,
+                                        &job_id_for_task,
+                                        DaemonJobStatus::Succeeded,
+                                        Some(serde_json::json!({
+                                            "snapshot": report.snapshot,
+                                            "output_dir": report.output_dir,
+                                            "entities": report.entities,
+                                            "facts": report.facts,
+                                            "relations": report.relations,
+                                            "open_diagnostics": report.open_diagnostics,
+                                        })),
+                                        None,
+                                    );
+                                }
+                                Err(error) => {
+                                    let _ = finish_daemon_job(
+                                        &job_state,
+                                        &job_id_for_task,
+                                        DaemonJobStatus::Failed,
+                                        None,
+                                        Some(error.to_string()),
+                                    );
+                                }
+                            }
+                        })
+                    {
+                        let _ = finish_daemon_job(
+                            &state,
+                            &job_id,
+                            DaemonJobStatus::Failed,
+                            None,
+                            Some(error.to_string()),
+                        );
+                    }
+                    (
+                        success_response(
+                            &request.request_id,
+                            &state.endpoint.project_id,
+                            serde_json::to_value(job).unwrap_or(Value::Null),
+                        ),
+                        false,
+                    )
+                }
+                Err(error) => (
+                    error_response(
+                        &request.request_id,
+                        &state.endpoint.project_id,
+                        &error.to_string(),
+                    ),
+                    false,
+                ),
+            }
+        }
+        DaemonCommand::HtmlReport => {
+            if has_running_job(&state, DaemonJobKind::HtmlReport).unwrap_or(false) {
+                return (
+                    error_response(
+                        &request.request_id,
+                        &state.endpoint.project_id,
+                        "HTML report job is already running",
+                    ),
+                    false,
+                );
+            }
+            match start_daemon_job(&state, DaemonJobKind::HtmlReport, "HTML report".to_string()) {
+                Ok(job_id) => {
+                    let job = get_daemon_job(&state, &job_id).ok();
+                    let job_state = Arc::clone(&state);
+                    let job_id_for_task = job_id.clone();
+                    let root = state.endpoint.root.clone();
+                    if let Err(error) = std::thread::Builder::new()
+                        .name(format!("athd-html-report-{job_id_for_task}"))
+                        .spawn(move || {
+                            let result = tokio::runtime::Builder::new_current_thread()
+                                .enable_all()
+                                .build()
+                                .map_err(anyhow::Error::from)
+                                .and_then(|runtime| {
+                                    runtime.block_on(project_html_report(HtmlReportOptions {
+                                        root,
+                                        output: None,
+                                    }))
+                                });
+                            match result {
+                                Ok(report) => {
+                                    tracing::info!(
+                                        job_id = %job_id_for_task,
+                                        snapshot = %report.snapshot,
+                                        output = %report.output_dir.display(),
+                                        "daemon HTML report job completed"
+                                    );
+                                    let _ = finish_daemon_job(
+                                        &job_state,
+                                        &job_id_for_task,
+                                        DaemonJobStatus::Succeeded,
+                                        Some(serde_json::json!({
+                                            "snapshot": report.snapshot,
+                                            "output_dir": report.output_dir,
+                                            "entities": report.entities,
+                                            "facts": report.facts,
+                                            "relations": report.relations,
+                                            "open_diagnostics": report.open_diagnostics,
+                                        })),
+                                        None,
+                                    );
+                                }
+                                Err(error) => {
+                                    let _ = finish_daemon_job(
+                                        &job_state,
+                                        &job_id_for_task,
+                                        DaemonJobStatus::Failed,
+                                        None,
+                                        Some(error.to_string()),
+                                    );
+                                }
+                            }
+                        })
+                    {
+                        let _ = finish_daemon_job(
+                            &state,
+                            &job_id,
+                            DaemonJobStatus::Failed,
+                            None,
+                            Some(error.to_string()),
+                        );
+                    }
+                    (
+                        success_response(
+                            &request.request_id,
+                            &state.endpoint.project_id,
+                            serde_json::to_value(job).unwrap_or(Value::Null),
+                        ),
+                        false,
+                    )
+                }
+                Err(error) => (
+                    error_response(
+                        &request.request_id,
+                        &state.endpoint.project_id,
+                        &error.to_string(),
+                    ),
+                    false,
+                ),
+            }
+        }
         DaemonCommand::Overview { top } => {
             if top == 0 || top > 100 {
                 return (
@@ -635,10 +921,11 @@ async fn execute_request(
         }
         DaemonCommand::Context {
             task,
+            diff,
             level,
             limits,
         } => {
-            if task.trim().is_empty() {
+            if task.trim().is_empty() && !diff {
                 return (
                     error_response(
                         &request.request_id,
@@ -651,7 +938,7 @@ async fn execute_request(
             let job_id = match start_daemon_job(
                 &state,
                 DaemonJobKind::Context,
-                format!("context task={}", task.trim()),
+                format!("context task={} diff={diff}", task.trim()),
             ) {
                 Ok(job_id) => job_id,
                 Err(error) => {
@@ -668,7 +955,7 @@ async fn execute_request(
             match context_project(ContextOptions {
                 root: state.endpoint.root.clone(),
                 task,
-                diff: false,
+                diff,
                 level,
                 limits,
             })
@@ -1183,6 +1470,30 @@ mod tests {
     }
 
     #[test]
+    fn context_request_defaults_diff_to_false_for_existing_clients() {
+        let request: DaemonRequest = serde_json::from_value(serde_json::json!({
+            "schema": DAEMON_REQUEST_SCHEMA,
+            "request_id": "req-context",
+            "project_id": "alpha",
+            "command": {
+                "name": "context",
+                "task": "auth",
+                "level": "normal",
+                "limits": {}
+            }
+        }))
+        .unwrap();
+
+        match request.command {
+            DaemonCommand::Context { task, diff, .. } => {
+                assert_eq!(task, "auth");
+                assert!(!diff);
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
     fn detects_running_job_by_kind() {
         let endpoint = DaemonEndpoint {
             schema: DAEMON_ENDPOINT_SCHEMA.to_string(),
@@ -1214,6 +1525,7 @@ mod tests {
 
         assert!(has_running_job(&state, DaemonJobKind::Index).unwrap());
         assert!(!has_running_job(&state, DaemonJobKind::Context).unwrap());
+        assert!(!has_running_job(&state, DaemonJobKind::Generate).unwrap());
     }
 
     #[test]

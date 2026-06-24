@@ -235,10 +235,14 @@ cargo run -p athd --quiet -- jobs athanor --limit 20 --json
 cargo run -p athd --quiet -- job athanor job_00000001 --json
 cargo run -p athd --quiet -- cancel athanor job_00000001 --json
 cargo run -p athd --quiet -- index athanor --json
+cargo run -p athd --quiet -- generate athanor --json
+cargo run -p athd --quiet -- wiki athanor --json
+cargo run -p athd --quiet -- report-html athanor --json
 cargo run -p athd --quiet -- overview athanor --top 10
 cargo run -p athd --quiet -- overview athanor --top 10 --json
 cargo run -p athd --quiet -- context athanor "task" --level summary --budget 2000
 cargo run -p athd --quiet -- context athanor "task" --level summary --budget 2000 --json
+cargo run -p athd --quiet -- context athanor --diff --level summary --budget 2000 --json
 cargo run -p athd --quiet -- stop athanor
 ```
 

@@ -400,8 +400,12 @@ athd jobs <project-id> --limit 20
 athd job <project-id> job_00000001
 athd cancel <project-id> job_00000001
 athd index <project-id>
+athd generate <project-id>
+athd wiki <project-id>
+athd report-html <project-id>
 athd overview <project-id> --top 10
 athd context <project-id> "task" --level summary --budget 2000
+athd context <project-id> --diff --level summary --budget 2000
 athd stop <project-id>
 ```
 
@@ -433,21 +437,33 @@ requests that do not match the endpoint's project identity. The implemented comm
 - `job`: returns one exact daemon job by id.
 - `cancel`: cancels queued daemon jobs and reports an explicit non-cancellable error for running jobs.
 - `index`: starts one background indexing job for the project and immediately returns its job record.
+- `generate`: starts one background coordinated read-model generation job and immediately returns
+  its job record.
+- `wiki`: starts one background Markdown wiki projection job and immediately returns its job record.
+- `report-html`: starts one background HTML report projection job and immediately returns its job
+  record.
 - `overview`: runs the same bounded `overview_project` query against the latest canonical snapshot.
 - `context`: runs the same bounded `context_project` query against the latest canonical snapshot.
+  With `--diff`, it roots context in changed or removed files from persisted index state without
+  committing a new index snapshot.
 - `shutdown`: stops the daemon after returning a structured response.
 
-This is a read-only daemon slice. Daemon context requests expose the normal level and explicit
-limit overrides but intentionally do not expose diff mode yet; they do not mutate snapshots or index
-state. The job registry records daemon lifecycle jobs, completed or failed read-only
-`overview`/`context` request jobs, and background indexing jobs. Finished jobs can include a
+Daemon status, overview, and context requests are read-only. Daemon context requests expose the
+normal level and explicit limit overrides, including diff-based changed-file context; they do not
+mutate snapshots or index state. The job registry records daemon lifecycle jobs, completed or failed
+read-only `overview`/`context` request jobs, background indexing jobs, and background generation
+jobs. Finished jobs can include a
 structured `result`; index jobs record the published snapshot id, file counts, and JSONL output
-directory. `athd index` reuses the existing `index_project` path and rejects a second concurrent
-indexing job for the same daemon so snapshot writers do not overlap. Job history is retained in
-memory up to `--max-job-history`; pruning removes the oldest finished records first and never
-removes running or queued records. Cancellation is cooperative: queued jobs can be marked cancelled,
-while currently running index jobs are allowed to finish because forced interruption could corrupt
-snapshot or generated output writes. File watching, hot cache invalidation, projection jobs, deeper
+directory, while generate jobs record the published generation id, selected snapshot id, current
+pointer, and canonical object counts. Direct wiki and HTML report jobs record the selected snapshot
+id, output directory, and canonical object counts. `athd index` reuses the existing `index_project`
+path and rejects a second concurrent indexing job for the same daemon so snapshot writers do not
+overlap. `athd generate`, `athd wiki`, and `athd report-html` reuse the existing projection paths
+and reject a second concurrent job of the same kind so output publishers do not overlap. Job history
+is retained in memory up to `--max-job-history`; pruning removes the oldest finished records first
+and never removes running or queued records. Cancellation is cooperative: queued jobs can be marked
+cancelled, while currently running index and projection jobs are allowed to finish because forced
+interruption could corrupt snapshot or generated output writes. File watching, hot cache invalidation, deeper
 cancellable execution, and debounce remain future Phase 7 work. Logs continue to use stderr or
 tracing sinks and are kept separate from structured protocol responses.
 

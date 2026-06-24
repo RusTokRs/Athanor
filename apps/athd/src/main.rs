@@ -100,6 +100,30 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Start a background coordinated read-model generation job for the project.
+    Generate {
+        project_id: String,
+        #[arg(long)]
+        registry: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Start a background Markdown wiki projection job for the project.
+    Wiki {
+        project_id: String,
+        #[arg(long)]
+        registry: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Start a background HTML report projection job for the project.
+    ReportHtml {
+        project_id: String,
+        #[arg(long)]
+        registry: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
     /// Request a bounded repository overview from the daemon.
     Overview {
         project_id: String,
@@ -113,10 +137,13 @@ enum Command {
     /// Request a bounded task-focused context pack from the daemon.
     Context {
         project_id: String,
-        /// Task or question used to select relevant canonical context.
-        task: String,
+        /// Task or question used to select relevant canonical context. Optional with --diff.
+        task: Option<String>,
         #[arg(long)]
         registry: Option<PathBuf>,
+        /// Select context from changed or removed files without committing a new index.
+        #[arg(long)]
+        diff: bool,
         /// Context detail level and its default limits.
         #[arg(long, value_enum, default_value_t = ContextLevelArg::Normal)]
         level: ContextLevelArg,
@@ -220,6 +247,30 @@ async fn main() -> Result<()> {
             request(&project_id, registry, DaemonCommand::Index).await?,
             json,
         ),
+        Command::Generate {
+            project_id,
+            registry,
+            json,
+        } => print_response(
+            request(&project_id, registry, DaemonCommand::Generate).await?,
+            json,
+        ),
+        Command::Wiki {
+            project_id,
+            registry,
+            json,
+        } => print_response(
+            request(&project_id, registry, DaemonCommand::Wiki).await?,
+            json,
+        ),
+        Command::ReportHtml {
+            project_id,
+            registry,
+            json,
+        } => print_response(
+            request(&project_id, registry, DaemonCommand::HtmlReport).await?,
+            json,
+        ),
         Command::Overview {
             project_id,
             registry,
@@ -233,6 +284,7 @@ async fn main() -> Result<()> {
             project_id,
             task,
             registry,
+            diff,
             level,
             max_tokens,
             max_files,
@@ -245,7 +297,8 @@ async fn main() -> Result<()> {
                 &project_id,
                 registry,
                 DaemonCommand::Context {
-                    task,
+                    task: task.unwrap_or_default(),
+                    diff,
                     level: level.into(),
                     limits: ContextLimitOverrides {
                         max_tokens,

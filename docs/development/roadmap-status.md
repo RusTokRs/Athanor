@@ -141,9 +141,16 @@ athd cancel <project-id> <job-id>
 athd cancel <project-id> <job-id> --json
 athd index <project-id>
 athd index <project-id> --json
+athd generate <project-id>
+athd generate <project-id> --json
+athd wiki <project-id>
+athd wiki <project-id> --json
+athd report-html <project-id>
+athd report-html <project-id> --json
 athd overview <project-id>
 athd overview <project-id> --json
 athd context <project-id> <task>
+athd context <project-id> --diff
 athd context <project-id> <task> --json
 athd stop <project-id>
 ath repair inspect
@@ -1987,7 +1994,7 @@ Implemented in:
 
 Purpose:
 
-- adds the `athd` daemon entrypoint with `serve`, `status`, `jobs`, `job`, `cancel`, `index`, `overview`, `context`, and `stop`
+- adds the `athd` daemon entrypoint with `serve`, `status`, `jobs`, `job`, `cancel`, `index`, `generate`, `wiki`, `report-html`, `overview`, `context`, and `stop`
 - resolves every command through the explicit project registry before connecting to or serving a repository daemon
 - writes per-project runtime endpoint and lock files under `.athanor/daemon`
 - prevents two daemon instances from owning the same project runtime directory through exclusive lock creation
@@ -2000,12 +2007,14 @@ Purpose:
 - supports exact daemon job lookup by stable job id
 - starts one background indexing job through `athd index`, reusing the existing `index_project` implementation and rejecting concurrent index jobs
 - records structured index job results with snapshot id, file counts, and JSONL output directory
+- starts one background coordinated generation job through `athd generate`, reusing `generate_project`, rejecting concurrent generation jobs, and recording generation id, snapshot id, pointer path, and canonical object counts
+- starts background direct projection jobs through `athd wiki` and `athd report-html`, reusing the existing projector services, rejecting concurrent jobs of the same kind, and recording snapshot id, output directory, and canonical object counts
 - adds cooperative cancellation for queued daemon jobs and explicit non-cancellable errors for running jobs
 - rejects requests whose project id does not match the daemon endpoint
 - serves read-only status, bounded overview, and bounded task context responses from the latest canonical snapshot
-- exposes daemon context level and limit overrides while keeping daemon diff mode deferred
+- exposes daemon context level and limit overrides, including diff-based changed-file context
 - keeps logs separate from structured protocol output
-- leaves file watching, hot cache invalidation, projection jobs, deeper cancellable execution, and debounce for the remaining Phase 7 work
+- leaves file watching, hot cache invalidation, deeper cancellable execution, and debounce for the remaining Phase 7 work
 
 ## In Progress
 
