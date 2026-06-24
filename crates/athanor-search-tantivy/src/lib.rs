@@ -9,6 +9,7 @@ use tantivy::{
     Index, IndexReader, IndexWriter, TantivyDocument,
     collector::TopDocs,
     doc,
+    indexer::NoMergePolicy,
     query::QueryParser,
     schema::{
         Field, IndexRecordOption, STORED, STRING, Schema, TextFieldIndexing, TextOptions,
@@ -42,6 +43,7 @@ impl TantivySearchIndex {
         register_tokenizer(&index);
 
         let writer = index.writer(50_000_000)?;
+        writer.set_merge_policy(Box::new(NoMergePolicy));
         let reader = index.reader()?;
 
         Ok(Self {

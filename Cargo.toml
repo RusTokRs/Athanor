@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "apps/ath",
+    "apps/athd",
     "crates/athanor-app",
     "crates/athanor-checker-markdown",
     "crates/athanor-checker-api",

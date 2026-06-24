@@ -115,6 +115,7 @@ fn render_report(snapshot: &str, payload: &HtmlReportProjectionPayload) -> Strin
     metric(&mut output, "Open diagnostics", open_diagnostics.len());
     output.push_str("</div></section>\n");
     render_graph_summary(&mut output, payload);
+    render_interactive_graph(&mut output, payload);
     render_filters(&mut output, &kinds, &severities);
     output.push_str(
         "<section aria-labelledby=\"diagnostics\"><h2 id=\"diagnostics\">Open diagnostics</h2>\n",
@@ -181,6 +182,38 @@ fn render_graph_summary(output: &mut String, payload: &HtmlReportProjectionPaylo
         output.push_str("</ol>");
     }
     output.push_str("</article></div></section>\n");
+}
+
+fn render_interactive_graph(output: &mut String, payload: &HtmlReportProjectionPayload) {
+    const MAX_NODES: usize = 80;
+    const MAX_EDGES: usize = 240;
+
+    let graph = graph_view_data(payload, MAX_NODES, MAX_EDGES);
+    output.push_str(
+        "<section aria-labelledby=\"interactive-graph\"><h2 id=\"interactive-graph\">Interactive graph</h2>\n",
+    );
+    if graph.nodes.is_empty() {
+        output.push_str("<p class=\"empty\">No connected canonical entities.</p></section>\n");
+        return;
+    }
+    output.push_str(&format!(
+        "<p class=\"graph-note\">Showing {} nodes and {} relations; omitted {} nodes and {} relations by report limits.</p>\n",
+        graph.nodes.len(),
+        graph.edges.len(),
+        graph.omitted_nodes,
+        graph.omitted_edges
+    ));
+    output.push_str("<div class=\"graph-controls\"><label>Find node<input id=\"graph-search\" type=\"search\" autocomplete=\"off\" placeholder=\"name or stable key\"></label><label>Relation kind<select id=\"graph-relation-kind\"><option value=\"\">All relation kinds</option></select></label><div class=\"graph-buttons\"><button id=\"graph-zoom-in\" type=\"button\">Zoom in</button><button id=\"graph-zoom-out\" type=\"button\">Zoom out</button><button id=\"graph-reset\" type=\"button\">Reset layout</button></div></div>\n");
+    output.push_str("<div class=\"graph-shell\"><svg id=\"canonical-graph\" viewBox=\"0 0 1000 620\" role=\"img\" aria-label=\"Interactive bounded canonical entity graph\"><g id=\"graph-viewport\"><g id=\"graph-edges\"></g><g id=\"graph-nodes\"></g></g></svg><aside id=\"graph-selection\" class=\"graph-selection\"><p class=\"empty\">Select a node to inspect its canonical identity and direct relations.</p></aside></div>\n");
+    let graph_json = serde_json::to_string(&graph)
+        .unwrap_or_else(|_| "{\"nodes\":[],\"edges\":[]}".to_string())
+        .replace('&', "\\u0026")
+        .replace('<', "\\u003c")
+        .replace('>', "\\u003e");
+    output.push_str(&format!(
+        "<script id=\"canonical-graph-data\" type=\"application/json\">{graph_json}</script>\n"
+    ));
+    output.push_str("</section>\n");
 }
 
 fn render_filters(output: &mut String, kinds: &[String], severities: &[String]) {
@@ -518,6 +551,106 @@ struct GraphHub<'a> {
     degree: usize,
 }
 
+#[derive(Debug, Serialize)]
+struct GraphViewData {
+    nodes: Vec<GraphViewNode>,
+    edges: Vec<GraphViewEdge>,
+    omitted_nodes: usize,
+    omitted_edges: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct GraphViewNode {
+    id: String,
+    stable_key: String,
+    kind: String,
+    name: String,
+    href: String,
+    degree: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct GraphViewEdge {
+    id: String,
+    kind: String,
+    from: String,
+    to: String,
+    evidence: Vec<String>,
+}
+
+fn graph_view_data(
+    payload: &HtmlReportProjectionPayload,
+    max_nodes: usize,
+    max_edges: usize,
+) -> GraphViewData {
+    let mut degrees = HashMap::<&str, usize>::new();
+    for relation in &payload.relations {
+        *degrees.entry(relation.from.0.as_str()).or_default() += 1;
+        *degrees.entry(relation.to.0.as_str()).or_default() += 1;
+    }
+    let mut selected = payload
+        .entities
+        .iter()
+        .filter(|entity| degrees.contains_key(entity.id.0.as_str()))
+        .collect::<Vec<_>>();
+    selected.sort_by(|left, right| {
+        degrees
+            .get(right.id.0.as_str())
+            .unwrap_or(&0)
+            .cmp(degrees.get(left.id.0.as_str()).unwrap_or(&0))
+            .then_with(|| left.stable_key.0.cmp(&right.stable_key.0))
+    });
+    let connected_entities = selected.len();
+    selected.truncate(max_nodes);
+    let selected_ids = selected
+        .iter()
+        .map(|entity| entity.id.0.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    let nodes = selected
+        .into_iter()
+        .map(|entity| GraphViewNode {
+            id: entity.id.0.clone(),
+            stable_key: entity.stable_key.0.clone(),
+            kind: serialized_name(&entity.kind),
+            name: entity.title.clone().unwrap_or_else(|| entity.name.clone()),
+            href: entity_report_path(entity),
+            degree: *degrees.get(entity.id.0.as_str()).unwrap_or(&0),
+        })
+        .collect::<Vec<_>>();
+
+    let mut relations = payload
+        .relations
+        .iter()
+        .filter(|relation| {
+            selected_ids.contains(relation.from.0.as_str())
+                && selected_ids.contains(relation.to.0.as_str())
+        })
+        .collect::<Vec<_>>();
+    let selected_relations = relations.len();
+    relations.sort_by(|left, right| left.id.0.cmp(&right.id.0));
+    relations.truncate(max_edges);
+    let edges = relations
+        .into_iter()
+        .map(|relation| GraphViewEdge {
+            id: relation.id.0.clone(),
+            kind: serialized_name(&relation.kind),
+            from: relation.from.0.clone(),
+            to: relation.to.0.clone(),
+            evidence: evidence_locations(&relation.evidence),
+        })
+        .collect();
+
+    GraphViewData {
+        nodes,
+        edges,
+        omitted_nodes: connected_entities.saturating_sub(max_nodes),
+        omitted_edges: payload
+            .relations
+            .len()
+            .saturating_sub(selected_relations.min(max_edges)),
+    }
+}
+
 fn graph_hubs(payload: &HtmlReportProjectionPayload) -> Vec<GraphHub<'_>> {
     let mut degrees = HashMap::<&str, usize>::new();
     for relation in &payload.relations {
@@ -610,6 +743,24 @@ a { color: #93c5fd; text-decoration-color: #3b82f6; }
 .metric strong { display: block; color: #93c5fd; font-size: 2rem; }
 .metric span { color: #9ca3af; }
 .graph-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; }
+.graph-note { color: #9ca3af; }
+.graph-controls { display: grid; grid-template-columns: 2fr 1.5fr auto; gap: 1rem; align-items: end; margin-bottom: 1rem; }
+.graph-controls label { display: grid; gap: .35rem; color: #9ca3af; font-size: .9rem; }
+.graph-buttons { display: flex; gap: .5rem; flex-wrap: wrap; }
+button { border: 1px solid #374151; border-radius: .4rem; background: #1f2937; color: #e5e7eb; padding: .6rem .8rem; cursor: pointer; }
+button:hover { border-color: #60a5fa; }
+.graph-shell { display: grid; grid-template-columns: minmax(0, 3fr) minmax(220px, 1fr); gap: 1rem; }
+#canonical-graph { width: 100%; min-height: 520px; border: 1px solid #374151; border-radius: .5rem; background: #0f172a; touch-action: none; }
+.graph-edge { stroke: #475569; stroke-width: 1.5; opacity: .72; }
+.graph-edge.is-dimmed { opacity: .08; }
+.graph-node { cursor: grab; }
+.graph-node circle { fill: #1d4ed8; stroke: #93c5fd; stroke-width: 1.5; }
+.graph-node text { fill: #e5e7eb; font-size: 11px; pointer-events: none; }
+.graph-node.is-dimmed { opacity: .14; }
+.graph-node.is-selected circle { fill: #b45309; stroke: #fde68a; stroke-width: 3; }
+.graph-selection { background: #1f2937; border: 1px solid #374151; border-radius: .5rem; padding: 1rem; overflow-wrap: anywhere; }
+.graph-selection h3 { margin-top: 0; }
+.graph-selection ul { padding-left: 1.2rem; }
 .compact-list { list-style: none; padding: 0; margin: 0; }
 .compact-list li { display: flex; justify-content: space-between; gap: 1rem; padding: .45rem 0; border-bottom: 1px solid #374151; }
 .filters { display: grid; grid-template-columns: 2fr 1.5fr 1fr 1fr; gap: 1rem; margin: 1rem 0; }
@@ -630,7 +781,7 @@ th { color: #93c5fd; position: sticky; top: 0; background: #1f2937; }
 code { overflow-wrap: anywhere; color: #bfdbfe; }
 .empty { color: #9ca3af; }
 .is-hidden { display: none; }
-@media (max-width: 760px) { .filters, .details { grid-template-columns: 1fr; } }
+@media (max-width: 760px) { .filters, .details, .graph-controls, .graph-shell { grid-template-columns: 1fr; } #canonical-graph { min-height: 420px; } }
 </style>
 "#;
 
@@ -663,6 +814,165 @@ const SCRIPT: &str = r#"<script>
   source?.addEventListener('input', applyFilters);
   kind?.addEventListener('change', applyFilters);
   severity?.addEventListener('change', applyFilters);
+
+  const graphDataElement = document.getElementById('canonical-graph-data');
+  const graphSvg = document.getElementById('canonical-graph');
+  if (graphDataElement && graphSvg) {
+    const graph = JSON.parse(graphDataElement.textContent || '{"nodes":[],"edges":[]}');
+    const viewport = document.getElementById('graph-viewport');
+    const edgeLayer = document.getElementById('graph-edges');
+    const nodeLayer = document.getElementById('graph-nodes');
+    const selection = document.getElementById('graph-selection');
+    const graphSearch = document.getElementById('graph-search');
+    const relationKind = document.getElementById('graph-relation-kind');
+    const nodeById = new Map(graph.nodes.map(node => [node.id, node]));
+    const positions = new Map();
+    const nodeElements = new Map();
+    const edgeElements = [];
+    let scale = 1;
+    let translateX = 0;
+    let translateY = 0;
+    let dragged = null;
+
+    const relationKinds = Array.from(new Set(graph.edges.map(edge => edge.kind))).sort();
+    for (const kindName of relationKinds) {
+      const option = document.createElement('option');
+      option.value = kindName;
+      option.textContent = kindName;
+      relationKind?.appendChild(option);
+    }
+
+    function resetPositions() {
+      const centerX = 500;
+      const centerY = 310;
+      const radius = Math.min(260, 120 + graph.nodes.length * 2);
+      graph.nodes.forEach((node, index) => {
+        const angle = (Math.PI * 2 * index / Math.max(graph.nodes.length, 1)) - Math.PI / 2;
+        positions.set(node.id, {
+          x: centerX + Math.cos(angle) * radius,
+          y: centerY + Math.sin(angle) * radius
+        });
+      });
+    }
+
+    function svgElement(name, attributes = {}) {
+      const element = document.createElementNS('http://www.w3.org/2000/svg', name);
+      for (const [key, value] of Object.entries(attributes)) element.setAttribute(key, value);
+      return element;
+    }
+
+    function renderGraph() {
+      edgeLayer.replaceChildren();
+      nodeLayer.replaceChildren();
+      edgeElements.length = 0;
+      nodeElements.clear();
+      for (const edge of graph.edges) {
+        if (!nodeById.has(edge.from) || !nodeById.has(edge.to)) continue;
+        const line = svgElement('line', { class: 'graph-edge', 'data-kind': edge.kind });
+        edgeLayer.appendChild(line);
+        edgeElements.push({ edge, line });
+      }
+      for (const node of graph.nodes) {
+        const group = svgElement('g', { class: 'graph-node', tabindex: '0', role: 'link' });
+        const circle = svgElement('circle', { r: String(Math.min(16, 6 + Math.sqrt(node.degree) * 1.8)) });
+        const label = svgElement('text', { x: '10', y: '-10' });
+        label.textContent = node.name.length > 26 ? `${node.name.slice(0, 24)}…` : node.name;
+        group.append(circle, label);
+        group.addEventListener('click', () => selectNode(node.id));
+        group.addEventListener('dblclick', () => { window.location.href = node.href; });
+        group.addEventListener('keydown', event => {
+          if (event.key === 'Enter') window.location.href = node.href;
+        });
+        group.addEventListener('pointerdown', event => {
+          dragged = node.id;
+          graphSvg.setPointerCapture(event.pointerId);
+          event.preventDefault();
+        });
+        nodeLayer.appendChild(group);
+        nodeElements.set(node.id, group);
+      }
+      updateGraph();
+    }
+
+    function updateGraph() {
+      viewport.setAttribute('transform', `translate(${translateX} ${translateY}) scale(${scale})`);
+      for (const { edge, line } of edgeElements) {
+        const from = positions.get(edge.from);
+        const to = positions.get(edge.to);
+        line.setAttribute('x1', from.x);
+        line.setAttribute('y1', from.y);
+        line.setAttribute('x2', to.x);
+        line.setAttribute('y2', to.y);
+      }
+      for (const [id, element] of nodeElements) {
+        const position = positions.get(id);
+        element.setAttribute('transform', `translate(${position.x} ${position.y})`);
+      }
+      applyGraphFilters();
+    }
+
+    function applyGraphFilters() {
+      const query = (graphSearch?.value || '').trim().toLowerCase();
+      const selectedKind = relationKind?.value || '';
+      const visibleNodeIds = new Set();
+      for (const { edge, line } of edgeElements) {
+        const visible = !selectedKind || edge.kind === selectedKind;
+        line.classList.toggle('is-dimmed', !visible);
+        if (visible) {
+          visibleNodeIds.add(edge.from);
+          visibleNodeIds.add(edge.to);
+        }
+      }
+      for (const node of graph.nodes) {
+        const matchesQuery = !query || `${node.name} ${node.stable_key} ${node.kind}`.toLowerCase().includes(query);
+        const matchesRelation = !selectedKind || visibleNodeIds.has(node.id);
+        nodeElements.get(node.id)?.classList.toggle('is-dimmed', !(matchesQuery && matchesRelation));
+      }
+    }
+
+    function selectNode(id) {
+      const node = nodeById.get(id);
+      if (!node) return;
+      for (const [nodeId, element] of nodeElements) element.classList.toggle('is-selected', nodeId === id);
+      const attached = graph.edges.filter(edge => edge.from === id || edge.to === id);
+      const relationItems = attached.slice(0, 20).map(edge => {
+        const otherId = edge.from === id ? edge.to : edge.from;
+        const other = nodeById.get(otherId);
+        const direction = edge.from === id ? 'outgoing' : 'incoming';
+        const evidence = edge.evidence.length ? ` — ${edge.evidence.join(', ')}` : '';
+        return `<li><code>${escapeGraphHtml(edge.id)}</code> ${escapeGraphHtml(edge.kind)} (${direction}) → ${escapeGraphHtml(other?.name || otherId)}${escapeGraphHtml(evidence)}</li>`;
+      }).join('');
+      selection.innerHTML = `<h3>${escapeGraphHtml(node.name)}</h3><p><code>${escapeGraphHtml(node.stable_key)}</code></p><p>Kind: ${escapeGraphHtml(node.kind)} · Degree: ${node.degree}</p><p><a href="${escapeGraphHtml(node.href)}">Open entity detail</a></p>${relationItems ? `<h4>Direct relations</h4><ul>${relationItems}</ul>` : '<p class="empty">No displayed direct relations.</p>'}`;
+    }
+
+    function escapeGraphHtml(value) {
+      return String(value).replace(/[&<>"']/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]));
+    }
+
+    graphSvg.addEventListener('pointermove', event => {
+      if (!dragged) return;
+      const rect = graphSvg.getBoundingClientRect();
+      const x = ((event.clientX - rect.left) / rect.width * 1000 - translateX) / scale;
+      const y = ((event.clientY - rect.top) / rect.height * 620 - translateY) / scale;
+      positions.set(dragged, { x, y });
+      updateGraph();
+    });
+    graphSvg.addEventListener('pointerup', () => { dragged = null; });
+    graphSvg.addEventListener('pointercancel', () => { dragged = null; });
+    graphSearch?.addEventListener('input', applyGraphFilters);
+    relationKind?.addEventListener('change', applyGraphFilters);
+    document.getElementById('graph-zoom-in')?.addEventListener('click', () => { scale = Math.min(2.5, scale * 1.2); updateGraph(); });
+    document.getElementById('graph-zoom-out')?.addEventListener('click', () => { scale = Math.max(.45, scale / 1.2); updateGraph(); });
+    document.getElementById('graph-reset')?.addEventListener('click', () => {
+      scale = 1;
+      translateX = 0;
+      translateY = 0;
+      resetPositions();
+      updateGraph();
+    });
+    resetPositions();
+    renderGraph();
+  }
 })();
 </script>
 "#;
@@ -745,6 +1055,12 @@ mod tests {
         assert!(html.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
         assert!(!html.contains("<script>alert(1)</script>"));
         assert!(html.contains("Graph summary"));
+        assert!(html.contains("Interactive graph"));
+        assert!(html.contains("id=\"canonical-graph\""));
+        assert!(html.contains("id=\"canonical-graph-data\""));
+        assert!(html.contains("id=\"graph-relation-kind\""));
+        assert!(html.contains("\"id\":\"ent_login\""));
+        assert!(html.contains("\"id\":\"rel_login\""));
         assert!(html.contains("id=\"source-filter\""));
         assert!(html.contains("data-severities=\"high\""));
         assert!(html.contains("<script>"));
@@ -754,6 +1070,66 @@ mod tests {
         assert!(entity_html.contains("rel_login"));
         assert!(target.join("manifest.json").is_file());
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn bounds_interactive_graph_by_degree_and_relation_limit() {
+        let center = Entity {
+            id: EntityId("ent_center".to_string()),
+            stable_key: StableKey("symbol://center".to_string()),
+            kind: EntityKind::Function,
+            name: "center".to_string(),
+            title: None,
+            source: None,
+            language: None,
+            aliases: Vec::new(),
+            ownership: Vec::new(),
+            payload: json!({}),
+        };
+        let mut entities = vec![center.clone()];
+        let mut relations = Vec::new();
+        for index in 0..99 {
+            let leaf = Entity {
+                id: EntityId(format!("ent_leaf_{index:03}")),
+                stable_key: StableKey(format!("symbol://leaf/{index:03}")),
+                kind: EntityKind::Function,
+                name: format!("leaf {index:03}"),
+                title: None,
+                source: None,
+                language: None,
+                aliases: Vec::new(),
+                ownership: Vec::new(),
+                payload: json!({}),
+            };
+            relations.push(Relation {
+                id: RelationId(format!("rel_{index:03}")),
+                kind: RelationKind::Calls,
+                from: leaf.id.clone(),
+                to: center.id.clone(),
+                status: RelationStatus::Verified,
+                confidence: 1.0,
+                evidence: Vec::new(),
+                ownership: Vec::new(),
+                snapshot: SnapshotId("snap_test".to_string()),
+                payload: json!({}),
+            });
+            entities.push(leaf);
+        }
+        let payload = HtmlReportProjectionPayload {
+            schema: HTML_REPORT_PROJECTION_SCHEMA.to_string(),
+            entities,
+            facts: Vec::new(),
+            relations,
+            diagnostics: Vec::new(),
+        };
+
+        let graph = graph_view_data(&payload, 80, 40);
+
+        assert_eq!(graph.nodes.len(), 80);
+        assert_eq!(graph.nodes[0].id, "ent_center");
+        assert_eq!(graph.edges.len(), 40);
+        assert_eq!(graph.omitted_nodes, 20);
+        assert_eq!(graph.omitted_edges, 59);
     }
 
     #[tokio::test]

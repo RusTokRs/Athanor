@@ -115,7 +115,11 @@ flowchart TD
 - `related_graph`: bounded related-entity exploration from one exact stable key.
 - `shortest_graph_path`: bounded shortest-path search between two exact stable keys.
 - `graph_hubs`: bounded degree-centrality ranking over canonical relations.
+- `graph_pagerank`: bounded directed PageRank ranking over canonical relations.
 - `graph_cycles`: bounded directed-cycle detection over canonical relations.
+- `list_registered_projects`, `register_project`, `resolve_registered_project`, and
+  `unregister_project`: explicit user-level repository identity management for future daemon and
+  MCP routing.
 - `check_project`: scoped API, documentation, environment, script, deployment, and runbook diagnostic reporting from the latest canonical snapshot.
 - `check_affected`: read-only changed-file diagnostic reporting from latest canonical snapshot plus persisted index state.
 - `check_operations_docs`: aggregate environment, script, deployment, and runbook documentation diagnostics from one latest canonical snapshot load.
@@ -151,7 +155,15 @@ The complete projection is built in a temporary sibling directory, then renamed 
 
 `ath report html [path]` reads the latest durable canonical snapshot without re-indexing and invokes `HtmlReportProjector` through the core `Projector` port. It writes a self-contained `index.html`, one `entities/<entity-id>.html` detail page per canonical entity, and a versioned manifest under `.athanor/generated/current/html` by default.
 
-The report shows snapshot metrics, a compact canonical graph summary, complete open diagnostics, filterable canonical entity tables, and entity detail pages with attached facts, relations, diagnostics, ownership, and evidence locations. Dynamic canonical values are HTML-escaped, presentation CSS and the small filtering script are embedded, and the output has no network dependencies. The HTML and wiki adapters share canonical projection payload and staged directory publication utilities through `athanor-projector-support`.
+The report shows snapshot metrics, a compact canonical graph summary, a bounded interactive SVG
+graph, complete open diagnostics, filterable canonical entity tables, and entity detail pages with
+attached facts, relations, diagnostics, ownership, and evidence locations. The interactive graph
+deterministically selects up to 80 high-degree entities and 240 canonical relations, reports
+omitted counts, and supports node search, relation-kind filtering, zoom, reset, dragging, detail
+links, and evidence-backed direct relation inspection. Dynamic canonical values are HTML-escaped,
+presentation CSS and scripts are embedded, and the output has no network dependencies. The HTML
+and wiki adapters share canonical projection payload and staged directory publication utilities
+through `athanor-projector-support`.
 
 ## Coordinated Generated Generations
 
@@ -249,7 +261,8 @@ They are not the conversational context interface for agents.
 
 Agent-facing workflows must use bounded commands or APIs such as `ath overview`, `ath context`,
 `ath context --diff`, `ath search`, `ath explain`, `ath graph related`, `ath graph path`,
-`ath graph hubs`, `ath graph cycles`, `ath check affected`, or future daemon/query endpoints. Those outputs must be
+`ath graph hubs`, `ath graph pagerank`, `ath graph cycles`, `ath check affected`, or future
+daemon/query endpoints. Those outputs must be
 deterministic, size-limited, and traceable back to canonical ids, stable keys, source anchors, and
 evidence.
 
@@ -288,8 +301,10 @@ canonical entity ids, stable keys, source anchors, and ownership metadata. The c
 extra result internally so agents can tell when the configured limit hides additional matches
 without reading generated JSONL or search-index internals. Full snapshot rebuilds add all entity
 documents in one batch and commit before opening the search reader, avoiding per-document segment
-reloads and obsolete memory-mapped file locks on Windows. Tantivy remains a replaceable read-model
-adapter; vectors and semantic ranking remain future adapters or services.
+reloads and obsolete memory-mapped file locks on Windows. Incremental writer instances disable
+background segment merging because open readers can retain mapped segment files; later full
+snapshot rebuilds compact the disposable index. Tantivy remains a replaceable read-model adapter;
+vectors and semantic ranking remain future adapters or services.
 
 `ath graph export --format json` and `ath graph export --format graphml` read the latest durable canonical snapshot without re-indexing and
 emit a bounded disposable graph read model. The JSON payload uses schema
@@ -324,6 +339,18 @@ serialized canonical entity kind, `--limit` bounds ranked entities, and `--max-r
 trace ids per direction. `--json` emits `athanor.graph_hubs.v1`. The command excludes disconnected
 entities and reads the latest canonical snapshot without writing artifacts.
 
+`ath graph pagerank` ranks canonical entities by directed PageRank over the complete latest
+canonical graph. Canonical relations are directed edges; multiple canonical relations between the
+same entities remain separate contributions. Dangling score is redistributed across all canonical
+entities. `--max-iterations`, `--tolerance`, and `--damping` bound and configure computation;
+`--limit` bounds output, and `--max-relation-ids` bounds sorted incoming canonical relation trace
+ids per result. `--kind` filters ranked output after the full-graph score calculation, so filtering
+does not change centrality. Ties are ordered by stable key. `--json` emits
+`athanor.graph_pagerank.v1` with convergence state, effective iteration count, graph counts,
+canonical entity identity/source data, scores, omitted counts, incoming relation ids/kinds/source
+entity ids, and relation evidence anchors. The command is read-only and does not create a graph
+source of truth.
+
 `ath graph cycles` finds simple directed cycles while preserving canonical relation direction.
 Search roots and outgoing relations are ordered deterministically, and cycles discovered from
 different starting entities are deduplicated by canonical rotation of their relation ids.
@@ -331,6 +358,33 @@ different starting entities are deduplicated by canonical rotation of their rela
 results. `--json` emits `athanor.graph_cycles.v1` with ordered canonical nodes and evidence-bearing
 edges plus explicit truncation and omitted-start counts. The command reads the latest canonical
 snapshot without writing artifacts.
+
+## Explicit Project Registry
+
+`ath projects` manages a user-level registry for explicit repository identity:
+
+```bash
+ath projects list
+ath projects add <project-id> <repository-root>
+ath projects resolve <project-id>
+ath projects remove <project-id>
+```
+
+The default registry is `~/.athanor/projects.json`; `ATHANOR_PROJECT_REGISTRY` or per-command
+`--registry` selects another file. The JSON schemas are `athanor.project_registry.v1` for list and
+mutation reports and `athanor.project_resolution.v1` for exact resolution.
+
+Project ids are stable lowercase identifiers. Roots are canonical absolute paths. The registry
+rejects duplicate ids and duplicate canonical roots, has no implicit default project, and requires
+exact ids for resolution. Writes use staged replacement so readers do not observe partially written
+JSON.
+
+This registry is routing metadata, not canonical knowledge or a multi-project store. Every
+repository keeps its own `.athanor` canonical snapshots, state, generated outputs, API artifacts,
+and configuration. Current CLI knowledge commands remain explicitly path-scoped. Future daemon and
+MCP multi-repository requests must resolve a project id first and include that identity in protocol
+responses and generated routing metadata; they must never answer from an arbitrary registered
+repository.
 
 ## Entity Explanation
 
@@ -647,7 +701,8 @@ Generated JSONL files and Markdown wiki pages under `.athanor/generated/current`
 - Older canonical snapshots without ownership metadata are pruned by entity source paths and evidence source files.
 - Frontmatter references resolve by exact stable key only; aliases, fuzzy matching, external concept registries, and reference-type constraints are not implemented.
 - Wiki and HTML projection currently rebuild complete outputs and are selected directly by app services rather than projector plugin discovery.
-- The HTML report graph view is a compact inspection summary rather than an interactive graph layout.
+- The HTML report interactive graph is a bounded inspection view with a deterministic circular
+  starting layout; full-graph layout and analysis remain CLI/query workflows.
 - Generation numbering and pointer updates are local single-process operations; concurrent generation publishers are not implemented.
 - Direct compatibility outputs under `.athanor/generated/current` are not coordinated; consumers requiring one snapshot must use `current.json` and `generations/`.
 - Documentation patch proposals currently create enriched API documentation pages for missing API docs diagnostics, refresh endpoint-specific managed API contract blocks in existing API documentation pages, stabilize explicit API frontmatter references, support pages that cover multiple endpoints, add coordination blocks for split endpoint documentation, flag stale route mentions in human-authored API narrative, include deterministic narrative rewrite drafts when a page has one unambiguous linked endpoint, and create operations documentation drafts for missing environment, runtime configuration, script, deployment, and stale runbook diagnostics.

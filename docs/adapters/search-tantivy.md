@@ -48,6 +48,10 @@ Full snapshot rebuilds add all canonical entity documents in one batch and commi
 the reader. This avoids per-document segment reloads retaining obsolete memory-mapped files on
 Windows.
 
+Incremental writer instances disable background segment merging. This prevents Windows readers
+from blocking deletion of memory-mapped segment files; later full snapshot rebuilds compact the
+disposable index.
+
 ## Configuration
 Add `athanor-search-tantivy` to workspace dependencies. It is used as a coordinate read-model alongside JSONL, wiki, and HTML reports.
 

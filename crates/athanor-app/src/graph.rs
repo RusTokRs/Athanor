@@ -177,8 +177,16 @@ pub struct GraphPageRankEntry {
     #[serde(flatten)]
     pub entity: GraphNode,
     pub score: f64,
-    pub incoming_relation_ids: Vec<String>,
-    pub omitted_incoming_relation_ids: usize,
+    pub incoming_relations: Vec<GraphPageRankRelationTrace>,
+    pub omitted_incoming_relations: usize,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct GraphPageRankRelationTrace {
+    pub id: String,
+    pub kind: String,
+    pub from_entity_id: String,
+    pub evidence: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -905,7 +913,7 @@ pub fn build_graph_pagerank(
         .map(|(index, entity)| (entity.id.0.as_str(), index))
         .collect::<HashMap<_, _>>();
     let mut outgoing = vec![Vec::<usize>::new(); entity_count];
-    let mut incoming_relation_ids = vec![Vec::<String>::new(); entity_count];
+    let mut incoming_relations = vec![Vec::<&Relation>::new(); entity_count];
     let mut relation_count = 0;
     for relation in &snapshot.relations {
         let (Some(&from), Some(&to)) = (
@@ -915,14 +923,14 @@ pub fn build_graph_pagerank(
             continue;
         };
         outgoing[from].push(to);
-        incoming_relation_ids[to].push(relation.id.0.clone());
+        incoming_relations[to].push(relation);
         relation_count += 1;
     }
     for targets in &mut outgoing {
         targets.sort_unstable();
     }
-    for relation_ids in &mut incoming_relation_ids {
-        relation_ids.sort();
+    for relations in &mut incoming_relations {
+        relations.sort_by(|left, right| left.id.0.cmp(&right.id.0));
     }
 
     let initial = 1.0 / entity_count as f64;
@@ -966,15 +974,23 @@ pub fn build_graph_pagerank(
         .enumerate()
         .filter(|(_, entity)| kind.is_none_or(|kind| serialized_name(&entity.kind) == kind))
         .map(|(index, entity)| {
-            let incoming_count = incoming_relation_ids[index].len();
-            let mut relation_ids = incoming_relation_ids[index].clone();
-            relation_ids.truncate(max_relation_ids);
+            let incoming_count = incoming_relations[index].len();
+            let relation_traces = incoming_relations[index]
+                .iter()
+                .take(max_relation_ids)
+                .map(|relation| GraphPageRankRelationTrace {
+                    id: relation.id.0.clone(),
+                    kind: serialized_name(&relation.kind),
+                    from_entity_id: relation.from.0.clone(),
+                    evidence: graph_edge(relation).evidence,
+                })
+                .collect::<Vec<_>>();
             GraphPageRankEntry {
                 rank: 0,
                 entity: graph_node(entity, *degrees.get(&entity.id.0).unwrap_or(&0)),
                 score: scores[index],
-                incoming_relation_ids: relation_ids,
-                omitted_incoming_relation_ids: incoming_count.saturating_sub(max_relation_ids),
+                incoming_relations: relation_traces,
+                omitted_incoming_relations: incoming_count.saturating_sub(max_relation_ids),
             }
         })
         .collect::<Vec<_>>();
@@ -1760,15 +1776,23 @@ mod tests {
         assert_eq!(report.ranks[0].entity.stable_key, "symbol://sink");
         assert_eq!(report.ranks[0].rank, 1);
         assert_eq!(
-            report.ranks[0].incoming_relation_ids,
-            vec!["rel_aggregator_sink"]
+            report.ranks[0].incoming_relations[0].id,
+            "rel_aggregator_sink"
+        );
+        assert_eq!(
+            report.ranks[0].incoming_relations[0].from_entity_id,
+            "ent_aggregator"
+        );
+        assert_eq!(
+            report.ranks[0].incoming_relations[0].evidence,
+            vec!["docs/api/health.md:1"]
         );
         assert_eq!(report.ranks[1].entity.stable_key, "symbol://aggregator");
         assert_eq!(
-            report.ranks[1].incoming_relation_ids,
-            vec!["rel_first_aggregator"]
+            report.ranks[1].incoming_relations[0].id,
+            "rel_first_aggregator"
         );
-        assert_eq!(report.ranks[1].omitted_incoming_relation_ids, 1);
+        assert_eq!(report.ranks[1].omitted_incoming_relations, 1);
     }
 
     #[test]

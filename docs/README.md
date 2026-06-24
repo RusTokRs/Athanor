@@ -219,8 +219,14 @@ cargo run -p ath --quiet -- graph path "doc://docs/api/health.md" "rust://src/li
 cargo run -p ath --quiet -- graph path "doc://docs/api/health.md" "rust://src/lib.rs#health" --max-depth 4 --json
 cargo run -p ath --quiet -- graph hubs
 cargo run -p ath --quiet -- graph hubs --kind module --limit 10 --json
+cargo run -p ath --quiet -- graph pagerank
+cargo run -p ath --quiet -- graph pagerank --kind module --limit 10 --json
 cargo run -p ath --quiet -- graph cycles
 cargo run -p ath --quiet -- graph cycles --max-depth 6 --limit 10 --json
+cargo run -p ath --quiet -- projects list
+cargo run -p ath --quiet -- projects add athanor .
+cargo run -p ath --quiet -- projects resolve athanor --json
+cargo run -p ath --quiet -- projects remove athanor
 ```
 
 Canonical entities can be explained directly from the latest snapshot:

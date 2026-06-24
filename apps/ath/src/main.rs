@@ -11,15 +11,18 @@ use athanor_app::{
     GraphCyclesOptions, GraphExportOptions, GraphHubs, GraphHubsOptions, GraphPageRank,
     GraphPageRankOptions, GraphPath, GraphPathOptions, GraphRelated, GraphRelatedOptions,
     HtmlReportOptions, ImpactAnalysis, ImpactOptions, IndexOptions, IndexReport, InitOptions,
-    OperationsDocsCheckOptions, OperationsDocsCheckReport, OverviewOptions, RepairApplyOptions,
-    RepairApplyReport, RepairCleanupOptions, RepairCleanupReport, RepairInspectOptions,
-    RepairInspectReport, RepairRecoverCanonicalOptions, RepairRecoverCanonicalReport,
-    RepairRegenerateOptions, RepairRegenerateReport, RepositoryOverview, WikiOptions, apply_repair,
-    check_affected, check_docs, check_operations_docs, check_project, cleanup_api_contracts,
-    cleanup_repair, context_project, diff_api_contracts, docs_apply_patch, docs_drift,
+    OperationsDocsCheckOptions, OperationsDocsCheckReport, OverviewOptions, ProjectRegisterOptions,
+    ProjectRegistration, ProjectRegistryOptions, ProjectRegistryReport, ProjectUnregisterOptions,
+    RepairApplyOptions, RepairApplyReport, RepairCleanupOptions, RepairCleanupReport,
+    RepairInspectOptions, RepairInspectReport, RepairRecoverCanonicalOptions,
+    RepairRecoverCanonicalReport, RepairRegenerateOptions, RepairRegenerateReport,
+    RepositoryOverview, WikiOptions, apply_repair, check_affected, check_docs,
+    check_operations_docs, check_project, cleanup_api_contracts, cleanup_repair, context_project,
+    default_project_registry_path, diff_api_contracts, docs_apply_patch, docs_drift,
     docs_propose_fix, explain_project, generate_project, impact_project, index_project,
-    init_project, inspect_repair, overview_project, project_html_report, project_wiki,
-    recover_canonical_repair, regenerate_repair, snapshot_api_contract,
+    init_project, inspect_repair, list_registered_projects, overview_project, project_html_report,
+    project_wiki, recover_canonical_repair, regenerate_repair, register_project,
+    resolve_registered_project, snapshot_api_contract, unregister_project,
 };
 use athanor_domain::ContextLevel;
 use clap::{Parser, Subcommand, ValueEnum};
@@ -239,6 +242,11 @@ enum Command {
         #[command(subcommand)]
         command: GraphCommand,
     },
+    /// Manage explicit repository identities for future daemon and MCP use.
+    Projects {
+        #[command(subcommand)]
+        command: ProjectCommand,
+    },
     /// Inspect repairable local Athanor artifacts.
     Repair {
         #[command(subcommand)]
@@ -263,6 +271,54 @@ enum Command {
         /// Project root. Defaults to the current directory.
         #[arg(default_value = ".")]
         path: PathBuf,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum ProjectCommand {
+    /// List registered repositories.
+    List {
+        /// Override the user-level project registry path.
+        #[arg(long)]
+        registry: Option<PathBuf>,
+        /// Print the registry as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Register one repository under an explicit project id.
+    Add {
+        /// Stable project id used by daemon and agent requests.
+        project_id: String,
+        /// Repository root to register.
+        path: PathBuf,
+        /// Override the user-level project registry path.
+        #[arg(long)]
+        registry: Option<PathBuf>,
+        /// Print the updated registry as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Remove one project id from the registry.
+    Remove {
+        /// Exact registered project id.
+        project_id: String,
+        /// Override the user-level project registry path.
+        #[arg(long)]
+        registry: Option<PathBuf>,
+        /// Print the updated registry as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Resolve one exact project id to its canonical repository root.
+    Resolve {
+        /// Exact registered project id.
+        project_id: String,
+        /// Override the user-level project registry path.
+        #[arg(long)]
+        registry: Option<PathBuf>,
+        /// Print the registration as JSON.
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -358,7 +414,7 @@ enum GraphCommand {
         #[arg(long, default_value_t = 100)]
         max_iterations: usize,
         /// Convergence tolerance for total score delta.
-        #[arg(long, default_value_t = 1e-10)]
+        #[arg(long, default_value_t = 1e-8)]
         tolerance: f64,
         /// Maximum incoming canonical relation ids retained per result.
         #[arg(long, default_value_t = 20)]
@@ -633,6 +689,10 @@ fn retention_overrides(
         keep_snapshots,
         keep_diffs,
     }
+}
+
+fn project_registry_path(registry: Option<PathBuf>) -> Result<PathBuf> {
+    registry.map_or_else(default_project_registry_path, Ok)
 }
 
 #[tokio::main]
@@ -1182,6 +1242,68 @@ async fn main() -> Result<()> {
                 }
             }
         },
+        Some(Command::Projects { command }) => match command {
+            ProjectCommand::List { registry, json } => {
+                let report = list_registered_projects(ProjectRegistryOptions {
+                    registry_path: project_registry_path(registry)?,
+                })?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                } else {
+                    print_project_registry(&report);
+                }
+            }
+            ProjectCommand::Add {
+                project_id,
+                path,
+                registry,
+                json,
+            } => {
+                let report = register_project(ProjectRegisterOptions {
+                    registry_path: project_registry_path(registry)?,
+                    project_id,
+                    root: path,
+                })?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                } else {
+                    print_project_registry(&report);
+                }
+            }
+            ProjectCommand::Remove {
+                project_id,
+                registry,
+                json,
+            } => {
+                let report = unregister_project(ProjectUnregisterOptions {
+                    registry_path: project_registry_path(registry)?,
+                    project_id,
+                })?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                } else {
+                    print_project_registry(&report);
+                }
+            }
+            ProjectCommand::Resolve {
+                project_id,
+                registry,
+                json,
+            } => {
+                let report = resolve_registered_project(
+                    ProjectRegistryOptions {
+                        registry_path: project_registry_path(registry)?,
+                    },
+                    &project_id,
+                )?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                } else {
+                    println!("Resolved from {}", report.registry_path.display());
+                    print_project_registration(&report.project);
+                }
+            }
+        },
         Some(Command::Repair { command }) => match command {
             RepairCommand::Inspect { path, json } => {
                 let report = inspect_repair(RepairInspectOptions { root: path })?;
@@ -1652,6 +1774,25 @@ fn print_graph_cycles(report: &GraphCycles) {
     if report.truncated {
         println!("  search truncated by configured limits");
     }
+}
+
+fn print_project_registry(report: &ProjectRegistryReport) {
+    println!(
+        "Registered projects at {}: {}",
+        report.registry_path.display(),
+        report.projects.len()
+    );
+    if report.projects.is_empty() {
+        println!("  (none)");
+        return;
+    }
+    for project in &report.projects {
+        print_project_registration(project);
+    }
+}
+
+fn print_project_registration(project: &ProjectRegistration) {
+    println!("  {} -> {}", project.project_id, project.root.display());
 }
 
 fn print_named_counts(title: &str, counts: &[athanor_app::NamedCount]) {

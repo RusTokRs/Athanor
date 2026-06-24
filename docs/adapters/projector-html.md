@@ -37,6 +37,9 @@ The static report includes:
 
 - snapshot and canonical object counts
 - a bounded graph summary with relation-kind counts and high-degree connected entities
+- a bounded interactive SVG graph with up to 80 high-degree entities and 240 canonical relations
+- node search, relation-kind filtering, zoom, deterministic layout reset, node dragging, canonical
+  detail links, and evidence-backed direct relation inspection
 - embedded client-side filters for entity search, source path, entity kind, and diagnostic severity
 - complete open diagnostic cards with evidence and suggested fixes
 - a deterministic table of canonical entities, source locations, stable keys, and attached diagnostic counts
@@ -65,7 +68,8 @@ Relative output paths are resolved against the project root. The command does no
 
 ## Limitations
 
-- The graph view is a compact inspection summary rather than an interactive layout algorithm.
+- The interactive graph starts from a deterministic circular layout over a bounded high-degree
+  subset. It does not run full-graph force-directed analysis or replace CLI graph queries.
 - Entity detail pages render direct attached facts, relations, diagnostics, and evidence, but do not yet provide cross-page graph traversal controls beyond stable links.
 - Rebuilds the complete report on every invocation.
 - Projector plugin discovery and runtime registration remain deferred.

@@ -53,9 +53,9 @@ canonical types and ports, while format, storage, query presentation, and projec
 outside those boundaries.
 
 The current baseline is an offline CLI with local JSONL canonical storage, repository overview,
-lexical search, impact analysis, static projectors, and MCP transport. Production multi-process
-storage, daemonized access, semantic vectors, interactive graph views, and multi-repository
-workflows remain roadmap work.
+lexical search, impact analysis, static projectors, MCP transport, and an explicit user-level
+repository identity registry. Production multi-process storage, daemonized access, semantic
+vectors, and daemon-served multi-repository workflows remain roadmap work.
 
 ## Quick Start
 

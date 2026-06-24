@@ -118,8 +118,16 @@ ath graph path <from-stable-key> <to-stable-key>
 ath graph path <from-stable-key> <to-stable-key> --max-depth <N> --json
 ath graph hubs
 ath graph hubs --kind <entity-kind> --limit <N> --json
+ath graph pagerank
+ath graph pagerank --kind <entity-kind> --limit <N> --json
 ath graph cycles
 ath graph cycles --max-depth <N> --limit <N> --json
+ath projects list
+ath projects list --json
+ath projects add <project-id> <path>
+ath projects remove <project-id>
+ath projects resolve <project-id>
+ath projects resolve <project-id> --json
 ath repair inspect
 ath repair inspect --json
 ath repair cleanup
@@ -1116,6 +1124,7 @@ Purpose:
 - emits bounded `athanor.search.v1` reports with the query, limit, returned count, truncation status, omitted lower bound, canonical entity ids, stable keys, source anchors, and ownership metadata
 - fetches one result past the requested limit so agent-facing output can report when results were truncated without requiring agents to inspect the search index or generated JSONL directly
 - rebuilds full canonical snapshots with one Tantivy batch commit before opening the reader, avoiding per-document segment reloads and Windows memory-mapped file lock failures
+- disables incremental background segment merging so open Windows readers cannot block obsolete mapped segment deletion; later full rebuilds compact the disposable index
 
 ### Code Impact Analysis
 
@@ -1834,6 +1843,29 @@ Purpose:
 - sorts ties deterministically by incoming degree, outgoing degree, and stable key
 - keeps centrality reporting read-only and derived from the latest canonical snapshot
 
+### Directed Graph PageRank Centrality
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-app/src/graph.rs`
+- `apps/ath/src/main.rs`
+- `docs/README.md`
+- `docs/architecture/pipeline.md`
+
+Purpose:
+
+- adds `ath graph pagerank` and JSON output
+- calculates directed PageRank over the complete latest canonical entity/relation graph
+- redistributes dangling-node score across all canonical entities
+- bounds computation by maximum iterations and convergence tolerance
+- bounds output entities and incoming canonical relation trace ids
+- applies optional entity-kind filtering after full-graph scoring so filters do not alter centrality
+- reports graph counts, effective iterations, convergence state, scores, stable keys, source anchors, omitted result counts, and bounded canonical incoming relation traces with evidence anchors
+- sorts equal scores deterministically by stable key
+- keeps PageRank read-only and derived from canonical relations rather than creating a second graph source of truth
+
 ### Directed Graph Cycle Detection
 
 Status: verified.
@@ -1873,6 +1905,9 @@ Purpose:
 - extends `ath report html` output with one `entities/<entity-id>.html` detail page per canonical entity
 - adds entity detail sections for identity, ownership, attached relations, attached facts, diagnostics, and evidence locations
 - adds a compact graph summary to `index.html` with relation-kind counts and high-degree connected entities
+- adds a bounded interactive SVG graph with up to 80 high-degree entities and 240 canonical relations
+- supports node search, relation-kind filtering, zoom, deterministic layout reset, node dragging, canonical detail links, and evidence-backed direct relation inspection
+- reports omitted node and relation counts so the interactive read model is explicit about truncation
 - adds embedded client-side filters for entity search, source path, entity kind, and diagnostic severity
 - keeps the report self-contained with embedded CSS/script and no network dependencies
 - keeps HTML report files disposable read models generated from the latest canonical snapshot
@@ -1897,6 +1932,29 @@ Purpose:
 - requires canonical ids, stable keys, source anchors, and evidence links in bounded agent-facing outputs
 - requires omitted or truncated counts when limits hide available canonical data
 - requires any future large generated artifact to ship with a bounded retrieval path or explicitly document the existing bounded query that covers it before the feature is complete
+
+### Explicit Multi-Repository Project Registry
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-app/src/project_registry.rs`
+- `apps/ath/src/main.rs`
+- `docs/README.md`
+- `docs/architecture/pipeline.md`
+- `README.md`
+
+Purpose:
+
+- adds `ath projects list`, `add`, `resolve`, and `remove`
+- stores explicit project-id to canonical-root mappings in `~/.athanor/projects.json` by default
+- supports `ATHANOR_PROJECT_REGISTRY` and per-command `--registry` overrides
+- emits stable `athanor.project_registry.v1` and `athanor.project_resolution.v1` JSON reports
+- rejects invalid ids, duplicate ids, duplicate canonical roots, unknown schemas, and implicit default-project selection
+- publishes registry updates through staged replacement
+- keeps canonical snapshots, state, generated outputs, API artifacts, and configuration isolated under each repository root
+- establishes the routing contract that future daemon and MCP multi-repository requests must name and resolve one exact project id before querying knowledge
 
 ## In Progress
 
@@ -2082,16 +2140,16 @@ Acceptance:
 
 ### Phase 6.5 - Agent Graph Navigation And Overview
 
-Status: in progress.
+Status: verified.
 
 Scope:
 
 - extend the initial repository overview query beyond the implemented module structure and integration-boundary summaries as new canonical language relations become available
 - extend graph export beyond the implemented `ath graph export --format json` with GraphML-compatible output, generated from canonical snapshots rather than replacing canonical storage (initial GraphML output implemented)
-- extend the HTML report beyond the implemented compact graph summary, per-entity detail pages, and filters with optional richer interactive graph layout controls
-- extend graph navigation beyond implemented related-entity exploration, shortest path, degree-centrality hubs, and directed cycle detection with optional richer centrality algorithms over canonical relations
+- extend the HTML report beyond the implemented bounded interactive SVG graph, compact summary, per-entity detail pages, and filters only when additional graph controls provide clear inspection value
+- extend graph navigation beyond implemented related-entity exploration, shortest path, degree-centrality hubs, directed PageRank, and directed cycle detection with optional further centrality algorithms over canonical relations
 - improve `ath impact` with explanatory relation paths and an optional future precision mode for deeper call/data-flow analysis once language adapters can support it (initial path-step explanations implemented)
-- evaluate a multi-repository registry for future daemon and MCP use, keeping project selection explicit so one server cannot accidentally answer from the wrong repository
+- use the implemented explicit multi-repository registry as the routing foundation for future daemon and MCP use, so one server cannot accidentally answer from the wrong repository
 - treat ideas from GitNexus, Graphify, code-review-graph, and similar code-graph tools as product patterns to adapt, not storage or source-of-truth replacements
 
 Acceptance:
