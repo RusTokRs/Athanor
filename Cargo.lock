@@ -693,6 +693,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "athd"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "athanor-app",
+ "clap",
+ "serde_json",
+ "tokio",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "atomic-polyfill"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

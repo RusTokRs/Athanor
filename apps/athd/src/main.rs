@@ -86,33 +86,27 @@ async fn main() -> Result<()> {
             project_id,
             registry,
             json,
-        } => {
-            print_response(
-                request(&project_id, registry, DaemonCommand::Status).await?,
-                json,
-            )
-        }
+        } => print_response(
+            request(&project_id, registry, DaemonCommand::Status).await?,
+            json,
+        ),
         Command::Overview {
             project_id,
             registry,
             top,
             json,
-        } => {
-            print_response(
-                request(&project_id, registry, DaemonCommand::Overview { top }).await?,
-                json,
-            )
-        }
+        } => print_response(
+            request(&project_id, registry, DaemonCommand::Overview { top }).await?,
+            json,
+        ),
         Command::Stop {
             project_id,
             registry,
             json,
-        } => {
-            print_response(
-                request(&project_id, registry, DaemonCommand::Shutdown).await?,
-                json,
-            )
-        }
+        } => print_response(
+            request(&project_id, registry, DaemonCommand::Shutdown).await?,
+            json,
+        ),
     }
 }
 
@@ -122,10 +116,8 @@ async fn request(
     command: DaemonCommand,
 ) -> Result<athanor_app::DaemonResponse> {
     let registry_path = registry_path(registry)?;
-    let resolution = resolve_registered_project(
-        ProjectRegistryOptions { registry_path },
-        project_id,
-    )?;
+    let resolution =
+        resolve_registered_project(ProjectRegistryOptions { registry_path }, project_id)?;
     request_daemon(
         DaemonClientOptions {
             root: resolution.project.root,
@@ -169,5 +161,8 @@ fn print_response(response: athanor_app::DaemonResponse, json: bool) -> Result<(
 fn init_tracing() {
     let filter =
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("athanor_app=info"));
-    fmt().with_env_filter(filter).with_writer(std::io::stderr).init();
+    fmt()
+        .with_env_filter(filter)
+        .with_writer(std::io::stderr)
+        .init();
 }

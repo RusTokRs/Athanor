@@ -128,6 +128,12 @@ ath projects add <project-id> <path>
 ath projects remove <project-id>
 ath projects resolve <project-id>
 ath projects resolve <project-id> --json
+athd serve <project-id>
+athd status <project-id>
+athd status <project-id> --json
+athd overview <project-id>
+athd overview <project-id> --json
+athd stop <project-id>
 ath repair inspect
 ath repair inspect --json
 ath repair cleanup
@@ -1956,9 +1962,47 @@ Purpose:
 - keeps canonical snapshots, state, generated outputs, API artifacts, and configuration isolated under each repository root
 - establishes the routing contract that future daemon and MCP multi-repository requests must name and resolve one exact project id before querying knowledge
 
+### Daemon Lifecycle And Read-Only Protocol Slice
+
+Status: verified.
+
+Implemented in:
+
+- `apps/athd/src/main.rs`
+- `crates/athanor-app/src/daemon.rs`
+- `docs/README.md`
+- `docs/architecture/pipeline.md`
+
+Purpose:
+
+- adds the `athd` daemon entrypoint with `serve`, `status`, `overview`, and `stop`
+- resolves every command through the explicit project registry before connecting to or serving a repository daemon
+- writes per-project runtime endpoint and lock files under `.athanor/daemon`
+- prevents two daemon instances from owning the same project runtime directory through exclusive lock creation
+- uses local TCP with newline-delimited JSON requests and stable `athanor.daemon_endpoint.v1`, `athanor.daemon_request.v1`, and `athanor.daemon_response.v1` schemas
+- rejects requests whose project id does not match the daemon endpoint
+- serves read-only status and bounded overview responses from the latest canonical snapshot
+- keeps logs separate from structured protocol output
+- leaves file watching, hot cache invalidation, indexing jobs, cancellation, debounce, and backpressure for the remaining Phase 7 work
+
 ## In Progress
 
-None.
+### Phase 7 - Daemon And Agent-Native Access
+
+Status: in progress.
+
+Scope:
+
+- extend the implemented `athd` daemon entrypoint beyond lifecycle, locks, local TCP protocol, and read-only status/overview commands
+- add file watcher, local socket option, hot cache, and broader agent command protocol
+- add job system, cancellation, backpressure, debounce, and output-size controls for long-running indexing and projection work
+- keep MCP as one transport adapter, not the only agent access path
+
+Acceptance:
+
+- daemon commands can start, stop, report status, and serve read-only context queries (status and overview implemented)
+- long-running jobs can be cancelled without corrupting snapshots or generated outputs
+- logs and diagnostics remain off the structured protocol channel
 
 ## Next
 
@@ -2160,22 +2204,6 @@ Acceptance:
 - no normal agent workflow depends on reading complete generated JSONL, wiki, HTML, graph, API, search, or vector artifacts
 - multi-repository support keeps repository identity explicit in CLI, daemon, MCP, and generated artifacts
 - documentation explains the boundary between canonical knowledge, graph algorithms, and generated graph views
-
-### Phase 7 - Daemon And Agent-Native Access
-
-Status: planned.
-
-Scope:
-
-- add `athd` daemon entrypoint with file watcher, local socket, locks, hot cache, and agent command protocol
-- add job system, cancellation, backpressure, debounce, and output-size controls for long-running indexing and projection work
-- keep MCP as one transport adapter, not the only agent access path
-
-Acceptance:
-
-- daemon commands can start, stop, report status, and serve read-only context queries
-- long-running jobs can be cancelled without corrupting snapshots or generated outputs
-- logs and diagnostics remain off the structured protocol channel
 
 ### Phase 8 - I18n And Concepts
 

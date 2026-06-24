@@ -227,6 +227,12 @@ cargo run -p ath --quiet -- projects list
 cargo run -p ath --quiet -- projects add athanor .
 cargo run -p ath --quiet -- projects resolve athanor --json
 cargo run -p ath --quiet -- projects remove athanor
+cargo run -p athd --quiet -- serve athanor
+cargo run -p athd --quiet -- status athanor
+cargo run -p athd --quiet -- status athanor --json
+cargo run -p athd --quiet -- overview athanor --top 10
+cargo run -p athd --quiet -- overview athanor --top 10 --json
+cargo run -p athd --quiet -- stop athanor
 ```
 
 Canonical entities can be explained directly from the latest snapshot:

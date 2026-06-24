@@ -71,7 +71,10 @@ pub struct DaemonResponse {
 
 pub async fn serve_daemon(options: DaemonServeOptions) -> Result<()> {
     let root = options.root.canonicalize().with_context(|| {
-        format!("failed to canonicalize daemon root {}", options.root.display())
+        format!(
+            "failed to canonicalize daemon root {}",
+            options.root.display()
+        )
     })?;
     let runtime_dir = root.join(".athanor/daemon");
     fs::create_dir_all(&runtime_dir)
@@ -208,7 +211,11 @@ async fn execute_request(
 ) -> (DaemonResponse, bool) {
     if let Err(error) = validate_request(&request) {
         return (
-            error_response(&request.request_id, &endpoint.project_id, &error.to_string()),
+            error_response(
+                &request.request_id,
+                &endpoint.project_id,
+                &error.to_string(),
+            ),
             false,
         );
     }
@@ -319,8 +326,7 @@ fn write_endpoint(path: &Path, endpoint: &DaemonEndpoint) -> Result<()> {
     if path.exists() {
         fs::remove_file(path).with_context(|| format!("failed to replace {}", path.display()))?;
     }
-    fs::rename(&staging, path)
-        .with_context(|| format!("failed to publish {}", path.display()))
+    fs::rename(&staging, path).with_context(|| format!("failed to publish {}", path.display()))
 }
 
 fn success_response(request_id: &str, project_id: &str, result: Value) -> DaemonResponse {

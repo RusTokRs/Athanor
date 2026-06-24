@@ -120,6 +120,8 @@ flowchart TD
 - `list_registered_projects`, `register_project`, `resolve_registered_project`, and
   `unregister_project`: explicit user-level repository identity management for future daemon and
   MCP routing.
+- `serve_daemon` and `request_daemon`: local daemon lifecycle and newline-delimited JSON command
+  protocol for one explicitly resolved project id.
 - `check_project`: scoped API, documentation, environment, script, deployment, and runbook diagnostic reporting from the latest canonical snapshot.
 - `check_affected`: read-only changed-file diagnostic reporting from latest canonical snapshot plus persisted index state.
 - `check_operations_docs`: aggregate environment, script, deployment, and runbook documentation diagnostics from one latest canonical snapshot load.
@@ -385,6 +387,44 @@ and configuration. Current CLI knowledge commands remain explicitly path-scoped.
 MCP multi-repository requests must resolve a project id first and include that identity in protocol
 responses and generated routing metadata; they must never answer from an arbitrary registered
 repository.
+
+## Local Daemon Protocol
+
+`athd` is the first local daemon entrypoint. It resolves one explicit project id through the
+project registry before serving or sending requests:
+
+```bash
+athd serve <project-id>
+athd status <project-id>
+athd overview <project-id> --top 10
+athd stop <project-id>
+```
+
+The daemon writes runtime metadata under the resolved repository root:
+
+```text
+.athanor/daemon/
+  endpoint.json
+  lock
+```
+
+`endpoint.json` uses schema `athanor.daemon_endpoint.v1` and records the project id, canonical root,
+registry path, TCP address, process id, and start time. The lock file is created with exclusive
+creation so only one daemon instance owns a project runtime directory at a time. Endpoint and lock
+files are removed when the daemon exits normally.
+
+The current protocol is local TCP with one JSON request per connection, terminated by a newline.
+Requests use schema `athanor.daemon_request.v1`; responses use `athanor.daemon_response.v1`. Every
+request carries a `project_id`, and the server rejects requests that do not match the endpoint's
+project identity. The implemented commands are:
+
+- `status`: returns daemon status and endpoint metadata.
+- `overview`: runs the same bounded `overview_project` query against the latest canonical snapshot.
+- `shutdown`: stops the daemon after returning a structured response.
+
+This is a read-only daemon slice. File watching, hot cache invalidation, indexing jobs,
+cancellation, debounce, and backpressure remain future Phase 7 work. Logs continue to use stderr or
+tracing sinks and are kept separate from structured protocol responses.
 
 ## Entity Explanation
 
