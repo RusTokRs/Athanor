@@ -698,6 +698,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "athanor-app",
+ "athanor-domain",
  "clap",
  "serde_json",
  "tokio",

@@ -129,10 +129,13 @@ ath projects remove <project-id>
 ath projects resolve <project-id>
 ath projects resolve <project-id> --json
 athd serve <project-id>
+athd serve <project-id> --max-concurrent-requests <N>
 athd status <project-id>
 athd status <project-id> --json
 athd overview <project-id>
 athd overview <project-id> --json
+athd context <project-id> <task>
+athd context <project-id> <task> --json
 athd stop <project-id>
 ath repair inspect
 ath repair inspect --json
@@ -1975,15 +1978,18 @@ Implemented in:
 
 Purpose:
 
-- adds the `athd` daemon entrypoint with `serve`, `status`, `overview`, and `stop`
+- adds the `athd` daemon entrypoint with `serve`, `status`, `overview`, `context`, and `stop`
 - resolves every command through the explicit project registry before connecting to or serving a repository daemon
 - writes per-project runtime endpoint and lock files under `.athanor/daemon`
 - prevents two daemon instances from owning the same project runtime directory through exclusive lock creation
 - uses local TCP with newline-delimited JSON requests and stable `athanor.daemon_endpoint.v1`, `athanor.daemon_request.v1`, and `athanor.daemon_response.v1` schemas
+- bounds daemon request and response messages to 1 MiB, returning structured daemon errors for oversized computed responses
+- handles requests concurrently up to `--max-concurrent-requests` and returns structured busy errors after the limit is reached
 - rejects requests whose project id does not match the daemon endpoint
-- serves read-only status and bounded overview responses from the latest canonical snapshot
+- serves read-only status, bounded overview, and bounded task context responses from the latest canonical snapshot
+- exposes daemon context level and limit overrides while keeping daemon diff mode deferred
 - keeps logs separate from structured protocol output
-- leaves file watching, hot cache invalidation, indexing jobs, cancellation, debounce, and backpressure for the remaining Phase 7 work
+- leaves file watching, hot cache invalidation, indexing jobs, cancellation, and debounce for the remaining Phase 7 work
 
 ## In Progress
 
@@ -1993,14 +1999,14 @@ Status: in progress.
 
 Scope:
 
-- extend the implemented `athd` daemon entrypoint beyond lifecycle, locks, local TCP protocol, and read-only status/overview commands
+- extend the implemented `athd` daemon entrypoint beyond lifecycle, locks, local TCP protocol, and read-only status/overview/context commands
 - add file watcher, local socket option, hot cache, and broader agent command protocol
-- add job system, cancellation, backpressure, debounce, and output-size controls for long-running indexing and projection work
+- add job system, cancellation, debounce, and deeper output-size controls for long-running indexing and projection work
 - keep MCP as one transport adapter, not the only agent access path
 
 Acceptance:
 
-- daemon commands can start, stop, report status, and serve read-only context queries (status and overview implemented)
+- daemon commands can start, stop, report status, and serve read-only context queries
 - long-running jobs can be cancelled without corrupting snapshots or generated outputs
 - logs and diagnostics remain off the structured protocol channel
 

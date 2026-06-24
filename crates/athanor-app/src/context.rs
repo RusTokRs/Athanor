@@ -10,6 +10,7 @@ use athanor_core::{CanonicalSnapshot, CanonicalSnapshotStore, SearchIndex, Sourc
 use athanor_domain::{ContextLevel, ContextPack, ContextPackId, Entity};
 use athanor_extractor_basic::stable_hash;
 use athanor_source_fs::LocalFileSystemSource;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::project_path::normalize_canonical_path;
@@ -58,7 +59,7 @@ impl ContextLimits {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ContextLimitOverrides {
     pub max_tokens: Option<usize>,
     pub max_files: Option<usize>,

@@ -394,9 +394,10 @@ repository.
 project registry before serving or sending requests:
 
 ```bash
-athd serve <project-id>
+athd serve <project-id> --max-concurrent-requests 4
 athd status <project-id>
 athd overview <project-id> --top 10
+athd context <project-id> "task" --level summary --budget 2000
 athd stop <project-id>
 ```
 
@@ -409,22 +410,29 @@ The daemon writes runtime metadata under the resolved repository root:
 ```
 
 `endpoint.json` uses schema `athanor.daemon_endpoint.v1` and records the project id, canonical root,
-registry path, TCP address, process id, and start time. The lock file is created with exclusive
-creation so only one daemon instance owns a project runtime directory at a time. Endpoint and lock
-files are removed when the daemon exits normally.
+registry path, TCP address, process id, start time, and concurrent request limit. The lock file is
+created with exclusive creation so only one daemon instance owns a project runtime directory at a
+time. Endpoint and lock files are removed when the daemon exits normally.
 
 The current protocol is local TCP with one JSON request per connection, terminated by a newline.
-Requests use schema `athanor.daemon_request.v1`; responses use `athanor.daemon_response.v1`. Every
-request carries a `project_id`, and the server rejects requests that do not match the endpoint's
-project identity. The implemented commands are:
+Requests use schema `athanor.daemon_request.v1`; responses use `athanor.daemon_response.v1`. Request
+and response messages are bounded to 1 MiB. Oversized requests are rejected, oversized computed
+responses are replaced with a structured daemon error response, and clients reject oversized
+wire responses instead of parsing truncated JSON. The daemon handles requests concurrently up to
+`--max-concurrent-requests`; additional connections receive a structured busy error response after
+their bounded request line is read. Every request carries a `project_id`, and the server rejects
+requests that do not match the endpoint's project identity. The implemented commands are:
 
 - `status`: returns daemon status and endpoint metadata.
 - `overview`: runs the same bounded `overview_project` query against the latest canonical snapshot.
+- `context`: runs the same bounded `context_project` query against the latest canonical snapshot.
 - `shutdown`: stops the daemon after returning a structured response.
 
-This is a read-only daemon slice. File watching, hot cache invalidation, indexing jobs,
-cancellation, debounce, and backpressure remain future Phase 7 work. Logs continue to use stderr or
-tracing sinks and are kept separate from structured protocol responses.
+This is a read-only daemon slice. Daemon context requests expose the normal level and explicit
+limit overrides but intentionally do not expose diff mode yet; they do not mutate snapshots or index
+state. File watching, hot cache invalidation, indexing jobs, cancellation, and debounce remain
+future Phase 7 work. Logs continue to use stderr or tracing sinks and are kept separate from
+structured protocol responses.
 
 ## Entity Explanation
 

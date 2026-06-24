@@ -3,11 +3,32 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use athanor_app::{
-    DaemonClientOptions, DaemonCommand, DaemonRequest, DaemonServeOptions, ProjectRegistryOptions,
-    default_project_registry_path, request_daemon, resolve_registered_project, serve_daemon,
+    ContextLimitOverrides, DaemonClientOptions, DaemonCommand, DaemonRequest, DaemonServeOptions,
+    ProjectRegistryOptions, default_project_registry_path, request_daemon,
+    resolve_registered_project, serve_daemon,
 };
-use clap::{Parser, Subcommand};
+use athanor_domain::ContextLevel;
+use clap::{Parser, Subcommand, ValueEnum};
 use tracing_subscriber::{EnvFilter, fmt};
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum ContextLevelArg {
+    Summary,
+    Normal,
+    Deep,
+    Full,
+}
+
+impl From<ContextLevelArg> for ContextLevel {
+    fn from(value: ContextLevelArg) -> Self {
+        match value {
+            ContextLevelArg::Summary => Self::Summary,
+            ContextLevelArg::Normal => Self::Normal,
+            ContextLevelArg::Deep => Self::Deep,
+            ContextLevelArg::Full => Self::Full,
+        }
+    }
+}
 
 #[derive(Debug, Parser)]
 #[command(name = "athd", version, about = "Athanor local daemon")]
@@ -28,6 +49,9 @@ enum Command {
         /// Local TCP address. Port 0 selects an available port.
         #[arg(long, default_value = "127.0.0.1:0")]
         listen: SocketAddr,
+        /// Maximum concurrent daemon requests before busy responses are returned.
+        #[arg(long, default_value_t = 4)]
+        max_concurrent_requests: usize,
     },
     /// Query daemon status.
     Status {
@@ -44,6 +68,34 @@ enum Command {
         registry: Option<PathBuf>,
         #[arg(long, default_value_t = 10)]
         top: usize,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Request a bounded task-focused context pack from the daemon.
+    Context {
+        project_id: String,
+        /// Task or question used to select relevant canonical context.
+        task: String,
+        #[arg(long)]
+        registry: Option<PathBuf>,
+        /// Context detail level and its default limits.
+        #[arg(long, value_enum, default_value_t = ContextLevelArg::Normal)]
+        level: ContextLevelArg,
+        /// Approximate maximum serialized tokens.
+        #[arg(long = "budget")]
+        max_tokens: Option<usize>,
+        /// Maximum number of source files.
+        #[arg(long)]
+        max_files: Option<usize>,
+        /// Maximum number of canonical entities.
+        #[arg(long)]
+        max_entities: Option<usize>,
+        /// Maximum number of diagnostics.
+        #[arg(long)]
+        max_diagnostics: Option<usize>,
+        /// Maximum relation traversal depth.
+        #[arg(long)]
+        max_depth: Option<usize>,
         #[arg(long)]
         json: bool,
     },
@@ -66,6 +118,7 @@ async fn main() -> Result<()> {
             project_id,
             registry,
             listen,
+            max_concurrent_requests,
         } => {
             let registry_path = registry_path(registry)?;
             let resolution = resolve_registered_project(
@@ -79,6 +132,7 @@ async fn main() -> Result<()> {
                 root: resolution.project.root,
                 registry_path,
                 listen,
+                max_concurrent_requests,
             })
             .await
         }
@@ -97,6 +151,36 @@ async fn main() -> Result<()> {
             json,
         } => print_response(
             request(&project_id, registry, DaemonCommand::Overview { top }).await?,
+            json,
+        ),
+        Command::Context {
+            project_id,
+            task,
+            registry,
+            level,
+            max_tokens,
+            max_files,
+            max_entities,
+            max_diagnostics,
+            max_depth,
+            json,
+        } => print_response(
+            request(
+                &project_id,
+                registry,
+                DaemonCommand::Context {
+                    task,
+                    level: level.into(),
+                    limits: ContextLimitOverrides {
+                        max_tokens,
+                        max_files,
+                        max_entities,
+                        max_diagnostics,
+                        max_depth,
+                    },
+                },
+            )
+            .await?,
             json,
         ),
         Command::Stop {

@@ -2,6 +2,7 @@ use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
@@ -9,13 +10,19 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::{Semaphore, mpsc};
 
-use crate::{OverviewOptions, overview_project};
+use athanor_domain::ContextLevel;
+
+use crate::{
+    ContextLimitOverrides, ContextOptions, OverviewOptions, context_project, overview_project,
+};
 
 pub const DAEMON_ENDPOINT_SCHEMA: &str = "athanor.daemon_endpoint.v1";
 pub const DAEMON_REQUEST_SCHEMA: &str = "athanor.daemon_request.v1";
 pub const DAEMON_RESPONSE_SCHEMA: &str = "athanor.daemon_response.v1";
 const MAX_REQUEST_BYTES: u64 = 1024 * 1024;
+const MAX_RESPONSE_BYTES: u64 = 1024 * 1024;
 
 #[derive(Debug, Clone)]
 pub struct DaemonServeOptions {
@@ -23,6 +30,7 @@ pub struct DaemonServeOptions {
     pub root: PathBuf,
     pub registry_path: PathBuf,
     pub listen: SocketAddr,
+    pub max_concurrent_requests: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -39,6 +47,7 @@ pub struct DaemonEndpoint {
     pub address: SocketAddr,
     pub pid: u32,
     pub started_at_unix_ms: u128,
+    pub max_concurrent_requests: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -53,7 +62,14 @@ pub struct DaemonRequest {
 #[serde(tag = "name", rename_all = "snake_case")]
 pub enum DaemonCommand {
     Status,
-    Overview { top: usize },
+    Overview {
+        top: usize,
+    },
+    Context {
+        task: String,
+        level: ContextLevel,
+        limits: ContextLimitOverrides,
+    },
     Shutdown,
 }
 
@@ -70,6 +86,9 @@ pub struct DaemonResponse {
 }
 
 pub async fn serve_daemon(options: DaemonServeOptions) -> Result<()> {
+    if options.max_concurrent_requests == 0 || options.max_concurrent_requests > 128 {
+        bail!("daemon max_concurrent_requests must be between 1 and 128");
+    }
     let root = options.root.canonicalize().with_context(|| {
         format!(
             "failed to canonicalize daemon root {}",
@@ -95,9 +114,13 @@ pub async fn serve_daemon(options: DaemonServeOptions) -> Result<()> {
         address,
         pid: std::process::id(),
         started_at_unix_ms: unix_time_ms()?,
+        max_concurrent_requests: options.max_concurrent_requests,
     };
     write_endpoint(&endpoint_path, &endpoint)?;
     let _endpoint_guard = EndpointGuard(endpoint_path.clone());
+    let endpoint = Arc::new(endpoint);
+    let request_slots = Arc::new(Semaphore::new(options.max_concurrent_requests));
+    let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<()>(1);
     tracing::info!(
         project_id = %endpoint.project_id,
         root = %root.display(),
@@ -109,9 +132,35 @@ pub async fn serve_daemon(options: DaemonServeOptions) -> Result<()> {
         tokio::select! {
             accepted = listener.accept() => {
                 let (stream, peer) = accepted.context("failed to accept daemon connection")?;
-                let shutdown = handle_connection(stream, &endpoint).await
-                    .with_context(|| format!("failed to handle daemon request from {peer}"))?;
-                if shutdown {
+                match request_slots.clone().try_acquire_owned() {
+                    Ok(permit) => {
+                        let endpoint = Arc::clone(&endpoint);
+                        let shutdown_tx = shutdown_tx.clone();
+                        tokio::spawn(async move {
+                            let _permit = permit;
+                            match handle_connection(stream, &endpoint).await {
+                                Ok(true) => {
+                                    let _ = shutdown_tx.try_send(());
+                                }
+                                Ok(false) => {}
+                                Err(error) => {
+                                    tracing::warn!(%peer, error = %error, "failed to handle daemon request");
+                                }
+                            }
+                        });
+                    }
+                    Err(_) => {
+                        let endpoint = Arc::clone(&endpoint);
+                        tokio::spawn(async move {
+                            if let Err(error) = handle_busy_connection(stream, &endpoint).await {
+                                tracing::warn!(%peer, error = %error, "failed to reject busy daemon request");
+                            }
+                        });
+                    }
+                }
+            }
+            shutdown = shutdown_rx.recv() => {
+                if shutdown.is_some() {
                     break;
                 }
             }
@@ -152,10 +201,13 @@ pub async fn request_daemon(
 
     let mut response = Vec::new();
     stream
-        .take(MAX_REQUEST_BYTES)
+        .take(MAX_RESPONSE_BYTES + 1)
         .read_to_end(&mut response)
         .await
         .context("failed to read daemon response")?;
+    if response.len() as u64 > MAX_RESPONSE_BYTES {
+        bail!("daemon response exceeds {} bytes", MAX_RESPONSE_BYTES);
+    }
     if response.is_empty() {
         bail!("daemon returned an empty response");
     }
@@ -197,12 +249,36 @@ async fn handle_connection(stream: TcpStream, endpoint: &DaemonEndpoint) -> Resu
             ),
         }
     };
+    let response_json = serialize_daemon_response(response)?;
     write_half
-        .write_all(&serde_json::to_vec(&response)?)
+        .write_all(&response_json)
         .await
         .context("failed to write daemon response")?;
     write_half.shutdown().await?;
     Ok(shutdown)
+}
+
+async fn handle_busy_connection(stream: TcpStream, endpoint: &DaemonEndpoint) -> Result<()> {
+    let (read_half, mut write_half) = stream.into_split();
+    let mut line = String::new();
+    let _ = BufReader::new(read_half)
+        .take(MAX_REQUEST_BYTES + 1)
+        .read_line(&mut line)
+        .await;
+    let request_id = serde_json::from_str::<DaemonRequest>(&line)
+        .map(|request| request.request_id)
+        .unwrap_or_default();
+    let response = error_response(
+        &request_id,
+        &endpoint.project_id,
+        "daemon is busy; maximum concurrent request limit reached",
+    );
+    write_half
+        .write_all(&serialize_daemon_response(response)?)
+        .await
+        .context("failed to write daemon busy response")?;
+    write_half.shutdown().await?;
+    Ok(())
 }
 
 async fn execute_request(
@@ -267,6 +343,48 @@ async fn execute_request(
                         &request.request_id,
                         &endpoint.project_id,
                         serde_json::to_value(overview).unwrap_or(Value::Null),
+                    ),
+                    false,
+                ),
+                Err(error) => (
+                    error_response(
+                        &request.request_id,
+                        &endpoint.project_id,
+                        &error.to_string(),
+                    ),
+                    false,
+                ),
+            }
+        }
+        DaemonCommand::Context {
+            task,
+            level,
+            limits,
+        } => {
+            if task.trim().is_empty() {
+                return (
+                    error_response(
+                        &request.request_id,
+                        &endpoint.project_id,
+                        "context task must not be empty",
+                    ),
+                    false,
+                );
+            }
+            match context_project(ContextOptions {
+                root: endpoint.root.clone(),
+                task,
+                diff: false,
+                level,
+                limits,
+            })
+            .await
+            {
+                Ok(pack) => (
+                    success_response(
+                        &request.request_id,
+                        &endpoint.project_id,
+                        serde_json::to_value(pack).unwrap_or(Value::Null),
                     ),
                     false,
                 ),
@@ -351,6 +469,27 @@ fn error_response(request_id: &str, project_id: &str, error: &str) -> DaemonResp
     }
 }
 
+fn serialize_daemon_response(response: DaemonResponse) -> Result<Vec<u8>> {
+    let response_json = serde_json::to_vec(&response)?;
+    if response_json.len() as u64 <= MAX_RESPONSE_BYTES {
+        return Ok(response_json);
+    }
+
+    let overflow = error_response(
+        &response.request_id,
+        &response.project_id,
+        &format!(
+            "daemon response exceeds size limit of {} bytes",
+            MAX_RESPONSE_BYTES
+        ),
+    );
+    let overflow_json = serde_json::to_vec(&overflow)?;
+    if overflow_json.len() as u64 > MAX_RESPONSE_BYTES {
+        bail!("daemon overflow error response exceeds response size limit");
+    }
+    Ok(overflow_json)
+}
+
 fn unix_time_ms() -> Result<u128> {
     Ok(SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -422,6 +561,7 @@ mod tests {
             address,
             pid: 1,
             started_at_unix_ms: 1,
+            max_concurrent_requests: 4,
         };
         let task = tokio::spawn(async move {
             let (stream, _) = listener.accept().await.unwrap();
@@ -440,6 +580,7 @@ mod tests {
                 address,
                 pid: 1,
                 started_at_unix_ms: 1,
+                max_concurrent_requests: 4,
             },
         )
         .unwrap();
@@ -473,6 +614,57 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    #[tokio::test]
+    async fn busy_response_is_structured_and_preserves_request_id() {
+        let root = temp_root("busy");
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let endpoint = DaemonEndpoint {
+            schema: DAEMON_ENDPOINT_SCHEMA.to_string(),
+            project_id: "alpha".to_string(),
+            root: root.clone(),
+            registry_path: root.join("projects.json"),
+            address,
+            pid: 1,
+            started_at_unix_ms: 1,
+            max_concurrent_requests: 1,
+        };
+        let task = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            handle_busy_connection(stream, &endpoint).await.unwrap();
+        });
+
+        let mut stream = TcpStream::connect(address).await.unwrap();
+        let request = DaemonRequest {
+            schema: DAEMON_REQUEST_SCHEMA.to_string(),
+            request_id: "req-busy".to_string(),
+            project_id: "alpha".to_string(),
+            command: DaemonCommand::Status,
+        };
+        stream
+            .write_all(&serde_json::to_vec(&request).unwrap())
+            .await
+            .unwrap();
+        stream.write_all(b"\n").await.unwrap();
+        stream.shutdown().await.unwrap();
+
+        let mut response = Vec::new();
+        stream.read_to_end(&mut response).await.unwrap();
+        let response: DaemonResponse = serde_json::from_slice(&response).unwrap();
+        assert!(!response.ok);
+        assert_eq!(response.request_id, "req-busy");
+        assert_eq!(response.project_id, "alpha");
+        assert!(
+            response
+                .error
+                .as_deref()
+                .unwrap_or_default()
+                .contains("daemon is busy")
+        );
+        task.await.unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn daemon_lock_is_single_instance_and_cleans_up() {
         let root = temp_root("lock");
@@ -482,6 +674,31 @@ mod tests {
         drop(lock);
         assert!(!lock_path.exists());
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn oversized_response_is_replaced_with_structured_error() {
+        let response = success_response(
+            "req-large",
+            "alpha",
+            serde_json::json!({
+                "body": "x".repeat((MAX_RESPONSE_BYTES as usize) + 1),
+            }),
+        );
+
+        let serialized = serialize_daemon_response(response).unwrap();
+        assert!(serialized.len() as u64 <= MAX_RESPONSE_BYTES);
+        let parsed: DaemonResponse = serde_json::from_slice(&serialized).unwrap();
+        assert!(!parsed.ok);
+        assert_eq!(parsed.request_id, "req-large");
+        assert_eq!(parsed.project_id, "alpha");
+        assert!(
+            parsed
+                .error
+                .as_deref()
+                .unwrap_or_default()
+                .contains("response exceeds size limit")
+        );
     }
 
     fn temp_root(label: &str) -> PathBuf {
