@@ -21,6 +21,7 @@ use tokio::sync::{Semaphore, mpsc};
 use athanor_core::{CanonicalSnapshot, CanonicalSnapshotStore, SearchIndex};
 use athanor_domain::ContextLevel;
 
+use crate::explain::explain_snapshot;
 use crate::{
     ContextLimitOverrides, ContextLimits, ContextOptions, GenerationOptions, HtmlReportOptions,
     IndexOptions, WikiOptions, build_repository_overview, context_project, generate_context_pack,
@@ -108,6 +109,9 @@ pub enum DaemonCommand {
     Overview {
         top: usize,
     },
+    Explain {
+        stable_key: String,
+    },
     Context {
         task: String,
         #[serde(default)]
@@ -139,6 +143,7 @@ pub enum DaemonJobKind {
     Wiki,
     HtmlReport,
     Overview,
+    Explain,
     Context,
 }
 
@@ -935,6 +940,68 @@ async fn execute_request(
                 }
             }
         }
+        DaemonCommand::Explain { stable_key } => {
+            if stable_key.trim().is_empty() {
+                return (
+                    error_response(
+                        &request.request_id,
+                        &state.endpoint.project_id,
+                        "entity stable key must not be empty",
+                    ),
+                    false,
+                );
+            }
+            let stable_key = stable_key.trim().to_string();
+            let job_id = match start_daemon_job(
+                &state,
+                DaemonJobKind::Explain,
+                format!("explain stable_key={stable_key}"),
+            ) {
+                Ok(job_id) => job_id,
+                Err(error) => {
+                    return (
+                        error_response(
+                            &request.request_id,
+                            &state.endpoint.project_id,
+                            &error.to_string(),
+                        ),
+                        false,
+                    );
+                }
+            };
+            match daemon_explain_from_cache(&state, &stable_key).await {
+                Ok(explanation) => {
+                    let _ =
+                        finish_daemon_job(&state, &job_id, DaemonJobStatus::Succeeded, None, None);
+                    (
+                        success_response(
+                            &request.request_id,
+                            &state.endpoint.project_id,
+                            serde_json::to_value(explanation).unwrap_or(Value::Null),
+                        ),
+                        false,
+                    )
+                }
+                Err(error) => {
+                    let error_message = error.to_string();
+                    let _ = finish_daemon_job(
+                        &state,
+                        &job_id,
+                        DaemonJobStatus::Failed,
+                        None,
+                        Some(error_message.clone()),
+                    );
+                    (
+                        error_response(
+                            &request.request_id,
+                            &state.endpoint.project_id,
+                            &error_message,
+                        ),
+                        false,
+                    )
+                }
+            }
+        }
         DaemonCommand::Context {
             task,
             diff,
@@ -1205,6 +1272,14 @@ async fn daemon_context_from_cache(
         limits,
         direct_matches,
     ))
+}
+
+async fn daemon_explain_from_cache(
+    state: &Arc<DaemonState>,
+    stable_key: &str,
+) -> Result<crate::explain::EntityExplanation> {
+    let snapshot = latest_snapshot_for_daemon(state).await?;
+    explain_snapshot(&snapshot, stable_key)
 }
 
 fn invalidate_latest_snapshot_cache(state: &DaemonState) {
@@ -1848,6 +1923,58 @@ mod tests {
             }
             other => panic!("unexpected command: {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn explains_entity_from_hot_snapshot_cache() {
+        let snapshot = CanonicalSnapshot {
+            snapshot: Some(athanor_domain::SnapshotId("snap_cached".to_string())),
+            entities: vec![athanor_domain::Entity {
+                id: athanor_domain::EntityId("ent_login".to_string()),
+                stable_key: athanor_domain::StableKey("api://POST:/login".to_string()),
+                kind: athanor_domain::EntityKind::ApiEndpoint,
+                name: "POST /login".to_string(),
+                title: None,
+                source: None,
+                language: None,
+                aliases: Vec::new(),
+                ownership: Vec::new(),
+                payload: serde_json::json!({}),
+            }],
+            facts: Vec::new(),
+            relations: Vec::new(),
+            diagnostics: Vec::new(),
+        };
+        let state = Arc::new(DaemonState {
+            endpoint: DaemonEndpoint {
+                schema: DAEMON_ENDPOINT_SCHEMA.to_string(),
+                project_id: "alpha".to_string(),
+                root: PathBuf::from("."),
+                registry_path: PathBuf::from("projects.json"),
+                address: "127.0.0.1:1".parse().unwrap(),
+                pid: 1,
+                started_at_unix_ms: 1,
+                max_concurrent_requests: 4,
+                max_job_history: 100,
+                watch: false,
+                watch_poll: false,
+                debounce_ms: 1000,
+                max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
+                max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
+            },
+            jobs: Mutex::new(Vec::new()),
+            next_job_sequence: Mutex::new(1),
+            max_job_history: 100,
+            latest_snapshot_cache: Mutex::new(Some(snapshot)),
+        });
+
+        let explanation = daemon_explain_from_cache(&state, "api://POST:/login")
+            .await
+            .unwrap();
+
+        assert_eq!(explanation.schema, "athanor.entity_explanation.v1");
+        assert_eq!(explanation.snapshot, "snap_cached");
+        assert_eq!(explanation.entity.name, "POST /login");
     }
 
     #[test]

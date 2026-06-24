@@ -407,6 +407,7 @@ athd generate <project-id>
 athd wiki <project-id>
 athd report-html <project-id>
 athd overview <project-id> --top 10
+athd explain <project-id> "api://POST:/login"
 athd context <project-id> "task" --level summary --budget 2000
 athd context <project-id> --diff --level summary --budget 2000
 athd stop <project-id>
@@ -447,22 +448,23 @@ requests that do not match the endpoint's project identity. The implemented comm
 - `report-html`: starts one background HTML report projection job and immediately returns its job
   record.
 - `overview`: runs the same bounded `overview_project` query against the latest canonical snapshot.
+- `explain`: resolves one exact canonical stable key against the latest canonical snapshot.
 - `context`: runs the same bounded `context_project` query against the latest canonical snapshot.
   With `--diff`, it roots context in changed or removed files from persisted index state without
   committing a new index snapshot.
 - `shutdown`: stops the daemon after returning a structured response.
 
-Daemon status, overview, and context requests are read-only. Daemon context requests expose the
+Daemon status, overview, explain, and context requests are read-only. Daemon context requests expose the
 normal level and explicit limit overrides, including diff-based changed-file context; they do not
 mutate snapshots or index state. The job registry records daemon lifecycle jobs, completed or failed
-read-only `overview`/`context` request jobs, background indexing jobs, and background generation
+read-only `overview`/`explain`/`context` request jobs, background indexing jobs, and background generation
 jobs. Finished jobs can include a
 structured `result`; index jobs record the published snapshot id, file counts, and JSONL output
 directory, while generate jobs record the published generation id, selected snapshot id, current
 pointer, and canonical object counts. Direct wiki and HTML report jobs record the selected snapshot
 id, output directory, and canonical object counts. `athd index` reuses the existing `index_project`
 path and rejects a second concurrent indexing job for the same daemon so snapshot writers do not
-overlap. Daemon overview requests and non-diff context requests cache the latest canonical snapshot
+overlap. Daemon overview, explain, and non-diff context requests cache the latest canonical snapshot
 in memory after the first load; successful daemon-owned index jobs invalidate this hot cache before
 subsequent read-only requests. Diff context still performs current source discovery and index-state
 comparison before building its bounded pack. `athd generate`, `athd wiki`, and `athd report-html` reuse the existing projection paths
@@ -476,8 +478,8 @@ the project root recursively through `notify-debouncer-mini`, ignores `.athanor`
 and schedules a debounced background index job when source paths change. By default it uses the
 platform-recommended watcher backend; `--watch-poll` selects the polling backend for filesystems
 where native notifications are unavailable or unreliable. The watcher is a scheduler; persisted
-content hashes still decide which files actually changed. Hot cache expansion beyond
-overview/context, running-job cancellation, and local socket transport remain future Phase 7 work.
+content hashes still decide which files actually changed. Further hot cache expansion beyond
+overview/explain/context, running-job cancellation, and local socket transport remain future Phase 7 work.
 Logs continue to use stderr or tracing sinks and are kept separate from structured protocol
 responses.
 

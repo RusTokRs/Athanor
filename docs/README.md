@@ -243,6 +243,8 @@ cargo run -p athd --quiet -- wiki athanor --json
 cargo run -p athd --quiet -- report-html athanor --json
 cargo run -p athd --quiet -- overview athanor --top 10
 cargo run -p athd --quiet -- overview athanor --top 10 --json
+cargo run -p athd --quiet -- explain athanor "api://POST:/login"
+cargo run -p athd --quiet -- explain athanor "api://POST:/login" --json
 cargo run -p athd --quiet -- context athanor "task" --level summary --budget 2000
 cargo run -p athd --quiet -- context athanor "task" --level summary --budget 2000 --json
 cargo run -p athd --quiet -- context athanor --diff --level summary --budget 2000 --json

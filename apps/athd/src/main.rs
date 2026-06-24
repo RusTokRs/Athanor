@@ -149,6 +149,16 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Explain one canonical entity through the daemon's hot snapshot cache.
+    Explain {
+        project_id: String,
+        /// Exact canonical stable key, for example api://POST:/login.
+        stable_key: String,
+        #[arg(long)]
+        registry: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
     /// Request a bounded task-focused context pack from the daemon.
     Context {
         project_id: String,
@@ -303,6 +313,15 @@ async fn main() -> Result<()> {
             json,
         } => print_response(
             request(&project_id, registry, DaemonCommand::Overview { top }).await?,
+            json,
+        ),
+        Command::Explain {
+            project_id,
+            stable_key,
+            registry,
+            json,
+        } => print_response(
+            request(&project_id, registry, DaemonCommand::Explain { stable_key }).await?,
             json,
         ),
         Command::Context {
