@@ -25,6 +25,10 @@ diagnostics/<diagnostic-id>.md
 
 Pages contain YAML frontmatter, source/evidence locations, canonical facts, related entities, and diagnostics where applicable. Output ordering and file names are deterministic. A complete staging directory is renamed into place so readers do not observe a partially written generation; on platforms that cannot replace a non-empty directory in one operation, the target can be briefly absent during the swap.
 
+The adapter also exposes cooperative cancellation checkpoints while building index, entity, and
+diagnostic files. Cancellation removes the staging directory and leaves the previously published
+wiki unchanged.
+
 ## Commands And Network
 
 - Does not run external commands.

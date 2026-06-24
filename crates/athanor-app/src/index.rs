@@ -9,8 +9,8 @@ use serde::Serialize;
 
 use crate::project_path::normalize_canonical_path;
 use crate::{
-    AdapterValidationReport, CancellationToken, IncrementalIndexContext, IndexState, IndexStateStore,
-    JsonlReadModelWriter, RuntimeBuilder, config::load_config, store::init_store,
+    AdapterValidationReport, CancellationToken, IncrementalIndexContext, IndexState,
+    IndexStateStore, JsonlReadModelWriter, RuntimeBuilder, config::load_config, store::init_store,
 };
 
 #[derive(Debug, Clone)]
@@ -95,21 +95,22 @@ async fn index_project_inner(
             .context("failed to discover adapter plugins")?
             .build_index_pipeline(MemoryKnowledgeStore::new());
         if let Some(cancellation) = cancellation.clone() {
-            pipeline.run_with_incremental_cancellable(
-                RepoId(repo_id_for_root(&root)),
-                SnapshotBase {
-                    branch: None,
-                    commit: None,
-                    parent_snapshot: None,
-                    working_tree: true,
-                },
-                IncrementalIndexContext {
-                    previous_state: previous_state.clone(),
-                    previous_snapshot,
-                },
-                cancellation,
-            )
-            .await
+            pipeline
+                .run_with_incremental_cancellable(
+                    RepoId(repo_id_for_root(&root)),
+                    SnapshotBase {
+                        branch: None,
+                        commit: None,
+                        parent_snapshot: None,
+                        working_tree: true,
+                    },
+                    IncrementalIndexContext {
+                        previous_state: previous_state.clone(),
+                        previous_snapshot,
+                    },
+                    cancellation,
+                )
+                .await
         } else {
             pipeline
                 .run_with_incremental(
@@ -133,21 +134,22 @@ async fn index_project_inner(
             .context("failed to discover adapter plugins")?
             .build_index_pipeline(canonical_store.clone());
         if let Some(cancellation) = cancellation.clone() {
-            pipeline.run_with_incremental_cancellable(
-                RepoId(repo_id_for_root(&root)),
-                SnapshotBase {
-                    branch: None,
-                    commit: None,
-                    parent_snapshot: None,
-                    working_tree: true,
-                },
-                IncrementalIndexContext {
-                    previous_state: previous_state.clone(),
-                    previous_snapshot,
-                },
-                cancellation,
-            )
-            .await
+            pipeline
+                .run_with_incremental_cancellable(
+                    RepoId(repo_id_for_root(&root)),
+                    SnapshotBase {
+                        branch: None,
+                        commit: None,
+                        parent_snapshot: None,
+                        working_tree: true,
+                    },
+                    IncrementalIndexContext {
+                        previous_state: previous_state.clone(),
+                        previous_snapshot,
+                    },
+                    cancellation,
+                )
+                .await
         } else {
             pipeline
                 .run_with_incremental(
@@ -313,6 +315,44 @@ mod tests {
     use std::fs;
 
     use super::*;
+
+    #[tokio::test]
+    async fn cancelled_index_does_not_publish_snapshot_state_or_read_model() {
+        let root = std::env::temp_dir().join(format!(
+            "athanor-index-cancelled-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(root.join("src/lib.rs"), "pub fn hello() {}\n").unwrap();
+        let cancellation = CancellationToken::new();
+        cancellation.cancel();
+
+        let error = index_project_cancellable(
+            IndexOptions {
+                root: root.clone(),
+                validation_report: None,
+                validation_result: None,
+                validate_only: false,
+            },
+            cancellation,
+        )
+        .await
+        .unwrap_err();
+
+        assert!(error.to_string().contains("failed to run index pipeline"));
+        assert!(
+            error
+                .chain()
+                .any(|cause| cause.to_string() == "operation cancelled")
+        );
+        assert!(!root.join(".athanor/state/index-state.json").exists());
+        assert!(!root.join(".athanor/generated/current/jsonl").exists());
+
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[tokio::test]
     async fn indexes_files_to_jsonl() {

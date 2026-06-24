@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use crate::config::load_config;
 use crate::store::init_store;
 use anyhow::{Context, Result, bail};
-use athanor_core::{CanonicalSnapshotStore, ProjectInput, Projector};
+use athanor_core::{CanonicalSnapshotStore, ProjectInput};
 use athanor_projector_wiki::{
     MarkdownWikiProjector, WIKI_PROJECTION_SCHEMA, WikiProjectionPayload,
 };
@@ -97,12 +97,19 @@ async fn project_wiki_inner(
     };
 
     MarkdownWikiProjector
-        .project(ProjectInput {
-            snapshot: snapshot_id,
-            target: output_dir.to_string_lossy().into_owned(),
-            payload: serde_json::to_value(payload)
-                .context("failed to build wiki projection input")?,
-        })
+        .project_cancellable(
+            ProjectInput {
+                snapshot: snapshot_id,
+                target: output_dir.to_string_lossy().into_owned(),
+                payload: serde_json::to_value(payload)
+                    .context("failed to build wiki projection input")?,
+            },
+            || {
+                cancellation
+                    .as_ref()
+                    .is_some_and(CancellationToken::is_cancelled)
+            },
+        )
         .await
         .context("failed to project Markdown wiki")?;
 

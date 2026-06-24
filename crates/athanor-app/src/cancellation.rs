@@ -30,3 +30,22 @@ impl CancellationToken {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cancellation_is_shared_across_clones() {
+        let token = CancellationToken::new();
+        let clone = token.clone();
+
+        clone.cancel();
+
+        assert!(token.is_cancelled());
+        assert_eq!(
+            token.check().unwrap_err().to_string(),
+            "operation cancelled"
+        );
+    }
+}

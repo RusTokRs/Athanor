@@ -2020,12 +2020,13 @@ Purpose:
 - caches the latest canonical snapshot for daemon overview, explain, search, and non-diff context requests, while keeping diff context on current source discovery, and invalidates that hot cache after successful daemon-owned index jobs
 - starts one background coordinated generation job through `athd generate`, reusing `generate_project`, rejecting concurrent generation jobs, and recording generation id, snapshot id, pointer path, and canonical object counts
 - starts background direct projection jobs through `athd wiki` and `athd report-html`, reusing the existing projector services, rejecting concurrent jobs of the same kind, and recording snapshot id, output directory, and canonical object counts
-- registers background index and projection jobs as queued before worker start, supports cancellation before the worker marks them running, and returns explicit non-cancellable errors for running jobs
+- registers background index and projection jobs with shared cancellation tokens before worker start, cancels queued jobs immediately, and moves running jobs through `cancelling` to safe index-stage and staged projector-loop checkpoints before canonical snapshot or generated-output publication
+- preserves atomic publication semantics when cancellation arrives too late: an already-started commit or publication completes and the job reports success instead of exposing partially published state
 - rejects requests whose project id does not match the daemon endpoint
 - serves read-only status, bounded overview, exact entity explanation, bounded lexical search, and bounded task context responses from the latest canonical snapshot
 - exposes daemon context level and limit overrides, including diff-based changed-file context
 - keeps logs separate from structured protocol output
-- leaves further hot cache expansion beyond overview/explain/search/context and deeper cancellable execution for the remaining Phase 7 work
+- leaves further hot cache expansion beyond overview/explain/search/context and additional agent transport adapters for the remaining Phase 7 work
 
 ## In Progress
 
@@ -2037,7 +2038,6 @@ Scope:
 
 - extend the implemented `athd` daemon entrypoint beyond lifecycle, locks, local TCP/local-socket protocol, and read-only status/overview/explain/search/context commands
 - extend the implemented daemon hot cache beyond overview/explain/search/context
-- add safe running-job cancellation for long-running indexing and projection work
 - keep MCP as one transport adapter, not the only agent access path
 
 Acceptance:

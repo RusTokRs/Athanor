@@ -19,13 +19,13 @@ pub type HtmlReportProjectionPayload = CanonicalProjectionPayload;
 #[derive(Debug, Default, Clone)]
 pub struct HtmlReportProjector;
 
-#[async_trait]
-impl Projector for HtmlReportProjector {
-    fn name(&self) -> &str {
-        "html-report-projector"
-    }
-
-    async fn project(&self, input: ProjectInput) -> CoreResult<()> {
+impl HtmlReportProjector {
+    pub async fn project_cancellable(
+        &self,
+        input: ProjectInput,
+        is_cancelled: impl Fn() -> bool,
+    ) -> CoreResult<()> {
+        ensure_not_cancelled(&is_cancelled)?;
         let payload: HtmlReportProjectionPayload = serde_json::from_value(input.payload)
             .map_err(|error| adapter_error(format!("invalid HTML report payload: {error}")))?;
         if payload.schema != HTML_REPORT_PROJECTION_SCHEMA {
@@ -35,7 +35,23 @@ impl Projector for HtmlReportProjector {
             )));
         }
 
-        write_projection(PathBuf::from(input.target), &input.snapshot.0, payload)
+        write_projection(
+            PathBuf::from(input.target),
+            &input.snapshot.0,
+            payload,
+            &is_cancelled,
+        )
+    }
+}
+
+#[async_trait]
+impl Projector for HtmlReportProjector {
+    fn name(&self) -> &str {
+        "html-report-projector"
+    }
+
+    async fn project(&self, input: ProjectInput) -> CoreResult<()> {
+        self.project_cancellable(input, || false).await
     }
 }
 
@@ -43,7 +59,9 @@ fn write_projection(
     target: PathBuf,
     snapshot: &str,
     mut payload: HtmlReportProjectionPayload,
+    is_cancelled: &dyn Fn() -> bool,
 ) -> CoreResult<()> {
+    ensure_not_cancelled(is_cancelled)?;
     payload
         .entities
         .sort_by(|left, right| left.stable_key.0.cmp(&right.stable_key.0));
@@ -58,7 +76,7 @@ fn write_projection(
         .iter()
         .filter(|diagnostic| diagnostic.status == DiagnosticStatus::Open)
         .count();
-    let report = render_report(snapshot, &payload);
+    let report = render_report(snapshot, &payload, is_cancelled)?;
     let manifest = json!({
         "schema": HTML_REPORT_MANIFEST_SCHEMA,
         "report_format_version": HTML_REPORT_FORMAT_VERSION,
@@ -74,18 +92,26 @@ fn write_projection(
         .map_err(|error| adapter_error(format!("serialize HTML report manifest: {error}")))?;
 
     publish_staged_directory(&target, "HTML report", |staging| {
+        ensure_not_cancelled(is_cancelled)?;
         write_output_file(&staging.join("index.html"), &report)?;
         for entity in &payload.entities {
+            ensure_not_cancelled(is_cancelled)?;
             write_output_file(
                 &staging.join(entity_report_path(entity)),
                 &render_entity_page(snapshot, &payload, entity),
             )?;
         }
+        ensure_not_cancelled(is_cancelled)?;
         write_output_file(&staging.join("manifest.json"), &manifest)
     })
 }
 
-fn render_report(snapshot: &str, payload: &HtmlReportProjectionPayload) -> String {
+fn render_report(
+    snapshot: &str,
+    payload: &HtmlReportProjectionPayload,
+    is_cancelled: &dyn Fn() -> bool,
+) -> CoreResult<String> {
+    ensure_not_cancelled(is_cancelled)?;
     let open_diagnostics = payload
         .diagnostics
         .iter()
@@ -124,11 +150,13 @@ fn render_report(snapshot: &str, payload: &HtmlReportProjectionPayload) -> Strin
         output.push_str("<p class=\"empty\">No open diagnostics.</p>\n");
     } else {
         for diagnostic in open_diagnostics {
+            ensure_not_cancelled(is_cancelled)?;
             render_diagnostic(&mut output, diagnostic, &payload.entities);
         }
     }
     output.push_str("</section>\n<section aria-labelledby=\"entities\"><h2 id=\"entities\">Canonical entities</h2>\n<div class=\"table-wrap\"><table><thead><tr><th>Kind</th><th>Name</th><th>Stable key</th><th>Source</th><th>Diagnostics</th></tr></thead><tbody>\n");
     for entity in &payload.entities {
+        ensure_not_cancelled(is_cancelled)?;
         render_entity_row(
             &mut output,
             entity,
@@ -139,7 +167,14 @@ fn render_report(snapshot: &str, payload: &HtmlReportProjectionPayload) -> Strin
     output.push_str("</tbody></table></div></section>\n</main>\n");
     output.push_str(SCRIPT);
     output.push_str("</body>\n</html>\n");
-    output
+    Ok(output)
+}
+
+fn ensure_not_cancelled(is_cancelled: &dyn Fn() -> bool) -> CoreResult<()> {
+    if is_cancelled() {
+        return Err(adapter_error("operation cancelled".to_string()));
+    }
+    Ok(())
 }
 
 fn metric(output: &mut String, label: &str, value: usize) {
@@ -979,6 +1014,7 @@ const SCRIPT: &str = r#"<script>
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
     use std::fs;
 
     use athanor_domain::{
@@ -987,6 +1023,51 @@ mod tests {
     };
 
     use super::*;
+
+    #[tokio::test]
+    async fn cancellation_keeps_previous_report_published() {
+        let root = std::env::temp_dir().join(format!(
+            "athanor-html-projector-cancel-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let target = root.join("html");
+        fs::create_dir_all(&target).unwrap();
+        fs::write(target.join("previous.html"), "previous").unwrap();
+        let checks = Cell::new(0);
+
+        let error = HtmlReportProjector
+            .project_cancellable(
+                ProjectInput {
+                    snapshot: SnapshotId("snap_test".to_string()),
+                    target: target.to_string_lossy().into_owned(),
+                    payload: serde_json::to_value(HtmlReportProjectionPayload {
+                        schema: HTML_REPORT_PROJECTION_SCHEMA.to_string(),
+                        entities: Vec::new(),
+                        facts: Vec::new(),
+                        relations: Vec::new(),
+                        diagnostics: Vec::new(),
+                    })
+                    .unwrap(),
+                },
+                || {
+                    checks.set(checks.get() + 1);
+                    checks.get() >= 4
+                },
+            )
+            .await
+            .unwrap_err();
+
+        assert!(error.to_string().contains("operation cancelled"));
+        assert_eq!(
+            fs::read_to_string(target.join("previous.html")).unwrap(),
+            "previous"
+        );
+        assert!(!target.join("index.html").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[tokio::test]
     async fn writes_self_contained_escaped_report() {

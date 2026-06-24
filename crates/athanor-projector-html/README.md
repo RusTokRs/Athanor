@@ -29,6 +29,9 @@ filtering, zoom, layout reset, node dragging, canonical detail links, and eviden
 relation inspection. Each canonical entity also receives a detail page with identity metadata,
 ownership, attached facts, relations, diagnostics, and evidence locations. Dynamic canonical text
 is HTML-escaped and the report has no external scripts, stylesheets, or network dependencies.
+The adapter exposes cooperative cancellation checkpoints while rendering the main report and entity
+pages. Cancellation removes the staging directory and leaves the previously published report
+unchanged.
 
 ## Commands And Network
 

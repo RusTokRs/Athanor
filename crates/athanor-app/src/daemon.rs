@@ -318,7 +318,7 @@ pub async fn serve_daemon(options: DaemonServeOptions) -> Result<()> {
         next_job_sequence: Mutex::new(2),
         max_job_history: options.max_job_history,
         latest_snapshot_cache: Mutex::new(None),
-            cancellation_tokens: Mutex::new(HashMap::new()),
+        cancellation_tokens: Mutex::new(HashMap::new()),
         endpoint,
     });
     let request_slots = Arc::new(Semaphore::new(options.max_concurrent_requests));
@@ -792,16 +792,17 @@ async fn execute_request(
                     false,
                 );
             }
-            match start_daemon_job(
+            match start_cancellable_daemon_job(
                 &state,
                 DaemonJobKind::Generate,
                 "generate read models".to_string(),
             ) {
-                Ok(job_id) => {
+                Ok((job_id, cancellation)) => {
                     let job = get_daemon_job(&state, &job_id).ok();
                     let job_state = Arc::clone(&state);
                     let job_id_for_task = job_id.clone();
                     let root = state.endpoint.root.clone();
+                    let cancellation_for_task = cancellation.clone();
                     if let Err(error) = std::thread::Builder::new()
                         .name(format!("athd-generate-{job_id_for_task}"))
                         .spawn(move || {
@@ -813,7 +814,10 @@ async fn execute_request(
                                 .build()
                                 .map_err(anyhow::Error::from)
                                 .and_then(|runtime| {
-                                    runtime.block_on(generate_project(GenerationOptions { root }))
+                                    runtime.block_on(generate_project_cancellable(
+                                        GenerationOptions { root },
+                                        cancellation_for_task.clone(),
+                                    ))
                                 });
                             match result {
                                 Ok(report) => {
@@ -841,12 +845,10 @@ async fn execute_request(
                                     );
                                 }
                                 Err(error) => {
-                                    let _ = finish_daemon_job(
+                                    let _ = finish_cancellable_daemon_job_error(
                                         &job_state,
                                         &job_id_for_task,
-                                        DaemonJobStatus::Failed,
-                                        None,
-                                        Some(error.to_string()),
+                                        error,
                                     );
                                 }
                             }
@@ -890,12 +892,17 @@ async fn execute_request(
                     false,
                 );
             }
-            match start_daemon_job(&state, DaemonJobKind::Wiki, "project wiki".to_string()) {
-                Ok(job_id) => {
+            match start_cancellable_daemon_job(
+                &state,
+                DaemonJobKind::Wiki,
+                "project wiki".to_string(),
+            ) {
+                Ok((job_id, cancellation)) => {
                     let job = get_daemon_job(&state, &job_id).ok();
                     let job_state = Arc::clone(&state);
                     let job_id_for_task = job_id.clone();
                     let root = state.endpoint.root.clone();
+                    let cancellation_for_task = cancellation.clone();
                     if let Err(error) = std::thread::Builder::new()
                         .name(format!("athd-wiki-{job_id_for_task}"))
                         .spawn(move || {
@@ -907,8 +914,10 @@ async fn execute_request(
                                 .build()
                                 .map_err(anyhow::Error::from)
                                 .and_then(|runtime| {
-                                    runtime
-                                        .block_on(project_wiki(WikiOptions { root, output: None }))
+                                    runtime.block_on(project_wiki_cancellable(
+                                        WikiOptions { root, output: None },
+                                        cancellation_for_task.clone(),
+                                    ))
                                 });
                             match result {
                                 Ok(report) => {
@@ -934,12 +943,10 @@ async fn execute_request(
                                     );
                                 }
                                 Err(error) => {
-                                    let _ = finish_daemon_job(
+                                    let _ = finish_cancellable_daemon_job_error(
                                         &job_state,
                                         &job_id_for_task,
-                                        DaemonJobStatus::Failed,
-                                        None,
-                                        Some(error.to_string()),
+                                        error,
                                     );
                                 }
                             }
@@ -983,12 +990,17 @@ async fn execute_request(
                     false,
                 );
             }
-            match start_daemon_job(&state, DaemonJobKind::HtmlReport, "HTML report".to_string()) {
-                Ok(job_id) => {
+            match start_cancellable_daemon_job(
+                &state,
+                DaemonJobKind::HtmlReport,
+                "HTML report".to_string(),
+            ) {
+                Ok((job_id, cancellation)) => {
                     let job = get_daemon_job(&state, &job_id).ok();
                     let job_state = Arc::clone(&state);
                     let job_id_for_task = job_id.clone();
                     let root = state.endpoint.root.clone();
+                    let cancellation_for_task = cancellation.clone();
                     if let Err(error) = std::thread::Builder::new()
                         .name(format!("athd-html-report-{job_id_for_task}"))
                         .spawn(move || {
@@ -1000,10 +1012,10 @@ async fn execute_request(
                                 .build()
                                 .map_err(anyhow::Error::from)
                                 .and_then(|runtime| {
-                                    runtime.block_on(project_html_report(HtmlReportOptions {
-                                        root,
-                                        output: None,
-                                    }))
+                                    runtime.block_on(project_html_report_cancellable(
+                                        HtmlReportOptions { root, output: None },
+                                        cancellation_for_task.clone(),
+                                    ))
                                 });
                             match result {
                                 Ok(report) => {
@@ -1029,12 +1041,10 @@ async fn execute_request(
                                     );
                                 }
                                 Err(error) => {
-                                    let _ = finish_daemon_job(
+                                    let _ = finish_cancellable_daemon_job_error(
                                         &job_state,
                                         &job_id_for_task,
-                                        DaemonJobStatus::Failed,
-                                        None,
-                                        Some(error.to_string()),
+                                        error,
                                     );
                                 }
                             }
@@ -1567,11 +1577,13 @@ fn start_index_job(state: &Arc<DaemonState>, description: String) -> Result<Daem
     if has_active_job(state, DaemonJobKind::Index)? {
         bail!("index job is already queued or running");
     }
-    let job_id = start_daemon_job(state, DaemonJobKind::Index, description)?;
+    let (job_id, cancellation) =
+        start_cancellable_daemon_job(state, DaemonJobKind::Index, description)?;
     let mut job = get_daemon_job(state, &job_id)?;
     let job_state = Arc::clone(state);
     let job_id_for_task = job_id.clone();
     let root = state.endpoint.root.clone();
+    let cancellation_for_task = cancellation.clone();
     if let Err(error) = std::thread::Builder::new()
         .name(format!("athd-index-{job_id_for_task}"))
         .spawn(move || {
@@ -1583,12 +1595,15 @@ fn start_index_job(state: &Arc<DaemonState>, description: String) -> Result<Daem
                 .build()
                 .map_err(anyhow::Error::from)
                 .and_then(|runtime| {
-                    runtime.block_on(index_project(IndexOptions {
-                        root,
-                        validation_report: None,
-                        validation_result: None,
-                        validate_only: false,
-                    }))
+                    runtime.block_on(index_project_cancellable(
+                        IndexOptions {
+                            root,
+                            validation_report: None,
+                            validation_result: None,
+                            validate_only: false,
+                        },
+                        cancellation_for_task.clone(),
+                    ))
                 });
             match result {
                 Ok(report) => {
@@ -1615,13 +1630,8 @@ fn start_index_job(state: &Arc<DaemonState>, description: String) -> Result<Daem
                     );
                 }
                 Err(error) => {
-                    let _ = finish_daemon_job(
-                        &job_state,
-                        &job_id_for_task,
-                        DaemonJobStatus::Failed,
-                        None,
-                        Some(error.to_string()),
-                    );
+                    let _ =
+                        finish_cancellable_daemon_job_error(&job_state, &job_id_for_task, error);
                 }
             }
         })
@@ -1680,30 +1690,62 @@ fn cancel_daemon_job(state: &DaemonState, job_id: &str) -> Result<DaemonJob> {
     if !is_valid_job_id(job_id) {
         bail!("daemon job id must use the form job_00000001");
     }
-    let finished_at = unix_time_ms()?;
-    let mut jobs = state
-        .jobs
-        .lock()
-        .map_err(|_| anyhow::anyhow!("daemon job registry lock is poisoned"))?;
-    let job = jobs
-        .iter_mut()
-        .find(|job| job.id == job_id)
-        .ok_or_else(|| anyhow::anyhow!("daemon job `{job_id}` was not found"))?;
-    match job.status {
+    let current = get_daemon_job(state, job_id)?;
+    match current.status {
         DaemonJobStatus::Queued => {
-            job.status = DaemonJobStatus::Cancelled;
-            job.finished_at_unix_ms = Some(finished_at);
-            job.error = Some("job cancelled before start".to_string());
-            Ok(job.clone())
+            if let Some(cancellation) = cancellation_token(state, job_id)? {
+                cancellation.cancel();
+            }
+            let mut jobs = state
+                .jobs
+                .lock()
+                .map_err(|_| anyhow::anyhow!("daemon job registry lock is poisoned"))?;
+            let job = jobs
+                .iter_mut()
+                .find(|job| job.id == job_id)
+                .ok_or_else(|| anyhow::anyhow!("daemon job `{job_id}` was not found"))?;
+            match job.status {
+                DaemonJobStatus::Queued => {
+                    job.status = DaemonJobStatus::Cancelled;
+                    job.finished_at_unix_ms = Some(unix_time_ms()?);
+                    job.error = Some("job cancelled before start".to_string());
+                }
+                DaemonJobStatus::Running => {
+                    job.status = DaemonJobStatus::Cancelling;
+                    job.error = Some("job cancellation requested".to_string());
+                }
+                _ => {}
+            }
+            let cancelled = job.clone();
+            drop(jobs);
+            if cancelled.status == DaemonJobStatus::Cancelled {
+                remove_cancellation_token(state, job_id)?;
+            }
+            Ok(cancelled)
         }
         DaemonJobStatus::Running => {
-            bail!(
-                "daemon job `{job_id}` is running and is not cancellable yet; wait for it to finish"
-            );
-        }
-        DaemonJobStatus::Succeeded | DaemonJobStatus::Failed | DaemonJobStatus::Cancelled => {
+            let cancellation = cancellation_token(state, job_id)?.ok_or_else(|| {
+                anyhow::anyhow!("daemon job `{job_id}` is running and is not cancellable")
+            })?;
+            cancellation.cancel();
+            let mut jobs = state
+                .jobs
+                .lock()
+                .map_err(|_| anyhow::anyhow!("daemon job registry lock is poisoned"))?;
+            let job = jobs
+                .iter_mut()
+                .find(|job| job.id == job_id)
+                .ok_or_else(|| anyhow::anyhow!("daemon job `{job_id}` was not found"))?;
+            if job.status == DaemonJobStatus::Running {
+                job.status = DaemonJobStatus::Cancelling;
+                job.error = Some("job cancellation requested".to_string());
+            }
             Ok(job.clone())
         }
+        DaemonJobStatus::Cancelling
+        | DaemonJobStatus::Succeeded
+        | DaemonJobStatus::Failed
+        | DaemonJobStatus::Cancelled => Ok(current),
     }
 }
 
@@ -1716,7 +1758,7 @@ fn has_active_job(state: &DaemonState, kind: DaemonJobKind) -> Result<bool> {
         job.kind == kind
             && matches!(
                 job.status,
-                DaemonJobStatus::Queued | DaemonJobStatus::Running
+                DaemonJobStatus::Queued | DaemonJobStatus::Running | DaemonJobStatus::Cancelling
             )
     }))
 }
@@ -1760,6 +1802,48 @@ fn start_daemon_job(
     Ok(job_id)
 }
 
+fn start_cancellable_daemon_job(
+    state: &DaemonState,
+    kind: DaemonJobKind,
+    description: String,
+) -> Result<(String, CancellationToken)> {
+    let job_id = start_daemon_job(state, kind, description)?;
+    let cancellation = CancellationToken::new();
+    let mut tokens = match state.cancellation_tokens.lock() {
+        Ok(tokens) => tokens,
+        Err(_) => {
+            let message = "daemon cancellation registry lock is poisoned".to_string();
+            let _ = finish_daemon_job(
+                state,
+                &job_id,
+                DaemonJobStatus::Failed,
+                None,
+                Some(message.clone()),
+            );
+            bail!(message);
+        }
+    };
+    tokens.insert(job_id.clone(), cancellation.clone());
+    Ok((job_id, cancellation))
+}
+
+fn cancellation_token(state: &DaemonState, job_id: &str) -> Result<Option<CancellationToken>> {
+    let tokens = state
+        .cancellation_tokens
+        .lock()
+        .map_err(|_| anyhow::anyhow!("daemon cancellation registry lock is poisoned"))?;
+    Ok(tokens.get(job_id).cloned())
+}
+
+fn remove_cancellation_token(state: &DaemonState, job_id: &str) -> Result<()> {
+    let mut tokens = state
+        .cancellation_tokens
+        .lock()
+        .map_err(|_| anyhow::anyhow!("daemon cancellation registry lock is poisoned"))?;
+    tokens.remove(job_id);
+    Ok(())
+}
+
 fn mark_daemon_job_running(state: &DaemonState, job_id: &str) -> Result<bool> {
     let started_at = unix_time_ms()?;
     let mut jobs = state
@@ -1777,7 +1861,7 @@ fn mark_daemon_job_running(state: &DaemonState, job_id: &str) -> Result<bool> {
             Ok(true)
         }
         DaemonJobStatus::Cancelled => Ok(false),
-        DaemonJobStatus::Running => Ok(true),
+        DaemonJobStatus::Running | DaemonJobStatus::Cancelling => Ok(true),
         DaemonJobStatus::Succeeded | DaemonJobStatus::Failed => Ok(false),
     }
 }
@@ -1819,7 +1903,25 @@ fn finish_daemon_job(
     job.result = result;
     job.error = error;
     prune_daemon_jobs(&mut jobs, state.max_job_history);
+    drop(jobs);
+    remove_cancellation_token(state, job_id)?;
     Ok(())
+}
+
+fn finish_cancellable_daemon_job_error(
+    state: &DaemonState,
+    job_id: &str,
+    error: anyhow::Error,
+) -> Result<()> {
+    let status = if error
+        .chain()
+        .any(|cause| cause.to_string().contains("operation cancelled"))
+    {
+        DaemonJobStatus::Cancelled
+    } else {
+        DaemonJobStatus::Failed
+    };
+    finish_daemon_job(state, job_id, status, None, Some(error.to_string()))
 }
 
 fn prune_daemon_jobs(jobs: &mut Vec<DaemonJob>, max_job_history: usize) {
@@ -2597,7 +2699,7 @@ mod tests {
     }
 
     #[test]
-    fn cancels_queued_jobs_and_rejects_running_jobs() {
+    fn cancels_queued_jobs_and_requests_running_job_cancellation() {
         let endpoint = DaemonEndpoint {
             schema: DAEMON_ENDPOINT_SCHEMA.to_string(),
             project_id: "alpha".to_string(),
@@ -2617,6 +2719,7 @@ mod tests {
             max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
             max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
         };
+        let running_cancellation = CancellationToken::new();
         let state = DaemonState {
             endpoint,
             jobs: Mutex::new(vec![
@@ -2646,13 +2749,35 @@ mod tests {
             next_job_sequence: Mutex::new(3),
             max_job_history: 100,
             latest_snapshot_cache: Mutex::new(None),
-            cancellation_tokens: Mutex::new(HashMap::new()),
+            cancellation_tokens: Mutex::new(HashMap::from([(
+                "job_00000002".to_string(),
+                running_cancellation.clone(),
+            )])),
         };
 
         let cancelled = cancel_daemon_job(&state, "job_00000001").unwrap();
         assert_eq!(cancelled.status, DaemonJobStatus::Cancelled);
         assert!(cancelled.finished_at_unix_ms.is_some());
-        assert!(cancel_daemon_job(&state, "job_00000002").is_err());
+
+        let cancelling = cancel_daemon_job(&state, "job_00000002").unwrap();
+        assert_eq!(cancelling.status, DaemonJobStatus::Cancelling);
+        assert!(cancelling.finished_at_unix_ms.is_none());
+        assert!(running_cancellation.is_cancelled());
+        assert!(has_active_job(&state, DaemonJobKind::Index).unwrap());
+
+        finish_daemon_job(
+            &state,
+            "job_00000002",
+            DaemonJobStatus::Cancelled,
+            None,
+            Some("operation cancelled".to_string()),
+        )
+        .unwrap();
+        assert!(
+            cancellation_token(&state, "job_00000002")
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]
@@ -2934,4 +3059,3 @@ mod tests {
         );
     }
 }
-

@@ -445,7 +445,8 @@ requests that do not match the endpoint's project identity. The implemented comm
 - `status`: returns daemon status and endpoint metadata.
 - `jobs`: returns a bounded `athanor.daemon_jobs.v1` report from the in-memory daemon job registry.
 - `job`: returns one exact daemon job by id.
-- `cancel`: cancels queued daemon jobs and reports an explicit non-cancellable error for running jobs.
+- `cancel`: cancels queued daemon jobs immediately and requests cooperative cancellation for running
+  index, generation, wiki, and HTML report jobs.
 - `index`: starts one background indexing job for the project and immediately returns its job record.
 - `generate`: starts one background coordinated read-model generation job and immediately returns
   its job record.
@@ -477,16 +478,23 @@ before subsequent read-only requests. Diff context still performs current source
 index-state comparison before building its bounded pack. `athd generate`, `athd wiki`, and `athd report-html` reuse the existing projection paths
 and reject a second concurrent job of the same kind so output publishers do not overlap. Job history
 is retained in memory up to `--max-job-history`; pruning removes the oldest finished records first
-and never removes running or queued records. Cancellation is cooperative: background index and
-projection jobs are first registered as queued, and cancellation can stop them before their worker
-marks them running. Currently running index and projection jobs are allowed to finish because forced
-interruption could corrupt snapshot or generated output writes. With `--watch`, the daemon watches
-the project root recursively through `notify-debouncer-mini`, ignores `.athanor` artifact changes,
-and schedules a debounced background index job when source paths change. By default it uses the
+and never removes queued, running, or cancelling records. Cancellation is cooperative: background
+index and projection jobs are registered with a shared cancellation token before worker start.
+Queued jobs become cancelled immediately. Running jobs move to `cancelling` and stop at safe stage
+boundaries. Indexing checks cancellation before canonical object writes and snapshot commit.
+Coordinated generation checks between projections and before publishing its immutable generation;
+wiki and HTML projectors also check while rendering staged entity and diagnostic files, before their
+atomic directory replacement.
+If cancellation arrives after an atomic commit or publication has started, that operation is allowed
+to complete and the job succeeds rather than reporting a cancelled job with published output.
+Read-only jobs without a cancellation token still return an explicit non-cancellable error if a
+concurrent request attempts to cancel them. With `--watch`, the daemon watches the project root
+recursively through `notify-debouncer-mini`, ignores `.athanor` artifact changes, and schedules a
+debounced background index job when source paths change. By default it uses the
 platform-recommended watcher backend; `--watch-poll` selects the polling backend for filesystems
 where native notifications are unavailable or unreliable. The watcher is a scheduler; persisted
 content hashes still decide which files actually changed. Further hot cache expansion beyond
-overview/explain/search/context and running-job cancellation remain future Phase 7 work.
+overview/explain/search/context remains future Phase 7 work.
 Logs continue to use stderr or tracing sinks and are kept separate from structured protocol
 responses.
 

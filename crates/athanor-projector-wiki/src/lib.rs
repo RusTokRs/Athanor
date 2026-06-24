@@ -19,13 +19,13 @@ pub type WikiProjectionPayload = CanonicalProjectionPayload;
 #[derive(Debug, Default, Clone)]
 pub struct MarkdownWikiProjector;
 
-#[async_trait]
-impl Projector for MarkdownWikiProjector {
-    fn name(&self) -> &str {
-        "markdown-wiki-projector"
-    }
-
-    async fn project(&self, input: ProjectInput) -> CoreResult<()> {
+impl MarkdownWikiProjector {
+    pub async fn project_cancellable(
+        &self,
+        input: ProjectInput,
+        is_cancelled: impl Fn() -> bool,
+    ) -> CoreResult<()> {
+        ensure_not_cancelled(&is_cancelled)?;
         let payload: WikiProjectionPayload = serde_json::from_value(input.payload)
             .map_err(|error| adapter_error(format!("invalid wiki projection payload: {error}")))?;
         if payload.schema != WIKI_PROJECTION_SCHEMA {
@@ -36,7 +36,18 @@ impl Projector for MarkdownWikiProjector {
         }
 
         let target = PathBuf::from(input.target);
-        write_projection(&target, &input.snapshot.0, payload)
+        write_projection(&target, &input.snapshot.0, payload, &is_cancelled)
+    }
+}
+
+#[async_trait]
+impl Projector for MarkdownWikiProjector {
+    fn name(&self) -> &str {
+        "markdown-wiki-projector"
+    }
+
+    async fn project(&self, input: ProjectInput) -> CoreResult<()> {
+        self.project_cancellable(input, || false).await
     }
 }
 
@@ -44,7 +55,9 @@ fn write_projection(
     target: &Path,
     snapshot: &str,
     mut payload: WikiProjectionPayload,
+    is_cancelled: &dyn Fn() -> bool,
 ) -> CoreResult<()> {
+    ensure_not_cancelled(is_cancelled)?;
     payload
         .entities
         .sort_by(|left, right| left.stable_key.0.cmp(&right.stable_key.0));
@@ -83,11 +96,13 @@ fn write_projection(
         .map_err(|error| adapter_error(format!("serialize wiki manifest: {error}")))?;
 
     publish_staged_directory(target, "wiki", |staging| {
+        ensure_not_cancelled(is_cancelled)?;
         write_output_file(
             &staging.join("index.md"),
             &render_index(snapshot, &payload, &entity_files),
         )?;
         for entity in &payload.entities {
+            ensure_not_cancelled(is_cancelled)?;
             write_output_file(
                 &staging.join("entities").join(entity_filename(entity)),
                 &render_entity(snapshot, entity, &payload, &entity_files),
@@ -98,6 +113,7 @@ fn write_projection(
             .iter()
             .filter(|diagnostic| diagnostic.status == DiagnosticStatus::Open)
         {
+            ensure_not_cancelled(is_cancelled)?;
             write_output_file(
                 &staging
                     .join("diagnostics")
@@ -105,8 +121,16 @@ fn write_projection(
                 &render_diagnostic(snapshot, diagnostic, &entity_files),
             )?;
         }
+        ensure_not_cancelled(is_cancelled)?;
         write_output_file(&staging.join("manifest.json"), &manifest)
     })
+}
+
+fn ensure_not_cancelled(is_cancelled: &dyn Fn() -> bool) -> CoreResult<()> {
+    if is_cancelled() {
+        return Err(adapter_error("operation cancelled".to_string()));
+    }
+    Ok(())
 }
 
 fn render_index(
@@ -338,11 +362,57 @@ fn adapter_error(message: String) -> CoreError {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
     use std::fs;
 
     use athanor_domain::{DiagnosticId, EntityId, EntityKind, Severity, SnapshotId, StableKey};
 
     use super::*;
+
+    #[tokio::test]
+    async fn cancellation_keeps_previous_wiki_published() {
+        let root = std::env::temp_dir().join(format!(
+            "athanor-wiki-projector-cancel-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let target = root.join("wiki");
+        fs::create_dir_all(&target).unwrap();
+        fs::write(target.join("previous.md"), "previous").unwrap();
+        let checks = Cell::new(0);
+
+        let error = MarkdownWikiProjector
+            .project_cancellable(
+                ProjectInput {
+                    snapshot: SnapshotId("snap_test".to_string()),
+                    target: target.to_string_lossy().into_owned(),
+                    payload: serde_json::to_value(WikiProjectionPayload {
+                        schema: WIKI_PROJECTION_SCHEMA.to_string(),
+                        entities: Vec::new(),
+                        facts: Vec::new(),
+                        relations: Vec::new(),
+                        diagnostics: Vec::new(),
+                    })
+                    .unwrap(),
+                },
+                || {
+                    checks.set(checks.get() + 1);
+                    checks.get() >= 3
+                },
+            )
+            .await
+            .unwrap_err();
+
+        assert!(error.to_string().contains("operation cancelled"));
+        assert_eq!(
+            fs::read_to_string(target.join("previous.md")).unwrap(),
+            "previous"
+        );
+        assert!(!target.join("index.md").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[tokio::test]
     async fn writes_and_replaces_deterministic_wiki() {

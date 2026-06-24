@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use crate::config::load_config;
 use crate::store::init_store;
 use anyhow::{Context, Result, bail};
-use athanor_core::{CanonicalSnapshotStore, ProjectInput, Projector};
+use athanor_core::{CanonicalSnapshotStore, ProjectInput};
 use athanor_projector_html::{
     HTML_REPORT_PROJECTION_SCHEMA, HtmlReportProjectionPayload, HtmlReportProjector,
 };
@@ -14,8 +14,8 @@ use athanor_projector_wiki::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::JsonlReadModelWriter;
 use crate::CancellationToken;
+use crate::JsonlReadModelWriter;
 use crate::project_path::normalize_canonical_path;
 
 pub const GENERATED_GENERATION_SCHEMA: &str = "athanor.generated_generation.v1";
@@ -127,12 +127,19 @@ async fn generate_project_inner(
         diagnostics: snapshot.diagnostics.clone(),
     };
     MarkdownWikiProjector
-        .project(ProjectInput {
-            snapshot: snapshot_id.clone(),
-            target: staging.join("wiki").to_string_lossy().into_owned(),
-            payload: serde_json::to_value(wiki_payload)
-                .context("failed to build generation wiki input")?,
-        })
+        .project_cancellable(
+            ProjectInput {
+                snapshot: snapshot_id.clone(),
+                target: staging.join("wiki").to_string_lossy().into_owned(),
+                payload: serde_json::to_value(wiki_payload)
+                    .context("failed to build generation wiki input")?,
+            },
+            || {
+                cancellation
+                    .as_ref()
+                    .is_some_and(CancellationToken::is_cancelled)
+            },
+        )
         .await
         .context("failed to project generation wiki")?;
     check_cancelled(&cancellation)?;
@@ -145,12 +152,19 @@ async fn generate_project_inner(
         diagnostics: snapshot.diagnostics.clone(),
     };
     HtmlReportProjector
-        .project(ProjectInput {
-            snapshot: snapshot_id.clone(),
-            target: staging.join("html").to_string_lossy().into_owned(),
-            payload: serde_json::to_value(html_payload)
-                .context("failed to build generation HTML input")?,
-        })
+        .project_cancellable(
+            ProjectInput {
+                snapshot: snapshot_id.clone(),
+                target: staging.join("html").to_string_lossy().into_owned(),
+                payload: serde_json::to_value(html_payload)
+                    .context("failed to build generation HTML input")?,
+            },
+            || {
+                cancellation
+                    .as_ref()
+                    .is_some_and(CancellationToken::is_cancelled)
+            },
+        )
         .await
         .context("failed to project generation HTML report")?;
     check_cancelled(&cancellation)?;
