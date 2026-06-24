@@ -12,7 +12,7 @@ use serde::Serialize;
 use serde_json::Value;
 use tracing::{Instrument, debug, debug_span, error, info};
 
-use crate::{AffectedFileSet, IndexState};
+use crate::{AffectedFileSet, CancellationToken, IndexState};
 use futures::stream::{self, StreamExt};
 
 const EXTRACTION_CONCURRENCY_LIMIT: usize = 16;
@@ -197,10 +197,34 @@ impl IndexPipeline {
         base: SnapshotBase,
         incremental: IncrementalIndexContext,
     ) -> Result<IndexPipelineOutput> {
+        self.run_with_incremental_inner(repo, base, incremental, None)
+            .await
+    }
+
+    pub async fn run_with_incremental_cancellable(
+        self,
+        repo: RepoId,
+        base: SnapshotBase,
+        incremental: IncrementalIndexContext,
+        cancellation: CancellationToken,
+    ) -> Result<IndexPipelineOutput> {
+        self.run_with_incremental_inner(repo, base, incremental, Some(cancellation))
+            .await
+    }
+
+    async fn run_with_incremental_inner(
+        self,
+        repo: RepoId,
+        base: SnapshotBase,
+        incremental: IncrementalIndexContext,
+        cancellation: Option<CancellationToken>,
+    ) -> Result<IndexPipelineOutput> {
+        check_cancelled(&cancellation)?;
         let previous_snapshot_available = incremental.previous_snapshot.is_some();
 
         info!("starting source discovery");
         let files = self.discover_sources().await?;
+        check_cancelled(&cancellation)?;
         info!(file_count = files.len(), "completed source discovery");
         let mut affected_files = incremental.previous_state.affected_files(&files);
 
@@ -250,6 +274,7 @@ impl IndexPipeline {
         );
         let (extracted_entities, extracted_facts) =
             self.extract(&repo, &snapshot, &files_to_extract).await?;
+        check_cancelled(&cancellation)?;
         info!(
             entities = extracted_entities.len(),
             facts = extracted_facts.len(),
@@ -285,6 +310,7 @@ impl IndexPipeline {
         let relations = self
             .link(&snapshot, &entities, &facts, &affected_extracted)
             .await?;
+        check_cancelled(&cancellation)?;
         info!(relations = relations.len(), "completed linking");
         let mut all_relations_for_check = prior_relations.clone();
         all_relations_for_check.extend(relations.clone());
@@ -299,6 +325,7 @@ impl IndexPipeline {
                 &affected_checked,
             )
             .await?;
+        check_cancelled(&cancellation)?;
         info!(diagnostics = diagnostics.len(), "completed checking");
         prior_relations.extend(relations);
         prior_diagnostics.extend(diagnostics);
@@ -538,6 +565,13 @@ impl IndexPipeline {
 
         Ok(diagnostics)
     }
+}
+
+fn check_cancelled(cancellation: &Option<CancellationToken>) -> Result<()> {
+    if let Some(cancellation) = cancellation {
+        cancellation.check()?;
+    }
+    Ok(())
 }
 
 fn validate_entities(adapter: &str, entities: &[Entity]) -> Result<()> {

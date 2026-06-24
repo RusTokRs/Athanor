@@ -78,29 +78,44 @@ pub async fn search_project(options: SearchOptions) -> Result<SearchReport> {
         .context("failed to load latest canonical snapshot")?
         .ok_or_else(|| anyhow::anyhow!("no canonical snapshot found; run `ath index` first"))?;
 
+    search_snapshot(&root, &snapshot, options.query, options.limit).await
+}
+
+pub async fn search_snapshot(
+    root: &Path,
+    snapshot: &CanonicalSnapshot,
+    query: String,
+    limit: usize,
+) -> Result<SearchReport> {
+    if query.trim().is_empty() {
+        bail!("search query must not be empty");
+    }
+    if limit == 0 {
+        bail!("search limit must be greater than zero");
+    }
+
     let snapshot_id = snapshot
         .snapshot
         .as_ref()
         .map(|s| s.0.clone())
         .ok_or_else(|| anyhow::anyhow!("latest canonical snapshot has no snapshot id"))?;
-
     let index_dir = root.join(".athanor/generated/current/search");
 
     // Open or rebuild index if snapshot changed or index doesn't exist
-    let index = get_or_build_search_index(&snapshot, &snapshot_id, &index_dir).await?;
+    let index = get_or_build_search_index(snapshot, &snapshot_id, &index_dir).await?;
 
     let results = index
         .search(SearchQuery {
-            query: options.query.clone(),
-            limit: options.limit.saturating_add(1),
+            query: query.clone(),
+            limit: limit.saturating_add(1),
         })
         .await
         .context("failed to query search index")?;
-    let truncated = results.len() > options.limit;
+    let truncated = results.len() > limit;
 
     let search_items = results
         .into_iter()
-        .take(options.limit)
+        .take(limit)
         .filter_map(|res| {
             let entity: Entity = serde_json::from_value(res.payload).ok()?;
             let kind = serde_json::to_value(&entity.kind)
@@ -124,10 +139,10 @@ pub async fn search_project(options: SearchOptions) -> Result<SearchReport> {
 
     Ok(SearchReport {
         schema: "athanor.search.v1".to_string(),
-        root,
+        root: root.to_path_buf(),
         snapshot: snapshot_id,
-        query: options.query,
-        limit: options.limit,
+        query,
+        limit,
         returned,
         truncated,
         omitted: SearchOmissions {

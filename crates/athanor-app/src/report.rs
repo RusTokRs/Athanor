@@ -8,6 +8,7 @@ use athanor_projector_html::{
     HTML_REPORT_PROJECTION_SCHEMA, HtmlReportProjectionPayload, HtmlReportProjector,
 };
 
+use crate::CancellationToken;
 use crate::project_path::normalize_canonical_path;
 
 #[derive(Debug, Clone)]
@@ -28,6 +29,21 @@ pub struct HtmlReport {
 }
 
 pub async fn project_html_report(options: HtmlReportOptions) -> Result<HtmlReport> {
+    project_html_report_inner(options, None).await
+}
+
+pub async fn project_html_report_cancellable(
+    options: HtmlReportOptions,
+    cancellation: CancellationToken,
+) -> Result<HtmlReport> {
+    project_html_report_inner(options, Some(cancellation)).await
+}
+
+async fn project_html_report_inner(
+    options: HtmlReportOptions,
+    cancellation: Option<CancellationToken>,
+) -> Result<HtmlReport> {
+    check_cancelled(&cancellation)?;
     let root = normalize_canonical_path(
         options
             .root
@@ -53,6 +69,7 @@ pub async fn project_html_report(options: HtmlReportOptions) -> Result<HtmlRepor
     let Some(snapshot) = snapshot else {
         bail!("no canonical snapshot found; run `ath index` first");
     };
+    check_cancelled(&cancellation)?;
     let snapshot_id = snapshot
         .snapshot
         .clone()
@@ -90,6 +107,13 @@ pub async fn project_html_report(options: HtmlReportOptions) -> Result<HtmlRepor
         .context("failed to project HTML report")?;
 
     Ok(report)
+}
+
+fn check_cancelled(cancellation: &Option<CancellationToken>) -> Result<()> {
+    if let Some(cancellation) = cancellation {
+        cancellation.check()?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

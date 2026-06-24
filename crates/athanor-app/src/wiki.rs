@@ -8,6 +8,7 @@ use athanor_projector_wiki::{
     MarkdownWikiProjector, WIKI_PROJECTION_SCHEMA, WikiProjectionPayload,
 };
 
+use crate::CancellationToken;
 use crate::project_path::normalize_canonical_path;
 
 #[derive(Debug, Clone)]
@@ -28,6 +29,21 @@ pub struct WikiReport {
 }
 
 pub async fn project_wiki(options: WikiOptions) -> Result<WikiReport> {
+    project_wiki_inner(options, None).await
+}
+
+pub async fn project_wiki_cancellable(
+    options: WikiOptions,
+    cancellation: CancellationToken,
+) -> Result<WikiReport> {
+    project_wiki_inner(options, Some(cancellation)).await
+}
+
+async fn project_wiki_inner(
+    options: WikiOptions,
+    cancellation: Option<CancellationToken>,
+) -> Result<WikiReport> {
+    check_cancelled(&cancellation)?;
     let root = normalize_canonical_path(
         options
             .root
@@ -53,6 +69,7 @@ pub async fn project_wiki(options: WikiOptions) -> Result<WikiReport> {
     let Some(snapshot) = snapshot else {
         bail!("no canonical snapshot found; run `ath index` first");
     };
+    check_cancelled(&cancellation)?;
     let snapshot_id = snapshot
         .snapshot
         .clone()
@@ -90,6 +107,13 @@ pub async fn project_wiki(options: WikiOptions) -> Result<WikiReport> {
         .context("failed to project Markdown wiki")?;
 
     Ok(report)
+}
+
+fn check_cancelled(cancellation: &Option<CancellationToken>) -> Result<()> {
+    if let Some(cancellation) = cancellation {
+        cancellation.check()?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

@@ -15,6 +15,7 @@ use athanor_projector_wiki::{
 use serde::{Deserialize, Serialize};
 
 use crate::JsonlReadModelWriter;
+use crate::CancellationToken;
 use crate::project_path::normalize_canonical_path;
 
 pub const GENERATED_GENERATION_SCHEMA: &str = "athanor.generated_generation.v1";
@@ -69,6 +70,21 @@ struct GenerationOutputs {
 }
 
 pub async fn generate_project(options: GenerationOptions) -> Result<GenerationReport> {
+    generate_project_inner(options, None).await
+}
+
+pub async fn generate_project_cancellable(
+    options: GenerationOptions,
+    cancellation: CancellationToken,
+) -> Result<GenerationReport> {
+    generate_project_inner(options, Some(cancellation)).await
+}
+
+async fn generate_project_inner(
+    options: GenerationOptions,
+    cancellation: Option<CancellationToken>,
+) -> Result<GenerationReport> {
+    check_cancelled(&cancellation)?;
     let root = normalize_canonical_path(
         options
             .root
@@ -89,6 +105,7 @@ pub async fn generate_project(options: GenerationOptions) -> Result<GenerationRe
     let Some(snapshot) = snapshot else {
         bail!("no canonical snapshot found; run `ath index` first");
     };
+    check_cancelled(&cancellation)?;
     let snapshot_id = snapshot
         .snapshot
         .clone()
@@ -100,6 +117,7 @@ pub async fn generate_project(options: GenerationOptions) -> Result<GenerationRe
     JsonlReadModelWriter::new(staging.join("jsonl"))
         .write_canonical_snapshot(&snapshot)
         .context("failed to project generation JSONL")?;
+    check_cancelled(&cancellation)?;
 
     let wiki_payload = WikiProjectionPayload {
         schema: WIKI_PROJECTION_SCHEMA.to_string(),
@@ -117,6 +135,7 @@ pub async fn generate_project(options: GenerationOptions) -> Result<GenerationRe
         })
         .await
         .context("failed to project generation wiki")?;
+    check_cancelled(&cancellation)?;
 
     let html_payload = HtmlReportProjectionPayload {
         schema: HTML_REPORT_PROJECTION_SCHEMA.to_string(),
@@ -134,6 +153,7 @@ pub async fn generate_project(options: GenerationOptions) -> Result<GenerationRe
         })
         .await
         .context("failed to project generation HTML report")?;
+    check_cancelled(&cancellation)?;
 
     let manifest = GenerationManifest {
         schema: GENERATED_GENERATION_SCHEMA,
@@ -157,6 +177,7 @@ pub async fn generate_project(options: GenerationOptions) -> Result<GenerationRe
             .context("failed to serialize generation manifest")?,
     )
     .context("failed to write generation manifest")?;
+    check_cancelled(&cancellation)?;
     publication
         .publish()
         .context("failed to publish immutable generation")?;
@@ -187,6 +208,13 @@ pub async fn generate_project(options: GenerationOptions) -> Result<GenerationRe
         relations: snapshot.relations.len(),
         diagnostics: snapshot.diagnostics.len(),
     })
+}
+
+fn check_cancelled(cancellation: &Option<CancellationToken>) -> Result<()> {
+    if let Some(cancellation) = cancellation {
+        cancellation.check()?;
+    }
+    Ok(())
 }
 
 fn next_generation_id(generations_dir: &Path) -> Result<String> {

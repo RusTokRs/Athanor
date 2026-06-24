@@ -396,6 +396,7 @@ project registry before serving or sending requests:
 ```bash
 athd serve <project-id> --max-concurrent-requests 4 --max-job-history 1000
 athd serve <project-id> --max-request-bytes 1048576 --max-response-bytes 2097152
+athd serve <project-id> --transport local-socket
 athd serve <project-id> --watch --debounce-ms 1000
 athd serve <project-id> --watch --watch-poll --debounce-ms 5000
 athd status <project-id>
@@ -408,6 +409,7 @@ athd wiki <project-id>
 athd report-html <project-id>
 athd overview <project-id> --top 10
 athd explain <project-id> "api://POST:/login"
+athd search <project-id> "login" --limit 10
 athd context <project-id> "task" --level summary --budget 2000
 athd context <project-id> --diff --level summary --budget 2000
 athd stop <project-id>
@@ -422,12 +424,15 @@ The daemon writes runtime metadata under the resolved repository root:
 ```
 
 `endpoint.json` uses schema `athanor.daemon_endpoint.v1` and records the project id, canonical root,
-registry path, TCP address, process id, start time, concurrent request limit, job-history retention
-limit, protocol byte limits, and watcher settings. The lock file is created with exclusive creation
+registry path, transport, TCP address or local socket metadata, process id, start time, concurrent
+request limit, job-history retention limit, protocol byte limits, and watcher settings. The lock file is created with exclusive creation
 so only one daemon instance owns a project runtime directory at a time. Endpoint and lock files are
 removed when the daemon exits normally.
 
-The current protocol is local TCP with one JSON request per connection, terminated by a newline.
+The default protocol is local TCP with one JSON request per connection, terminated by a newline.
+`--transport local-socket` switches the same newline-delimited JSON protocol to a Unix domain socket
+on Unix or a named pipe on Windows. Existing endpoint metadata without a transport field is treated
+as TCP for compatibility.
 Requests use schema `athanor.daemon_request.v1`; responses use `athanor.daemon_response.v1`.
 Request and response messages default to a 1 MiB limit and can be raised or lowered at serve time
 with `--max-request-bytes` and `--max-response-bytes`. Oversized requests are rejected, oversized
@@ -449,25 +454,27 @@ requests that do not match the endpoint's project identity. The implemented comm
   record.
 - `overview`: runs the same bounded `overview_project` query against the latest canonical snapshot.
 - `explain`: resolves one exact canonical stable key against the latest canonical snapshot.
+- `search`: runs the same bounded lexical entity search against the latest canonical snapshot and
+  disposable local search read model.
 - `context`: runs the same bounded `context_project` query against the latest canonical snapshot.
   With `--diff`, it roots context in changed or removed files from persisted index state without
   committing a new index snapshot.
 - `shutdown`: stops the daemon after returning a structured response.
 
-Daemon status, overview, explain, and context requests are read-only. Daemon context requests expose the
-normal level and explicit limit overrides, including diff-based changed-file context; they do not
-mutate snapshots or index state. The job registry records daemon lifecycle jobs, completed or failed
-read-only `overview`/`explain`/`context` request jobs, background indexing jobs, and background generation
-jobs. Finished jobs can include a
+Daemon status, overview, explain, search, and context requests are read-only. Daemon context requests
+expose the normal level and explicit limit overrides, including diff-based changed-file context; they
+do not mutate snapshots or index state. The job registry records daemon lifecycle jobs, completed or
+failed read-only `overview`/`explain`/`search`/`context` request jobs, background indexing jobs, and
+background generation jobs. Finished jobs can include a
 structured `result`; index jobs record the published snapshot id, file counts, and JSONL output
 directory, while generate jobs record the published generation id, selected snapshot id, current
 pointer, and canonical object counts. Direct wiki and HTML report jobs record the selected snapshot
 id, output directory, and canonical object counts. `athd index` reuses the existing `index_project`
 path and rejects a second concurrent indexing job for the same daemon so snapshot writers do not
-overlap. Daemon overview, explain, and non-diff context requests cache the latest canonical snapshot
-in memory after the first load; successful daemon-owned index jobs invalidate this hot cache before
-subsequent read-only requests. Diff context still performs current source discovery and index-state
-comparison before building its bounded pack. `athd generate`, `athd wiki`, and `athd report-html` reuse the existing projection paths
+overlap. Daemon overview, explain, search, and non-diff context requests cache the latest canonical
+snapshot in memory after the first load; successful daemon-owned index jobs invalidate this hot cache
+before subsequent read-only requests. Diff context still performs current source discovery and
+index-state comparison before building its bounded pack. `athd generate`, `athd wiki`, and `athd report-html` reuse the existing projection paths
 and reject a second concurrent job of the same kind so output publishers do not overlap. Job history
 is retained in memory up to `--max-job-history`; pruning removes the oldest finished records first
 and never removes running or queued records. Cancellation is cooperative: background index and
@@ -479,7 +486,7 @@ and schedules a debounced background index job when source paths change. By defa
 platform-recommended watcher backend; `--watch-poll` selects the polling backend for filesystems
 where native notifications are unavailable or unreliable. The watcher is a scheduler; persisted
 content hashes still decide which files actually changed. Further hot cache expansion beyond
-overview/explain/context, running-job cancellation, and local socket transport remain future Phase 7 work.
+overview/explain/search/context and running-job cancellation remain future Phase 7 work.
 Logs continue to use stderr or tracing sinks and are kept separate from structured protocol
 responses.
 

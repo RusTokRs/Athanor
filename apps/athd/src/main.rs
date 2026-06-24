@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use anyhow::Result;
 use athanor_app::{
     ContextLimitOverrides, DaemonClientOptions, DaemonCommand, DaemonRequest, DaemonServeOptions,
-    ProjectRegistryOptions, default_project_registry_path, request_daemon,
+    DaemonTransport, ProjectRegistryOptions, default_project_registry_path, request_daemon,
     resolve_registered_project, serve_daemon,
 };
 use athanor_domain::ContextLevel;
@@ -17,6 +17,21 @@ enum ContextLevelArg {
     Normal,
     Deep,
     Full,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum TransportArg {
+    Tcp,
+    LocalSocket,
+}
+
+impl From<TransportArg> for DaemonTransport {
+    fn from(value: TransportArg) -> Self {
+        match value {
+            TransportArg::Tcp => Self::Tcp,
+            TransportArg::LocalSocket => Self::LocalSocket,
+        }
+    }
 }
 
 impl From<ContextLevelArg> for ContextLevel {
@@ -49,6 +64,9 @@ enum Command {
         /// Local TCP address. Port 0 selects an available port.
         #[arg(long, default_value = "127.0.0.1:0")]
         listen: SocketAddr,
+        /// Daemon transport. local-socket uses a Unix domain socket on Unix and a named pipe on Windows.
+        #[arg(long, value_enum, default_value_t = TransportArg::Tcp)]
+        transport: TransportArg,
         /// Maximum concurrent daemon requests before busy responses are returned.
         #[arg(long, default_value_t = 4)]
         max_concurrent_requests: usize,
@@ -159,6 +177,19 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Search canonical entities through the daemon's hot snapshot cache.
+    Search {
+        project_id: String,
+        /// Search query terms.
+        query: String,
+        #[arg(long)]
+        registry: Option<PathBuf>,
+        /// Maximum number of search results to return.
+        #[arg(long, default_value_t = 10)]
+        limit: usize,
+        #[arg(long)]
+        json: bool,
+    },
     /// Request a bounded task-focused context pack from the daemon.
     Context {
         project_id: String,
@@ -209,6 +240,7 @@ async fn main() -> Result<()> {
             project_id,
             registry,
             listen,
+            transport,
             max_concurrent_requests,
             max_job_history,
             max_request_bytes,
@@ -229,6 +261,7 @@ async fn main() -> Result<()> {
                 root: resolution.project.root,
                 registry_path,
                 listen,
+                transport: transport.into(),
                 max_concurrent_requests,
                 max_job_history,
                 max_request_bytes,
@@ -322,6 +355,21 @@ async fn main() -> Result<()> {
             json,
         } => print_response(
             request(&project_id, registry, DaemonCommand::Explain { stable_key }).await?,
+            json,
+        ),
+        Command::Search {
+            project_id,
+            query,
+            registry,
+            limit,
+            json,
+        } => print_response(
+            request(
+                &project_id,
+                registry,
+                DaemonCommand::Search { query, limit },
+            )
+            .await?,
             json,
         ),
         Command::Context {

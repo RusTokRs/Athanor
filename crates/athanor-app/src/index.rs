@@ -9,7 +9,7 @@ use serde::Serialize;
 
 use crate::project_path::normalize_canonical_path;
 use crate::{
-    AdapterValidationReport, IncrementalIndexContext, IndexState, IndexStateStore,
+    AdapterValidationReport, CancellationToken, IncrementalIndexContext, IndexState, IndexStateStore,
     JsonlReadModelWriter, RuntimeBuilder, config::load_config, store::init_store,
 };
 
@@ -53,6 +53,20 @@ struct ValidationResultFile<'a> {
 }
 
 pub async fn index_project(options: IndexOptions) -> Result<IndexReport> {
+    index_project_inner(options, None).await
+}
+
+pub async fn index_project_cancellable(
+    options: IndexOptions,
+    cancellation: CancellationToken,
+) -> Result<IndexReport> {
+    index_project_inner(options, Some(cancellation)).await
+}
+
+async fn index_project_inner(
+    options: IndexOptions,
+    cancellation: Option<CancellationToken>,
+) -> Result<IndexReport> {
     let root = normalize_canonical_path(
         options
             .root
@@ -76,11 +90,12 @@ pub async fn index_project(options: IndexOptions) -> Result<IndexReport> {
     };
 
     let output_result = if options.validate_only {
-        RuntimeBuilder::new(&root)
+        let pipeline = RuntimeBuilder::new(&root)
             .with_discovered_plugins()
             .context("failed to discover adapter plugins")?
-            .build_index_pipeline(MemoryKnowledgeStore::new())
-            .run_with_incremental(
+            .build_index_pipeline(MemoryKnowledgeStore::new());
+        if let Some(cancellation) = cancellation.clone() {
+            pipeline.run_with_incremental_cancellable(
                 RepoId(repo_id_for_root(&root)),
                 SnapshotBase {
                     branch: None,
@@ -92,14 +107,33 @@ pub async fn index_project(options: IndexOptions) -> Result<IndexReport> {
                     previous_state: previous_state.clone(),
                     previous_snapshot,
                 },
+                cancellation,
             )
             .await
+        } else {
+            pipeline
+                .run_with_incremental(
+                    RepoId(repo_id_for_root(&root)),
+                    SnapshotBase {
+                        branch: None,
+                        commit: None,
+                        parent_snapshot: None,
+                        working_tree: true,
+                    },
+                    IncrementalIndexContext {
+                        previous_state: previous_state.clone(),
+                        previous_snapshot,
+                    },
+                )
+                .await
+        }
     } else {
-        RuntimeBuilder::new(&root)
+        let pipeline = RuntimeBuilder::new(&root)
             .with_discovered_plugins()
             .context("failed to discover adapter plugins")?
-            .build_index_pipeline(canonical_store.clone())
-            .run_with_incremental(
+            .build_index_pipeline(canonical_store.clone());
+        if let Some(cancellation) = cancellation.clone() {
+            pipeline.run_with_incremental_cancellable(
                 RepoId(repo_id_for_root(&root)),
                 SnapshotBase {
                     branch: None,
@@ -111,8 +145,26 @@ pub async fn index_project(options: IndexOptions) -> Result<IndexReport> {
                     previous_state: previous_state.clone(),
                     previous_snapshot,
                 },
+                cancellation,
             )
             .await
+        } else {
+            pipeline
+                .run_with_incremental(
+                    RepoId(repo_id_for_root(&root)),
+                    SnapshotBase {
+                        branch: None,
+                        commit: None,
+                        parent_snapshot: None,
+                        working_tree: true,
+                    },
+                    IncrementalIndexContext {
+                        previous_state: previous_state.clone(),
+                        previous_snapshot,
+                    },
+                )
+                .await
+        }
     };
     let output = match output_result {
         Ok(output) => {

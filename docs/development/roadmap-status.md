@@ -132,6 +132,7 @@ athd serve <project-id>
 athd serve <project-id> --max-concurrent-requests <N>
 athd serve <project-id> --max-job-history <N>
 athd serve <project-id> --max-request-bytes <N> --max-response-bytes <N>
+athd serve <project-id> --transport local-socket
 athd serve <project-id> --watch --debounce-ms <N>
 athd serve <project-id> --watch --watch-poll --debounce-ms <N>
 athd status <project-id>
@@ -154,6 +155,8 @@ athd overview <project-id>
 athd overview <project-id> --json
 athd explain <project-id> <stable-key>
 athd explain <project-id> <stable-key> --json
+athd search <project-id> <query>
+athd search <project-id> <query> --json
 athd context <project-id> <task>
 athd context <project-id> --diff
 athd context <project-id> <task> --json
@@ -1999,30 +2002,30 @@ Implemented in:
 
 Purpose:
 
-- adds the `athd` daemon entrypoint with `serve`, `status`, `jobs`, `job`, `cancel`, `index`, `generate`, `wiki`, `report-html`, `overview`, `explain`, `context`, and `stop`
+- adds the `athd` daemon entrypoint with `serve`, `status`, `jobs`, `job`, `cancel`, `index`, `generate`, `wiki`, `report-html`, `overview`, `explain`, `search`, `context`, and `stop`
 - resolves every command through the explicit project registry before connecting to or serving a repository daemon
 - writes per-project runtime endpoint and lock files under `.athanor/daemon`
 - prevents two daemon instances from owning the same project runtime directory through exclusive lock creation
-- uses local TCP with newline-delimited JSON requests and stable `athanor.daemon_endpoint.v1`, `athanor.daemon_request.v1`, and `athanor.daemon_response.v1` schemas
+- uses local TCP by default, with optional local socket transport over Unix domain sockets on Unix and named pipes on Windows, newline-delimited JSON requests, and stable `athanor.daemon_endpoint.v1`, `athanor.daemon_request.v1`, and `athanor.daemon_response.v1` schemas
 - records configurable daemon request and response byte limits in endpoint metadata and applies them on both server and client sides
 - optionally watches the project root with `notify-debouncer-mini`, supports platform-recommended or polling watcher backends, ignores `.athanor` artifact events, and schedules debounced background indexing jobs after source changes
 - bounds daemon request and response messages to 1 MiB, returning structured daemon errors for oversized computed responses
 - handles requests concurrently up to `--max-concurrent-requests` and returns structured busy errors after the limit is reached
 - adds an in-memory daemon job registry and bounded `athanor.daemon_jobs.v1` job listing report
-- records lifecycle jobs and read-only `overview`/`explain`/`context` request jobs with running, succeeded, or failed status
+- records lifecycle jobs and read-only `overview`/`explain`/`search`/`context` request jobs with running, succeeded, or failed status
 - bounds retained in-memory job history with `--max-job-history`, pruning oldest finished records first
 - supports exact daemon job lookup by stable job id
 - starts one background indexing job through `athd index`, reusing the existing `index_project` implementation and rejecting concurrent index jobs
 - records structured index job results with snapshot id, file counts, and JSONL output directory
-- caches the latest canonical snapshot for daemon overview, explain, and non-diff context requests, while keeping diff context on current source discovery, and invalidates that hot cache after successful daemon-owned index jobs
+- caches the latest canonical snapshot for daemon overview, explain, search, and non-diff context requests, while keeping diff context on current source discovery, and invalidates that hot cache after successful daemon-owned index jobs
 - starts one background coordinated generation job through `athd generate`, reusing `generate_project`, rejecting concurrent generation jobs, and recording generation id, snapshot id, pointer path, and canonical object counts
 - starts background direct projection jobs through `athd wiki` and `athd report-html`, reusing the existing projector services, rejecting concurrent jobs of the same kind, and recording snapshot id, output directory, and canonical object counts
 - registers background index and projection jobs as queued before worker start, supports cancellation before the worker marks them running, and returns explicit non-cancellable errors for running jobs
 - rejects requests whose project id does not match the daemon endpoint
-- serves read-only status, bounded overview, exact entity explanation, and bounded task context responses from the latest canonical snapshot
+- serves read-only status, bounded overview, exact entity explanation, bounded lexical search, and bounded task context responses from the latest canonical snapshot
 - exposes daemon context level and limit overrides, including diff-based changed-file context
 - keeps logs separate from structured protocol output
-- leaves further hot cache expansion beyond overview/explain/context, local socket transport, and deeper cancellable execution for the remaining Phase 7 work
+- leaves further hot cache expansion beyond overview/explain/search/context and deeper cancellable execution for the remaining Phase 7 work
 
 ## In Progress
 
@@ -2032,8 +2035,8 @@ Status: in progress.
 
 Scope:
 
-- extend the implemented `athd` daemon entrypoint beyond lifecycle, locks, local TCP protocol, and read-only status/overview/explain/context commands
-- extend the implemented daemon hot cache beyond overview/explain/context and add optional local socket transport
+- extend the implemented `athd` daemon entrypoint beyond lifecycle, locks, local TCP/local-socket protocol, and read-only status/overview/explain/search/context commands
+- extend the implemented daemon hot cache beyond overview/explain/search/context
 - add safe running-job cancellation for long-running indexing and projection work
 - keep MCP as one transport adapter, not the only agent access path
 

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::net::SocketAddr;
@@ -14,18 +15,26 @@ use notify_debouncer_mini::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
+#[cfg(windows)]
+use tokio::net::windows::named_pipe::{
+    ClientOptions as PipeClientOptions, NamedPipeServer, ServerOptions as PipeServerOptions,
+};
 use tokio::net::{TcpListener, TcpStream};
+#[cfg(unix)]
+use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::{Semaphore, mpsc};
 
 use athanor_core::{CanonicalSnapshot, CanonicalSnapshotStore, SearchIndex};
 use athanor_domain::ContextLevel;
 
 use crate::explain::explain_snapshot;
+use crate::search::search_snapshot;
 use crate::{
-    ContextLimitOverrides, ContextLimits, ContextOptions, GenerationOptions, HtmlReportOptions,
-    IndexOptions, WikiOptions, build_repository_overview, context_project, generate_context_pack,
-    generate_project, index_project, project_html_report, project_wiki,
+    CancellationToken, ContextLimitOverrides, ContextLimits, ContextOptions, GenerationOptions,
+    HtmlReportOptions, IndexOptions, WikiOptions, build_repository_overview, context_project,
+    generate_context_pack, generate_project_cancellable, index_project_cancellable,
+    project_html_report_cancellable, project_wiki_cancellable,
 };
 use crate::{config::load_config, store::init_store};
 
@@ -44,6 +53,7 @@ pub struct DaemonServeOptions {
     pub root: PathBuf,
     pub registry_path: PathBuf,
     pub listen: SocketAddr,
+    pub transport: DaemonTransport,
     pub max_concurrent_requests: usize,
     pub max_job_history: usize,
     pub watch: bool,
@@ -65,6 +75,12 @@ pub struct DaemonEndpoint {
     pub root: PathBuf,
     pub registry_path: PathBuf,
     pub address: SocketAddr,
+    #[serde(default)]
+    pub transport: DaemonTransport,
+    #[serde(default)]
+    pub local_socket_path: Option<PathBuf>,
+    #[serde(default)]
+    pub windows_pipe_name: Option<String>,
     pub pid: u32,
     pub started_at_unix_ms: u128,
     pub max_concurrent_requests: usize,
@@ -79,6 +95,14 @@ pub struct DaemonEndpoint {
     pub max_request_bytes: u64,
     #[serde(default = "default_max_response_bytes")]
     pub max_response_bytes: u64,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DaemonTransport {
+    #[default]
+    Tcp,
+    LocalSocket,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -112,6 +136,10 @@ pub enum DaemonCommand {
     Explain {
         stable_key: String,
     },
+    Search {
+        query: String,
+        limit: usize,
+    },
     Context {
         task: String,
         #[serde(default)]
@@ -144,6 +172,7 @@ pub enum DaemonJobKind {
     HtmlReport,
     Overview,
     Explain,
+    Search,
     Context,
 }
 
@@ -152,6 +181,7 @@ pub enum DaemonJobKind {
 pub enum DaemonJobStatus {
     Queued,
     Running,
+    Cancelling,
     Succeeded,
     Failed,
     Cancelled,
@@ -190,6 +220,20 @@ struct DaemonState {
     next_job_sequence: Mutex<u64>,
     max_job_history: usize,
     latest_snapshot_cache: Mutex<Option<CanonicalSnapshot>>,
+    cancellation_tokens: Mutex<HashMap<String, CancellationToken>>,
+}
+
+enum DaemonConnection {
+    Tcp(TcpStream),
+    #[cfg(unix)]
+    Unix(UnixStream),
+    #[cfg(windows)]
+    Pipe(NamedPipeServer),
+}
+
+struct AcceptedDaemonConnection {
+    stream: DaemonConnection,
+    peer: String,
 }
 
 pub async fn serve_daemon(options: DaemonServeOptions) -> Result<()> {
@@ -220,16 +264,33 @@ pub async fn serve_daemon(options: DaemonServeOptions) -> Result<()> {
     let endpoint_path = runtime_dir.join("endpoint.json");
     let _lock = DaemonLock::acquire(&lock_path, &options.project_id)?;
 
-    let listener = TcpListener::bind(options.listen)
-        .await
-        .with_context(|| format!("failed to bind daemon listener {}", options.listen))?;
-    let address = listener.local_addr()?;
+    let (accepted_tx, mut accepted_rx) = mpsc::channel::<AcceptedDaemonConnection>(64);
+    let mut _local_socket_guard = None;
+    let (address, local_socket_path, windows_pipe_name) = match options.transport {
+        DaemonTransport::Tcp => {
+            let listener = TcpListener::bind(options.listen)
+                .await
+                .with_context(|| format!("failed to bind daemon listener {}", options.listen))?;
+            let address = listener.local_addr()?;
+            spawn_tcp_acceptor(listener, accepted_tx);
+            (address, None, None)
+        }
+        DaemonTransport::LocalSocket => {
+            let local = local_socket_endpoint(&root, &options.project_id)?;
+            spawn_local_socket_acceptor(&local, accepted_tx).await?;
+            _local_socket_guard = local.guard;
+            (options.listen, local.socket_path, local.pipe_name)
+        }
+    };
     let endpoint = DaemonEndpoint {
         schema: DAEMON_ENDPOINT_SCHEMA.to_string(),
         project_id: options.project_id.clone(),
         root: root.clone(),
         registry_path: options.registry_path,
         address,
+        transport: options.transport,
+        local_socket_path,
+        windows_pipe_name,
         pid: std::process::id(),
         started_at_unix_ms: unix_time_ms()?,
         max_concurrent_requests: options.max_concurrent_requests,
@@ -257,6 +318,7 @@ pub async fn serve_daemon(options: DaemonServeOptions) -> Result<()> {
         next_job_sequence: Mutex::new(2),
         max_job_history: options.max_job_history,
         latest_snapshot_cache: Mutex::new(None),
+            cancellation_tokens: Mutex::new(HashMap::new()),
         endpoint,
     });
     let request_slots = Arc::new(Semaphore::new(options.max_concurrent_requests));
@@ -276,6 +338,7 @@ pub async fn serve_daemon(options: DaemonServeOptions) -> Result<()> {
     tracing::info!(
         project_id = %state.endpoint.project_id,
         root = %root.display(),
+        transport = ?state.endpoint.transport,
         address = %address,
         watch = options.watch,
         watch_poll = options.watch_poll,
@@ -287,33 +350,17 @@ pub async fn serve_daemon(options: DaemonServeOptions) -> Result<()> {
 
     loop {
         tokio::select! {
-            accepted = listener.accept() => {
-                let (stream, peer) = accepted.context("failed to accept daemon connection")?;
-                match request_slots.clone().try_acquire_owned() {
-                    Ok(permit) => {
-                        let state = Arc::clone(&state);
-                        let shutdown_tx = shutdown_tx.clone();
-                        tokio::spawn(async move {
-                            let _permit = permit;
-                            match handle_connection(stream, state).await {
-                                Ok(true) => {
-                                    let _ = shutdown_tx.try_send(());
-                                }
-                                Ok(false) => {}
-                                Err(error) => {
-                                    tracing::warn!(%peer, error = %error, "failed to handle daemon request");
-                                }
-                            }
-                        });
-                    }
-                    Err(_) => {
-                        let state = Arc::clone(&state);
-                        tokio::spawn(async move {
-                            if let Err(error) = handle_busy_connection(stream, &state.endpoint).await {
-                                tracing::warn!(%peer, error = %error, "failed to reject busy daemon request");
-                            }
-                        });
-                    }
+            accepted = accepted_rx.recv() => {
+                let Some(accepted) = accepted else {
+                    break;
+                };
+                if let Err(error) = spawn_daemon_connection(
+                    accepted,
+                    &state,
+                    &request_slots,
+                    &shutdown_tx,
+                ) {
+                    tracing::warn!(error = %error, "failed to schedule daemon connection");
                 }
             }
             shutdown = shutdown_rx.recv() => {
@@ -353,6 +400,87 @@ pub async fn serve_daemon(options: DaemonServeOptions) -> Result<()> {
     Ok(())
 }
 
+fn spawn_tcp_acceptor(listener: TcpListener, accepted_tx: mpsc::Sender<AcceptedDaemonConnection>) {
+    tokio::spawn(async move {
+        loop {
+            match listener.accept().await {
+                Ok((stream, peer)) => {
+                    if accepted_tx
+                        .send(AcceptedDaemonConnection {
+                            stream: DaemonConnection::Tcp(stream),
+                            peer: peer.to_string(),
+                        })
+                        .await
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+                Err(error) => {
+                    tracing::warn!(error = %error, "failed to accept daemon TCP connection");
+                    break;
+                }
+            }
+        }
+    });
+}
+
+fn spawn_daemon_connection(
+    accepted: AcceptedDaemonConnection,
+    state: &Arc<DaemonState>,
+    request_slots: &Arc<Semaphore>,
+    shutdown_tx: &mpsc::Sender<()>,
+) -> Result<()> {
+    let peer = accepted.peer;
+    match request_slots.clone().try_acquire_owned() {
+        Ok(permit) => {
+            let state = Arc::clone(state);
+            let shutdown_tx = shutdown_tx.clone();
+            tokio::spawn(async move {
+                let _permit = permit;
+                let result = match accepted.stream {
+                    DaemonConnection::Tcp(stream) => handle_connection(stream, state).await,
+                    #[cfg(unix)]
+                    DaemonConnection::Unix(stream) => handle_connection(stream, state).await,
+                    #[cfg(windows)]
+                    DaemonConnection::Pipe(stream) => handle_connection(stream, state).await,
+                };
+                match result {
+                    Ok(true) => {
+                        let _ = shutdown_tx.try_send(());
+                    }
+                    Ok(false) => {}
+                    Err(error) => {
+                        tracing::warn!(%peer, error = %error, "failed to handle daemon request");
+                    }
+                }
+            });
+        }
+        Err(_) => {
+            let state = Arc::clone(state);
+            tokio::spawn(async move {
+                let result = match accepted.stream {
+                    DaemonConnection::Tcp(stream) => {
+                        handle_busy_connection(stream, &state.endpoint).await
+                    }
+                    #[cfg(unix)]
+                    DaemonConnection::Unix(stream) => {
+                        handle_busy_connection(stream, &state.endpoint).await
+                    }
+                    #[cfg(windows)]
+                    DaemonConnection::Pipe(stream) => {
+                        handle_busy_connection(stream, &state.endpoint).await
+                    }
+                };
+                if let Err(error) = result {
+                    tracing::warn!(%peer, error = %error, "failed to reject busy daemon request");
+                }
+            });
+        }
+    }
+    Ok(())
+}
+
 pub async fn request_daemon(
     options: DaemonClientOptions,
     request: DaemonRequest,
@@ -366,9 +494,25 @@ pub async fn request_daemon(
             request.project_id
         );
     }
-    let mut stream = TcpStream::connect(endpoint.address)
-        .await
-        .with_context(|| format!("failed to connect to daemon at {}", endpoint.address))?;
+    match endpoint.transport {
+        DaemonTransport::Tcp => {
+            let stream = TcpStream::connect(endpoint.address)
+                .await
+                .with_context(|| format!("failed to connect to daemon at {}", endpoint.address))?;
+            request_daemon_over_stream(stream, &endpoint, &request).await
+        }
+        DaemonTransport::LocalSocket => request_daemon_over_local_socket(&endpoint, &request).await,
+    }
+}
+
+async fn request_daemon_over_stream<S>(
+    mut stream: S,
+    endpoint: &DaemonEndpoint,
+    request: &DaemonRequest,
+) -> Result<DaemonResponse>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
     let request_json = serde_json::to_vec(&request)?;
     if request_json.len() as u64 > endpoint.max_request_bytes {
         bail!(
@@ -398,10 +542,53 @@ pub async fn request_daemon(
     serde_json::from_slice(&response).context("failed to parse daemon response")
 }
 
-async fn handle_connection(stream: TcpStream, state: Arc<DaemonState>) -> Result<bool> {
-    let (read_half, mut write_half) = stream.into_split();
+#[cfg(unix)]
+async fn request_daemon_over_local_socket(
+    endpoint: &DaemonEndpoint,
+    request: &DaemonRequest,
+) -> Result<DaemonResponse> {
+    let socket_path = endpoint
+        .local_socket_path
+        .as_ref()
+        .context("daemon endpoint does not include a local socket path")?;
+    let stream = UnixStream::connect(socket_path).await.with_context(|| {
+        format!(
+            "failed to connect to daemon socket {}",
+            socket_path.display()
+        )
+    })?;
+    request_daemon_over_stream(stream, endpoint, request).await
+}
+
+#[cfg(windows)]
+async fn request_daemon_over_local_socket(
+    endpoint: &DaemonEndpoint,
+    request: &DaemonRequest,
+) -> Result<DaemonResponse> {
+    let pipe_name = endpoint
+        .windows_pipe_name
+        .as_ref()
+        .context("daemon endpoint does not include a Windows pipe name")?;
+    let stream = PipeClientOptions::new()
+        .open(pipe_name)
+        .with_context(|| format!("failed to connect to daemon pipe {pipe_name}"))?;
+    request_daemon_over_stream(stream, endpoint, request).await
+}
+
+#[cfg(not(any(unix, windows)))]
+async fn request_daemon_over_local_socket(
+    _endpoint: &DaemonEndpoint,
+    _request: &DaemonRequest,
+) -> Result<DaemonResponse> {
+    bail!("local socket transport is not supported on this platform")
+}
+
+async fn handle_connection<S>(mut stream: S, state: Arc<DaemonState>) -> Result<bool>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
     let mut line = String::new();
-    let bytes = BufReader::new(read_half)
+    let bytes = BufReader::new(&mut stream)
         .take(state.endpoint.max_request_bytes + 1)
         .read_line(&mut line)
         .await
@@ -434,18 +621,20 @@ async fn handle_connection(stream: TcpStream, state: Arc<DaemonState>) -> Result
         }
     };
     let response_json = serialize_daemon_response(response, state.endpoint.max_response_bytes)?;
-    write_half
+    stream
         .write_all(&response_json)
         .await
         .context("failed to write daemon response")?;
-    write_half.shutdown().await?;
+    stream.shutdown().await?;
     Ok(shutdown)
 }
 
-async fn handle_busy_connection(stream: TcpStream, endpoint: &DaemonEndpoint) -> Result<()> {
-    let (read_half, mut write_half) = stream.into_split();
+async fn handle_busy_connection<S>(mut stream: S, endpoint: &DaemonEndpoint) -> Result<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
     let mut line = String::new();
-    let _ = BufReader::new(read_half)
+    let _ = BufReader::new(&mut stream)
         .take(endpoint.max_request_bytes + 1)
         .read_line(&mut line)
         .await;
@@ -457,14 +646,14 @@ async fn handle_busy_connection(stream: TcpStream, endpoint: &DaemonEndpoint) ->
         &endpoint.project_id,
         "daemon is busy; maximum concurrent request limit reached",
     );
-    write_half
+    stream
         .write_all(&serialize_daemon_response(
             response,
             endpoint.max_response_bytes,
         )?)
         .await
         .context("failed to write daemon busy response")?;
-    write_half.shutdown().await?;
+    stream.shutdown().await?;
     Ok(())
 }
 
@@ -1002,6 +1191,78 @@ async fn execute_request(
                 }
             }
         }
+        DaemonCommand::Search { query, limit } => {
+            if query.trim().is_empty() {
+                return (
+                    error_response(
+                        &request.request_id,
+                        &state.endpoint.project_id,
+                        "search query must not be empty",
+                    ),
+                    false,
+                );
+            }
+            if limit == 0 || limit > 100 {
+                return (
+                    error_response(
+                        &request.request_id,
+                        &state.endpoint.project_id,
+                        "search limit must be between 1 and 100",
+                    ),
+                    false,
+                );
+            }
+            let query = query.trim().to_string();
+            let job_id = match start_daemon_job(
+                &state,
+                DaemonJobKind::Search,
+                format!("search query={query} limit={limit}"),
+            ) {
+                Ok(job_id) => job_id,
+                Err(error) => {
+                    return (
+                        error_response(
+                            &request.request_id,
+                            &state.endpoint.project_id,
+                            &error.to_string(),
+                        ),
+                        false,
+                    );
+                }
+            };
+            match daemon_search_from_cache(&state, query, limit).await {
+                Ok(report) => {
+                    let _ =
+                        finish_daemon_job(&state, &job_id, DaemonJobStatus::Succeeded, None, None);
+                    (
+                        success_response(
+                            &request.request_id,
+                            &state.endpoint.project_id,
+                            serde_json::to_value(report).unwrap_or(Value::Null),
+                        ),
+                        false,
+                    )
+                }
+                Err(error) => {
+                    let error_message = error.to_string();
+                    let _ = finish_daemon_job(
+                        &state,
+                        &job_id,
+                        DaemonJobStatus::Failed,
+                        None,
+                        Some(error_message.clone()),
+                    );
+                    (
+                        error_response(
+                            &request.request_id,
+                            &state.endpoint.project_id,
+                            &error_message,
+                        ),
+                        false,
+                    )
+                }
+            }
+        }
         DaemonCommand::Context {
             task,
             diff,
@@ -1280,6 +1541,15 @@ async fn daemon_explain_from_cache(
 ) -> Result<crate::explain::EntityExplanation> {
     let snapshot = latest_snapshot_for_daemon(state).await?;
     explain_snapshot(&snapshot, stable_key)
+}
+
+async fn daemon_search_from_cache(
+    state: &Arc<DaemonState>,
+    query: String,
+    limit: usize,
+) -> Result<crate::search::SearchReport> {
+    let snapshot = latest_snapshot_for_daemon(state).await?;
+    search_snapshot(&state.endpoint.root, &snapshot, query, limit).await
 }
 
 fn invalidate_latest_snapshot_cache(state: &DaemonState) {
@@ -1714,6 +1984,150 @@ impl Drop for EndpointGuard {
     }
 }
 
+struct LocalSocketGuard(PathBuf);
+
+impl Drop for LocalSocketGuard {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.0);
+    }
+}
+
+struct LocalSocketEndpoint {
+    socket_path: Option<PathBuf>,
+    pipe_name: Option<String>,
+    guard: Option<LocalSocketGuard>,
+}
+
+#[cfg(unix)]
+fn local_socket_endpoint(root: &Path, _project_id: &str) -> Result<LocalSocketEndpoint> {
+    let socket_path = root.join(".athanor/daemon/daemon.sock");
+    if socket_path.exists() {
+        fs::remove_file(&socket_path)
+            .with_context(|| format!("failed to remove stale socket {}", socket_path.display()))?;
+    }
+    Ok(LocalSocketEndpoint {
+        socket_path: Some(socket_path.clone()),
+        pipe_name: None,
+        guard: Some(LocalSocketGuard(socket_path)),
+    })
+}
+
+#[cfg(windows)]
+fn local_socket_endpoint(_root: &Path, project_id: &str) -> Result<LocalSocketEndpoint> {
+    Ok(LocalSocketEndpoint {
+        socket_path: None,
+        pipe_name: Some(format!(
+            r"\\.\pipe\athanor-{}",
+            sanitize_local_socket_label(project_id)
+        )),
+        guard: None,
+    })
+}
+
+#[cfg(not(any(unix, windows)))]
+fn local_socket_endpoint(_root: &Path, _project_id: &str) -> Result<LocalSocketEndpoint> {
+    bail!("local socket transport is not supported on this platform")
+}
+
+#[cfg(unix)]
+async fn spawn_local_socket_acceptor(
+    local: &LocalSocketEndpoint,
+    accepted_tx: mpsc::Sender<AcceptedDaemonConnection>,
+) -> Result<()> {
+    let socket_path = local
+        .socket_path
+        .as_ref()
+        .context("local socket path is missing")?;
+    let listener = UnixListener::bind(socket_path)
+        .with_context(|| format!("failed to bind daemon socket {}", socket_path.display()))?;
+    tokio::spawn(async move {
+        loop {
+            match listener.accept().await {
+                Ok((stream, _)) => {
+                    if accepted_tx
+                        .send(AcceptedDaemonConnection {
+                            stream: DaemonConnection::Unix(stream),
+                            peer: "local-socket".to_string(),
+                        })
+                        .await
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+                Err(error) => {
+                    tracing::warn!(error = %error, "failed to accept daemon local socket connection");
+                    break;
+                }
+            }
+        }
+    });
+    Ok(())
+}
+
+#[cfg(windows)]
+async fn spawn_local_socket_acceptor(
+    local: &LocalSocketEndpoint,
+    accepted_tx: mpsc::Sender<AcceptedDaemonConnection>,
+) -> Result<()> {
+    let pipe_name = local
+        .pipe_name
+        .clone()
+        .context("Windows pipe name is missing")?;
+    tokio::spawn(async move {
+        loop {
+            let server = match PipeServerOptions::new().create(&pipe_name) {
+                Ok(server) => server,
+                Err(error) => {
+                    tracing::warn!(pipe = %pipe_name, error = %error, "failed to create daemon pipe");
+                    break;
+                }
+            };
+            if let Err(error) = server.connect().await {
+                tracing::warn!(pipe = %pipe_name, error = %error, "failed to accept daemon pipe connection");
+                break;
+            }
+            if accepted_tx
+                .send(AcceptedDaemonConnection {
+                    stream: DaemonConnection::Pipe(server),
+                    peer: pipe_name.clone(),
+                })
+                .await
+                .is_err()
+            {
+                break;
+            }
+        }
+    });
+    Ok(())
+}
+
+#[cfg(not(any(unix, windows)))]
+async fn spawn_local_socket_acceptor(
+    _local: &LocalSocketEndpoint,
+    _accepted_tx: mpsc::Sender<AcceptedDaemonConnection>,
+) -> Result<()> {
+    bail!("local socket transport is not supported on this platform")
+}
+
+fn sanitize_local_socket_label(value: &str) -> String {
+    let sanitized = value
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || matches!(character, '-' | '_') {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    if sanitized.is_empty() {
+        "project".to_string()
+    } else {
+        sanitized
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1729,6 +2143,9 @@ mod tests {
             root: root.clone(),
             registry_path: root.join("projects.json"),
             address,
+            transport: DaemonTransport::Tcp,
+            local_socket_path: None,
+            windows_pipe_name: None,
             pid: 1,
             started_at_unix_ms: 1,
             max_concurrent_requests: 4,
@@ -1745,6 +2162,7 @@ mod tests {
             next_job_sequence: Mutex::new(1),
             max_job_history: 100,
             latest_snapshot_cache: Mutex::new(None),
+            cancellation_tokens: Mutex::new(HashMap::new()),
         });
         let task = tokio::spawn(async move {
             let (stream, _) = listener.accept().await.unwrap();
@@ -1761,6 +2179,9 @@ mod tests {
                 root: root.clone(),
                 registry_path: root.join("projects.json"),
                 address,
+                transport: DaemonTransport::Tcp,
+                local_socket_path: None,
+                windows_pipe_name: None,
                 pid: 1,
                 started_at_unix_ms: 1,
                 max_concurrent_requests: 4,
@@ -1803,6 +2224,53 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    #[tokio::test]
+    async fn serves_status_over_local_socket_transport() {
+        let root = temp_root("local-socket");
+        let serve_root = root.clone();
+        let serve_task = tokio::spawn(async move {
+            serve_daemon(DaemonServeOptions {
+                project_id: "alpha".to_string(),
+                root: serve_root.clone(),
+                registry_path: serve_root.join("projects.json"),
+                listen: "127.0.0.1:0".parse().unwrap(),
+                transport: DaemonTransport::LocalSocket,
+                max_concurrent_requests: 4,
+                max_job_history: 100,
+                watch: false,
+                watch_poll: false,
+                debounce_ms: 1000,
+                max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
+                max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
+            })
+            .await
+        });
+
+        let response = request_status_with_retry(&root).await;
+        assert!(response.ok);
+        assert_eq!(response.project_id, "alpha");
+
+        let shutdown = request_daemon(
+            DaemonClientOptions { root: root.clone() },
+            DaemonRequest {
+                schema: DAEMON_REQUEST_SCHEMA.to_string(),
+                request_id: "req-stop".to_string(),
+                project_id: "alpha".to_string(),
+                command: DaemonCommand::Shutdown,
+            },
+        )
+        .await
+        .unwrap();
+        assert!(shutdown.ok);
+
+        tokio::time::timeout(std::time::Duration::from_secs(5), serve_task)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn lists_daemon_jobs_newest_first_with_limit() {
         let endpoint = DaemonEndpoint {
@@ -1811,6 +2279,9 @@ mod tests {
             root: PathBuf::from("."),
             registry_path: PathBuf::from("projects.json"),
             address: "127.0.0.1:1".parse().unwrap(),
+            transport: DaemonTransport::Tcp,
+            local_socket_path: None,
+            windows_pipe_name: None,
             pid: 1,
             started_at_unix_ms: 1,
             max_concurrent_requests: 4,
@@ -1850,6 +2321,7 @@ mod tests {
             next_job_sequence: Mutex::new(3),
             max_job_history: 100,
             latest_snapshot_cache: Mutex::new(None),
+            cancellation_tokens: Mutex::new(HashMap::new()),
         };
 
         let report = list_daemon_jobs(&state, 1).unwrap();
@@ -1867,6 +2339,9 @@ mod tests {
             root: PathBuf::from("."),
             registry_path: PathBuf::from("projects.json"),
             address: "127.0.0.1:1".parse().unwrap(),
+            transport: DaemonTransport::Tcp,
+            local_socket_path: None,
+            windows_pipe_name: None,
             pid: 1,
             started_at_unix_ms: 1,
             max_concurrent_requests: 4,
@@ -1893,6 +2368,7 @@ mod tests {
             next_job_sequence: Mutex::new(2),
             max_job_history: 100,
             latest_snapshot_cache: Mutex::new(None),
+            cancellation_tokens: Mutex::new(HashMap::new()),
         };
 
         let job = get_daemon_job(&state, "job_00000001").unwrap();
@@ -1925,6 +2401,26 @@ mod tests {
         }
     }
 
+    #[test]
+    fn endpoint_defaults_to_tcp_for_existing_metadata() {
+        let endpoint: DaemonEndpoint = serde_json::from_value(serde_json::json!({
+            "schema": DAEMON_ENDPOINT_SCHEMA,
+            "project_id": "alpha",
+            "root": ".",
+            "registry_path": "projects.json",
+            "address": "127.0.0.1:7",
+            "pid": 1,
+            "started_at_unix_ms": 1,
+            "max_concurrent_requests": 4,
+            "max_job_history": 100
+        }))
+        .unwrap();
+
+        assert_eq!(endpoint.transport, DaemonTransport::Tcp);
+        assert!(endpoint.local_socket_path.is_none());
+        assert!(endpoint.windows_pipe_name.is_none());
+    }
+
     #[tokio::test]
     async fn explains_entity_from_hot_snapshot_cache() {
         let snapshot = CanonicalSnapshot {
@@ -1952,6 +2448,9 @@ mod tests {
                 root: PathBuf::from("."),
                 registry_path: PathBuf::from("projects.json"),
                 address: "127.0.0.1:1".parse().unwrap(),
+                transport: DaemonTransport::Tcp,
+                local_socket_path: None,
+                windows_pipe_name: None,
                 pid: 1,
                 started_at_unix_ms: 1,
                 max_concurrent_requests: 4,
@@ -1966,6 +2465,7 @@ mod tests {
             next_job_sequence: Mutex::new(1),
             max_job_history: 100,
             latest_snapshot_cache: Mutex::new(Some(snapshot)),
+            cancellation_tokens: Mutex::new(HashMap::new()),
         });
 
         let explanation = daemon_explain_from_cache(&state, "api://POST:/login")
@@ -1977,6 +2477,64 @@ mod tests {
         assert_eq!(explanation.entity.name, "POST /login");
     }
 
+    #[tokio::test]
+    async fn searches_entities_from_hot_snapshot_cache() {
+        let root = temp_root("search-cache");
+        let snapshot = CanonicalSnapshot {
+            snapshot: Some(athanor_domain::SnapshotId("snap_search".to_string())),
+            entities: vec![athanor_domain::Entity {
+                id: athanor_domain::EntityId("ent_login".to_string()),
+                stable_key: athanor_domain::StableKey("api://POST:/login".to_string()),
+                kind: athanor_domain::EntityKind::ApiEndpoint,
+                name: "POST /login".to_string(),
+                title: Some("Login endpoint".to_string()),
+                source: None,
+                language: None,
+                aliases: vec!["auth login".to_string()],
+                ownership: Vec::new(),
+                payload: serde_json::json!({"summary": "Authenticate a user"}),
+            }],
+            facts: Vec::new(),
+            relations: Vec::new(),
+            diagnostics: Vec::new(),
+        };
+        let state = Arc::new(DaemonState {
+            endpoint: DaemonEndpoint {
+                schema: DAEMON_ENDPOINT_SCHEMA.to_string(),
+                project_id: "alpha".to_string(),
+                root: root.clone(),
+                registry_path: root.join("projects.json"),
+                address: "127.0.0.1:1".parse().unwrap(),
+                transport: DaemonTransport::Tcp,
+                local_socket_path: None,
+                windows_pipe_name: None,
+                pid: 1,
+                started_at_unix_ms: 1,
+                max_concurrent_requests: 4,
+                max_job_history: 100,
+                watch: false,
+                watch_poll: false,
+                debounce_ms: 1000,
+                max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
+                max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
+            },
+            jobs: Mutex::new(Vec::new()),
+            next_job_sequence: Mutex::new(1),
+            max_job_history: 100,
+            latest_snapshot_cache: Mutex::new(Some(snapshot)),
+            cancellation_tokens: Mutex::new(HashMap::new()),
+        });
+
+        let report = daemon_search_from_cache(&state, "login".to_string(), 10)
+            .await
+            .unwrap();
+
+        assert_eq!(report.schema, "athanor.search.v1");
+        assert_eq!(report.snapshot, "snap_search");
+        assert_eq!(report.returned, 1);
+        assert_eq!(report.results[0].stable_key, "api://POST:/login");
+    }
+
     #[test]
     fn detects_active_job_by_kind() {
         let endpoint = DaemonEndpoint {
@@ -1985,6 +2543,9 @@ mod tests {
             root: PathBuf::from("."),
             registry_path: PathBuf::from("projects.json"),
             address: "127.0.0.1:1".parse().unwrap(),
+            transport: DaemonTransport::Tcp,
+            local_socket_path: None,
+            windows_pipe_name: None,
             pid: 1,
             started_at_unix_ms: 1,
             max_concurrent_requests: 4,
@@ -2011,6 +2572,7 @@ mod tests {
             next_job_sequence: Mutex::new(2),
             max_job_history: 100,
             latest_snapshot_cache: Mutex::new(None),
+            cancellation_tokens: Mutex::new(HashMap::new()),
         };
 
         assert!(has_active_job(&state, DaemonJobKind::Index).unwrap());
@@ -2042,6 +2604,9 @@ mod tests {
             root: PathBuf::from("."),
             registry_path: PathBuf::from("projects.json"),
             address: "127.0.0.1:1".parse().unwrap(),
+            transport: DaemonTransport::Tcp,
+            local_socket_path: None,
+            windows_pipe_name: None,
             pid: 1,
             started_at_unix_ms: 1,
             max_concurrent_requests: 4,
@@ -2081,6 +2646,7 @@ mod tests {
             next_job_sequence: Mutex::new(3),
             max_job_history: 100,
             latest_snapshot_cache: Mutex::new(None),
+            cancellation_tokens: Mutex::new(HashMap::new()),
         };
 
         let cancelled = cancel_daemon_job(&state, "job_00000001").unwrap();
@@ -2097,6 +2663,9 @@ mod tests {
             root: PathBuf::from("."),
             registry_path: PathBuf::from("projects.json"),
             address: "127.0.0.1:1".parse().unwrap(),
+            transport: DaemonTransport::Tcp,
+            local_socket_path: None,
+            windows_pipe_name: None,
             pid: 1,
             started_at_unix_ms: 1,
             max_concurrent_requests: 4,
@@ -2113,6 +2682,7 @@ mod tests {
             next_job_sequence: Mutex::new(1),
             max_job_history: 100,
             latest_snapshot_cache: Mutex::new(None),
+            cancellation_tokens: Mutex::new(HashMap::new()),
         };
 
         let job_id = start_daemon_job(
@@ -2152,6 +2722,9 @@ mod tests {
             root: PathBuf::from("."),
             registry_path: PathBuf::from("projects.json"),
             address: "127.0.0.1:1".parse().unwrap(),
+            transport: DaemonTransport::Tcp,
+            local_socket_path: None,
+            windows_pipe_name: None,
             pid: 1,
             started_at_unix_ms: 1,
             max_concurrent_requests: 4,
@@ -2168,6 +2741,7 @@ mod tests {
             next_job_sequence: Mutex::new(1),
             max_job_history: 100,
             latest_snapshot_cache: Mutex::new(None),
+            cancellation_tokens: Mutex::new(HashMap::new()),
         };
 
         let job_id =
@@ -2234,6 +2808,9 @@ mod tests {
             root: root.clone(),
             registry_path: root.join("projects.json"),
             address,
+            transport: DaemonTransport::Tcp,
+            local_socket_path: None,
+            windows_pipe_name: None,
             pid: 1,
             started_at_unix_ms: 1,
             max_concurrent_requests: 1,
@@ -2327,4 +2904,34 @@ mod tests {
         fs::create_dir_all(&root).unwrap();
         root
     }
+
+    async fn request_status_with_retry(root: &Path) -> DaemonResponse {
+        let mut last_error = None;
+        for _ in 0..50 {
+            if root.join(".athanor/daemon/endpoint.json").is_file() {
+                match request_daemon(
+                    DaemonClientOptions {
+                        root: root.to_path_buf(),
+                    },
+                    DaemonRequest {
+                        schema: DAEMON_REQUEST_SCHEMA.to_string(),
+                        request_id: "req-status".to_string(),
+                        project_id: "alpha".to_string(),
+                        command: DaemonCommand::Status,
+                    },
+                )
+                .await
+                {
+                    Ok(response) => return response,
+                    Err(error) => last_error = Some(error.to_string()),
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        panic!(
+            "daemon status request did not succeed: {}",
+            last_error.unwrap_or_else(|| "endpoint was not written".to_string())
+        );
+    }
 }
+
