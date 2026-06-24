@@ -94,6 +94,12 @@ enum Command {
         /// Maximum time to wait for the background daemon to answer status.
         #[arg(long, default_value_t = 10_000)]
         startup_timeout_ms: u64,
+        /// Temporarily allow unauthenticated daemon protocol v1 requests on loopback.
+        #[arg(long)]
+        insecure_allow_v1: bool,
+        /// Maximum time to drain active jobs during shutdown.
+        #[arg(long, default_value_t = 30)]
+        shutdown_timeout_seconds: u64,
         #[arg(long)]
         json: bool,
     },
@@ -131,6 +137,12 @@ enum Command {
         /// Debounce window for --watch, in milliseconds.
         #[arg(long, default_value_t = 1000)]
         debounce_ms: u64,
+        /// Temporarily allow unauthenticated daemon protocol v1 requests on loopback.
+        #[arg(long)]
+        insecure_allow_v1: bool,
+        /// Maximum time to drain active jobs during shutdown.
+        #[arg(long, default_value_t = 30)]
+        shutdown_timeout_seconds: u64,
     },
     /// Query daemon status.
     Status {
@@ -300,6 +312,8 @@ async fn main() -> Result<()> {
             watch_poll,
             debounce_ms,
             startup_timeout_ms,
+            insecure_allow_v1,
+            shutdown_timeout_seconds,
             json,
         } => print_response(
             start_background_daemon(
@@ -315,6 +329,8 @@ async fn main() -> Result<()> {
                 watch_poll,
                 debounce_ms,
                 startup_timeout_ms,
+                insecure_allow_v1,
+                shutdown_timeout_seconds,
             )
             .await?,
             json,
@@ -331,6 +347,8 @@ async fn main() -> Result<()> {
             watch,
             watch_poll,
             debounce_ms,
+            insecure_allow_v1,
+            shutdown_timeout_seconds,
         } => {
             let registry_path = registry_path(registry)?;
             let resolution = resolve_registered_project(
@@ -352,6 +370,9 @@ async fn main() -> Result<()> {
                 watch,
                 watch_poll,
                 debounce_ms,
+                insecure_allow_v1,
+                runtime_dir: None,
+                shutdown_timeout: Duration::from_secs(shutdown_timeout_seconds),
             })
             .await
         }
@@ -520,6 +541,8 @@ async fn start_background_daemon(
     watch_poll: bool,
     debounce_ms: u64,
     startup_timeout_ms: u64,
+    insecure_allow_v1: bool,
+    shutdown_timeout_seconds: u64,
 ) -> Result<athanor_app::DaemonResponse> {
     if !(100..=60_000).contains(&startup_timeout_ms) {
         anyhow::bail!("startup_timeout_ms must be between 100 and 60000");
@@ -568,6 +591,8 @@ async fn start_background_daemon(
         .arg(max_response_bytes.to_string())
         .arg("--debounce-ms")
         .arg(debounce_ms.to_string())
+        .arg("--shutdown-timeout-seconds")
+        .arg(shutdown_timeout_seconds.to_string())
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::from(log));
@@ -576,6 +601,9 @@ async fn start_background_daemon(
     }
     if watch_poll {
         command.arg("--watch-poll");
+    }
+    if insecure_allow_v1 {
+        command.arg("--insecure-allow-v1");
     }
     #[cfg(windows)]
     {
@@ -615,11 +643,13 @@ async fn request_status(
     request_daemon(
         DaemonClientOptions {
             root: root.to_path_buf(),
+            runtime_dir: None,
         },
         DaemonRequest {
             schema: athanor_app::DAEMON_REQUEST_SCHEMA.to_string(),
             request_id: format!("start-{}", std::process::id()),
             project_id: project_id.to_string(),
+            auth_token: None,
             command: DaemonCommand::Status,
         },
     )
@@ -637,11 +667,13 @@ async fn request(
     request_daemon(
         DaemonClientOptions {
             root: resolution.project.root,
+            runtime_dir: None,
         },
         DaemonRequest {
             schema: athanor_app::DAEMON_REQUEST_SCHEMA.to_string(),
             request_id: format!("cli-{}", std::process::id()),
             project_id: project_id.to_string(),
+            auth_token: None,
             command,
         },
     )

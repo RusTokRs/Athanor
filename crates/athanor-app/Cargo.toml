@@ -42,6 +42,8 @@ tracing.workspace = true
 tokio = { workspace = true, features = ["io-util", "net", "signal", "sync"] }
 futures = "0.3"
 notify-debouncer-mini.workspace = true
+fs2.workspace = true
+getrandom.workspace = true
 
 [features]
 default = ["store-surreal"]

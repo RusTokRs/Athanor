@@ -1,7 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
-use std::fs::{self, File, OpenOptions};
-use std::io::Write;
+use std::fs::{self};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -33,16 +32,21 @@ use athanor_search_tantivy::TantivySearchIndex;
 use crate::explain::explain_snapshot;
 use crate::search::{get_or_build_search_index_sync, search_snapshot_with_index};
 use crate::{
-    CancellationToken, ContextLimitOverrides, ContextLimits, ContextOptions, GenerationOptions,
-    HtmlReportOptions, IndexOptions, RepositoryOverview, WikiOptions, build_repository_overview,
-    context_project, generate_context_pack, generate_project_cancellable,
+    CancellationToken, ContextLimitOverrides, ContextLimits, ContextOptions, DaemonRuntimeLock,
+    DaemonRuntimePaths, GenerationOptions, HtmlReportOptions, IndexOptions, RepositoryOverview,
+    RuntimeFileGuard, WikiOptions, build_repository_overview, constant_time_token_eq,
+    context_project, create_daemon_token, generate_context_pack, generate_project_cancellable,
     index_project_cancellable, project_html_report_cancellable, project_wiki_cancellable,
+    read_daemon_token,
 };
 use crate::{config::load_config, store::init_store};
 
-pub const DAEMON_ENDPOINT_SCHEMA: &str = "athanor.daemon_endpoint.v1";
-pub const DAEMON_REQUEST_SCHEMA: &str = "athanor.daemon_request.v1";
-pub const DAEMON_RESPONSE_SCHEMA: &str = "athanor.daemon_response.v1";
+pub const DAEMON_ENDPOINT_SCHEMA: &str = "athanor.daemon_endpoint.v2";
+pub const DAEMON_REQUEST_SCHEMA: &str = "athanor.daemon_request.v2";
+pub const DAEMON_RESPONSE_SCHEMA: &str = "athanor.daemon_response.v2";
+pub const DAEMON_ENDPOINT_SCHEMA_V1: &str = "athanor.daemon_endpoint.v1";
+pub const DAEMON_REQUEST_SCHEMA_V1: &str = "athanor.daemon_request.v1";
+pub const DAEMON_PROTOCOL_VERSION: u32 = 2;
 pub const DAEMON_JOBS_SCHEMA: &str = "athanor.daemon_jobs.v1";
 const DEFAULT_MAX_REQUEST_BYTES: u64 = 1024 * 1024;
 const DEFAULT_MAX_RESPONSE_BYTES: u64 = 1024 * 1024;
@@ -64,16 +68,24 @@ pub struct DaemonServeOptions {
     pub debounce_ms: u64,
     pub max_request_bytes: u64,
     pub max_response_bytes: u64,
+    pub insecure_allow_v1: bool,
+    pub runtime_dir: Option<PathBuf>,
+    pub shutdown_timeout: Duration,
 }
 
 #[derive(Debug, Clone)]
 pub struct DaemonClientOptions {
     pub root: PathBuf,
+    pub runtime_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DaemonEndpoint {
     pub schema: String,
+    pub protocol_version: u32,
+    pub athanor_version: String,
+    pub runtime_id: String,
+    pub token_path: PathBuf,
     pub project_id: String,
     pub root: PathBuf,
     pub registry_path: PathBuf,
@@ -113,6 +125,8 @@ pub struct DaemonRequest {
     pub schema: String,
     pub request_id: String,
     pub project_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auth_token: Option<String>,
     pub command: DaemonCommand,
 }
 
@@ -163,6 +177,14 @@ pub struct DaemonResponse {
     pub result: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DaemonLifecycleState {
+    Running,
+    Stopping,
+    Stopped,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -219,6 +241,10 @@ pub struct DaemonJobsReport {
 #[derive(Debug)]
 struct DaemonState {
     endpoint: DaemonEndpoint,
+    auth_token: String,
+    insecure_allow_v1: bool,
+    lifecycle: Mutex<DaemonLifecycleState>,
+    last_successful_index: Mutex<Option<String>>,
     jobs: Mutex<Vec<DaemonJob>>,
     next_job_sequence: Mutex<u64>,
     max_job_history: usize,
@@ -327,6 +353,14 @@ pub async fn serve_daemon(options: DaemonServeOptions) -> Result<()> {
     if options.watch_poll && !options.watch {
         bail!("daemon watch_poll requires --watch");
     }
+    if options.transport == DaemonTransport::Tcp && !options.listen.ip().is_loopback() {
+        bail!("daemon TCP transport may only bind to a loopback address");
+    }
+    if options.shutdown_timeout < Duration::from_secs(1)
+        || options.shutdown_timeout > Duration::from_secs(300)
+    {
+        bail!("daemon shutdown timeout must be between 1 and 300 seconds");
+    }
     validate_protocol_limit("max_request_bytes", options.max_request_bytes)?;
     validate_protocol_limit("max_response_bytes", options.max_response_bytes)?;
     let root = options.root.canonicalize().with_context(|| {
@@ -335,12 +369,16 @@ pub async fn serve_daemon(options: DaemonServeOptions) -> Result<()> {
             options.root.display()
         )
     })?;
-    let runtime_dir = root.join(".athanor/daemon");
-    fs::create_dir_all(&runtime_dir)
-        .with_context(|| format!("failed to create {}", runtime_dir.display()))?;
-    let lock_path = runtime_dir.join("lock");
-    let endpoint_path = runtime_dir.join("endpoint.json");
-    let _lock = DaemonLock::acquire(&lock_path, &options.project_id)?;
+    let runtime = DaemonRuntimePaths::for_project(
+        &options.project_id,
+        options.runtime_dir.as_deref(),
+    )?;
+    runtime.prepare()?;
+    let _lock = DaemonRuntimeLock::acquire(&runtime.lock, &options.project_id)?;
+    let auth_token = create_daemon_token(&runtime.token)?;
+    let _runtime_guard =
+        RuntimeFileGuard::new([runtime.endpoint.clone(), runtime.token.clone()]);
+    let runtime_id = format!("runtime-{}-{}", std::process::id(), unix_time_ms()?);
 
     let (accepted_tx, mut accepted_rx) = mpsc::channel::<AcceptedDaemonConnection>(64);
     let mut _local_socket_guard = None;
@@ -354,7 +392,7 @@ pub async fn serve_daemon(options: DaemonServeOptions) -> Result<()> {
             (address, None, None)
         }
         DaemonTransport::LocalSocket => {
-            let local = local_socket_endpoint(&root, &options.project_id)?;
+            let local = local_socket_endpoint(&runtime.directory, &runtime_id)?;
             spawn_local_socket_acceptor(&local, accepted_tx).await?;
             _local_socket_guard = local.guard;
             (options.listen, local.socket_path, local.pipe_name)
@@ -362,6 +400,10 @@ pub async fn serve_daemon(options: DaemonServeOptions) -> Result<()> {
     };
     let endpoint = DaemonEndpoint {
         schema: DAEMON_ENDPOINT_SCHEMA.to_string(),
+        protocol_version: DAEMON_PROTOCOL_VERSION,
+        athanor_version: env!("CARGO_PKG_VERSION").to_string(),
+        runtime_id,
+        token_path: runtime.token.clone(),
         project_id: options.project_id.clone(),
         root: root.clone(),
         registry_path: options.registry_path,
@@ -379,9 +421,12 @@ pub async fn serve_daemon(options: DaemonServeOptions) -> Result<()> {
         max_request_bytes: options.max_request_bytes,
         max_response_bytes: options.max_response_bytes,
     };
-    write_endpoint(&endpoint_path, &endpoint)?;
-    let _endpoint_guard = EndpointGuard(endpoint_path.clone());
+    write_endpoint(&runtime.endpoint, &endpoint)?;
     let state = Arc::new(DaemonState {
+        auth_token,
+        insecure_allow_v1: options.insecure_allow_v1,
+        lifecycle: Mutex::new(DaemonLifecycleState::Running),
+        last_successful_index: Mutex::new(None),
         jobs: Mutex::new(vec![DaemonJob {
             id: "job_00000001".to_string(),
             kind: DaemonJobKind::DaemonLifecycle,
@@ -416,6 +461,12 @@ pub async fn serve_daemon(options: DaemonServeOptions) -> Result<()> {
     } else {
         None
     };
+    if options.insecure_allow_v1 {
+        tracing::warn!(
+            project_id = %state.endpoint.project_id,
+            "insecure daemon v1 compatibility is enabled"
+        );
+    }
     tracing::info!(
         project_id = %state.endpoint.project_id,
         root = %root.display(),
@@ -477,6 +528,10 @@ pub async fn serve_daemon(options: DaemonServeOptions) -> Result<()> {
         }
     }
 
+    set_lifecycle(&state, DaemonLifecycleState::Stopping);
+    cancel_active_jobs(&state);
+    drain_active_jobs(&state, options.shutdown_timeout).await?;
+    set_lifecycle(&state, DaemonLifecycleState::Stopped);
     tracing::info!(project_id = %state.endpoint.project_id, "Athanor daemon stopped");
     Ok(())
 }
@@ -564,10 +619,12 @@ fn spawn_daemon_connection(
 
 pub async fn request_daemon(
     options: DaemonClientOptions,
-    request: DaemonRequest,
+    mut request: DaemonRequest,
 ) -> Result<DaemonResponse> {
-    validate_request(&request)?;
-    let endpoint = read_endpoint(&options.root.join(".athanor/daemon/endpoint.json"))?;
+    request.schema = DAEMON_REQUEST_SCHEMA.to_string();
+    let runtime =
+        DaemonRuntimePaths::for_project(&request.project_id, options.runtime_dir.as_deref())?;
+    let endpoint = read_endpoint(&runtime.endpoint)?;
     if endpoint.project_id != request.project_id {
         bail!(
             "daemon endpoint belongs to project `{}`, not `{}`",
@@ -575,6 +632,11 @@ pub async fn request_daemon(
             request.project_id
         );
     }
+    if endpoint.token_path != runtime.token {
+        bail!("daemon endpoint token path does not match the expected runtime path");
+    }
+    request.auth_token = Some(read_daemon_token(&endpoint.token_path)?);
+    validate_request_shape(&request)?;
     match endpoint.transport {
         DaemonTransport::Tcp => {
             let stream = TcpStream::connect(endpoint.address)
@@ -742,7 +804,7 @@ async fn execute_request(
     state: Arc<DaemonState>,
     request: DaemonRequest,
 ) -> (DaemonResponse, bool) {
-    if let Err(error) = validate_request(&request) {
+    if let Err(error) = validate_request(&state, &request) {
         return (
             error_response(
                 &request.request_id,
@@ -766,13 +828,40 @@ async fn execute_request(
         );
     }
 
+    if lifecycle(&state) != DaemonLifecycleState::Running
+        && !matches!(
+            request.command,
+            DaemonCommand::Status | DaemonCommand::Jobs { .. } | DaemonCommand::Job { .. }
+        )
+    {
+        return (
+            error_response(
+                &request.request_id,
+                &state.endpoint.project_id,
+                "daemon is stopping and does not accept new work",
+            ),
+            false,
+        );
+    }
+
     match request.command {
         DaemonCommand::Status => (
             success_response(
                 &request.request_id,
                 &state.endpoint.project_id,
                 serde_json::json!({
-                    "status": "running",
+                    "status": lifecycle(&state),
+                    "protocol_version": DAEMON_PROTOCOL_VERSION,
+                    "athanor_version": env!("CARGO_PKG_VERSION"),
+                    "uptime_ms": unix_time_ms()
+                        .unwrap_or_default()
+                        .saturating_sub(state.endpoint.started_at_unix_ms),
+                    "active_jobs": active_job_count(&state).unwrap_or_default(),
+                    "cache": cache_status(&state),
+                    "last_successful_index": state.last_successful_index
+                        .lock()
+                        .ok()
+                        .and_then(|snapshot| snapshot.clone()),
                     "endpoint": state.endpoint,
                 }),
             ),
@@ -1442,8 +1531,8 @@ async fn execute_request(
     }
 }
 
-fn validate_request(request: &DaemonRequest) -> Result<()> {
-    if request.schema != DAEMON_REQUEST_SCHEMA {
+fn validate_request_shape(request: &DaemonRequest) -> Result<()> {
+    if request.schema != DAEMON_REQUEST_SCHEMA && request.schema != DAEMON_REQUEST_SCHEMA_V1 {
         bail!("unsupported daemon request schema `{}`", request.schema);
     }
     if request.request_id.is_empty() || request.request_id.len() > 128 {
@@ -1451,6 +1540,24 @@ fn validate_request(request: &DaemonRequest) -> Result<()> {
     }
     if request.project_id.is_empty() {
         bail!("daemon project_id must not be empty");
+    }
+    Ok(())
+}
+
+fn validate_request(state: &DaemonState, request: &DaemonRequest) -> Result<()> {
+    validate_request_shape(request)?;
+    if request.schema == DAEMON_REQUEST_SCHEMA_V1 {
+        if !state.insecure_allow_v1 {
+            bail!("daemon protocol v1 is disabled");
+        }
+        return Ok(());
+    }
+    let supplied = request
+        .auth_token
+        .as_deref()
+        .ok_or_else(|| anyhow::anyhow!("daemon authentication failed"))?;
+    if !constant_time_token_eq(supplied, &state.auth_token) {
+        bail!("daemon authentication failed");
     }
     Ok(())
 }
@@ -1747,6 +1854,88 @@ fn invalidate_daemon_caches(state: &DaemonState) {
     }
 }
 
+fn lifecycle(state: &DaemonState) -> DaemonLifecycleState {
+    state
+        .lifecycle
+        .lock()
+        .map(|lifecycle| *lifecycle)
+        .unwrap_or(DaemonLifecycleState::Stopping)
+}
+
+fn set_lifecycle(state: &DaemonState, lifecycle: DaemonLifecycleState) {
+    match state.lifecycle.lock() {
+        Ok(mut current) => *current = lifecycle,
+        Err(_) => tracing::warn!("daemon lifecycle lock is poisoned"),
+    }
+}
+
+fn active_job_count(state: &DaemonState) -> Result<usize> {
+    let jobs = state
+        .jobs
+        .lock()
+        .map_err(|_| anyhow::anyhow!("daemon job registry lock is poisoned"))?;
+    Ok(jobs
+        .iter()
+        .filter(|job| {
+            matches!(
+                job.status,
+                DaemonJobStatus::Queued
+                    | DaemonJobStatus::Running
+                    | DaemonJobStatus::Cancelling
+            )
+        })
+        .count())
+}
+
+fn cache_status(state: &DaemonState) -> Value {
+    serde_json::json!({
+        "snapshot_loaded": state.latest_snapshot_cache.lock().is_ok_and(|cache| cache.is_some()),
+        "search_index_loaded": state.search_index_cache.lock().is_ok_and(|cache| cache.is_some()),
+        "overview_entries": state.overview_cache.lock().map_or(0, |cache| cache.entries.len()),
+        "context_entries": state.context_cache.lock().map_or(0, |cache| cache.entries.len()),
+    })
+}
+
+fn cancel_active_jobs(state: &DaemonState) {
+    let job_ids = match state.jobs.lock() {
+        Ok(jobs) => jobs
+            .iter()
+            .filter(|job| {
+                matches!(
+                    job.status,
+                    DaemonJobStatus::Queued
+                        | DaemonJobStatus::Running
+                        | DaemonJobStatus::Cancelling
+                )
+            })
+            .map(|job| job.id.clone())
+            .collect::<Vec<_>>(),
+        Err(_) => {
+            tracing::warn!("daemon job registry lock is poisoned during shutdown");
+            return;
+        }
+    };
+    for job_id in job_ids {
+        if let Err(error) = cancel_daemon_job(state, &job_id) {
+            tracing::warn!(job_id, error = %error, "failed to cancel daemon job during shutdown");
+        }
+    }
+}
+
+async fn drain_active_jobs(state: &DaemonState, timeout: Duration) -> Result<()> {
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        let active = active_job_count(state)?;
+        if active == 0 {
+            return Ok(());
+        }
+        if tokio::time::Instant::now() >= deadline {
+            bail!("timed out draining {active} active daemon jobs");
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
 fn start_index_job(state: &Arc<DaemonState>, description: String) -> Result<DaemonJob> {
     if has_active_job(state, DaemonJobKind::Index)? {
         bail!("index job is already queued or running");
@@ -1782,6 +1971,9 @@ fn start_index_job(state: &Arc<DaemonState>, description: String) -> Result<Daem
             match result {
                 Ok(report) => {
                     invalidate_daemon_caches(&job_state);
+                    if let Ok(mut snapshot) = job_state.last_successful_index.lock() {
+                        *snapshot = Some(report.snapshot.clone());
+                    }
                     tracing::info!(
                         job_id = %job_id_for_task,
                         snapshot = %report.snapshot,
@@ -2131,6 +2323,12 @@ fn read_endpoint(path: &Path) -> Result<DaemonEndpoint> {
     if endpoint.schema != DAEMON_ENDPOINT_SCHEMA {
         bail!("unsupported daemon endpoint schema `{}`", endpoint.schema);
     }
+    if endpoint.protocol_version != DAEMON_PROTOCOL_VERSION {
+        bail!(
+            "unsupported daemon protocol version `{}`",
+            endpoint.protocol_version
+        );
+    }
     Ok(endpoint)
 }
 
@@ -2213,53 +2411,6 @@ fn unix_time_ms() -> Result<u128> {
         .as_millis())
 }
 
-struct DaemonLock {
-    path: PathBuf,
-    file: Option<File>,
-}
-
-impl DaemonLock {
-    fn acquire(path: &Path, project_id: &str) -> Result<Self> {
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(path)
-            .with_context(|| {
-                format!(
-                    "daemon lock already exists at {}; another daemon may be running",
-                    path.display()
-                )
-            })?;
-        writeln!(
-            file,
-            "{}",
-            serde_json::json!({
-                "project_id": project_id,
-                "pid": std::process::id(),
-            })
-        )?;
-        Ok(Self {
-            path: path.to_path_buf(),
-            file: Some(file),
-        })
-    }
-}
-
-impl Drop for DaemonLock {
-    fn drop(&mut self) {
-        self.file.take();
-        let _ = fs::remove_file(&self.path);
-    }
-}
-
-struct EndpointGuard(PathBuf);
-
-impl Drop for EndpointGuard {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.0);
-    }
-}
-
 struct LocalSocketGuard(PathBuf);
 
 impl Drop for LocalSocketGuard {
@@ -2275,8 +2426,8 @@ struct LocalSocketEndpoint {
 }
 
 #[cfg(unix)]
-fn local_socket_endpoint(root: &Path, _project_id: &str) -> Result<LocalSocketEndpoint> {
-    let socket_path = root.join(".athanor/daemon/daemon.sock");
+fn local_socket_endpoint(runtime_dir: &Path, _runtime_id: &str) -> Result<LocalSocketEndpoint> {
+    let socket_path = runtime_dir.join("daemon.sock");
     if socket_path.exists() {
         fs::remove_file(&socket_path)
             .with_context(|| format!("failed to remove stale socket {}", socket_path.display()))?;
@@ -2289,19 +2440,19 @@ fn local_socket_endpoint(root: &Path, _project_id: &str) -> Result<LocalSocketEn
 }
 
 #[cfg(windows)]
-fn local_socket_endpoint(_root: &Path, project_id: &str) -> Result<LocalSocketEndpoint> {
+fn local_socket_endpoint(_runtime_dir: &Path, runtime_id: &str) -> Result<LocalSocketEndpoint> {
     Ok(LocalSocketEndpoint {
         socket_path: None,
         pipe_name: Some(format!(
             r"\\.\pipe\athanor-{}",
-            sanitize_local_socket_label(project_id)
+            sanitize_local_socket_label(runtime_id)
         )),
         guard: None,
     })
 }
 
 #[cfg(not(any(unix, windows)))]
-fn local_socket_endpoint(_root: &Path, _project_id: &str) -> Result<LocalSocketEndpoint> {
+fn local_socket_endpoint(_runtime_dir: &Path, _runtime_id: &str) -> Result<LocalSocketEndpoint> {
     bail!("local socket transport is not supported on this platform")
 }
 
@@ -2415,6 +2566,10 @@ mod tests {
         let address = listener.local_addr().unwrap();
         let endpoint = DaemonEndpoint {
             schema: DAEMON_ENDPOINT_SCHEMA.to_string(),
+            protocol_version: DAEMON_PROTOCOL_VERSION,
+            athanor_version: env!("CARGO_PKG_VERSION").to_string(),
+            runtime_id: "runtime-test".to_string(),
+            token_path: PathBuf::from("token"),
             project_id: "alpha".to_string(),
             root: root.clone(),
             registry_path: root.join("projects.json"),
@@ -2431,8 +2586,15 @@ mod tests {
             debounce_ms: 1000,
             max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
             max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
+        insecure_allow_v1: false,
+        runtime_dir: Some(root.join(".athanor/daemon")),
+        shutdown_timeout: Duration::from_secs(5),
         };
         let state = Arc::new(DaemonState {
+            auth_token: "test-token".to_string(),
+            insecure_allow_v1: false,
+            lifecycle: Mutex::new(DaemonLifecycleState::Running),
+            last_successful_index: Mutex::new(None),
             endpoint,
             jobs: Mutex::new(Vec::new()),
             next_job_sequence: Mutex::new(1),
@@ -2454,6 +2616,10 @@ mod tests {
             &endpoint_path,
             &DaemonEndpoint {
                 schema: DAEMON_ENDPOINT_SCHEMA.to_string(),
+                protocol_version: DAEMON_PROTOCOL_VERSION,
+                athanor_version: env!("CARGO_PKG_VERSION").to_string(),
+                runtime_id: "runtime-test".to_string(),
+                token_path: PathBuf::from("token"),
                 project_id: "alpha".to_string(),
                 root: root.clone(),
                 registry_path: root.join("projects.json"),
@@ -2470,15 +2636,19 @@ mod tests {
                 debounce_ms: 1000,
                 max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
                 max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
+            insecure_allow_v1: false,
+            runtime_dir: Some(root.join(".athanor/daemon")),
+            shutdown_timeout: Duration::from_secs(5),
             },
         )
         .unwrap();
         let response = request_daemon(
-            DaemonClientOptions { root: root.clone() },
+            DaemonClientOptions { root: root.clone(), runtime_dir: Some(root.join(".athanor/daemon")), runtime_dir: Some(root.join(".athanor/daemon")) },
             DaemonRequest {
                 schema: DAEMON_REQUEST_SCHEMA.to_string(),
                 request_id: "req-1".to_string(),
                 project_id: "alpha".to_string(),
+                auth_token: None,
                 command: DaemonCommand::Status,
             },
         )
@@ -2489,11 +2659,12 @@ mod tests {
         assert!(!task.await.unwrap());
 
         let error = request_daemon(
-            DaemonClientOptions { root: root.clone() },
+            DaemonClientOptions { root: root.clone(), runtime_dir: Some(root.join(".athanor/daemon")), runtime_dir: Some(root.join(".athanor/daemon")) },
             DaemonRequest {
                 schema: DAEMON_REQUEST_SCHEMA.to_string(),
                 request_id: "req-2".to_string(),
                 project_id: "beta".to_string(),
+                auth_token: None,
                 command: DaemonCommand::Status,
             },
         )
@@ -2521,6 +2692,9 @@ mod tests {
                 debounce_ms: 1000,
                 max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
                 max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
+            insecure_allow_v1: false,
+            runtime_dir: Some(root.join(".athanor/daemon")),
+            shutdown_timeout: Duration::from_secs(5),
             })
             .await
         });
@@ -2530,11 +2704,12 @@ mod tests {
         assert_eq!(response.project_id, "alpha");
 
         let shutdown = request_daemon(
-            DaemonClientOptions { root: root.clone() },
+            DaemonClientOptions { root: root.clone(), runtime_dir: Some(root.join(".athanor/daemon")), runtime_dir: Some(root.join(".athanor/daemon")) },
             DaemonRequest {
                 schema: DAEMON_REQUEST_SCHEMA.to_string(),
                 request_id: "req-stop".to_string(),
                 project_id: "alpha".to_string(),
+                auth_token: None,
                 command: DaemonCommand::Shutdown,
             },
         )
@@ -2554,6 +2729,10 @@ mod tests {
     fn lists_daemon_jobs_newest_first_with_limit() {
         let endpoint = DaemonEndpoint {
             schema: DAEMON_ENDPOINT_SCHEMA.to_string(),
+            protocol_version: DAEMON_PROTOCOL_VERSION,
+            athanor_version: env!("CARGO_PKG_VERSION").to_string(),
+            runtime_id: "runtime-test".to_string(),
+            token_path: PathBuf::from("token"),
             project_id: "alpha".to_string(),
             root: PathBuf::from("."),
             registry_path: PathBuf::from("projects.json"),
@@ -2570,8 +2749,15 @@ mod tests {
             debounce_ms: 1000,
             max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
             max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
+        insecure_allow_v1: false,
+        runtime_dir: Some(root.join(".athanor/daemon")),
+        shutdown_timeout: Duration::from_secs(5),
         };
         let state = DaemonState {
+            auth_token: "test-token".to_string(),
+            insecure_allow_v1: false,
+            lifecycle: Mutex::new(DaemonLifecycleState::Running),
+            last_successful_index: Mutex::new(None),
             endpoint,
             jobs: Mutex::new(vec![
                 DaemonJob {
@@ -2617,6 +2803,10 @@ mod tests {
     fn gets_daemon_job_by_id_and_rejects_invalid_ids() {
         let endpoint = DaemonEndpoint {
             schema: DAEMON_ENDPOINT_SCHEMA.to_string(),
+            protocol_version: DAEMON_PROTOCOL_VERSION,
+            athanor_version: env!("CARGO_PKG_VERSION").to_string(),
+            runtime_id: "runtime-test".to_string(),
+            token_path: PathBuf::from("token"),
             project_id: "alpha".to_string(),
             root: PathBuf::from("."),
             registry_path: PathBuf::from("projects.json"),
@@ -2633,8 +2823,15 @@ mod tests {
             debounce_ms: 1000,
             max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
             max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
+        insecure_allow_v1: false,
+        runtime_dir: Some(root.join(".athanor/daemon")),
+        shutdown_timeout: Duration::from_secs(5),
         };
         let state = DaemonState {
+            auth_token: "test-token".to_string(),
+            insecure_allow_v1: false,
+            lifecycle: Mutex::new(DaemonLifecycleState::Running),
+            last_successful_index: Mutex::new(None),
             endpoint,
             jobs: Mutex::new(vec![DaemonJob {
                 id: "job_00000001".to_string(),
@@ -2727,8 +2924,16 @@ mod tests {
             diagnostics: Vec::new(),
         };
         let state = Arc::new(DaemonState {
+            auth_token: "test-token".to_string(),
+            insecure_allow_v1: false,
+            lifecycle: Mutex::new(DaemonLifecycleState::Running),
+            last_successful_index: Mutex::new(None),
             endpoint: DaemonEndpoint {
                 schema: DAEMON_ENDPOINT_SCHEMA.to_string(),
+                protocol_version: DAEMON_PROTOCOL_VERSION,
+                athanor_version: env!("CARGO_PKG_VERSION").to_string(),
+                runtime_id: "runtime-test".to_string(),
+                token_path: PathBuf::from("token"),
                 project_id: "alpha".to_string(),
                 root: PathBuf::from("."),
                 registry_path: PathBuf::from("projects.json"),
@@ -2745,6 +2950,9 @@ mod tests {
                 debounce_ms: 1000,
                 max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
                 max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
+            insecure_allow_v1: false,
+            runtime_dir: Some(root.join(".athanor/daemon")),
+            shutdown_timeout: Duration::from_secs(5),
             },
             jobs: Mutex::new(Vec::new()),
             next_job_sequence: Mutex::new(1),
@@ -2787,8 +2995,16 @@ mod tests {
             diagnostics: Vec::new(),
         };
         let state = Arc::new(DaemonState {
+            auth_token: "test-token".to_string(),
+            insecure_allow_v1: false,
+            lifecycle: Mutex::new(DaemonLifecycleState::Running),
+            last_successful_index: Mutex::new(None),
             endpoint: DaemonEndpoint {
                 schema: DAEMON_ENDPOINT_SCHEMA.to_string(),
+                protocol_version: DAEMON_PROTOCOL_VERSION,
+                athanor_version: env!("CARGO_PKG_VERSION").to_string(),
+                runtime_id: "runtime-test".to_string(),
+                token_path: PathBuf::from("token"),
                 project_id: "alpha".to_string(),
                 root: root.clone(),
                 registry_path: root.join("projects.json"),
@@ -2805,6 +3021,9 @@ mod tests {
                 debounce_ms: 1000,
                 max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
                 max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
+            insecure_allow_v1: false,
+            runtime_dir: Some(root.join(".athanor/daemon")),
+            shutdown_timeout: Duration::from_secs(5),
             },
             jobs: Mutex::new(Vec::new()),
             next_job_sequence: Mutex::new(1),
@@ -2869,8 +3088,16 @@ mod tests {
             diagnostics: Vec::new(),
         };
         let state = Arc::new(DaemonState {
+            auth_token: "test-token".to_string(),
+            insecure_allow_v1: false,
+            lifecycle: Mutex::new(DaemonLifecycleState::Running),
+            last_successful_index: Mutex::new(None),
             endpoint: DaemonEndpoint {
                 schema: DAEMON_ENDPOINT_SCHEMA.to_string(),
+                protocol_version: DAEMON_PROTOCOL_VERSION,
+                athanor_version: env!("CARGO_PKG_VERSION").to_string(),
+                runtime_id: "runtime-test".to_string(),
+                token_path: PathBuf::from("token"),
                 project_id: "alpha".to_string(),
                 root: root.clone(),
                 registry_path: root.join("projects.json"),
@@ -2887,6 +3114,9 @@ mod tests {
                 debounce_ms: 1000,
                 max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
                 max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
+            insecure_allow_v1: false,
+            runtime_dir: Some(root.join(".athanor/daemon")),
+            shutdown_timeout: Duration::from_secs(5),
             },
             jobs: Mutex::new(Vec::new()),
             next_job_sequence: Mutex::new(1),
@@ -2947,6 +3177,10 @@ mod tests {
     fn detects_active_job_by_kind() {
         let endpoint = DaemonEndpoint {
             schema: DAEMON_ENDPOINT_SCHEMA.to_string(),
+            protocol_version: DAEMON_PROTOCOL_VERSION,
+            athanor_version: env!("CARGO_PKG_VERSION").to_string(),
+            runtime_id: "runtime-test".to_string(),
+            token_path: PathBuf::from("token"),
             project_id: "alpha".to_string(),
             root: PathBuf::from("."),
             registry_path: PathBuf::from("projects.json"),
@@ -2963,8 +3197,15 @@ mod tests {
             debounce_ms: 1000,
             max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
             max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
+        insecure_allow_v1: false,
+        runtime_dir: Some(root.join(".athanor/daemon")),
+        shutdown_timeout: Duration::from_secs(5),
         };
         let state = DaemonState {
+            auth_token: "test-token".to_string(),
+            insecure_allow_v1: false,
+            lifecycle: Mutex::new(DaemonLifecycleState::Running),
+            last_successful_index: Mutex::new(None),
             endpoint,
             jobs: Mutex::new(vec![DaemonJob {
                 id: "job_00000001".to_string(),
@@ -3011,6 +3252,10 @@ mod tests {
     fn cancels_queued_jobs_and_requests_running_job_cancellation() {
         let endpoint = DaemonEndpoint {
             schema: DAEMON_ENDPOINT_SCHEMA.to_string(),
+            protocol_version: DAEMON_PROTOCOL_VERSION,
+            athanor_version: env!("CARGO_PKG_VERSION").to_string(),
+            runtime_id: "runtime-test".to_string(),
+            token_path: PathBuf::from("token"),
             project_id: "alpha".to_string(),
             root: PathBuf::from("."),
             registry_path: PathBuf::from("projects.json"),
@@ -3027,9 +3272,16 @@ mod tests {
             debounce_ms: 1000,
             max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
             max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
+        insecure_allow_v1: false,
+        runtime_dir: Some(root.join(".athanor/daemon")),
+        shutdown_timeout: Duration::from_secs(5),
         };
         let running_cancellation = CancellationToken::new();
         let state = DaemonState {
+            auth_token: "test-token".to_string(),
+            insecure_allow_v1: false,
+            lifecycle: Mutex::new(DaemonLifecycleState::Running),
+            last_successful_index: Mutex::new(None),
             endpoint,
             jobs: Mutex::new(vec![
                 DaemonJob {
@@ -3096,6 +3348,10 @@ mod tests {
     fn tracks_daemon_job_start_and_finish() {
         let endpoint = DaemonEndpoint {
             schema: DAEMON_ENDPOINT_SCHEMA.to_string(),
+            protocol_version: DAEMON_PROTOCOL_VERSION,
+            athanor_version: env!("CARGO_PKG_VERSION").to_string(),
+            runtime_id: "runtime-test".to_string(),
+            token_path: PathBuf::from("token"),
             project_id: "alpha".to_string(),
             root: PathBuf::from("."),
             registry_path: PathBuf::from("projects.json"),
@@ -3112,8 +3368,15 @@ mod tests {
             debounce_ms: 1000,
             max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
             max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
+        insecure_allow_v1: false,
+        runtime_dir: Some(root.join(".athanor/daemon")),
+        shutdown_timeout: Duration::from_secs(5),
         };
         let state = DaemonState {
+            auth_token: "test-token".to_string(),
+            insecure_allow_v1: false,
+            lifecycle: Mutex::new(DaemonLifecycleState::Running),
+            last_successful_index: Mutex::new(None),
             endpoint,
             jobs: Mutex::new(Vec::new()),
             next_job_sequence: Mutex::new(1),
@@ -3158,6 +3421,10 @@ mod tests {
     fn cancelled_queued_job_does_not_start() {
         let endpoint = DaemonEndpoint {
             schema: DAEMON_ENDPOINT_SCHEMA.to_string(),
+            protocol_version: DAEMON_PROTOCOL_VERSION,
+            athanor_version: env!("CARGO_PKG_VERSION").to_string(),
+            runtime_id: "runtime-test".to_string(),
+            token_path: PathBuf::from("token"),
             project_id: "alpha".to_string(),
             root: PathBuf::from("."),
             registry_path: PathBuf::from("projects.json"),
@@ -3174,8 +3441,15 @@ mod tests {
             debounce_ms: 1000,
             max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
             max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
+        insecure_allow_v1: false,
+        runtime_dir: Some(root.join(".athanor/daemon")),
+        shutdown_timeout: Duration::from_secs(5),
         };
         let state = DaemonState {
+            auth_token: "test-token".to_string(),
+            insecure_allow_v1: false,
+            lifecycle: Mutex::new(DaemonLifecycleState::Running),
+            last_successful_index: Mutex::new(None),
             endpoint,
             jobs: Mutex::new(Vec::new()),
             next_job_sequence: Mutex::new(1),
@@ -3247,6 +3521,10 @@ mod tests {
         let address = listener.local_addr().unwrap();
         let endpoint = DaemonEndpoint {
             schema: DAEMON_ENDPOINT_SCHEMA.to_string(),
+            protocol_version: DAEMON_PROTOCOL_VERSION,
+            athanor_version: env!("CARGO_PKG_VERSION").to_string(),
+            runtime_id: "runtime-test".to_string(),
+            token_path: PathBuf::from("token"),
             project_id: "alpha".to_string(),
             root: root.clone(),
             registry_path: root.join("projects.json"),
@@ -3263,6 +3541,9 @@ mod tests {
             debounce_ms: 1000,
             max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
             max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
+        insecure_allow_v1: false,
+        runtime_dir: Some(root.join(".athanor/daemon")),
+        shutdown_timeout: Duration::from_secs(5),
         };
         let task = tokio::spawn(async move {
             let (stream, _) = listener.accept().await.unwrap();
@@ -3274,6 +3555,7 @@ mod tests {
             schema: DAEMON_REQUEST_SCHEMA.to_string(),
             request_id: "req-busy".to_string(),
             project_id: "alpha".to_string(),
+            auth_token: None,
             command: DaemonCommand::Status,
         };
         stream
@@ -3355,11 +3637,13 @@ mod tests {
                 match request_daemon(
                     DaemonClientOptions {
                         root: root.to_path_buf(),
+                        runtime_dir: Some(root.join(".athanor/daemon")),
                     },
                     DaemonRequest {
                         schema: DAEMON_REQUEST_SCHEMA.to_string(),
                         request_id: "req-status".to_string(),
                         project_id: "alpha".to_string(),
+                        auth_token: None,
                         command: DaemonCommand::Status,
                     },
                 )
