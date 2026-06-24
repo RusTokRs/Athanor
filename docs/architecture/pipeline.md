@@ -395,6 +395,9 @@ project registry before serving or sending requests:
 
 ```bash
 athd serve <project-id> --max-concurrent-requests 4 --max-job-history 1000
+athd serve <project-id> --max-request-bytes 1048576 --max-response-bytes 2097152
+athd serve <project-id> --watch --debounce-ms 1000
+athd serve <project-id> --watch --watch-poll --debounce-ms 5000
 athd status <project-id>
 athd jobs <project-id> --limit 20
 athd job <project-id> job_00000001
@@ -418,15 +421,16 @@ The daemon writes runtime metadata under the resolved repository root:
 ```
 
 `endpoint.json` uses schema `athanor.daemon_endpoint.v1` and records the project id, canonical root,
-registry path, TCP address, process id, start time, concurrent request limit, and job-history
-retention limit. The lock file is created with exclusive creation so only one daemon instance owns a
-project runtime directory at a time. Endpoint and lock files are removed when the daemon exits
-normally.
+registry path, TCP address, process id, start time, concurrent request limit, job-history retention
+limit, protocol byte limits, and watcher settings. The lock file is created with exclusive creation
+so only one daemon instance owns a project runtime directory at a time. Endpoint and lock files are
+removed when the daemon exits normally.
 
 The current protocol is local TCP with one JSON request per connection, terminated by a newline.
-Requests use schema `athanor.daemon_request.v1`; responses use `athanor.daemon_response.v1`. Request
-and response messages are bounded to 1 MiB. Oversized requests are rejected, oversized computed
-responses are replaced with a structured daemon error response, and clients reject oversized
+Requests use schema `athanor.daemon_request.v1`; responses use `athanor.daemon_response.v1`.
+Request and response messages default to a 1 MiB limit and can be raised or lowered at serve time
+with `--max-request-bytes` and `--max-response-bytes`. Oversized requests are rejected, oversized
+computed responses are replaced with a structured daemon error response, and clients reject oversized
 wire responses instead of parsing truncated JSON. The daemon handles requests concurrently up to
 `--max-concurrent-requests`; additional connections receive a structured busy error response after
 their bounded request line is read. Every request carries a `project_id`, and the server rejects
@@ -458,14 +462,24 @@ directory, while generate jobs record the published generation id, selected snap
 pointer, and canonical object counts. Direct wiki and HTML report jobs record the selected snapshot
 id, output directory, and canonical object counts. `athd index` reuses the existing `index_project`
 path and rejects a second concurrent indexing job for the same daemon so snapshot writers do not
-overlap. `athd generate`, `athd wiki`, and `athd report-html` reuse the existing projection paths
+overlap. Daemon overview requests and non-diff context requests cache the latest canonical snapshot
+in memory after the first load; successful daemon-owned index jobs invalidate this hot cache before
+subsequent read-only requests. Diff context still performs current source discovery and index-state
+comparison before building its bounded pack. `athd generate`, `athd wiki`, and `athd report-html` reuse the existing projection paths
 and reject a second concurrent job of the same kind so output publishers do not overlap. Job history
 is retained in memory up to `--max-job-history`; pruning removes the oldest finished records first
-and never removes running or queued records. Cancellation is cooperative: queued jobs can be marked
-cancelled, while currently running index and projection jobs are allowed to finish because forced
-interruption could corrupt snapshot or generated output writes. File watching, hot cache invalidation, deeper
-cancellable execution, and debounce remain future Phase 7 work. Logs continue to use stderr or
-tracing sinks and are kept separate from structured protocol responses.
+and never removes running or queued records. Cancellation is cooperative: background index and
+projection jobs are first registered as queued, and cancellation can stop them before their worker
+marks them running. Currently running index and projection jobs are allowed to finish because forced
+interruption could corrupt snapshot or generated output writes. With `--watch`, the daemon watches
+the project root recursively through `notify-debouncer-mini`, ignores `.athanor` artifact changes,
+and schedules a debounced background index job when source paths change. By default it uses the
+platform-recommended watcher backend; `--watch-poll` selects the polling backend for filesystems
+where native notifications are unavailable or unreliable. The watcher is a scheduler; persisted
+content hashes still decide which files actually changed. Hot cache expansion beyond
+overview/context, running-job cancellation, and local socket transport remain future Phase 7 work.
+Logs continue to use stderr or tracing sinks and are kept separate from structured protocol
+responses.
 
 ## Entity Explanation
 

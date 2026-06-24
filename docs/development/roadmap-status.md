@@ -131,6 +131,9 @@ ath projects resolve <project-id> --json
 athd serve <project-id>
 athd serve <project-id> --max-concurrent-requests <N>
 athd serve <project-id> --max-job-history <N>
+athd serve <project-id> --max-request-bytes <N> --max-response-bytes <N>
+athd serve <project-id> --watch --debounce-ms <N>
+athd serve <project-id> --watch --watch-poll --debounce-ms <N>
 athd status <project-id>
 athd status <project-id> --json
 athd jobs <project-id>
@@ -1999,6 +2002,8 @@ Purpose:
 - writes per-project runtime endpoint and lock files under `.athanor/daemon`
 - prevents two daemon instances from owning the same project runtime directory through exclusive lock creation
 - uses local TCP with newline-delimited JSON requests and stable `athanor.daemon_endpoint.v1`, `athanor.daemon_request.v1`, and `athanor.daemon_response.v1` schemas
+- records configurable daemon request and response byte limits in endpoint metadata and applies them on both server and client sides
+- optionally watches the project root with `notify-debouncer-mini`, supports platform-recommended or polling watcher backends, ignores `.athanor` artifact events, and schedules debounced background indexing jobs after source changes
 - bounds daemon request and response messages to 1 MiB, returning structured daemon errors for oversized computed responses
 - handles requests concurrently up to `--max-concurrent-requests` and returns structured busy errors after the limit is reached
 - adds an in-memory daemon job registry and bounded `athanor.daemon_jobs.v1` job listing report
@@ -2007,14 +2012,15 @@ Purpose:
 - supports exact daemon job lookup by stable job id
 - starts one background indexing job through `athd index`, reusing the existing `index_project` implementation and rejecting concurrent index jobs
 - records structured index job results with snapshot id, file counts, and JSONL output directory
+- caches the latest canonical snapshot for daemon overview and non-diff context requests, while keeping diff context on current source discovery, and invalidates that hot cache after successful daemon-owned index jobs
 - starts one background coordinated generation job through `athd generate`, reusing `generate_project`, rejecting concurrent generation jobs, and recording generation id, snapshot id, pointer path, and canonical object counts
 - starts background direct projection jobs through `athd wiki` and `athd report-html`, reusing the existing projector services, rejecting concurrent jobs of the same kind, and recording snapshot id, output directory, and canonical object counts
-- adds cooperative cancellation for queued daemon jobs and explicit non-cancellable errors for running jobs
+- registers background index and projection jobs as queued before worker start, supports cancellation before the worker marks them running, and returns explicit non-cancellable errors for running jobs
 - rejects requests whose project id does not match the daemon endpoint
 - serves read-only status, bounded overview, and bounded task context responses from the latest canonical snapshot
 - exposes daemon context level and limit overrides, including diff-based changed-file context
 - keeps logs separate from structured protocol output
-- leaves file watching, hot cache invalidation, deeper cancellable execution, and debounce for the remaining Phase 7 work
+- leaves hot cache expansion beyond overview/context, local socket transport, and deeper cancellable execution for the remaining Phase 7 work
 
 ## In Progress
 
@@ -2025,8 +2031,8 @@ Status: in progress.
 Scope:
 
 - extend the implemented `athd` daemon entrypoint beyond lifecycle, locks, local TCP protocol, and read-only status/overview/context commands
-- add file watcher, local socket option, hot cache, and broader agent command protocol
-- add job system, cancellation, debounce, and deeper output-size controls for long-running indexing and projection work
+- extend the implemented daemon hot cache beyond overview/context and add optional local socket transport
+- add safe running-job cancellation for long-running indexing and projection work
 - keep MCP as one transport adapter, not the only agent access path
 
 Acceptance:

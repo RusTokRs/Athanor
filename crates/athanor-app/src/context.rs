@@ -69,7 +69,7 @@ pub struct ContextLimitOverrides {
 }
 
 impl ContextLimitOverrides {
-    fn apply(&self, limits: &mut ContextLimits) {
+    pub(crate) fn apply(&self, limits: &mut ContextLimits) {
         limits.max_tokens = self.max_tokens.unwrap_or(limits.max_tokens);
         limits.max_files = self.max_files.unwrap_or(limits.max_files);
         limits.max_entities = self.max_entities.unwrap_or(limits.max_entities);

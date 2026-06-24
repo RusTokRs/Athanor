@@ -55,6 +55,21 @@ enum Command {
         /// Maximum in-memory daemon job records to retain.
         #[arg(long, default_value_t = 1000)]
         max_job_history: usize,
+        /// Maximum daemon request size in bytes.
+        #[arg(long, default_value_t = 1024 * 1024)]
+        max_request_bytes: u64,
+        /// Maximum daemon response size in bytes.
+        #[arg(long, default_value_t = 1024 * 1024)]
+        max_response_bytes: u64,
+        /// Watch project files and schedule debounced background index jobs.
+        #[arg(long)]
+        watch: bool,
+        /// Use polling watcher backend instead of the platform-recommended backend.
+        #[arg(long)]
+        watch_poll: bool,
+        /// Debounce window for --watch, in milliseconds.
+        #[arg(long, default_value_t = 1000)]
+        debounce_ms: u64,
     },
     /// Query daemon status.
     Status {
@@ -186,6 +201,11 @@ async fn main() -> Result<()> {
             listen,
             max_concurrent_requests,
             max_job_history,
+            max_request_bytes,
+            max_response_bytes,
+            watch,
+            watch_poll,
+            debounce_ms,
         } => {
             let registry_path = registry_path(registry)?;
             let resolution = resolve_registered_project(
@@ -201,6 +221,11 @@ async fn main() -> Result<()> {
                 listen,
                 max_concurrent_requests,
                 max_job_history,
+                max_request_bytes,
+                max_response_bytes,
+                watch,
+                watch_poll,
+                debounce_ms,
             })
             .await
         }

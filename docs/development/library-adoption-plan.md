@@ -126,11 +126,12 @@ Project: <https://github.com/Stranger6667/jsonschema>
 
 ### Filesystem Watching: `notify`
 
-Status: adopt in Phase 7 daemon work.
+Status: adopted for Phase 7 daemon work through `notify-debouncer-mini` 0.7.0, which depends on
+`notify` 8.2.0.
 
-Use `notify` plus one of its maintained debouncer crates for cross-platform filesystem events.
-Athanor still owns event normalization, affected-file classification, queueing, cancellation, and
-snapshot semantics.
+Use `notify` through a maintained debouncer crate for cross-platform filesystem events. Athanor
+still owns event normalization, affected-file classification, queueing, cancellation, and snapshot
+semantics.
 
 Acceptance criteria:
 
@@ -138,6 +139,13 @@ Acceptance criteria:
 - rename/create/remove bursts normalize into deterministic project-relative changes
 - debounce policy is configurable and does not replace persisted content hashing
 - polling remains available as a fallback
+
+Implemented in `athanor-app` daemon serving only. `notify` and debouncer types remain private to
+the app layer; daemon protocol payloads expose only Athanor-owned watcher settings and job records.
+The implemented watcher ignores `.athanor` artifact events and schedules debounced background index
+jobs; persisted content hashes still decide actual changed/unchanged/removed files. The default
+daemon watcher uses the platform-recommended backend, and `athd serve --watch --watch-poll` selects
+the polling backend when native filesystem events are not suitable.
 
 Project: <https://github.com/notify-rs/notify>
 
