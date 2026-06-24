@@ -135,8 +135,12 @@ athd serve <project-id> --max-request-bytes <N> --max-response-bytes <N>
 athd serve <project-id> --transport local-socket
 athd serve <project-id> --watch --debounce-ms <N>
 athd serve <project-id> --watch --watch-poll --debounce-ms <N>
+athd start <project-id>
+athd start <project-id> --transport local-socket --watch
 athd status <project-id>
 athd status <project-id> --json
+athd ping <project-id>
+athd ping <project-id> --json
 athd jobs <project-id>
 athd jobs <project-id> --json
 athd job <project-id> <job-id>
@@ -2002,7 +2006,8 @@ Implemented in:
 
 Purpose:
 
-- adds the `athd` daemon entrypoint with `serve`, `status`, `jobs`, `job`, `cancel`, `index`, `generate`, `wiki`, `report-html`, `overview`, `explain`, `search`, `context`, and `stop`
+- adds the `athd` daemon entrypoint with background `start`, foreground `serve`, `ping`, `status`, `jobs`, `job`, `cancel`, `index`, `generate`, `wiki`, `report-html`, `overview`, `explain`, `search`, `context`, and `stop`
+- makes background start readiness-bounded and idempotent for an already healthy project daemon, with background logs redirected to `.athanor/daemon/daemon.log`
 - resolves every command through the explicit project registry before connecting to or serving a repository daemon
 - writes per-project runtime endpoint and lock files under `.athanor/daemon`
 - prevents two daemon instances from owning the same project runtime directory through exclusive lock creation
@@ -2017,7 +2022,7 @@ Purpose:
 - supports exact daemon job lookup by stable job id
 - starts one background indexing job through `athd index`, reusing the existing `index_project` implementation and rejecting concurrent index jobs
 - records structured index job results with snapshot id, file counts, and JSONL output directory
-- caches the latest canonical snapshot for daemon overview, explain, search, and non-diff context requests, while keeping diff context on current source discovery, and invalidates that hot cache after successful daemon-owned index jobs
+- caches the latest canonical snapshot, one snapshot-keyed Tantivy search handle shared by search and context, and bounded least-recently-used overview/non-diff-context results; successful daemon-owned index jobs invalidate the complete cache epoch, while diff context remains on current source discovery
 - starts one background coordinated generation job through `athd generate`, reusing `generate_project`, rejecting concurrent generation jobs, and recording generation id, snapshot id, pointer path, and canonical object counts
 - starts background direct projection jobs through `athd wiki` and `athd report-html`, reusing the existing projector services, rejecting concurrent jobs of the same kind, and recording snapshot id, output directory, and canonical object counts
 - registers background index and projection jobs with shared cancellation tokens before worker start, cancels queued jobs immediately, and moves running jobs through `cancelling` to safe index-stage and staged projector-loop checkpoints before canonical snapshot or generated-output publication
@@ -2026,25 +2031,7 @@ Purpose:
 - serves read-only status, bounded overview, exact entity explanation, bounded lexical search, and bounded task context responses from the latest canonical snapshot
 - exposes daemon context level and limit overrides, including diff-based changed-file context
 - keeps logs separate from structured protocol output
-- leaves further hot cache expansion beyond overview/explain/search/context and additional agent transport adapters for the remaining Phase 7 work
-
-## In Progress
-
-### Phase 7 - Daemon And Agent-Native Access
-
-Status: in progress.
-
-Scope:
-
-- extend the implemented `athd` daemon entrypoint beyond lifecycle, locks, local TCP/local-socket protocol, and read-only status/overview/explain/search/context commands
-- extend the implemented daemon hot cache beyond overview/explain/search/context
-- keep MCP as one transport adapter, not the only agent access path
-
-Acceptance:
-
-- daemon commands can start, stop, report status, and serve read-only context queries
-- long-running jobs can be cancelled without corrupting snapshots or generated outputs
-- logs and diagnostics remain off the structured protocol channel
+- completes Phase 7 with native local TCP/local-socket access independent of the optional MCP transport adapter
 
 ## Next
 

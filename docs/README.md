@@ -227,6 +227,8 @@ cargo run -p ath --quiet -- projects list
 cargo run -p ath --quiet -- projects add athanor .
 cargo run -p ath --quiet -- projects resolve athanor --json
 cargo run -p ath --quiet -- projects remove athanor
+cargo run -p athd --quiet -- start athanor
+cargo run -p athd --quiet -- start athanor --transport local-socket --watch --json
 cargo run -p athd --quiet -- serve athanor --max-concurrent-requests 4 --max-job-history 1000
 cargo run -p athd --quiet -- serve athanor --max-request-bytes 1048576 --max-response-bytes 2097152
 cargo run -p athd --quiet -- serve athanor --transport local-socket
@@ -234,6 +236,7 @@ cargo run -p athd --quiet -- serve athanor --watch --debounce-ms 1000
 cargo run -p athd --quiet -- serve athanor --watch --watch-poll --debounce-ms 5000
 cargo run -p athd --quiet -- status athanor
 cargo run -p athd --quiet -- status athanor --json
+cargo run -p athd --quiet -- ping athanor --json
 cargo run -p athd --quiet -- jobs athanor
 cargo run -p athd --quiet -- jobs athanor --limit 20 --json
 cargo run -p athd --quiet -- job athanor job_00000001 --json

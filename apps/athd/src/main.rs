@@ -1,5 +1,8 @@
+use std::fs::{self, OpenOptions};
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::process::{Command as ProcessCommand, Stdio};
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use athanor_app::{
@@ -54,6 +57,46 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Start one explicitly registered project daemon in the background.
+    Start {
+        /// Exact registered project id.
+        project_id: String,
+        /// Override the user-level project registry path.
+        #[arg(long)]
+        registry: Option<PathBuf>,
+        /// Local TCP address. Port 0 selects an available port.
+        #[arg(long, default_value = "127.0.0.1:0")]
+        listen: SocketAddr,
+        /// Daemon transport. local-socket uses a Unix domain socket on Unix and a named pipe on Windows.
+        #[arg(long, value_enum, default_value_t = TransportArg::Tcp)]
+        transport: TransportArg,
+        /// Maximum concurrent daemon requests before busy responses are returned.
+        #[arg(long, default_value_t = 4)]
+        max_concurrent_requests: usize,
+        /// Maximum in-memory daemon job records to retain.
+        #[arg(long, default_value_t = 1000)]
+        max_job_history: usize,
+        /// Maximum daemon request size in bytes.
+        #[arg(long, default_value_t = 1024 * 1024)]
+        max_request_bytes: u64,
+        /// Maximum daemon response size in bytes.
+        #[arg(long, default_value_t = 1024 * 1024)]
+        max_response_bytes: u64,
+        /// Watch project files and schedule debounced background index jobs.
+        #[arg(long)]
+        watch: bool,
+        /// Use polling watcher backend instead of the platform-recommended backend.
+        #[arg(long)]
+        watch_poll: bool,
+        /// Debounce window for --watch, in milliseconds.
+        #[arg(long, default_value_t = 1000)]
+        debounce_ms: u64,
+        /// Maximum time to wait for the background daemon to answer status.
+        #[arg(long, default_value_t = 10_000)]
+        startup_timeout_ms: u64,
+        #[arg(long)]
+        json: bool,
+    },
     /// Serve one explicitly registered project in the foreground.
     Serve {
         /// Exact registered project id.
@@ -91,6 +134,14 @@ enum Command {
     },
     /// Query daemon status.
     Status {
+        project_id: String,
+        #[arg(long)]
+        registry: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Check daemon protocol health.
+    Ping {
         project_id: String,
         #[arg(long)]
         registry: Option<PathBuf>,
@@ -236,6 +287,38 @@ async fn main() -> Result<()> {
     init_tracing();
     let cli = Cli::parse();
     match cli.command {
+        Command::Start {
+            project_id,
+            registry,
+            listen,
+            transport,
+            max_concurrent_requests,
+            max_job_history,
+            max_request_bytes,
+            max_response_bytes,
+            watch,
+            watch_poll,
+            debounce_ms,
+            startup_timeout_ms,
+            json,
+        } => print_response(
+            start_background_daemon(
+                project_id,
+                registry,
+                listen,
+                transport,
+                max_concurrent_requests,
+                max_job_history,
+                max_request_bytes,
+                max_response_bytes,
+                watch,
+                watch_poll,
+                debounce_ms,
+                startup_timeout_ms,
+            )
+            .await?,
+            json,
+        ),
         Command::Serve {
             project_id,
             registry,
@@ -273,6 +356,14 @@ async fn main() -> Result<()> {
             .await
         }
         Command::Status {
+            project_id,
+            registry,
+            json,
+        } => print_response(
+            request(&project_id, registry, DaemonCommand::Status).await?,
+            json,
+        ),
+        Command::Ping {
             project_id,
             registry,
             json,
@@ -413,6 +504,126 @@ async fn main() -> Result<()> {
             json,
         ),
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn start_background_daemon(
+    project_id: String,
+    registry: Option<PathBuf>,
+    listen: SocketAddr,
+    transport: TransportArg,
+    max_concurrent_requests: usize,
+    max_job_history: usize,
+    max_request_bytes: u64,
+    max_response_bytes: u64,
+    watch: bool,
+    watch_poll: bool,
+    debounce_ms: u64,
+    startup_timeout_ms: u64,
+) -> Result<athanor_app::DaemonResponse> {
+    if !(100..=60_000).contains(&startup_timeout_ms) {
+        anyhow::bail!("startup_timeout_ms must be between 100 and 60000");
+    }
+    let registry_path = registry_path(registry)?;
+    let resolution = resolve_registered_project(
+        ProjectRegistryOptions {
+            registry_path: registry_path.clone(),
+        },
+        &project_id,
+    )?;
+    let root = resolution.project.root;
+    if let Ok(response) = request_status(&project_id, &root).await
+        && response.ok
+    {
+        return Ok(response);
+    }
+
+    let runtime_dir = root.join(".athanor/daemon");
+    fs::create_dir_all(&runtime_dir)?;
+    let log_path = runtime_dir.join("daemon.log");
+    let log = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)?;
+    let mut command = ProcessCommand::new(std::env::current_exe()?);
+    command
+        .arg("serve")
+        .arg(&project_id)
+        .arg("--registry")
+        .arg(&registry_path)
+        .arg("--listen")
+        .arg(listen.to_string())
+        .arg("--transport")
+        .arg(match transport {
+            TransportArg::Tcp => "tcp",
+            TransportArg::LocalSocket => "local-socket",
+        })
+        .arg("--max-concurrent-requests")
+        .arg(max_concurrent_requests.to_string())
+        .arg("--max-job-history")
+        .arg(max_job_history.to_string())
+        .arg("--max-request-bytes")
+        .arg(max_request_bytes.to_string())
+        .arg("--max-response-bytes")
+        .arg(max_response_bytes.to_string())
+        .arg("--debounce-ms")
+        .arg(debounce_ms.to_string())
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::from(log));
+    if watch {
+        command.arg("--watch");
+    }
+    if watch_poll {
+        command.arg("--watch-poll");
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000);
+    }
+    let mut child = command.spawn()?;
+    let deadline = Instant::now() + Duration::from_millis(startup_timeout_ms);
+    let mut last_error = None;
+    while Instant::now() < deadline {
+        if let Some(status) = child.try_wait()? {
+            anyhow::bail!(
+                "background daemon exited with {status}; inspect {}",
+                log_path.display()
+            );
+        }
+        match request_status(&project_id, &root).await {
+            Ok(response) if response.ok => return Ok(response),
+            Ok(response) => last_error = response.error,
+            Err(error) => last_error = Some(error.to_string()),
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    anyhow::bail!(
+        "background daemon did not become ready within {startup_timeout_ms} ms: {}; inspect {}",
+        last_error.unwrap_or_else(|| "no status response".to_string()),
+        log_path.display()
+    )
+}
+
+async fn request_status(
+    project_id: &str,
+    root: &std::path::Path,
+) -> Result<athanor_app::DaemonResponse> {
+    request_daemon(
+        DaemonClientOptions {
+            root: root.to_path_buf(),
+        },
+        DaemonRequest {
+            schema: athanor_app::DAEMON_REQUEST_SCHEMA.to_string(),
+            request_id: format!("start-{}", std::process::id()),
+            project_id: project_id.to_string(),
+            command: DaemonCommand::Status,
+        },
+    )
+    .await
 }
 
 async fn request(

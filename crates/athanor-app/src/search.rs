@@ -103,6 +103,28 @@ pub async fn search_snapshot(
 
     // Open or rebuild index if snapshot changed or index doesn't exist
     let index = get_or_build_search_index(snapshot, &snapshot_id, &index_dir).await?;
+    search_snapshot_with_index(root, snapshot, query, limit, &index).await
+}
+
+pub async fn search_snapshot_with_index(
+    root: &Path,
+    snapshot: &CanonicalSnapshot,
+    query: String,
+    limit: usize,
+    index: &impl SearchIndex,
+) -> Result<SearchReport> {
+    if query.trim().is_empty() {
+        bail!("search query must not be empty");
+    }
+    if limit == 0 {
+        bail!("search limit must be greater than zero");
+    }
+
+    let snapshot_id = snapshot
+        .snapshot
+        .as_ref()
+        .map(|s| s.0.clone())
+        .ok_or_else(|| anyhow::anyhow!("latest canonical snapshot has no snapshot id"))?;
 
     let results = index
         .search(SearchQuery {
@@ -154,6 +176,14 @@ pub async fn search_snapshot(
 }
 
 pub async fn get_or_build_search_index(
+    snapshot: &CanonicalSnapshot,
+    snapshot_id: &str,
+    index_dir: &Path,
+) -> Result<TantivySearchIndex> {
+    get_or_build_search_index_sync(snapshot, snapshot_id, index_dir)
+}
+
+pub fn get_or_build_search_index_sync(
     snapshot: &CanonicalSnapshot,
     snapshot_id: &str,
     index_dir: &Path,

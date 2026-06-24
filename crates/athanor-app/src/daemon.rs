@@ -1,4 +1,5 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
+use std::fmt;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::net::SocketAddr;
@@ -27,14 +28,15 @@ use tokio::sync::{Semaphore, mpsc};
 
 use athanor_core::{CanonicalSnapshot, CanonicalSnapshotStore, SearchIndex};
 use athanor_domain::ContextLevel;
+use athanor_search_tantivy::TantivySearchIndex;
 
 use crate::explain::explain_snapshot;
-use crate::search::search_snapshot;
+use crate::search::{get_or_build_search_index_sync, search_snapshot_with_index};
 use crate::{
     CancellationToken, ContextLimitOverrides, ContextLimits, ContextOptions, GenerationOptions,
-    HtmlReportOptions, IndexOptions, WikiOptions, build_repository_overview, context_project,
-    generate_context_pack, generate_project_cancellable, index_project_cancellable,
-    project_html_report_cancellable, project_wiki_cancellable,
+    HtmlReportOptions, IndexOptions, RepositoryOverview, WikiOptions, build_repository_overview,
+    context_project, generate_context_pack, generate_project_cancellable,
+    index_project_cancellable, project_html_report_cancellable, project_wiki_cancellable,
 };
 use crate::{config::load_config, store::init_store};
 
@@ -46,6 +48,7 @@ const DEFAULT_MAX_REQUEST_BYTES: u64 = 1024 * 1024;
 const DEFAULT_MAX_RESPONSE_BYTES: u64 = 1024 * 1024;
 const MIN_PROTOCOL_BYTES: u64 = 1024;
 const MAX_PROTOCOL_BYTES: u64 = 64 * 1024 * 1024;
+const DERIVED_CACHE_CAPACITY: usize = 64;
 
 #[derive(Debug, Clone)]
 pub struct DaemonServeOptions {
@@ -220,7 +223,82 @@ struct DaemonState {
     next_job_sequence: Mutex<u64>,
     max_job_history: usize,
     latest_snapshot_cache: Mutex<Option<CanonicalSnapshot>>,
+    search_index_cache: Mutex<Option<CachedSearchIndex>>,
+    overview_cache: Mutex<BoundedCache<OverviewCacheKey, RepositoryOverview>>,
+    context_cache: Mutex<BoundedCache<ContextCacheKey, athanor_domain::ContextPack>>,
     cancellation_tokens: Mutex<HashMap<String, CancellationToken>>,
+}
+
+struct CachedSearchIndex {
+    snapshot_id: String,
+    index: Arc<TantivySearchIndex>,
+}
+
+impl fmt::Debug for CachedSearchIndex {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("CachedSearchIndex")
+            .field("snapshot_id", &self.snapshot_id)
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct OverviewCacheKey {
+    snapshot_id: String,
+    top: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ContextCacheKey {
+    snapshot_id: String,
+    task: String,
+    level: String,
+    limits: ContextLimits,
+}
+
+#[derive(Debug)]
+struct BoundedCache<K, V> {
+    capacity: usize,
+    entries: VecDeque<(K, V)>,
+}
+
+impl<K: PartialEq, V: Clone> BoundedCache<K, V> {
+    fn new(capacity: usize) -> Self {
+        Self {
+            capacity,
+            entries: VecDeque::new(),
+        }
+    }
+
+    fn get(&mut self, key: &K) -> Option<V> {
+        let index = self
+            .entries
+            .iter()
+            .position(|(candidate, _)| candidate == key)?;
+        let entry = self.entries.remove(index)?;
+        let value = entry.1.clone();
+        self.entries.push_back(entry);
+        Some(value)
+    }
+
+    fn insert(&mut self, key: K, value: V) {
+        if let Some(index) = self
+            .entries
+            .iter()
+            .position(|(candidate, _)| candidate == &key)
+        {
+            self.entries.remove(index);
+        }
+        self.entries.push_back((key, value));
+        while self.entries.len() > self.capacity {
+            self.entries.pop_front();
+        }
+    }
+
+    fn clear(&mut self) {
+        self.entries.clear();
+    }
 }
 
 enum DaemonConnection {
@@ -318,6 +396,9 @@ pub async fn serve_daemon(options: DaemonServeOptions) -> Result<()> {
         next_job_sequence: Mutex::new(2),
         max_job_history: options.max_job_history,
         latest_snapshot_cache: Mutex::new(None),
+        search_index_cache: Mutex::new(None),
+        overview_cache: Mutex::new(BoundedCache::new(DERIVED_CACHE_CAPACITY)),
+        context_cache: Mutex::new(BoundedCache::new(DERIVED_CACHE_CAPACITY)),
         cancellation_tokens: Mutex::new(HashMap::new()),
         endpoint,
     });
@@ -1105,9 +1186,8 @@ async fn execute_request(
                     );
                 }
             };
-            match latest_snapshot_for_daemon(&state).await {
-                Ok(snapshot) => {
-                    let overview = build_repository_overview(&snapshot, top);
+            match daemon_overview_from_cache(&state, top).await {
+                Ok(overview) => {
                     let _ =
                         finish_daemon_job(&state, &job_id, DaemonJobStatus::Succeeded, None, None);
                     (
@@ -1510,13 +1590,21 @@ async fn daemon_context_from_cache(
         .as_ref()
         .map(|snapshot| snapshot.0.clone())
         .unwrap_or_else(|| "unknown".to_string());
-    let index_dir = state
-        .endpoint
-        .root
-        .join(".athanor/generated/current/search");
-    let direct_matches = if let Ok(index) =
-        crate::search::get_or_build_search_index(&snapshot, &snapshot_id, &index_dir).await
+    let cache_key = ContextCacheKey {
+        snapshot_id,
+        task: task.to_string(),
+        level: format!("{level:?}"),
+        limits,
+    };
+    if let Some(pack) = state
+        .context_cache
+        .lock()
+        .map_err(|_| anyhow::anyhow!("daemon context cache lock is poisoned"))?
+        .get(&cache_key)
     {
+        return Ok(pack);
+    }
+    let direct_matches = if let Ok(index) = search_index_for_daemon(state, &snapshot) {
         if let Ok(search_results) = index
             .search(athanor_core::SearchQuery {
                 query: task.to_string(),
@@ -1536,13 +1624,37 @@ async fn daemon_context_from_cache(
     } else {
         None
     };
-    Ok(generate_context_pack(
-        &snapshot,
-        task,
-        level,
-        limits,
-        direct_matches,
-    ))
+    let pack = generate_context_pack(&snapshot, task, level, limits, direct_matches);
+    state
+        .context_cache
+        .lock()
+        .map_err(|_| anyhow::anyhow!("daemon context cache lock is poisoned"))?
+        .insert(cache_key, pack.clone());
+    Ok(pack)
+}
+
+async fn daemon_overview_from_cache(
+    state: &Arc<DaemonState>,
+    top: usize,
+) -> Result<RepositoryOverview> {
+    let snapshot = latest_snapshot_for_daemon(state).await?;
+    let snapshot_id = snapshot_id(&snapshot)?;
+    let cache_key = OverviewCacheKey { snapshot_id, top };
+    if let Some(overview) = state
+        .overview_cache
+        .lock()
+        .map_err(|_| anyhow::anyhow!("daemon overview cache lock is poisoned"))?
+        .get(&cache_key)
+    {
+        return Ok(overview);
+    }
+    let overview = build_repository_overview(&snapshot, top);
+    state
+        .overview_cache
+        .lock()
+        .map_err(|_| anyhow::anyhow!("daemon overview cache lock is poisoned"))?
+        .insert(cache_key, overview.clone());
+    Ok(overview)
 }
 
 async fn daemon_explain_from_cache(
@@ -1559,10 +1671,56 @@ async fn daemon_search_from_cache(
     limit: usize,
 ) -> Result<crate::search::SearchReport> {
     let snapshot = latest_snapshot_for_daemon(state).await?;
-    search_snapshot(&state.endpoint.root, &snapshot, query, limit).await
+    let index = search_index_for_daemon(state, &snapshot)?;
+    search_snapshot_with_index(
+        &state.endpoint.root,
+        &snapshot,
+        query,
+        limit,
+        index.as_ref(),
+    )
+    .await
 }
 
-fn invalidate_latest_snapshot_cache(state: &DaemonState) {
+fn snapshot_id(snapshot: &CanonicalSnapshot) -> Result<String> {
+    snapshot
+        .snapshot
+        .as_ref()
+        .map(|snapshot| snapshot.0.clone())
+        .ok_or_else(|| anyhow::anyhow!("latest canonical snapshot has no snapshot id"))
+}
+
+fn search_index_for_daemon(
+    state: &DaemonState,
+    snapshot: &CanonicalSnapshot,
+) -> Result<Arc<TantivySearchIndex>> {
+    let snapshot_id = snapshot_id(snapshot)?;
+    let mut cache = state
+        .search_index_cache
+        .lock()
+        .map_err(|_| anyhow::anyhow!("daemon search index cache lock is poisoned"))?;
+    if let Some(cached) = cache.as_ref()
+        && cached.snapshot_id == snapshot_id
+    {
+        return Ok(Arc::clone(&cached.index));
+    }
+    let index_dir = state
+        .endpoint
+        .root
+        .join(".athanor/generated/current/search");
+    let index = Arc::new(get_or_build_search_index_sync(
+        snapshot,
+        &snapshot_id,
+        &index_dir,
+    )?);
+    *cache = Some(CachedSearchIndex {
+        snapshot_id,
+        index: Arc::clone(&index),
+    });
+    Ok(index)
+}
+
+fn invalidate_daemon_caches(state: &DaemonState) {
     match state.latest_snapshot_cache.lock() {
         Ok(mut cache) => {
             *cache = None;
@@ -1570,6 +1728,22 @@ fn invalidate_latest_snapshot_cache(state: &DaemonState) {
         Err(_) => {
             tracing::warn!("daemon snapshot cache lock is poisoned");
         }
+    }
+    match state.search_index_cache.lock() {
+        Ok(mut cache) => {
+            *cache = None;
+        }
+        Err(_) => {
+            tracing::warn!("daemon search index cache lock is poisoned");
+        }
+    }
+    match state.overview_cache.lock() {
+        Ok(mut cache) => cache.clear(),
+        Err(_) => tracing::warn!("daemon overview cache lock is poisoned"),
+    }
+    match state.context_cache.lock() {
+        Ok(mut cache) => cache.clear(),
+        Err(_) => tracing::warn!("daemon context cache lock is poisoned"),
     }
 }
 
@@ -1607,7 +1781,7 @@ fn start_index_job(state: &Arc<DaemonState>, description: String) -> Result<Daem
                 });
             match result {
                 Ok(report) => {
-                    invalidate_latest_snapshot_cache(&job_state);
+                    invalidate_daemon_caches(&job_state);
                     tracing::info!(
                         job_id = %job_id_for_task,
                         snapshot = %report.snapshot,
@@ -2264,6 +2438,9 @@ mod tests {
             next_job_sequence: Mutex::new(1),
             max_job_history: 100,
             latest_snapshot_cache: Mutex::new(None),
+            search_index_cache: Mutex::new(None),
+            overview_cache: Mutex::new(BoundedCache::new(DERIVED_CACHE_CAPACITY)),
+            context_cache: Mutex::new(BoundedCache::new(DERIVED_CACHE_CAPACITY)),
             cancellation_tokens: Mutex::new(HashMap::new()),
         });
         let task = tokio::spawn(async move {
@@ -2423,6 +2600,9 @@ mod tests {
             next_job_sequence: Mutex::new(3),
             max_job_history: 100,
             latest_snapshot_cache: Mutex::new(None),
+            search_index_cache: Mutex::new(None),
+            overview_cache: Mutex::new(BoundedCache::new(DERIVED_CACHE_CAPACITY)),
+            context_cache: Mutex::new(BoundedCache::new(DERIVED_CACHE_CAPACITY)),
             cancellation_tokens: Mutex::new(HashMap::new()),
         };
 
@@ -2470,6 +2650,9 @@ mod tests {
             next_job_sequence: Mutex::new(2),
             max_job_history: 100,
             latest_snapshot_cache: Mutex::new(None),
+            search_index_cache: Mutex::new(None),
+            overview_cache: Mutex::new(BoundedCache::new(DERIVED_CACHE_CAPACITY)),
+            context_cache: Mutex::new(BoundedCache::new(DERIVED_CACHE_CAPACITY)),
             cancellation_tokens: Mutex::new(HashMap::new()),
         };
 
@@ -2567,6 +2750,9 @@ mod tests {
             next_job_sequence: Mutex::new(1),
             max_job_history: 100,
             latest_snapshot_cache: Mutex::new(Some(snapshot)),
+            search_index_cache: Mutex::new(None),
+            overview_cache: Mutex::new(BoundedCache::new(DERIVED_CACHE_CAPACITY)),
+            context_cache: Mutex::new(BoundedCache::new(DERIVED_CACHE_CAPACITY)),
             cancellation_tokens: Mutex::new(HashMap::new()),
         });
 
@@ -2624,6 +2810,9 @@ mod tests {
             next_job_sequence: Mutex::new(1),
             max_job_history: 100,
             latest_snapshot_cache: Mutex::new(Some(snapshot)),
+            search_index_cache: Mutex::new(None),
+            overview_cache: Mutex::new(BoundedCache::new(DERIVED_CACHE_CAPACITY)),
+            context_cache: Mutex::new(BoundedCache::new(DERIVED_CACHE_CAPACITY)),
             cancellation_tokens: Mutex::new(HashMap::new()),
         });
 
@@ -2635,6 +2824,123 @@ mod tests {
         assert_eq!(report.snapshot, "snap_search");
         assert_eq!(report.returned, 1);
         assert_eq!(report.results[0].stable_key, "api://POST:/login");
+
+        let first_index = state
+            .search_index_cache
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|cached| Arc::clone(&cached.index))
+            .unwrap();
+        let second_report = daemon_search_from_cache(&state, "auth".to_string(), 10)
+            .await
+            .unwrap();
+        let second_index = state
+            .search_index_cache
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|cached| Arc::clone(&cached.index))
+            .unwrap();
+
+        assert_eq!(second_report.snapshot, "snap_search");
+        assert!(Arc::ptr_eq(&first_index, &second_index));
+    }
+
+    #[tokio::test]
+    async fn caches_derived_results_and_invalidates_the_full_cache_epoch() {
+        let root = temp_root("derived-cache");
+        let snapshot = CanonicalSnapshot {
+            snapshot: Some(athanor_domain::SnapshotId("snap_derived".to_string())),
+            entities: vec![athanor_domain::Entity {
+                id: athanor_domain::EntityId("ent_login".to_string()),
+                stable_key: athanor_domain::StableKey("api://POST:/login".to_string()),
+                kind: athanor_domain::EntityKind::ApiEndpoint,
+                name: "POST /login".to_string(),
+                title: Some("Login endpoint".to_string()),
+                source: None,
+                language: None,
+                aliases: vec!["auth login".to_string()],
+                ownership: Vec::new(),
+                payload: serde_json::json!({"summary": "Authenticate a user"}),
+            }],
+            facts: Vec::new(),
+            relations: Vec::new(),
+            diagnostics: Vec::new(),
+        };
+        let state = Arc::new(DaemonState {
+            endpoint: DaemonEndpoint {
+                schema: DAEMON_ENDPOINT_SCHEMA.to_string(),
+                project_id: "alpha".to_string(),
+                root: root.clone(),
+                registry_path: root.join("projects.json"),
+                address: "127.0.0.1:1".parse().unwrap(),
+                transport: DaemonTransport::Tcp,
+                local_socket_path: None,
+                windows_pipe_name: None,
+                pid: 1,
+                started_at_unix_ms: 1,
+                max_concurrent_requests: 4,
+                max_job_history: 100,
+                watch: false,
+                watch_poll: false,
+                debounce_ms: 1000,
+                max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
+                max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
+            },
+            jobs: Mutex::new(Vec::new()),
+            next_job_sequence: Mutex::new(1),
+            max_job_history: 100,
+            latest_snapshot_cache: Mutex::new(Some(snapshot)),
+            search_index_cache: Mutex::new(None),
+            overview_cache: Mutex::new(BoundedCache::new(DERIVED_CACHE_CAPACITY)),
+            context_cache: Mutex::new(BoundedCache::new(DERIVED_CACHE_CAPACITY)),
+            cancellation_tokens: Mutex::new(HashMap::new()),
+        });
+
+        daemon_overview_from_cache(&state, 5).await.unwrap();
+        daemon_overview_from_cache(&state, 5).await.unwrap();
+        daemon_context_from_cache(
+            &state,
+            "login",
+            ContextLevel::Normal,
+            &ContextLimitOverrides::default(),
+        )
+        .await
+        .unwrap();
+        daemon_context_from_cache(
+            &state,
+            "login",
+            ContextLevel::Normal,
+            &ContextLimitOverrides::default(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(state.overview_cache.lock().unwrap().entries.len(), 1);
+        assert_eq!(state.context_cache.lock().unwrap().entries.len(), 1);
+        assert!(state.search_index_cache.lock().unwrap().is_some());
+
+        invalidate_daemon_caches(&state);
+
+        assert!(state.latest_snapshot_cache.lock().unwrap().is_none());
+        assert!(state.search_index_cache.lock().unwrap().is_none());
+        assert!(state.overview_cache.lock().unwrap().entries.is_empty());
+        assert!(state.context_cache.lock().unwrap().entries.is_empty());
+    }
+
+    #[test]
+    fn bounded_cache_evicts_the_least_recently_used_entry() {
+        let mut cache = BoundedCache::new(2);
+        cache.insert("first", 1);
+        cache.insert("second", 2);
+        assert_eq!(cache.get(&"first"), Some(1));
+
+        cache.insert("third", 3);
+
+        assert_eq!(cache.get(&"second"), None);
+        assert_eq!(cache.get(&"first"), Some(1));
+        assert_eq!(cache.get(&"third"), Some(3));
     }
 
     #[test]
@@ -2674,6 +2980,9 @@ mod tests {
             next_job_sequence: Mutex::new(2),
             max_job_history: 100,
             latest_snapshot_cache: Mutex::new(None),
+            search_index_cache: Mutex::new(None),
+            overview_cache: Mutex::new(BoundedCache::new(DERIVED_CACHE_CAPACITY)),
+            context_cache: Mutex::new(BoundedCache::new(DERIVED_CACHE_CAPACITY)),
             cancellation_tokens: Mutex::new(HashMap::new()),
         };
 
@@ -2749,6 +3058,9 @@ mod tests {
             next_job_sequence: Mutex::new(3),
             max_job_history: 100,
             latest_snapshot_cache: Mutex::new(None),
+            search_index_cache: Mutex::new(None),
+            overview_cache: Mutex::new(BoundedCache::new(DERIVED_CACHE_CAPACITY)),
+            context_cache: Mutex::new(BoundedCache::new(DERIVED_CACHE_CAPACITY)),
             cancellation_tokens: Mutex::new(HashMap::from([(
                 "job_00000002".to_string(),
                 running_cancellation.clone(),
@@ -2807,6 +3119,9 @@ mod tests {
             next_job_sequence: Mutex::new(1),
             max_job_history: 100,
             latest_snapshot_cache: Mutex::new(None),
+            search_index_cache: Mutex::new(None),
+            overview_cache: Mutex::new(BoundedCache::new(DERIVED_CACHE_CAPACITY)),
+            context_cache: Mutex::new(BoundedCache::new(DERIVED_CACHE_CAPACITY)),
             cancellation_tokens: Mutex::new(HashMap::new()),
         };
 
@@ -2866,6 +3181,9 @@ mod tests {
             next_job_sequence: Mutex::new(1),
             max_job_history: 100,
             latest_snapshot_cache: Mutex::new(None),
+            search_index_cache: Mutex::new(None),
+            overview_cache: Mutex::new(BoundedCache::new(DERIVED_CACHE_CAPACITY)),
+            context_cache: Mutex::new(BoundedCache::new(DERIVED_CACHE_CAPACITY)),
             cancellation_tokens: Mutex::new(HashMap::new()),
         };
 

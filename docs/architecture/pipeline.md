@@ -394,12 +394,15 @@ repository.
 project registry before serving or sending requests:
 
 ```bash
+athd start <project-id>
+athd start <project-id> --transport local-socket --watch
 athd serve <project-id> --max-concurrent-requests 4 --max-job-history 1000
 athd serve <project-id> --max-request-bytes 1048576 --max-response-bytes 2097152
 athd serve <project-id> --transport local-socket
 athd serve <project-id> --watch --debounce-ms 1000
 athd serve <project-id> --watch --watch-poll --debounce-ms 5000
 athd status <project-id>
+athd ping <project-id>
 athd jobs <project-id> --limit 20
 athd job <project-id> job_00000001
 athd cancel <project-id> job_00000001
@@ -414,6 +417,12 @@ athd context <project-id> "task" --level summary --budget 2000
 athd context <project-id> --diff --level summary --budget 2000
 athd stop <project-id>
 ```
+
+`athd start` launches the same `serve` command as a background process, redirects daemon logs to
+`.athanor/daemon/daemon.log`, and returns only after a bounded status round trip confirms readiness.
+Repeated start requests are idempotent when the registered project daemon is already healthy.
+`athd serve` remains the foreground/debug form. `athd ping` performs the explicit protocol health
+round trip and returns the normal structured status response.
 
 The daemon writes runtime metadata under the resolved repository root:
 
@@ -473,9 +482,12 @@ pointer, and canonical object counts. Direct wiki and HTML report jobs record th
 id, output directory, and canonical object counts. `athd index` reuses the existing `index_project`
 path and rejects a second concurrent indexing job for the same daemon so snapshot writers do not
 overlap. Daemon overview, explain, search, and non-diff context requests cache the latest canonical
-snapshot in memory after the first load; successful daemon-owned index jobs invalidate this hot cache
-before subsequent read-only requests. Diff context still performs current source discovery and
-index-state comparison before building its bounded pack. `athd generate`, `athd wiki`, and `athd report-html` reuse the existing projection paths
+snapshot in memory after the first load. The daemon also retains one snapshot-keyed Tantivy search
+handle and bounded 64-entry least-recently-used caches for completed overview and non-diff context
+results. Search and context share the same in-memory search handle instead of reopening the on-disk
+index for each request. Successful daemon-owned index jobs invalidate the complete cache epoch before
+subsequent read-only requests. Diff context still performs current source discovery and index-state
+comparison before building its bounded pack. `athd generate`, `athd wiki`, and `athd report-html` reuse the existing projection paths
 and reject a second concurrent job of the same kind so output publishers do not overlap. Job history
 is retained in memory up to `--max-job-history`; pruning removes the oldest finished records first
 and never removes queued, running, or cancelling records. Cancellation is cooperative: background
@@ -493,8 +505,7 @@ recursively through `notify-debouncer-mini`, ignores `.athanor` artifact changes
 debounced background index job when source paths change. By default it uses the
 platform-recommended watcher backend; `--watch-poll` selects the polling backend for filesystems
 where native notifications are unavailable or unreliable. The watcher is a scheduler; persisted
-content hashes still decide which files actually changed. Further hot cache expansion beyond
-overview/explain/search/context remains future Phase 7 work.
+content hashes still decide which files actually changed.
 Logs continue to use stderr or tracing sinks and are kept separate from structured protocol
 responses.
 
