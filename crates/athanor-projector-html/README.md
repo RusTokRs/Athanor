@@ -18,10 +18,11 @@ Writes:
 
 ```text
 index.html
+entities/<entity-id>.html
 manifest.json
 ```
 
-The HTML contains snapshot metrics, open diagnostic cards, and a canonical entity table. Dynamic canonical text is HTML-escaped and the report has no external scripts, stylesheets, or network dependencies.
+The HTML contains snapshot metrics, a compact graph summary, open diagnostic cards, client-side filters, and a canonical entity table. Each canonical entity also receives a detail page with identity metadata, ownership, attached facts, relations, diagnostics, and evidence locations. Dynamic canonical text is HTML-escaped and the report has no external scripts, stylesheets, or network dependencies.
 
 ## Commands And Network
 
@@ -31,8 +32,8 @@ The HTML contains snapshot metrics, open diagnostic cards, and a canonical entit
 
 ## Limitations
 
-- The first report is a single static page without client-side filtering.
-- Facts and relations are summarized by count rather than rendered individually.
+- The graph view is a compact inspection summary rather than an interactive layout algorithm.
+- Entity detail pages render direct attached facts, relations, diagnostics, and evidence, but deeper graph traversal remains a CLI/query workflow.
 - It rebuilds the complete report on every invocation.
 
 ## Tests

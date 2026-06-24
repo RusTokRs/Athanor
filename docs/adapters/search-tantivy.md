@@ -32,6 +32,22 @@ The index defines four fields:
 - **Synchronization**: Emits an `index_meta.json` file storing the currently indexed `snapshot_id`.
 - **Rebuilding**: When `context` or `search` operations run, the orchestrator compares the metadata's snapshot ID to the latest canonical snapshot. If it is mismatched or missing, the index directory is deleted and rebuilt from scratch to ensure complete consistency without store pollution.
 
+## Agent-Facing Query Contract
+
+Agents should not inspect the Tantivy directory or generated JSONL directly. The app-layer
+`ath search <query>` command is the bounded access path. Its JSON output uses
+`athanor.search.v1` and includes:
+
+- the original query, requested limit, returned count, and truncation status
+- an omitted-result lower bound when the limit hides additional matches
+- canonical entity ids and stable keys
+- source anchors and ownership metadata for each result
+- BM25 score, serialized entity kind, name, and optional title
+
+Full snapshot rebuilds add all canonical entity documents in one batch and commit before opening
+the reader. This avoids per-document segment reloads retaining obsolete memory-mapped files on
+Windows.
+
 ## Configuration
 Add `athanor-search-tantivy` to workspace dependencies. It is used as a coordinate read-model alongside JSONL, wiki, and HTML reports.
 

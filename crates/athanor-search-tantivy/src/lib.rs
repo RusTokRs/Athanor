@@ -28,28 +28,7 @@ pub struct TantivySearchIndex {
 
 impl TantivySearchIndex {
     pub fn open_or_create(path: &Path) -> anyhow::Result<Self> {
-        let mut schema_builder = Schema::builder();
-
-        // Versioned tokenizer setting ("athanor_en_v1")
-        let text_options = TextOptions::default()
-            .set_indexing_options(
-                TextFieldIndexing::default()
-                    .set_tokenizer("athanor_en_v1")
-                    .set_index_option(IndexRecordOption::WithFreqsAndPositions),
-            )
-            .set_stored();
-
-        let body_options = TextOptions::default().set_indexing_options(
-            TextFieldIndexing::default()
-                .set_tokenizer("athanor_en_v1")
-                .set_index_option(IndexRecordOption::WithFreqsAndPositions),
-        );
-
-        let id_field = schema_builder.add_text_field("id", STRING | STORED);
-        let title_field = schema_builder.add_text_field("title", text_options);
-        let body_field = schema_builder.add_text_field("body", body_options);
-        let payload_field = schema_builder.add_text_field("payload", STORED);
-        let schema = schema_builder.build();
+        let (schema, fields) = search_schema();
 
         let index = match Index::open_in_dir(path) {
             Ok(idx) => idx,
@@ -60,17 +39,7 @@ impl TantivySearchIndex {
             }
         };
 
-        // Register custom versioned tokenizer
-        let tokenizer = tantivy::tokenizer::TextAnalyzer::builder(
-            tantivy::tokenizer::SimpleTokenizer::default(),
-        )
-        .filter(tantivy::tokenizer::LowerCaser)
-        .filter(tantivy::tokenizer::Stemmer::new(
-            tantivy::tokenizer::Language::English,
-        ))
-        .build();
-
-        index.tokenizers().register("athanor_en_v1", tokenizer);
+        register_tokenizer(&index);
 
         let writer = index.writer(50_000_000)?;
         let reader = index.reader()?;
@@ -79,12 +48,84 @@ impl TantivySearchIndex {
             index,
             reader,
             writer: Arc::new(Mutex::new(writer)),
-            id_field,
-            title_field,
-            body_field,
-            payload_field,
+            id_field: fields.id,
+            title_field: fields.title,
+            body_field: fields.body,
+            payload_field: fields.payload,
         })
     }
+
+    pub fn rebuild(path: &Path, documents: Vec<SearchDocument>) -> anyhow::Result<Self> {
+        if path.exists() {
+            std::fs::remove_dir_all(path)?;
+        }
+        std::fs::create_dir_all(path)?;
+
+        let (schema, fields) = search_schema();
+        let index = Index::create_in_dir(path, schema)?;
+        register_tokenizer(&index);
+
+        let mut writer = index.writer(50_000_000)?;
+        for document in documents {
+            let payload = serde_json::to_string(&document.payload)?;
+            writer.add_document(doc!(
+                fields.id => document.id,
+                fields.title => document.title,
+                fields.body => document.body,
+                fields.payload => payload,
+            ))?;
+        }
+        writer.commit()?;
+        drop(writer);
+
+        Self::open_or_create(path)
+    }
+}
+
+struct SearchFields {
+    id: Field,
+    title: Field,
+    body: Field,
+    payload: Field,
+}
+
+fn search_schema() -> (Schema, SearchFields) {
+    let mut schema_builder = Schema::builder();
+
+    let text_options = TextOptions::default()
+        .set_indexing_options(
+            TextFieldIndexing::default()
+                .set_tokenizer("athanor_en_v1")
+                .set_index_option(IndexRecordOption::WithFreqsAndPositions),
+        )
+        .set_stored();
+
+    let body_options = TextOptions::default().set_indexing_options(
+        TextFieldIndexing::default()
+            .set_tokenizer("athanor_en_v1")
+            .set_index_option(IndexRecordOption::WithFreqsAndPositions),
+    );
+
+    let fields = SearchFields {
+        id: schema_builder.add_text_field("id", STRING | STORED),
+        title: schema_builder.add_text_field("title", text_options),
+        body: schema_builder.add_text_field("body", body_options),
+        payload: schema_builder.add_text_field("payload", STORED),
+    };
+
+    (schema_builder.build(), fields)
+}
+
+fn register_tokenizer(index: &Index) {
+    let tokenizer =
+        tantivy::tokenizer::TextAnalyzer::builder(tantivy::tokenizer::SimpleTokenizer::default())
+            .filter(tantivy::tokenizer::LowerCaser)
+            .filter(tantivy::tokenizer::Stemmer::new(
+                tantivy::tokenizer::Language::English,
+            ))
+            .build();
+
+    index.tokenizers().register("athanor_en_v1", tokenizer);
 }
 
 #[async_trait]
@@ -259,6 +300,40 @@ mod tests {
             .unwrap();
         assert!(results.is_empty());
 
+        let _ = std::fs::remove_dir_all(temp_dir);
+    }
+
+    #[tokio::test]
+    async fn rebuild_indexes_documents_with_one_commit() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "athanor-tantivy-rebuild-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+
+        let documents = (0..2_500)
+            .map(|index| SearchDocument {
+                id: format!("doc-{index}"),
+                title: format!("API retention document {index}"),
+                body: "snapshot cleanup and generated artifact retention".to_string(),
+                payload: json!({"index": index}),
+            })
+            .collect();
+
+        let index = TantivySearchIndex::rebuild(&temp_dir, documents).unwrap();
+        let results = index
+            .search(SearchQuery {
+                query: "retention".to_string(),
+                limit: 3,
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 3);
+
+        drop(index);
         let _ = std::fs::remove_dir_all(temp_dir);
     }
 }

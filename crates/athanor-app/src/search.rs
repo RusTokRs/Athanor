@@ -4,7 +4,7 @@ use anyhow::{Context, Result, bail};
 use athanor_core::{
     CanonicalSnapshot, CanonicalSnapshotStore, SearchDocument, SearchIndex, SearchQuery,
 };
-use athanor_domain::Entity;
+use athanor_domain::{Entity, EntityId, Ownership, SourceLocation};
 use athanor_search_tantivy::TantivySearchIndex;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -21,17 +21,33 @@ pub struct SearchOptions {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchItem {
+    pub entity_id: EntityId,
     pub stable_key: String,
     pub kind: String,
     pub name: String,
+    pub title: Option<String>,
+    pub source: Option<SourceLocation>,
+    pub ownership: Vec<Ownership>,
     pub score: f32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchReport {
+    pub schema: String,
     pub root: PathBuf,
     pub snapshot: String,
+    pub query: String,
+    pub limit: usize,
+    pub returned: usize,
+    pub truncated: bool,
+    pub omitted: SearchOmissions,
     pub results: Vec<SearchItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchOmissions {
+    pub results_lower_bound: usize,
+    pub reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,6 +58,9 @@ struct IndexMeta {
 pub async fn search_project(options: SearchOptions) -> Result<SearchReport> {
     if options.query.trim().is_empty() {
         bail!("search query must not be empty");
+    }
+    if options.limit == 0 {
+        bail!("search limit must be greater than zero");
     }
 
     let root = normalize_canonical_path(
@@ -72,14 +91,16 @@ pub async fn search_project(options: SearchOptions) -> Result<SearchReport> {
 
     let results = index
         .search(SearchQuery {
-            query: options.query,
-            limit: options.limit,
+            query: options.query.clone(),
+            limit: options.limit.saturating_add(1),
         })
         .await
         .context("failed to query search index")?;
+    let truncated = results.len() > options.limit;
 
     let search_items = results
         .into_iter()
+        .take(options.limit)
         .filter_map(|res| {
             let entity: Entity = serde_json::from_value(res.payload).ok()?;
             let kind = serde_json::to_value(&entity.kind)
@@ -88,17 +109,31 @@ pub async fn search_project(options: SearchOptions) -> Result<SearchReport> {
                 .map(str::to_string)
                 .unwrap_or_else(|| "unknown".to_string());
             Some(SearchItem {
+                entity_id: entity.id,
                 stable_key: entity.stable_key.0,
                 kind,
                 name: entity.name,
+                title: entity.title,
+                source: entity.source,
+                ownership: entity.ownership,
                 score: res.score,
             })
         })
-        .collect();
+        .collect::<Vec<_>>();
+    let returned = search_items.len();
 
     Ok(SearchReport {
+        schema: "athanor.search.v1".to_string(),
         root,
         snapshot: snapshot_id,
+        query: options.query,
+        limit: options.limit,
+        returned,
+        truncated,
+        omitted: SearchOmissions {
+            results_lower_bound: usize::from(truncated),
+            reason: truncated.then(|| "limit".to_string()),
+        },
         results: search_items,
     })
 }
@@ -124,31 +159,27 @@ pub async fn get_or_build_search_index(
     };
 
     if needs_rebuild {
-        if index_dir.exists() {
-            let _ = fs::remove_dir_all(index_dir);
-        }
-        fs::create_dir_all(index_dir)?;
-
-        let index = TantivySearchIndex::open_or_create(index_dir)
-            .context("failed to create search index")?;
-
-        for entity in &snapshot.entities {
-            let body = entity_text(entity);
-            index
-                .index_document(SearchDocument {
+        let documents = snapshot
+            .entities
+            .iter()
+            .map(|entity| {
+                Ok(SearchDocument {
                     id: entity.id.0.clone(),
                     title: entity.title.clone().unwrap_or_else(|| entity.name.clone()),
-                    body,
+                    body: entity_text(entity),
                     payload: serde_json::to_value(entity)?,
                 })
-                .await
-                .context("failed to index entity")?;
-        }
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let index = TantivySearchIndex::rebuild(index_dir, documents)
+            .context("failed to rebuild search index")?;
 
         let meta = IndexMeta {
             snapshot_id: snapshot_id.to_string(),
         };
         fs::write(&meta_path, serde_json::to_string_pretty(&meta)?)?;
+
+        return Ok(index);
     }
 
     TantivySearchIndex::open_or_create(index_dir).context("failed to open search index")

@@ -29,16 +29,21 @@ The default output is:
 ```text
 .athanor/generated/current/html/
   index.html
+  entities/<entity-id>.html
   manifest.json
 ```
 
 The static report includes:
 
 - snapshot and canonical object counts
+- a bounded graph summary with relation-kind counts and high-degree connected entities
+- embedded client-side filters for entity search, source path, entity kind, and diagnostic severity
 - complete open diagnostic cards with evidence and suggested fixes
 - a deterministic table of canonical entities, source locations, stable keys, and attached diagnostic counts
+- one detail page per canonical entity with identity metadata, ownership, attached relations, facts, diagnostics, and evidence locations
 
-All dynamic canonical text is HTML-escaped. CSS is embedded and the page does not load scripts, fonts, stylesheets, or other network resources.
+All dynamic canonical text is HTML-escaped. CSS and the small filtering script are embedded, and the
+page does not load scripts, fonts, stylesheets, or other network resources.
 
 The projector uses `athanor-projector-support` for staged directory replacement shared with the Markdown wiki projector. Readers never observe partially written output; platforms that cannot replace a non-empty directory in one operation can briefly observe the target as absent during the final swap.
 
@@ -60,8 +65,8 @@ Relative output paths are resolved against the project root. The command does no
 
 ## Limitations
 
-- Produces one static page without client-side search or filtering.
-- Summarizes facts and relations by count rather than rendering each object.
+- The graph view is a compact inspection summary rather than an interactive layout algorithm.
+- Entity detail pages render direct attached facts, relations, diagnostics, and evidence, but do not yet provide cross-page graph traversal controls beyond stable links.
 - Rebuilds the complete report on every invocation.
 - Projector plugin discovery and runtime registration remain deferred.
 

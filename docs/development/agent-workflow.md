@@ -100,7 +100,25 @@ New adapter crates must have a `README.md`.
 
 If documentation is added, renamed, removed, or its purpose changes, update `docs/README.md` in the same task.
 
-## 6. Verification
+## 6. Agent-Facing Output Rule
+
+Athanor must not require agents to read large generated artifacts directly.
+
+Generated JSONL, Markdown wiki, HTML reports, graph exports, API artifacts, and future search/vector
+read models are backing read models or inspection outputs. Agent-facing access must use bounded
+query or context commands with:
+
+- explicit file, entity, diagnostic, relation, or token limits
+- stable JSON schemas for machine use
+- canonical ids and stable keys
+- source anchors and evidence links
+- omitted/truncated counts when limits hide available data
+
+If a feature creates or depends on a large generated artifact, it is not complete for agent use until
+there is a bounded command or API that returns the relevant slice without requiring full-artifact
+reading.
+
+## 7. Verification
 
 Run for code changes:
 
@@ -118,7 +136,7 @@ cargo run -p ath --quiet -- index .
 
 For docs-only changes, no Rust checks are required unless code or generated behavior changed.
 
-## 7. Completion Note
+## 8. Completion Note
 
 Final reports should include:
 

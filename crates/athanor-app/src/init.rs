@@ -70,6 +70,16 @@ enabled = true
 source_of_truth = "hybrid"
 strict = true
 
+[api]
+enabled = true
+source_of_truth = "hybrid"
+strict = true
+
+[api.retention]
+auto_cleanup = false
+keep_snapshots = 2
+keep_diffs = 2
+
 [docs.operations]
 enabled = true
 include_scripts = true

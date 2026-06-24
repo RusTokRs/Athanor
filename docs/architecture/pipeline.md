@@ -96,7 +96,7 @@ flowchart TD
 41. On demand, `ath docs drift` reports editable documentation not verified against the latest canonical snapshot.
 42. On demand, `ath docs propose-fix` writes a reviewable JSON patch proposal for editable documentation frontmatter policy and drift findings.
 43. On demand, `ath docs apply-patch <id-or-path>` explicitly applies one generated documentation patch proposal after verifying it still targets the latest canonical snapshot.
-44. On demand, `ath api snapshot` publishes the latest API contract immutably, `ath api diff` compares contract snapshots, and `ath api cleanup` removes old API contract artifacts only through explicit retention.
+44. On demand, `ath api snapshot` publishes the latest API contract immutably, `ath api diff` compares contract snapshots, and `ath api cleanup` removes old API contract artifacts through explicit retention. When `[api.retention].auto_cleanup` or a one-off `--cleanup` flag is enabled, successful snapshot and diff commands run the same retention cleanup after publication.
 
 ## Pipeline Assembly
 
@@ -108,6 +108,7 @@ flowchart TD
 - `JsonlReadModelWriter`: reusable JSONL export for generated read models.
 - `JsonlKnowledgeStore`: durable local canonical snapshot store used by the CLI.
 - `overview_project`: bounded repository orientation from the latest canonical snapshot.
+- `search_project`: bounded BM25 lexical entity search from the latest canonical snapshot and disposable Tantivy read model.
 - `context_project`: task-focused context-pack generation from the latest canonical snapshot.
 - `explain_project`: exact stable-key entity explanation from the latest canonical snapshot.
 - `export_graph`: bounded JSON/GraphML graph export from the latest canonical snapshot.
@@ -148,9 +149,9 @@ The complete projection is built in a temporary sibling directory, then renamed 
 
 ## HTML Report Projection
 
-`ath report html [path]` reads the latest durable canonical snapshot without re-indexing and invokes `HtmlReportProjector` through the core `Projector` port. It writes a self-contained `index.html` and a versioned manifest under `.athanor/generated/current/html` by default.
+`ath report html [path]` reads the latest durable canonical snapshot without re-indexing and invokes `HtmlReportProjector` through the core `Projector` port. It writes a self-contained `index.html`, one `entities/<entity-id>.html` detail page per canonical entity, and a versioned manifest under `.athanor/generated/current/html` by default.
 
-The report shows snapshot metrics, complete open diagnostics, and a deterministic canonical entity table. Dynamic canonical values are HTML-escaped, presentation CSS is embedded, and the output has no network dependencies. The HTML and wiki adapters share canonical projection payload and staged directory publication utilities through `athanor-projector-support`.
+The report shows snapshot metrics, a compact canonical graph summary, complete open diagnostics, filterable canonical entity tables, and entity detail pages with attached facts, relations, diagnostics, ownership, and evidence locations. Dynamic canonical values are HTML-escaped, presentation CSS and the small filtering script are embedded, and the output has no network dependencies. The HTML and wiki adapters share canonical projection payload and staged directory publication utilities through `athanor-projector-support`.
 
 ## Coordinated Generated Generations
 
@@ -240,6 +241,24 @@ All ranked sections use the command's `--top` bound. `--json` emits the stable
 `athanor.overview.v1` payload. The text output is intended as a quick agent/developer starting
 point before using `ath context`, `ath explain`, or `ath impact` for narrower questions.
 
+## Agent Bounded Retrieval Contract
+
+Athanor's generated JSONL, Markdown wiki, HTML report, GraphML/JSON graph exports, API contract
+artifacts, and future search/vector outputs are backing read models or human inspection outputs.
+They are not the conversational context interface for agents.
+
+Agent-facing workflows must use bounded commands or APIs such as `ath overview`, `ath context`,
+`ath context --diff`, `ath search`, `ath explain`, `ath graph related`, `ath graph path`,
+`ath graph hubs`, `ath graph cycles`, `ath check affected`, or future daemon/query endpoints. Those outputs must be
+deterministic, size-limited, and traceable back to canonical ids, stable keys, source anchors, and
+evidence.
+
+New features that introduce large generated outputs are not complete until they also provide a
+bounded retrieval path, or document why an existing bounded query is sufficient. Full generated
+artifact reads may be used for debugging, batch processing, or external tooling, but should not be
+required for normal agent use. Bounded outputs should report effective limits and omitted or
+truncated counts when additional canonical data exists outside the returned slice.
+
 `ath impact <target>` and `ath impact --diff` report impacted entities, files, and diagnostics from
 the latest canonical snapshot. Impacted entities include the raw canonical relation flow and a
 stable `path_steps` explanation with relation ids, relation kinds, traversal direction, endpoint
@@ -259,7 +278,18 @@ entity so agents can explain why the entity is included instead of only reportin
 - records diff changed/unchanged/removed file counts when invoked with `--diff`
 - reports effective limits, approximate serialized token usage, omitted object counts, and whether relevance or limits caused omission in the JSON payload
 
-The token budget is a deterministic estimate based on serialized canonical payload bytes divided by four; it is a size guard, not tokenizer-specific accounting. This remains an app-layer lexical slice rather than a `SearchIndex` implementation. Tantivy, vectors, and semantic ranking remain future adapters or services.
+The token budget is a deterministic estimate based on serialized canonical payload bytes divided by four; it is a size guard, not tokenizer-specific accounting. This remains an app-layer lexical slice rather than a `SearchIndex` implementation.
+
+`ath search <query>` is the bounded lexical lookup layer over the disposable Tantivy read model at
+`.athanor/generated/current/search`. The app service rebuilds that index when its `index_meta.json`
+snapshot id does not match the latest canonical snapshot. JSON output emits `athanor.search.v1`
+with the original query, requested limit, returned count, truncation status, omitted lower bound,
+canonical entity ids, stable keys, source anchors, and ownership metadata. The command fetches one
+extra result internally so agents can tell when the configured limit hides additional matches
+without reading generated JSONL or search-index internals. Full snapshot rebuilds add all entity
+documents in one batch and commit before opening the search reader, avoiding per-document segment
+reloads and obsolete memory-mapped file locks on Windows. Tantivy remains a replaceable read-model
+adapter; vectors and semantic ranking remain future adapters or services.
 
 `ath graph export --format json` and `ath graph export --format graphml` read the latest durable canonical snapshot without re-indexing and
 emit a bounded disposable graph read model. The JSON payload uses schema
@@ -451,6 +481,20 @@ workflow rather than a disposable index byproduct. The command supports `--dry-r
 `--keep-snapshots`, and `--keep-diffs`; the latest API contract snapshot selected by
 `.athanor/api/latest.json` is always retained even when the snapshot retention count is lower.
 
+Automatic API retention is configured under `[api.retention]`:
+
+```toml
+[api.retention]
+auto_cleanup = false
+keep_snapshots = 2
+keep_diffs = 2
+```
+
+The default is non-destructive. When `auto_cleanup` is true, successful `ath api snapshot` and
+`ath api diff` runs call the same cleanup path as `ath api cleanup` with the configured retention
+counts. The one-off CLI flags `--cleanup`, `--no-cleanup`, `--keep-snapshots`, and `--keep-diffs`
+override the configured policy for `snapshot` or `diff` without changing `athanor.toml`.
+
 The default built-in registry currently assembles:
 
 ```text
@@ -548,6 +592,7 @@ checkers:
 
 .athanor/generated/current/html/
   index.html
+  entities/<entity-id>.html
   manifest.json
 
 .athanor/generated/current.json
@@ -602,7 +647,7 @@ Generated JSONL files and Markdown wiki pages under `.athanor/generated/current`
 - Older canonical snapshots without ownership metadata are pruned by entity source paths and evidence source files.
 - Frontmatter references resolve by exact stable key only; aliases, fuzzy matching, external concept registries, and reference-type constraints are not implemented.
 - Wiki and HTML projection currently rebuild complete outputs and are selected directly by app services rather than projector plugin discovery.
-- The HTML report is a static overview without client-side filtering or per-entity detail pages.
+- The HTML report graph view is a compact inspection summary rather than an interactive graph layout.
 - Generation numbering and pointer updates are local single-process operations; concurrent generation publishers are not implemented.
 - Direct compatibility outputs under `.athanor/generated/current` are not coordinated; consumers requiring one snapshot must use `current.json` and `generations/`.
 - Documentation patch proposals currently create enriched API documentation pages for missing API docs diagnostics, refresh endpoint-specific managed API contract blocks in existing API documentation pages, stabilize explicit API frontmatter references, support pages that cover multiple endpoints, add coordination blocks for split endpoint documentation, flag stale route mentions in human-authored API narrative, include deterministic narrative rewrite drafts when a page has one unambiguous linked endpoint, and create operations documentation drafts for missing environment, runtime configuration, script, deployment, and stale runbook diagnostics.

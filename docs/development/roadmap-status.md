@@ -61,6 +61,8 @@ ath context <task>
 ath context <task> --json
 ath context --diff
 ath context --diff --json
+ath search <query>
+ath search <query> --json
 ath explain <stable-key>
 ath explain <stable-key> --json
 ath check affected
@@ -88,8 +90,12 @@ ath docs operations check
 ath docs operations check --json
 ath api snapshot
 ath api snapshot --json
+ath api snapshot --cleanup
+ath api snapshot --no-cleanup
 ath api diff --from <snapshot> --to <snapshot>
 ath api diff --json
+ath api diff --cleanup
+ath api diff --no-cleanup
 ath api breaking-changes --from <snapshot> --to <snapshot>
 ath api breaking-changes --json
 ath api cleanup
@@ -1024,6 +1030,30 @@ Purpose:
 - removes diff artifacts whose endpoint snapshots are no longer retained
 - keeps API contract cleanup separate from `ath index` so frequent indexing does not silently delete comparison history
 
+### API Retention Automation
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-app/src/api.rs`
+- `crates/athanor-app/src/config.rs`
+- `crates/athanor-app/src/init.rs`
+- `apps/ath/src/main.rs`
+- `docs/README.md`
+- `docs/architecture/pipeline.md`
+- `docs/adapters/checker-api.md`
+
+Purpose:
+
+- adds `[api.retention]` configuration with `auto_cleanup`, `keep_snapshots`, and `keep_diffs`
+- keeps automatic cleanup disabled by default while preserving the existing manual `ath api cleanup` path
+- runs API cleanup automatically after successful `ath api snapshot` and `ath api diff` when enabled
+- adds per-command `--cleanup`, `--no-cleanup`, `--keep-snapshots`, and `--keep-diffs` overrides for snapshot and diff commands
+- keeps strict API checks and `ath api breaking-changes` read-only by forcing API retention cleanup off for those gate paths
+- reports automatic cleanup results in JSON and text output when cleanup runs
+- preserves the latest API contract snapshot selected by `.athanor/api/latest.json` through the existing cleanup safety rules
+
 ### Evidence-Backed API Breaking Diagnostics And Strict Gate
 
 Status: verified.
@@ -1083,6 +1113,9 @@ Purpose:
 - adds the `ath search <query>` subcommand to query the index
 - integrates lexical search into context-pack selection as a seed mechanism
 - dynamically manages index rebuilds on snapshot updates using `index_meta.json`
+- emits bounded `athanor.search.v1` reports with the query, limit, returned count, truncation status, omitted lower bound, canonical entity ids, stable keys, source anchors, and ownership metadata
+- fetches one result past the requested limit so agent-facing output can report when results were truncated without requiring agents to inspect the search index or generated JSONL directly
+- rebuilds full canonical snapshots with one Tantivy batch commit before opening the reader, avoiding per-document segment reloads and Windows memory-mapped file lock failures
 
 ### Code Impact Analysis
 
@@ -1823,6 +1856,48 @@ Purpose:
 - reports omitted starts and whether configured limits truncated the search
 - keeps cycle detection read-only and derived from the latest canonical snapshot
 
+### HTML Report Graph And Entity Detail Pages
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-projector-html/src/lib.rs`
+- `crates/athanor-projector-html/README.md`
+- `docs/adapters/projector-html.md`
+- `docs/README.md`
+- `docs/architecture/pipeline.md`
+
+Purpose:
+
+- extends `ath report html` output with one `entities/<entity-id>.html` detail page per canonical entity
+- adds entity detail sections for identity, ownership, attached relations, attached facts, diagnostics, and evidence locations
+- adds a compact graph summary to `index.html` with relation-kind counts and high-degree connected entities
+- adds embedded client-side filters for entity search, source path, entity kind, and diagnostic severity
+- keeps the report self-contained with embedded CSS/script and no network dependencies
+- keeps HTML report files disposable read models generated from the latest canonical snapshot
+
+### Agent Bounded Retrieval Contract
+
+Status: verified.
+
+Implemented in:
+
+- `AGENTS.md`
+- `docs/development/agent-workflow.md`
+- `docs/development/definition-of-done.md`
+- `docs/architecture/pipeline.md`
+- `docs/development/roadmap-status.md`
+
+Purpose:
+
+- establishes that generated JSONL, wiki, HTML, graph, API, search, and vector artifacts are backing read models or inspection outputs
+- forbids normal agent workflows from depending on full generated artifact reads
+- requires agent-facing access to use bounded query/context commands with explicit limits and stable schemas
+- requires canonical ids, stable keys, source anchors, and evidence links in bounded agent-facing outputs
+- requires omitted or truncated counts when limits hide available canonical data
+- requires any future large generated artifact to ship with a bounded retrieval path or explicitly document the existing bounded query that covers it before the feature is complete
+
 ## In Progress
 
 None.
@@ -2005,25 +2080,6 @@ Acceptance:
 - diff-based context and impact commands work before a new durable index is committed
 - repair cleanup, generated-output regeneration, canonical latest-pointer recovery, and full repair apply are deterministic and documented
 
-### API Retention Automation
-
-Status: planned.
-
-Scope:
-
-- add `[api.retention]` configuration for API contract artifact retention
-- support `auto_cleanup`, `keep_snapshots`, and `keep_diffs` policy fields
-- run API cleanup automatically after successful `ath api snapshot` and `ath api diff` when enabled
-- keep `ath index` non-destructive and separate from API contract history cleanup
-- add CLI overrides for one-off retention behavior, including disabling cleanup for a single command
-
-Acceptance:
-
-- API retention defaults are safe and documented
-- automatic cleanup never removes the latest API contract snapshot selected by `.athanor/api/latest.json`
-- automatic cleanup removes only files inside `.athanor/api/snapshots` and `.athanor/api/diffs`
-- manual `ath api cleanup` remains available for explicit maintenance and dry-run inspection
-
 ### Phase 6.5 - Agent Graph Navigation And Overview
 
 Status: in progress.
@@ -2032,7 +2088,7 @@ Scope:
 
 - extend the initial repository overview query beyond the implemented module structure and integration-boundary summaries as new canonical language relations become available
 - extend graph export beyond the implemented `ath graph export --format json` with GraphML-compatible output, generated from canonical snapshots rather than replacing canonical storage (initial GraphML output implemented)
-- extend the HTML report with an interactive graph view, per-entity detail pages, filtering by kind/severity/source, and stable links back to canonical evidence
+- extend the HTML report beyond the implemented compact graph summary, per-entity detail pages, and filters with optional richer interactive graph layout controls
 - extend graph navigation beyond implemented related-entity exploration, shortest path, degree-centrality hubs, and directed cycle detection with optional richer centrality algorithms over canonical relations
 - improve `ath impact` with explanatory relation paths and an optional future precision mode for deeper call/data-flow analysis once language adapters can support it (initial path-step explanations implemented)
 - evaluate a multi-repository registry for future daemon and MCP use, keeping project selection explicit so one server cannot accidentally answer from the wrong repository
@@ -2043,6 +2099,7 @@ Acceptance:
 - every graph query result can be traced back to canonical entity, relation, diagnostic, and evidence ids
 - exported graph files and interactive reports are disposable read models that can be regenerated from the latest canonical snapshot
 - overview and graph-navigation outputs are bounded, deterministic, and suitable for agent context
+- no normal agent workflow depends on reading complete generated JSONL, wiki, HTML, graph, API, search, or vector artifacts
 - multi-repository support keeps repository identity explicit in CLI, daemon, MCP, and generated artifacts
 - documentation explains the boundary between canonical knowledge, graph algorithms, and generated graph views
 

@@ -24,6 +24,7 @@ Before implementation work:
 - Facts, relations, and diagnostics must include evidence.
 - Documentation is part of implementation. Update English docs in the same task.
 - If documentation is added, renamed, removed, or its purpose changes, update `docs/README.md` in the same task.
+- Do not make agents read large generated artifacts directly. Generated JSONL, wiki, HTML, and similar outputs are backing read models or inspection outputs; agent-facing access must go through bounded query/context commands with explicit limits, stable schemas, canonical ids, and evidence links.
 - Do not mark work complete until verification commands pass.
 
 ## Required Verification

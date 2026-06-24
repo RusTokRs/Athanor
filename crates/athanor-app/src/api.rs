@@ -3,7 +3,7 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use crate::config::load_config;
+use crate::config::{ApiRetentionConfig, load_config};
 use crate::store::init_store;
 use anyhow::{Context, Result, bail};
 use athanor_core::{CanonicalSnapshot, CanonicalSnapshotStore};
@@ -25,6 +25,7 @@ pub const API_CONTRACT_DIFF_SCHEMA: &str = "athanor.api_contract_diff.v2";
 #[derive(Debug, Clone)]
 pub struct ApiSnapshotOptions {
     pub root: PathBuf,
+    pub retention: ApiRetentionOverrides,
 }
 
 #[derive(Debug, Clone)]
@@ -32,6 +33,7 @@ pub struct ApiDiffOptions {
     pub root: PathBuf,
     pub from: Option<String>,
     pub to: Option<String>,
+    pub retention: ApiRetentionOverrides,
 }
 
 #[derive(Debug, Clone)]
@@ -40,6 +42,13 @@ pub struct ApiCleanupOptions {
     pub dry_run: bool,
     pub keep_snapshots: usize,
     pub keep_diffs: usize,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ApiRetentionOverrides {
+    pub auto_cleanup: Option<bool>,
+    pub keep_snapshots: Option<usize>,
+    pub keep_diffs: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -79,9 +88,11 @@ pub struct ApiSnapshotReport {
     pub endpoints: usize,
     pub schemas: usize,
     pub examples: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cleanup: Option<ApiCleanupReport>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ApiCleanupReport {
     pub schema: String,
     pub root: PathBuf,
@@ -92,14 +103,14 @@ pub struct ApiCleanupReport {
     pub retained: Vec<ApiCleanupArtifact>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ApiCleanupArtifact {
     pub kind: ApiCleanupArtifactKind,
     pub id: String,
     pub path: PathBuf,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ApiCleanupArtifactKind {
     Snapshot,
@@ -147,6 +158,8 @@ pub struct ApiContractDiff {
     pub diagnostics: Vec<Diagnostic>,
     #[serde(default)]
     pub artifact: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cleanup: Option<ApiCleanupReport>,
 }
 
 pub async fn snapshot_api_contract(options: ApiSnapshotOptions) -> Result<ApiSnapshotReport> {
@@ -183,6 +196,7 @@ pub async fn snapshot_api_contract(options: ApiSnapshotOptions) -> Result<ApiSna
         "API contract pointer",
     )
     .context("failed to update API contract pointer")?;
+    let cleanup = maybe_cleanup_api_contracts(&root, &config.api.retention, &options.retention)?;
 
     Ok(ApiSnapshotReport {
         snapshot: contract.snapshot,
@@ -191,11 +205,13 @@ pub async fn snapshot_api_contract(options: ApiSnapshotOptions) -> Result<ApiSna
         endpoints: contract.endpoints.len(),
         schemas: contract.schemas.len(),
         examples: contract.examples.len(),
+        cleanup,
     })
 }
 
 pub fn diff_api_contracts(options: ApiDiffOptions) -> Result<ApiContractDiff> {
     let root = canonical_root(&options.root)?;
+    let config = load_config(&root)?;
     let snapshots_dir = root.join(".athanor/api/snapshots");
     let available = available_snapshots(&snapshots_dir)?;
     let (from, to) = resolve_diff_pair(options.from, options.to, &available)?;
@@ -211,6 +227,7 @@ pub fn diff_api_contracts(options: ApiDiffOptions) -> Result<ApiContractDiff> {
         "API contract diff",
     )
     .context("failed to persist API contract diff")?;
+    diff.cleanup = maybe_cleanup_api_contracts(&root, &config.api.retention, &options.retention)?;
     Ok(diff)
 }
 
@@ -297,6 +314,28 @@ pub fn cleanup_api_contracts(options: ApiCleanupOptions) -> Result<ApiCleanupRep
         removed,
         retained,
     })
+}
+
+fn maybe_cleanup_api_contracts(
+    root: &Path,
+    config: &ApiRetentionConfig,
+    overrides: &ApiRetentionOverrides,
+) -> Result<Option<ApiCleanupReport>> {
+    let auto_cleanup = overrides.auto_cleanup.unwrap_or(config.auto_cleanup);
+    if !auto_cleanup {
+        return Ok(None);
+    }
+
+    cleanup_api_contracts(ApiCleanupOptions {
+        root: root.to_path_buf(),
+        dry_run: false,
+        keep_snapshots: overrides
+            .keep_snapshots
+            .unwrap_or(config.keep_snapshots)
+            .max(1),
+        keep_diffs: overrides.keep_diffs.unwrap_or(config.keep_diffs),
+    })
+    .map(Some)
 }
 
 fn canonical_root(root: &Path) -> Result<PathBuf> {
@@ -546,6 +585,7 @@ fn build_api_contract_diff(
         changes,
         diagnostics,
         artifact: None,
+        cleanup: None,
     }
 }
 
@@ -1005,6 +1045,72 @@ mod tests {
         assert_eq!(report.removed.len(), 1);
         assert!(snapshots_dir.join("snap_jsonl_00000001.json").is_file());
         assert!(snapshots_dir.join("snap_jsonl_00000002.json").is_file());
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn diff_api_contracts_runs_configured_auto_cleanup() {
+        let root = temp_root();
+        let api_root = root.join(".athanor/api");
+        let snapshots_dir = api_root.join("snapshots");
+        let diffs_dir = api_root.join("diffs");
+        fs::create_dir_all(&snapshots_dir).unwrap();
+        fs::create_dir_all(&diffs_dir).unwrap();
+        fs::write(
+            root.join("athanor.toml"),
+            r#"[api.retention]
+auto_cleanup = true
+keep_snapshots = 2
+keep_diffs = 1
+"#,
+        )
+        .unwrap();
+        for snapshot in [
+            "snap_jsonl_00000001",
+            "snap_jsonl_00000002",
+            "snap_jsonl_00000003",
+        ] {
+            fs::write(
+                snapshots_dir.join(format!("{snapshot}.json")),
+                serde_json::to_string(&contract(snapshot, Vec::new(), Vec::new())).unwrap(),
+            )
+            .unwrap();
+        }
+        fs::write(
+            api_root.join("latest.json"),
+            r#"{"schema":"athanor.api_contract_latest.v1","snapshot":"snap_jsonl_00000003","path":"snapshots/snap_jsonl_00000003.json"}"#,
+        )
+        .unwrap();
+        fs::write(
+            diffs_dir.join("snap_jsonl_00000001--snap_jsonl_00000002.json"),
+            "{}",
+        )
+        .unwrap();
+
+        let diff = diff_api_contracts(ApiDiffOptions {
+            root: root.clone(),
+            from: Some("snap_jsonl_00000002".to_string()),
+            to: Some("snap_jsonl_00000003".to_string()),
+            retention: ApiRetentionOverrides::default(),
+        })
+        .unwrap();
+
+        let cleanup = diff.cleanup.expect("auto cleanup report");
+        assert_eq!(cleanup.removed.len(), 2);
+        assert!(!snapshots_dir.join("snap_jsonl_00000001.json").exists());
+        assert!(snapshots_dir.join("snap_jsonl_00000002.json").is_file());
+        assert!(snapshots_dir.join("snap_jsonl_00000003.json").is_file());
+        assert!(
+            !diffs_dir
+                .join("snap_jsonl_00000001--snap_jsonl_00000002.json")
+                .exists()
+        );
+        assert!(
+            diffs_dir
+                .join("snap_jsonl_00000002--snap_jsonl_00000003.json")
+                .is_file()
+        );
 
         fs::remove_dir_all(root).unwrap();
     }

@@ -112,6 +112,11 @@ strict = true
 fail_on_missing_docs = true
 fail_on_openapi_mismatch = true
 fail_on_undocumented_status_code = true
+
+[api.retention]
+auto_cleanup = false
+keep_snapshots = 2
+keep_diffs = 2
 ```
 
 - `source_of_truth`:
@@ -119,6 +124,7 @@ fail_on_undocumented_status_code = true
   - `openapi_first`: Treats OpenAPI as the truth. Ignores implemented endpoints missing documentation, unless `fail_on_missing_docs` is explicitly set to `true`.
   - `code_first`: Treats code as the truth. Ignores documented endpoints missing implementations.
 - `strict`: Enforces CI gate failure (non-zero process exit) if any filtered API consistency diagnostics or contract breaking changes are found.
+- `api.retention`: Controls optional cleanup of API contract snapshots and diff artifacts after successful `ath api snapshot` and `ath api diff` runs. The default leaves automatic cleanup disabled; manual `ath api cleanup` remains available.
 
 Test with:
 

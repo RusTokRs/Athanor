@@ -97,6 +97,7 @@ pub struct ApiConfig {
     pub fail_on_missing_docs: bool,
     pub fail_on_openapi_mismatch: bool,
     pub fail_on_undocumented_status_code: bool,
+    pub retention: ApiRetentionConfig,
 }
 
 impl Default for ApiConfig {
@@ -108,6 +109,25 @@ impl Default for ApiConfig {
             fail_on_missing_docs: true,
             fail_on_openapi_mismatch: true,
             fail_on_undocumented_status_code: true,
+            retention: ApiRetentionConfig::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default)]
+pub struct ApiRetentionConfig {
+    pub auto_cleanup: bool,
+    pub keep_snapshots: usize,
+    pub keep_diffs: usize,
+}
+
+impl Default for ApiRetentionConfig {
+    fn default() -> Self {
+        Self {
+            auto_cleanup: false,
+            keep_snapshots: 2,
+            keep_diffs: 2,
         }
     }
 }

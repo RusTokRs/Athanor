@@ -11,6 +11,14 @@ canonical knowledge model. Code, documentation, OpenAPI contracts, operational f
 and generated reports are tied together through stable ids, source evidence, and ownership metadata
 so agents can ask bounded questions without losing the trail back to source files.
 
+A useful mental model: Athanor gives an agent the repository's functional schematic before it opens
+the detailed circuit schematic. It answers practical orientation questions first: where is this
+block, what is it connected to, what influences it, what can it break, where is the documentation,
+which diagnostics already exist, and what is the minimum set of files worth reading. The source code
+remains the detailed schematic, but the agent opens it only after it has a focused map of the system.
+This is how Athanor is intended to reduce token use: read the system map first, then inspect only
+the relevant slice of implementation detail.
+
 | Capability | Conventional code graph tools | Athanor |
 | --- | --- | --- |
 | Source of truth | Graph or search index | Canonical snapshots with evidence and ownership |

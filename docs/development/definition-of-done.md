@@ -18,6 +18,9 @@ A feature is not done until it is implemented, verified, and documented.
 - Unit tests or contract tests cover the behavior.
 - CLI/runtime behavior is checked when the feature is user-facing.
 - Relevant English documentation is updated in the same task.
+- Features that create or rely on large generated artifacts include a bounded agent-facing query,
+  context, or inspection path. Agents must not need to read full JSONL, wiki, HTML, graph, search,
+  or API artifact outputs to use the feature.
 
 ## Required Commands
 

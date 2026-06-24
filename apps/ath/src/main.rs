@@ -3,23 +3,23 @@ use std::path::PathBuf;
 use anyhow::Result;
 use athanor_app::{
     AffectedCheckOptions, AffectedCheckReport, ApiCleanupOptions, ApiCleanupReport,
-    ApiContractDiff, ApiDiffOptions, ApiSnapshotOptions, ApiSnapshotReport, ContextLimitOverrides,
-    ContextOptions, DiagnosticCheckOptions, DiagnosticCheckReport, DiagnosticScope,
-    DocsApplyPatchOptions, DocsApplyPatchReport, DocsCheckOptions, DocsCheckReport,
-    DocsDriftOptions, DocsDriftReport, DocsProposeFixOptions, DocsProposeFixReport,
-    EntityExplanation, ExplainOptions, GenerationOptions, GraphCycles, GraphCyclesOptions,
-    GraphExportOptions, GraphHubs, GraphHubsOptions, GraphPath, GraphPathOptions, GraphRelated,
-    GraphRelatedOptions, HtmlReportOptions, ImpactAnalysis, ImpactOptions, IndexOptions,
-    IndexReport, InitOptions, OperationsDocsCheckOptions, OperationsDocsCheckReport,
-    OverviewOptions, RepairApplyOptions, RepairApplyReport, RepairCleanupOptions,
-    RepairCleanupReport, RepairInspectOptions, RepairInspectReport, RepairRecoverCanonicalOptions,
-    RepairRecoverCanonicalReport, RepairRegenerateOptions, RepairRegenerateReport,
-    RepositoryOverview, WikiOptions, apply_repair, check_affected, check_docs,
-    check_operations_docs, check_project, cleanup_api_contracts, cleanup_repair, context_project,
-    diff_api_contracts, docs_apply_patch, docs_drift, docs_propose_fix, explain_project,
-    generate_project, impact_project, index_project, init_project, inspect_repair,
-    overview_project, project_html_report, project_wiki, recover_canonical_repair,
-    regenerate_repair, snapshot_api_contract,
+    ApiContractDiff, ApiDiffOptions, ApiRetentionOverrides, ApiSnapshotOptions, ApiSnapshotReport,
+    ContextLimitOverrides, ContextOptions, DiagnosticCheckOptions, DiagnosticCheckReport,
+    DiagnosticScope, DocsApplyPatchOptions, DocsApplyPatchReport, DocsCheckOptions,
+    DocsCheckReport, DocsDriftOptions, DocsDriftReport, DocsProposeFixOptions,
+    DocsProposeFixReport, EntityExplanation, ExplainOptions, GenerationOptions, GraphCycles,
+    GraphCyclesOptions, GraphExportOptions, GraphHubs, GraphHubsOptions, GraphPageRank,
+    GraphPageRankOptions, GraphPath, GraphPathOptions, GraphRelated, GraphRelatedOptions,
+    HtmlReportOptions, ImpactAnalysis, ImpactOptions, IndexOptions, IndexReport, InitOptions,
+    OperationsDocsCheckOptions, OperationsDocsCheckReport, OverviewOptions, RepairApplyOptions,
+    RepairApplyReport, RepairCleanupOptions, RepairCleanupReport, RepairInspectOptions,
+    RepairInspectReport, RepairRecoverCanonicalOptions, RepairRecoverCanonicalReport,
+    RepairRegenerateOptions, RepairRegenerateReport, RepositoryOverview, WikiOptions, apply_repair,
+    check_affected, check_docs, check_operations_docs, check_project, cleanup_api_contracts,
+    cleanup_repair, context_project, diff_api_contracts, docs_apply_patch, docs_drift,
+    docs_propose_fix, explain_project, generate_project, impact_project, index_project,
+    init_project, inspect_repair, overview_project, project_html_report, project_wiki,
+    recover_canonical_repair, regenerate_repair, snapshot_api_contract,
 };
 use athanor_domain::ContextLevel;
 use clap::{Parser, Subcommand, ValueEnum};
@@ -340,6 +340,33 @@ enum GraphCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Rank canonical entities by directed PageRank centrality.
+    Pagerank {
+        /// Project root. Defaults to the current directory.
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Maximum number of ranked entities to return.
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+        /// Optional serialized entity kind, such as module or api_endpoint.
+        #[arg(long)]
+        kind: Option<String>,
+        /// PageRank damping factor.
+        #[arg(long, default_value_t = 0.85)]
+        damping: f64,
+        /// Maximum PageRank iterations.
+        #[arg(long, default_value_t = 100)]
+        max_iterations: usize,
+        /// Convergence tolerance for total score delta.
+        #[arg(long, default_value_t = 1e-10)]
+        tolerance: f64,
+        /// Maximum incoming canonical relation ids retained per result.
+        #[arg(long, default_value_t = 20)]
+        max_relation_ids: usize,
+        /// Print the complete PageRank report as JSON.
+        #[arg(long)]
+        json: bool,
+    },
     /// Find bounded directed cycles in canonical relations.
     Cycles {
         /// Project root. Defaults to the current directory.
@@ -515,6 +542,18 @@ enum ApiCommand {
     Snapshot {
         #[arg(long, default_value = ".")]
         path: PathBuf,
+        /// Run API artifact cleanup after the snapshot succeeds.
+        #[arg(long, conflicts_with = "no_cleanup")]
+        cleanup: bool,
+        /// Skip automatic API artifact cleanup for this invocation.
+        #[arg(long = "no-cleanup")]
+        no_cleanup: bool,
+        /// Override retained API contract snapshots when cleanup runs.
+        #[arg(long)]
+        keep_snapshots: Option<usize>,
+        /// Override retained API diff artifacts when cleanup runs.
+        #[arg(long)]
+        keep_diffs: Option<usize>,
         #[arg(long)]
         json: bool,
     },
@@ -526,6 +565,18 @@ enum ApiCommand {
         to: Option<String>,
         #[arg(long, default_value = ".")]
         path: PathBuf,
+        /// Run API artifact cleanup after the diff succeeds.
+        #[arg(long, conflicts_with = "no_cleanup")]
+        cleanup: bool,
+        /// Skip automatic API artifact cleanup for this invocation.
+        #[arg(long = "no-cleanup")]
+        no_cleanup: bool,
+        /// Override retained API contract snapshots when cleanup runs.
+        #[arg(long)]
+        keep_snapshots: Option<usize>,
+        /// Override retained API diff artifacts when cleanup runs.
+        #[arg(long)]
+        keep_diffs: Option<usize>,
         #[arg(long)]
         json: bool,
     },
@@ -567,6 +618,21 @@ enum ApiCommand {
         #[arg(long)]
         json: bool,
     },
+}
+
+fn retention_overrides(
+    cleanup: bool,
+    no_cleanup: bool,
+    keep_snapshots: Option<usize>,
+    keep_diffs: Option<usize>,
+) -> ApiRetentionOverrides {
+    ApiRetentionOverrides {
+        auto_cleanup: cleanup
+            .then_some(true)
+            .or_else(|| no_cleanup.then_some(false)),
+        keep_snapshots,
+        keep_diffs,
+    }
 }
 
 #[tokio::main]
@@ -746,6 +812,10 @@ async fn main() -> Result<()> {
                     root: path,
                     from: None,
                     to: None,
+                    retention: ApiRetentionOverrides {
+                        auto_cleanup: Some(false),
+                        ..ApiRetentionOverrides::default()
+                    },
                 })?;
                 if json {
                     println!(
@@ -836,9 +906,21 @@ async fn main() -> Result<()> {
             }
         }
         Some(Command::Api {
-            command: ApiCommand::Snapshot { path, json },
+            command:
+                ApiCommand::Snapshot {
+                    path,
+                    cleanup,
+                    no_cleanup,
+                    keep_snapshots,
+                    keep_diffs,
+                    json,
+                },
         }) => {
-            let report = snapshot_api_contract(ApiSnapshotOptions { root: path }).await?;
+            let report = snapshot_api_contract(ApiSnapshotOptions {
+                root: path,
+                retention: retention_overrides(cleanup, no_cleanup, keep_snapshots, keep_diffs),
+            })
+            .await?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
@@ -858,6 +940,10 @@ async fn main() -> Result<()> {
                 root: path,
                 from,
                 to,
+                retention: ApiRetentionOverrides {
+                    auto_cleanup: Some(false),
+                    ..ApiRetentionOverrides::default()
+                },
             })?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&diff)?);
@@ -877,6 +963,10 @@ async fn main() -> Result<()> {
                     from,
                     to,
                     path,
+                    cleanup,
+                    no_cleanup,
+                    keep_snapshots,
+                    keep_diffs,
                     json,
                 },
         }) => {
@@ -884,6 +974,7 @@ async fn main() -> Result<()> {
                 root: path,
                 from,
                 to,
+                retention: retention_overrides(cleanup, no_cleanup, keep_snapshots, keep_diffs),
             })?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&diff)?);
@@ -1044,6 +1135,32 @@ async fn main() -> Result<()> {
                     print_graph_hubs(&report);
                 }
             }
+            GraphCommand::Pagerank {
+                path,
+                limit,
+                kind,
+                damping,
+                max_iterations,
+                tolerance,
+                max_relation_ids,
+                json,
+            } => {
+                let report = athanor_app::graph_pagerank(GraphPageRankOptions {
+                    root: path,
+                    limit,
+                    kind,
+                    damping,
+                    max_iterations,
+                    tolerance,
+                    max_relation_ids,
+                })
+                .await?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                } else {
+                    print_graph_pagerank(&report);
+                }
+            }
             GraphCommand::Cycles {
                 path,
                 limit,
@@ -1162,16 +1279,26 @@ async fn main() -> Result<()> {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
                 println!(
-                    "search results for query \"{}\" in snapshot {}:",
-                    query, report.snapshot
+                    "search results for query \"{}\" in snapshot {} ({} of limit {}):",
+                    report.query, report.snapshot, report.returned, report.limit
                 );
                 if report.results.is_empty() {
                     println!("No results found.");
                 } else {
                     for item in &report.results {
                         println!(
-                            "[{:.4}] {} ({}) — {}",
+                            "[{:.4}] {} ({}) - {}",
                             item.score, item.name, item.kind, item.stable_key
+                        );
+                        println!("  entity: {}", item.entity_id.0);
+                        if let Some(source) = &item.source {
+                            println!("  source: {}", source.path);
+                        }
+                    }
+                    if report.truncated {
+                        println!(
+                            "results truncated by limit; at least {} more result(s) omitted",
+                            report.omitted.results_lower_bound
                         );
                     }
                 }
@@ -1448,6 +1575,35 @@ fn print_graph_hubs(report: &GraphHubs) {
             hub.entity.degree,
             hub.incoming_degree,
             hub.outgoing_degree,
+            source
+        );
+    }
+}
+
+fn print_graph_pagerank(report: &GraphPageRank) {
+    let kind = report.kind.as_deref().unwrap_or("all kinds");
+    println!(
+        "Graph PageRank for {kind} (snapshot: {}, entities: {}, relations: {}, iterations: {}, converged: {}, omitted: {})",
+        report.snapshot,
+        report.entity_count,
+        report.relation_count,
+        report.iterations,
+        report.converged,
+        report.omitted
+    );
+    if report.ranks.is_empty() {
+        println!("  (none)");
+        return;
+    }
+    for entry in &report.ranks {
+        let source = entry.entity.source.as_deref().unwrap_or("unknown source");
+        println!(
+            "  {}. [{:.8}] [{}] {} ({}) source={}",
+            entry.rank,
+            entry.score,
+            entry.entity.kind,
+            entry.entity.name,
+            entry.entity.stable_key,
             source
         );
     }
@@ -1927,6 +2083,9 @@ fn print_api_snapshot_report(report: &ApiSnapshotReport) {
         report.examples
     );
     println!("wrote API contract to {}", report.path.display());
+    if let Some(cleanup) = &report.cleanup {
+        print_api_cleanup_summary(cleanup);
+    }
 }
 
 fn print_api_contract_diff(diff: &ApiContractDiff) -> Result<()> {
@@ -1948,16 +2107,14 @@ fn print_api_contract_diff(diff: &ApiContractDiff) -> Result<()> {
             println!("  reason: {reason}");
         }
     }
+    if let Some(cleanup) = &diff.cleanup {
+        print_api_cleanup_summary(cleanup);
+    }
     Ok(())
 }
 
 fn print_api_cleanup_report(report: &ApiCleanupReport) {
-    println!(
-        "API cleanup: {} removed, {} retained{}",
-        report.removed.len(),
-        report.retained.len(),
-        if report.dry_run { " (dry run)" } else { "" }
-    );
+    print_api_cleanup_summary(report);
     for artifact in &report.removed {
         println!(
             "  remove {:?} {} at {}",
@@ -1966,6 +2123,15 @@ fn print_api_cleanup_report(report: &ApiCleanupReport) {
             artifact.path.display()
         );
     }
+}
+
+fn print_api_cleanup_summary(report: &ApiCleanupReport) {
+    println!(
+        "API cleanup: {} removed, {} retained{}",
+        report.removed.len(),
+        report.retained.len(),
+        if report.dry_run { " (dry run)" } else { "" }
+    );
 }
 
 fn serialized_name(value: &impl serde::Serialize) -> Result<String> {

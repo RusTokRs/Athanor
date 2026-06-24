@@ -147,6 +147,7 @@ It writes immutable generation directories and updates a portable JSON pointer o
       jsonl/
       wiki/
       html/
+        entities/
 ```
 
 `current.json` records the generation id, canonical snapshot id, relative generation path, and manifest path. Consumers should resolve coordinated outputs through this pointer.
@@ -202,6 +203,8 @@ Repository overview and task-focused context packs can be read from the latest c
 ```bash
 cargo run -p ath --quiet -- overview .
 cargo run -p ath --quiet -- overview . --json
+cargo run -p ath --quiet -- search "task"
+cargo run -p ath --quiet -- search "task" --json
 cargo run -p ath --quiet -- context "task"
 cargo run -p ath --quiet -- context "task" --json
 cargo run -p ath --quiet -- context --diff
@@ -263,7 +266,9 @@ cargo run -p ath --quiet -- docs apply-patch <patch-id-or-path>
 cargo run -p ath --quiet -- docs operations check
 cargo run -p ath --quiet -- docs operations check --json
 cargo run -p ath --quiet -- api snapshot
+cargo run -p ath --quiet -- api snapshot --cleanup
 cargo run -p ath --quiet -- api diff --from <snapshot> --to <snapshot>
+cargo run -p ath --quiet -- api diff --from <snapshot> --to <snapshot> --no-cleanup
 cargo run -p ath --quiet -- api breaking-changes --from <snapshot> --to <snapshot>
 cargo run -p ath --quiet -- api cleanup --dry-run
 cargo run -p ath --quiet -- api cleanup --keep-snapshots 2 --keep-diffs 2
@@ -273,8 +278,11 @@ cargo run -p ath --quiet -- check api --strict
 ```
 
 API contract snapshots and diffs are managed separately from `ath index` so contract history is not
-deleted accidentally during frequent re-indexing. Use `ath api cleanup` to apply explicit retention;
-the latest API contract snapshot is always retained.
+deleted accidentally during frequent re-indexing. Use `ath api cleanup` to apply explicit retention,
+or enable `[api.retention].auto_cleanup` to run the same cleanup after successful `ath api snapshot`
+and `ath api diff` commands. Per-command `--cleanup`, `--no-cleanup`, `--keep-snapshots`, and
+`--keep-diffs` flags override the configured policy for one invocation. The latest API contract
+snapshot is always retained.
 
 The latest canonical snapshot can be projected into a disposable Markdown wiki:
 
@@ -290,7 +298,8 @@ A self-contained browser report can be generated from the same snapshot:
 cargo run -p ath --quiet -- report html .
 ```
 
-The report is written to `.athanor/generated/current/html` by default.
+The report is written to `.athanor/generated/current/html` by default and includes `index.html`,
+`entities/<entity-id>.html`, and `manifest.json`.
 
 ## Documentation Rule
 

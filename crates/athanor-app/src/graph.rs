@@ -12,6 +12,7 @@ use serde::Serialize;
 pub const GRAPH_EXPORT_SCHEMA: &str = "athanor.graph_export.v1";
 pub const GRAPH_CYCLES_SCHEMA: &str = "athanor.graph_cycles.v1";
 pub const GRAPH_HUBS_SCHEMA: &str = "athanor.graph_hubs.v1";
+pub const GRAPH_PAGERANK_SCHEMA: &str = "athanor.graph_pagerank.v1";
 pub const GRAPH_PATH_SCHEMA: &str = "athanor.graph_path.v1";
 pub const GRAPH_RELATED_SCHEMA: &str = "athanor.graph_related.v1";
 
@@ -45,6 +46,17 @@ pub struct GraphHubsOptions {
     pub root: PathBuf,
     pub limit: usize,
     pub kind: Option<String>,
+    pub max_relation_ids: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct GraphPageRankOptions {
+    pub root: PathBuf,
+    pub limit: usize,
+    pub kind: Option<String>,
+    pub damping: f64,
+    pub max_iterations: usize,
+    pub tolerance: f64,
     pub max_relation_ids: usize,
 }
 
@@ -143,6 +155,30 @@ pub struct GraphHub {
     pub outgoing_relation_ids: Vec<String>,
     pub omitted_incoming_relation_ids: usize,
     pub omitted_outgoing_relation_ids: usize,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct GraphPageRank {
+    pub schema: String,
+    pub snapshot: String,
+    pub kind: Option<String>,
+    pub damping: f64,
+    pub iterations: usize,
+    pub converged: bool,
+    pub entity_count: usize,
+    pub relation_count: usize,
+    pub ranks: Vec<GraphPageRankEntry>,
+    pub omitted: usize,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct GraphPageRankEntry {
+    pub rank: usize,
+    #[serde(flatten)]
+    pub entity: GraphNode,
+    pub score: f64,
+    pub incoming_relation_ids: Vec<String>,
+    pub omitted_incoming_relation_ids: usize,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -287,6 +323,49 @@ pub async fn graph_hubs(options: GraphHubsOptions) -> Result<GraphHubs> {
         &snapshot,
         options.limit,
         options.kind.as_deref(),
+        options.max_relation_ids,
+    )
+}
+
+pub async fn graph_pagerank(options: GraphPageRankOptions) -> Result<GraphPageRank> {
+    if options.limit == 0
+        || options.max_iterations == 0
+        || options.max_relation_ids == 0
+        || !(0.0..1.0).contains(&options.damping)
+        || options.tolerance <= 0.0
+        || !options.tolerance.is_finite()
+    {
+        bail!(
+            "graph pagerank requires positive limits and tolerance, with damping between zero and one"
+        );
+    }
+
+    let root = normalize_canonical_path(
+        options
+            .root
+            .canonicalize()
+            .with_context(|| format!("failed to canonicalize {}", options.root.display()))?,
+    );
+    let config = load_config(&root)?;
+    let store = init_store(&root, &config).await?;
+    let snapshot = store
+        .load_latest_snapshot()
+        .await
+        .context("failed to load latest canonical snapshot")?
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "no canonical snapshot found; run `ath index {}` first",
+                root.display()
+            )
+        })?;
+
+    build_graph_pagerank(
+        &snapshot,
+        options.limit,
+        options.kind.as_deref(),
+        options.damping,
+        options.max_iterations,
+        options.tolerance,
         options.max_relation_ids,
     )
 }
@@ -775,6 +854,156 @@ pub fn build_graph_hubs(
         kind: kind.map(str::to_string),
         omitted: matched.saturating_sub(hubs.len()),
         hubs,
+    })
+}
+
+pub fn build_graph_pagerank(
+    snapshot: &CanonicalSnapshot,
+    limit: usize,
+    kind: Option<&str>,
+    damping: f64,
+    max_iterations: usize,
+    tolerance: f64,
+    max_relation_ids: usize,
+) -> Result<GraphPageRank> {
+    if limit == 0
+        || max_iterations == 0
+        || max_relation_ids == 0
+        || !(0.0..1.0).contains(&damping)
+        || tolerance <= 0.0
+        || !tolerance.is_finite()
+    {
+        bail!(
+            "graph pagerank requires positive limits and tolerance, with damping between zero and one"
+        );
+    }
+
+    let mut entities = snapshot.entities.iter().collect::<Vec<_>>();
+    entities.sort_by(|left, right| left.stable_key.0.cmp(&right.stable_key.0));
+    let entity_count = entities.len();
+    if entity_count == 0 {
+        return Ok(GraphPageRank {
+            schema: GRAPH_PAGERANK_SCHEMA.to_string(),
+            snapshot: snapshot
+                .snapshot
+                .as_ref()
+                .map_or_else(|| "unknown".to_string(), |snapshot| snapshot.0.clone()),
+            kind: kind.map(str::to_string),
+            damping,
+            iterations: 0,
+            converged: true,
+            entity_count: 0,
+            relation_count: 0,
+            ranks: Vec::new(),
+            omitted: 0,
+        });
+    }
+
+    let index_by_id = entities
+        .iter()
+        .enumerate()
+        .map(|(index, entity)| (entity.id.0.as_str(), index))
+        .collect::<HashMap<_, _>>();
+    let mut outgoing = vec![Vec::<usize>::new(); entity_count];
+    let mut incoming_relation_ids = vec![Vec::<String>::new(); entity_count];
+    let mut relation_count = 0;
+    for relation in &snapshot.relations {
+        let (Some(&from), Some(&to)) = (
+            index_by_id.get(relation.from.0.as_str()),
+            index_by_id.get(relation.to.0.as_str()),
+        ) else {
+            continue;
+        };
+        outgoing[from].push(to);
+        incoming_relation_ids[to].push(relation.id.0.clone());
+        relation_count += 1;
+    }
+    for targets in &mut outgoing {
+        targets.sort_unstable();
+    }
+    for relation_ids in &mut incoming_relation_ids {
+        relation_ids.sort();
+    }
+
+    let initial = 1.0 / entity_count as f64;
+    let mut scores = vec![initial; entity_count];
+    let mut iterations = 0;
+    let mut converged = false;
+    for iteration in 1..=max_iterations {
+        let dangling = scores
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| outgoing[*index].is_empty())
+            .map(|(_, score)| *score)
+            .sum::<f64>();
+        let base = (1.0 - damping) / entity_count as f64 + damping * dangling / entity_count as f64;
+        let mut next = vec![base; entity_count];
+        for (from, targets) in outgoing.iter().enumerate() {
+            if targets.is_empty() {
+                continue;
+            }
+            let contribution = damping * scores[from] / targets.len() as f64;
+            for &to in targets {
+                next[to] += contribution;
+            }
+        }
+        let delta = scores
+            .iter()
+            .zip(&next)
+            .map(|(previous, current)| (previous - current).abs())
+            .sum::<f64>();
+        scores = next;
+        iterations = iteration;
+        if delta <= tolerance {
+            converged = true;
+            break;
+        }
+    }
+
+    let degrees = degree_by_id(snapshot);
+    let mut ranked = entities
+        .iter()
+        .enumerate()
+        .filter(|(_, entity)| kind.is_none_or(|kind| serialized_name(&entity.kind) == kind))
+        .map(|(index, entity)| {
+            let incoming_count = incoming_relation_ids[index].len();
+            let mut relation_ids = incoming_relation_ids[index].clone();
+            relation_ids.truncate(max_relation_ids);
+            GraphPageRankEntry {
+                rank: 0,
+                entity: graph_node(entity, *degrees.get(&entity.id.0).unwrap_or(&0)),
+                score: scores[index],
+                incoming_relation_ids: relation_ids,
+                omitted_incoming_relation_ids: incoming_count.saturating_sub(max_relation_ids),
+            }
+        })
+        .collect::<Vec<_>>();
+    ranked.sort_by(|left, right| {
+        right
+            .score
+            .total_cmp(&left.score)
+            .then_with(|| left.entity.stable_key.cmp(&right.entity.stable_key))
+    });
+    let matched = ranked.len();
+    ranked.truncate(limit);
+    for (index, entry) in ranked.iter_mut().enumerate() {
+        entry.rank = index + 1;
+    }
+
+    Ok(GraphPageRank {
+        schema: GRAPH_PAGERANK_SCHEMA.to_string(),
+        snapshot: snapshot
+            .snapshot
+            .as_ref()
+            .map_or_else(|| "unknown".to_string(), |snapshot| snapshot.0.clone()),
+        kind: kind.map(str::to_string),
+        damping,
+        iterations,
+        converged,
+        entity_count,
+        relation_count,
+        omitted: matched.saturating_sub(ranked.len()),
+        ranks: ranked,
     })
 }
 
@@ -1472,6 +1701,116 @@ mod tests {
         assert_eq!(report.kind.as_deref(), Some("function"));
         assert_eq!(report.hubs.len(), 1);
         assert_eq!(report.hubs[0].entity.stable_key, "rust://src/lib.rs#health");
+    }
+
+    #[test]
+    fn ranks_directed_graph_with_pagerank_and_relation_trace_ids() {
+        let first = entity("ent_first", "symbol://first", EntityKind::Function, "first");
+        let second = entity(
+            "ent_second",
+            "symbol://second",
+            EntityKind::Function,
+            "second",
+        );
+        let aggregator = entity(
+            "ent_aggregator",
+            "symbol://aggregator",
+            EntityKind::Function,
+            "aggregator",
+        );
+        let sink = entity("ent_sink", "symbol://sink", EntityKind::Function, "sink");
+        let snapshot = CanonicalSnapshot {
+            snapshot: Some(SnapshotId("snap_test".to_string())),
+            entities: vec![
+                sink.clone(),
+                first.clone(),
+                aggregator.clone(),
+                second.clone(),
+            ],
+            relations: vec![
+                relation(
+                    "rel_first_aggregator",
+                    RelationKind::Calls,
+                    &first,
+                    &aggregator,
+                ),
+                relation(
+                    "rel_second_aggregator",
+                    RelationKind::Calls,
+                    &second,
+                    &aggregator,
+                ),
+                relation(
+                    "rel_aggregator_sink",
+                    RelationKind::Calls,
+                    &aggregator,
+                    &sink,
+                ),
+            ],
+            ..CanonicalSnapshot::default()
+        };
+
+        let report = build_graph_pagerank(&snapshot, 3, None, 0.85, 100, 1e-12, 1).unwrap();
+
+        assert_eq!(report.schema, GRAPH_PAGERANK_SCHEMA);
+        assert!(report.converged);
+        assert_eq!(report.entity_count, 4);
+        assert_eq!(report.relation_count, 3);
+        assert_eq!(report.omitted, 1);
+        assert_eq!(report.ranks[0].entity.stable_key, "symbol://sink");
+        assert_eq!(report.ranks[0].rank, 1);
+        assert_eq!(
+            report.ranks[0].incoming_relation_ids,
+            vec!["rel_aggregator_sink"]
+        );
+        assert_eq!(report.ranks[1].entity.stable_key, "symbol://aggregator");
+        assert_eq!(
+            report.ranks[1].incoming_relation_ids,
+            vec!["rel_first_aggregator"]
+        );
+        assert_eq!(report.ranks[1].omitted_incoming_relation_ids, 1);
+    }
+
+    #[test]
+    fn pagerank_kind_filter_does_not_change_full_graph_scores() {
+        let endpoint = entity(
+            "ent_endpoint",
+            "api://GET:/health",
+            EntityKind::ApiEndpoint,
+            "health",
+        );
+        let handler = entity(
+            "ent_handler",
+            "rust://src/lib.rs#health",
+            EntityKind::Function,
+            "health",
+        );
+        let snapshot = CanonicalSnapshot {
+            entities: vec![handler.clone(), endpoint.clone()],
+            relations: vec![relation(
+                "rel_impl",
+                RelationKind::ImplementedBy,
+                &endpoint,
+                &handler,
+            )],
+            ..CanonicalSnapshot::default()
+        };
+
+        let full = build_graph_pagerank(&snapshot, 10, None, 0.85, 100, 1e-12, 10).unwrap();
+        let filtered =
+            build_graph_pagerank(&snapshot, 10, Some("function"), 0.85, 100, 1e-12, 10).unwrap();
+
+        assert_eq!(filtered.ranks.len(), 1);
+        assert_eq!(
+            filtered.ranks[0].entity.stable_key,
+            "rust://src/lib.rs#health"
+        );
+        let full_handler = full
+            .ranks
+            .iter()
+            .find(|entry| entry.entity.stable_key == "rust://src/lib.rs#health")
+            .unwrap();
+        assert_eq!(filtered.ranks[0].score, full_handler.score);
     }
 
     #[test]
