@@ -130,8 +130,17 @@ ath projects resolve <project-id>
 ath projects resolve <project-id> --json
 athd serve <project-id>
 athd serve <project-id> --max-concurrent-requests <N>
+athd serve <project-id> --max-job-history <N>
 athd status <project-id>
 athd status <project-id> --json
+athd jobs <project-id>
+athd jobs <project-id> --json
+athd job <project-id> <job-id>
+athd job <project-id> <job-id> --json
+athd cancel <project-id> <job-id>
+athd cancel <project-id> <job-id> --json
+athd index <project-id>
+athd index <project-id> --json
 athd overview <project-id>
 athd overview <project-id> --json
 athd context <project-id> <task>
@@ -1978,18 +1987,25 @@ Implemented in:
 
 Purpose:
 
-- adds the `athd` daemon entrypoint with `serve`, `status`, `overview`, `context`, and `stop`
+- adds the `athd` daemon entrypoint with `serve`, `status`, `jobs`, `job`, `cancel`, `index`, `overview`, `context`, and `stop`
 - resolves every command through the explicit project registry before connecting to or serving a repository daemon
 - writes per-project runtime endpoint and lock files under `.athanor/daemon`
 - prevents two daemon instances from owning the same project runtime directory through exclusive lock creation
 - uses local TCP with newline-delimited JSON requests and stable `athanor.daemon_endpoint.v1`, `athanor.daemon_request.v1`, and `athanor.daemon_response.v1` schemas
 - bounds daemon request and response messages to 1 MiB, returning structured daemon errors for oversized computed responses
 - handles requests concurrently up to `--max-concurrent-requests` and returns structured busy errors after the limit is reached
+- adds an in-memory daemon job registry and bounded `athanor.daemon_jobs.v1` job listing report
+- records lifecycle jobs and read-only `overview`/`context` request jobs with running, succeeded, or failed status
+- bounds retained in-memory job history with `--max-job-history`, pruning oldest finished records first
+- supports exact daemon job lookup by stable job id
+- starts one background indexing job through `athd index`, reusing the existing `index_project` implementation and rejecting concurrent index jobs
+- records structured index job results with snapshot id, file counts, and JSONL output directory
+- adds cooperative cancellation for queued daemon jobs and explicit non-cancellable errors for running jobs
 - rejects requests whose project id does not match the daemon endpoint
 - serves read-only status, bounded overview, and bounded task context responses from the latest canonical snapshot
 - exposes daemon context level and limit overrides while keeping daemon diff mode deferred
 - keeps logs separate from structured protocol output
-- leaves file watching, hot cache invalidation, indexing jobs, cancellation, and debounce for the remaining Phase 7 work
+- leaves file watching, hot cache invalidation, projection jobs, deeper cancellable execution, and debounce for the remaining Phase 7 work
 
 ## In Progress
 

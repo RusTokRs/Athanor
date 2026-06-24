@@ -227,9 +227,14 @@ cargo run -p ath --quiet -- projects list
 cargo run -p ath --quiet -- projects add athanor .
 cargo run -p ath --quiet -- projects resolve athanor --json
 cargo run -p ath --quiet -- projects remove athanor
-cargo run -p athd --quiet -- serve athanor --max-concurrent-requests 4
+cargo run -p athd --quiet -- serve athanor --max-concurrent-requests 4 --max-job-history 1000
 cargo run -p athd --quiet -- status athanor
 cargo run -p athd --quiet -- status athanor --json
+cargo run -p athd --quiet -- jobs athanor
+cargo run -p athd --quiet -- jobs athanor --limit 20 --json
+cargo run -p athd --quiet -- job athanor job_00000001 --json
+cargo run -p athd --quiet -- cancel athanor job_00000001 --json
+cargo run -p athd --quiet -- index athanor --json
 cargo run -p athd --quiet -- overview athanor --top 10
 cargo run -p athd --quiet -- overview athanor --top 10 --json
 cargo run -p athd --quiet -- context athanor "task" --level summary --budget 2000

@@ -52,9 +52,48 @@ enum Command {
         /// Maximum concurrent daemon requests before busy responses are returned.
         #[arg(long, default_value_t = 4)]
         max_concurrent_requests: usize,
+        /// Maximum in-memory daemon job records to retain.
+        #[arg(long, default_value_t = 1000)]
+        max_job_history: usize,
     },
     /// Query daemon status.
     Status {
+        project_id: String,
+        #[arg(long)]
+        registry: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// List daemon jobs.
+    Jobs {
+        project_id: String,
+        #[arg(long)]
+        registry: Option<PathBuf>,
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Inspect one daemon job by id.
+    Job {
+        project_id: String,
+        job_id: String,
+        #[arg(long)]
+        registry: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Request cancellation for a daemon job.
+    Cancel {
+        project_id: String,
+        job_id: String,
+        #[arg(long)]
+        registry: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Start a background index job for the project.
+    Index {
         project_id: String,
         #[arg(long)]
         registry: Option<PathBuf>,
@@ -119,6 +158,7 @@ async fn main() -> Result<()> {
             registry,
             listen,
             max_concurrent_requests,
+            max_job_history,
         } => {
             let registry_path = registry_path(registry)?;
             let resolution = resolve_registered_project(
@@ -133,6 +173,7 @@ async fn main() -> Result<()> {
                 registry_path,
                 listen,
                 max_concurrent_requests,
+                max_job_history,
             })
             .await
         }
@@ -142,6 +183,41 @@ async fn main() -> Result<()> {
             json,
         } => print_response(
             request(&project_id, registry, DaemonCommand::Status).await?,
+            json,
+        ),
+        Command::Jobs {
+            project_id,
+            registry,
+            limit,
+            json,
+        } => print_response(
+            request(&project_id, registry, DaemonCommand::Jobs { limit }).await?,
+            json,
+        ),
+        Command::Job {
+            project_id,
+            job_id,
+            registry,
+            json,
+        } => print_response(
+            request(&project_id, registry, DaemonCommand::Job { job_id }).await?,
+            json,
+        ),
+        Command::Cancel {
+            project_id,
+            job_id,
+            registry,
+            json,
+        } => print_response(
+            request(&project_id, registry, DaemonCommand::Cancel { job_id }).await?,
+            json,
+        ),
+        Command::Index {
+            project_id,
+            registry,
+            json,
+        } => print_response(
+            request(&project_id, registry, DaemonCommand::Index).await?,
             json,
         ),
         Command::Overview {

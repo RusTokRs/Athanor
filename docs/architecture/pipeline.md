@@ -394,8 +394,12 @@ repository.
 project registry before serving or sending requests:
 
 ```bash
-athd serve <project-id> --max-concurrent-requests 4
+athd serve <project-id> --max-concurrent-requests 4 --max-job-history 1000
 athd status <project-id>
+athd jobs <project-id> --limit 20
+athd job <project-id> job_00000001
+athd cancel <project-id> job_00000001
+athd index <project-id>
 athd overview <project-id> --top 10
 athd context <project-id> "task" --level summary --budget 2000
 athd stop <project-id>
@@ -410,9 +414,10 @@ The daemon writes runtime metadata under the resolved repository root:
 ```
 
 `endpoint.json` uses schema `athanor.daemon_endpoint.v1` and records the project id, canonical root,
-registry path, TCP address, process id, start time, and concurrent request limit. The lock file is
-created with exclusive creation so only one daemon instance owns a project runtime directory at a
-time. Endpoint and lock files are removed when the daemon exits normally.
+registry path, TCP address, process id, start time, concurrent request limit, and job-history
+retention limit. The lock file is created with exclusive creation so only one daemon instance owns a
+project runtime directory at a time. Endpoint and lock files are removed when the daemon exits
+normally.
 
 The current protocol is local TCP with one JSON request per connection, terminated by a newline.
 Requests use schema `athanor.daemon_request.v1`; responses use `athanor.daemon_response.v1`. Request
@@ -424,15 +429,27 @@ their bounded request line is read. Every request carries a `project_id`, and th
 requests that do not match the endpoint's project identity. The implemented commands are:
 
 - `status`: returns daemon status and endpoint metadata.
+- `jobs`: returns a bounded `athanor.daemon_jobs.v1` report from the in-memory daemon job registry.
+- `job`: returns one exact daemon job by id.
+- `cancel`: cancels queued daemon jobs and reports an explicit non-cancellable error for running jobs.
+- `index`: starts one background indexing job for the project and immediately returns its job record.
 - `overview`: runs the same bounded `overview_project` query against the latest canonical snapshot.
 - `context`: runs the same bounded `context_project` query against the latest canonical snapshot.
 - `shutdown`: stops the daemon after returning a structured response.
 
 This is a read-only daemon slice. Daemon context requests expose the normal level and explicit
 limit overrides but intentionally do not expose diff mode yet; they do not mutate snapshots or index
-state. File watching, hot cache invalidation, indexing jobs, cancellation, and debounce remain
-future Phase 7 work. Logs continue to use stderr or tracing sinks and are kept separate from
-structured protocol responses.
+state. The job registry records daemon lifecycle jobs, completed or failed read-only
+`overview`/`context` request jobs, and background indexing jobs. Finished jobs can include a
+structured `result`; index jobs record the published snapshot id, file counts, and JSONL output
+directory. `athd index` reuses the existing `index_project` path and rejects a second concurrent
+indexing job for the same daemon so snapshot writers do not overlap. Job history is retained in
+memory up to `--max-job-history`; pruning removes the oldest finished records first and never
+removes running or queued records. Cancellation is cooperative: queued jobs can be marked cancelled,
+while currently running index jobs are allowed to finish because forced interruption could corrupt
+snapshot or generated output writes. File watching, hot cache invalidation, projection jobs, deeper
+cancellable execution, and debounce remain future Phase 7 work. Logs continue to use stderr or
+tracing sinks and are kept separate from structured protocol responses.
 
 ## Entity Explanation
 
