@@ -31,6 +31,7 @@ Crates:
 - `athanor-extractor-openapi`
 - `athanor-extractor-operations`
 - `athanor-extractor-rust`
+- `athanor-adapter-rustok-fba`
 - `athanor-adapter-rustok-ffa`
 - `athanor-linker-api`
 - `athanor-linker-markdown`
@@ -135,6 +136,18 @@ ath graph ffa violations --module <module> --surface <surface>
 ath graph ffa violations --module <module> --surface <surface> --json
 ath check rustok-ffa
 ath check rustok-ffa --json
+ath rustok fba audit
+ath rustok fba audit --json
+ath graph fba module <module>
+ath graph fba module <module> --json
+ath graph fba port <module> <port>
+ath graph fba port <module> <port> --json
+ath graph fba dependencies --module <module>
+ath graph fba dependencies --module <module> --json
+ath graph fba violations --module <module>
+ath graph fba violations --module <module> --json
+ath check rustok-fba
+ath check rustok-fba --json
 ath projects list
 ath projects list --json
 ath projects add <project-id> <path>
@@ -516,6 +529,26 @@ Purpose:
 - fails fast for unknown adapter ids or invalid manifest schemas
 - supports external process extractors, linkers, and checkers through manifest `command` entries
 - keeps source process adapters explicitly deferred
+
+### RusTok FBA Adapter And Graph Extension
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-adapter-rustok-fba`
+- `crates/athanor-app/src/runtime.rs`
+- `crates/athanor-app/src/graph.rs`
+- `crates/athanor-app/src/check.rs`
+- `apps/ath/src/main.rs`
+
+Purpose:
+
+- adds opt-in built-in factories `builtin.extractor.rustok_fba`, `builtin.linker.rustok_fba`, and `builtin.checker.rustok_fba`
+- extracts FBA registry JSON and Rust `src/ports.rs` code markers without mixing with FFA
+- emits canonical `fba_module`, `fba_contract`, `fba_port`, `fba_operation`, `fba_profile`, and `fba_dependency` entities with evidence-backed relations
+- diagnoses FBA-only issues under the `rustok_fba_*` prefix
+- exposes bounded agent-facing read models through `ath rustok fba audit`, `ath graph fba module`, `ath graph fba port`, `ath graph fba dependencies`, `ath graph fba violations`, and `ath check rustok-fba`
 
 ### External Process Extractors, Linkers, And Checkers
 

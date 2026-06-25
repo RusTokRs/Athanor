@@ -18,6 +18,11 @@ pub const GRAPH_RELATED_SCHEMA: &str = "athanor.graph_related.v1";
 pub const RUSTOK_FFA_AUDIT_SCHEMA: &str = "athanor.rustok_ffa_audit.v1";
 pub const RUSTOK_FFA_SURFACE_GRAPH_SCHEMA: &str = "athanor.rustok_ffa_surface_graph.v1";
 pub const RUSTOK_FFA_VIOLATIONS_GRAPH_SCHEMA: &str = "athanor.rustok_ffa_violations_graph.v1";
+pub const RUSTOK_FBA_AUDIT_SCHEMA: &str = "athanor.rustok_fba_audit.v1";
+pub const RUSTOK_FBA_MODULE_GRAPH_SCHEMA: &str = "athanor.rustok_fba_module_graph.v1";
+pub const RUSTOK_FBA_PORT_GRAPH_SCHEMA: &str = "athanor.rustok_fba_port_graph.v1";
+pub const RUSTOK_FBA_DEPENDENCIES_GRAPH_SCHEMA: &str = "athanor.rustok_fba_dependencies_graph.v1";
+pub const RUSTOK_FBA_VIOLATIONS_GRAPH_SCHEMA: &str = "athanor.rustok_fba_violations_graph.v1";
 
 #[derive(Debug, Clone)]
 pub struct GraphExportOptions {
@@ -77,6 +82,11 @@ pub struct RustokFfaAuditOptions {
 }
 
 #[derive(Debug, Clone)]
+pub struct RustokFbaAuditOptions {
+    pub root: PathBuf,
+}
+
+#[derive(Debug, Clone)]
 pub struct GraphFfaSurfaceOptions {
     pub root: PathBuf,
     pub module: String,
@@ -90,6 +100,39 @@ pub struct GraphFfaViolationsOptions {
     pub root: PathBuf,
     pub module: Option<String>,
     pub surface: Option<String>,
+    pub max_nodes: usize,
+    pub max_edges: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct GraphFbaModuleOptions {
+    pub root: PathBuf,
+    pub module: String,
+    pub max_nodes: usize,
+    pub max_edges: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct GraphFbaPortOptions {
+    pub root: PathBuf,
+    pub module: String,
+    pub port: String,
+    pub max_nodes: usize,
+    pub max_edges: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct GraphFbaDependenciesOptions {
+    pub root: PathBuf,
+    pub module: String,
+    pub max_nodes: usize,
+    pub max_edges: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct GraphFbaViolationsOptions {
+    pub root: PathBuf,
+    pub module: Option<String>,
     pub max_nodes: usize,
     pub max_edges: usize,
 }
@@ -280,6 +323,64 @@ pub struct RustokFfaGraphNode {
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct RustokFfaGraphEdge {
+    pub from: String,
+    pub to: String,
+    pub kind: String,
+    pub evidence: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct RustokFbaAudit {
+    pub schema: String,
+    pub snapshot: String,
+    pub summary: RustokFbaAuditSummary,
+    pub modules: Vec<RustokFbaAuditModule>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct RustokFbaAuditSummary {
+    pub modules_total: usize,
+    pub provider_modules: usize,
+    pub consumer_modules: usize,
+    pub ports_total: usize,
+    pub operations_total: usize,
+    pub diagnostics_open: usize,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct RustokFbaAuditModule {
+    pub id: String,
+    pub module: String,
+    pub role: Option<String>,
+    pub status: Option<String>,
+    pub contract_version: Option<String>,
+    pub ports: Vec<String>,
+    pub operations: Vec<String>,
+    pub dependencies: Vec<String>,
+    pub diagnostics: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct RustokFbaGraph {
+    pub schema: String,
+    pub snapshot: String,
+    pub root: Option<String>,
+    pub nodes: Vec<RustokFbaGraphNode>,
+    pub edges: Vec<RustokFbaGraphEdge>,
+    pub diagnostics: Vec<Diagnostic>,
+    pub omitted: GraphOmitted,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct RustokFbaGraphNode {
+    pub id: String,
+    pub kind: String,
+    pub name: String,
+    pub source: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct RustokFbaGraphEdge {
     pub from: String,
     pub to: String,
     pub kind: String,
@@ -495,6 +596,11 @@ pub async fn rustok_ffa_audit(options: RustokFfaAuditOptions) -> Result<RustokFf
     Ok(build_rustok_ffa_audit(&snapshot))
 }
 
+pub async fn rustok_fba_audit(options: RustokFbaAuditOptions) -> Result<RustokFbaAudit> {
+    let snapshot = load_latest_graph_snapshot(options.root).await?;
+    Ok(build_rustok_fba_audit(&snapshot))
+}
+
 pub async fn graph_ffa_surface(options: GraphFfaSurfaceOptions) -> Result<RustokFfaGraph> {
     if options.max_nodes == 0 || options.max_edges == 0 {
         bail!("FFA graph limits must be greater than zero");
@@ -523,6 +629,61 @@ pub async fn graph_ffa_violations(options: GraphFfaViolationsOptions) -> Result<
     ))
 }
 
+pub async fn graph_fba_module(options: GraphFbaModuleOptions) -> Result<RustokFbaGraph> {
+    if options.max_nodes == 0 || options.max_edges == 0 {
+        bail!("FBA graph limits must be greater than zero");
+    }
+    let snapshot = load_latest_graph_snapshot(options.root).await?;
+    build_rustok_fba_module_graph(
+        &snapshot,
+        &options.module,
+        options.max_nodes,
+        options.max_edges,
+    )
+}
+
+pub async fn graph_fba_port(options: GraphFbaPortOptions) -> Result<RustokFbaGraph> {
+    if options.max_nodes == 0 || options.max_edges == 0 {
+        bail!("FBA graph limits must be greater than zero");
+    }
+    let snapshot = load_latest_graph_snapshot(options.root).await?;
+    build_rustok_fba_port_graph(
+        &snapshot,
+        &options.module,
+        &options.port,
+        options.max_nodes,
+        options.max_edges,
+    )
+}
+
+pub async fn graph_fba_dependencies(
+    options: GraphFbaDependenciesOptions,
+) -> Result<RustokFbaGraph> {
+    if options.max_nodes == 0 || options.max_edges == 0 {
+        bail!("FBA graph limits must be greater than zero");
+    }
+    let snapshot = load_latest_graph_snapshot(options.root).await?;
+    build_rustok_fba_dependencies_graph(
+        &snapshot,
+        &options.module,
+        options.max_nodes,
+        options.max_edges,
+    )
+}
+
+pub async fn graph_fba_violations(options: GraphFbaViolationsOptions) -> Result<RustokFbaGraph> {
+    if options.max_nodes == 0 || options.max_edges == 0 {
+        bail!("FBA graph limits must be greater than zero");
+    }
+    let snapshot = load_latest_graph_snapshot(options.root).await?;
+    Ok(build_rustok_fba_violations_graph(
+        &snapshot,
+        options.module.as_deref(),
+        options.max_nodes,
+        options.max_edges,
+    ))
+}
+
 async fn load_latest_graph_snapshot(root: PathBuf) -> Result<CanonicalSnapshot> {
     let root = normalize_canonical_path(
         root.canonicalize()
@@ -540,6 +701,302 @@ async fn load_latest_graph_snapshot(root: PathBuf) -> Result<CanonicalSnapshot> 
                 root.display()
             )
         })
+}
+
+pub fn build_rustok_fba_audit(snapshot: &CanonicalSnapshot) -> RustokFbaAudit {
+    let snapshot_id = snapshot_id(snapshot);
+    let module_index = fba_module_index(snapshot);
+    let diagnostics = fba_diagnostics(snapshot, None);
+    let diagnostics_by_module = diagnostics_by_module(&diagnostics);
+    let mut modules = module_index
+        .into_iter()
+        .map(|(module, details)| {
+            let mut ports = details.ports.into_iter().collect::<Vec<_>>();
+            let mut operations = details.operations.into_iter().collect::<Vec<_>>();
+            let mut dependencies = details.dependencies.into_iter().collect::<Vec<_>>();
+            ports.sort();
+            operations.sort();
+            dependencies.sort();
+            let diagnostics = diagnostics_by_module
+                .get(&module)
+                .cloned()
+                .unwrap_or_default();
+            RustokFbaAuditModule {
+                id: format!("fba_module://{module}"),
+                module,
+                role: details.role,
+                status: details.status,
+                contract_version: details.contract_version,
+                ports,
+                operations,
+                dependencies,
+                diagnostics,
+            }
+        })
+        .collect::<Vec<_>>();
+    modules.sort_by(|left, right| left.module.cmp(&right.module));
+
+    let provider_modules = modules
+        .iter()
+        .filter(|module| module.role.as_deref() == Some("provider"))
+        .count();
+    let consumer_modules = modules
+        .iter()
+        .filter(|module| {
+            matches!(
+                module.role.as_deref(),
+                Some("consumer") | Some("orchestrator_consumer") | Some("consumer_support_adapter")
+            )
+        })
+        .count();
+    let ports_total = modules.iter().map(|module| module.ports.len()).sum();
+    let operations_total = modules.iter().map(|module| module.operations.len()).sum();
+    let diagnostics_open = modules
+        .iter()
+        .map(|module| module.diagnostics.len())
+        .sum::<usize>();
+
+    RustokFbaAudit {
+        schema: RUSTOK_FBA_AUDIT_SCHEMA.to_string(),
+        snapshot: snapshot_id,
+        summary: RustokFbaAuditSummary {
+            modules_total: modules.len(),
+            provider_modules,
+            consumer_modules,
+            ports_total,
+            operations_total,
+            diagnostics_open,
+        },
+        modules,
+    }
+}
+
+pub fn build_rustok_fba_module_graph(
+    snapshot: &CanonicalSnapshot,
+    module: &str,
+    max_nodes: usize,
+    max_edges: usize,
+) -> Result<RustokFbaGraph> {
+    if max_nodes == 0 || max_edges == 0 {
+        bail!("FBA graph limits must be greater than zero");
+    }
+    let module_key = format!("fba_module://{module}");
+    let entity_by_id = entity_by_id(snapshot);
+    let module_entity = snapshot
+        .entities
+        .iter()
+        .find(|entity| entity.stable_key.0 == module_key)
+        .ok_or_else(|| anyhow::anyhow!("FBA module not found for `{module_key}`"))?;
+    let mut selected_ids = BTreeSet::from([module_entity.id.0.clone()]);
+    let mut edges = Vec::new();
+
+    for relation in &snapshot.relations {
+        let from = entity_by_id.get(relation.from.0.as_str());
+        let to = entity_by_id.get(relation.to.0.as_str());
+        let touches_module =
+            relation.from == module_entity.id || relation.to == module_entity.id || {
+                let from_key = from
+                    .map(|entity| entity.stable_key.0.as_str())
+                    .unwrap_or("");
+                let to_key = to.map(|entity| entity.stable_key.0.as_str()).unwrap_or("");
+                from_key.contains(&format!("://{module}/"))
+                    || to_key.contains(&format!("://{module}/"))
+                    || from_key == module_key
+                    || to_key == module_key
+            };
+        if touches_module
+            && (from.is_some_and(|entity| is_fba_entity(entity))
+                || to.is_some_and(|entity| is_fba_entity(entity)))
+        {
+            selected_ids.insert(relation.from.0.clone());
+            selected_ids.insert(relation.to.0.clone());
+            push_fba_edge(&mut edges, relation, &entity_by_id);
+        }
+    }
+
+    Ok(fba_graph_from_selection(
+        snapshot,
+        RUSTOK_FBA_MODULE_GRAPH_SCHEMA,
+        Some(module_key),
+        selected_ids,
+        edges,
+        fba_diagnostics(snapshot, Some(module)),
+        max_nodes,
+        max_edges,
+    ))
+}
+
+pub fn build_rustok_fba_port_graph(
+    snapshot: &CanonicalSnapshot,
+    module: &str,
+    port: &str,
+    max_nodes: usize,
+    max_edges: usize,
+) -> Result<RustokFbaGraph> {
+    if max_nodes == 0 || max_edges == 0 {
+        bail!("FBA graph limits must be greater than zero");
+    }
+    let port_key = format!("fba_port://{module}/{port}");
+    let entity_by_id = entity_by_id(snapshot);
+    let port_entity = snapshot
+        .entities
+        .iter()
+        .find(|entity| entity.stable_key.0 == port_key)
+        .ok_or_else(|| anyhow::anyhow!("FBA port not found for `{port_key}`"))?;
+    let mut selected_ids = BTreeSet::from([port_entity.id.0.clone()]);
+    let mut edges = Vec::new();
+
+    for relation in &snapshot.relations {
+        if relation.from == port_entity.id || relation.to == port_entity.id {
+            selected_ids.insert(relation.from.0.clone());
+            selected_ids.insert(relation.to.0.clone());
+            push_fba_edge(&mut edges, relation, &entity_by_id);
+        }
+        if relation.from == port_entity.id
+            && let Some(operation) = entity_by_id.get(relation.to.0.as_str())
+            && operation.stable_key.0.starts_with("fba_operation://")
+        {
+            selected_ids.insert(operation.id.0.clone());
+        }
+    }
+
+    Ok(fba_graph_from_selection(
+        snapshot,
+        RUSTOK_FBA_PORT_GRAPH_SCHEMA,
+        Some(port_key),
+        selected_ids,
+        edges,
+        fba_diagnostics(snapshot, Some(module)),
+        max_nodes,
+        max_edges,
+    ))
+}
+
+pub fn build_rustok_fba_dependencies_graph(
+    snapshot: &CanonicalSnapshot,
+    module: &str,
+    max_nodes: usize,
+    max_edges: usize,
+) -> Result<RustokFbaGraph> {
+    if max_nodes == 0 || max_edges == 0 {
+        bail!("FBA graph limits must be greater than zero");
+    }
+    let module_key = format!("fba_module://{module}");
+    let entity_by_id = entity_by_id(snapshot);
+    let entity_by_stable = snapshot
+        .entities
+        .iter()
+        .map(|entity| (entity.stable_key.0.as_str(), entity))
+        .collect::<HashMap<_, _>>();
+    let mut selected_ids = BTreeSet::new();
+    if let Some(entity) = entity_by_stable.get(module_key.as_str()) {
+        selected_ids.insert(entity.id.0.clone());
+    }
+    let mut edges = Vec::new();
+    let module_segment = format!("fba_dependency://{module}/");
+    let provider_segment = format!("/{module}/");
+    for relation in &snapshot.relations {
+        let Some(from) = entity_by_id.get(relation.from.0.as_str()) else {
+            continue;
+        };
+        let Some(to) = entity_by_id.get(relation.to.0.as_str()) else {
+            continue;
+        };
+        if !is_fba_entity(from) || !is_fba_entity(to) {
+            continue;
+        }
+        if from.stable_key.0.starts_with(module_segment.as_str())
+            || from.stable_key.0.contains(provider_segment.as_str())
+            || to.stable_key.0 == module_key
+        {
+            selected_ids.insert(from.id.0.clone());
+            selected_ids.insert(to.id.0.clone());
+            push_fba_edge(&mut edges, relation, &entity_by_id);
+        }
+    }
+
+    Ok(fba_graph_from_selection(
+        snapshot,
+        RUSTOK_FBA_DEPENDENCIES_GRAPH_SCHEMA,
+        Some(module_key),
+        selected_ids,
+        edges,
+        fba_diagnostics(snapshot, Some(module)),
+        max_nodes,
+        max_edges,
+    ))
+}
+
+pub fn build_rustok_fba_violations_graph(
+    snapshot: &CanonicalSnapshot,
+    module: Option<&str>,
+    max_nodes: usize,
+    max_edges: usize,
+) -> RustokFbaGraph {
+    let diagnostics = fba_diagnostics(snapshot, module);
+    let entity_by_stable = snapshot
+        .entities
+        .iter()
+        .map(|entity| (entity.stable_key.0.as_str(), entity))
+        .collect::<HashMap<_, _>>();
+    let mut node_keys = BTreeSet::new();
+    let mut edges = Vec::new();
+    for diagnostic in &diagnostics {
+        let Some(diag_module) = diagnostic
+            .payload
+            .get("module")
+            .and_then(serde_json::Value::as_str)
+        else {
+            continue;
+        };
+        let module_key = format!("fba_module://{diag_module}");
+        node_keys.insert(module_key.clone());
+        if let Some(port) = diagnostic
+            .payload
+            .get("port")
+            .and_then(serde_json::Value::as_str)
+        {
+            let port_key = format!("fba_port://{diag_module}/{port}");
+            node_keys.insert(port_key.clone());
+            edges.push(RustokFbaGraphEdge {
+                from: module_key.clone(),
+                to: port_key.clone(),
+                kind: "violates".to_string(),
+                evidence: diagnostic_evidence(diagnostic),
+            });
+            if let Some(path) = diagnostic
+                .payload
+                .get("path")
+                .and_then(serde_json::Value::as_str)
+            {
+                let file_key = format!("file://{path}");
+                node_keys.insert(file_key.clone());
+                edges.push(RustokFbaGraphEdge {
+                    from: port_key,
+                    to: file_key,
+                    kind: "evidenced_by".to_string(),
+                    evidence: diagnostic_evidence(diagnostic),
+                });
+            }
+        }
+    }
+
+    let mut selected_ids = BTreeSet::new();
+    for key in node_keys {
+        if let Some(entity) = entity_by_stable.get(key.as_str()) {
+            selected_ids.insert(entity.id.0.clone());
+        }
+    }
+    fba_graph_from_selection(
+        snapshot,
+        RUSTOK_FBA_VIOLATIONS_GRAPH_SCHEMA,
+        module.map(|module| format!("fba_module://{module}")),
+        selected_ids,
+        edges,
+        diagnostics,
+        max_nodes,
+        max_edges,
+    )
 }
 
 pub fn build_rustok_ffa_audit(snapshot: &CanonicalSnapshot) -> RustokFfaAudit {
@@ -1708,6 +2165,261 @@ fn entity_by_id(snapshot: &CanonicalSnapshot) -> HashMap<&str, &Entity> {
         .collect()
 }
 
+#[derive(Debug, Default)]
+struct FbaModuleDetails {
+    role: Option<String>,
+    status: Option<String>,
+    contract_version: Option<String>,
+    ports: BTreeSet<String>,
+    operations: BTreeSet<String>,
+    dependencies: BTreeSet<String>,
+}
+
+fn fba_module_index(snapshot: &CanonicalSnapshot) -> BTreeMap<String, FbaModuleDetails> {
+    let mut index = BTreeMap::<String, FbaModuleDetails>::new();
+    for entity in &snapshot.entities {
+        if let Some(module) = parse_fba_module_key(&entity.stable_key.0) {
+            let details = index.entry(module.to_string()).or_default();
+            if details.role.is_none() {
+                details.role = entity
+                    .payload
+                    .get("role")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string);
+            }
+        }
+        if let Some((module, _)) = parse_fba_contract_key(&entity.stable_key.0) {
+            let details = index.entry(module.to_string()).or_default();
+            details.contract_version = entity
+                .payload
+                .get("contract_version")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string);
+        }
+        if let Some((module, port)) = parse_fba_port_key(&entity.stable_key.0) {
+            index
+                .entry(module.to_string())
+                .or_default()
+                .ports
+                .insert(port.to_string());
+        }
+        if let Some((module, port, operation)) = parse_fba_operation_key(&entity.stable_key.0) {
+            index
+                .entry(module.to_string())
+                .or_default()
+                .operations
+                .insert(format!("{port}.{operation}"));
+        }
+        if let Some((consumer, provider, profile)) = parse_fba_dependency_key(&entity.stable_key.0)
+        {
+            index
+                .entry(consumer.to_string())
+                .or_default()
+                .dependencies
+                .insert(format!("{provider}:{profile}"));
+        }
+    }
+    for diagnostic in fba_diagnostics(snapshot, None) {
+        if let Some(module) = diagnostic
+            .payload
+            .get("module")
+            .and_then(serde_json::Value::as_str)
+        {
+            index.entry(module.to_string()).or_default();
+        }
+    }
+    for fact in &snapshot.facts {
+        if matches!(&fact.kind, athanor_domain::FactKind::Other(kind) if kind == "rustok_fba_registry")
+            && let Some(module) = fact.value.get("module").and_then(serde_json::Value::as_str)
+        {
+            let details = index.entry(module.to_string()).or_default();
+            details.role = fact
+                .value
+                .get("role")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+                .or(details.role.take());
+            details.status = fact
+                .value
+                .get("status")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+                .or(details.status.take());
+            details.contract_version = fact
+                .value
+                .get("contract_version")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+                .or(details.contract_version.take());
+        }
+    }
+    index
+}
+
+fn fba_diagnostics(snapshot: &CanonicalSnapshot, module: Option<&str>) -> Vec<Diagnostic> {
+    let mut diagnostics = snapshot
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| {
+            matches!(&diagnostic.kind, DiagnosticKind::Other(kind) if kind.starts_with("rustok_fba_"))
+                && module.is_none_or(|module| {
+                    diagnostic
+                        .payload
+                        .get("module")
+                        .and_then(serde_json::Value::as_str)
+                        == Some(module)
+                })
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    diagnostics.sort_by(|left, right| left.id.0.cmp(&right.id.0));
+    diagnostics
+}
+
+fn diagnostics_by_module(diagnostics: &[Diagnostic]) -> BTreeMap<String, Vec<String>> {
+    let mut by_module = BTreeMap::<String, Vec<String>>::new();
+    for diagnostic in diagnostics {
+        let Some(module) = diagnostic
+            .payload
+            .get("module")
+            .and_then(serde_json::Value::as_str)
+        else {
+            continue;
+        };
+        by_module
+            .entry(module.to_string())
+            .or_default()
+            .push(serialized_name(&diagnostic.kind));
+    }
+    by_module
+}
+
+#[allow(clippy::too_many_arguments)]
+fn fba_graph_from_selection(
+    snapshot: &CanonicalSnapshot,
+    schema: &str,
+    root: Option<String>,
+    selected_ids: BTreeSet<String>,
+    mut edges: Vec<RustokFbaGraphEdge>,
+    diagnostics: Vec<Diagnostic>,
+    max_nodes: usize,
+    max_edges: usize,
+) -> RustokFbaGraph {
+    let entity_by_id = entity_by_id(snapshot);
+    let total_nodes = selected_ids.len();
+    let total_edges = edges.len();
+    let mut nodes = selected_ids
+        .iter()
+        .filter_map(|id| entity_by_id.get(id.as_str()))
+        .filter(|entity| is_fba_entity(entity) || entity.stable_key.0.starts_with("file://"))
+        .map(|entity| fba_graph_node(entity))
+        .collect::<Vec<_>>();
+    nodes.sort_by(|left, right| left.id.cmp(&right.id));
+    nodes.truncate(max_nodes);
+    let retained = nodes
+        .iter()
+        .map(|node| node.id.as_str())
+        .collect::<BTreeSet<_>>();
+    edges.retain(|edge| {
+        retained.contains(edge.from.as_str()) && retained.contains(edge.to.as_str())
+    });
+    edges.sort_by(|left, right| {
+        (&left.from, &left.to, &left.kind).cmp(&(&right.from, &right.to, &right.kind))
+    });
+    edges.truncate(max_edges);
+
+    RustokFbaGraph {
+        schema: schema.to_string(),
+        snapshot: snapshot_id(snapshot),
+        root,
+        nodes,
+        edges,
+        diagnostics,
+        omitted: GraphOmitted {
+            nodes: total_nodes.saturating_sub(max_nodes.min(total_nodes)),
+            edges: total_edges.saturating_sub(max_edges.min(total_edges)),
+            reason: "rustok_fba_graph_limits".to_string(),
+        },
+    }
+}
+
+fn is_fba_entity(entity: &Entity) -> bool {
+    entity.stable_key.0.starts_with("fba_")
+}
+
+fn fba_graph_node(entity: &Entity) -> RustokFbaGraphNode {
+    RustokFbaGraphNode {
+        id: entity.stable_key.0.clone(),
+        kind: serialized_name(&entity.kind),
+        name: entity.name.clone(),
+        source: entity.source.as_ref().map(|source| {
+            source.line_start.map_or_else(
+                || source.path.clone(),
+                |line| format!("{}:{line}", source.path),
+            )
+        }),
+    }
+}
+
+fn push_fba_edge(
+    edges: &mut Vec<RustokFbaGraphEdge>,
+    relation: &Relation,
+    entity_by_id: &HashMap<&str, &Entity>,
+) {
+    let Some(from) = entity_by_id.get(relation.from.0.as_str()) else {
+        return;
+    };
+    let Some(to) = entity_by_id.get(relation.to.0.as_str()) else {
+        return;
+    };
+    edges.push(RustokFbaGraphEdge {
+        from: from.stable_key.0.clone(),
+        to: to.stable_key.0.clone(),
+        kind: serialized_name(&relation.kind),
+        evidence: relation_evidence(relation),
+    });
+}
+
+fn parse_fba_module_key(stable_key: &str) -> Option<&str> {
+    let rest = stable_key.strip_prefix("fba_module://")?;
+    (!rest.contains('/')).then_some(rest)
+}
+
+fn parse_fba_contract_key(stable_key: &str) -> Option<(&str, &str)> {
+    let rest = stable_key.strip_prefix("fba_contract://")?;
+    let mut parts = rest.splitn(2, '/');
+    Some((parts.next()?, parts.next()?))
+}
+
+fn parse_fba_port_key(stable_key: &str) -> Option<(&str, &str)> {
+    let rest = stable_key.strip_prefix("fba_port://")?;
+    let mut parts = rest.split('/');
+    let module = parts.next()?;
+    let port = parts.next()?;
+    parts.next().is_none().then_some((module, port))
+}
+
+fn parse_fba_operation_key(stable_key: &str) -> Option<(&str, &str, &str)> {
+    let rest = stable_key.strip_prefix("fba_operation://")?;
+    let mut parts = rest.split('/');
+    let module = parts.next()?;
+    let port = parts.next()?;
+    let operation = parts.next()?;
+    parts.next().is_none().then_some((module, port, operation))
+}
+
+fn parse_fba_dependency_key(stable_key: &str) -> Option<(&str, &str, &str)> {
+    let rest = stable_key.strip_prefix("fba_dependency://")?;
+    let mut parts = rest.split('/');
+    let consumer = parts.next()?;
+    let provider = parts.next()?;
+    let profile = parts.next()?;
+    parts
+        .next()
+        .is_none()
+        .then_some((consumer, provider, profile))
+}
+
 fn ffa_diagnostics(
     snapshot: &CanonicalSnapshot,
     module: Option<&str>,
@@ -2665,6 +3377,124 @@ mod tests {
         assert_eq!(graph.omitted.edges, 1);
     }
 
+    #[test]
+    fn fba_module_graph_includes_contract_port_operation_and_diagnostics() {
+        let module = entity(
+            "ent_fba_module",
+            "fba_module://inventory",
+            EntityKind::Other("rustok_fba_module".to_string()),
+            "inventory",
+        );
+        let contract = entity(
+            "ent_fba_contract",
+            "fba_contract://inventory/inventory.reservation.v1",
+            EntityKind::Other("rustok_fba_contract".to_string()),
+            "inventory/inventory.reservation.v1",
+        );
+        let port = entity(
+            "ent_fba_port",
+            "fba_port://inventory/InventoryReservationPort",
+            EntityKind::Other("rustok_fba_port".to_string()),
+            "inventory/InventoryReservationPort",
+        );
+        let operation = entity(
+            "ent_fba_operation",
+            "fba_operation://inventory/InventoryReservationPort/reserve_inventory",
+            EntityKind::Other("rustok_fba_operation".to_string()),
+            "inventory/InventoryReservationPort/reserve_inventory",
+        );
+        let snapshot = CanonicalSnapshot {
+            snapshot: Some(SnapshotId("snap_test".to_string())),
+            entities: vec![
+                module.clone(),
+                contract.clone(),
+                port.clone(),
+                operation.clone(),
+            ],
+            relations: vec![
+                relation(
+                    "rel_module_contract",
+                    RelationKind::Contains,
+                    &module,
+                    &contract,
+                ),
+                relation(
+                    "rel_contract_port",
+                    RelationKind::Contains,
+                    &contract,
+                    &port,
+                ),
+                relation(
+                    "rel_port_operation",
+                    RelationKind::Contains,
+                    &port,
+                    &operation,
+                ),
+            ],
+            diagnostics: vec![fba_diagnostic(
+                "diag_fba",
+                "rustok_fba_policy_missing",
+                "inventory",
+                Some("InventoryReservationPort"),
+                Some("crates/rustok-inventory/contracts/inventory-fba-registry.json"),
+            )],
+            ..CanonicalSnapshot::default()
+        };
+
+        let graph = build_rustok_fba_module_graph(&snapshot, "inventory", 80, 160).unwrap();
+
+        assert_eq!(graph.schema, RUSTOK_FBA_MODULE_GRAPH_SCHEMA);
+        assert_eq!(graph.root.as_deref(), Some("fba_module://inventory"));
+        assert_eq!(graph.nodes.len(), 4);
+        assert_eq!(graph.edges.len(), 3);
+        assert_eq!(graph.diagnostics.len(), 1);
+    }
+
+    #[test]
+    fn fba_violations_graph_excludes_clean_edges() {
+        let module = entity(
+            "ent_fba_module",
+            "fba_module://inventory",
+            EntityKind::Other("rustok_fba_module".to_string()),
+            "inventory",
+        );
+        let port = entity(
+            "ent_fba_port",
+            "fba_port://inventory/InventoryReservationPort",
+            EntityKind::Other("rustok_fba_port".to_string()),
+            "inventory/InventoryReservationPort",
+        );
+        let file = entity(
+            "ent_file",
+            "file://crates/rustok-inventory/contracts/inventory-fba-registry.json",
+            EntityKind::File,
+            "crates/rustok-inventory/contracts/inventory-fba-registry.json",
+        );
+        let snapshot = CanonicalSnapshot {
+            entities: vec![module, port, file],
+            diagnostics: vec![fba_diagnostic(
+                "diag_fba",
+                "rustok_fba_policy_missing",
+                "inventory",
+                Some("InventoryReservationPort"),
+                Some("crates/rustok-inventory/contracts/inventory-fba-registry.json"),
+            )],
+            ..CanonicalSnapshot::default()
+        };
+
+        let graph = build_rustok_fba_violations_graph(&snapshot, Some("inventory"), 80, 160);
+
+        assert_eq!(graph.schema, RUSTOK_FBA_VIOLATIONS_GRAPH_SCHEMA);
+        assert_eq!(
+            graph
+                .edges
+                .iter()
+                .map(|edge| edge.kind.as_str())
+                .collect::<Vec<_>>(),
+            vec!["violates", "evidenced_by"]
+        );
+    }
+
     fn entity(id: &str, stable_key: &str, kind: EntityKind, name: &str) -> Entity {
         Entity {
             id: EntityId(id.to_string()),
@@ -2743,6 +3573,42 @@ mod tests {
                 "module": module,
                 "surface": surface,
                 "role": role,
+                "path": path,
+            }),
+        }
+    }
+
+    fn fba_diagnostic(
+        id: &str,
+        kind: &str,
+        module: &str,
+        port: Option<&str>,
+        path: Option<&str>,
+    ) -> Diagnostic {
+        Diagnostic {
+            id: athanor_domain::DiagnosticId(id.to_string()),
+            kind: DiagnosticKind::Other(kind.to_string()),
+            severity: athanor_domain::Severity::High,
+            status: athanor_domain::DiagnosticStatus::Open,
+            title: kind.to_string(),
+            message: kind.to_string(),
+            entities: Vec::new(),
+            evidence: vec![Evidence {
+                source_file: path.map(str::to_string),
+                line_start: Some(1),
+                line_end: Some(1),
+                extractor: Some("test".to_string()),
+                commit_hash: None,
+                confidence: 1.0,
+                status: EvidenceStatus::Verified,
+            }],
+            ownership: Vec::new(),
+            snapshot: SnapshotId("snap_test".to_string()),
+            suggested_fix: None,
+            payload: json!({
+                "schema": "rustok.fba.diagnostic.v1",
+                "module": module,
+                "port": port,
                 "path": path,
             }),
         }

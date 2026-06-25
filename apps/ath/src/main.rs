@@ -9,24 +9,28 @@ use athanor_app::{
     DiagnosticCheckReport, DiagnosticScope, DocsApplyPatchOptions, DocsApplyPatchReport,
     DocsCheckOptions, DocsCheckReport, DocsDriftOptions, DocsDriftReport, DocsProposeFixOptions,
     DocsProposeFixReport, EntityExplanation, ExplainOptions, GenerationOptions, GraphCycles,
-    GraphCyclesOptions, GraphExportOptions, GraphFfaSurfaceOptions, GraphFfaViolationsOptions,
-    GraphHubs, GraphHubsOptions, GraphPageRank, GraphPageRankOptions, GraphPath, GraphPathOptions,
-    GraphRelated, GraphRelatedOptions, HtmlReportOptions, ImpactAnalysis, ImpactOptions,
-    IndexOptions, IndexReport, InitOptions, OperationsDocsCheckOptions, OperationsDocsCheckReport,
-    OverviewOptions, ProjectRegisterOptions, ProjectRegistration, ProjectRegistryOptions,
-    ProjectRegistryReport, ProjectUnregisterOptions, RepairApplyOptions, RepairApplyReport,
-    RepairCleanupOptions, RepairCleanupReport, RepairInspectOptions, RepairInspectReport,
-    RepairRecoverCanonicalOptions, RepairRecoverCanonicalReport, RepairRegenerateOptions,
-    RepairRegenerateReport, RepositoryOverview, RustokFfaAudit, RustokFfaAuditOptions,
-    RustokFfaGraph, WikiOptions, apply_repair, benchmark_index, check_affected, check_docs,
-    check_operations_docs, check_project, cleanup_api_contracts, cleanup_repair, context_project,
-    default_adapter_trust_path, default_project_registry_path, diff_api_contracts,
-    docs_apply_patch, docs_drift, docs_propose_fix, explain_project, generate_project,
-    graph_ffa_surface, graph_ffa_violations, impact_project, index_project, init_project,
-    inspect_repair, list_adapter_plugin_trust, list_registered_projects, overview_project,
-    project_html_report, project_wiki, recover_canonical_repair, regenerate_repair,
-    register_project, resolve_registered_project, rustok_ffa_audit, snapshot_api_contract,
-    trust_adapter_plugin, unregister_project, untrust_adapter_plugin,
+    GraphCyclesOptions, GraphExportOptions, GraphFbaDependenciesOptions, GraphFbaModuleOptions,
+    GraphFbaPortOptions, GraphFbaViolationsOptions, GraphFfaSurfaceOptions,
+    GraphFfaViolationsOptions, GraphHubs, GraphHubsOptions, GraphPageRank, GraphPageRankOptions,
+    GraphPath, GraphPathOptions, GraphRelated, GraphRelatedOptions, HtmlReportOptions,
+    ImpactAnalysis, ImpactOptions, IndexOptions, IndexReport, InitOptions,
+    OperationsDocsCheckOptions, OperationsDocsCheckReport, OverviewOptions, ProjectRegisterOptions,
+    ProjectRegistration, ProjectRegistryOptions, ProjectRegistryReport, ProjectUnregisterOptions,
+    RepairApplyOptions, RepairApplyReport, RepairCleanupOptions, RepairCleanupReport,
+    RepairInspectOptions, RepairInspectReport, RepairRecoverCanonicalOptions,
+    RepairRecoverCanonicalReport, RepairRegenerateOptions, RepairRegenerateReport,
+    RepositoryOverview, RustokFbaAudit, RustokFbaAuditOptions, RustokFbaGraph, RustokFfaAudit,
+    RustokFfaAuditOptions, RustokFfaGraph, WikiOptions, apply_repair, benchmark_index,
+    check_affected, check_docs, check_operations_docs, check_project, cleanup_api_contracts,
+    cleanup_repair, context_project, default_adapter_trust_path, default_project_registry_path,
+    diff_api_contracts, docs_apply_patch, docs_drift, docs_propose_fix, explain_project,
+    generate_project, graph_fba_dependencies, graph_fba_module, graph_fba_port,
+    graph_fba_violations, graph_ffa_surface, graph_ffa_violations, impact_project, index_project,
+    init_project, inspect_repair, list_adapter_plugin_trust, list_registered_projects,
+    overview_project, project_html_report, project_wiki, recover_canonical_repair,
+    regenerate_repair, register_project, resolve_registered_project, rustok_fba_audit,
+    rustok_ffa_audit, snapshot_api_contract, trust_adapter_plugin, unregister_project,
+    untrust_adapter_plugin,
 };
 use athanor_domain::ContextLevel;
 use clap::{Parser, Subcommand, ValueEnum};
@@ -62,6 +66,8 @@ enum DiagnosticScopeArg {
     Runbooks,
     #[value(name = "rustok-ffa")]
     RustokFfa,
+    #[value(name = "rustok-fba")]
+    RustokFba,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -98,6 +104,7 @@ impl DiagnosticScopeArg {
             Self::Deployment => Some(DiagnosticScope::Deployment),
             Self::Runbooks => Some(DiagnosticScope::Runbooks),
             Self::RustokFfa => Some(DiagnosticScope::RustokFfa),
+            Self::RustokFba => Some(DiagnosticScope::RustokFba),
         }
     }
 }
@@ -787,7 +794,7 @@ fn adapter_trust_path(trust_store: Option<PathBuf>) -> Result<PathBuf> {
 #[tokio::main]
 async fn main() -> Result<()> {
     init_tracing();
-    if handle_manual_ffa_command().await? {
+    if handle_manual_rustok_arch_command().await? {
         return Ok(());
     }
     let cli = Cli::parse();
@@ -1607,13 +1614,13 @@ fn init_tracing() {
         .try_init();
 }
 
-async fn handle_manual_ffa_command() -> Result<bool> {
+async fn handle_manual_rustok_arch_command() -> Result<bool> {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     match args.as_slice() {
         [first, second, third, rest @ ..]
             if first == "rustok" && second == "ffa" && third == "audit" =>
         {
-            let flags = parse_ffa_flags(rest, true)?;
+            let flags = parse_arch_flags(rest, true)?;
             let report = rustok_ffa_audit(RustokFfaAuditOptions { root: flags.path }).await?;
             if flags.json {
                 println!("{}", serde_json::to_string_pretty(&report)?);
@@ -1622,10 +1629,22 @@ async fn handle_manual_ffa_command() -> Result<bool> {
             }
             Ok(true)
         }
+        [first, second, third, rest @ ..]
+            if first == "rustok" && second == "fba" && third == "audit" =>
+        {
+            let flags = parse_arch_flags(rest, true)?;
+            let report = rustok_fba_audit(RustokFbaAuditOptions { root: flags.path }).await?;
+            if flags.json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                print_rustok_fba_audit(&report);
+            }
+            Ok(true)
+        }
         [first, second, third, module, surface, rest @ ..]
             if first == "graph" && second == "ffa" && third == "surface" =>
         {
-            let flags = parse_ffa_flags(rest, true)?;
+            let flags = parse_arch_flags(rest, true)?;
             let report = graph_ffa_surface(GraphFfaSurfaceOptions {
                 root: flags.path,
                 module: module.clone(),
@@ -1638,6 +1657,64 @@ async fn handle_manual_ffa_command() -> Result<bool> {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
                 print_rustok_ffa_graph(&report);
+            }
+            Ok(true)
+        }
+        [first, second, third, module, rest @ ..]
+            if first == "graph" && second == "fba" && third == "module" =>
+        {
+            let flags = parse_arch_flags(rest, true)?;
+            let report = graph_fba_module(GraphFbaModuleOptions {
+                root: flags.path,
+                module: module.clone(),
+                max_nodes: flags.max_nodes,
+                max_edges: flags.max_edges,
+            })
+            .await?;
+            if flags.json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                print_rustok_fba_graph(&report);
+            }
+            Ok(true)
+        }
+        [first, second, third, module, port, rest @ ..]
+            if first == "graph" && second == "fba" && third == "port" =>
+        {
+            let flags = parse_arch_flags(rest, true)?;
+            let report = graph_fba_port(GraphFbaPortOptions {
+                root: flags.path,
+                module: module.clone(),
+                port: port.clone(),
+                max_nodes: flags.max_nodes,
+                max_edges: flags.max_edges,
+            })
+            .await?;
+            if flags.json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                print_rustok_fba_graph(&report);
+            }
+            Ok(true)
+        }
+        [first, second, third, rest @ ..]
+            if first == "graph" && second == "fba" && third == "dependencies" =>
+        {
+            let flags = parse_fba_dependencies_flags(rest)?;
+            let Some(module) = flags.module else {
+                anyhow::bail!("graph fba dependencies requires --module <module>");
+            };
+            let report = graph_fba_dependencies(GraphFbaDependenciesOptions {
+                root: flags.path,
+                module,
+                max_nodes: flags.max_nodes,
+                max_edges: flags.max_edges,
+            })
+            .await?;
+            if flags.json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                print_rustok_fba_graph(&report);
             }
             Ok(true)
         }
@@ -1660,12 +1737,30 @@ async fn handle_manual_ffa_command() -> Result<bool> {
             }
             Ok(true)
         }
+        [first, second, third, rest @ ..]
+            if first == "graph" && second == "fba" && third == "violations" =>
+        {
+            let flags = parse_fba_violations_flags(rest)?;
+            let report = graph_fba_violations(GraphFbaViolationsOptions {
+                root: flags.path,
+                module: flags.module,
+                max_nodes: flags.max_nodes,
+                max_edges: flags.max_edges,
+            })
+            .await?;
+            if flags.json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                print_rustok_fba_graph(&report);
+            }
+            Ok(true)
+        }
         _ => Ok(false),
     }
 }
 
 #[derive(Debug, Clone)]
-struct ManualFfaFlags {
+struct ManualArchFlags {
     path: PathBuf,
     json: bool,
     max_nodes: usize,
@@ -1674,7 +1769,7 @@ struct ManualFfaFlags {
     surface: Option<String>,
 }
 
-fn parse_ffa_flags(args: &[String], allow_positional_path: bool) -> Result<ManualFfaFlags> {
+fn parse_arch_flags(args: &[String], allow_positional_path: bool) -> Result<ManualArchFlags> {
     let mut path = PathBuf::from(".");
     let mut json = false;
     let mut max_nodes = 80usize;
@@ -1707,11 +1802,11 @@ fn parse_ffa_flags(args: &[String], allow_positional_path: bool) -> Result<Manua
             value if allow_positional_path && !value.starts_with('-') => {
                 path = PathBuf::from(value);
             }
-            other => anyhow::bail!("unknown FFA option `{other}`"),
+            other => anyhow::bail!("unknown architecture graph option `{other}`"),
         }
         index += 1;
     }
-    Ok(ManualFfaFlags {
+    Ok(ManualArchFlags {
         path,
         json,
         max_nodes,
@@ -1721,7 +1816,7 @@ fn parse_ffa_flags(args: &[String], allow_positional_path: bool) -> Result<Manua
     })
 }
 
-fn parse_ffa_violations_flags(args: &[String]) -> Result<ManualFfaFlags> {
+fn parse_ffa_violations_flags(args: &[String]) -> Result<ManualArchFlags> {
     let mut module = None;
     let mut surface = None;
     let mut passthrough = Vec::new();
@@ -1746,10 +1841,36 @@ fn parse_ffa_violations_flags(args: &[String]) -> Result<ManualFfaFlags> {
         }
         index += 1;
     }
-    let mut flags = parse_ffa_flags(&passthrough, false)?;
+    let mut flags = parse_arch_flags(&passthrough, false)?;
     flags.module = module;
     flags.surface = surface;
     Ok(flags)
+}
+
+fn parse_fba_violations_flags(args: &[String]) -> Result<ManualArchFlags> {
+    let mut module = None;
+    let mut passthrough = Vec::new();
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--module" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    anyhow::bail!("--module requires a value");
+                };
+                module = Some(value.clone());
+            }
+            other => passthrough.push(other.to_string()),
+        }
+        index += 1;
+    }
+    let mut flags = parse_arch_flags(&passthrough, false)?;
+    flags.module = module;
+    Ok(flags)
+}
+
+fn parse_fba_dependencies_flags(args: &[String]) -> Result<ManualArchFlags> {
+    parse_fba_violations_flags(args)
 }
 
 fn print_explanation(explanation: &EntityExplanation) -> Result<()> {
@@ -2407,6 +2528,65 @@ fn print_rustok_ffa_graph(report: &RustokFfaGraph) {
     println!(
         "RusTok FFA graph for {} (snapshot: {}, nodes: {}, edges: {}, diagnostics: {}, omitted nodes: {}, omitted edges: {})",
         surface,
+        report.snapshot,
+        report.nodes.len(),
+        report.edges.len(),
+        report.diagnostics.len(),
+        report.omitted.nodes,
+        report.omitted.edges
+    );
+    for diagnostic in &report.diagnostics {
+        println!("  ! {:?} {}", diagnostic.severity, diagnostic.title);
+    }
+    for node in &report.nodes {
+        let source = node.source.as_deref().unwrap_or("unknown source");
+        println!("  - [{}] {} source={}", node.kind, node.id, source);
+    }
+    for edge in &report.edges {
+        println!("    {} -> {} [{}]", edge.from, edge.to, edge.kind);
+    }
+}
+
+fn print_rustok_fba_audit(report: &RustokFbaAudit) {
+    println!(
+        "RusTok FBA audit (snapshot: {}, modules: {}, providers: {}, consumers: {}, ports: {}, operations: {}, diagnostics: {})",
+        report.snapshot,
+        report.summary.modules_total,
+        report.summary.provider_modules,
+        report.summary.consumer_modules,
+        report.summary.ports_total,
+        report.summary.operations_total,
+        report.summary.diagnostics_open
+    );
+    if report.modules.is_empty() {
+        println!("  (none)");
+        return;
+    }
+    for module in &report.modules {
+        let diagnostics = if module.diagnostics.is_empty() {
+            "none".to_string()
+        } else {
+            module.diagnostics.join(", ")
+        };
+        println!(
+            "  - {} role={} status={} contract={} ports={} operations={} dependencies={} diagnostics={}",
+            module.id,
+            module.role.as_deref().unwrap_or("unknown"),
+            module.status.as_deref().unwrap_or("unknown"),
+            module.contract_version.as_deref().unwrap_or("none"),
+            module.ports.len(),
+            module.operations.len(),
+            module.dependencies.len(),
+            diagnostics
+        );
+    }
+}
+
+fn print_rustok_fba_graph(report: &RustokFbaGraph) {
+    let root = report.root.as_deref().unwrap_or("violations");
+    println!(
+        "RusTok FBA graph for {} (snapshot: {}, nodes: {}, edges: {}, diagnostics: {}, omitted nodes: {}, omitted edges: {})",
+        root,
         report.snapshot,
         report.nodes.len(),
         report.edges.len(),

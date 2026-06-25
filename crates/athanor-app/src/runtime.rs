@@ -7,6 +7,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
+use athanor_adapter_rustok_fba::{RustokFbaChecker, RustokFbaExtractor, RustokFbaLinker};
 use athanor_adapter_rustok_ffa::{RustokFfaChecker, RustokFfaExtractor, RustokFfaLinker};
 use athanor_checker_api::{
     ApiConsistencyChecker, DeploymentDocsChecker, EnvDocsChecker, RunbookConsistencyChecker,
@@ -217,6 +218,9 @@ impl AdapterRegistry {
             (AdapterPluginKind::Extractor, "builtin.extractor.rustok_ffa") => {
                 Ok(self.builtin_extractor_rustok_ffa())
             }
+            (AdapterPluginKind::Extractor, "builtin.extractor.rustok_fba") => {
+                Ok(self.builtin_extractor_rustok_fba())
+            }
             (AdapterPluginKind::Linker, "builtin.linker.markdown_containment") => {
                 Ok(self.builtin_linker_markdown_containment())
             }
@@ -226,6 +230,9 @@ impl AdapterRegistry {
             (AdapterPluginKind::Linker, "builtin.linker.rust") => Ok(self.builtin_linker_rust()),
             (AdapterPluginKind::Linker, "builtin.linker.rustok_ffa") => {
                 Ok(self.builtin_linker_rustok_ffa())
+            }
+            (AdapterPluginKind::Linker, "builtin.linker.rustok_fba") => {
+                Ok(self.builtin_linker_rustok_fba())
             }
             (AdapterPluginKind::Checker, "builtin.checker.markdown_structure") => {
                 Ok(self.builtin_checker_markdown_structure())
@@ -247,6 +254,9 @@ impl AdapterRegistry {
             }
             (AdapterPluginKind::Checker, "builtin.checker.rustok_ffa") => {
                 Ok(self.builtin_checker_rustok_ffa())
+            }
+            (AdapterPluginKind::Checker, "builtin.checker.rustok_fba") => {
+                Ok(self.builtin_checker_rustok_fba())
             }
             (AdapterPluginKind::Source, _) => self.external_process_source(adapter, manifest_dir),
             (AdapterPluginKind::Extractor, _) => {
@@ -386,6 +396,12 @@ impl AdapterRegistry {
         })
     }
 
+    fn builtin_extractor_rustok_fba(self) -> Self {
+        self.register_extractor_id("builtin.extractor.rustok_fba", || {
+            Box::new(RustokFbaExtractor)
+        })
+    }
+
     fn builtin_linker_markdown_containment(self) -> Self {
         self.register_linker_id("builtin.linker.markdown_containment", || {
             Box::new(MarkdownContainmentLinker)
@@ -404,6 +420,10 @@ impl AdapterRegistry {
 
     fn builtin_linker_rustok_ffa(self) -> Self {
         self.register_linker_id("builtin.linker.rustok_ffa", || Box::new(RustokFfaLinker))
+    }
+
+    fn builtin_linker_rustok_fba(self) -> Self {
+        self.register_linker_id("builtin.linker.rustok_fba", || Box::new(RustokFbaLinker))
     }
 
     fn builtin_checker_markdown_structure(self) -> Self {
@@ -442,6 +462,10 @@ impl AdapterRegistry {
 
     fn builtin_checker_rustok_ffa(self) -> Self {
         self.register_checker_id("builtin.checker.rustok_ffa", || Box::new(RustokFfaChecker))
+    }
+
+    fn builtin_checker_rustok_fba(self) -> Self {
+        self.register_checker_id("builtin.checker.rustok_fba", || Box::new(RustokFbaChecker))
     }
 
     fn register_source_id(

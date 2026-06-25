@@ -24,6 +24,7 @@ pub enum DiagnosticScope {
     Deployment,
     Runbooks,
     RustokFfa,
+    RustokFba,
 }
 
 #[derive(Debug, Clone)]
@@ -344,7 +345,8 @@ pub fn build_check_report(
                 | DiagnosticScope::Scripts
                 | DiagnosticScope::Deployment
                 | DiagnosticScope::Runbooks
-                | DiagnosticScope::RustokFfa => true,
+                | DiagnosticScope::RustokFfa
+                | DiagnosticScope::RustokFba => true,
             }
         })
         .cloned()
@@ -644,6 +646,9 @@ pub(crate) fn diagnostic_matches_scope(kind: &DiagnosticKind, scope: DiagnosticS
         ),
         DiagnosticScope::RustokFfa => {
             matches!(kind, DiagnosticKind::Other(value) if value.starts_with("rustok_ffa_"))
+        }
+        DiagnosticScope::RustokFba => {
+            matches!(kind, DiagnosticKind::Other(value) if value.starts_with("rustok_fba_"))
         }
     }
 }

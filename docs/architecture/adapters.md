@@ -92,6 +92,7 @@ Ownership should list every source file that can invalidate the emitted object. 
 | `athanor-extractor-openapi` | `Extractor` | Parse project OpenAPI 3.1 through `oas3`, retain a 3.0 fallback, ignore test fixture specs during project discovery, and emit operation/schema/example knowledge. |
 | `athanor-extractor-operations` | `Extractor` | Parse operations files such as dotenv, Cargo manifest, Makefile, Dockerfile, shell script, docker-compose, GitHub Actions, Kubernetes YAML, SQL migration, and runtime config sources into environment, package/dependency, command, deployment/service, database migration, and runtime configuration knowledge without storing raw secret values. |
 | `athanor-extractor-rust` | `Extractor` | Emit Rust module, function, and symbol definitions. |
+| `athanor-adapter-rustok-fba` | `Extractor`, `Linker`, `Checker` | Opt-in RusTok FBA code-audit adapter that emits FBA module/contract/port/operation/profile/dependency entities, FBA relations, and FBA-only diagnostics. |
 | `athanor-adapter-rustok-ffa` | `Extractor`, `Linker`, `Checker` | Opt-in RusTok FFA code-audit adapter that emits FFA surface/layer entities, surface/layer/file relations, and FFA-only diagnostics. |
 | `athanor-linker-api` | `Linker` | Link OpenAPI operations to Rust functions, Markdown documentation, component schemas, and examples. |
 | `athanor-linker-markdown` | `Linker` | Link Markdown containment and exact frontmatter entity/concept references. |
@@ -169,10 +170,12 @@ builtin.extractor.markdown
 builtin.extractor.openapi
 builtin.extractor.operations
 builtin.extractor.rust
+builtin.extractor.rustok_fba
 builtin.extractor.rustok_ffa
 builtin.linker.api_knowledge
 builtin.linker.markdown_containment
 builtin.linker.rust
+builtin.linker.rustok_fba
 builtin.linker.rustok_ffa
 builtin.checker.markdown_structure
 builtin.checker.api_consistency
@@ -180,10 +183,11 @@ builtin.checker.env_docs
 builtin.checker.script_docs
 builtin.checker.deployment_docs
 builtin.checker.runbook_consistency
+builtin.checker.rustok_fba
 builtin.checker.rustok_ffa
 ```
 
-The RusTok FFA ids are built-in factories for manifest opt-in only. They are not part of `AdapterRegistry::built_in()` and should be enabled from a repository-local manifest such as `.athanor/adapters/rustok-ffa.json`.
+The RusTok FFA and FBA ids are built-in factories for manifest opt-in only. They are not part of `AdapterRegistry::built_in()` and should be enabled from repository-local manifests such as `.athanor/adapters/rustok-ffa.json` and `.athanor/adapters/rustok-fba.json`.
 
 This is the first discovery layer. It gives the app layer a single current manifest contract and a validation path for adapter/plugin configuration. It does not dynamically load external Rust code yet; unknown adapter ids fail fast with a clear runtime-builder error. The optional `version` field describes the plugin package, not a separate generation of the adapter contract.
 

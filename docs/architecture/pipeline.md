@@ -63,6 +63,7 @@ flowchart TD
 7. `athanor-linker-markdown` creates `contains` relations plus verified `documents` relations for exact entity/concept keys declared in Markdown frontmatter.
 8. `athanor-linker-api` links OpenAPI operations to matching Rust handlers, Markdown API documentation, same-document request/response component schemas, and declared examples.
 9. When a RusTok repository opts in through `.athanor/adapters/rustok-ffa.json`, `athanor-adapter-rustok-ffa` extracts FFA surface/layer markers from code, links FFA surface/layer/file relations, and emits `rustok_ffa_*` diagnostics.
+10. When a RusTok repository opts in through `.athanor/adapters/rustok-fba.json`, `athanor-adapter-rustok-fba` extracts FBA registry and port-code markers, links FBA module/contract/port/operation/profile/dependency relations, and emits `rustok_fba_*` diagnostics.
 10. `athanor-checker-markdown` creates documentation structure, unresolved-reference, and duplicate-identity diagnostics.
 11. `athanor-checker-api` diagnoses OpenAPI operations without linked implementations or documentation, local component schema references that did not resolve, examples that violate their declared schemas, undocumented environment variables, undocumented runtime configuration keys, undocumented script commands, undocumented deployment resources, runbooks not tied to operational knowledge, runbooks without operation steps, and runbook steps that do not cover declared operational targets.
 12. `RuntimeBuilder` discovers adapter plugin manifests from `.athanor/adapters/*.json` and `.athanor/plugins/*/athanor-adapter.json`, then applies enabled adapter entries that match known app-layer factory ids.
@@ -123,6 +124,7 @@ flowchart TD
 - `graph_pagerank`: bounded directed PageRank ranking over canonical relations.
 - `graph_cycles`: bounded directed-cycle detection over canonical relations.
 - `rustok_ffa_audit`, `graph_ffa_surface`, and `graph_ffa_violations`: bounded RusTok FFA read models from canonical FFA entities, relations, and diagnostics.
+- `rustok_fba_audit`, `graph_fba_module`, `graph_fba_port`, `graph_fba_dependencies`, and `graph_fba_violations`: bounded RusTok FBA read models from canonical FBA entities, relations, and diagnostics.
 - `list_registered_projects`, `register_project`, `resolve_registered_project`, and
   `unregister_project`: explicit user-level repository identity management for future daemon and
   MCP routing.

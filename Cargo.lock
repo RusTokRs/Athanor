@@ -403,6 +403,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "athanor-adapter-rustok-fba"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "athanor-core",
+ "athanor-domain",
+ "athanor-extractor-basic",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "athanor-adapter-rustok-ffa"
 version = "0.1.0"
 dependencies = [
@@ -421,6 +434,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "athanor-adapter-rustok-fba",
  "athanor-adapter-rustok-ffa",
  "athanor-checker-api",
  "athanor-checker-markdown",
