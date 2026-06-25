@@ -8,7 +8,7 @@ It provides three built-in adapter ids:
 - `builtin.linker.rustok_ffa`
 - `builtin.checker.rustok_ffa`
 
-The adapter reads code, not markdown readiness statuses. Documentation may be used later only as drift evidence.
+The adapter reads code for readiness classification. It also compares the central readiness board with module-local status blocks as secondary drift evidence; markdown never overrides the code-derived FFA shape.
 
 ## Model
 
@@ -17,10 +17,10 @@ Canonical entities:
 - `ffa_surface://<module>/<surface>`
 - `ffa_layer://<module>/<surface>/<role>`
 
-Supported roles are `core`, `transport`, `ui_leptos`, `api`, `host_wiring`, `manifest`, `crate_root`, and `other`.
+Supported roles are `core`, `transport`, `ui_leptos`, `ui_support`, `api`, `host_wiring`, `manifest`, `crate_root`, and `other`. Only `ui/leptos.rs` or `ui/leptos/` satisfies the explicit UI-adapter layer; adjacent UI files remain visible as `ui_support`.
 
 The linker connects surfaces to layers with `contains` and layers to files with `implemented_by`.
 
 ## Diagnostics
 
-The checker emits FFA-only diagnostics with ids prefixed by `rustok_ffa_`, including core Leptos imports, raw UI transport calls, missing FFA layers, missing transport profiles, and host-owned module UI.
+The checker emits FFA-only diagnostics with ids prefixed by `rustok_ffa_`, including core Leptos imports, raw UI transport calls, missing FFA layers, missing transport profiles, host-owned module UI, and duplicate readiness-board entries.

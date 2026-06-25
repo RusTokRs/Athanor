@@ -18,6 +18,7 @@ pub const FFA_EXTRACTOR_ID: &str = "rustok_ffa";
 pub const FFA_LINKER_ID: &str = "rustok_ffa_linker";
 pub const FFA_CHECKER_ID: &str = "rustok_ffa_checker";
 pub const FFA_MARKER_FACT_KIND: &str = "rustok_ffa_source_marker";
+pub const FFA_DOCS_STATUS_FACT_KIND: &str = "rustok_ffa_docs_status";
 pub const FFA_LAYER_RELATION_KIND: &str = "rustok_ffa_implemented_by";
 pub const FFA_SURFACE_ENTITY_KIND: &str = "rustok_ffa_surface";
 pub const FFA_LAYER_ENTITY_KIND: &str = "rustok_ffa_layer";
@@ -51,7 +52,21 @@ struct SourceMarker {
     has_native_server_adapter: bool,
     has_graphql_adapter: bool,
     has_rest_adapter: bool,
+    has_native_graphql_fallback: bool,
     first_marker_line: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct DocsStatusMarker {
+    schema: String,
+    source_kind: String,
+    path: String,
+    module: String,
+    surfaces: String,
+    ffa_status: String,
+    fba_status: String,
+    structural_shape: String,
+    line: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -71,6 +86,9 @@ impl Extractor for RustokFfaExtractor {
 
     fn supports(&self, source: &SourceFile) -> bool {
         let path = normalize_path(&source.path);
+        if is_ffa_registry_path(&path) || is_module_implementation_plan_path(&path) {
+            return true;
+        }
         if is_rustok_module_surface_path(&path) || is_rustok_host_path(&path) {
             return matches!(
                 path.rsplit('.').next(),
@@ -83,6 +101,16 @@ impl Extractor for RustokFfaExtractor {
 
     async fn extract(&self, input: ExtractInput) -> CoreResult<ExtractOutput> {
         let path = normalize_path(&input.source.path);
+        if is_ffa_registry_path(&path) {
+            return Ok(extract_docs_statuses(&input.source, &input.snapshot, &path));
+        }
+        if is_module_implementation_plan_path(&path) {
+            return Ok(extract_local_plan_status(
+                &input.source,
+                &input.snapshot,
+                &path,
+            ));
+        }
         let Some(classified) = classify_path(&path) else {
             return Ok(ExtractOutput::default());
         };
@@ -224,9 +252,338 @@ impl Checker for RustokFfaChecker {
         for surface in surfaces.values() {
             diagnostics.extend(surface_diagnostics(surface, &input.snapshot));
         }
+        diagnostics.extend(docs_drift_diagnostics(&input, &surfaces));
         diagnostics.sort_by(|left, right| left.id.0.cmp(&right.id.0));
         Ok(diagnostics)
     }
+}
+
+fn extract_docs_statuses(source: &SourceFile, snapshot: &SnapshotId, path: &str) -> ExtractOutput {
+    let file = file_entity(source, &snapshot.0);
+    let facts = source
+        .content
+        .as_deref()
+        .unwrap_or_default()
+        .lines()
+        .enumerate()
+        .filter_map(|(index, line)| parse_docs_status_row(line, path, index as u32 + 1))
+        .map(|marker| Fact {
+            id: FactId(format!(
+                "fact_rustok_ffa_docs_status_{:016x}",
+                stable_hash(
+                    format!(
+                        "{}:{}:{}:{}",
+                        path, marker.module, marker.surfaces, marker.line
+                    )
+                    .as_bytes()
+                )
+            )),
+            kind: FactKind::Other(FFA_DOCS_STATUS_FACT_KIND.to_string()),
+            subject: file.id.clone(),
+            object: None,
+            value: serde_json::to_value(&marker).expect("DocsStatusMarker serializes"),
+            evidence: vec![evidence_for_file(
+                path,
+                FFA_EXTRACTOR_ID,
+                Some(marker.line),
+                Some(marker.line),
+            )],
+            ownership: ownership_for_file(path),
+            snapshot: snapshot.clone(),
+            extractor: FFA_EXTRACTOR_ID.to_string(),
+            confidence: 1.0,
+        })
+        .collect();
+    ExtractOutput {
+        entities: vec![file],
+        facts,
+    }
+}
+
+fn extract_local_plan_status(
+    source: &SourceFile,
+    snapshot: &SnapshotId,
+    path: &str,
+) -> ExtractOutput {
+    let file = file_entity(source, &snapshot.0);
+    let content = source.content.as_deref().unwrap_or_default();
+    let module = path
+        .split('/')
+        .find(|part| part.starts_with("rustok-"))
+        .map(|part| part.trim_start_matches("rustok-").replace('-', "_"));
+    let status = module
+        .as_deref()
+        .and_then(|module| parse_local_plan_status(content, path, module));
+    let facts = status
+        .into_iter()
+        .map(|marker| Fact {
+            id: FactId(format!(
+                "fact_rustok_ffa_local_status_{:016x}",
+                stable_hash(format!("{}:{}", path, marker.module).as_bytes())
+            )),
+            kind: FactKind::Other(FFA_DOCS_STATUS_FACT_KIND.to_string()),
+            subject: file.id.clone(),
+            object: None,
+            value: serde_json::to_value(&marker).expect("DocsStatusMarker serializes"),
+            evidence: vec![evidence_for_file(
+                path,
+                FFA_EXTRACTOR_ID,
+                Some(marker.line),
+                Some(marker.line),
+            )],
+            ownership: ownership_for_file(path),
+            snapshot: snapshot.clone(),
+            extractor: FFA_EXTRACTOR_ID.to_string(),
+            confidence: 1.0,
+        })
+        .collect();
+    ExtractOutput {
+        entities: vec![file],
+        facts,
+    }
+}
+
+fn parse_docs_status_row(line: &str, path: &str, line_number: u32) -> Option<DocsStatusMarker> {
+    let columns = line.split('|').map(str::trim).collect::<Vec<_>>();
+    if columns.len() < 7 || !columns[1].starts_with('`') {
+        return None;
+    }
+    let module = columns[1].trim_matches('`');
+    if module.is_empty() || module == "Module slug" {
+        return None;
+    }
+    Some(DocsStatusMarker {
+        schema: "rustok.ffa.docs_status.v1".to_string(),
+        source_kind: "registry".to_string(),
+        path: path.to_string(),
+        module: module.to_string(),
+        surfaces: columns[2].to_string(),
+        ffa_status: columns[3].trim_matches('`').to_string(),
+        fba_status: columns[4].trim_matches('`').to_string(),
+        structural_shape: columns[5].trim_matches('`').to_string(),
+        line: line_number,
+    })
+}
+
+fn parse_local_plan_status(content: &str, path: &str, module: &str) -> Option<DocsStatusMarker> {
+    let mut ffa_status = None;
+    let mut fba_status = None;
+    let mut structural_shape = None;
+    let mut first_line = None;
+    for (index, line) in content.lines().enumerate() {
+        let line_number = index as u32 + 1;
+        if let Some(value) = markdown_status_value(line, "- FFA status:") {
+            ffa_status = Some(value);
+            first_line.get_or_insert(line_number);
+        } else if let Some(value) = markdown_status_value(line, "- FBA status:") {
+            fba_status = Some(value);
+            first_line.get_or_insert(line_number);
+        } else if let Some(value) = markdown_status_value(line, "- Structural shape:") {
+            structural_shape = Some(value);
+            first_line.get_or_insert(line_number);
+        }
+    }
+    Some(DocsStatusMarker {
+        schema: "rustok.ffa.docs_status.v1".to_string(),
+        source_kind: "local_plan".to_string(),
+        path: path.to_string(),
+        module: module.to_string(),
+        surfaces: String::new(),
+        ffa_status: ffa_status?,
+        fba_status: fba_status?,
+        structural_shape: structural_shape?,
+        line: first_line?,
+    })
+}
+
+fn markdown_status_value(line: &str, prefix: &str) -> Option<String> {
+    line.trim()
+        .strip_prefix(prefix)?
+        .trim()
+        .strip_prefix('`')?
+        .split('`')
+        .next()
+        .map(str::to_string)
+}
+
+fn docs_drift_diagnostics(
+    input: &CheckInput,
+    surfaces: &BTreeMap<(String, String), SurfaceState>,
+) -> Vec<Diagnostic> {
+    let mut registry = BTreeMap::<(String, String), Vec<(DocsStatusMarker, &Fact)>>::new();
+    let mut local_plans = BTreeMap::<String, (DocsStatusMarker, &Fact)>::new();
+    for fact in input
+        .facts
+        .iter()
+        .filter(|fact| fact.kind == FactKind::Other(FFA_DOCS_STATUS_FACT_KIND.to_string()))
+    {
+        let Ok(marker) = serde_json::from_value::<DocsStatusMarker>(fact.value.clone()) else {
+            continue;
+        };
+        if marker.source_kind == "registry" {
+            registry
+                .entry((marker.module.clone(), marker.surfaces.clone()))
+                .or_default()
+                .push((marker, fact));
+        } else if marker.source_kind == "local_plan" {
+            local_plans.insert(marker.module.clone(), (marker, fact));
+        }
+    }
+
+    let mut diagnostics = Vec::new();
+    let registry_latest = registry
+        .iter()
+        .filter_map(|((module, surfaces), entries)| {
+            entries
+                .last()
+                .map(|(marker, fact)| ((module.clone(), surfaces.clone()), (marker, *fact)))
+        })
+        .collect::<BTreeMap<_, _>>();
+
+    for ((module, surfaces), entries) in &registry {
+        if entries.len() > 1
+            && let Some((_, fact)) = entries.last()
+        {
+            diagnostics.push(docs_drift_diagnostic(
+                &input.snapshot,
+                module,
+                surfaces,
+                format!(
+                    "{module} {surfaces} appears {} times in the FFA/FBA readiness board",
+                    entries.len()
+                ),
+                fact,
+            ));
+        }
+        let Some((registry_marker, registry_fact)) = entries.last() else {
+            continue;
+        };
+        let Some((local_marker, _)) = local_plans.get(module) else {
+            diagnostics.push(docs_drift_diagnostic(
+                &input.snapshot,
+                module,
+                surfaces,
+                format!("{module} readiness board entry has no parseable local FFA/FBA status"),
+                registry_fact,
+            ));
+            continue;
+        };
+        if registry_marker.ffa_status != local_marker.ffa_status
+            || registry_marker.fba_status != local_marker.fba_status
+            || registry_marker.structural_shape != local_marker.structural_shape
+        {
+            diagnostics.push(docs_drift_diagnostic(
+                &input.snapshot,
+                module,
+                surfaces,
+                format!(
+                    "{module} registry status {}/{}/{} differs from local plan {}/{}/{}",
+                    registry_marker.ffa_status,
+                    registry_marker.fba_status,
+                    registry_marker.structural_shape,
+                    local_marker.ffa_status,
+                    local_marker.fba_status,
+                    local_marker.structural_shape
+                ),
+                registry_fact,
+            ));
+        }
+    }
+    for surface in surfaces.values().filter(|surface| {
+        !registry_latest.is_empty()
+            && surface
+                .layers
+                .iter()
+                .any(|layer| matches!(layer.as_str(), "core" | "transport" | "ui_leptos" | "api"))
+    }) {
+        let registry_entry = registry_latest.iter().find(|((module, declared), _)| {
+            module == &surface.module
+                && declared
+                    .split_whitespace()
+                    .any(|part| part == surface.surface)
+        });
+        let Some(((_, _), (registry_marker, registry_fact))) = registry_entry else {
+            let evidence = surface
+                .markers
+                .first()
+                .map(|(_, evidence)| evidence.clone())
+                .unwrap_or_default();
+            diagnostics.push(diagnostic(
+                &input.snapshot,
+                "rustok_ffa_docs_drift",
+                Severity::Medium,
+                "FFA readiness documentation drift",
+                format!(
+                    "{} {} code surface has no readiness board entry",
+                    surface.module, surface.surface
+                ),
+                surface,
+                None,
+                evidence,
+            ));
+            continue;
+        };
+        let code_shape = surface_code_shape(surface);
+        if registry_marker.structural_shape != code_shape {
+            diagnostics.push(docs_drift_diagnostic(
+                &input.snapshot,
+                &surface.module,
+                &surface.surface,
+                format!(
+                    "{} {} code shape {} differs from readiness board shape {}",
+                    surface.module, surface.surface, code_shape, registry_marker.structural_shape
+                ),
+                registry_fact,
+            ));
+        }
+    }
+    diagnostics
+}
+
+fn surface_code_shape(surface: &SurfaceState) -> &'static str {
+    let has_core = surface.layers.contains("core");
+    let has_transport = surface.layers.contains("transport");
+    let has_ui = surface.layers.contains("ui_leptos");
+    match (has_core, has_transport, has_ui) {
+        (true, true, true) => "core_transport_ui",
+        (true, true, false) => "core_transport",
+        (true, false, true) => "core_ui",
+        (false, true, true) => "transport_ui",
+        (true, false, false) => "core_only",
+        (false, true, false) => "transport_only",
+        (false, false, true) => "ui_only",
+        (false, false, false) => "none",
+    }
+}
+
+fn docs_drift_diagnostic(
+    snapshot: &SnapshotId,
+    module: &str,
+    surfaces: &str,
+    message: String,
+    fact: &Fact,
+) -> Diagnostic {
+    let surface = SurfaceState {
+        module: module.to_string(),
+        surface: surfaces.to_string(),
+        markers: Vec::new(),
+        layers: BTreeSet::new(),
+        ownership: fact
+            .ownership
+            .iter()
+            .map(|owner| owner.source_file.clone())
+            .collect(),
+    };
+    diagnostic(
+        snapshot,
+        "rustok_ffa_docs_drift",
+        Severity::Medium,
+        "FFA readiness documentation drift",
+        message,
+        &surface,
+        None,
+        fact.evidence.clone(),
+    )
 }
 
 #[derive(Debug, Clone, Default)]
@@ -284,7 +641,7 @@ fn surface_diagnostics(surface: &SurfaceState, snapshot: &SnapshotId) -> Vec<Dia
                 evidence.clone(),
             ));
         }
-        if marker.role == "ui_leptos"
+        if matches!(marker.role.as_str(), "ui_leptos" | "ui_support")
             && (marker.calls_raw_api
                 || marker.has_leptos_graphql
                 || marker.has_execute_graphql
@@ -352,6 +709,7 @@ fn surface_diagnostics(surface: &SurfaceState, snapshot: &SnapshotId) -> Vec<Dia
                     || marker.has_graphql_adapter
                     || marker.has_rest_adapter
                     || marker.has_leptos_graphql
+                    || marker.has_native_graphql_fallback
                     || has_api)
         })
     {
@@ -592,6 +950,9 @@ fn detect_markers(content: &str, classified: &ClassifiedPath, path: &str) -> Sou
             || content.contains("graphql_adapter")
             || content.contains("leptos_graphql"),
         has_rest_adapter: path.contains("rest_adapter") || content.contains("rest_adapter"),
+        has_native_graphql_fallback: content.contains("ServerFn(")
+            && content.contains("Graphql(")
+            && content.contains("_with_fallback"),
         first_marker_line: first_marker_line(content),
     }
 }
@@ -705,8 +1066,13 @@ fn role_for_module_path(path: &str, surface: &str) -> String {
     {
         return "transport".to_string();
     }
-    if path.contains(&format!("{surface_root}src/ui/")) {
+    if path.contains(&format!("{surface_root}src/ui/leptos.rs"))
+        || path.contains(&format!("{surface_root}src/ui/leptos/"))
+    {
         return "ui_leptos".to_string();
+    }
+    if path.contains(&format!("{surface_root}src/ui/")) {
+        return "ui_support".to_string();
     }
     if path.contains(&format!("{surface_root}src/api.rs"))
         || path.contains(&format!("{surface_root}src/api/"))
@@ -722,6 +1088,15 @@ fn role_for_module_path(path: &str, surface: &str) -> String {
 fn is_rustok_module_surface_path(path: &str) -> bool {
     (path.starts_with("crates/rustok-") || path.contains("/crates/rustok-"))
         && (path.contains("/admin/") || path.contains("/storefront/"))
+}
+
+fn is_ffa_registry_path(path: &str) -> bool {
+    path == "docs/modules/registry.md" || path.ends_with("/docs/modules/registry.md")
+}
+
+fn is_module_implementation_plan_path(path: &str) -> bool {
+    (path.starts_with("crates/rustok-") || path.contains("/crates/rustok-"))
+        && path.ends_with("/docs/implementation-plan.md")
 }
 
 fn is_rustok_host_path(path: &str) -> bool {
@@ -854,6 +1229,18 @@ mod tests {
     }
 
     #[test]
+    fn only_canonical_leptos_path_satisfies_ui_adapter_role() {
+        assert_eq!(
+            role_for_module_path("crates/rustok-auth/admin/src/ui/leptos.rs", "admin"),
+            "ui_leptos"
+        );
+        assert_eq!(
+            role_for_module_path("crates/rustok-auth/admin/src/ui/reset.rs", "admin"),
+            "ui_support"
+        );
+    }
+
+    #[test]
     fn marker_detection_keeps_real_raw_api_and_ui_leptos_references() {
         let classified = ClassifiedPath {
             module: "blog".to_string(),
@@ -978,5 +1365,163 @@ mod tests {
             .unwrap();
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[tokio::test]
+    async fn native_graphql_fallback_facade_declares_transport_profile() {
+        let inputs = [
+            source(
+                "crates/rustok-order/storefront/src/core.rs",
+                "pub struct State;",
+            ),
+            source(
+                "crates/rustok-order/storefront/src/transport.rs",
+                r#"
+pub enum TransportError {
+    Graphql(String),
+    ServerFn(String),
+}
+
+pub async fn complete_checkout_with_fallback() {}
+"#,
+            ),
+            source(
+                "crates/rustok-order/storefront/src/ui/leptos.rs",
+                "#[component]\npub fn View() { crate::transport::complete_checkout_with_fallback(); }",
+            ),
+        ];
+        let mut entities = Vec::new();
+        let mut facts = Vec::new();
+        for source in inputs {
+            let output = RustokFfaExtractor
+                .extract(ExtractInput {
+                    repo: RepoId("repo".to_string()),
+                    snapshot: SnapshotId("snap".to_string()),
+                    source,
+                })
+                .await
+                .unwrap();
+            entities.extend(output.entities);
+            facts.extend(output.facts);
+        }
+
+        let diagnostics = RustokFfaChecker
+            .check(CheckInput {
+                snapshot: SnapshotId("snap".to_string()),
+                entities: std::sync::Arc::new(entities),
+                facts: std::sync::Arc::new(facts),
+                relations: std::sync::Arc::new(Vec::new()),
+                affected: Default::default(),
+            })
+            .await
+            .unwrap();
+
+        assert!(!diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind
+                == DiagnosticKind::Other("rustok_ffa_transport_profile_missing".to_string())
+        }));
+    }
+
+    #[tokio::test]
+    async fn duplicate_readiness_rows_emit_docs_drift() {
+        let registry = source(
+            "docs/modules/registry.md",
+            r#"
+| Module slug | UI surfaces | FFA status | FBA status | Structural shape | Source plan |
+|---|---|---|---|---|---|
+| `blog` | admin + storefront | `in_progress` | `not_started` | `core_transport_ui` | plan |
+| `blog` | admin + storefront | `in_progress` | `not_started` | `core_transport_ui` | newer plan |
+"#,
+        );
+        let mut output = RustokFfaExtractor
+            .extract(ExtractInput {
+                repo: RepoId("repo".to_string()),
+                snapshot: SnapshotId("snap".to_string()),
+                source: registry,
+            })
+            .await
+            .unwrap();
+        let local = RustokFfaExtractor
+            .extract(ExtractInput {
+                repo: RepoId("repo".to_string()),
+                snapshot: SnapshotId("snap".to_string()),
+                source: source(
+                    "crates/rustok-blog/docs/implementation-plan.md",
+                    r#"
+- FFA status: `in_progress`
+- FBA status: `not_started`
+- Structural shape: `core_transport_ui`
+"#,
+                ),
+            })
+            .await
+            .unwrap();
+        output.entities.extend(local.entities);
+        output.facts.extend(local.facts);
+
+        let diagnostics = RustokFfaChecker
+            .check(CheckInput {
+                snapshot: SnapshotId("snap".to_string()),
+                entities: std::sync::Arc::new(output.entities),
+                facts: std::sync::Arc::new(output.facts),
+                relations: std::sync::Arc::new(Vec::new()),
+                affected: Default::default(),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].kind,
+            DiagnosticKind::Other("rustok_ffa_docs_drift".to_string())
+        );
+        assert_eq!(diagnostics[0].payload["module"], "blog");
+        assert_eq!(diagnostics[0].payload["surface"], "admin + storefront");
+    }
+
+    #[tokio::test]
+    async fn registry_and_local_status_mismatch_emits_docs_drift() {
+        let inputs = [
+            source(
+                "docs/modules/registry.md",
+                "| `auth` | admin | `in_progress` | `not_started` | `core_transport_ui` | plan |",
+            ),
+            source(
+                "crates/rustok-auth/docs/implementation-plan.md",
+                r#"
+- FFA status: `in_progress`
+- FBA status: `not_applicable`
+- Structural shape: `core_transport_ui`
+"#,
+            ),
+        ];
+        let mut entities = Vec::new();
+        let mut facts = Vec::new();
+        for source in inputs {
+            let output = RustokFfaExtractor
+                .extract(ExtractInput {
+                    repo: RepoId("repo".to_string()),
+                    snapshot: SnapshotId("snap".to_string()),
+                    source,
+                })
+                .await
+                .unwrap();
+            entities.extend(output.entities);
+            facts.extend(output.facts);
+        }
+
+        let diagnostics = RustokFfaChecker
+            .check(CheckInput {
+                snapshot: SnapshotId("snap".to_string()),
+                entities: std::sync::Arc::new(entities),
+                facts: std::sync::Arc::new(facts),
+                relations: std::sync::Arc::new(Vec::new()),
+                affected: Default::default(),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].message.contains("not_applicable"));
     }
 }

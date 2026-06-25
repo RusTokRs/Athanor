@@ -49,7 +49,7 @@ ath check rustok-ffa --json
 
 ## Extraction Model
 
-The extractor reads source code paths and file contents. It does not read markdown status tables as readiness classification.
+The extractor reads source code paths and file contents for readiness classification. It reads `docs/modules/registry.md` only to emit secondary docs-status facts used for drift checks; markdown never overrides the code-derived FFA shape.
 
 Module-owned surfaces are detected under:
 
@@ -69,10 +69,12 @@ Canonical entities:
 
 ```text
 ffa_surface://<module>/<surface>
-ffa_layer://<module>/<surface>/<core|transport|ui_leptos|api|host_wiring|manifest|crate_root|other>
+ffa_layer://<module>/<surface>/<core|transport|ui_leptos|ui_support|api|host_wiring|manifest|crate_root|other>
 ```
 
-The marker fact kind is `rustok_ffa_source_marker`. Marker payloads include the module, surface, role, normalized path, canonical UI-adapter flag, host-wiring flag, Leptos/component/server markers, raw API calls, transport-facade calls, and transport profile hints.
+The marker fact kind is `rustok_ffa_source_marker`. Marker payloads include the module, surface, role, normalized path, canonical UI-adapter flag, host-wiring flag, Leptos/component/server markers, raw API calls, transport-facade calls, and transport profile hints. Only `ui/leptos.rs` or `ui/leptos/` satisfies the explicit `ui_leptos` layer; other UI files are retained as `ui_support` and are still checked for raw transport calls. Native-first facades with typed `ServerFn` and `Graphql` errors plus a `*_with_fallback` operation count as an explicit transition transport profile.
+
+Readiness-board rows and module-local `docs/implementation-plan.md` status blocks use the secondary fact kind `rustok_ffa_docs_status`. Duplicate board rows, missing board coverage, code/board structural-shape mismatches, and local/central FFA/FBA status mismatches produce evidence-backed docs drift diagnostics.
 
 ## Linking
 
@@ -95,8 +97,9 @@ The checker emits only diagnostics whose kind starts with `rustok_ffa_`:
 - `rustok_ffa_transport_profile_missing`
 - `rustok_ffa_host_owns_module_ui`
 - `rustok_ffa_forgotten_surface`
+- `rustok_ffa_docs_drift`
 
-Documentation drift is reserved for later, evidence-backed docs facts. Markdown status is never the source of FFA readiness.
+Markdown status is never the source of FFA readiness.
 
 ## Graph Commands
 
@@ -108,3 +111,5 @@ Default limits:
 - edges: 160
 
 The violations graph includes only violated boundaries and evidence files, not clean implementation edges.
+
+Audit summaries exclude `host_wiring` and manifest-only `scaffold` entries from complete/incomplete counts while retaining them in the detailed surface list for bounded inspection.

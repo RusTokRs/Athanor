@@ -573,6 +573,10 @@ pub fn build_rustok_ffa_audit(snapshot: &CanonicalSnapshot) -> RustokFfaAudit {
     surfaces
         .sort_by(|left, right| (&left.module, &left.surface).cmp(&(&right.module, &right.surface)));
 
+    let actionable_surfaces = surfaces
+        .iter()
+        .filter(|surface| !matches!(surface.shape.as_str(), "host_wiring" | "scaffold"))
+        .count();
     let core_transport_ui = surfaces
         .iter()
         .filter(|surface| surface.shape == "core_transport_ui")
@@ -586,9 +590,9 @@ pub fn build_rustok_ffa_audit(snapshot: &CanonicalSnapshot) -> RustokFfaAudit {
         schema: RUSTOK_FFA_AUDIT_SCHEMA.to_string(),
         snapshot: snapshot_id,
         summary: RustokFfaAuditSummary {
-            surfaces_total: surfaces.len(),
+            surfaces_total: actionable_surfaces,
             core_transport_ui,
-            incomplete: surfaces.len().saturating_sub(core_transport_ui),
+            incomplete: actionable_surfaces.saturating_sub(core_transport_ui),
             diagnostics_open,
         },
         surfaces,
@@ -1762,9 +1766,21 @@ fn diagnostics_by_surface(diagnostics: &[Diagnostic]) -> BTreeMap<(String, Strin
 }
 
 fn ffa_shape(layers: &[String]) -> String {
+    if layers.iter().any(|layer| layer == "host_wiring") {
+        return "host_wiring".to_string();
+    }
     let has_core = layers.iter().any(|layer| layer == "core");
     let has_transport = layers.iter().any(|layer| layer == "transport");
     let has_ui = layers.iter().any(|layer| layer == "ui_leptos");
+    if !has_core
+        && !has_transport
+        && !has_ui
+        && layers
+            .iter()
+            .all(|layer| matches!(layer.as_str(), "crate_root" | "manifest"))
+    {
+        return "scaffold".to_string();
+    }
     match (has_core, has_transport, has_ui) {
         (true, true, true) => "core_transport_ui",
         (true, true, false) => "core_transport",
@@ -2730,5 +2746,22 @@ mod tests {
                 "path": path,
             }),
         }
+    }
+
+    #[test]
+    fn ffa_shape_separates_host_and_scaffold_entries() {
+        assert_eq!(ffa_shape(&["host_wiring".to_string()]), "host_wiring");
+        assert_eq!(
+            ffa_shape(&["crate_root".to_string(), "manifest".to_string()]),
+            "scaffold"
+        );
+        assert_eq!(
+            ffa_shape(&[
+                "core".to_string(),
+                "transport".to_string(),
+                "ui_leptos".to_string(),
+            ]),
+            "core_transport_ui"
+        );
     }
 }
