@@ -266,6 +266,10 @@ cargo run -p ath --quiet -- projects list
 cargo run -p ath --quiet -- projects add athanor .
 cargo run -p ath --quiet -- projects resolve athanor --json
 cargo run -p ath --quiet -- projects remove athanor
+cargo run -p ath --quiet -- plugins list
+cargo run -p ath --quiet -- plugins list --json
+cargo run -p ath --quiet -- plugins trust .athanor/plugins/example/athanor-adapter.json
+cargo run -p ath --quiet -- plugins untrust .athanor/plugins/example/athanor-adapter.json
 cargo run -p athd --quiet -- start athanor
 cargo run -p athd --quiet -- start athanor --transport local-socket --watch --json
 cargo run -p athd --quiet -- service install athanor --transport local-socket --watch --json

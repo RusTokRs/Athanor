@@ -82,6 +82,7 @@ keep_diffs = 2
 
 [adapters]
 allow_external_process = false
+external_process_allowlist = []
 
 [docs.operations]
 enabled = true

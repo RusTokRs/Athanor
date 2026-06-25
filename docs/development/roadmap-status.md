@@ -2056,6 +2056,49 @@ Purpose:
 - disables external process adapters by default and requires explicit project opt-in
 - adds optimized release builds, signed and attested Windows/Linux archives, authenticated daemon E2E, Windows service E2E, and nightly watcher/query soak coverage
 
+### External Process Adapter Runtime Limits
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-app/src/runtime.rs`
+- `docs/architecture/adapters.md`
+- `docs/development/production.md`
+
+Purpose:
+
+- rejects unknown adapter manifest, adapter entry, and process command fields during manifest parsing
+- rejects empty command programs, parent-directory components, and bare command names that would otherwise resolve through `PATH`
+- canonicalizes absolute command paths before execution
+- canonicalizes manifest-relative command paths and requires them to stay inside the manifest directory
+- requires every external command program to match `[adapters].external_process_allowlist` after canonicalization
+- bounds serialized stdin, stdout, stderr, and wall-clock execution for external process adapters
+- terminates timed-out adapter processes and reports bounded adapter-scoped errors
+- reports oversized stdout, oversized stderr, invalid JSON, and non-zero exit status without unbounded process output capture
+- keeps external process adapter output on the existing canonical evidence and ownership validation path
+
+### External Process Adapter User Trust
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-app/src/runtime.rs`
+- `apps/ath/src/main.rs`
+- `docs/README.md`
+- `docs/architecture/adapters.md`
+- `docs/development/production.md`
+
+Purpose:
+
+- adds a user-level adapter trust store at `~/.athanor/adapter-trust.json` or `ATHANOR_ADAPTER_TRUST`
+- records trusted adapter manifests by canonical manifest path and SHA-256 manifest content hash
+- requires `[adapters].allow_external_process = true`, a matching executable allowlist entry, and a matching user-level trust record before loading external process adapters from discovered manifests
+- invalidates trust automatically when a manifest changes
+- adds `ath plugins list`, `ath plugins trust <manifest>`, and `ath plugins untrust <manifest>` with optional `--trust-store` overrides and JSON output
+- keeps trust state outside the repository so a cloned repo cannot trust its own executable adapters
+
 ## Next
 
 This backlog tracks the remaining global plan from `start.md`. The entries below are prioritized by dependency order and current product value; each item should be moved into `Implemented` only after code, documentation, and required verification are complete.
@@ -2068,7 +2111,7 @@ Context:
 
 - production daemon hardening, protocol v2 authentication, daemon request/response limits, release workflows, and external-process adapter opt-in are already implemented and verified above
 - in-process linker/checker inputs already use shared `Arc<[T]>` contracts, but `IndexPipeline` still builds those shared slices from borrowed canonical vectors and should be checked for avoidable full-list copies
-- external process adapters are disabled by default, but process execution still needs stricter runtime limits and manifest trust controls before repo-local plugins are safe by default
+- external process adapters are disabled by default and now require explicit project opt-in, executable allowlisting, bounded runtime execution, and user-level manifest trust
 
 Scope:
 
@@ -2081,42 +2124,6 @@ Acceptance:
 - the next release plan does not duplicate work already marked verified
 - any remaining P0/P1 item names the exact crate, user-visible behavior, required tests, and documentation update
 - docs remain aligned with `AGENTS.md`, `docs/architecture/pipeline.md`, `docs/architecture/adapters.md`, and `docs/development/production.md`
-
-### External Process Adapter Runtime Hardening
-
-Status: planned.
-
-Priority: P0.
-
-Scope:
-
-- reject unknown manifest fields with `serde(deny_unknown_fields)` on adapter manifest and command structs
-- reject dangerous manifest paths, including project-root escapes through relative paths, symlinks, junctions, and manifest-relative command traversal
-- replace bare `PATH` command resolution with an explicit allowlist of executable paths or command ids
-- add per-adapter execution timeouts and terminate the child process on timeout
-- bound stdin serialization, stdout bytes, stderr bytes, and JSON parsing depth/size before deserializing adapter output
-- fail closed on non-zero exit status, invalid JSON, oversized output, missing canonical evidence, or missing ownership
-- add a user-level trust record for repo-local `.athanor/plugins/*` manifests so a cloned repository cannot trust its own executable adapters
-- document that opt-in and trust do not provide OS sandboxing
-
-Tests:
-
-- disabled external process adapter is rejected by default
-- enabled but untrusted repo-local plugin is rejected
-- unknown manifest field is rejected
-- manifest command path outside the manifest directory or allowlist is rejected
-- bare command name not in the allowlist is rejected
-- hanging process is killed on timeout
-- oversized stdout and stderr fail deterministically without unbounded memory growth
-- invalid JSON output fails with an adapter-scoped error
-- non-zero exit code includes bounded stderr
-- successful allowlisted adapter run still works
-
-Acceptance:
-
-- a file under `.athanor/plugins` cannot cause arbitrary command execution without explicit project opt-in, explicit executable allowlisting, and explicit user trust
-- every external process adapter failure path emits a bounded, adapter-scoped error
-- adapter output still flows through the existing evidence and ownership validation report path
 
 ### Pipeline Memory And Metrics Follow-Up
 

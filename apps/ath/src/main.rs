@@ -2,15 +2,16 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use athanor_app::{
-    AffectedCheckOptions, AffectedCheckReport, ApiCleanupOptions, ApiCleanupReport,
-    ApiContractDiff, ApiDiffOptions, ApiRetentionOverrides, ApiSnapshotOptions, ApiSnapshotReport,
-    ContextLimitOverrides, ContextOptions, DiagnosticCheckOptions, DiagnosticCheckReport,
-    DiagnosticScope, DocsApplyPatchOptions, DocsApplyPatchReport, DocsCheckOptions,
-    DocsCheckReport, DocsDriftOptions, DocsDriftReport, DocsProposeFixOptions,
-    DocsProposeFixReport, EntityExplanation, ExplainOptions, GenerationOptions, GraphCycles,
-    GraphCyclesOptions, GraphExportOptions, GraphHubs, GraphHubsOptions, GraphPageRank,
-    GraphPageRankOptions, GraphPath, GraphPathOptions, GraphRelated, GraphRelatedOptions,
-    HtmlReportOptions, ImpactAnalysis, ImpactOptions, IndexOptions, IndexReport, InitOptions,
+    AdapterTrustListOptions, AdapterTrustOptions, AdapterTrustReport, AffectedCheckOptions,
+    AffectedCheckReport, ApiCleanupOptions, ApiCleanupReport, ApiContractDiff, ApiDiffOptions,
+    ApiRetentionOverrides, ApiSnapshotOptions, ApiSnapshotReport, ContextLimitOverrides,
+    ContextOptions, DiagnosticCheckOptions, DiagnosticCheckReport, DiagnosticScope,
+    DocsApplyPatchOptions, DocsApplyPatchReport, DocsCheckOptions, DocsCheckReport,
+    DocsDriftOptions, DocsDriftReport, DocsProposeFixOptions, DocsProposeFixReport,
+    EntityExplanation, ExplainOptions, GenerationOptions, GraphCycles, GraphCyclesOptions,
+    GraphExportOptions, GraphHubs, GraphHubsOptions, GraphPageRank, GraphPageRankOptions,
+    GraphPath, GraphPathOptions, GraphRelated, GraphRelatedOptions, HtmlReportOptions,
+    ImpactAnalysis, ImpactOptions, IndexOptions, IndexReport, InitOptions,
     OperationsDocsCheckOptions, OperationsDocsCheckReport, OverviewOptions, ProjectRegisterOptions,
     ProjectRegistration, ProjectRegistryOptions, ProjectRegistryReport, ProjectUnregisterOptions,
     RepairApplyOptions, RepairApplyReport, RepairCleanupOptions, RepairCleanupReport,
@@ -18,11 +19,12 @@ use athanor_app::{
     RepairRecoverCanonicalReport, RepairRegenerateOptions, RepairRegenerateReport,
     RepositoryOverview, WikiOptions, apply_repair, check_affected, check_docs,
     check_operations_docs, check_project, cleanup_api_contracts, cleanup_repair, context_project,
-    default_project_registry_path, diff_api_contracts, docs_apply_patch, docs_drift,
-    docs_propose_fix, explain_project, generate_project, impact_project, index_project,
-    init_project, inspect_repair, list_registered_projects, overview_project, project_html_report,
-    project_wiki, recover_canonical_repair, regenerate_repair, register_project,
-    resolve_registered_project, snapshot_api_contract, unregister_project,
+    default_adapter_trust_path, default_project_registry_path, diff_api_contracts,
+    docs_apply_patch, docs_drift, docs_propose_fix, explain_project, generate_project,
+    impact_project, index_project, init_project, inspect_repair, list_adapter_plugin_trust,
+    list_registered_projects, overview_project, project_html_report, project_wiki,
+    recover_canonical_repair, regenerate_repair, register_project, resolve_registered_project,
+    snapshot_api_contract, trust_adapter_plugin, unregister_project, untrust_adapter_plugin,
 };
 use athanor_domain::ContextLevel;
 use clap::{Parser, Subcommand, ValueEnum};
@@ -247,6 +249,11 @@ enum Command {
         #[command(subcommand)]
         command: ProjectCommand,
     },
+    /// Inspect and manage trusted adapter plugin manifests.
+    Plugins {
+        #[command(subcommand)]
+        command: PluginCommand,
+    },
     /// Inspect repairable local Athanor artifacts.
     Repair {
         #[command(subcommand)]
@@ -317,6 +324,44 @@ enum ProjectCommand {
         #[arg(long)]
         registry: Option<PathBuf>,
         /// Print the registration as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum PluginCommand {
+    /// List discovered adapter plugin manifests and trust status.
+    List {
+        /// Project root. Defaults to the current directory.
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Override the user-level adapter trust store path.
+        #[arg(long)]
+        trust_store: Option<PathBuf>,
+        /// Print the trust report as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Trust one adapter plugin manifest by path and current content hash.
+    Trust {
+        /// Path to an adapter manifest, for example .athanor/plugins/example/athanor-adapter.json.
+        manifest: PathBuf,
+        /// Override the user-level adapter trust store path.
+        #[arg(long)]
+        trust_store: Option<PathBuf>,
+        /// Print the trust report as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Remove trust for one adapter plugin manifest by path.
+    Untrust {
+        /// Path to an adapter manifest.
+        manifest: PathBuf,
+        /// Override the user-level adapter trust store path.
+        #[arg(long)]
+        trust_store: Option<PathBuf>,
+        /// Print the trust report as JSON.
         #[arg(long)]
         json: bool,
     },
@@ -693,6 +738,10 @@ fn retention_overrides(
 
 fn project_registry_path(registry: Option<PathBuf>) -> Result<PathBuf> {
     registry.map_or_else(default_project_registry_path, Ok)
+}
+
+fn adapter_trust_path(trust_store: Option<PathBuf>) -> Result<PathBuf> {
+    trust_store.map_or_else(default_adapter_trust_path, Ok)
 }
 
 #[tokio::main]
@@ -1304,6 +1353,53 @@ async fn main() -> Result<()> {
                 }
             }
         },
+        Some(Command::Plugins { command }) => match command {
+            PluginCommand::List {
+                path,
+                trust_store,
+                json,
+            } => {
+                let report = list_adapter_plugin_trust(AdapterTrustListOptions {
+                    root: path,
+                    trust_path: adapter_trust_path(trust_store)?,
+                })?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                } else {
+                    print_adapter_trust_report(&report);
+                }
+            }
+            PluginCommand::Trust {
+                manifest,
+                trust_store,
+                json,
+            } => {
+                let report = trust_adapter_plugin(AdapterTrustOptions {
+                    trust_path: adapter_trust_path(trust_store)?,
+                    manifest_path: manifest,
+                })?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                } else {
+                    print_adapter_trust_report(&report);
+                }
+            }
+            PluginCommand::Untrust {
+                manifest,
+                trust_store,
+                json,
+            } => {
+                let report = untrust_adapter_plugin(AdapterTrustOptions {
+                    trust_path: adapter_trust_path(trust_store)?,
+                    manifest_path: manifest,
+                })?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                } else {
+                    print_adapter_trust_report(&report);
+                }
+            }
+        },
         Some(Command::Repair { command }) => match command {
             RepairCommand::Inspect { path, json } => {
                 let report = inspect_repair(RepairInspectOptions { root: path })?;
@@ -1793,6 +1889,38 @@ fn print_project_registry(report: &ProjectRegistryReport) {
 
 fn print_project_registration(project: &ProjectRegistration) {
     println!("  {} -> {}", project.project_id, project.root.display());
+}
+
+fn print_adapter_trust_report(report: &AdapterTrustReport) {
+    println!(
+        "Adapter plugin trust at {}: {}",
+        report.trust_path.display(),
+        report.plugins.len()
+    );
+    if report.plugins.is_empty() {
+        println!("  (none)");
+        return;
+    }
+    for plugin in &report.plugins {
+        let trust = if plugin.trusted {
+            "trusted"
+        } else {
+            "untrusted"
+        };
+        let external = if plugin.has_external_process {
+            "external-process"
+        } else {
+            "in-process"
+        };
+        println!(
+            "  {} [{}; {}] -> {}",
+            plugin.name,
+            trust,
+            external,
+            plugin.manifest_path.display()
+        );
+        println!("    hash: {}", plugin.content_hash);
+    }
 }
 
 fn print_named_counts(title: &str, counts: &[athanor_app::NamedCount]) {

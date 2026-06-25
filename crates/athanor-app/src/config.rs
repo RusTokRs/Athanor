@@ -18,6 +18,7 @@ pub struct ProjectConfig {
 #[serde(default)]
 pub struct AdaptersConfig {
     pub allow_external_process: bool,
+    pub external_process_allowlist: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

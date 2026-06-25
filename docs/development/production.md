@@ -89,10 +89,31 @@ External process adapters are disabled by default:
 ```toml
 [adapters]
 allow_external_process = false
+external_process_allowlist = []
 ```
 
 Set the value to `true` only for trusted manifests and executables. Athanor logs every enabled
 external process adapter as a security warning. This opt-in does not provide process sandboxing.
+When external process adapters are enabled, each command program must also match a canonicalized
+entry in `external_process_allowlist`. Relative allowlist entries are resolved from the project root,
+and an empty allowlist rejects all external process adapters.
+
+Adapter manifests are parsed strictly and reject unknown fields. External adapter commands must use
+explicit absolute paths or manifest-relative paths that stay inside the manifest directory after
+canonicalization; bare command names are not resolved through `PATH`. Process execution is bounded by
+stdin, stdout, stderr, and wall-clock limits. Timed-out adapter processes are terminated, and
+oversized output fails with a bounded adapter-scoped error.
+
+External adapter manifests also require user-level trust stored outside the repository. The default
+trust store is `~/.athanor/adapter-trust.json` or `ATHANOR_ADAPTER_TRUST` when set. A trust record
+contains the canonical manifest path and SHA-256 hash of the manifest content, so modifying a
+manifest requires a new explicit trust action:
+
+```bash
+ath plugins list
+ath plugins trust .athanor/plugins/example/athanor-adapter.json
+ath plugins untrust .athanor/plugins/example/athanor-adapter.json
+```
 
 ## Releases
 

@@ -1,8 +1,10 @@
 use std::collections::BTreeSet;
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use athanor_checker_api::{
@@ -24,11 +26,13 @@ use athanor_linker_markdown::MarkdownContainmentLinker;
 use athanor_linker_rust::RustLinker;
 use athanor_source_fs::LocalFileSystemSource;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use tracing::{debug, warn};
 
 use crate::IndexPipeline;
 
 pub const ADAPTER_MANIFEST_SCHEMA: &str = "athanor.adapter_manifest";
+pub const ADAPTER_TRUST_SCHEMA: &str = "athanor.adapter_trust.v1";
 
 type SourceFactory = Box<dyn Fn(&Path) -> Box<dyn SourceProvider> + Send + Sync>;
 type ExtractorFactory = Box<dyn Fn() -> Box<dyn Extractor> + Send + Sync>;
@@ -36,6 +40,7 @@ type LinkerFactory = Box<dyn Fn() -> Box<dyn Linker> + Send + Sync>;
 type CheckerFactory = Box<dyn Fn() -> Box<dyn Checker> + Send + Sync>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AdapterPluginManifest {
     pub schema: String,
     pub name: String,
@@ -46,6 +51,7 @@ pub struct AdapterPluginManifest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AdapterPluginEntry {
     pub id: String,
     pub kind: AdapterPluginKind,
@@ -58,6 +64,7 @@ pub struct AdapterPluginEntry {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AdapterProcessCommand {
     pub program: String,
     #[serde(default)]
@@ -77,6 +84,50 @@ pub enum AdapterPluginKind {
 pub struct DiscoveredAdapterPlugin {
     pub manifest_path: PathBuf,
     pub manifest: AdapterPluginManifest,
+}
+
+#[derive(Debug, Clone)]
+pub struct AdapterTrustOptions {
+    pub trust_path: PathBuf,
+    pub manifest_path: PathBuf,
+}
+
+#[derive(Debug, Clone)]
+pub struct AdapterTrustListOptions {
+    pub root: PathBuf,
+    pub trust_path: PathBuf,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct TrustedAdapterPlugin {
+    pub manifest_path: PathBuf,
+    pub content_hash: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct AdapterTrustRegistry {
+    pub schema: String,
+    #[serde(default)]
+    pub trusted_plugins: Vec<TrustedAdapterPlugin>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct AdapterTrustReport {
+    pub schema: String,
+    pub trust_path: PathBuf,
+    pub plugins: Vec<AdapterTrustStatus>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct AdapterTrustStatus {
+    pub manifest_path: PathBuf,
+    pub name: String,
+    pub version: Option<String>,
+    pub has_external_process: bool,
+    pub trusted: bool,
+    pub content_hash: String,
 }
 
 pub struct AdapterRegistry {
@@ -207,7 +258,7 @@ impl AdapterRegistry {
                 adapter.id
             );
         };
-        let command = ProcessCommand::from_manifest(manifest_dir, command);
+        let command = ProcessCommand::from_manifest(manifest_dir, command)?;
         let id = adapter.id.clone();
 
         Ok(self.register_source_id(&adapter.id, move |root| {
@@ -230,7 +281,7 @@ impl AdapterRegistry {
                 adapter.id
             );
         };
-        let command = ProcessCommand::from_manifest(manifest_dir, command);
+        let command = ProcessCommand::from_manifest(manifest_dir, command)?;
         let id = adapter.id.clone();
         let supports_extensions = adapter
             .supports_extensions
@@ -258,7 +309,7 @@ impl AdapterRegistry {
                 adapter.id
             );
         };
-        let command = ProcessCommand::from_manifest(manifest_dir, command);
+        let command = ProcessCommand::from_manifest(manifest_dir, command)?;
         let id = adapter.id.clone();
 
         Ok(self.register_linker_id(&adapter.id, move || {
@@ -280,7 +331,7 @@ impl AdapterRegistry {
                 adapter.id
             );
         };
-        let command = ProcessCommand::from_manifest(manifest_dir, command);
+        let command = ProcessCommand::from_manifest(manifest_dir, command)?;
         let id = adapter.id.clone();
 
         Ok(self.register_checker_id(&adapter.id, move || {
@@ -483,6 +534,8 @@ pub struct RuntimeBuilder {
     root: PathBuf,
     registry: AdapterRegistry,
     allow_external_process: bool,
+    allowed_external_process_programs: Vec<PathBuf>,
+    adapter_trust_path: Option<PathBuf>,
 }
 
 impl RuntimeBuilder {
@@ -491,6 +544,8 @@ impl RuntimeBuilder {
             root: root.into(),
             registry: AdapterRegistry::built_in(),
             allow_external_process: false,
+            allowed_external_process_programs: Vec::new(),
+            adapter_trust_path: None,
         }
     }
 
@@ -504,7 +559,22 @@ impl RuntimeBuilder {
         self
     }
 
+    pub fn allowed_external_process_programs(
+        mut self,
+        programs: impl IntoIterator<Item = impl Into<PathBuf>>,
+    ) -> Self {
+        self.allowed_external_process_programs = programs.into_iter().map(Into::into).collect();
+        self
+    }
+
+    pub fn adapter_trust_path(mut self, path: impl Into<PathBuf>) -> Self {
+        self.adapter_trust_path = Some(path.into());
+        self
+    }
+
     pub fn with_discovered_plugins(mut self) -> Result<Self> {
+        let mut trust_registry = None;
+
         for plugin in discover_adapter_plugins(&self.root)? {
             let external = plugin
                 .manifest
@@ -517,6 +587,46 @@ impl RuntimeBuilder {
                     "external process adapters are disabled; set [adapters] allow_external_process = true to enable plugin `{}`",
                     plugin.manifest.name
                 );
+            }
+            if !external.is_empty() {
+                let allowlist = resolve_external_process_allowlist(
+                    &self.root,
+                    &self.allowed_external_process_programs,
+                )?;
+                for adapter in &external {
+                    let command = adapter
+                        .command
+                        .as_ref()
+                        .expect("external adapter has command");
+                    let resolved = ProcessCommand::from_manifest(
+                        plugin.manifest_path.parent().unwrap_or(&self.root),
+                        command,
+                    )?;
+                    if !allowlist.contains(&resolved.program) {
+                        bail!(
+                            "external process adapter `{}` command {} is not in [adapters].external_process_allowlist",
+                            adapter.id,
+                            resolved.program.display()
+                        );
+                    }
+                }
+                if trust_registry.is_none() {
+                    let trust_path = match &self.adapter_trust_path {
+                        Some(path) => path.clone(),
+                        None => default_adapter_trust_path()?,
+                    };
+                    trust_registry = Some(load_adapter_trust_registry(&trust_path)?);
+                }
+                let registry = trust_registry
+                    .as_ref()
+                    .expect("adapter trust registry was loaded for external adapters");
+                if !is_adapter_plugin_trusted(registry, &plugin)? {
+                    bail!(
+                        "external process adapter plugin `{}` is not trusted; run `ath plugins trust {}` to trust this manifest version",
+                        plugin.manifest.name,
+                        plugin.manifest_path.display()
+                    );
+                }
             }
             for adapter in external {
                 warn!(
@@ -579,6 +689,92 @@ pub fn discover_adapter_plugins(root: impl AsRef<Path>) -> Result<Vec<Discovered
         .collect()
 }
 
+pub fn default_adapter_trust_path() -> Result<PathBuf> {
+    if let Some(path) = std::env::var_os("ATHANOR_ADAPTER_TRUST") {
+        if path.is_empty() {
+            bail!("ATHANOR_ADAPTER_TRUST must not be empty");
+        }
+        return Ok(PathBuf::from(path));
+    }
+
+    let home = std::env::var_os("USERPROFILE")
+        .or_else(|| std::env::var_os("HOME"))
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "cannot determine user home directory; set ATHANOR_ADAPTER_TRUST explicitly"
+            )
+        })?;
+    Ok(PathBuf::from(home).join(".athanor/adapter-trust.json"))
+}
+
+pub fn list_adapter_plugin_trust(options: AdapterTrustListOptions) -> Result<AdapterTrustReport> {
+    let root = options.root.canonicalize().with_context(|| {
+        format!(
+            "failed to canonicalize project root {}",
+            options.root.display()
+        )
+    })?;
+    let registry = load_adapter_trust_registry(&options.trust_path)?;
+    let mut plugins = discover_adapter_plugins(root)?
+        .into_iter()
+        .map(|plugin| adapter_trust_status(&registry, &plugin))
+        .collect::<Result<Vec<_>>>()?;
+    plugins.sort_by(|left, right| left.manifest_path.cmp(&right.manifest_path));
+
+    Ok(AdapterTrustReport {
+        schema: ADAPTER_TRUST_SCHEMA.to_string(),
+        trust_path: options.trust_path,
+        plugins,
+    })
+}
+
+pub fn trust_adapter_plugin(options: AdapterTrustOptions) -> Result<AdapterTrustReport> {
+    let plugin = read_adapter_plugin_manifest(options.manifest_path)?;
+    let mut registry = load_adapter_trust_registry(&options.trust_path)?;
+    let trusted = trusted_plugin_record(&plugin)?;
+
+    registry
+        .trusted_plugins
+        .retain(|entry| entry.manifest_path != trusted.manifest_path);
+    registry.trusted_plugins.push(trusted);
+    sort_trusted_plugins(&mut registry.trusted_plugins);
+    write_adapter_trust_registry(&options.trust_path, &registry)?;
+
+    Ok(AdapterTrustReport {
+        schema: ADAPTER_TRUST_SCHEMA.to_string(),
+        trust_path: options.trust_path,
+        plugins: vec![adapter_trust_status(&registry, &plugin)?],
+    })
+}
+
+pub fn untrust_adapter_plugin(options: AdapterTrustOptions) -> Result<AdapterTrustReport> {
+    let plugin = read_adapter_plugin_manifest(options.manifest_path)?;
+    let mut registry = load_adapter_trust_registry(&options.trust_path)?;
+    let manifest_path = plugin.manifest_path.canonicalize().with_context(|| {
+        format!(
+            "failed to canonicalize adapter manifest {}",
+            plugin.manifest_path.display()
+        )
+    })?;
+    let previous_len = registry.trusted_plugins.len();
+    registry
+        .trusted_plugins
+        .retain(|entry| entry.manifest_path != manifest_path);
+    if registry.trusted_plugins.len() == previous_len {
+        bail!(
+            "adapter plugin manifest is not trusted: {}",
+            manifest_path.display()
+        );
+    }
+    write_adapter_trust_registry(&options.trust_path, &registry)?;
+
+    Ok(AdapterTrustReport {
+        schema: ADAPTER_TRUST_SCHEMA.to_string(),
+        trust_path: options.trust_path,
+        plugins: vec![adapter_trust_status(&registry, &plugin)?],
+    })
+}
+
 fn read_adapter_plugin_manifest(path: PathBuf) -> Result<DiscoveredAdapterPlugin> {
     let content =
         fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
@@ -591,6 +787,156 @@ fn read_adapter_plugin_manifest(path: PathBuf) -> Result<DiscoveredAdapterPlugin
         manifest_path: path,
         manifest,
     })
+}
+
+fn load_adapter_trust_registry(path: &Path) -> Result<AdapterTrustRegistry> {
+    if !path.exists() {
+        return Ok(AdapterTrustRegistry {
+            schema: ADAPTER_TRUST_SCHEMA.to_string(),
+            trusted_plugins: Vec::new(),
+        });
+    }
+
+    let content =
+        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
+    let mut registry: AdapterTrustRegistry = serde_json::from_str(&content)
+        .with_context(|| format!("failed to parse {}", path.display()))?;
+    if registry.schema != ADAPTER_TRUST_SCHEMA {
+        bail!(
+            "unsupported adapter trust schema `{}` in {}",
+            registry.schema,
+            path.display()
+        );
+    }
+    for entry in &registry.trusted_plugins {
+        if !entry.manifest_path.is_absolute() {
+            bail!(
+                "trusted adapter manifest path is not absolute: {}",
+                entry.manifest_path.display()
+            );
+        }
+        if entry.content_hash.trim().is_empty() {
+            bail!(
+                "trusted adapter manifest {} has empty content hash",
+                entry.manifest_path.display()
+            );
+        }
+    }
+    sort_trusted_plugins(&mut registry.trusted_plugins);
+    Ok(registry)
+}
+
+fn write_adapter_trust_registry(path: &Path, registry: &AdapterTrustRegistry) -> Result<()> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("adapter trust path has no parent: {}", path.display()))?;
+    fs::create_dir_all(parent).with_context(|| {
+        format!(
+            "failed to create adapter trust directory {}",
+            parent.display()
+        )
+    })?;
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| anyhow::anyhow!("invalid adapter trust path: {}", path.display()))?;
+    let staging = parent.join(format!(".{file_name}.tmp-{}", std::process::id()));
+    let backup = parent.join(format!(".{file_name}.backup-{}", std::process::id()));
+    if staging.exists() {
+        fs::remove_file(&staging)
+            .with_context(|| format!("failed to remove stale staging {}", staging.display()))?;
+    }
+    if backup.exists() {
+        fs::remove_file(&backup)
+            .with_context(|| format!("failed to remove stale backup {}", backup.display()))?;
+    }
+    let content = serde_json::to_string_pretty(registry)?;
+    fs::write(&staging, format!("{content}\n"))
+        .with_context(|| format!("failed to write staged adapter trust {}", staging.display()))?;
+    if path.exists() {
+        fs::rename(path, &backup).with_context(|| {
+            format!("failed to stage previous adapter trust {}", path.display())
+        })?;
+    }
+    if let Err(error) = fs::rename(&staging, path) {
+        if backup.exists() {
+            let _ = fs::rename(&backup, path);
+        }
+        let _ = fs::remove_file(&staging);
+        return Err(error)
+            .with_context(|| format!("failed to publish adapter trust {}", path.display()));
+    }
+    if backup.exists() {
+        fs::remove_file(&backup)
+            .with_context(|| format!("failed to remove backup {}", backup.display()))?;
+    }
+    Ok(())
+}
+
+fn trusted_plugin_record(plugin: &DiscoveredAdapterPlugin) -> Result<TrustedAdapterPlugin> {
+    Ok(TrustedAdapterPlugin {
+        manifest_path: plugin.manifest_path.canonicalize().with_context(|| {
+            format!(
+                "failed to canonicalize adapter manifest {}",
+                plugin.manifest_path.display()
+            )
+        })?,
+        content_hash: adapter_manifest_hash(&plugin.manifest_path)?,
+    })
+}
+
+fn adapter_trust_status(
+    registry: &AdapterTrustRegistry,
+    plugin: &DiscoveredAdapterPlugin,
+) -> Result<AdapterTrustStatus> {
+    let content_hash = adapter_manifest_hash(&plugin.manifest_path)?;
+    Ok(AdapterTrustStatus {
+        manifest_path: plugin.manifest_path.canonicalize().with_context(|| {
+            format!(
+                "failed to canonicalize adapter manifest {}",
+                plugin.manifest_path.display()
+            )
+        })?,
+        name: plugin.manifest.name.clone(),
+        version: plugin.manifest.version.clone(),
+        has_external_process: plugin
+            .manifest
+            .adapters
+            .iter()
+            .any(|adapter| adapter.enabled && adapter.command.is_some()),
+        trusted: is_adapter_plugin_trusted(registry, plugin)?,
+        content_hash,
+    })
+}
+
+fn is_adapter_plugin_trusted(
+    registry: &AdapterTrustRegistry,
+    plugin: &DiscoveredAdapterPlugin,
+) -> Result<bool> {
+    let trusted = trusted_plugin_record(plugin)?;
+    Ok(registry.trusted_plugins.iter().any(|entry| {
+        entry.manifest_path == trusted.manifest_path && entry.content_hash == trusted.content_hash
+    }))
+}
+
+fn adapter_manifest_hash(path: &Path) -> Result<String> {
+    let content = fs::read(path).with_context(|| format!("failed to read {}", path.display()))?;
+    let digest = Sha256::digest(&content);
+    Ok(hex_encode(&digest))
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        out.push(HEX[(byte >> 4) as usize] as char);
+        out.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    out
+}
+
+fn sort_trusted_plugins(plugins: &mut [TrustedAdapterPlugin]) {
+    plugins.sort_by(|left, right| left.manifest_path.cmp(&right.manifest_path));
 }
 
 fn validate_adapter_plugin_manifest(manifest: &AdapterPluginManifest) -> Result<()> {
@@ -620,13 +966,13 @@ struct ProcessCommand {
 }
 
 impl ProcessCommand {
-    fn from_manifest(manifest_dir: &Path, command: &AdapterProcessCommand) -> Self {
-        let program = resolve_manifest_program(manifest_dir, &command.program);
+    fn from_manifest(manifest_dir: &Path, command: &AdapterProcessCommand) -> Result<Self> {
+        let program = resolve_manifest_program(manifest_dir, &command.program)?;
 
-        Self {
+        Ok(Self {
             program,
             args: command.args.clone(),
-        }
+        })
     }
 }
 
@@ -728,6 +1074,65 @@ where
     I: Serialize,
     O: for<'de> Deserialize<'de>,
 {
+    run_process_adapter_with_limits(
+        adapter_kind,
+        adapter_id,
+        command,
+        input,
+        ProcessLimits::default(),
+    )
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ProcessLimits {
+    timeout: Duration,
+    max_stdin_bytes: usize,
+    max_stdout_bytes: usize,
+    max_stderr_bytes: usize,
+}
+
+impl Default for ProcessLimits {
+    fn default() -> Self {
+        Self {
+            timeout: Duration::from_secs(30),
+            max_stdin_bytes: 8 * 1024 * 1024,
+            max_stdout_bytes: 8 * 1024 * 1024,
+            max_stderr_bytes: 1024 * 1024,
+        }
+    }
+}
+
+struct LimitedProcessOutput {
+    status: std::process::ExitStatus,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+    stdout_truncated: bool,
+    stderr_truncated: bool,
+}
+
+fn run_process_adapter_with_limits<I, O>(
+    adapter_kind: &str,
+    adapter_id: &str,
+    command: &ProcessCommand,
+    input: &I,
+    limits: ProcessLimits,
+) -> CoreResult<O>
+where
+    I: Serialize,
+    O: for<'de> Deserialize<'de>,
+{
+    let input_bytes = serde_json::to_vec(input).map_err(|error| {
+        CoreError::Adapter(format!(
+            "failed to serialize input for external {adapter_kind} {adapter_id}: {error}"
+        ))
+    })?;
+    if input_bytes.len() > limits.max_stdin_bytes {
+        return Err(CoreError::Adapter(format!(
+            "input for external {adapter_kind} {adapter_id} exceeded {} bytes",
+            limits.max_stdin_bytes
+        )));
+    }
+
     let mut child = Command::new(&command.program)
         .args(&command.args)
         .stdin(Stdio::piped())
@@ -740,13 +1145,28 @@ where
             ))
         })?;
 
+    let stdout = child.stdout.take().ok_or_else(|| {
+        CoreError::Adapter(format!(
+            "failed to open stdout for external {adapter_kind} {adapter_id}"
+        ))
+    })?;
+    let stderr = child.stderr.take().ok_or_else(|| {
+        CoreError::Adapter(format!(
+            "failed to open stderr for external {adapter_kind} {adapter_id}"
+        ))
+    })?;
+    let stdout_limit = limits.max_stdout_bytes;
+    let stderr_limit = limits.max_stderr_bytes;
+    let stdout_reader = thread::spawn(move || read_limited(stdout, stdout_limit));
+    let stderr_reader = thread::spawn(move || read_limited(stderr, stderr_limit));
+
     {
         let mut stdin = child.stdin.take().ok_or_else(|| {
             CoreError::Adapter(format!(
                 "failed to open stdin for external {adapter_kind} {adapter_id}"
             ))
         })?;
-        serde_json::to_writer(&mut stdin, input).map_err(|error| {
+        stdin.write_all(&input_bytes).map_err(|error| {
             CoreError::Adapter(format!(
                 "failed to write input for external {adapter_kind} {adapter_id}: {error}"
             ))
@@ -758,11 +1178,48 @@ where
         })?;
     }
 
-    let output = child.wait_with_output().map_err(|error| {
+    let deadline = Instant::now() + limits.timeout;
+    let status = loop {
+        if let Some(status) = child.try_wait().map_err(|error| {
+            CoreError::Adapter(format!(
+                "failed to wait for external {adapter_kind} {adapter_id}: {error}"
+            ))
+        })? {
+            break status;
+        }
+
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = stdout_reader.join();
+            let _ = stderr_reader.join();
+            return Err(CoreError::Adapter(format!(
+                "external {adapter_kind} {adapter_id} timed out after {} ms",
+                limits.timeout.as_millis()
+            )));
+        }
+
+        thread::sleep(Duration::from_millis(10));
+    };
+
+    let (stdout, stdout_truncated) = stdout_reader.join().map_err(|_| {
         CoreError::Adapter(format!(
-            "failed to wait for external {adapter_kind} {adapter_id}: {error}"
+            "failed to read stdout for external {adapter_kind} {adapter_id}"
         ))
-    })?;
+    })??;
+    let (stderr, stderr_truncated) = stderr_reader.join().map_err(|_| {
+        CoreError::Adapter(format!(
+            "failed to read stderr for external {adapter_kind} {adapter_id}"
+        ))
+    })??;
+
+    let output = LimitedProcessOutput {
+        status,
+        stdout,
+        stderr,
+        stdout_truncated,
+        stderr_truncated,
+    };
     let stdout = process_output_excerpt(&output.stdout);
     let stderr = process_output_excerpt(&output.stderr);
 
@@ -791,11 +1248,51 @@ where
         )));
     }
 
+    if output.stdout_truncated {
+        return Err(CoreError::Adapter(format!(
+            "external {adapter_kind} {adapter_id} stdout exceeded {} bytes",
+            limits.max_stdout_bytes
+        )));
+    }
+
+    if output.stderr_truncated {
+        return Err(CoreError::Adapter(format!(
+            "external {adapter_kind} {adapter_id} stderr exceeded {} bytes",
+            limits.max_stderr_bytes
+        )));
+    }
+
     serde_json::from_slice(&output.stdout).map_err(|error| {
         CoreError::Adapter(format!(
             "failed to parse output from external {adapter_kind} {adapter_id}: {error}"
         ))
     })
+}
+
+fn read_limited(mut reader: impl Read, max_bytes: usize) -> CoreResult<(Vec<u8>, bool)> {
+    let mut output = Vec::new();
+    let mut buffer = [0_u8; 8192];
+    let mut truncated = false;
+
+    loop {
+        let read = reader.read(&mut buffer).map_err(|error| {
+            CoreError::Adapter(format!("failed to read external process output: {error}"))
+        })?;
+        if read == 0 {
+            break;
+        }
+
+        let remaining = max_bytes.saturating_sub(output.len());
+        if read > remaining {
+            output.extend_from_slice(&buffer[..remaining]);
+            truncated = true;
+            break;
+        }
+
+        output.extend_from_slice(&buffer[..read]);
+    }
+
+    Ok((output, truncated))
 }
 
 fn process_output_excerpt(bytes: &[u8]) -> String {
@@ -815,14 +1312,70 @@ fn process_output_excerpt(bytes: &[u8]) -> String {
     excerpt
 }
 
-fn resolve_manifest_program(manifest_dir: &Path, program: &str) -> PathBuf {
+fn resolve_manifest_program(manifest_dir: &Path, program: &str) -> Result<PathBuf> {
+    if program.trim().is_empty() {
+        bail!("adapter command program must not be empty");
+    }
+
     let path = PathBuf::from(program);
+    if path
+        .components()
+        .any(|component| matches!(component, std::path::Component::ParentDir))
+    {
+        bail!("adapter command program must not contain parent directory components");
+    }
+
+    if path.is_relative() && !(program.contains('/') || program.contains('\\')) {
+        bail!("adapter command program must be an explicit absolute or manifest-relative path");
+    }
 
     if path.is_relative() && (program.contains('/') || program.contains('\\')) {
-        manifest_dir.join(path)
+        let base = manifest_dir
+            .canonicalize()
+            .with_context(|| format!("failed to canonicalize {}", manifest_dir.display()))?;
+        let resolved = manifest_dir
+            .join(path)
+            .canonicalize()
+            .with_context(|| format!("failed to canonicalize adapter command program {program}"))?;
+        if !resolved.starts_with(&base) {
+            bail!(
+                "adapter command program {} escapes manifest directory {}",
+                resolved.display(),
+                base.display()
+            );
+        }
+        Ok(resolved)
     } else {
-        path
+        let resolved = path.canonicalize().with_context(|| {
+            format!(
+                "failed to canonicalize adapter command program {}",
+                path.display()
+            )
+        })?;
+        Ok(resolved)
     }
+}
+
+fn resolve_external_process_allowlist(
+    root: &Path,
+    programs: &[PathBuf],
+) -> Result<BTreeSet<PathBuf>> {
+    programs
+        .iter()
+        .map(|program| {
+            let path = if program.is_absolute() {
+                program.clone()
+            } else {
+                root.join(program)
+            };
+            path.canonicalize().with_context(|| {
+                format!(
+                    "failed to canonicalize external process allowlist entry {}",
+                    path.display()
+                )
+            })
+        })
+        .collect()
 }
 
 fn normalize_extension(extension: impl AsRef<str>) -> String {
@@ -835,9 +1388,11 @@ fn normalize_extension(extension: impl AsRef<str>) -> String {
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::time::Duration;
 
     use athanor_domain::{EntityKind, RelationKind, RepoId, SnapshotBase};
     use athanor_store_memory::MemoryKnowledgeStore;
+    use serde_json::Value;
 
     use super::*;
 
@@ -1067,7 +1622,7 @@ mod tests {
     }
 
     #[test]
-    fn discovered_external_process_adapters_require_explicit_opt_in() {
+    fn discovered_external_process_adapters_require_explicit_opt_in_and_trust() {
         let root = std::env::temp_dir().join(format!(
             "athanor-runtime-process-policy-test-{}",
             std::time::SystemTime::now()
@@ -1094,8 +1649,10 @@ mod tests {
             serde_json::to_string_pretty(&manifest).unwrap(),
         )
         .unwrap();
+        let trust_path = root.join("state/adapter-trust.json");
 
         let error = RuntimeBuilder::new(&root)
+            .adapter_trust_path(&trust_path)
             .with_discovered_plugins()
             .err()
             .expect("external process adapter should be rejected by default");
@@ -1104,12 +1661,196 @@ mod tests {
                 .to_string()
                 .contains("external process adapters are disabled")
         );
-        RuntimeBuilder::new(&root)
+        let error = RuntimeBuilder::new(&root)
+            .adapter_trust_path(&trust_path)
+            .allow_external_process(true)
+            .allowed_external_process_programs([empty_output_program()])
+            .with_discovered_plugins()
+            .err()
+            .expect("untrusted external process adapter should be rejected");
+        assert!(error.to_string().contains("is not trusted"));
+
+        trust_adapter_plugin(AdapterTrustOptions {
+            trust_path: trust_path.clone(),
+            manifest_path: manifest_dir.join("external.json"),
+        })
+        .expect("trusting plugin should succeed");
+        let error = RuntimeBuilder::new(&root)
+            .adapter_trust_path(&trust_path)
             .allow_external_process(true)
             .with_discovered_plugins()
-            .expect("explicit opt-in should allow external process adapters");
+            .err()
+            .expect("external process adapter without allowlist should be rejected");
+        assert!(error.to_string().contains("external_process_allowlist"));
+
+        RuntimeBuilder::new(&root)
+            .adapter_trust_path(trust_path)
+            .allow_external_process(true)
+            .allowed_external_process_programs([empty_output_program()])
+            .with_discovered_plugins()
+            .expect("explicit opt-in, trust, and allowlist should allow external process adapters");
 
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn trusted_plugin_requires_matching_manifest_hash() {
+        let root = std::env::temp_dir().join(format!(
+            "athanor-runtime-process-trust-hash-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let manifest_dir = root.join(".athanor/adapters");
+        fs::create_dir_all(&manifest_dir).unwrap();
+        let manifest_path = manifest_dir.join("external.json");
+        let mut manifest = AdapterPluginManifest {
+            schema: ADAPTER_MANIFEST_SCHEMA.to_string(),
+            name: "external-trust-hash".to_string(),
+            version: None,
+            adapters: vec![AdapterPluginEntry {
+                id: "external.extractor.empty".to_string(),
+                kind: AdapterPluginKind::Extractor,
+                enabled: true,
+                command: Some(empty_output_command()),
+                supports_extensions: vec!["rs".to_string()],
+            }],
+        };
+        fs::write(
+            &manifest_path,
+            serde_json::to_string_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+        let trust_path = root.join("state/adapter-trust.json");
+        trust_adapter_plugin(AdapterTrustOptions {
+            trust_path: trust_path.clone(),
+            manifest_path: manifest_path.clone(),
+        })
+        .unwrap();
+
+        let trusted = list_adapter_plugin_trust(AdapterTrustListOptions {
+            root: root.clone(),
+            trust_path: trust_path.clone(),
+        })
+        .unwrap();
+        assert!(trusted.plugins[0].trusted);
+
+        manifest.version = Some("0.2.0".to_string());
+        fs::write(
+            &manifest_path,
+            serde_json::to_string_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+        let changed = list_adapter_plugin_trust(AdapterTrustListOptions {
+            root: root.clone(),
+            trust_path,
+        })
+        .unwrap();
+        assert!(!changed.plugins[0].trusted);
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rejects_unknown_manifest_fields() {
+        let content = serde_json::json!({
+            "schema": ADAPTER_MANIFEST_SCHEMA,
+            "name": "unknown-field",
+            "unexpected": true,
+            "adapters": []
+        })
+        .to_string();
+
+        let error = serde_json::from_str::<AdapterPluginManifest>(&content)
+            .expect_err("unknown manifest field should fail deserialization");
+        assert!(error.to_string().contains("unknown field"));
+    }
+
+    #[test]
+    fn rejects_bare_process_commands() {
+        let command = AdapterProcessCommand {
+            program: "sh".to_string(),
+            args: Vec::new(),
+        };
+        let error = ProcessCommand::from_manifest(Path::new("."), &command)
+            .expect_err("bare command should be rejected");
+
+        assert!(error.to_string().contains("explicit absolute"));
+    }
+
+    #[test]
+    fn rejects_parent_directory_process_commands() {
+        let command = AdapterProcessCommand {
+            program: "../adapter".to_string(),
+            args: Vec::new(),
+        };
+        let error = ProcessCommand::from_manifest(Path::new("."), &command)
+            .expect_err("parent directory command should be rejected");
+
+        assert!(error.to_string().contains("parent directory"));
+    }
+
+    #[test]
+    fn external_process_timeout_is_reported() {
+        let command = sleep_command();
+        let error = run_process_adapter_with_limits::<_, Value>(
+            "checker",
+            "external.checker.sleep",
+            &command,
+            &serde_json::json!({}),
+            ProcessLimits {
+                timeout: Duration::from_millis(50),
+                max_stdin_bytes: 1024,
+                max_stdout_bytes: 1024,
+                max_stderr_bytes: 1024,
+            },
+        )
+        .expect_err("sleeping process should time out");
+
+        assert!(error.to_string().contains("timed out"));
+    }
+
+    #[test]
+    fn external_process_oversized_stdout_is_reported() {
+        let command = stdout_bytes_command(2048);
+        let error = run_process_adapter_with_limits::<_, Value>(
+            "checker",
+            "external.checker.big_stdout",
+            &command,
+            &serde_json::json!({}),
+            ProcessLimits {
+                timeout: Duration::from_secs(5),
+                max_stdin_bytes: 1024,
+                max_stdout_bytes: 32,
+                max_stderr_bytes: 1024,
+            },
+        )
+        .expect_err("oversized stdout should fail");
+
+        assert!(error.to_string().contains("stdout exceeded"));
+    }
+
+    #[test]
+    fn external_process_nonzero_exit_reports_bounded_stderr() {
+        let command = failing_command();
+        let error = run_process_adapter_with_limits::<_, Value>(
+            "checker",
+            "external.checker.fail",
+            &command,
+            &serde_json::json!({}),
+            ProcessLimits {
+                timeout: Duration::from_secs(5),
+                max_stdin_bytes: 1024,
+                max_stdout_bytes: 1024,
+                max_stderr_bytes: 1024,
+            },
+        )
+        .expect_err("non-zero process should fail");
+
+        let message = error.to_string();
+        assert!(message.contains("exited with"));
+        assert!(message.contains("intentional failure"));
     }
 
     #[tokio::test]
@@ -1290,9 +2031,19 @@ mod tests {
         powershell_json_command("{\"entities\":[],\"facts\":[]}")
     }
 
+    #[cfg(windows)]
+    fn empty_output_program() -> PathBuf {
+        powershell_path()
+    }
+
     #[cfg(not(windows))]
     fn empty_output_command() -> AdapterProcessCommand {
         sh_json_command("{\"entities\":[],\"facts\":[]}")
+    }
+
+    #[cfg(not(windows))]
+    fn empty_output_program() -> PathBuf {
+        sh_path()
     }
 
     #[cfg(windows)]
@@ -1322,7 +2073,7 @@ mod tests {
     #[cfg(windows)]
     fn powershell_json_command(json: &str) -> AdapterProcessCommand {
         AdapterProcessCommand {
-            program: "powershell".to_string(),
+            program: powershell_path().display().to_string(),
             args: vec![
                 "-NoProfile".to_string(),
                 "-Command".to_string(),
@@ -1334,7 +2085,7 @@ mod tests {
     #[cfg(not(windows))]
     fn sh_json_command(json: &str) -> AdapterProcessCommand {
         AdapterProcessCommand {
-            program: "sh".to_string(),
+            program: sh_path().display().to_string(),
             args: vec![
                 "-c".to_string(),
                 format!(
@@ -1343,5 +2094,94 @@ mod tests {
                 ),
             ],
         }
+    }
+
+    #[cfg(windows)]
+    fn sleep_command() -> ProcessCommand {
+        ProcessCommand {
+            program: powershell_path(),
+            args: vec![
+                "-NoProfile".to_string(),
+                "-Command".to_string(),
+                "$input | Out-Null; Start-Sleep -Seconds 5".to_string(),
+            ],
+        }
+    }
+
+    #[cfg(not(windows))]
+    fn sleep_command() -> ProcessCommand {
+        ProcessCommand {
+            program: sh_path(),
+            args: vec!["-c".to_string(), "cat >/dev/null; sleep 5".to_string()],
+        }
+    }
+
+    #[cfg(windows)]
+    fn stdout_bytes_command(bytes: usize) -> ProcessCommand {
+        ProcessCommand {
+            program: powershell_path(),
+            args: vec![
+                "-NoProfile".to_string(),
+                "-Command".to_string(),
+                format!("$input | Out-Null; [Console]::Out.Write(('x' * {bytes}))"),
+            ],
+        }
+    }
+
+    #[cfg(not(windows))]
+    fn stdout_bytes_command(bytes: usize) -> ProcessCommand {
+        ProcessCommand {
+            program: sh_path(),
+            args: vec![
+                "-c".to_string(),
+                format!("cat >/dev/null; yes x | tr -d '\\n' | head -c {bytes}"),
+            ],
+        }
+    }
+
+    #[cfg(windows)]
+    fn failing_command() -> ProcessCommand {
+        ProcessCommand {
+            program: powershell_path(),
+            args: vec![
+                "-NoProfile".to_string(),
+                "-Command".to_string(),
+                "$input | Out-Null; [Console]::Error.Write('intentional failure'); exit 7"
+                    .to_string(),
+            ],
+        }
+    }
+
+    #[cfg(not(windows))]
+    fn failing_command() -> ProcessCommand {
+        ProcessCommand {
+            program: sh_path(),
+            args: vec![
+                "-c".to_string(),
+                "cat >/dev/null; printf '%s' 'intentional failure' >&2; exit 7".to_string(),
+            ],
+        }
+    }
+
+    #[cfg(windows)]
+    fn powershell_path() -> PathBuf {
+        let path = PathBuf::from(r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe");
+        assert!(
+            path.is_file(),
+            "powershell.exe not found at {}",
+            path.display()
+        );
+        path
+    }
+
+    #[cfg(not(windows))]
+    fn sh_path() -> PathBuf {
+        for candidate in ["/bin/sh", "/usr/bin/sh"] {
+            let path = PathBuf::from(candidate);
+            if path.is_file() {
+                return path;
+            }
+        }
+        panic!("sh executable not found");
     }
 }

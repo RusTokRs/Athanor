@@ -200,7 +200,7 @@ The current process adapter protocol is intentionally narrow:
 - Athanor writes a discovery request containing the absolute project `root` to source stdin.
 - Source commands write a JSON array of `SourceFile` objects to stdout.
 - stderr is used only for failure details.
-- Athanor records external process stdout and stderr through tracing. stdout remains the process adapter protocol stream and is logged only at debug level; stderr is logged when present and is still included in process failure errors.
+- Athanor records bounded external process stdout and stderr excerpts through tracing. stdout remains the process adapter protocol stream and is logged only at debug level; stderr is logged when present and is still included in process failure errors.
 - `supports_extensions` scopes which source file extensions should be sent to extractor commands; it does not apply to source, linker, or checker commands.
 
 Source discovery request:
@@ -228,15 +228,42 @@ Source adapters should return stable, project-relative paths where possible. `co
 
 External process adapters must emit normal canonical objects. The same pipeline validation applies: entities need ownership, and facts, relations, and diagnostics need evidence and ownership. Invalid output fails indexing through the existing adapter validation report path.
 
-Relative command paths that include a path separator are resolved relative to the manifest file directory. Bare command names are resolved by the operating system `PATH`.
+Manifest parsing rejects unknown fields so misspelled security-relevant settings cannot be ignored.
+
+Command programs must be explicit paths. Relative command paths must include a path separator, are
+resolved relative to the manifest file directory, must canonicalize inside that directory, and must
+not contain parent-directory components. Absolute command paths are canonicalized before execution.
+Bare command names are rejected instead of being resolved through the operating system `PATH`.
+External process execution is bounded by runtime limits for stdin serialization, stdout bytes,
+stderr bytes, and wall-clock execution time. A timed-out adapter process is terminated. Oversized
+stdout, oversized stderr, invalid JSON, and non-zero exit status fail the adapter run with a bounded
+adapter-scoped error.
 
 External process adapters are disabled by default in production:
 
 ```toml
 [adapters]
 allow_external_process = false
+external_process_allowlist = []
 ```
 
 Any enabled manifest entry with a `command` is rejected before registration unless the project
 explicitly opts in. Opt-in executions emit a security warning containing the plugin and adapter
-identity. The opt-in is a trust decision and does not provide process sandboxing.
+identity.
+
+When `allow_external_process` is true, each external command program must also match a canonicalized
+entry in `external_process_allowlist`. Relative allowlist entries are resolved from the project root.
+An empty allowlist rejects every external process adapter.
+
+External process manifests also require a user-level trust record outside the repository. The trust
+record stores the canonical manifest path and the current SHA-256 hash of the manifest file. If the
+manifest changes, the hash no longer matches and Athanor rejects the plugin until the user trusts the
+new manifest contents. Manage trust records with:
+
+```bash
+ath plugins list
+ath plugins trust .athanor/plugins/example/athanor-adapter.json
+ath plugins untrust .athanor/plugins/example/athanor-adapter.json
+```
+
+The project opt-in and user-level trust record do not provide process sandboxing.
