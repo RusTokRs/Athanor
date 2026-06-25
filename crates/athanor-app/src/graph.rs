@@ -978,6 +978,19 @@ pub fn build_rustok_fba_violations_graph(
                     evidence: diagnostic_evidence(diagnostic),
                 });
             }
+        } else if let Some(path) = diagnostic
+            .payload
+            .get("path")
+            .and_then(serde_json::Value::as_str)
+        {
+            let file_key = format!("file://{path}");
+            node_keys.insert(file_key.clone());
+            edges.push(RustokFbaGraphEdge {
+                from: module_key,
+                to: file_key,
+                kind: "evidenced_by".to_string(),
+                evidence: diagnostic_evidence(diagnostic),
+            });
         }
     }
 
