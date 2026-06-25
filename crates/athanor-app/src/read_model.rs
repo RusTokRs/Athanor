@@ -176,6 +176,7 @@ mod tests {
             relations: Vec::new(),
             diagnostics: Vec::new(),
             affected_files: crate::AffectedFileSet::default(),
+            metrics: crate::IndexPipelineMetrics::default(),
         };
 
         let report = JsonlReadModelWriter::new(&output_dir)

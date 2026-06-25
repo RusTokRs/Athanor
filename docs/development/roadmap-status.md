@@ -51,8 +51,12 @@ ath
 ath --version
 ath init
 ath index
+ath index --json
 ath index --validate-only
 ath index --validate-only --validation-result <path>
+ath bench --size small
+ath bench --size medium --json
+ath bench --size large --root <path> --keep-fixture --json
 ath update --changed
 ath update --changed --json
 ath overview
@@ -1230,7 +1234,7 @@ Implemented in:
 Purpose:
 
 - runs extractor/source-file tasks through a future stream with up to 16 concurrent in-flight tasks
-- changes in-process `LinkInput` and `CheckInput` full-context lists to shared `Arc<[T]>` slices while preserving JSON serialization for external process adapters
+- changes in-process `LinkInput` and `CheckInput` full-context lists to shared `Arc<Vec<T>>` values while preserving JSON serialization for external process adapters
 - avoids cloning full entity, fact, and relation lists for every linker and checker invocation
 - optimizes Rust linker qualified-name and entity-id resolution with hash maps
 - optimizes API linker example, schema, and operation-id matching with lookup maps
@@ -2099,51 +2103,142 @@ Purpose:
 - adds `ath plugins list`, `ath plugins trust <manifest>`, and `ath plugins untrust <manifest>` with optional `--trust-store` overrides and JSON output
 - keeps trust state outside the repository so a cloned repo cannot trust its own executable adapters
 
+### Near-Term Hardening And Scale Audit
+
+Status: verified.
+
+Audited in:
+
+- `crates/athanor-app/src/runtime.rs`
+- `crates/athanor-app/src/pipeline.rs`
+- `crates/athanor-app/src/daemon.rs`
+- `crates/athanor-app/src/daemon_runtime.rs`
+- `crates/athanor-app/src/index.rs`
+- `apps/ath/src/main.rs`
+- `apps/athd/src/main.rs`
+- `docs/architecture/pipeline.md`
+- `docs/architecture/adapters.md`
+- `docs/development/production.md`
+- `.github/workflows/production.yml`
+- `.github/workflows/release.yml`
+
+Classification:
+
+- Implemented: authenticated daemon protocol v2 with fresh per-process token, protected runtime paths, loopback-only TCP, optional local socket transport, request and response byte limits, structured busy responses, bounded job history, cooperative cancellation tokens for writable jobs, daemon cache invalidation after index jobs, watcher debounce with `.athanor` artifact filtering, signed and attested release archives, production daemon E2E workflow, nightly watcher/query soak workflow, external-process adapter opt-in, executable allowlisting, bounded process execution, strict manifest parsing, and user-level manifest trust.
+- Implemented but under-tested: daemon lifecycle edge cases beyond the current unit and workflow coverage, including client disconnect during request handling, crash/restart with stale endpoint/token/lock metadata, corrupted endpoint metadata, cancellation during real index/generation jobs, parallel read-only query traffic during index jobs, watcher event storms, Unix socket permission checks, and Windows named-pipe lifecycle checks.
+- Implemented scale follow-up: in-process linker and checker inputs share full-context `Arc<Vec<T>>` values across phases without rebuilding complete entity and fact lists at linker/checker phase entry; JSON serialization for external process adapter `LinkInput` and `CheckInput` remains array-compatible.
+- Not implemented: benchmark fixtures for small/medium/large repositories, capability/coverage reporting for incomplete analysis, and one consolidated release-readiness checklist.
+
+Resulting P1 follow-up plan:
+
+- Pipeline benchmarks and equivalence: add broader golden equivalence tests over canonical entities, facts, relations, diagnostics, stable ids, evidence, and ownership; add small, medium, and large fixture benchmarks; update `docs/architecture/pipeline.md` and this roadmap entry.
+- Daemon fault-injection coverage: extend tests around `crates/athanor-app/src/daemon.rs`, `crates/athanor-app/src/daemon_runtime.rs`, and `apps/athd/src/main.rs` for disconnects, stale and corrupted runtime metadata, cancellation under real writable jobs, concurrent read-only traffic during index jobs, watcher event storms, Unix socket permissions, and Windows named-pipe lifecycle; document any platform edge case that cannot be represented in automated tests in `docs/development/production.md` and `docs/architecture/pipeline.md`.
+
+### Full/Incremental Canonical Equivalence Test
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-app/src/index.rs`
+- `docs/development/roadmap-status.md`
+
+Purpose:
+
+- adds an app-layer regression test that indexes one fixture incrementally and another fixture from scratch in the same final source state
+- loads durable canonical snapshots directly from `JsonlKnowledgeStore` instead of reading generated JSONL read models
+- compares canonical entities, facts, relations, and diagnostics after normalizing snapshot ids, including snapshot values nested in payloads
+- verifies that incremental changed-file indexing preserves stable ids, evidence, ownership, relations, and diagnostics equivalently to a fresh full index for the covered mixed Markdown/Rust/OpenAPI fixture
+
+### Bounded Index Metrics Report
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-app/src/pipeline.rs`
+- `crates/athanor-app/src/index.rs`
+- `crates/athanor-app/src/daemon.rs`
+- `apps/ath/src/main.rs`
+- `docs/README.md`
+- `docs/architecture/pipeline.md`
+- `docs/development/roadmap-status.md`
+
+Purpose:
+
+- adds bounded `athanor.index_metrics.v1` pipeline metrics to `IndexPipelineOutput`
+- records wall-clock phase timings for source discovery, affected-file classification, snapshot begin, extraction, merge, linking, checking, canonicalization, and canonical storage
+- records discovered, changed, unchanged, removed, extracted, and final canonical object counts
+- aggregates adapter metrics by phase and adapter name so extraction metrics remain bounded by configured adapters rather than source-file count
+- records adapter runs, timings, input counts, output counts, validation issue counts, timeout counts, and optional process byte counters where supported
+- adds `athanor.index_report_metrics.v1` to `IndexReport`, including pipeline metrics plus JSONL read-model, validation-result, and index-state write timings
+- adds `ath index --json` so agents and automation can read the bounded metrics report without reading generated JSONL artifacts
+- includes metrics in daemon index job results and MCP index tool responses through the shared serialized `IndexReport`
+
+### Pipeline Benchmark Fixtures
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-app/src/bench.rs`
+- `apps/ath/src/main.rs`
+- `docs/README.md`
+- `docs/architecture/pipeline.md`
+- `docs/development/roadmap-status.md`
+
+Purpose:
+
+- adds `ath bench --size <small|medium|large>` for synthetic Markdown, Rust, and OpenAPI indexing fixtures
+- runs the normal `index_project` path so source discovery, extraction, linking, checking, canonical storage, JSONL read-model writing, and index-state writing are measured together
+- emits `athanor.index_benchmark.v1` in JSON mode, including the nested bounded `IndexReport` and pipeline metrics
+- supports temporary fixtures by default and optional `--root <path> --keep-fixture` for repeatable local inspection
+- keeps performance regression inspection bounded through report metrics instead of requiring agents to read generated JSONL artifacts directly
+
+### Daemon Fault-Injection Coverage Slice
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-app/src/daemon.rs`
+- `docs/development/roadmap-status.md`
+
+Purpose:
+
+- treats client disconnects during response writes as non-fatal connection outcomes instead of failed daemon request handling
+- adds coverage for clients disconnecting before sending a request without creating daemon jobs
+- adds coverage for oversized daemon requests returning structured errors without creating daemon jobs
+- adds coverage for stale runtime metadata before connection attempts, including endpoint token-path mismatch, unsupported endpoint schema, and corrupted token files
+- adds coverage that index and generation jobs finished with an `operation cancelled` error are recorded as cancelled and drop their cancellation tokens
+- adds coverage that daemon `status`, `explain`, and `search` requests still complete while an index job is already running
+- deduplicates daemon watcher source paths after debounce delivery, filters `.athanor` artifact noise, and covers event storms being skipped while an index job is already active
+- keeps the existing single-instance lock, busy response, authentication, protocol-v1 compatibility, cancellation state, staging cleanup, and oversized response tests intact
+
+### Pipeline Shared Input Copy Reduction
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-core/src/ports.rs`
+- `crates/athanor-app/src/pipeline.rs`
+- `docs/architecture/pipeline.md`
+- `docs/development/roadmap-status.md`
+
+Purpose:
+
+- changes `LinkInput` and `CheckInput` full-context fields from `Arc<[T]>` to `Arc<Vec<T>>`
+- moves canonicalized entity and fact vectors into shared `Arc<Vec<T>>` values once, before linker execution
+- reuses the same entity and fact allocations for checker execution instead of rebuilding full-context slices
+- moves the checker relation context into one shared `Arc<Vec<Relation>>` for all checker adapters
+- preserves external process adapter JSON compatibility because `Arc<Vec<T>>` serializes to the same JSON arrays as the previous shared slice fields
+- returns owned vectors for canonical storage through `Arc::try_unwrap` when no adapter retained a reference, falling back to a clone only when necessary
+- adds a regression test proving linker and checker phases observe the same entity and fact shared-context allocations
+
 ## Next
 
 This backlog tracks the remaining global plan from `start.md`. The entries below are prioritized by dependency order and current product value; each item should be moved into `Implemented` only after code, documentation, and required verification are complete.
-
-### Near-Term Hardening And Scale Audit
-
-Status: planned.
-
-Context:
-
-- production daemon hardening, protocol v2 authentication, daemon request/response limits, release workflows, and external-process adapter opt-in are already implemented and verified above
-- in-process linker/checker inputs already use shared `Arc<[T]>` contracts, but `IndexPipeline` still builds those shared slices from borrowed canonical vectors and should be checked for avoidable full-list copies
-- external process adapters are disabled by default and now require explicit project opt-in, executable allowlisting, bounded runtime execution, and user-level manifest trust
-
-Scope:
-
-- audit `crates/athanor-app/src/runtime.rs`, `crates/athanor-app/src/pipeline.rs`, `crates/athanor-app/src/daemon.rs`, `crates/athanor-app/src/daemon_runtime.rs`, `apps/ath/src/main.rs`, and `apps/athd/src/main.rs` against the practical release plan
-- classify every requested hardening item as implemented, implemented but under-tested, implemented but under-documented, or not implemented
-- keep the resulting work focused on safety, memory, tests, and observable analysis completeness before adding new extractor breadth
-
-Acceptance:
-
-- the next release plan does not duplicate work already marked verified
-- any remaining P0/P1 item names the exact crate, user-visible behavior, required tests, and documentation update
-- docs remain aligned with `AGENTS.md`, `docs/architecture/pipeline.md`, `docs/architecture/adapters.md`, and `docs/development/production.md`
-
-### Pipeline Memory And Metrics Follow-Up
-
-Status: planned.
-
-Priority: P1.
-
-Scope:
-
-- remove avoidable full-list copies when creating shared downstream `Arc<[Entity]>`, `Arc<[Fact]>`, and `Arc<[Relation]>` inputs in `IndexPipeline`
-- keep external process adapter JSON serialization compatible with the existing `LinkInput` and `CheckInput` schemas
-- add golden equivalence tests that compare canonical entities, facts, relations, diagnostics, stable ids, evidence, and ownership before and after the refactor
-- add small, medium, and large fixture benchmarks for indexing, linking, checking, and canonical snapshot writing
-- add a bounded machine-readable indexing metrics report with adapter timings, object counts, changed-file counts, validation issue counts, process adapter byte counts, timeout counts, and best-effort peak memory where supported
-
-Acceptance:
-
-- linker and checker execution does not create avoidable complete copies of canonical collections per adapter
-- canonical outputs remain identical across the memory refactor
-- performance regressions can be detected from benchmarks or the metrics report without reading generated JSONL directly
 
 ### Daemon Fault-Injection Coverage
 
@@ -2154,11 +2249,10 @@ Priority: P1.
 Scope:
 
 - extend daemon tests beyond existing token, v1 compatibility, busy response, and oversized response unit coverage
-- cover client disconnect during request handling
-- cover daemon crash/restart behavior with stale endpoint, stale token, stale lock, and corrupted endpoint metadata
-- cover cancellation during index and generation jobs
-- cover parallel read-only search/context/explain requests while an index job is running
-- cover watcher event storms and debounce behavior
+- cover daemon crash/restart behavior beyond the implemented stale endpoint metadata, stale token, stale lock recovery, and corrupted endpoint metadata client-side checks
+- cover cancellation during real long-running index and generation job execution beyond the implemented daemon job-state cancellation result mapping
+- cover parallel read-only context requests while an index job is running, extending the implemented status/search/explain coverage
+- cover live watcher debounce timing beyond the implemented source-path deduplication, artifact filtering, and active-index skip behavior
 - cover Unix socket permissions and Windows named pipe lifecycle where platform support is available
 
 Acceptance:

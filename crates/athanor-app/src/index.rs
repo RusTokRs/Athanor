@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use athanor_core::CanonicalSnapshotStore;
@@ -9,8 +10,9 @@ use serde::Serialize;
 
 use crate::project_path::normalize_canonical_path;
 use crate::{
-    AdapterValidationReport, CancellationToken, IncrementalIndexContext, IndexState,
-    IndexStateStore, JsonlReadModelWriter, RuntimeBuilder, config::load_config, store::init_store,
+    AdapterValidationReport, CancellationToken, IncrementalIndexContext, IndexPipelineMetrics,
+    IndexState, IndexStateStore, JsonlReadModelWriter, RuntimeBuilder, config::load_config,
+    store::init_store,
 };
 
 #[derive(Debug, Clone)]
@@ -33,9 +35,21 @@ pub struct IndexReport {
     pub validation_report: PathBuf,
     pub validation_result: Option<PathBuf>,
     pub validate_only: bool,
+    pub metrics: IndexReportMetrics,
 }
 
 pub const VALIDATION_RESULT_SCHEMA: &str = "athanor.validation_result.v1";
+pub const INDEX_REPORT_METRICS_SCHEMA: &str = "athanor.index_report_metrics.v1";
+
+#[derive(Debug, Clone, Serialize)]
+pub struct IndexReportMetrics {
+    pub schema: &'static str,
+    pub total_ms: u64,
+    pub pipeline: IndexPipelineMetrics,
+    pub read_model_write_ms: u64,
+    pub validation_result_write_ms: u64,
+    pub index_state_write_ms: u64,
+}
 
 #[derive(Debug, Clone, Serialize)]
 struct ValidationResultFile<'a> {
@@ -67,6 +81,7 @@ async fn index_project_inner(
     options: IndexOptions,
     cancellation: Option<CancellationToken>,
 ) -> Result<IndexReport> {
+    let index_started = Instant::now();
     let root = normalize_canonical_path(
         options
             .root
@@ -204,8 +219,18 @@ async fn index_project_inner(
     };
 
     if options.validate_only {
+        let validation_started = Instant::now();
         write_validation_result(&validation_result, &output)
             .context("failed to write validation result")?;
+        let validation_result_write_ms = elapsed_ms(validation_started.elapsed());
+        let metrics = IndexReportMetrics {
+            schema: INDEX_REPORT_METRICS_SCHEMA,
+            total_ms: elapsed_ms(index_started.elapsed()),
+            pipeline: output.metrics.clone(),
+            read_model_write_ms: 0,
+            validation_result_write_ms,
+            index_state_write_ms: 0,
+        };
 
         return Ok(IndexReport {
             root,
@@ -218,19 +243,32 @@ async fn index_project_inner(
             validation_report,
             validation_result: Some(validation_result),
             validate_only: true,
+            metrics,
         });
     }
 
     remove_validation_result(&validation_result)
         .context("failed to remove stale validation result")?;
 
+    let read_model_started = Instant::now();
     let read_model = JsonlReadModelWriter::new(&output_dir)
         .write(&output)
         .context("failed to write JSONL read model")?;
+    let read_model_write_ms = elapsed_ms(read_model_started.elapsed());
 
+    let index_state_started = Instant::now();
     state_store
         .save(&IndexState::from_sources(&output.snapshot.0, &output.files))
         .context("failed to save index state")?;
+    let index_state_write_ms = elapsed_ms(index_state_started.elapsed());
+    let metrics = IndexReportMetrics {
+        schema: INDEX_REPORT_METRICS_SCHEMA,
+        total_ms: elapsed_ms(index_started.elapsed()),
+        pipeline: output.metrics.clone(),
+        read_model_write_ms,
+        validation_result_write_ms: 0,
+        index_state_write_ms,
+    };
 
     Ok(IndexReport {
         root,
@@ -243,7 +281,12 @@ async fn index_project_inner(
         validation_report,
         validation_result: None,
         validate_only: false,
+        metrics,
     })
+}
+
+fn elapsed_ms(duration: Duration) -> u64 {
+    duration.as_millis().min(u128::from(u64::MAX)) as u64
 }
 
 fn validation_report_path(root: &Path, configured: Option<&Path>) -> PathBuf {
@@ -330,6 +373,11 @@ fn stable_hash(bytes: &[u8]) -> u64 {
 mod tests {
     use std::fs;
 
+    use athanor_core::CanonicalSnapshot;
+    use athanor_store_jsonl::JsonlKnowledgeStore;
+    use serde::Serialize;
+    use serde_json::Value;
+
     use super::*;
 
     #[tokio::test]
@@ -412,6 +460,21 @@ mod tests {
         assert_eq!(report.changed_files, 2);
         assert_eq!(report.unchanged_files, 0);
         assert_eq!(report.removed_files, 0);
+        assert_eq!(report.metrics.schema, INDEX_REPORT_METRICS_SCHEMA);
+        assert_eq!(report.metrics.pipeline.schema, crate::INDEX_METRICS_SCHEMA);
+        assert_eq!(report.metrics.pipeline.files_discovered, 2);
+        assert_eq!(report.metrics.pipeline.files_to_extract, 2);
+        assert!(!report.metrics.pipeline.adapters.is_empty());
+        assert!(
+            report
+                .metrics
+                .pipeline
+                .adapters
+                .iter()
+                .any(|adapter| adapter.phase == "extractor"
+                    && adapter.adapter == "file"
+                    && adapter.runs == 2)
+        );
         assert!(root.join(".athanor/state/index-state.json").is_file());
 
         let second_report = index_project(IndexOptions {
@@ -555,6 +618,70 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    #[tokio::test]
+    async fn incremental_index_matches_fresh_full_index_for_same_final_sources() {
+        let incremental_root = temp_root("athanor-incremental-equivalence");
+        write_equivalence_fixture(&incremental_root, "# Auth\n\n## Login\n");
+
+        index_project(IndexOptions {
+            root: incremental_root.clone(),
+            validation_report: None,
+            validation_result: None,
+            validate_only: false,
+        })
+        .await
+        .unwrap();
+        fs::write(
+            incremental_root.join("docs/auth.md"),
+            "# Auth\n\n## Login\n\n## Logout\n",
+        )
+        .unwrap();
+        let incremental_report = index_project(IndexOptions {
+            root: incremental_root.clone(),
+            validation_report: None,
+            validation_result: None,
+            validate_only: false,
+        })
+        .await
+        .unwrap();
+        assert_eq!(incremental_report.changed_files, 1);
+        assert_eq!(incremental_report.unchanged_files, 2);
+
+        let fresh_root = temp_root("athanor-fresh-equivalence");
+        write_equivalence_fixture(&fresh_root, "# Auth\n\n## Login\n\n## Logout\n");
+        let fresh_report = index_project(IndexOptions {
+            root: fresh_root.clone(),
+            validation_report: None,
+            validation_result: None,
+            validate_only: false,
+        })
+        .await
+        .unwrap();
+        assert_eq!(fresh_report.changed_files, 3);
+
+        let incremental = load_latest_canonical_snapshot(&incremental_root).await;
+        let fresh = load_latest_canonical_snapshot(&fresh_root).await;
+        assert_eq!(
+            normalized_snapshot_objects(&incremental.entities),
+            normalized_snapshot_objects(&fresh.entities)
+        );
+        assert_eq!(
+            normalized_snapshot_objects(&incremental.facts),
+            normalized_snapshot_objects(&fresh.facts)
+        );
+        assert_eq!(
+            normalized_snapshot_objects(&incremental.relations),
+            normalized_snapshot_objects(&fresh.relations)
+        );
+        assert_eq!(
+            normalized_snapshot_objects(&incremental.diagnostics),
+            normalized_snapshot_objects(&fresh.diagnostics)
+        );
+
+        fs::remove_dir_all(incremental_root).unwrap();
+        fs::remove_dir_all(fresh_root).unwrap();
+    }
+
     fn write_openapi_path(root: &Path, path: &str) {
         fs::write(
             root.join("openapi.yaml"),
@@ -563,6 +690,71 @@ mod tests {
             ),
         )
         .unwrap();
+    }
+
+    fn temp_root(label: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "{label}-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ))
+    }
+
+    fn write_equivalence_fixture(root: &Path, auth_markdown: &str) {
+        fs::create_dir_all(root.join("docs")).unwrap();
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(root.join("docs/auth.md"), auth_markdown).unwrap();
+        fs::write(root.join("src/lib.rs"), "pub fn login() {}\n").unwrap();
+        write_openapi_path(root, "/login");
+    }
+
+    async fn load_latest_canonical_snapshot(root: &Path) -> CanonicalSnapshot {
+        JsonlKnowledgeStore::new(root.join(".athanor/store/canonical/jsonl"))
+            .load_latest_snapshot()
+            .await
+            .unwrap()
+            .expect("latest canonical snapshot should exist")
+    }
+
+    fn normalized_snapshot_objects<T: Serialize>(items: &[T]) -> Vec<Value> {
+        let mut values = items
+            .iter()
+            .map(|item| {
+                let mut value = serde_json::to_value(item).unwrap();
+                normalize_snapshot_fields(&mut value);
+                value
+            })
+            .collect::<Vec<_>>();
+        values.sort_by(|left, right| {
+            serde_json::to_string(left)
+                .unwrap()
+                .cmp(&serde_json::to_string(right).unwrap())
+        });
+        values
+    }
+
+    fn normalize_snapshot_fields(value: &mut Value) {
+        match value {
+            Value::Object(object) => {
+                if object.contains_key("snapshot") {
+                    object.insert(
+                        "snapshot".to_string(),
+                        Value::String("<snapshot>".to_string()),
+                    );
+                }
+                for child in object.values_mut() {
+                    normalize_snapshot_fields(child);
+                }
+            }
+            Value::Array(items) => {
+                for item in items {
+                    normalize_snapshot_fields(item);
+                }
+            }
+            _ => {}
+        }
     }
 
     #[tokio::test]
@@ -589,6 +781,10 @@ mod tests {
 
         assert!(report.validate_only);
         assert_eq!(report.files_indexed, 1);
+        assert_eq!(report.metrics.schema, INDEX_REPORT_METRICS_SCHEMA);
+        assert_eq!(report.metrics.pipeline.schema, crate::INDEX_METRICS_SCHEMA);
+        assert_eq!(report.metrics.pipeline.files_discovered, 1);
+        assert_eq!(report.metrics.read_model_write_ms, 0);
         let validation_result = report.validation_result.unwrap();
         assert_eq!(
             validation_result.canonicalize().unwrap(),

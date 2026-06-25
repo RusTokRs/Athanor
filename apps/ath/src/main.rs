@@ -4,20 +4,20 @@ use anyhow::Result;
 use athanor_app::{
     AdapterTrustListOptions, AdapterTrustOptions, AdapterTrustReport, AffectedCheckOptions,
     AffectedCheckReport, ApiCleanupOptions, ApiCleanupReport, ApiContractDiff, ApiDiffOptions,
-    ApiRetentionOverrides, ApiSnapshotOptions, ApiSnapshotReport, ContextLimitOverrides,
-    ContextOptions, DiagnosticCheckOptions, DiagnosticCheckReport, DiagnosticScope,
-    DocsApplyPatchOptions, DocsApplyPatchReport, DocsCheckOptions, DocsCheckReport,
-    DocsDriftOptions, DocsDriftReport, DocsProposeFixOptions, DocsProposeFixReport,
-    EntityExplanation, ExplainOptions, GenerationOptions, GraphCycles, GraphCyclesOptions,
-    GraphExportOptions, GraphHubs, GraphHubsOptions, GraphPageRank, GraphPageRankOptions,
-    GraphPath, GraphPathOptions, GraphRelated, GraphRelatedOptions, HtmlReportOptions,
-    ImpactAnalysis, ImpactOptions, IndexOptions, IndexReport, InitOptions,
+    ApiRetentionOverrides, ApiSnapshotOptions, ApiSnapshotReport, BenchmarkOptions,
+    BenchmarkReport, BenchmarkSize, ContextLimitOverrides, ContextOptions, DiagnosticCheckOptions,
+    DiagnosticCheckReport, DiagnosticScope, DocsApplyPatchOptions, DocsApplyPatchReport,
+    DocsCheckOptions, DocsCheckReport, DocsDriftOptions, DocsDriftReport, DocsProposeFixOptions,
+    DocsProposeFixReport, EntityExplanation, ExplainOptions, GenerationOptions, GraphCycles,
+    GraphCyclesOptions, GraphExportOptions, GraphHubs, GraphHubsOptions, GraphPageRank,
+    GraphPageRankOptions, GraphPath, GraphPathOptions, GraphRelated, GraphRelatedOptions,
+    HtmlReportOptions, ImpactAnalysis, ImpactOptions, IndexOptions, IndexReport, InitOptions,
     OperationsDocsCheckOptions, OperationsDocsCheckReport, OverviewOptions, ProjectRegisterOptions,
     ProjectRegistration, ProjectRegistryOptions, ProjectRegistryReport, ProjectUnregisterOptions,
     RepairApplyOptions, RepairApplyReport, RepairCleanupOptions, RepairCleanupReport,
     RepairInspectOptions, RepairInspectReport, RepairRecoverCanonicalOptions,
     RepairRecoverCanonicalReport, RepairRegenerateOptions, RepairRegenerateReport,
-    RepositoryOverview, WikiOptions, apply_repair, check_affected, check_docs,
+    RepositoryOverview, WikiOptions, apply_repair, benchmark_index, check_affected, check_docs,
     check_operations_docs, check_project, cleanup_api_contracts, cleanup_repair, context_project,
     default_adapter_trust_path, default_project_registry_path, diff_api_contracts,
     docs_apply_patch, docs_drift, docs_propose_fix, explain_project, generate_project,
@@ -66,6 +66,23 @@ enum GraphExportFormatArg {
     Graphml,
 }
 
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum BenchSizeArg {
+    Small,
+    Medium,
+    Large,
+}
+
+impl From<BenchSizeArg> for BenchmarkSize {
+    fn from(value: BenchSizeArg) -> Self {
+        match value {
+            BenchSizeArg::Small => Self::Small,
+            BenchSizeArg::Medium => Self::Medium,
+            BenchSizeArg::Large => Self::Large,
+        }
+    }
+}
+
 impl DiagnosticScopeArg {
     fn diagnostic_scope(self) -> Option<DiagnosticScope> {
         match self {
@@ -109,6 +126,24 @@ enum Command {
         /// Validate adapter contracts without writing snapshots, state, or read models.
         #[arg(long)]
         validate_only: bool,
+        /// Print the complete index report as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Run synthetic indexing benchmark fixtures.
+    Bench {
+        /// Benchmark fixture size.
+        #[arg(long, value_enum, default_value_t = BenchSizeArg::Small)]
+        size: BenchSizeArg,
+        /// Fixture root to recreate. Defaults to a temporary directory.
+        #[arg(long)]
+        root: Option<PathBuf>,
+        /// Keep the generated fixture after the benchmark.
+        #[arg(long)]
+        keep_fixture: bool,
+        /// Print the complete benchmark report as JSON.
+        #[arg(long)]
+        json: bool,
     },
     /// Update the project index from changed files.
     Update {
@@ -763,6 +798,7 @@ async fn main() -> Result<()> {
             validation_report,
             validation_result,
             validate_only,
+            json,
         }) => {
             let report = index_project(IndexOptions {
                 root: path,
@@ -771,7 +807,29 @@ async fn main() -> Result<()> {
                 validate_only,
             })
             .await?;
-            print_index_report(&report, "indexed")?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                print_index_report(&report, "indexed")?;
+            }
+        }
+        Some(Command::Bench {
+            size,
+            root,
+            keep_fixture,
+            json,
+        }) => {
+            let report = benchmark_index(BenchmarkOptions {
+                size: size.into(),
+                root,
+                keep_fixture,
+            })
+            .await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                print_benchmark_report(&report);
+            }
         }
         Some(Command::Update {
             path,
@@ -1956,7 +2014,34 @@ fn print_index_report(report: &IndexReport, action: &str) -> Result<()> {
     if !report.validate_only {
         println!("wrote JSONL to {}", report.output_dir.display());
     }
+    println!(
+        "metrics: total {} ms, pipeline {} ms",
+        report.metrics.total_ms, report.metrics.pipeline.total_ms
+    );
     Ok(())
+}
+
+fn print_benchmark_report(report: &BenchmarkReport) {
+    let pipeline = &report.index.metrics.pipeline;
+    println!(
+        "benchmark {}: {} files, total {} ms, index {} ms",
+        report.size.as_str(),
+        report.files_written,
+        report.total_ms,
+        report.index.metrics.total_ms
+    );
+    println!(
+        "pipeline: discovery {} ms, extraction {} ms, linking {} ms, checking {} ms, storage {} ms",
+        pipeline.source_discovery_ms,
+        pipeline.extraction_ms,
+        pipeline.linking_ms,
+        pipeline.checking_ms,
+        pipeline.storage_ms
+    );
+    println!("snapshot: {}", report.index.snapshot);
+    if report.kept_fixture {
+        println!("fixture: {}", report.fixture_root.display());
+    }
 }
 
 fn print_repair_inspect_report(report: &RepairInspectReport) {

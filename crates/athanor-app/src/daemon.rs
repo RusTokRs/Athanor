@@ -1,6 +1,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::fs::{self};
+use std::io::ErrorKind;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -758,12 +759,29 @@ where
         }
     };
     let response_json = serialize_daemon_response(response, state.endpoint.max_response_bytes)?;
-    stream
-        .write_all(&response_json)
-        .await
-        .context("failed to write daemon response")?;
-    stream.shutdown().await?;
+    if let Err(error) = stream.write_all(&response_json).await {
+        if is_client_disconnect(&error) {
+            return Ok(false);
+        }
+        return Err(error).context("failed to write daemon response");
+    }
+    if let Err(error) = stream.shutdown().await {
+        if is_client_disconnect(&error) {
+            return Ok(false);
+        }
+        return Err(error.into());
+    }
     Ok(shutdown)
+}
+
+fn is_client_disconnect(error: &std::io::Error) -> bool {
+    matches!(
+        error.kind(),
+        ErrorKind::BrokenPipe
+            | ErrorKind::ConnectionAborted
+            | ErrorKind::ConnectionReset
+            | ErrorKind::NotConnected
+    )
 }
 
 async fn handle_busy_connection<S>(mut stream: S, state: &DaemonState) -> Result<()>
@@ -1575,11 +1593,10 @@ fn start_file_watcher(
     let root_for_handler = root.clone();
     let handler = move |result: DebounceEventResult| match result {
         Ok(events) => {
-            let paths = events
-                .into_iter()
-                .map(|event| event.path)
-                .filter(|path| is_project_source_event(&root_for_handler, path))
-                .collect::<Vec<_>>();
+            let paths = collect_project_source_events(
+                &root_for_handler,
+                events.into_iter().map(|event| event.path),
+            );
             if !paths.is_empty() {
                 let _ = watch_tx.send(paths);
             }
@@ -1634,6 +1651,19 @@ fn is_project_source_event(root: &Path, path: &Path) -> bool {
         .components()
         .next()
         .is_none_or(|component| component.as_os_str() != ".athanor")
+}
+
+fn collect_project_source_events(
+    root: &Path,
+    paths: impl IntoIterator<Item = PathBuf>,
+) -> Vec<PathBuf> {
+    let mut paths = paths
+        .into_iter()
+        .filter(|path| is_project_source_event(root, path))
+        .collect::<Vec<_>>();
+    paths.sort();
+    paths.dedup();
+    paths
 }
 
 fn start_watcher_index_job(
@@ -1992,6 +2022,7 @@ fn start_index_job(state: &Arc<DaemonState>, description: String) -> Result<Daem
                             "unchanged_files": report.unchanged_files,
                             "removed_files": report.removed_files,
                             "output_dir": report.output_dir,
+                            "metrics": report.metrics,
                         })),
                         None,
                     );
@@ -3007,6 +3038,118 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    #[tokio::test]
+    async fn client_disconnect_before_request_does_not_create_work() {
+        let root = temp_root("disconnect-before-request");
+        let state = Arc::new(test_daemon_state(&root, false));
+        let (server, client) = tokio::io::duplex(64);
+        drop(client);
+
+        let shutdown = handle_connection(server, Arc::clone(&state)).await.unwrap();
+
+        assert!(!shutdown);
+        assert!(state.jobs.lock().unwrap().is_empty());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn oversized_request_gets_structured_error_without_work() {
+        let root = temp_root("oversized-request");
+        let mut state = test_daemon_state(&root, false);
+        state.endpoint.max_request_bytes = 32;
+        let state = Arc::new(state);
+        let (server, mut client) = tokio::io::duplex(256);
+        let server_task = tokio::spawn(handle_connection(server, Arc::clone(&state)));
+
+        client.write_all(&[b'x'; 64]).await.unwrap();
+        client.write_all(b"\n").await.unwrap();
+        client.shutdown().await.unwrap();
+
+        let mut response = Vec::new();
+        client.read_to_end(&mut response).await.unwrap();
+        let response: DaemonResponse = serde_json::from_slice(&response).unwrap();
+        assert!(!response.ok);
+        assert_eq!(response.project_id, "alpha");
+        assert!(
+            response
+                .error
+                .as_deref()
+                .unwrap_or_default()
+                .contains("request exceeds size limit")
+        );
+        assert!(!server_task.await.unwrap().unwrap());
+        assert!(state.jobs.lock().unwrap().is_empty());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn client_rejects_stale_or_corrupt_runtime_metadata_before_connecting() {
+        let root = temp_root("stale-runtime-metadata");
+        let runtime_dir = root.join(".athanor/daemon");
+        fs::create_dir_all(&runtime_dir).unwrap();
+        let token = "a".repeat(crate::DAEMON_TOKEN_BYTES * 2);
+        fs::write(runtime_dir.join("token"), format!("{token}\n")).unwrap();
+        let mut endpoint = test_daemon_state(&root, false).endpoint;
+        endpoint.token_path = runtime_dir.join("other-token");
+        write_endpoint(&runtime_dir.join("endpoint.json"), &endpoint).unwrap();
+
+        let request = || DaemonRequest {
+            schema: DAEMON_REQUEST_SCHEMA.to_string(),
+            request_id: "req-stale".to_string(),
+            project_id: "alpha".to_string(),
+            auth_token: None,
+            command: DaemonCommand::Status,
+        };
+        let error = request_daemon(
+            DaemonClientOptions {
+                root: root.clone(),
+                runtime_dir: Some(runtime_dir.clone()),
+            },
+            request(),
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("endpoint token path does not match")
+        );
+
+        endpoint.token_path = runtime_dir.join("token");
+        endpoint.schema = "athanor.daemon_endpoint.v999".to_string();
+        write_endpoint(&runtime_dir.join("endpoint.json"), &endpoint).unwrap();
+        let error = request_daemon(
+            DaemonClientOptions {
+                root: root.clone(),
+                runtime_dir: Some(runtime_dir.clone()),
+            },
+            request(),
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("unsupported daemon endpoint schema")
+        );
+
+        endpoint.schema = DAEMON_ENDPOINT_SCHEMA.to_string();
+        write_endpoint(&runtime_dir.join("endpoint.json"), &endpoint).unwrap();
+        fs::write(runtime_dir.join("token"), "not-a-token\n").unwrap();
+        let error = request_daemon(
+            DaemonClientOptions {
+                root: root.clone(),
+                runtime_dir: Some(runtime_dir),
+            },
+            request(),
+        )
+        .await
+        .unwrap_err();
+        assert!(error.to_string().contains("daemon token is invalid"));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn endpoint_defaults_to_tcp_when_optional_transport_metadata_is_absent() {
         let endpoint: DaemonEndpoint = serde_json::from_value(serde_json::json!({
@@ -3365,6 +3508,33 @@ mod tests {
     }
 
     #[test]
+    fn watcher_event_storm_is_deduplicated_and_skips_when_index_is_active() {
+        let root = temp_root("watcher-storm");
+        let source = root.join("src/lib.rs");
+        let docs = root.join("docs/README.md");
+        let generated = root.join(".athanor/generated/current/jsonl/entities.jsonl");
+        let storm = (0..50)
+            .flat_map(|_| [source.clone(), docs.clone(), generated.clone()])
+            .collect::<Vec<_>>();
+
+        let paths = collect_project_source_events(&root, storm);
+
+        assert_eq!(paths, vec![docs.clone(), source.clone()]);
+
+        let state = Arc::new(test_daemon_state(&root, false));
+        let active_job =
+            start_daemon_job(&state, DaemonJobKind::Index, "active index".to_string()).unwrap();
+        assert!(mark_daemon_job_running(&state, &active_job).unwrap());
+
+        let scheduled = start_watcher_index_job(&state, paths).unwrap();
+
+        assert!(scheduled.is_none());
+        assert_eq!(list_daemon_jobs(&state, 10).unwrap().total, 1);
+        assert!(has_active_job(&state, DaemonJobKind::Index).unwrap());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn cancels_queued_jobs_and_requests_running_job_cancellation() {
         let endpoint = DaemonEndpoint {
             schema: DAEMON_ENDPOINT_SCHEMA.to_string(),
@@ -3455,6 +3625,139 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
+    }
+
+    #[test]
+    fn cancellation_error_marks_index_and_generate_jobs_cancelled() {
+        let root = temp_root("cancellable-job-finish");
+        let state = test_daemon_state(&root, false);
+
+        for kind in [DaemonJobKind::Index, DaemonJobKind::Generate] {
+            let (job_id, cancellation) =
+                start_cancellable_daemon_job(&state, kind.clone(), "cancellable".to_string())
+                    .unwrap();
+            assert!(mark_daemon_job_running(&state, &job_id).unwrap());
+
+            let cancelling = cancel_daemon_job(&state, &job_id).unwrap();
+            assert_eq!(cancelling.status, DaemonJobStatus::Cancelling);
+            assert!(cancellation.is_cancelled());
+
+            finish_cancellable_daemon_job_error(
+                &state,
+                &job_id,
+                anyhow::anyhow!("operation cancelled"),
+            )
+            .unwrap();
+
+            let finished = get_daemon_job(&state, &job_id).unwrap();
+            assert_eq!(finished.kind, kind);
+            assert_eq!(finished.status, DaemonJobStatus::Cancelled);
+            assert_eq!(finished.error.as_deref(), Some("operation cancelled"));
+            assert!(finished.finished_at_unix_ms.is_some());
+            assert!(cancellation_token(&state, &job_id).unwrap().is_none());
+        }
+
+        assert!(!has_active_job(&state, DaemonJobKind::Index).unwrap());
+        assert!(!has_active_job(&state, DaemonJobKind::Generate).unwrap());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn read_only_requests_continue_while_index_job_is_running() {
+        let root = temp_root("read-only-during-index");
+        let state = Arc::new(test_daemon_state(&root, false));
+        {
+            let mut snapshot_cache = state.latest_snapshot_cache.lock().unwrap();
+            *snapshot_cache = Some(CanonicalSnapshot {
+                snapshot: Some(athanor_domain::SnapshotId("snap_read_only".to_string())),
+                entities: vec![athanor_domain::Entity {
+                    id: athanor_domain::EntityId("ent_login".to_string()),
+                    stable_key: athanor_domain::StableKey("api://POST:/login".to_string()),
+                    kind: athanor_domain::EntityKind::ApiEndpoint,
+                    name: "POST /login".to_string(),
+                    title: Some("Login endpoint".to_string()),
+                    source: None,
+                    language: None,
+                    aliases: vec!["auth login".to_string()],
+                    ownership: Vec::new(),
+                    payload: serde_json::json!({"summary": "Authenticate a user"}),
+                }],
+                facts: Vec::new(),
+                relations: Vec::new(),
+                diagnostics: Vec::new(),
+            });
+        }
+        let index_job =
+            start_daemon_job(&state, DaemonJobKind::Index, "running index".to_string()).unwrap();
+        assert!(mark_daemon_job_running(&state, &index_job).unwrap());
+
+        let token = Some(state.auth_token.clone());
+        let status = execute_request(
+            Arc::clone(&state),
+            DaemonRequest {
+                schema: DAEMON_REQUEST_SCHEMA.to_string(),
+                request_id: "req-status".to_string(),
+                project_id: "alpha".to_string(),
+                auth_token: token.clone(),
+                command: DaemonCommand::Status,
+            },
+        );
+        let explain = execute_request(
+            Arc::clone(&state),
+            DaemonRequest {
+                schema: DAEMON_REQUEST_SCHEMA.to_string(),
+                request_id: "req-explain".to_string(),
+                project_id: "alpha".to_string(),
+                auth_token: token.clone(),
+                command: DaemonCommand::Explain {
+                    stable_key: "api://POST:/login".to_string(),
+                },
+            },
+        );
+        let search = execute_request(
+            Arc::clone(&state),
+            DaemonRequest {
+                schema: DAEMON_REQUEST_SCHEMA.to_string(),
+                request_id: "req-search".to_string(),
+                project_id: "alpha".to_string(),
+                auth_token: token,
+                command: DaemonCommand::Search {
+                    query: "login".to_string(),
+                    limit: 10,
+                },
+            },
+        );
+
+        let ((status, _), (explain, _), (search, _)) = tokio::join!(status, explain, search);
+        assert!(status.ok);
+        assert!(explain.ok);
+        assert!(search.ok);
+        assert_eq!(
+            status
+                .result
+                .as_ref()
+                .and_then(|result| result.get("active_jobs"))
+                .and_then(Value::as_u64),
+            Some(1)
+        );
+        assert_eq!(
+            explain
+                .result
+                .as_ref()
+                .and_then(|result| result.get("snapshot"))
+                .and_then(Value::as_str),
+            Some("snap_read_only")
+        );
+        assert_eq!(
+            search
+                .result
+                .as_ref()
+                .and_then(|result| result.get("returned"))
+                .and_then(Value::as_u64),
+            Some(1)
+        );
+        assert!(has_active_job(&state, DaemonJobKind::Index).unwrap());
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

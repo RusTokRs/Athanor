@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fmt;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use athanor_core::{
@@ -16,6 +17,7 @@ use crate::{AffectedFileSet, CancellationToken, IndexState};
 use futures::stream::{self, StreamExt};
 
 const EXTRACTION_CONCURRENCY_LIMIT: usize = 16;
+pub const INDEX_METRICS_SCHEMA: &str = "athanor.index_metrics.v1";
 
 pub struct IndexPipeline {
     store: Box<dyn KnowledgeStore>,
@@ -34,12 +36,61 @@ pub struct IndexPipelineOutput {
     pub relations: Vec<Relation>,
     pub diagnostics: Vec<Diagnostic>,
     pub affected_files: AffectedFileSet,
+    pub metrics: IndexPipelineMetrics,
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct IncrementalIndexContext {
     pub previous_state: IndexState,
     pub previous_snapshot: Option<CanonicalSnapshot>,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct IndexPipelineMetrics {
+    pub schema: &'static str,
+    pub total_ms: u64,
+    pub source_discovery_ms: u64,
+    pub affected_classification_ms: u64,
+    pub snapshot_begin_ms: u64,
+    pub extraction_ms: u64,
+    pub merge_ms: u64,
+    pub linking_ms: u64,
+    pub checking_ms: u64,
+    pub canonicalize_ms: u64,
+    pub storage_ms: u64,
+    pub files_discovered: usize,
+    pub files_to_extract: usize,
+    pub changed_files: usize,
+    pub unchanged_files: usize,
+    pub removed_files: usize,
+    pub entities: usize,
+    pub facts: usize,
+    pub relations: usize,
+    pub diagnostics: usize,
+    pub validation_issues: usize,
+    pub adapters: Vec<AdapterRunMetrics>,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct AdapterRunMetrics {
+    pub phase: &'static str,
+    pub adapter: String,
+    pub runs: usize,
+    pub duration_ms: u64,
+    pub input_files: usize,
+    pub input_entities: usize,
+    pub input_facts: usize,
+    pub input_relations: usize,
+    pub output_files: usize,
+    pub output_entities: usize,
+    pub output_facts: usize,
+    pub output_relations: usize,
+    pub output_diagnostics: usize,
+    pub validation_issues: usize,
+    pub timeout_count: usize,
+    pub stdin_bytes: Option<u64>,
+    pub stdout_bytes: Option<u64>,
+    pub stderr_bytes: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -219,13 +270,23 @@ impl IndexPipeline {
         incremental: IncrementalIndexContext,
         cancellation: Option<CancellationToken>,
     ) -> Result<IndexPipelineOutput> {
+        let pipeline_started = Instant::now();
+        let mut metrics = IndexPipelineMetrics {
+            schema: INDEX_METRICS_SCHEMA,
+            ..IndexPipelineMetrics::default()
+        };
         check_cancelled(&cancellation)?;
         let previous_snapshot_available = incremental.previous_snapshot.is_some();
 
         info!("starting source discovery");
-        let files = self.discover_sources().await?;
+        let source_started = Instant::now();
+        let (files, source_metrics) = self.discover_sources().await?;
+        metrics.source_discovery_ms = elapsed_ms(source_started.elapsed());
+        metrics.files_discovered = files.len();
+        metrics.adapters.extend(source_metrics);
         check_cancelled(&cancellation)?;
         info!(file_count = files.len(), "completed source discovery");
+        let classification_started = Instant::now();
         let mut affected_files = incremental.previous_state.affected_files(&files);
 
         let has_added_files = affected_files
@@ -255,25 +316,35 @@ impl IndexPipeline {
             previous_snapshot_available,
             "classified affected files"
         );
+        metrics.affected_classification_ms = elapsed_ms(classification_started.elapsed());
+        metrics.changed_files = affected_files.changed.len();
+        metrics.unchanged_files = affected_files.unchanged.len();
+        metrics.removed_files = affected_files.removed.len();
 
+        let snapshot_started = Instant::now();
         let snapshot = self
             .store
             .begin_snapshot(repo.clone(), base)
             .await
             .context("failed to begin snapshot")?;
+        metrics.snapshot_begin_ms = elapsed_ms(snapshot_started.elapsed());
         let files_to_extract = files
             .iter()
             .filter(|file| affected_files.changed.contains(&file.path))
             .cloned()
             .collect::<Vec<_>>();
+        metrics.files_to_extract = files_to_extract.len();
         info!(
             changed_files = files_to_extract.len(),
             unchanged_files = affected_files.unchanged.len(),
             removed_files = affected_files.removed.len(),
             "starting extraction"
         );
-        let (extracted_entities, extracted_facts) =
+        let extraction_started = Instant::now();
+        let (extracted_entities, extracted_facts, extraction_metrics) =
             self.extract(&repo, &snapshot, &files_to_extract).await?;
+        metrics.extraction_ms = elapsed_ms(extraction_started.elapsed());
+        metrics.adapters.extend(extraction_metrics);
         check_cancelled(&cancellation)?;
         info!(
             entities = extracted_entities.len(),
@@ -282,6 +353,7 @@ impl IndexPipeline {
         );
         let affected_extracted =
             AffectedSubset::from_extracted(extracted_entities.clone(), extracted_facts.clone());
+        let merge_started = Instant::now();
         let (mut entities, mut facts, mut prior_relations, mut prior_diagnostics) =
             carried_forward_read_model(
                 incremental.previous_snapshot,
@@ -298,8 +370,11 @@ impl IndexPipeline {
         );
         entities.extend(extracted_entities);
         facts.extend(extracted_facts);
-        entities = canonicalize_entities(entities);
-        facts = canonicalize_facts(facts);
+        metrics.merge_ms = elapsed_ms(merge_started.elapsed());
+        let canonicalize_extracted_started = Instant::now();
+        let entities = Arc::new(canonicalize_entities(entities));
+        let facts = Arc::new(canonicalize_facts(facts));
+        metrics.canonicalize_ms += elapsed_ms(canonicalize_extracted_started.elapsed());
         debug!(
             entities = entities.len(),
             facts = facts.len(),
@@ -307,30 +382,44 @@ impl IndexPipeline {
         );
 
         info!("starting linking");
-        let relations = self
-            .link(&snapshot, &entities, &facts, &affected_extracted)
+        let linking_started = Instant::now();
+        let (relations, linking_metrics) = self
+            .link(
+                &snapshot,
+                entities.clone(),
+                facts.clone(),
+                &affected_extracted,
+            )
             .await?;
+        metrics.linking_ms = elapsed_ms(linking_started.elapsed());
+        metrics.adapters.extend(linking_metrics);
         check_cancelled(&cancellation)?;
         info!(relations = relations.len(), "completed linking");
         let mut all_relations_for_check = prior_relations.clone();
         all_relations_for_check.extend(relations.clone());
         let affected_checked = affected_extracted.with_relations(relations.clone());
+        let all_relations_for_check = Arc::new(all_relations_for_check);
         info!("starting checking");
-        let diagnostics = self
+        let checking_started = Instant::now();
+        let (diagnostics, checking_metrics) = self
             .check(
                 &snapshot,
-                &entities,
-                &facts,
-                &all_relations_for_check,
+                entities.clone(),
+                facts.clone(),
+                all_relations_for_check,
                 &affected_checked,
             )
             .await?;
+        metrics.checking_ms = elapsed_ms(checking_started.elapsed());
+        metrics.adapters.extend(checking_metrics);
         check_cancelled(&cancellation)?;
         info!(diagnostics = diagnostics.len(), "completed checking");
         prior_relations.extend(relations);
         prior_diagnostics.extend(diagnostics);
+        let canonicalize_final_started = Instant::now();
         prior_relations = canonicalize_relations(prior_relations);
         prior_diagnostics = canonicalize_diagnostics(prior_diagnostics);
+        metrics.canonicalize_ms += elapsed_ms(canonicalize_final_started.elapsed());
         debug!(
             entities = entities.len(),
             facts = facts.len(),
@@ -338,7 +427,14 @@ impl IndexPipeline {
             diagnostics = prior_diagnostics.len(),
             "storing canonical objects"
         );
+        let entities = unwrap_or_clone_arc_vec(entities);
+        let facts = unwrap_or_clone_arc_vec(facts);
+        metrics.entities = entities.len();
+        metrics.facts = facts.len();
+        metrics.relations = prior_relations.len();
+        metrics.diagnostics = prior_diagnostics.len();
 
+        let storage_started = Instant::now();
         self.store
             .put_entities(snapshot.clone(), entities.clone())
             .await
@@ -359,6 +455,9 @@ impl IndexPipeline {
             .commit_snapshot(snapshot.clone())
             .await
             .context("failed to commit snapshot")?;
+        metrics.storage_ms = elapsed_ms(storage_started.elapsed());
+        metrics.total_ms = elapsed_ms(pipeline_started.elapsed());
+        metrics.adapters = aggregate_adapter_metrics(metrics.adapters);
         info!(?snapshot, "committed index snapshot");
 
         Ok(IndexPipelineOutput {
@@ -369,29 +468,41 @@ impl IndexPipeline {
             relations: prior_relations,
             diagnostics: prior_diagnostics,
             affected_files,
+            metrics,
         })
     }
 
-    async fn discover_sources(&self) -> Result<Vec<SourceFile>> {
+    async fn discover_sources(&self) -> Result<(Vec<SourceFile>, Vec<AdapterRunMetrics>)> {
         let mut files = Vec::new();
+        let mut metrics = Vec::new();
 
         for source in &self.sources {
             let source_name = source.name();
             let span = debug_span!("discover_source", source = source_name);
+            let started = Instant::now();
             let discovered = source
                 .discover()
                 .instrument(span)
                 .await
                 .with_context(|| format!("source {} failed", source_name))?;
+            let duration_ms = elapsed_ms(started.elapsed());
             debug!(
                 source = source_name,
                 file_count = discovered.len(),
                 "source discovery produced files"
             );
+            metrics.push(AdapterRunMetrics {
+                phase: "source",
+                adapter: source_name.to_string(),
+                runs: 1,
+                duration_ms,
+                output_files: discovered.len(),
+                ..AdapterRunMetrics::default()
+            });
             files.extend(discovered);
         }
 
-        Ok(files)
+        Ok((files, metrics))
     }
 
     async fn extract(
@@ -399,7 +510,7 @@ impl IndexPipeline {
         repo: &RepoId,
         snapshot: &SnapshotId,
         files: &[SourceFile],
-    ) -> Result<(Vec<Entity>, Vec<Fact>)> {
+    ) -> Result<(Vec<Entity>, Vec<Fact>, Vec<AdapterRunMetrics>)> {
         let tasks = files
             .iter()
             .flat_map(|source| {
@@ -418,6 +529,7 @@ impl IndexPipeline {
         let mut outputs = stream::iter(tasks)
             .map(|(extractor, source)| async move {
                 let extractor_name = extractor.name();
+                let started = Instant::now();
                 let span = debug_span!(
                     "extract_source",
                     extractor = extractor_name,
@@ -436,6 +548,7 @@ impl IndexPipeline {
                 }
                 .instrument(span)
                 .await?;
+                let duration_ms = elapsed_ms(started.elapsed());
 
                 validate_entities(extractor_name, &output.entities)?;
                 validate_facts(extractor_name, &output.facts)?;
@@ -445,18 +558,30 @@ impl IndexPipeline {
                     facts = output.facts.len(),
                     "extractor emitted canonical objects"
                 );
-                Ok::<_, anyhow::Error>(output)
+                let metrics = AdapterRunMetrics {
+                    phase: "extractor",
+                    adapter: extractor_name.to_string(),
+                    runs: 1,
+                    duration_ms,
+                    input_files: 1,
+                    output_entities: output.entities.len(),
+                    output_facts: output.facts.len(),
+                    ..AdapterRunMetrics::default()
+                };
+                Ok::<_, anyhow::Error>(ExtractorTaskOutput { output, metrics })
             })
             .buffer_unordered(EXTRACTION_CONCURRENCY_LIMIT);
 
         let mut entities = Vec::new();
         let mut facts = Vec::new();
+        let mut metrics = Vec::new();
 
         while let Some(output) = outputs.next().await {
             match output {
                 Ok(output) => {
-                    entities.extend(output.entities);
-                    facts.extend(output.facts);
+                    entities.extend(output.output.entities);
+                    facts.extend(output.output.facts);
+                    metrics.push(output.metrics);
                 }
                 Err(error) => {
                     error!(%error, "extraction failed");
@@ -465,19 +590,22 @@ impl IndexPipeline {
             }
         }
 
-        Ok((canonicalize_entities(entities), canonicalize_facts(facts)))
+        Ok((
+            canonicalize_entities(entities),
+            canonicalize_facts(facts),
+            metrics,
+        ))
     }
 
     async fn link(
         &self,
         snapshot: &SnapshotId,
-        entities: &[Entity],
-        facts: &[Fact],
+        entities: Arc<Vec<Entity>>,
+        facts: Arc<Vec<Fact>>,
         affected: &AffectedSubset,
-    ) -> Result<Vec<Relation>> {
+    ) -> Result<(Vec<Relation>, Vec<AdapterRunMetrics>)> {
         let mut relations = Vec::new();
-        let entities = Arc::<[Entity]>::from(entities.to_vec());
-        let facts = Arc::<[Fact]>::from(facts.to_vec());
+        let mut metrics = Vec::new();
 
         for linker in &self.linkers {
             let linker_name = linker.name();
@@ -491,6 +619,7 @@ impl IndexPipeline {
                 affected_relations = affected.relations.len(),
                 "running linker"
             );
+            let started = Instant::now();
             let output = linker
                 .link(LinkInput {
                     snapshot: snapshot.clone(),
@@ -502,6 +631,7 @@ impl IndexPipeline {
                 .await
                 .inspect_err(|error| error!(linker = linker.name(), %error, "linker failed"))
                 .with_context(|| format!("linker {} failed", linker_name))?;
+            let duration_ms = elapsed_ms(started.elapsed());
 
             validate_relations(linker_name, &output)?;
             debug!(
@@ -509,24 +639,32 @@ impl IndexPipeline {
                 relations = output.len(),
                 "linker emitted relations"
             );
+            metrics.push(AdapterRunMetrics {
+                phase: "linker",
+                adapter: linker_name.to_string(),
+                runs: 1,
+                duration_ms,
+                input_entities: entities.len(),
+                input_facts: facts.len(),
+                output_relations: output.len(),
+                ..AdapterRunMetrics::default()
+            });
             relations.extend(output);
         }
 
-        Ok(relations)
+        Ok((relations, metrics))
     }
 
     async fn check(
         &self,
         snapshot: &SnapshotId,
-        entities: &[Entity],
-        facts: &[Fact],
-        relations: &[Relation],
+        entities: Arc<Vec<Entity>>,
+        facts: Arc<Vec<Fact>>,
+        relations: Arc<Vec<Relation>>,
         affected: &AffectedSubset,
-    ) -> Result<Vec<Diagnostic>> {
+    ) -> Result<(Vec<Diagnostic>, Vec<AdapterRunMetrics>)> {
         let mut diagnostics = Vec::new();
-        let entities = Arc::<[Entity]>::from(entities.to_vec());
-        let facts = Arc::<[Fact]>::from(facts.to_vec());
-        let relations = Arc::<[Relation]>::from(relations.to_vec());
+        let mut metrics = Vec::new();
 
         for checker in &self.checkers {
             let checker_name = checker.name();
@@ -541,6 +679,7 @@ impl IndexPipeline {
                 affected_relations = affected.relations.len(),
                 "running checker"
             );
+            let started = Instant::now();
             let output = checker
                 .check(CheckInput {
                     snapshot: snapshot.clone(),
@@ -553,6 +692,7 @@ impl IndexPipeline {
                 .await
                 .inspect_err(|error| error!(checker = checker.name(), %error, "checker failed"))
                 .with_context(|| format!("checker {} failed", checker_name))?;
+            let duration_ms = elapsed_ms(started.elapsed());
 
             validate_diagnostics(checker_name, &output)?;
             debug!(
@@ -560,11 +700,81 @@ impl IndexPipeline {
                 diagnostics = output.len(),
                 "checker emitted diagnostics"
             );
+            metrics.push(AdapterRunMetrics {
+                phase: "checker",
+                adapter: checker_name.to_string(),
+                runs: 1,
+                duration_ms,
+                input_entities: entities.len(),
+                input_facts: facts.len(),
+                input_relations: relations.len(),
+                output_diagnostics: output.len(),
+                ..AdapterRunMetrics::default()
+            });
             diagnostics.extend(output);
         }
 
-        Ok(diagnostics)
+        Ok((diagnostics, metrics))
     }
+}
+
+struct ExtractorTaskOutput {
+    output: athanor_core::ExtractOutput,
+    metrics: AdapterRunMetrics,
+}
+
+fn elapsed_ms(duration: Duration) -> u64 {
+    duration.as_millis().min(u128::from(u64::MAX)) as u64
+}
+
+fn aggregate_adapter_metrics(metrics: Vec<AdapterRunMetrics>) -> Vec<AdapterRunMetrics> {
+    let mut by_adapter = BTreeMap::<(&'static str, String), AdapterRunMetrics>::new();
+
+    for metric in metrics {
+        let key = (metric.phase, metric.adapter.clone());
+        let entry = by_adapter.entry(key).or_insert_with(|| AdapterRunMetrics {
+            phase: metric.phase,
+            adapter: metric.adapter.clone(),
+            ..AdapterRunMetrics::default()
+        });
+        entry.runs += metric.runs;
+        entry.duration_ms = entry.duration_ms.saturating_add(metric.duration_ms);
+        entry.input_files = entry.input_files.saturating_add(metric.input_files);
+        entry.input_entities = entry.input_entities.saturating_add(metric.input_entities);
+        entry.input_facts = entry.input_facts.saturating_add(metric.input_facts);
+        entry.input_relations = entry.input_relations.saturating_add(metric.input_relations);
+        entry.output_files = entry.output_files.saturating_add(metric.output_files);
+        entry.output_entities = entry.output_entities.saturating_add(metric.output_entities);
+        entry.output_facts = entry.output_facts.saturating_add(metric.output_facts);
+        entry.output_relations = entry
+            .output_relations
+            .saturating_add(metric.output_relations);
+        entry.output_diagnostics = entry
+            .output_diagnostics
+            .saturating_add(metric.output_diagnostics);
+        entry.validation_issues = entry
+            .validation_issues
+            .saturating_add(metric.validation_issues);
+        entry.timeout_count = entry.timeout_count.saturating_add(metric.timeout_count);
+        entry.stdin_bytes = add_optional_bytes(entry.stdin_bytes, metric.stdin_bytes);
+        entry.stdout_bytes = add_optional_bytes(entry.stdout_bytes, metric.stdout_bytes);
+        entry.stderr_bytes = add_optional_bytes(entry.stderr_bytes, metric.stderr_bytes);
+    }
+
+    by_adapter.into_values().collect()
+}
+
+fn add_optional_bytes(left: Option<u64>, right: Option<u64>) -> Option<u64> {
+    match (left, right) {
+        (Some(left), Some(right)) => Some(left.saturating_add(right)),
+        (Some(left), None) => Some(left),
+        (None, Some(right)) => Some(right),
+        (None, None) => None,
+    }
+}
+
+fn unwrap_or_clone_arc_vec<T: Clone>(items: Arc<Vec<T>>) -> Vec<T> {
+    Arc::try_unwrap(items).unwrap_or_else(|items| (*items).clone())
 }
 
 fn check_cancelled(cancellation: &Option<CancellationToken>) -> Result<()> {
@@ -827,13 +1037,16 @@ fn replace_payload_snapshot(value: &mut Value, snapshot: &SnapshotId) {
 
 #[cfg(test)]
 mod tests {
-    use athanor_core::CanonicalSnapshot;
+    use async_trait::async_trait;
+    use athanor_core::{CanonicalSnapshot, CoreResult, ExtractOutput};
     use athanor_domain::{
         DiagnosticId, DiagnosticKind, DiagnosticStatus, EntityId, EntityKind, Evidence,
         EvidenceStatus, FactId, FactKind, Ownership, RelationId, RelationKind, RelationStatus,
         Severity, SourceLocation, StableKey,
     };
+    use athanor_store_memory::MemoryKnowledgeStore;
     use serde_json::json;
+    use std::sync::Mutex;
 
     use super::*;
 
@@ -883,6 +1096,42 @@ mod tests {
         assert_eq!(diagnostics[0].id.0, "diag_duplicate");
         assert_eq!(diagnostics[0].title, "new title");
         assert_eq!(diagnostics[1].id.0, "diag_other");
+    }
+
+    #[tokio::test]
+    async fn shares_full_context_between_linkers_and_checkers() {
+        let tracker = Arc::new(Mutex::new(SharedInputPointers::default()));
+        let pipeline = IndexPipeline::new(MemoryKnowledgeStore::new())
+            .source(TestSource)
+            .extractor(TestExtractor)
+            .linker(CapturingLinker {
+                tracker: tracker.clone(),
+            })
+            .checker(CapturingChecker {
+                tracker: tracker.clone(),
+            });
+
+        let output = pipeline
+            .run(
+                RepoId("repo_shared_context".to_string()),
+                SnapshotBase {
+                    branch: None,
+                    commit: None,
+                    parent_snapshot: None,
+                    working_tree: true,
+                },
+            )
+            .await
+            .expect("pipeline should run");
+
+        assert_eq!(output.entities.len(), 1);
+        assert_eq!(output.facts.len(), 1);
+        assert_eq!(output.relations.len(), 1);
+        assert_eq!(output.diagnostics.len(), 1);
+
+        let pointers = tracker.lock().unwrap();
+        assert_eq!(pointers.linker_entities, pointers.checker_entities);
+        assert_eq!(pointers.linker_facts, pointers.checker_facts);
     }
 
     #[test]
@@ -1013,6 +1262,94 @@ mod tests {
     fn ownership(path: &str) -> Ownership {
         Ownership {
             source_file: path.to_string(),
+        }
+    }
+
+    #[derive(Default)]
+    struct SharedInputPointers {
+        linker_entities: Option<usize>,
+        linker_facts: Option<usize>,
+        checker_entities: Option<usize>,
+        checker_facts: Option<usize>,
+    }
+
+    struct TestSource;
+
+    #[async_trait]
+    impl SourceProvider for TestSource {
+        fn name(&self) -> &str {
+            "test-source"
+        }
+
+        async fn discover(&self) -> CoreResult<Vec<SourceFile>> {
+            Ok(vec![SourceFile {
+                path: "docs/shared.md".to_string(),
+                language_hint: Some("markdown".to_string()),
+                content_hash: Some("shared".to_string()),
+                content: Some("# Shared".to_string()),
+            }])
+        }
+    }
+
+    struct TestExtractor;
+
+    #[async_trait]
+    impl Extractor for TestExtractor {
+        fn name(&self) -> &str {
+            "test-extractor"
+        }
+
+        fn supports(&self, _source: &SourceFile) -> bool {
+            true
+        }
+
+        async fn extract(&self, _input: ExtractInput) -> CoreResult<ExtractOutput> {
+            Ok(ExtractOutput {
+                entities: vec![entity("ent_left", "docs/shared.md")],
+                facts: vec![fact("fact_shared")],
+            })
+        }
+    }
+
+    struct CapturingLinker {
+        tracker: Arc<Mutex<SharedInputPointers>>,
+    }
+
+    #[async_trait]
+    impl Linker for CapturingLinker {
+        fn name(&self) -> &str {
+            "capturing-linker"
+        }
+
+        async fn link(&self, input: LinkInput) -> CoreResult<Vec<Relation>> {
+            let mut tracker = self.tracker.lock().unwrap();
+            tracker.linker_entities = Some(Arc::as_ptr(&input.entities) as usize);
+            tracker.linker_facts = Some(Arc::as_ptr(&input.facts) as usize);
+            drop(tracker);
+            Ok(vec![relation("rel_shared", "ent_left", "ent_left")])
+        }
+    }
+
+    struct CapturingChecker {
+        tracker: Arc<Mutex<SharedInputPointers>>,
+    }
+
+    #[async_trait]
+    impl Checker for CapturingChecker {
+        fn name(&self) -> &str {
+            "capturing-checker"
+        }
+
+        async fn check(&self, input: CheckInput) -> CoreResult<Vec<Diagnostic>> {
+            assert_eq!(input.relations.len(), 1);
+            let mut tracker = self.tracker.lock().unwrap();
+            tracker.checker_entities = Some(Arc::as_ptr(&input.entities) as usize);
+            tracker.checker_facts = Some(Arc::as_ptr(&input.facts) as usize);
+            Ok(vec![diagnostic(
+                "diag_shared",
+                "shared context was checked",
+                &input.snapshot.0,
+            )])
         }
     }
 }

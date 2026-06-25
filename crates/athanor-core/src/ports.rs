@@ -139,8 +139,8 @@ impl AffectedSubset {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LinkInput {
     pub snapshot: SnapshotId,
-    pub entities: Arc<[Entity]>,
-    pub facts: Arc<[Fact]>,
+    pub entities: Arc<Vec<Entity>>,
+    pub facts: Arc<Vec<Fact>>,
     pub affected: AffectedSubset,
 }
 
@@ -153,9 +153,9 @@ pub trait Linker: Send + Sync {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CheckInput {
     pub snapshot: SnapshotId,
-    pub entities: Arc<[Entity]>,
-    pub facts: Arc<[Fact]>,
-    pub relations: Arc<[Relation]>,
+    pub entities: Arc<Vec<Entity>>,
+    pub facts: Arc<Vec<Fact>>,
+    pub relations: Arc<Vec<Relation>>,
     pub affected: AffectedSubset,
 }
 

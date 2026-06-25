@@ -2,6 +2,7 @@
 
 pub mod api;
 pub mod api_registry;
+pub mod bench;
 pub mod cancellation;
 pub mod check;
 pub mod config;
@@ -30,6 +31,7 @@ pub mod wiki;
 
 pub use api::*;
 pub use api_registry::*;
+pub use bench::*;
 pub use cancellation::*;
 pub use check::*;
 pub use config::*;

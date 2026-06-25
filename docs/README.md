@@ -221,6 +221,22 @@ cargo run -p ath --quiet -- index . --validate-only
 cargo run -p ath --quiet -- index . --validate-only --validation-result .athanor/generated/current/validation-result.json
 ```
 
+Indexing reports can be emitted as bounded machine-readable JSON, including phase timings,
+aggregated adapter metrics, canonical object counts, affected-file counts, and output paths:
+
+```bash
+cargo run -p ath --quiet -- index . --json
+```
+
+Synthetic indexing benchmark fixtures can be generated and measured without reading generated
+JSONL artifacts directly:
+
+```bash
+cargo run -p ath --quiet -- bench --size small
+cargo run -p ath --quiet -- bench --size medium --json
+cargo run -p ath --quiet -- bench --size large --root .athanor/bench/large --keep-fixture --json
+```
+
 Detailed indexing diagnostics can be enabled through `RUST_LOG` without changing command output:
 
 ```bash
