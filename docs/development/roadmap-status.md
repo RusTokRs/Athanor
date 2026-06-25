@@ -31,6 +31,7 @@ Crates:
 - `athanor-extractor-openapi`
 - `athanor-extractor-operations`
 - `athanor-extractor-rust`
+- `athanor-adapter-rustok-ffa`
 - `athanor-linker-api`
 - `athanor-linker-markdown`
 - `athanor-checker-markdown`
@@ -126,6 +127,14 @@ ath graph pagerank
 ath graph pagerank --kind <entity-kind> --limit <N> --json
 ath graph cycles
 ath graph cycles --max-depth <N> --limit <N> --json
+ath rustok ffa audit
+ath rustok ffa audit --json
+ath graph ffa surface <module> <surface>
+ath graph ffa surface <module> <surface> --json
+ath graph ffa violations --module <module> --surface <surface>
+ath graph ffa violations --module <module> --surface <surface> --json
+ath check rustok-ffa
+ath check rustok-ffa --json
 ath projects list
 ath projects list --json
 ath projects add <project-id> <path>

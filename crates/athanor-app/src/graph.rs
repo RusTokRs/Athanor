@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::path::PathBuf;
 
 use crate::config::load_config;
@@ -6,7 +6,7 @@ use crate::project_path::normalize_canonical_path;
 use crate::store::init_store;
 use anyhow::{Context, Result, bail};
 use athanor_core::{CanonicalSnapshot, CanonicalSnapshotStore};
-use athanor_domain::{Entity, Relation};
+use athanor_domain::{Diagnostic, DiagnosticKind, Entity, Relation, RelationKind};
 use serde::Serialize;
 
 pub const GRAPH_EXPORT_SCHEMA: &str = "athanor.graph_export.v1";
@@ -15,6 +15,9 @@ pub const GRAPH_HUBS_SCHEMA: &str = "athanor.graph_hubs.v1";
 pub const GRAPH_PAGERANK_SCHEMA: &str = "athanor.graph_pagerank.v1";
 pub const GRAPH_PATH_SCHEMA: &str = "athanor.graph_path.v1";
 pub const GRAPH_RELATED_SCHEMA: &str = "athanor.graph_related.v1";
+pub const RUSTOK_FFA_AUDIT_SCHEMA: &str = "athanor.rustok_ffa_audit.v1";
+pub const RUSTOK_FFA_SURFACE_GRAPH_SCHEMA: &str = "athanor.rustok_ffa_surface_graph.v1";
+pub const RUSTOK_FFA_VIOLATIONS_GRAPH_SCHEMA: &str = "athanor.rustok_ffa_violations_graph.v1";
 
 #[derive(Debug, Clone)]
 pub struct GraphExportOptions {
@@ -66,6 +69,29 @@ pub struct GraphCyclesOptions {
     pub limit: usize,
     pub max_depth: usize,
     pub max_starts: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct RustokFfaAuditOptions {
+    pub root: PathBuf,
+}
+
+#[derive(Debug, Clone)]
+pub struct GraphFfaSurfaceOptions {
+    pub root: PathBuf,
+    pub module: String,
+    pub surface: String,
+    pub max_nodes: usize,
+    pub max_edges: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct GraphFfaViolationsOptions {
+    pub root: PathBuf,
+    pub module: Option<String>,
+    pub surface: Option<String>,
+    pub max_nodes: usize,
+    pub max_edges: usize,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -204,6 +230,60 @@ pub struct GraphCycle {
     pub length: usize,
     pub nodes: Vec<GraphNode>,
     pub edges: Vec<GraphEdge>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct RustokFfaAudit {
+    pub schema: String,
+    pub snapshot: String,
+    pub summary: RustokFfaAuditSummary,
+    pub surfaces: Vec<RustokFfaAuditSurface>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct RustokFfaAuditSummary {
+    pub surfaces_total: usize,
+    pub core_transport_ui: usize,
+    pub incomplete: usize,
+    pub diagnostics_open: usize,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct RustokFfaAuditSurface {
+    pub id: String,
+    pub module: String,
+    pub surface: String,
+    pub shape: String,
+    pub layers: Vec<String>,
+    pub files: Vec<String>,
+    pub diagnostics: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct RustokFfaGraph {
+    pub schema: String,
+    pub snapshot: String,
+    pub surface: Option<String>,
+    pub nodes: Vec<RustokFfaGraphNode>,
+    pub edges: Vec<RustokFfaGraphEdge>,
+    pub diagnostics: Vec<Diagnostic>,
+    pub omitted: GraphOmitted,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct RustokFfaGraphNode {
+    pub id: String,
+    pub kind: String,
+    pub name: String,
+    pub source: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct RustokFfaGraphEdge {
+    pub from: String,
+    pub to: String,
+    pub kind: String,
+    pub evidence: Vec<String>,
 }
 
 pub async fn export_graph(options: GraphExportOptions) -> Result<GraphExport> {
@@ -408,6 +488,287 @@ pub async fn graph_cycles(options: GraphCyclesOptions) -> Result<GraphCycles> {
         options.max_depth,
         options.max_starts,
     )
+}
+
+pub async fn rustok_ffa_audit(options: RustokFfaAuditOptions) -> Result<RustokFfaAudit> {
+    let snapshot = load_latest_graph_snapshot(options.root).await?;
+    Ok(build_rustok_ffa_audit(&snapshot))
+}
+
+pub async fn graph_ffa_surface(options: GraphFfaSurfaceOptions) -> Result<RustokFfaGraph> {
+    if options.max_nodes == 0 || options.max_edges == 0 {
+        bail!("FFA graph limits must be greater than zero");
+    }
+    let snapshot = load_latest_graph_snapshot(options.root).await?;
+    build_rustok_ffa_surface_graph(
+        &snapshot,
+        &options.module,
+        &options.surface,
+        options.max_nodes,
+        options.max_edges,
+    )
+}
+
+pub async fn graph_ffa_violations(options: GraphFfaViolationsOptions) -> Result<RustokFfaGraph> {
+    if options.max_nodes == 0 || options.max_edges == 0 {
+        bail!("FFA graph limits must be greater than zero");
+    }
+    let snapshot = load_latest_graph_snapshot(options.root).await?;
+    Ok(build_rustok_ffa_violations_graph(
+        &snapshot,
+        options.module.as_deref(),
+        options.surface.as_deref(),
+        options.max_nodes,
+        options.max_edges,
+    ))
+}
+
+async fn load_latest_graph_snapshot(root: PathBuf) -> Result<CanonicalSnapshot> {
+    let root = normalize_canonical_path(
+        root.canonicalize()
+            .with_context(|| format!("failed to canonicalize {}", root.display()))?,
+    );
+    let config = load_config(&root)?;
+    let store = init_store(&root, &config).await?;
+    store
+        .load_latest_snapshot()
+        .await
+        .context("failed to load latest canonical snapshot")?
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "no canonical snapshot found; run `ath index {}` first",
+                root.display()
+            )
+        })
+}
+
+pub fn build_rustok_ffa_audit(snapshot: &CanonicalSnapshot) -> RustokFfaAudit {
+    let snapshot_id = snapshot_id(snapshot);
+    let surface_index = ffa_surface_index(snapshot);
+    let diagnostics = ffa_diagnostics(snapshot, None, None);
+    let diagnostics_by_surface = diagnostics_by_surface(&diagnostics);
+    let mut surfaces = surface_index
+        .into_iter()
+        .map(|((module, surface), details)| {
+            let key = (module.clone(), surface.clone());
+            let mut layers = details.layers.into_iter().collect::<Vec<_>>();
+            let mut files = details.files.into_iter().collect::<Vec<_>>();
+            layers.sort();
+            files.sort();
+            let diagnostics = diagnostics_by_surface
+                .get(&key)
+                .cloned()
+                .unwrap_or_default();
+            RustokFfaAuditSurface {
+                id: format!("ffa_surface://{module}/{surface}"),
+                module,
+                surface,
+                shape: ffa_shape(&layers),
+                layers,
+                files,
+                diagnostics,
+            }
+        })
+        .collect::<Vec<_>>();
+    surfaces
+        .sort_by(|left, right| (&left.module, &left.surface).cmp(&(&right.module, &right.surface)));
+
+    let core_transport_ui = surfaces
+        .iter()
+        .filter(|surface| surface.shape == "core_transport_ui")
+        .count();
+    let diagnostics_open = surfaces
+        .iter()
+        .map(|surface| surface.diagnostics.len())
+        .sum::<usize>();
+
+    RustokFfaAudit {
+        schema: RUSTOK_FFA_AUDIT_SCHEMA.to_string(),
+        snapshot: snapshot_id,
+        summary: RustokFfaAuditSummary {
+            surfaces_total: surfaces.len(),
+            core_transport_ui,
+            incomplete: surfaces.len().saturating_sub(core_transport_ui),
+            diagnostics_open,
+        },
+        surfaces,
+    }
+}
+
+pub fn build_rustok_ffa_surface_graph(
+    snapshot: &CanonicalSnapshot,
+    module: &str,
+    surface: &str,
+    max_nodes: usize,
+    max_edges: usize,
+) -> Result<RustokFfaGraph> {
+    if max_nodes == 0 || max_edges == 0 {
+        bail!("FFA graph limits must be greater than zero");
+    }
+    let surface_key = format!("ffa_surface://{module}/{surface}");
+    let entity_by_id = entity_by_id(snapshot);
+    let degree_by_id = degree_by_id(snapshot);
+    let surface_entity = snapshot
+        .entities
+        .iter()
+        .find(|entity| entity.stable_key.0 == surface_key)
+        .ok_or_else(|| anyhow::anyhow!("FFA surface not found for `{surface_key}`"))?;
+
+    let mut selected_ids = BTreeSet::from([surface_entity.id.0.clone()]);
+    let mut edges = Vec::new();
+    for relation in &snapshot.relations {
+        if relation.from == surface_entity.id
+            && matches!(relation.kind, RelationKind::Contains)
+            && let Some(layer) = entity_by_id.get(relation.to.0.as_str())
+            && layer.stable_key.0.starts_with("ffa_layer://")
+        {
+            selected_ids.insert(layer.id.0.clone());
+            push_ffa_edge(&mut edges, relation, &entity_by_id);
+            for file_relation in snapshot.relations.iter().filter(|candidate| {
+                candidate.from == layer.id && matches!(candidate.kind, RelationKind::ImplementedBy)
+            }) {
+                selected_ids.insert(file_relation.to.0.clone());
+                push_ffa_edge(&mut edges, file_relation, &entity_by_id);
+            }
+        }
+    }
+
+    let mut nodes = selected_ids
+        .iter()
+        .filter_map(|id| entity_by_id.get(id.as_str()))
+        .map(|entity| ffa_graph_node(entity, *degree_by_id.get(&entity.id.0).unwrap_or(&0)))
+        .collect::<Vec<_>>();
+    nodes.sort_by(|left, right| left.id.cmp(&right.id));
+    edges.sort_by(|left, right| {
+        (&left.from, &left.to, &left.kind).cmp(&(&right.from, &right.to, &right.kind))
+    });
+    let total_nodes = nodes.len();
+    let total_edges = edges.len();
+    nodes.truncate(max_nodes);
+    let retained = nodes
+        .iter()
+        .map(|node| node.id.as_str())
+        .collect::<BTreeSet<_>>();
+    edges.retain(|edge| {
+        retained.contains(edge.from.as_str()) && retained.contains(edge.to.as_str())
+    });
+    edges.truncate(max_edges);
+
+    Ok(RustokFfaGraph {
+        schema: RUSTOK_FFA_SURFACE_GRAPH_SCHEMA.to_string(),
+        snapshot: snapshot_id(snapshot),
+        surface: Some(surface_key),
+        nodes,
+        edges,
+        diagnostics: ffa_diagnostics(snapshot, Some(module), Some(surface)),
+        omitted: GraphOmitted {
+            nodes: total_nodes.saturating_sub(max_nodes.min(total_nodes)),
+            edges: total_edges.saturating_sub(max_edges.min(total_edges)),
+            reason: "rustok_ffa_graph_limits".to_string(),
+        },
+    })
+}
+
+pub fn build_rustok_ffa_violations_graph(
+    snapshot: &CanonicalSnapshot,
+    module: Option<&str>,
+    surface: Option<&str>,
+    max_nodes: usize,
+    max_edges: usize,
+) -> RustokFfaGraph {
+    let diagnostics = ffa_diagnostics(snapshot, module, surface);
+    let entity_by_stable = snapshot
+        .entities
+        .iter()
+        .map(|entity| (entity.stable_key.0.as_str(), entity))
+        .collect::<HashMap<_, _>>();
+    let degree_by_id = degree_by_id(snapshot);
+    let mut node_keys = BTreeSet::new();
+    let mut edges = Vec::new();
+
+    for diagnostic in &diagnostics {
+        let Some(diag_module) = diagnostic
+            .payload
+            .get("module")
+            .and_then(serde_json::Value::as_str)
+        else {
+            continue;
+        };
+        let Some(diag_surface) = diagnostic
+            .payload
+            .get("surface")
+            .and_then(serde_json::Value::as_str)
+        else {
+            continue;
+        };
+        let surface_key = format!("ffa_surface://{diag_module}/{diag_surface}");
+        node_keys.insert(surface_key.clone());
+        if let Some(role) = diagnostic
+            .payload
+            .get("role")
+            .and_then(serde_json::Value::as_str)
+        {
+            let layer_key = format!("ffa_layer://{diag_module}/{diag_surface}/{role}");
+            node_keys.insert(layer_key.clone());
+            edges.push(RustokFfaGraphEdge {
+                from: surface_key.clone(),
+                to: layer_key.clone(),
+                kind: "violates".to_string(),
+                evidence: diagnostic_evidence(diagnostic),
+            });
+            if let Some(path) = diagnostic
+                .payload
+                .get("path")
+                .and_then(serde_json::Value::as_str)
+            {
+                let file_key = format!("file://{path}");
+                node_keys.insert(file_key.clone());
+                edges.push(RustokFfaGraphEdge {
+                    from: layer_key,
+                    to: file_key,
+                    kind: "evidenced_by".to_string(),
+                    evidence: diagnostic_evidence(diagnostic),
+                });
+            }
+        }
+    }
+
+    let total_nodes = node_keys.len();
+    let total_edges = edges.len();
+    let mut nodes = node_keys
+        .iter()
+        .filter_map(|stable_key| entity_by_stable.get(stable_key.as_str()))
+        .map(|entity| ffa_graph_node(entity, *degree_by_id.get(&entity.id.0).unwrap_or(&0)))
+        .collect::<Vec<_>>();
+    nodes.sort_by(|left, right| left.id.cmp(&right.id));
+    nodes.truncate(max_nodes);
+    let retained = nodes
+        .iter()
+        .map(|node| node.id.as_str())
+        .collect::<BTreeSet<_>>();
+    edges.retain(|edge| {
+        retained.contains(edge.from.as_str()) && retained.contains(edge.to.as_str())
+    });
+    edges.sort_by(|left, right| {
+        (&left.from, &left.to, &left.kind).cmp(&(&right.from, &right.to, &right.kind))
+    });
+    edges.truncate(max_edges);
+
+    RustokFfaGraph {
+        schema: RUSTOK_FFA_VIOLATIONS_GRAPH_SCHEMA.to_string(),
+        snapshot: snapshot_id(snapshot),
+        surface: module
+            .zip(surface)
+            .map(|(module, surface)| format!("ffa_surface://{module}/{surface}")),
+        nodes,
+        edges,
+        diagnostics,
+        omitted: GraphOmitted {
+            nodes: total_nodes.saturating_sub(max_nodes.min(total_nodes)),
+            edges: total_edges.saturating_sub(max_edges.min(total_edges)),
+            reason: "rustok_ffa_graph_limits".to_string(),
+        },
+    }
 }
 
 pub fn build_graph_export(
@@ -1284,6 +1645,224 @@ fn graph_edge(relation: &Relation) -> GraphEdge {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+struct FfaSurfaceDetails {
+    layers: BTreeSet<String>,
+    files: BTreeSet<String>,
+}
+
+fn ffa_surface_index(
+    snapshot: &CanonicalSnapshot,
+) -> BTreeMap<(String, String), FfaSurfaceDetails> {
+    let entity_by_id = entity_by_id(snapshot);
+    let mut index = BTreeMap::<(String, String), FfaSurfaceDetails>::new();
+    for entity in &snapshot.entities {
+        if let Some((module, surface)) = parse_ffa_surface_key(&entity.stable_key.0) {
+            index
+                .entry((module.to_string(), surface.to_string()))
+                .or_default();
+        }
+    }
+    for relation in &snapshot.relations {
+        let Some(from) = entity_by_id.get(relation.from.0.as_str()) else {
+            continue;
+        };
+        let Some(to) = entity_by_id.get(relation.to.0.as_str()) else {
+            continue;
+        };
+        if matches!(relation.kind, RelationKind::Contains)
+            && let (Some((module, surface)), Some((_, _, role))) = (
+                parse_ffa_surface_key(&from.stable_key.0),
+                parse_ffa_layer_key(&to.stable_key.0),
+            )
+        {
+            index
+                .entry((module.to_string(), surface.to_string()))
+                .or_default()
+                .layers
+                .insert(role.to_string());
+        }
+        if matches!(relation.kind, RelationKind::ImplementedBy)
+            && let Some((module, surface, role)) = parse_ffa_layer_key(&from.stable_key.0)
+            && to.stable_key.0.starts_with("file://")
+        {
+            let details = index
+                .entry((module.to_string(), surface.to_string()))
+                .or_default();
+            details.layers.insert(role.to_string());
+            details.files.insert(to.stable_key.0.clone());
+        }
+    }
+    index
+}
+
+fn entity_by_id(snapshot: &CanonicalSnapshot) -> HashMap<&str, &Entity> {
+    snapshot
+        .entities
+        .iter()
+        .map(|entity| (entity.id.0.as_str(), entity))
+        .collect()
+}
+
+fn ffa_diagnostics(
+    snapshot: &CanonicalSnapshot,
+    module: Option<&str>,
+    surface: Option<&str>,
+) -> Vec<Diagnostic> {
+    let mut diagnostics = snapshot
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| {
+            matches!(&diagnostic.kind, DiagnosticKind::Other(kind) if kind.starts_with("rustok_ffa_"))
+                && module.is_none_or(|module| {
+                    diagnostic
+                        .payload
+                        .get("module")
+                        .and_then(serde_json::Value::as_str)
+                        == Some(module)
+                })
+                && surface.is_none_or(|surface| {
+                    diagnostic
+                        .payload
+                        .get("surface")
+                        .and_then(serde_json::Value::as_str)
+                        == Some(surface)
+                })
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    diagnostics.sort_by(|left, right| left.id.0.cmp(&right.id.0));
+    diagnostics
+}
+
+fn diagnostics_by_surface(diagnostics: &[Diagnostic]) -> BTreeMap<(String, String), Vec<String>> {
+    let mut by_surface = BTreeMap::<(String, String), Vec<String>>::new();
+    for diagnostic in diagnostics {
+        let Some(module) = diagnostic
+            .payload
+            .get("module")
+            .and_then(serde_json::Value::as_str)
+        else {
+            continue;
+        };
+        let Some(surface) = diagnostic
+            .payload
+            .get("surface")
+            .and_then(serde_json::Value::as_str)
+        else {
+            continue;
+        };
+        let kind = serialized_name(&diagnostic.kind);
+        by_surface
+            .entry((module.to_string(), surface.to_string()))
+            .or_default()
+            .push(kind);
+    }
+    by_surface
+}
+
+fn ffa_shape(layers: &[String]) -> String {
+    let has_core = layers.iter().any(|layer| layer == "core");
+    let has_transport = layers.iter().any(|layer| layer == "transport");
+    let has_ui = layers.iter().any(|layer| layer == "ui_leptos");
+    match (has_core, has_transport, has_ui) {
+        (true, true, true) => "core_transport_ui",
+        (true, true, false) => "core_transport",
+        (true, false, true) => "core_ui",
+        (false, true, true) => "transport_ui",
+        (true, false, false) => "core_only",
+        (false, true, false) => "transport_only",
+        (false, false, true) => "ui_only",
+        (false, false, false) => "none",
+    }
+    .to_string()
+}
+
+fn parse_ffa_surface_key(stable_key: &str) -> Option<(&str, &str)> {
+    let rest = stable_key.strip_prefix("ffa_surface://")?;
+    let mut parts = rest.split('/');
+    let module = parts.next()?;
+    let surface = parts.next()?;
+    parts.next().is_none().then_some((module, surface))
+}
+
+fn parse_ffa_layer_key(stable_key: &str) -> Option<(&str, &str, &str)> {
+    let rest = stable_key.strip_prefix("ffa_layer://")?;
+    let mut parts = rest.split('/');
+    let module = parts.next()?;
+    let surface = parts.next()?;
+    let role = parts.next()?;
+    parts.next().is_none().then_some((module, surface, role))
+}
+
+fn ffa_graph_node(entity: &Entity, _degree: usize) -> RustokFfaGraphNode {
+    RustokFfaGraphNode {
+        id: entity.stable_key.0.clone(),
+        kind: serialized_name(&entity.kind),
+        name: entity.name.clone(),
+        source: entity.source.as_ref().map(|source| {
+            source.line_start.map_or_else(
+                || source.path.clone(),
+                |line| format!("{}:{line}", source.path),
+            )
+        }),
+    }
+}
+
+fn push_ffa_edge(
+    edges: &mut Vec<RustokFfaGraphEdge>,
+    relation: &Relation,
+    entity_by_id: &HashMap<&str, &Entity>,
+) {
+    let Some(from) = entity_by_id.get(relation.from.0.as_str()) else {
+        return;
+    };
+    let Some(to) = entity_by_id.get(relation.to.0.as_str()) else {
+        return;
+    };
+    edges.push(RustokFfaGraphEdge {
+        from: from.stable_key.0.clone(),
+        to: to.stable_key.0.clone(),
+        kind: serialized_name(&relation.kind),
+        evidence: relation_evidence(relation),
+    });
+}
+
+fn relation_evidence(relation: &Relation) -> Vec<String> {
+    relation
+        .evidence
+        .iter()
+        .filter_map(|evidence| {
+            evidence.source_file.as_ref().map(|path| {
+                evidence
+                    .line_start
+                    .map_or_else(|| path.clone(), |line| format!("{path}:{line}"))
+            })
+        })
+        .collect()
+}
+
+fn diagnostic_evidence(diagnostic: &Diagnostic) -> Vec<String> {
+    diagnostic
+        .evidence
+        .iter()
+        .filter_map(|evidence| {
+            evidence.source_file.as_ref().map(|path| {
+                evidence
+                    .line_start
+                    .map_or_else(|| path.clone(), |line| format!("{path}:{line}"))
+            })
+        })
+        .collect()
+}
+
+fn snapshot_id(snapshot: &CanonicalSnapshot) -> String {
+    snapshot
+        .snapshot
+        .as_ref()
+        .map_or_else(|| "unknown".to_string(), |snapshot| snapshot.0.clone())
+}
+
 fn graphml_data(output: &mut String, key: &str, value: &str) {
     output.push_str(&format!(
         r#"      <data key="{}">{}</data>"#,
@@ -1303,9 +1882,16 @@ fn xml_escape(value: &str) -> String {
 }
 
 fn serialized_name(value: &impl serde::Serialize) -> String {
-    serde_json::to_value(value)
-        .ok()
-        .and_then(|value| value.as_str().map(str::to_string))
+    let Ok(value) = serde_json::to_value(value) else {
+        return "unknown".to_string();
+    };
+    if let Some(name) = value.as_str() {
+        return name.to_string();
+    }
+    value
+        .get("other")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
         .unwrap_or_else(|| "unknown".to_string())
 }
 
@@ -1910,6 +2496,159 @@ mod tests {
         assert!(report.truncated);
     }
 
+    #[test]
+    fn ffa_surface_graph_includes_surface_layers_files_and_diagnostics() {
+        let surface = entity(
+            "ent_surface",
+            "ffa_surface://blog/admin",
+            EntityKind::Other("rustok_ffa_surface".to_string()),
+            "blog/admin",
+        );
+        let core = entity(
+            "ent_core",
+            "ffa_layer://blog/admin/core",
+            EntityKind::Other("rustok_ffa_layer".to_string()),
+            "blog/admin/core",
+        );
+        let file = entity(
+            "ent_file",
+            "file://crates/rustok-blog/admin/src/core.rs",
+            EntityKind::File,
+            "crates/rustok-blog/admin/src/core.rs",
+        );
+        let diagnostic = ffa_diagnostic(
+            "diag_core",
+            "rustok_ffa_core_depends_on_leptos",
+            "blog",
+            "admin",
+            Some("core"),
+            Some("crates/rustok-blog/admin/src/core.rs"),
+        );
+        let snapshot = CanonicalSnapshot {
+            snapshot: Some(SnapshotId("snap_test".to_string())),
+            entities: vec![surface.clone(), core.clone(), file.clone()],
+            relations: vec![
+                relation("rel_surface_core", RelationKind::Contains, &surface, &core),
+                relation("rel_core_file", RelationKind::ImplementedBy, &core, &file),
+            ],
+            diagnostics: vec![diagnostic],
+            ..CanonicalSnapshot::default()
+        };
+
+        let graph = build_rustok_ffa_surface_graph(&snapshot, "blog", "admin", 80, 160).unwrap();
+
+        assert_eq!(graph.schema, RUSTOK_FFA_SURFACE_GRAPH_SCHEMA);
+        assert_eq!(graph.surface.as_deref(), Some("ffa_surface://blog/admin"));
+        assert_eq!(
+            graph
+                .nodes
+                .iter()
+                .map(|node| node.id.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "ffa_layer://blog/admin/core",
+                "ffa_surface://blog/admin",
+                "file://crates/rustok-blog/admin/src/core.rs",
+            ]
+        );
+        assert_eq!(graph.edges.len(), 2);
+        assert_eq!(graph.diagnostics.len(), 1);
+    }
+
+    #[test]
+    fn ffa_violations_graph_excludes_clean_edges() {
+        let surface = entity(
+            "ent_surface",
+            "ffa_surface://blog/admin",
+            EntityKind::Other("rustok_ffa_surface".to_string()),
+            "blog/admin",
+        );
+        let core = entity(
+            "ent_core",
+            "ffa_layer://blog/admin/core",
+            EntityKind::Other("rustok_ffa_layer".to_string()),
+            "blog/admin/core",
+        );
+        let file = entity(
+            "ent_file",
+            "file://crates/rustok-blog/admin/src/core.rs",
+            EntityKind::File,
+            "crates/rustok-blog/admin/src/core.rs",
+        );
+        let snapshot = CanonicalSnapshot {
+            entities: vec![surface.clone(), core.clone(), file.clone()],
+            relations: vec![
+                relation("rel_surface_core", RelationKind::Contains, &surface, &core),
+                relation("rel_core_file", RelationKind::ImplementedBy, &core, &file),
+            ],
+            diagnostics: vec![ffa_diagnostic(
+                "diag_core",
+                "rustok_ffa_core_depends_on_leptos",
+                "blog",
+                "admin",
+                Some("core"),
+                Some("crates/rustok-blog/admin/src/core.rs"),
+            )],
+            ..CanonicalSnapshot::default()
+        };
+
+        let graph =
+            build_rustok_ffa_violations_graph(&snapshot, Some("blog"), Some("admin"), 80, 160);
+
+        assert_eq!(graph.schema, RUSTOK_FFA_VIOLATIONS_GRAPH_SCHEMA);
+        assert_eq!(
+            graph
+                .edges
+                .iter()
+                .map(|edge| edge.kind.as_str())
+                .collect::<Vec<_>>(),
+            vec!["evidenced_by", "violates"]
+        );
+        assert!(
+            graph
+                .edges
+                .iter()
+                .all(|edge| edge.kind != "contains" && edge.kind != "implemented_by")
+        );
+    }
+
+    #[test]
+    fn ffa_surface_graph_reports_node_and_edge_omissions() {
+        let surface = entity(
+            "ent_surface",
+            "ffa_surface://blog/admin",
+            EntityKind::Other("rustok_ffa_surface".to_string()),
+            "blog/admin",
+        );
+        let core = entity(
+            "ent_core",
+            "ffa_layer://blog/admin/core",
+            EntityKind::Other("rustok_ffa_layer".to_string()),
+            "blog/admin/core",
+        );
+        let file = entity(
+            "ent_file",
+            "file://crates/rustok-blog/admin/src/core.rs",
+            EntityKind::File,
+            "crates/rustok-blog/admin/src/core.rs",
+        );
+        let snapshot = CanonicalSnapshot {
+            entities: vec![surface.clone(), core.clone(), file.clone()],
+            relations: vec![
+                relation("rel_surface_core", RelationKind::Contains, &surface, &core),
+                relation("rel_core_file", RelationKind::ImplementedBy, &core, &file),
+            ],
+            ..CanonicalSnapshot::default()
+        };
+
+        let graph = build_rustok_ffa_surface_graph(&snapshot, "blog", "admin", 1, 1).unwrap();
+
+        assert_eq!(graph.nodes.len(), 1);
+        assert_eq!(graph.edges.len(), 0);
+        assert_eq!(graph.omitted.nodes, 2);
+        assert_eq!(graph.omitted.edges, 1);
+    }
+
     fn entity(id: &str, stable_key: &str, kind: EntityKind, name: &str) -> Entity {
         Entity {
             id: EntityId(id.to_string()),
@@ -1952,6 +2691,44 @@ mod tests {
             ownership: Vec::new(),
             snapshot: SnapshotId("snap_test".to_string()),
             payload: json!({}),
+        }
+    }
+
+    fn ffa_diagnostic(
+        id: &str,
+        kind: &str,
+        module: &str,
+        surface: &str,
+        role: Option<&str>,
+        path: Option<&str>,
+    ) -> Diagnostic {
+        Diagnostic {
+            id: athanor_domain::DiagnosticId(id.to_string()),
+            kind: DiagnosticKind::Other(kind.to_string()),
+            severity: athanor_domain::Severity::High,
+            status: athanor_domain::DiagnosticStatus::Open,
+            title: kind.to_string(),
+            message: kind.to_string(),
+            entities: Vec::new(),
+            evidence: vec![Evidence {
+                source_file: path.map(str::to_string),
+                line_start: Some(1),
+                line_end: Some(1),
+                extractor: Some("test".to_string()),
+                commit_hash: None,
+                confidence: 1.0,
+                status: EvidenceStatus::Verified,
+            }],
+            ownership: Vec::new(),
+            snapshot: SnapshotId("snap_test".to_string()),
+            suggested_fix: None,
+            payload: json!({
+                "schema": "rustok.ffa.diagnostic.v1",
+                "module": module,
+                "surface": surface,
+                "role": role,
+                "path": path,
+            }),
         }
     }
 }

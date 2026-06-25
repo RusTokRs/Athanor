@@ -7,6 +7,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
+use athanor_adapter_rustok_ffa::{RustokFfaChecker, RustokFfaExtractor, RustokFfaLinker};
 use athanor_checker_api::{
     ApiConsistencyChecker, DeploymentDocsChecker, EnvDocsChecker, RunbookConsistencyChecker,
     ScriptDocsChecker,
@@ -213,6 +214,9 @@ impl AdapterRegistry {
             (AdapterPluginKind::Extractor, "builtin.extractor.rust") => {
                 Ok(self.builtin_extractor_rust())
             }
+            (AdapterPluginKind::Extractor, "builtin.extractor.rustok_ffa") => {
+                Ok(self.builtin_extractor_rustok_ffa())
+            }
             (AdapterPluginKind::Linker, "builtin.linker.markdown_containment") => {
                 Ok(self.builtin_linker_markdown_containment())
             }
@@ -220,6 +224,9 @@ impl AdapterRegistry {
                 Ok(self.builtin_linker_api_knowledge())
             }
             (AdapterPluginKind::Linker, "builtin.linker.rust") => Ok(self.builtin_linker_rust()),
+            (AdapterPluginKind::Linker, "builtin.linker.rustok_ffa") => {
+                Ok(self.builtin_linker_rustok_ffa())
+            }
             (AdapterPluginKind::Checker, "builtin.checker.markdown_structure") => {
                 Ok(self.builtin_checker_markdown_structure())
             }
@@ -237,6 +244,9 @@ impl AdapterRegistry {
             }
             (AdapterPluginKind::Checker, "builtin.checker.runbook_consistency") => {
                 Ok(self.builtin_checker_runbook_consistency())
+            }
+            (AdapterPluginKind::Checker, "builtin.checker.rustok_ffa") => {
+                Ok(self.builtin_checker_rustok_ffa())
             }
             (AdapterPluginKind::Source, _) => self.external_process_source(adapter, manifest_dir),
             (AdapterPluginKind::Extractor, _) => {
@@ -370,6 +380,12 @@ impl AdapterRegistry {
         self.register_extractor_id("builtin.extractor.rust", || Box::new(RustExtractor))
     }
 
+    fn builtin_extractor_rustok_ffa(self) -> Self {
+        self.register_extractor_id("builtin.extractor.rustok_ffa", || {
+            Box::new(RustokFfaExtractor)
+        })
+    }
+
     fn builtin_linker_markdown_containment(self) -> Self {
         self.register_linker_id("builtin.linker.markdown_containment", || {
             Box::new(MarkdownContainmentLinker)
@@ -384,6 +400,10 @@ impl AdapterRegistry {
 
     fn builtin_linker_rust(self) -> Self {
         self.register_linker_id("builtin.linker.rust", || Box::new(RustLinker))
+    }
+
+    fn builtin_linker_rustok_ffa(self) -> Self {
+        self.register_linker_id("builtin.linker.rustok_ffa", || Box::new(RustokFfaLinker))
     }
 
     fn builtin_checker_markdown_structure(self) -> Self {
@@ -418,6 +438,10 @@ impl AdapterRegistry {
         self.register_checker_id("builtin.checker.runbook_consistency", || {
             Box::new(RunbookConsistencyChecker)
         })
+    }
+
+    fn builtin_checker_rustok_ffa(self) -> Self {
+        self.register_checker_id("builtin.checker.rustok_ffa", || Box::new(RustokFfaChecker))
     }
 
     fn register_source_id(

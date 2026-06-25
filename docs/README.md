@@ -25,6 +25,7 @@ Use this file to find the right document before changing code, adapters, plugins
 
 - [Indexing pipeline](architecture/pipeline.md): source discovery, extraction, linking, checking, storage, and JSONL export.
 - [Adapter architecture](architecture/adapters.md): adapter-first boundaries and current adapter map.
+- [RusTok FFA adapter](adapters/rustok-ffa.md): opt-in FFA code-audit adapter and bounded graph commands for RusTok.
 
 ## Development
 
@@ -114,6 +115,7 @@ High-level adapter docs:
 - [OpenAPI extractor](adapters/extractor-openapi.md)
 - [Operations extractor](adapters/extractor-operations.md)
 - [Rust extractor](adapters/extractor-rust.md)
+- [RusTok FFA adapter](adapters/rustok-ffa.md)
 - [API knowledge linker](adapters/linker-api.md)
 - [Markdown linker](adapters/linker-markdown.md)
 - [Rust linker](adapters/linker-rust.md)
@@ -134,6 +136,7 @@ Crate-local adapter docs:
 - [`athanor-extractor-openapi`](../crates/athanor-extractor-openapi/README.md)
 - [`athanor-extractor-operations`](../crates/athanor-extractor-operations/README.md)
 - [`athanor-extractor-rust`](../crates/athanor-extractor-rust/README.md)
+- [`athanor-adapter-rustok-ffa`](../crates/athanor-adapter-rustok-ffa/README.md)
 - [`athanor-linker-api`](../crates/athanor-linker-api/README.md)
 - [`athanor-linker-markdown`](../crates/athanor-linker-markdown/README.md)
 - [`athanor-linker-rust`](../crates/athanor-linker-rust/README.md)
