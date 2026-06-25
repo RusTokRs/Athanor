@@ -2,6 +2,7 @@ use std::fs::{self, OpenOptions};
 use std::io;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+#[cfg(any(target_os = "linux", windows))]
 use std::process::{Command as ProcessCommand, Stdio};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -774,7 +775,9 @@ fn install_service(
     let runtime = DaemonRuntimePaths::for_project(project_id, None)?;
     runtime.prepare()?;
     rotate_logs(&runtime.log)?;
+    #[cfg(any(target_os = "linux", windows))]
     let executable = std::env::current_exe()?;
+    #[cfg(any(target_os = "linux", windows))]
     let transport = match transport {
         TransportArg::Tcp => "tcp",
         TransportArg::LocalSocket => "local-socket",
@@ -844,7 +847,10 @@ fn install_service(
     }
 
     #[cfg(not(any(target_os = "linux", windows)))]
-    bail!("daemon service installation is supported only on Windows and Linux")
+    {
+        let _ = (transport, watch);
+        bail!("daemon service installation is supported only on Windows and Linux")
+    }
 }
 
 fn uninstall_service(project_id: &str) -> Result<serde_json::Value> {
@@ -898,7 +904,10 @@ fn uninstall_service(project_id: &str) -> Result<serde_json::Value> {
     }
 
     #[cfg(not(any(target_os = "linux", windows)))]
-    bail!("daemon service installation is supported only on Windows and Linux")
+    {
+        let _ = project_id;
+        bail!("daemon service installation is supported only on Windows and Linux")
+    }
 }
 
 fn service_status(project_id: &str) -> Result<serde_json::Value> {
@@ -934,9 +943,13 @@ fn service_status(project_id: &str) -> Result<serde_json::Value> {
     }
 
     #[cfg(not(any(target_os = "linux", windows)))]
-    bail!("daemon service installation is supported only on Windows and Linux")
+    {
+        let _ = project_id;
+        bail!("daemon service installation is supported only on Windows and Linux")
+    }
 }
 
+#[cfg(any(target_os = "linux", windows))]
 fn service_name(project_id: &str) -> String {
     format!("athanor-{project_id}")
 }
@@ -965,6 +978,7 @@ fn rotate_logs(path: &std::path::Path) -> Result<()> {
     Ok(())
 }
 
+#[cfg(any(target_os = "linux", windows))]
 fn run_checked(program: &str, args: &[&str]) -> Result<()> {
     let status = ProcessCommand::new(program)
         .args(args)

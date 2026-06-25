@@ -5,6 +5,8 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+#[cfg(unix)]
+use std::{env, os::unix::fs::PermissionsExt};
 
 use anyhow::{Context, Result, bail};
 use notify_debouncer_mini::notify::{
@@ -2450,11 +2452,17 @@ fn unix_time_ms() -> Result<u128> {
         .as_millis())
 }
 
-struct LocalSocketGuard(PathBuf);
+struct LocalSocketGuard {
+    socket_path: PathBuf,
+    directory_path: Option<PathBuf>,
+}
 
 impl Drop for LocalSocketGuard {
     fn drop(&mut self) {
-        let _ = fs::remove_file(&self.0);
+        let _ = fs::remove_file(&self.socket_path);
+        if let Some(directory_path) = &self.directory_path {
+            let _ = fs::remove_dir(directory_path);
+        }
     }
 }
 
@@ -2466,7 +2474,24 @@ struct LocalSocketEndpoint {
 
 #[cfg(unix)]
 fn local_socket_endpoint(runtime_dir: &Path, _runtime_id: &str) -> Result<LocalSocketEndpoint> {
-    let socket_path = runtime_dir.join("daemon.sock");
+    const MAX_UNIX_SOCKET_PATH_BYTES: usize = 100;
+
+    let runtime_socket_path = runtime_dir.join("daemon.sock");
+    let (socket_path, directory_path) =
+        if runtime_socket_path.as_os_str().as_encoded_bytes().len() <= MAX_UNIX_SOCKET_PATH_BYTES {
+            (runtime_socket_path, None)
+        } else {
+            let directory_path = env::temp_dir().join(format!("athanor-{_runtime_id}"));
+            fs::create_dir_all(&directory_path).with_context(|| {
+                format!(
+                    "failed to create short daemon socket directory {}",
+                    directory_path.display()
+                )
+            })?;
+            fs::set_permissions(&directory_path, fs::Permissions::from_mode(0o700))
+                .with_context(|| format!("failed to secure {}", directory_path.display()))?;
+            (directory_path.join("daemon.sock"), Some(directory_path))
+        };
     if socket_path.exists() {
         fs::remove_file(&socket_path)
             .with_context(|| format!("failed to remove stale socket {}", socket_path.display()))?;
@@ -2474,7 +2499,10 @@ fn local_socket_endpoint(runtime_dir: &Path, _runtime_id: &str) -> Result<LocalS
     Ok(LocalSocketEndpoint {
         socket_path: Some(socket_path.clone()),
         pipe_name: None,
-        guard: Some(LocalSocketGuard(socket_path)),
+        guard: Some(LocalSocketGuard {
+            socket_path,
+            directory_path,
+        }),
     })
 }
 
@@ -2576,6 +2604,7 @@ async fn spawn_local_socket_acceptor(
     bail!("local socket transport is not supported on this platform")
 }
 
+#[cfg(windows)]
 fn sanitize_local_socket_label(value: &str) -> String {
     let sanitized = value
         .chars()

@@ -577,8 +577,10 @@ mod tests {
         assert_eq!(report.files_indexed, 1);
         let validation_result = report.validation_result.unwrap();
         assert_eq!(
-            validation_result,
+            validation_result.canonicalize().unwrap(),
             root.join(".athanor/generated/current/validation-result.json")
+                .canonicalize()
+                .unwrap()
         );
         let validation_result_json = fs::read_to_string(validation_result).unwrap();
         assert!(validation_result_json.contains(VALIDATION_RESULT_SCHEMA));
