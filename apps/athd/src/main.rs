@@ -2,7 +2,6 @@ use std::fs::{self, OpenOptions};
 use std::io;
 use std::net::SocketAddr;
 use std::path::PathBuf;
-#[cfg(any(target_os = "linux", windows))]
 use std::process::{Command as ProcessCommand, Stdio};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
