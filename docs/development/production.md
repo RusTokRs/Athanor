@@ -30,7 +30,9 @@ Windows: %LOCALAPPDATA%\Athanor\runtime\<project-id>
 Linux runtime directories use mode `0700`; token, lock, and endpoint files are protected by the
 directory and secret files use mode `0600`. Windows runtime paths disable inherited ACLs and grant
 full access only to the current user. TCP binds are restricted to loopback. Local socket transport is
-recommended.
+recommended. On Unix platforms with short socket-path limits, the daemon may place the socket in a
+short private `0700` temporary directory while keeping endpoint metadata and authentication material
+under the protected runtime directory.
 
 Protocol v1 is disabled by default. `--insecure-allow-v1` is a temporary migration option for
 loopback TCP only and must not be used by installed services.

@@ -1253,7 +1253,7 @@ Purpose:
 
 - integrates dependency security and license compliance checks using `cargo-deny` in the main CI workflow
 - configures nightly vulnerability scans using `cargo-audit` in a scheduled GitHub Actions workflow
-- enforces open-source license compliance (restricting to permissive licenses like MIT/Apache-2.0 and banning GPL/AGPL copyleft)
+- enforces dependency license compliance through `deny.toml`, allowing audited permissive and weak-copyleft transitive licenses while keeping BUSL scoped to explicit SurrealDB crate exceptions and banning unapproved copyleft licenses
 - monitors crate advisories and checks for duplicate dependency versions
 - documents all supply-chain security checks in the developer guidelines
 

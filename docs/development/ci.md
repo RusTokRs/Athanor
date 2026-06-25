@@ -24,7 +24,7 @@ The main `CI` workflow runs on pushes to `main`, pull requests, and manual dispa
 
 ### 1. Security & License Checks
 Runs `cargo-deny` on `ubuntu-latest` to verify:
-- **Licenses**: Ensures all dependencies use approved open-source licenses (MIT, Apache-2.0, BSD-3-Clause, ISC, CC0-1.0, BSL-1.0, Unicode-DFS-2016, OpenSSL) and bans copyleft licenses (GPL, AGPL).
+- **Licenses**: Ensures dependencies use approved licenses recorded in `deny.toml`. The allow-list covers common permissive licenses plus audited transitive licenses such as MPL-2.0, Unicode-3.0, Zlib, Unlicense, BSD-2-Clause, MIT-0, and Apache-2.0 WITH LLVM-exception. BUSL-1.1 is not globally allowed; it is narrowly excepted only for the optional SurrealDB adapter crates `surrealdb` and `surrealdb-core`.
 - **Advisories**: Fails the build if any dependency has known security vulnerabilities (CVEs).
 - **Bans**: Detects and warns on duplicate dependency versions to track bloat.
 - **Sources**: Ensures dependencies are fetched only from standard registries (e.g. crates.io) and bans untracked git repositories.
