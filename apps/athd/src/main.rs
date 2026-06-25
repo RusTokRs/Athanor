@@ -6,7 +6,7 @@ use std::process::{Command as ProcessCommand, Stdio};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
 use athanor_app::{
     ContextLimitOverrides, DaemonClientOptions, DaemonCommand, DaemonRequest, DaemonRuntimePaths,
     DaemonServeOptions, DaemonTransport, ProjectRegistryOptions, default_project_registry_path,
@@ -15,6 +15,9 @@ use athanor_app::{
 use athanor_domain::ContextLevel;
 use clap::{Parser, Subcommand, ValueEnum};
 use tracing_subscriber::{EnvFilter, fmt};
+
+#[cfg(windows)]
+use anyhow::Context;
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum ContextLevelArg {
