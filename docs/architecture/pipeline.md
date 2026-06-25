@@ -419,30 +419,42 @@ athd stop <project-id>
 ```
 
 `athd start` launches the same `serve` command as a background process, redirects daemon logs to
-`.athanor/daemon/daemon.log`, and returns only after a bounded status round trip confirms readiness.
+the protected per-user runtime directory, and returns only after a bounded authenticated status
+round trip confirms readiness.
 Repeated start requests are idempotent when the registered project daemon is already healthy.
 `athd serve` remains the foreground/debug form. `athd ping` performs the explicit protocol health
 round trip and returns the normal structured status response.
 
-The daemon writes runtime metadata under the resolved repository root:
+The daemon writes runtime metadata outside the repository:
 
 ```text
-.athanor/daemon/
+Linux: $XDG_RUNTIME_DIR/athanor/<project-id>/
+Windows: %LOCALAPPDATA%\Athanor\runtime\<project-id>\
+
   endpoint.json
+  token
   lock
+  daemon.log
 ```
 
-`endpoint.json` uses schema `athanor.daemon_endpoint.v1` and records the project id, canonical root,
-registry path, transport, TCP address or local socket metadata, process id, start time, concurrent
-request limit, job-history retention limit, protocol byte limits, and watcher settings. The lock file is created with exclusive creation
-so only one daemon instance owns a project runtime directory at a time. Endpoint and lock files are
-removed when the daemon exits normally.
+`endpoint.json` uses schema `athanor.daemon_endpoint.v2` and records the protocol and Athanor
+versions, runtime id, token path, project id, canonical root, registry path, transport, TCP address
+or local socket metadata, process id, start time, concurrent request limit, job-history retention
+limit, protocol byte limits, and watcher settings. It never contains the token value. The lock uses
+an OS advisory file lock, so crashes release ownership automatically even if diagnostic lock metadata
+remains. Endpoint and token files are removed when the daemon exits.
 
-The default protocol is local TCP with one JSON request per connection, terminated by a newline.
+Linux runtime directories use mode `0700` and secret files use `0600`. Windows runtime ACL
+inheritance is removed and access is granted to the current user.
+
+Every daemon start generates a fresh 256-bit token. Clients load and attach it automatically.
+Authentication is checked before command dispatch or job registration. Protocol v1 is disabled by
+default; `--insecure-allow-v1` enables temporary migration compatibility over loopback TCP only.
+
+The default protocol is loopback TCP with one JSON request per connection, terminated by a newline.
 `--transport local-socket` switches the same newline-delimited JSON protocol to a Unix domain socket
-on Unix or a named pipe on Windows. Existing endpoint metadata without a transport field is treated
-as TCP for compatibility.
-Requests use schema `athanor.daemon_request.v1`; responses use `athanor.daemon_response.v1`.
+on Unix or a named pipe on Windows. Non-loopback TCP binds are rejected. Requests use schema
+`athanor.daemon_request.v2`; responses use `athanor.daemon_response.v2`.
 Request and response messages default to a 1 MiB limit and can be raised or lowered at serve time
 with `--max-request-bytes` and `--max-response-bytes`. Oversized requests are rejected, oversized
 computed responses are replaced with a structured daemon error response, and clients reject oversized
@@ -451,7 +463,8 @@ wire responses instead of parsing truncated JSON. The daemon handles requests co
 their bounded request line is read. Every request carries a `project_id`, and the server rejects
 requests that do not match the endpoint's project identity. The implemented commands are:
 
-- `status`: returns daemon status and endpoint metadata.
+- `status`: returns protocol and Athanor versions, lifecycle state, uptime, active jobs, cache state,
+  last successful index snapshot, and endpoint metadata.
 - `jobs`: returns a bounded `athanor.daemon_jobs.v1` report from the in-memory daemon job registry.
 - `job`: returns one exact daemon job by id.
 - `cancel`: cancels queued daemon jobs immediately and requests cooperative cancellation for running
@@ -469,7 +482,8 @@ requests that do not match the endpoint's project identity. The implemented comm
 - `context`: runs the same bounded `context_project` query against the latest canonical snapshot.
   With `--diff`, it roots context in changed or removed files from persisted index state without
   committing a new index snapshot.
-- `shutdown`: stops the daemon after returning a structured response.
+- `shutdown`: rejects new work, requests cooperative cancellation, drains active jobs for the
+  configured timeout, and removes endpoint/token metadata.
 
 Daemon status, overview, explain, search, and context requests are read-only. Daemon context requests
 expose the normal level and explicit limit overrides, including diff-based changed-file context; they

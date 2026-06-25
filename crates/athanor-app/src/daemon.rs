@@ -369,15 +369,13 @@ pub async fn serve_daemon(options: DaemonServeOptions) -> Result<()> {
             options.root.display()
         )
     })?;
-    let runtime = DaemonRuntimePaths::for_project(
-        &options.project_id,
-        options.runtime_dir.as_deref(),
-    )?;
+    cleanup_known_staging_artifacts(&root)?;
+    let runtime =
+        DaemonRuntimePaths::for_project(&options.project_id, options.runtime_dir.as_deref())?;
     runtime.prepare()?;
     let _lock = DaemonRuntimeLock::acquire(&runtime.lock, &options.project_id)?;
     let auth_token = create_daemon_token(&runtime.token)?;
-    let _runtime_guard =
-        RuntimeFileGuard::new([runtime.endpoint.clone(), runtime.token.clone()]);
+    let _runtime_guard = RuntimeFileGuard::new([runtime.endpoint.clone(), runtime.token.clone()]);
     let runtime_id = format!("runtime-{}-{}", std::process::id(), unix_time_ms()?);
 
     let (accepted_tx, mut accepted_rx) = mpsc::channel::<AcceptedDaemonConnection>(64);
@@ -596,17 +594,11 @@ fn spawn_daemon_connection(
             let state = Arc::clone(state);
             tokio::spawn(async move {
                 let result = match accepted.stream {
-                    DaemonConnection::Tcp(stream) => {
-                        handle_busy_connection(stream, &state.endpoint).await
-                    }
+                    DaemonConnection::Tcp(stream) => handle_busy_connection(stream, &state).await,
                     #[cfg(unix)]
-                    DaemonConnection::Unix(stream) => {
-                        handle_busy_connection(stream, &state.endpoint).await
-                    }
+                    DaemonConnection::Unix(stream) => handle_busy_connection(stream, &state).await,
                     #[cfg(windows)]
-                    DaemonConnection::Pipe(stream) => {
-                        handle_busy_connection(stream, &state.endpoint).await
-                    }
+                    DaemonConnection::Pipe(stream) => handle_busy_connection(stream, &state).await,
                 };
                 if let Err(error) = result {
                     tracing::warn!(%peer, error = %error, "failed to reject busy daemon request");
@@ -772,27 +764,31 @@ where
     Ok(shutdown)
 }
 
-async fn handle_busy_connection<S>(mut stream: S, endpoint: &DaemonEndpoint) -> Result<()>
+async fn handle_busy_connection<S>(mut stream: S, state: &DaemonState) -> Result<()>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
     let mut line = String::new();
     let _ = BufReader::new(&mut stream)
-        .take(endpoint.max_request_bytes + 1)
+        .take(state.endpoint.max_request_bytes + 1)
         .read_line(&mut line)
         .await;
-    let request_id = serde_json::from_str::<DaemonRequest>(&line)
-        .map(|request| request.request_id)
+    let parsed = serde_json::from_str::<DaemonRequest>(&line);
+    let request_id = parsed
+        .as_ref()
+        .map(|request| request.request_id.clone())
         .unwrap_or_default();
-    let response = error_response(
-        &request_id,
-        &endpoint.project_id,
-        "daemon is busy; maximum concurrent request limit reached",
-    );
+    let message = match parsed.as_ref() {
+        Ok(request) if validate_request(state, request).is_ok() => {
+            "daemon is busy; maximum concurrent request limit reached"
+        }
+        _ => "daemon authentication failed",
+    };
+    let response = error_response(&request_id, &state.endpoint.project_id, message);
     stream
         .write_all(&serialize_daemon_response(
             response,
-            endpoint.max_response_bytes,
+            state.endpoint.max_response_bytes,
         )?)
         .await
         .context("failed to write daemon busy response")?;
@@ -1550,6 +1546,11 @@ fn validate_request(state: &DaemonState, request: &DaemonRequest) -> Result<()> 
         if !state.insecure_allow_v1 {
             bail!("daemon protocol v1 is disabled");
         }
+        if state.endpoint.transport != DaemonTransport::Tcp
+            || !state.endpoint.address.ip().is_loopback()
+        {
+            bail!("daemon protocol v1 is allowed only over loopback TCP");
+        }
         return Ok(());
     }
     let supplied = request
@@ -1879,9 +1880,7 @@ fn active_job_count(state: &DaemonState) -> Result<usize> {
         .filter(|job| {
             matches!(
                 job.status,
-                DaemonJobStatus::Queued
-                    | DaemonJobStatus::Running
-                    | DaemonJobStatus::Cancelling
+                DaemonJobStatus::Queued | DaemonJobStatus::Running | DaemonJobStatus::Cancelling
             )
         })
         .count())
@@ -2396,6 +2395,46 @@ fn validate_protocol_limit(name: &str, value: u64) -> Result<()> {
     Ok(())
 }
 
+fn cleanup_known_staging_artifacts(root: &Path) -> Result<()> {
+    let roots = [
+        root.join(".athanor/store/canonical/jsonl"),
+        root.join(".athanor/generated"),
+        root.join(".athanor/generated/current"),
+    ];
+    for directory in roots {
+        cleanup_staging_directory(&directory)?;
+    }
+    Ok(())
+}
+
+fn cleanup_staging_directory(directory: &Path) -> Result<()> {
+    let entries = match fs::read_dir(directory) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("failed to inspect {}", directory.display()));
+        }
+    };
+    for entry in entries {
+        let entry = entry?;
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if !(name.starts_with('.') && (name.contains(".tmp-") || name.contains(".backup-"))) {
+            continue;
+        }
+        let path = entry.path();
+        if path.is_dir() {
+            fs::remove_dir_all(&path)
+                .with_context(|| format!("failed to remove stale staging {}", path.display()))?;
+        } else {
+            fs::remove_file(&path)
+                .with_context(|| format!("failed to remove stale staging {}", path.display()))?;
+        }
+    }
+    Ok(())
+}
+
 fn default_max_request_bytes() -> u64 {
     DEFAULT_MAX_REQUEST_BYTES
 }
@@ -2564,12 +2603,17 @@ mod tests {
         let root = temp_root("status");
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
+        let runtime_dir = root.join(".athanor/daemon");
+        fs::create_dir_all(&runtime_dir).unwrap();
+        let token_path = runtime_dir.join("token");
+        let auth_token = "a".repeat(crate::DAEMON_TOKEN_BYTES * 2);
+        fs::write(&token_path, format!("{auth_token}\n")).unwrap();
         let endpoint = DaemonEndpoint {
             schema: DAEMON_ENDPOINT_SCHEMA.to_string(),
             protocol_version: DAEMON_PROTOCOL_VERSION,
             athanor_version: env!("CARGO_PKG_VERSION").to_string(),
             runtime_id: "runtime-test".to_string(),
-            token_path: PathBuf::from("token"),
+            token_path: token_path.clone(),
             project_id: "alpha".to_string(),
             root: root.clone(),
             registry_path: root.join("projects.json"),
@@ -2586,12 +2630,9 @@ mod tests {
             debounce_ms: 1000,
             max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
             max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
-        insecure_allow_v1: false,
-        runtime_dir: Some(root.join(".athanor/daemon")),
-        shutdown_timeout: Duration::from_secs(5),
         };
         let state = Arc::new(DaemonState {
-            auth_token: "test-token".to_string(),
+            auth_token,
             insecure_allow_v1: false,
             lifecycle: Mutex::new(DaemonLifecycleState::Running),
             last_successful_index: Mutex::new(None),
@@ -2619,7 +2660,7 @@ mod tests {
                 protocol_version: DAEMON_PROTOCOL_VERSION,
                 athanor_version: env!("CARGO_PKG_VERSION").to_string(),
                 runtime_id: "runtime-test".to_string(),
-                token_path: PathBuf::from("token"),
+                token_path,
                 project_id: "alpha".to_string(),
                 root: root.clone(),
                 registry_path: root.join("projects.json"),
@@ -2636,14 +2677,14 @@ mod tests {
                 debounce_ms: 1000,
                 max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
                 max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
-            insecure_allow_v1: false,
-            runtime_dir: Some(root.join(".athanor/daemon")),
-            shutdown_timeout: Duration::from_secs(5),
             },
         )
         .unwrap();
         let response = request_daemon(
-            DaemonClientOptions { root: root.clone(), runtime_dir: Some(root.join(".athanor/daemon")), runtime_dir: Some(root.join(".athanor/daemon")) },
+            DaemonClientOptions {
+                root: root.clone(),
+                runtime_dir: Some(root.join(".athanor/daemon")),
+            },
             DaemonRequest {
                 schema: DAEMON_REQUEST_SCHEMA.to_string(),
                 request_id: "req-1".to_string(),
@@ -2659,7 +2700,10 @@ mod tests {
         assert!(!task.await.unwrap());
 
         let error = request_daemon(
-            DaemonClientOptions { root: root.clone(), runtime_dir: Some(root.join(".athanor/daemon")), runtime_dir: Some(root.join(".athanor/daemon")) },
+            DaemonClientOptions {
+                root: root.clone(),
+                runtime_dir: Some(root.join(".athanor/daemon")),
+            },
             DaemonRequest {
                 schema: DAEMON_REQUEST_SCHEMA.to_string(),
                 request_id: "req-2".to_string(),
@@ -2692,9 +2736,9 @@ mod tests {
                 debounce_ms: 1000,
                 max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
                 max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
-            insecure_allow_v1: false,
-            runtime_dir: Some(root.join(".athanor/daemon")),
-            shutdown_timeout: Duration::from_secs(5),
+                insecure_allow_v1: false,
+                runtime_dir: Some(serve_root.join(".athanor/daemon")),
+                shutdown_timeout: Duration::from_secs(5),
             })
             .await
         });
@@ -2704,7 +2748,10 @@ mod tests {
         assert_eq!(response.project_id, "alpha");
 
         let shutdown = request_daemon(
-            DaemonClientOptions { root: root.clone(), runtime_dir: Some(root.join(".athanor/daemon")), runtime_dir: Some(root.join(".athanor/daemon")) },
+            DaemonClientOptions {
+                root: root.clone(),
+                runtime_dir: Some(root.join(".athanor/daemon")),
+            },
             DaemonRequest {
                 schema: DAEMON_REQUEST_SCHEMA.to_string(),
                 request_id: "req-stop".to_string(),
@@ -2749,9 +2796,6 @@ mod tests {
             debounce_ms: 1000,
             max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
             max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
-        insecure_allow_v1: false,
-        runtime_dir: Some(root.join(".athanor/daemon")),
-        shutdown_timeout: Duration::from_secs(5),
         };
         let state = DaemonState {
             auth_token: "test-token".to_string(),
@@ -2823,9 +2867,6 @@ mod tests {
             debounce_ms: 1000,
             max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
             max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
-        insecure_allow_v1: false,
-        runtime_dir: Some(root.join(".athanor/daemon")),
-        shutdown_timeout: Duration::from_secs(5),
         };
         let state = DaemonState {
             auth_token: "test-token".to_string(),
@@ -2883,10 +2924,68 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn rejects_missing_and_wrong_tokens_before_job_creation() {
+        let root = temp_root("auth-rejection");
+        let state = Arc::new(test_daemon_state(&root, false));
+
+        for auth_token in [None, Some("wrong-token".to_string())] {
+            let (response, shutdown) = execute_request(
+                Arc::clone(&state),
+                DaemonRequest {
+                    schema: DAEMON_REQUEST_SCHEMA.to_string(),
+                    request_id: "req-auth".to_string(),
+                    project_id: "alpha".to_string(),
+                    auth_token,
+                    command: DaemonCommand::Overview { top: 1 },
+                },
+            )
+            .await;
+            assert!(!response.ok);
+            assert!(!shutdown);
+            assert_eq!(
+                response.error.as_deref(),
+                Some("daemon authentication failed")
+            );
+        }
+
+        assert!(state.jobs.lock().unwrap().is_empty());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn protocol_v1_requires_explicit_insecure_compatibility() {
+        let root = temp_root("v1-compatibility");
+        let disabled = Arc::new(test_daemon_state(&root, false));
+        let request = || DaemonRequest {
+            schema: DAEMON_REQUEST_SCHEMA_V1.to_string(),
+            request_id: "req-v1".to_string(),
+            project_id: "alpha".to_string(),
+            auth_token: None,
+            command: DaemonCommand::Status,
+        };
+
+        let (rejected, _) = execute_request(disabled, request()).await;
+        assert!(!rejected.ok);
+        assert_eq!(
+            rejected.error.as_deref(),
+            Some("daemon protocol v1 is disabled")
+        );
+
+        let enabled = Arc::new(test_daemon_state(&root, true));
+        let (accepted, _) = execute_request(enabled, request()).await;
+        assert!(accepted.ok);
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
-    fn endpoint_defaults_to_tcp_for_existing_metadata() {
+    fn endpoint_defaults_to_tcp_when_optional_transport_metadata_is_absent() {
         let endpoint: DaemonEndpoint = serde_json::from_value(serde_json::json!({
             "schema": DAEMON_ENDPOINT_SCHEMA,
+            "protocol_version": DAEMON_PROTOCOL_VERSION,
+            "athanor_version": env!("CARGO_PKG_VERSION"),
+            "runtime_id": "runtime-test",
+            "token_path": "token",
             "project_id": "alpha",
             "root": ".",
             "registry_path": "projects.json",
@@ -2950,9 +3049,6 @@ mod tests {
                 debounce_ms: 1000,
                 max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
                 max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
-            insecure_allow_v1: false,
-            runtime_dir: Some(root.join(".athanor/daemon")),
-            shutdown_timeout: Duration::from_secs(5),
             },
             jobs: Mutex::new(Vec::new()),
             next_job_sequence: Mutex::new(1),
@@ -3021,9 +3117,6 @@ mod tests {
                 debounce_ms: 1000,
                 max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
                 max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
-            insecure_allow_v1: false,
-            runtime_dir: Some(root.join(".athanor/daemon")),
-            shutdown_timeout: Duration::from_secs(5),
             },
             jobs: Mutex::new(Vec::new()),
             next_job_sequence: Mutex::new(1),
@@ -3114,9 +3207,6 @@ mod tests {
                 debounce_ms: 1000,
                 max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
                 max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
-            insecure_allow_v1: false,
-            runtime_dir: Some(root.join(".athanor/daemon")),
-            shutdown_timeout: Duration::from_secs(5),
             },
             jobs: Mutex::new(Vec::new()),
             next_job_sequence: Mutex::new(1),
@@ -3197,9 +3287,6 @@ mod tests {
             debounce_ms: 1000,
             max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
             max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
-        insecure_allow_v1: false,
-        runtime_dir: Some(root.join(".athanor/daemon")),
-        shutdown_timeout: Duration::from_secs(5),
         };
         let state = DaemonState {
             auth_token: "test-token".to_string(),
@@ -3272,9 +3359,6 @@ mod tests {
             debounce_ms: 1000,
             max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
             max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
-        insecure_allow_v1: false,
-        runtime_dir: Some(root.join(".athanor/daemon")),
-        shutdown_timeout: Duration::from_secs(5),
         };
         let running_cancellation = CancellationToken::new();
         let state = DaemonState {
@@ -3368,9 +3452,6 @@ mod tests {
             debounce_ms: 1000,
             max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
             max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
-        insecure_allow_v1: false,
-        runtime_dir: Some(root.join(".athanor/daemon")),
-        shutdown_timeout: Duration::from_secs(5),
         };
         let state = DaemonState {
             auth_token: "test-token".to_string(),
@@ -3441,9 +3522,6 @@ mod tests {
             debounce_ms: 1000,
             max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
             max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
-        insecure_allow_v1: false,
-        runtime_dir: Some(root.join(".athanor/daemon")),
-        shutdown_timeout: Duration::from_secs(5),
         };
         let state = DaemonState {
             auth_token: "test-token".to_string(),
@@ -3541,13 +3619,12 @@ mod tests {
             debounce_ms: 1000,
             max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
             max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
-        insecure_allow_v1: false,
-        runtime_dir: Some(root.join(".athanor/daemon")),
-        shutdown_timeout: Duration::from_secs(5),
         };
+        let mut state = test_daemon_state(&root, false);
+        state.endpoint = endpoint;
         let task = tokio::spawn(async move {
             let (stream, _) = listener.accept().await.unwrap();
-            handle_busy_connection(stream, &endpoint).await.unwrap();
+            handle_busy_connection(stream, &state).await.unwrap();
         });
 
         let mut stream = TcpStream::connect(address).await.unwrap();
@@ -3555,7 +3632,7 @@ mod tests {
             schema: DAEMON_REQUEST_SCHEMA.to_string(),
             request_id: "req-busy".to_string(),
             project_id: "alpha".to_string(),
-            auth_token: None,
+            auth_token: Some("a".repeat(crate::DAEMON_TOKEN_BYTES * 2)),
             command: DaemonCommand::Status,
         };
         stream
@@ -3586,10 +3663,29 @@ mod tests {
     fn daemon_lock_is_single_instance_and_cleans_up() {
         let root = temp_root("lock");
         let lock_path = root.join("lock");
-        let lock = DaemonLock::acquire(&lock_path, "alpha").unwrap();
-        assert!(DaemonLock::acquire(&lock_path, "alpha").is_err());
+        let lock = DaemonRuntimeLock::acquire(&lock_path, "alpha").unwrap();
+        assert!(DaemonRuntimeLock::acquire(&lock_path, "alpha").is_err());
         drop(lock);
-        assert!(!lock_path.exists());
+        assert!(DaemonRuntimeLock::acquire(&lock_path, "alpha").is_ok());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn startup_cleanup_removes_only_known_staging_artifacts() {
+        let root = temp_root("staging-cleanup");
+        let generated = root.join(".athanor/generated");
+        fs::create_dir_all(&generated).unwrap();
+        fs::create_dir_all(generated.join(".wiki.tmp-1")).unwrap();
+        fs::create_dir_all(generated.join(".html.backup-1")).unwrap();
+        fs::create_dir_all(generated.join("published-generation")).unwrap();
+        fs::write(generated.join("ordinary.tmp-file"), "keep").unwrap();
+
+        cleanup_known_staging_artifacts(&root).unwrap();
+
+        assert!(!generated.join(".wiki.tmp-1").exists());
+        assert!(!generated.join(".html.backup-1").exists());
+        assert!(generated.join("published-generation").exists());
+        assert!(generated.join("ordinary.tmp-file").exists());
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -3659,5 +3755,45 @@ mod tests {
             "daemon status request did not succeed: {}",
             last_error.unwrap_or_else(|| "endpoint was not written".to_string())
         );
+    }
+
+    fn test_daemon_state(root: &Path, insecure_allow_v1: bool) -> DaemonState {
+        DaemonState {
+            auth_token: "a".repeat(crate::DAEMON_TOKEN_BYTES * 2),
+            insecure_allow_v1,
+            lifecycle: Mutex::new(DaemonLifecycleState::Running),
+            last_successful_index: Mutex::new(None),
+            endpoint: DaemonEndpoint {
+                schema: DAEMON_ENDPOINT_SCHEMA.to_string(),
+                protocol_version: DAEMON_PROTOCOL_VERSION,
+                athanor_version: env!("CARGO_PKG_VERSION").to_string(),
+                runtime_id: "runtime-test".to_string(),
+                token_path: root.join("token"),
+                project_id: "alpha".to_string(),
+                root: root.to_path_buf(),
+                registry_path: root.join("projects.json"),
+                address: "127.0.0.1:1".parse().unwrap(),
+                transport: DaemonTransport::Tcp,
+                local_socket_path: None,
+                windows_pipe_name: None,
+                pid: 1,
+                started_at_unix_ms: 1,
+                max_concurrent_requests: 4,
+                max_job_history: 100,
+                watch: false,
+                watch_poll: false,
+                debounce_ms: 1000,
+                max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
+                max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
+            },
+            jobs: Mutex::new(Vec::new()),
+            next_job_sequence: Mutex::new(1),
+            max_job_history: 100,
+            latest_snapshot_cache: Mutex::new(None),
+            search_index_cache: Mutex::new(None),
+            overview_cache: Mutex::new(BoundedCache::new(DERIVED_CACHE_CAPACITY)),
+            context_cache: Mutex::new(BoundedCache::new(DERIVED_CACHE_CAPACITY)),
+            cancellation_tokens: Mutex::new(HashMap::new()),
+        }
     }
 }

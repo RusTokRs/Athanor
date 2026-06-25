@@ -31,6 +31,7 @@ Use this file to find the right document before changing code, adapters, plugins
 - [Agent workflow](development/agent-workflow.md): read-before-coding, planning, documentation, verification, completion notes.
 - [Definition of done](development/definition-of-done.md): required checks and documentation expectations.
 - [Continuous integration](development/ci.md): GitHub Actions matrix, commands, and security defaults.
+- [Production operation](development/production.md): authenticated daemon v2, per-user services, runtime permissions, release verification, and external-adapter policy.
 - [Library adoption plan](development/library-adoption-plan.md): approved dependencies, adapter boundaries, risks, and acceptance criteria.
 - [Documentation completeness policy](development/docs-completeness-policy.md): `athanor.toml` policy fields and the `ath docs check` CI gate.
 - [Roadmap status](development/roadmap-status.md): current verified implementation status and next recommended task.
@@ -229,6 +230,8 @@ cargo run -p ath --quiet -- projects resolve athanor --json
 cargo run -p ath --quiet -- projects remove athanor
 cargo run -p athd --quiet -- start athanor
 cargo run -p athd --quiet -- start athanor --transport local-socket --watch --json
+cargo run -p athd --quiet -- service install athanor --transport local-socket --watch --json
+cargo run -p athd --quiet -- service status athanor --json
 cargo run -p athd --quiet -- serve athanor --max-concurrent-requests 4 --max-job-history 1000
 cargo run -p athd --quiet -- serve athanor --max-request-bytes 1048576 --max-response-bytes 2097152
 cargo run -p athd --quiet -- serve athanor --transport local-socket
@@ -237,6 +240,7 @@ cargo run -p athd --quiet -- serve athanor --watch --watch-poll --debounce-ms 50
 cargo run -p athd --quiet -- status athanor
 cargo run -p athd --quiet -- status athanor --json
 cargo run -p athd --quiet -- ping athanor --json
+cargo run -p athd --quiet -- doctor athanor --json
 cargo run -p athd --quiet -- jobs athanor
 cargo run -p athd --quiet -- jobs athanor --limit 20 --json
 cargo run -p athd --quiet -- job athanor job_00000001 --json
@@ -255,6 +259,7 @@ cargo run -p athd --quiet -- context athanor "task" --level summary --budget 200
 cargo run -p athd --quiet -- context athanor "task" --level summary --budget 2000 --json
 cargo run -p athd --quiet -- context athanor --diff --level summary --budget 2000 --json
 cargo run -p athd --quiet -- stop athanor
+cargo run -p athd --quiet -- service uninstall athanor --json
 ```
 
 Canonical entities can be explained directly from the latest snapshot:

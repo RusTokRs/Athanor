@@ -80,6 +80,9 @@ auto_cleanup = false
 keep_snapshots = 2
 keep_diffs = 2
 
+[adapters]
+allow_external_process = false
+
 [docs.operations]
 enabled = true
 include_scripts = true

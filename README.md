@@ -92,6 +92,17 @@ cargo run -p ath --quiet -- context "change authentication"
 cargo run -p ath --quiet -- context "change authentication" --json
 ```
 
+For unattended local operation, register the project and install the authenticated per-user daemon:
+
+```bash
+cargo run -p ath --quiet -- projects add athanor .
+cargo run -p athd --quiet -- service install athanor --transport local-socket --watch
+cargo run -p athd --quiet -- doctor athanor --json
+```
+
+See [Production operation](docs/development/production.md) for the security model, runtime paths,
+service management, external-adapter policy, and signed release verification.
+
 Explain one canonical entity with its facts, relations, evidence, and diagnostics:
 
 ```bash

@@ -482,6 +482,7 @@ impl Default for AdapterRegistry {
 pub struct RuntimeBuilder {
     root: PathBuf,
     registry: AdapterRegistry,
+    allow_external_process: bool,
 }
 
 impl RuntimeBuilder {
@@ -489,6 +490,7 @@ impl RuntimeBuilder {
         Self {
             root: root.into(),
             registry: AdapterRegistry::built_in(),
+            allow_external_process: false,
         }
     }
 
@@ -497,8 +499,32 @@ impl RuntimeBuilder {
         self
     }
 
+    pub fn allow_external_process(mut self, allowed: bool) -> Self {
+        self.allow_external_process = allowed;
+        self
+    }
+
     pub fn with_discovered_plugins(mut self) -> Result<Self> {
         for plugin in discover_adapter_plugins(&self.root)? {
+            let external = plugin
+                .manifest
+                .adapters
+                .iter()
+                .filter(|adapter| adapter.enabled && adapter.command.is_some())
+                .collect::<Vec<_>>();
+            if !external.is_empty() && !self.allow_external_process {
+                bail!(
+                    "external process adapters are disabled; set [adapters] allow_external_process = true to enable plugin `{}`",
+                    plugin.manifest.name
+                );
+            }
+            for adapter in external {
+                warn!(
+                    plugin = %plugin.manifest.name,
+                    adapter = %adapter.id,
+                    "external process adapter execution is enabled"
+                );
+            }
             let manifest_dir = plugin.manifest_path.parent().unwrap_or(&self.root);
             self.registry = self
                 .registry
@@ -1036,6 +1062,52 @@ mod tests {
         assert_eq!(output.files.len(), 1);
         assert!(output.entities.is_empty());
         assert!(output.facts.is_empty());
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn discovered_external_process_adapters_require_explicit_opt_in() {
+        let root = std::env::temp_dir().join(format!(
+            "athanor-runtime-process-policy-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let manifest_dir = root.join(".athanor/adapters");
+        fs::create_dir_all(&manifest_dir).unwrap();
+        let manifest = AdapterPluginManifest {
+            schema: ADAPTER_MANIFEST_SCHEMA.to_string(),
+            name: "external-policy".to_string(),
+            version: None,
+            adapters: vec![AdapterPluginEntry {
+                id: "external.extractor.empty".to_string(),
+                kind: AdapterPluginKind::Extractor,
+                enabled: true,
+                command: Some(empty_output_command()),
+                supports_extensions: vec!["rs".to_string()],
+            }],
+        };
+        fs::write(
+            manifest_dir.join("external.json"),
+            serde_json::to_string_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+
+        let error = RuntimeBuilder::new(&root)
+            .with_discovered_plugins()
+            .err()
+            .expect("external process adapter should be rejected by default");
+        assert!(
+            error
+                .to_string()
+                .contains("external process adapters are disabled")
+        );
+        RuntimeBuilder::new(&root)
+            .allow_external_process(true)
+            .with_discovered_plugins()
+            .expect("explicit opt-in should allow external process adapters");
 
         fs::remove_dir_all(root).unwrap();
     }

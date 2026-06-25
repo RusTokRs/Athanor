@@ -1,14 +1,16 @@
 use std::fs::{self, OpenOptions};
+use std::io;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::process::{Command as ProcessCommand, Stdio};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use anyhow::Result;
+use anyhow::{Context, Result, bail};
 use athanor_app::{
-    ContextLimitOverrides, DaemonClientOptions, DaemonCommand, DaemonRequest, DaemonServeOptions,
-    DaemonTransport, ProjectRegistryOptions, default_project_registry_path, request_daemon,
-    resolve_registered_project, serve_daemon,
+    ContextLimitOverrides, DaemonClientOptions, DaemonCommand, DaemonRequest, DaemonRuntimePaths,
+    DaemonServeOptions, DaemonTransport, ProjectRegistryOptions, default_project_registry_path,
+    request_daemon, resolve_registered_project, serve_daemon,
 };
 use athanor_domain::ContextLevel;
 use clap::{Parser, Subcommand, ValueEnum};
@@ -143,6 +145,9 @@ enum Command {
         /// Maximum time to drain active jobs during shutdown.
         #[arg(long, default_value_t = 30)]
         shutdown_timeout_seconds: u64,
+        /// Write structured daemon logs to this file.
+        #[arg(long, hide = true)]
+        log_file: Option<PathBuf>,
     },
     /// Query daemon status.
     Status {
@@ -159,6 +164,19 @@ enum Command {
         registry: Option<PathBuf>,
         #[arg(long)]
         json: bool,
+    },
+    /// Inspect production daemon configuration and runtime health.
+    Doctor {
+        project_id: String,
+        #[arg(long)]
+        registry: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Manage per-user daemon autostart.
+    Service {
+        #[command(subcommand)]
+        command: ServiceCommand,
     },
     /// List daemon jobs.
     Jobs {
@@ -294,10 +312,38 @@ enum Command {
     },
 }
 
+#[derive(Debug, Subcommand)]
+enum ServiceCommand {
+    /// Install or update per-user daemon autostart.
+    Install {
+        project_id: String,
+        #[arg(long)]
+        registry: Option<PathBuf>,
+        #[arg(long, value_enum, default_value_t = TransportArg::LocalSocket)]
+        transport: TransportArg,
+        #[arg(long)]
+        watch: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Remove per-user daemon autostart.
+    Uninstall {
+        project_id: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Inspect per-user daemon autostart state.
+    Status {
+        project_id: String,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
-    init_tracing();
     let cli = Cli::parse();
+    init_tracing(command_log_file(&cli.command))?;
     match cli.command {
         Command::Start {
             project_id,
@@ -349,6 +395,7 @@ async fn main() -> Result<()> {
             debounce_ms,
             insecure_allow_v1,
             shutdown_timeout_seconds,
+            log_file: _,
         } => {
             let registry_path = registry_path(registry)?;
             let resolution = resolve_registered_project(
@@ -392,6 +439,29 @@ async fn main() -> Result<()> {
             request(&project_id, registry, DaemonCommand::Status).await?,
             json,
         ),
+        Command::Doctor {
+            project_id,
+            registry,
+            json,
+        } => print_value(doctor(&project_id, registry).await?, json),
+        Command::Service { command } => match command {
+            ServiceCommand::Install {
+                project_id,
+                registry,
+                transport,
+                watch,
+                json,
+            } => print_value(
+                install_service(&project_id, registry, transport, watch)?,
+                json,
+            ),
+            ServiceCommand::Uninstall { project_id, json } => {
+                print_value(uninstall_service(&project_id)?, json)
+            }
+            ServiceCommand::Status { project_id, json } => {
+                print_value(service_status(&project_id)?, json)
+            }
+        },
         Command::Jobs {
             project_id,
             registry,
@@ -561,13 +631,10 @@ async fn start_background_daemon(
         return Ok(response);
     }
 
-    let runtime_dir = root.join(".athanor/daemon");
-    fs::create_dir_all(&runtime_dir)?;
-    let log_path = runtime_dir.join("daemon.log");
-    let log = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&log_path)?;
+    let runtime = DaemonRuntimePaths::for_project(&project_id, None)?;
+    runtime.prepare()?;
+    rotate_logs(&runtime.log)?;
+    let log_path = runtime.log;
     let mut command = ProcessCommand::new(std::env::current_exe()?);
     command
         .arg("serve")
@@ -593,9 +660,11 @@ async fn start_background_daemon(
         .arg(debounce_ms.to_string())
         .arg("--shutdown-timeout-seconds")
         .arg(shutdown_timeout_seconds.to_string())
+        .arg("--log-file")
+        .arg(&log_path)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::from(log));
+        .stderr(Stdio::null());
     if watch {
         command.arg("--watch");
     }
@@ -656,6 +725,324 @@ async fn request_status(
     .await
 }
 
+async fn doctor(project_id: &str, registry: Option<PathBuf>) -> Result<serde_json::Value> {
+    let registry_path = registry_path(registry)?;
+    let resolution = resolve_registered_project(
+        ProjectRegistryOptions {
+            registry_path: registry_path.clone(),
+        },
+        project_id,
+    )?;
+    let runtime = DaemonRuntimePaths::for_project(project_id, None)?;
+    let endpoint_exists = runtime.endpoint.is_file();
+    let token_exists = runtime.token.is_file();
+    let lock_exists = runtime.lock.is_file();
+    let handshake = request_status(project_id, &resolution.project.root).await;
+    let (healthy, response, error) = match handshake {
+        Ok(response) if response.ok => (true, serde_json::to_value(response).ok(), None::<String>),
+        Ok(response) => (false, serde_json::to_value(response).ok(), None),
+        Err(error) => (false, None, Some(error.to_string())),
+    };
+    Ok(serde_json::json!({
+        "schema": "athanor.daemon_doctor.v1",
+        "project_id": project_id,
+        "root": resolution.project.root,
+        "registry_path": registry_path,
+        "runtime_directory": runtime.directory,
+        "endpoint_exists": endpoint_exists,
+        "token_exists": token_exists,
+        "lock_metadata_exists": lock_exists,
+        "healthy": healthy,
+        "response": response,
+        "error": error,
+    }))
+}
+
+fn install_service(
+    project_id: &str,
+    registry: Option<PathBuf>,
+    transport: TransportArg,
+    watch: bool,
+) -> Result<serde_json::Value> {
+    let registry_path = registry_path(registry)?;
+    resolve_registered_project(
+        ProjectRegistryOptions {
+            registry_path: registry_path.clone(),
+        },
+        project_id,
+    )?;
+    let runtime = DaemonRuntimePaths::for_project(project_id, None)?;
+    runtime.prepare()?;
+    rotate_logs(&runtime.log)?;
+    let executable = std::env::current_exe()?;
+    let transport = match transport {
+        TransportArg::Tcp => "tcp",
+        TransportArg::LocalSocket => "local-socket",
+    };
+
+    #[cfg(target_os = "linux")]
+    {
+        let unit_dir = user_home()?.join(".config/systemd/user");
+        fs::create_dir_all(&unit_dir)?;
+        let unit_name = service_name(project_id);
+        let unit_path = unit_dir.join(format!("{unit_name}.service"));
+        let watch_arg = if watch { " --watch" } else { "" };
+        let unit = format!(
+            "[Unit]\nDescription=Athanor daemon for {project_id}\nAfter=default.target\n\n[Service]\nType=simple\nExecStart={} serve {} --registry {} --transport {}{} --shutdown-timeout-seconds 30 --log-file {}\nRestart=on-failure\nRestartSec=2\nTimeoutStopSec=35\n\n[Install]\nWantedBy=default.target\n",
+            systemd_escape(&executable),
+            shell_arg(project_id),
+            systemd_escape(&registry_path),
+            transport,
+            watch_arg,
+            systemd_escape(&runtime.log),
+        );
+        fs::write(&unit_path, unit)?;
+        run_checked("systemctl", &["--user", "daemon-reload"])?;
+        run_checked(
+            "systemctl",
+            &["--user", "enable", "--now", &format!("{unit_name}.service")],
+        )?;
+        Ok(serde_json::json!({
+            "schema": "athanor.daemon_service.v1",
+            "platform": "linux",
+            "project_id": project_id,
+            "installed": true,
+            "unit": unit_path,
+        }))
+    }
+
+    #[cfg(windows)]
+    {
+        let task_name = service_name(project_id);
+        let xml_path = runtime.directory.join("service-task.xml");
+        let watch_arg = if watch { " --watch" } else { "" };
+        let arguments = format!(
+            "serve {} --registry \"{}\" --transport {}{} --shutdown-timeout-seconds 30 --log-file \"{}\"",
+            project_id,
+            registry_path.display(),
+            transport,
+            watch_arg,
+            runtime.log.display(),
+        );
+        let user = windows_user_identity()?;
+        let xml = windows_task_xml(&task_name, &user, &executable, &arguments);
+        write_windows_task_xml(&xml_path, &xml)?;
+        let xml_arg = xml_path.to_string_lossy().into_owned();
+        run_checked(
+            "schtasks",
+            &["/Create", "/TN", &task_name, "/XML", &xml_arg, "/F"],
+        )?;
+        run_checked("schtasks", &["/Run", "/TN", &task_name])?;
+        Ok(serde_json::json!({
+            "schema": "athanor.daemon_service.v1",
+            "platform": "windows",
+            "project_id": project_id,
+            "installed": true,
+            "task": task_name,
+            "definition": xml_path,
+        }))
+    }
+
+    #[cfg(not(any(target_os = "linux", windows)))]
+    bail!("daemon service installation is supported only on Windows and Linux")
+}
+
+fn uninstall_service(project_id: &str) -> Result<serde_json::Value> {
+    #[cfg(target_os = "linux")]
+    {
+        let unit_name = service_name(project_id);
+        let unit_path = user_home()?
+            .join(".config/systemd/user")
+            .join(format!("{unit_name}.service"));
+        let _ = ProcessCommand::new("systemctl")
+            .args([
+                "--user",
+                "disable",
+                "--now",
+                &format!("{unit_name}.service"),
+            ])
+            .status();
+        if unit_path.exists() {
+            fs::remove_file(&unit_path)?;
+        }
+        run_checked("systemctl", &["--user", "daemon-reload"])?;
+        Ok(serde_json::json!({
+            "schema": "athanor.daemon_service.v1",
+            "platform": "linux",
+            "project_id": project_id,
+            "installed": false,
+        }))
+    }
+
+    #[cfg(windows)]
+    {
+        let task_name = service_name(project_id);
+        let status = ProcessCommand::new("schtasks")
+            .args(["/Delete", "/TN", &task_name, "/F"])
+            .status()?;
+        if !status.success() {
+            tracing::warn!(task = %task_name, "Task Scheduler task was not installed");
+        }
+        if let Ok(runtime) = DaemonRuntimePaths::for_project(project_id, None) {
+            let definition = runtime.directory.join("service-task.xml");
+            if definition.exists() {
+                fs::remove_file(definition)?;
+            }
+        }
+        Ok(serde_json::json!({
+            "schema": "athanor.daemon_service.v1",
+            "platform": "windows",
+            "project_id": project_id,
+            "installed": false,
+        }))
+    }
+
+    #[cfg(not(any(target_os = "linux", windows)))]
+    bail!("daemon service installation is supported only on Windows and Linux")
+}
+
+fn service_status(project_id: &str) -> Result<serde_json::Value> {
+    #[cfg(target_os = "linux")]
+    {
+        let unit_name = format!("{}.service", service_name(project_id));
+        let output = ProcessCommand::new("systemctl")
+            .args(["--user", "is-active", &unit_name])
+            .output()?;
+        let state = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        Ok(serde_json::json!({
+            "schema": "athanor.daemon_service.v1",
+            "platform": "linux",
+            "project_id": project_id,
+            "installed": user_home()?.join(".config/systemd/user").join(&unit_name).is_file(),
+            "state": if state.is_empty() { "inactive" } else { &state },
+        }))
+    }
+
+    #[cfg(windows)]
+    {
+        let task_name = service_name(project_id);
+        let output = ProcessCommand::new("schtasks")
+            .args(["/Query", "/TN", &task_name, "/FO", "LIST"])
+            .output()?;
+        Ok(serde_json::json!({
+            "schema": "athanor.daemon_service.v1",
+            "platform": "windows",
+            "project_id": project_id,
+            "installed": output.status.success(),
+            "details": String::from_utf8_lossy(&output.stdout).trim(),
+        }))
+    }
+
+    #[cfg(not(any(target_os = "linux", windows)))]
+    bail!("daemon service installation is supported only on Windows and Linux")
+}
+
+fn service_name(project_id: &str) -> String {
+    format!("athanor-{project_id}")
+}
+
+fn rotate_logs(path: &std::path::Path) -> Result<()> {
+    const MAX_LOG_BYTES: u64 = 10 * 1024 * 1024;
+    const KEEP_LOGS: usize = 5;
+    if !path.is_file() || fs::metadata(path)?.len() < MAX_LOG_BYTES {
+        return Ok(());
+    }
+    for index in (1..KEEP_LOGS).rev() {
+        let source = path.with_extension(format!("log.{index}"));
+        let target = path.with_extension(format!("log.{}", index + 1));
+        if source.exists() {
+            if target.exists() {
+                fs::remove_file(&target)?;
+            }
+            fs::rename(source, target)?;
+        }
+    }
+    let first = path.with_extension("log.1");
+    if first.exists() {
+        fs::remove_file(&first)?;
+    }
+    fs::rename(path, first)?;
+    Ok(())
+}
+
+fn run_checked(program: &str, args: &[&str]) -> Result<()> {
+    let status = ProcessCommand::new(program)
+        .args(args)
+        .status()
+        .with_context(|| format!("failed to run {program}"))?;
+    if !status.success() {
+        bail!("{program} exited with {status}");
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn user_home() -> Result<PathBuf> {
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .ok_or_else(|| anyhow::anyhow!("HOME is required for systemd user service installation"))
+}
+
+#[cfg(target_os = "linux")]
+fn systemd_escape(path: &std::path::Path) -> String {
+    shell_arg(&path.to_string_lossy())
+}
+
+#[cfg(target_os = "linux")]
+fn shell_arg(value: &str) -> String {
+    format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+#[cfg(windows)]
+fn windows_task_xml(
+    task_name: &str,
+    user: &str,
+    executable: &std::path::Path,
+    arguments: &str,
+) -> String {
+    format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-16\"?>\n<Task version=\"1.4\" xmlns=\"http://schemas.microsoft.com/windows/2004/02/mit/task\"><RegistrationInfo><Author>{}</Author><Description>{}</Description></RegistrationInfo><Triggers><LogonTrigger><Enabled>true</Enabled><UserId>{}</UserId></LogonTrigger></Triggers><Principals><Principal id=\"Author\"><UserId>{}</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals><Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><ExecutionTimeLimit>PT0S</ExecutionTimeLimit><RestartOnFailure><Interval>PT1M</Interval><Count>10</Count></RestartOnFailure></Settings><Actions Context=\"Author\"><Exec><Command>{}</Command><Arguments>{}</Arguments></Exec></Actions></Task>",
+        xml_escape(user),
+        xml_escape(task_name),
+        xml_escape(user),
+        xml_escape(user),
+        xml_escape(&executable.to_string_lossy()),
+        xml_escape(arguments),
+    )
+}
+
+#[cfg(windows)]
+fn windows_user_identity() -> Result<String> {
+    let user = std::env::var("USERNAME").context("USERNAME is required")?;
+    Ok(match std::env::var("USERDOMAIN") {
+        Ok(domain) if !domain.is_empty() => format!("{domain}\\{user}"),
+        _ => user,
+    })
+}
+
+#[cfg(windows)]
+fn write_windows_task_xml(path: &std::path::Path, xml: &str) -> Result<()> {
+    use std::io::Write;
+
+    let mut file = fs::File::create(path)?;
+    file.write_all(&[0xff, 0xfe])?;
+    for unit in xml.encode_utf16() {
+        file.write_all(&unit.to_le_bytes())?;
+    }
+    file.flush()?;
+    Ok(())
+}
+
+#[cfg(windows)]
+fn xml_escape(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
 async fn request(
     project_id: &str,
     registry: Option<PathBuf>,
@@ -706,11 +1093,49 @@ fn print_response(response: athanor_app::DaemonResponse, json: bool) -> Result<(
     Ok(())
 }
 
-fn init_tracing() {
+fn print_value(value: serde_json::Value, json: bool) -> Result<()> {
+    if json {
+        println!("{}", serde_json::to_string_pretty(&value)?);
+    } else {
+        println!("{}", serde_json::to_string(&value)?);
+    }
+    Ok(())
+}
+
+fn command_log_file(command: &Command) -> Option<&std::path::Path> {
+    match command {
+        Command::Serve {
+            log_file: Some(path),
+            ..
+        } => Some(path),
+        _ => None,
+    }
+}
+
+fn init_tracing(log_file: Option<&std::path::Path>) -> Result<()> {
     let filter =
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("athanor_app=info"));
-    fmt()
-        .with_env_filter(filter)
-        .with_writer(std::io::stderr)
-        .init();
+    if let Some(path) = log_file {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        rotate_logs(path)?;
+        let file = OpenOptions::new().create(true).append(true).open(path)?;
+        fmt()
+            .json()
+            .with_env_filter(filter)
+            .with_writer(Mutex::new(file))
+            .init();
+    } else if std::env::var_os("ATHANOR_LOG_FORMAT").as_deref()
+        == Some(std::ffi::OsStr::new("json"))
+    {
+        fmt()
+            .json()
+            .with_env_filter(filter)
+            .with_writer(io::stderr)
+            .init();
+    } else {
+        fmt().with_env_filter(filter).with_writer(io::stderr).init();
+    }
+    Ok(())
 }

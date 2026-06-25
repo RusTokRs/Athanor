@@ -11,6 +11,13 @@ pub struct ProjectConfig {
     pub docs: DocsConfig,
     pub api: ApiConfig,
     pub storage: StorageConfig,
+    pub adapters: AdaptersConfig,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct AdaptersConfig {
+    pub allow_external_process: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

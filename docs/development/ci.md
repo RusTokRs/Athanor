@@ -10,6 +10,14 @@ status: verified
 
 Athanor uses GitHub Actions for continuous quality, compatibility, and security checks.
 
+Production-specific workflows add:
+
+- authenticated daemon lifecycle tests on Windows and Linux
+- Windows per-user Task Scheduler install/start/status/stop/uninstall coverage
+- a scheduled one-hour watcher, ping, overview, and context soak test
+- tag-based optimized Windows/Linux archives with SHA-256 files, Sigstore bundles, and GitHub
+  provenance attestations
+
 ## Quality & Compatibility Pipeline
 
 The main `CI` workflow runs on pushes to `main`, pull requests, and manual dispatches. It contains two main jobs:

@@ -2007,11 +2007,11 @@ Implemented in:
 Purpose:
 
 - adds the `athd` daemon entrypoint with background `start`, foreground `serve`, `ping`, `status`, `jobs`, `job`, `cancel`, `index`, `generate`, `wiki`, `report-html`, `overview`, `explain`, `search`, `context`, and `stop`
-- makes background start readiness-bounded and idempotent for an already healthy project daemon, with background logs redirected to `.athanor/daemon/daemon.log`
+- makes background start readiness-bounded and idempotent for an already healthy project daemon, with structured logs redirected to the protected per-user runtime directory
 - resolves every command through the explicit project registry before connecting to or serving a repository daemon
-- writes per-project runtime endpoint and lock files under `.athanor/daemon`
-- prevents two daemon instances from owning the same project runtime directory through exclusive lock creation
-- uses local TCP by default, with optional local socket transport over Unix domain sockets on Unix and named pipes on Windows, newline-delimited JSON requests, and stable `athanor.daemon_endpoint.v1`, `athanor.daemon_request.v1`, and `athanor.daemon_response.v1` schemas
+- writes per-project endpoint, token, lock, and log files under the protected per-user runtime root outside the repository
+- prevents two daemon instances from owning the same project runtime directory through an OS advisory file lock that recovers automatically after crashes
+- uses authenticated `athanor.daemon_endpoint.v2`, `athanor.daemon_request.v2`, and `athanor.daemon_response.v2` schemas with a fresh per-process 256-bit token, loopback-only TCP, optional Unix domain socket or Windows named pipe transport, and explicit loopback-only v1 migration mode
 - records configurable daemon request and response byte limits in endpoint metadata and applies them on both server and client sides
 - optionally watches the project root with `notify-debouncer-mini`, supports platform-recommended or polling watcher backends, ignores `.athanor` artifact events, and schedules debounced background indexing jobs after source changes
 - bounds daemon request and response messages to 1 MiB, returning structured daemon errors for oversized computed responses
@@ -2032,6 +2032,29 @@ Purpose:
 - exposes daemon context level and limit overrides, including diff-based changed-file context
 - keeps logs separate from structured protocol output
 - completes Phase 7 with native local TCP/local-socket access independent of the optional MCP transport adapter
+
+### Production V1 Hardening
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-app/src/daemon.rs`
+- `crates/athanor-app/src/daemon_runtime.rs`
+- `apps/athd/src/main.rs`
+- `.github/workflows/release.yml`
+- `.github/workflows/production.yml`
+- `docs/development/production.md`
+
+Purpose:
+
+- adds authenticated daemon protocol v2 and protected per-user runtime paths for Windows and Linux
+- rejects non-loopback TCP, unauthenticated requests, and protocol v1 unless explicitly enabled for loopback migration
+- adds crash-safe OS locking, lifecycle status, cooperative stop cancellation, bounded job drain, health diagnostics, and stale staging cleanup under known artifact roots
+- adds idempotent per-user Task Scheduler and `systemd --user` service install, status, and uninstall commands
+- rotates structured JSONL daemon logs at 10 MiB with five retained files
+- disables external process adapters by default and requires explicit project opt-in
+- adds optimized release builds, signed and attested Windows/Linux archives, authenticated daemon E2E, Windows service E2E, and nightly watcher/query soak coverage
 
 ## Next
 

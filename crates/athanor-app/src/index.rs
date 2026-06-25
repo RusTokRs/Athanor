@@ -91,6 +91,7 @@ async fn index_project_inner(
 
     let output_result = if options.validate_only {
         let pipeline = RuntimeBuilder::new(&root)
+            .allow_external_process(config.adapters.allow_external_process)
             .with_discovered_plugins()
             .context("failed to discover adapter plugins")?
             .build_index_pipeline(MemoryKnowledgeStore::new());
@@ -130,6 +131,7 @@ async fn index_project_inner(
         }
     } else {
         let pipeline = RuntimeBuilder::new(&root)
+            .allow_external_process(config.adapters.allow_external_process)
             .with_discovered_plugins()
             .context("failed to discover adapter plugins")?
             .build_index_pipeline(canonical_store.clone());

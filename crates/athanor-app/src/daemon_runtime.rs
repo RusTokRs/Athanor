@@ -57,9 +57,9 @@ pub fn default_runtime_root() -> Result<PathBuf> {
                 "cannot determine local application data directory; set ATHANOR_RUNTIME_DIR"
             )
         })?;
-        return Ok(PathBuf::from(local_app_data)
+        Ok(PathBuf::from(local_app_data)
             .join("Athanor")
-            .join("runtime"));
+            .join("runtime"))
     }
 
     #[cfg(unix)]
@@ -67,7 +67,7 @@ pub fn default_runtime_root() -> Result<PathBuf> {
         let runtime = std::env::var_os("XDG_RUNTIME_DIR").ok_or_else(|| {
             anyhow::anyhow!("XDG_RUNTIME_DIR is required; set ATHANOR_RUNTIME_DIR explicitly")
         })?;
-        return Ok(PathBuf::from(runtime).join("athanor"));
+        Ok(PathBuf::from(runtime).join("athanor"))
     }
 
     #[cfg(not(any(unix, windows)))]
@@ -86,6 +86,7 @@ impl DaemonRuntimeLock {
             .read(true)
             .write(true)
             .create(true)
+            .truncate(false)
             .open(path)
             .with_context(|| format!("failed to open daemon lock {}", path.display()))?;
         file.try_lock_exclusive().with_context(|| {
@@ -132,8 +133,7 @@ pub fn read_daemon_token(path: &Path) -> Result<String> {
     file.read_to_string(&mut token)
         .with_context(|| format!("failed to read daemon token {}", path.display()))?;
     let token = token.trim().to_string();
-    if token.len() != DAEMON_TOKEN_BYTES * 2
-        || !token.bytes().all(|byte| byte.is_ascii_hexdigit())
+    if token.len() != DAEMON_TOKEN_BYTES * 2 || !token.bytes().all(|byte| byte.is_ascii_hexdigit())
     {
         bail!("daemon token is invalid");
     }
@@ -197,7 +197,12 @@ fn restrict_directory(path: &Path) -> Result<()> {
         .with_context(|| format!("failed to restrict {}", path.display()))
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+fn restrict_directory(path: &Path) -> Result<()> {
+    restrict_windows_acl(path, true)
+}
+
+#[cfg(not(any(unix, windows)))]
 fn restrict_directory(_path: &Path) -> Result<()> {
     Ok(())
 }
@@ -209,8 +214,37 @@ fn restrict_file(path: &Path) -> Result<()> {
         .with_context(|| format!("failed to restrict {}", path.display()))
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+fn restrict_file(path: &Path) -> Result<()> {
+    restrict_windows_acl(path, false)
+}
+
+#[cfg(not(any(unix, windows)))]
 fn restrict_file(_path: &Path) -> Result<()> {
+    Ok(())
+}
+
+#[cfg(windows)]
+fn restrict_windows_acl(path: &Path, inherit_children: bool) -> Result<()> {
+    use std::process::{Command, Stdio};
+
+    let user = std::env::var("USERNAME")
+        .context("USERNAME is required to restrict daemon runtime permissions")?;
+    let path = path.to_string_lossy().into_owned();
+    let grant = if inherit_children {
+        format!("{user}:(OI)(CI)(F)")
+    } else {
+        format!("{user}:(F)")
+    };
+    let status = Command::new("icacls")
+        .args([&path, "/inheritance:r", "/grant:r", &grant])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .with_context(|| format!("failed to run icacls for {path}"))?;
+    if !status.success() {
+        bail!("icacls failed while restricting {path}");
+    }
     Ok(())
 }
 
@@ -230,10 +264,8 @@ mod tests {
 
     #[test]
     fn creates_reads_and_compares_tokens() {
-        let root = std::env::temp_dir().join(format!(
-            "athanor-runtime-token-{}",
-            std::process::id()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("athanor-runtime-token-{}", std::process::id()));
         fs::create_dir_all(&root).unwrap();
         let path = root.join("token");
 
@@ -248,10 +280,8 @@ mod tests {
 
     #[test]
     fn file_lock_can_be_reacquired_after_drop() {
-        let root = std::env::temp_dir().join(format!(
-            "athanor-runtime-lock-{}",
-            std::process::id()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("athanor-runtime-lock-{}", std::process::id()));
         fs::create_dir_all(&root).unwrap();
         let path = root.join("lock");
         let lock = DaemonRuntimeLock::acquire(&path, "alpha").unwrap();

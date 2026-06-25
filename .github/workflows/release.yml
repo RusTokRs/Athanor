@@ -1,0 +1,79 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            archive: athanor-x86_64-unknown-linux-gnu.tar.gz
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            archive: athanor-x86_64-pc-windows-msvc.zip
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --locked --target ${{ matrix.target }} -p ath -p athd
+      - name: Package Linux archive
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          mkdir -p dist/athanor
+          cp target/${{ matrix.target }}/release/ath target/${{ matrix.target }}/release/athd README.md LICENSE install.sh dist/athanor/
+          chmod +x dist/athanor/ath dist/athanor/athd dist/athanor/install.sh
+          tar -C dist -czf dist/${{ matrix.archive }} athanor
+      - name: Package Windows archive
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist/athanor | Out-Null
+          Copy-Item target/${{ matrix.target }}/release/ath.exe,target/${{ matrix.target }}/release/athd.exe,README.md,LICENSE,install.ps1 dist/athanor/
+          Compress-Archive -Path dist/athanor/* -DestinationPath dist/${{ matrix.archive }}
+      - name: Write checksum
+        shell: bash
+        run: |
+          cd dist
+          sha256sum "${{ matrix.archive }}" > "${{ matrix.archive }}.sha256"
+      - uses: sigstore/cosign-installer@v4
+      - name: Sign archive and checksum
+        shell: bash
+        run: |
+          cosign sign-blob --yes --bundle "dist/${{ matrix.archive }}.sigstore.json" "dist/${{ matrix.archive }}"
+          cosign sign-blob --yes --bundle "dist/${{ matrix.archive }}.sha256.sigstore.json" "dist/${{ matrix.archive }}.sha256"
+      - uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: dist/${{ matrix.archive }}
+      - uses: actions/upload-artifact@v6
+        with:
+          name: ${{ matrix.target }}
+          path: dist/${{ matrix.archive }}*
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

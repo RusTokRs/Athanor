@@ -229,3 +229,14 @@ Source adapters should return stable, project-relative paths where possible. `co
 External process adapters must emit normal canonical objects. The same pipeline validation applies: entities need ownership, and facts, relations, and diagnostics need evidence and ownership. Invalid output fails indexing through the existing adapter validation report path.
 
 Relative command paths that include a path separator are resolved relative to the manifest file directory. Bare command names are resolved by the operating system `PATH`.
+
+External process adapters are disabled by default in production:
+
+```toml
+[adapters]
+allow_external_process = false
+```
+
+Any enabled manifest entry with a `command` is rejected before registration unless the project
+explicitly opts in. Opt-in executions emit a security warning containing the plugin and adapter
+identity. The opt-in is a trust decision and does not provide process sandboxing.

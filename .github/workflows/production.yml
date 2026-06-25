@@ -1,0 +1,88 @@
+name: Production Gate
+
+on:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "30 1 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  daemon-e2e:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: Authenticated daemon lifecycle (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          ATHANOR_RUNTIME_DIR: ${{ runner.temp }}/athanor-runtime
+        run: |
+          cargo run -p ath --quiet -- projects add production-e2e . --registry "${{ runner.temp }}/projects.json"
+          cargo run -p athd --quiet -- start production-e2e --registry "${{ runner.temp }}/projects.json" --transport local-socket --startup-timeout-ms 15000 --json
+          cargo run -p athd --quiet -- ping production-e2e --registry "${{ runner.temp }}/projects.json" --json
+          cargo run -p athd --quiet -- index production-e2e --registry "${{ runner.temp }}/projects.json" --json
+          cargo run -p athd --quiet -- context production-e2e "production readiness" --registry "${{ runner.temp }}/projects.json" --json
+          cargo run -p athd --quiet -- stop production-e2e --registry "${{ runner.temp }}/projects.json" --json
+      - name: Authenticated daemon lifecycle (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          ATHANOR_RUNTIME_DIR: ${{ runner.temp }}\athanor-runtime
+        run: |
+          $registry = "${{ runner.temp }}\projects.json"
+          cargo run -p ath --quiet -- projects add production-e2e . --registry $registry
+          cargo run -p athd --quiet -- start production-e2e --registry $registry --transport local-socket --startup-timeout-ms 15000 --json
+          cargo run -p athd --quiet -- ping production-e2e --registry $registry --json
+          cargo run -p athd --quiet -- index production-e2e --registry $registry --json
+          cargo run -p athd --quiet -- context production-e2e "production readiness" --registry $registry --json
+          cargo run -p athd --quiet -- stop production-e2e --registry $registry --json
+      - name: Windows per-user service lifecycle
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cargo run -p athd --quiet -- service install production-e2e --registry "${{ runner.temp }}/projects.json" --transport local-socket --json
+          Start-Sleep -Seconds 2
+          cargo run -p athd --quiet -- ping production-e2e --registry "${{ runner.temp }}/projects.json" --json
+          cargo run -p athd --quiet -- service status production-e2e --json
+          cargo run -p athd --quiet -- stop production-e2e --registry "${{ runner.temp }}/projects.json" --json
+          cargo run -p athd --quiet -- service uninstall production-e2e --json
+
+  nightly-soak:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@1.95.0
+      - uses: Swatinem/rust-cache@v2
+      - name: One-hour watcher and query soak
+        shell: bash
+        env:
+          ATHANOR_RUNTIME_DIR: ${{ runner.temp }}/athanor-runtime
+        run: |
+          cargo run -p ath --quiet -- projects add production-soak . --registry "${{ runner.temp }}/projects.json"
+          cargo run -p athd --quiet -- start production-soak --registry "${{ runner.temp }}/projects.json" --transport local-socket --watch --startup-timeout-ms 15000
+          end=$((SECONDS+3600))
+          while [ "$SECONDS" -lt "$end" ]; do
+            cargo run -p athd --quiet -- ping production-soak --registry "${{ runner.temp }}/projects.json" --json >/dev/null
+            cargo run -p athd --quiet -- overview production-soak --registry "${{ runner.temp }}/projects.json" --top 5 --json >/dev/null
+            cargo run -p athd --quiet -- context production-soak "daemon soak" --registry "${{ runner.temp }}/projects.json" --level summary --json >/dev/null
+            sleep 10
+          done
+          cargo run -p athd --quiet -- stop production-soak --registry "${{ runner.temp }}/projects.json"
