@@ -16,7 +16,7 @@ use athanor_domain::ContextLevel;
 use clap::{Parser, Subcommand, ValueEnum};
 use tracing_subscriber::{EnvFilter, fmt};
 
-#[cfg(windows)]
+#[cfg(any(target_os = "linux", windows))]
 use anyhow::Context;
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
