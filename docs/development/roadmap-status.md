@@ -2060,6 +2060,142 @@ Purpose:
 
 This backlog tracks the remaining global plan from `start.md`. The entries below are prioritized by dependency order and current product value; each item should be moved into `Implemented` only after code, documentation, and required verification are complete.
 
+### Near-Term Hardening And Scale Audit
+
+Status: planned.
+
+Context:
+
+- production daemon hardening, protocol v2 authentication, daemon request/response limits, release workflows, and external-process adapter opt-in are already implemented and verified above
+- in-process linker/checker inputs already use shared `Arc<[T]>` contracts, but `IndexPipeline` still builds those shared slices from borrowed canonical vectors and should be checked for avoidable full-list copies
+- external process adapters are disabled by default, but process execution still needs stricter runtime limits and manifest trust controls before repo-local plugins are safe by default
+
+Scope:
+
+- audit `crates/athanor-app/src/runtime.rs`, `crates/athanor-app/src/pipeline.rs`, `crates/athanor-app/src/daemon.rs`, `crates/athanor-app/src/daemon_runtime.rs`, `apps/ath/src/main.rs`, and `apps/athd/src/main.rs` against the practical release plan
+- classify every requested hardening item as implemented, implemented but under-tested, implemented but under-documented, or not implemented
+- keep the resulting work focused on safety, memory, tests, and observable analysis completeness before adding new extractor breadth
+
+Acceptance:
+
+- the next release plan does not duplicate work already marked verified
+- any remaining P0/P1 item names the exact crate, user-visible behavior, required tests, and documentation update
+- docs remain aligned with `AGENTS.md`, `docs/architecture/pipeline.md`, `docs/architecture/adapters.md`, and `docs/development/production.md`
+
+### External Process Adapter Runtime Hardening
+
+Status: planned.
+
+Priority: P0.
+
+Scope:
+
+- reject unknown manifest fields with `serde(deny_unknown_fields)` on adapter manifest and command structs
+- reject dangerous manifest paths, including project-root escapes through relative paths, symlinks, junctions, and manifest-relative command traversal
+- replace bare `PATH` command resolution with an explicit allowlist of executable paths or command ids
+- add per-adapter execution timeouts and terminate the child process on timeout
+- bound stdin serialization, stdout bytes, stderr bytes, and JSON parsing depth/size before deserializing adapter output
+- fail closed on non-zero exit status, invalid JSON, oversized output, missing canonical evidence, or missing ownership
+- add a user-level trust record for repo-local `.athanor/plugins/*` manifests so a cloned repository cannot trust its own executable adapters
+- document that opt-in and trust do not provide OS sandboxing
+
+Tests:
+
+- disabled external process adapter is rejected by default
+- enabled but untrusted repo-local plugin is rejected
+- unknown manifest field is rejected
+- manifest command path outside the manifest directory or allowlist is rejected
+- bare command name not in the allowlist is rejected
+- hanging process is killed on timeout
+- oversized stdout and stderr fail deterministically without unbounded memory growth
+- invalid JSON output fails with an adapter-scoped error
+- non-zero exit code includes bounded stderr
+- successful allowlisted adapter run still works
+
+Acceptance:
+
+- a file under `.athanor/plugins` cannot cause arbitrary command execution without explicit project opt-in, explicit executable allowlisting, and explicit user trust
+- every external process adapter failure path emits a bounded, adapter-scoped error
+- adapter output still flows through the existing evidence and ownership validation report path
+
+### Pipeline Memory And Metrics Follow-Up
+
+Status: planned.
+
+Priority: P1.
+
+Scope:
+
+- remove avoidable full-list copies when creating shared downstream `Arc<[Entity]>`, `Arc<[Fact]>`, and `Arc<[Relation]>` inputs in `IndexPipeline`
+- keep external process adapter JSON serialization compatible with the existing `LinkInput` and `CheckInput` schemas
+- add golden equivalence tests that compare canonical entities, facts, relations, diagnostics, stable ids, evidence, and ownership before and after the refactor
+- add small, medium, and large fixture benchmarks for indexing, linking, checking, and canonical snapshot writing
+- add a bounded machine-readable indexing metrics report with adapter timings, object counts, changed-file counts, validation issue counts, process adapter byte counts, timeout counts, and best-effort peak memory where supported
+
+Acceptance:
+
+- linker and checker execution does not create avoidable complete copies of canonical collections per adapter
+- canonical outputs remain identical across the memory refactor
+- performance regressions can be detected from benchmarks or the metrics report without reading generated JSONL directly
+
+### Daemon Fault-Injection Coverage
+
+Status: planned.
+
+Priority: P1.
+
+Scope:
+
+- extend daemon tests beyond existing token, v1 compatibility, busy response, and oversized response unit coverage
+- cover client disconnect during request handling
+- cover daemon crash/restart behavior with stale endpoint, stale token, stale lock, and corrupted endpoint metadata
+- cover cancellation during index and generation jobs
+- cover parallel read-only search/context/explain requests while an index job is running
+- cover watcher event storms and debounce behavior
+- cover Unix socket permissions and Windows named pipe lifecycle where platform support is available
+
+Acceptance:
+
+- daemon restart and repair behavior is deterministic after interrupted jobs or corrupted runtime metadata
+- atomic publication guarantees remain intact under cancellation and process termination
+- all dangerous protocol and lifecycle edge cases are represented by automated tests or explicitly documented as out of scope
+
+### Analysis Completeness Reporting
+
+Status: planned.
+
+Priority: P2.
+
+Scope:
+
+- add canonical coverage/capability facts or diagnostics with evidence for unsupported syntax, skipped files, partial parsing, parser recovery, and extractor confidence
+- expose bounded commands such as `ath capabilities`, `ath capabilities --json`, `ath coverage`, `ath coverage --json`, `ath coverage --adapter <id>`, and `ath coverage --file <path>`
+- report per-adapter discovered files, fully processed files, partially processed files, skipped files, unsupported constructs, and omitted counts when limits apply
+- keep coverage output agent-facing through stable schemas and explicit limits instead of requiring generated artifact reads
+
+Acceptance:
+
+- users can see where the knowledge graph is incomplete before relying on query, graph, or daemon answers
+- every incompleteness claim has source evidence or a documented adapter-level capability declaration
+- coverage reports remain bounded, deterministic, and suitable for CLI, daemon, and future MCP use
+
+### Release Readiness Gate
+
+Status: planned.
+
+Priority: P2.
+
+Scope:
+
+- define one release-gate checklist that combines formatting, tests, clippy, indexing smoke, docs checks, repair inspection, daemon doctor, binary smoke tests, archive checksum verification, security audit, signing, and provenance checks
+- document rollback expectations for broken binaries, broken generated-output pointers, and daemon runtime metadata
+- ensure the release gate references existing CI, production, security, and release workflows instead of duplicating their implementation details
+
+Acceptance:
+
+- release readiness can be evaluated from one documented checklist
+- every release artifact has checksums and provenance, and every local generated/canonical artifact can be inspected or repaired through bounded commands
+
 ### Affected Diagnostic Check
 
 Status: verified.

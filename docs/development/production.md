@@ -64,6 +64,24 @@ automatically after crashes, so stale lock metadata does not block restart.
 Structured JSONL daemon logs are written under the runtime directory. Logs rotate at 10 MiB and keep
 five historical files.
 
+Runtime environment:
+
+- `ATHANOR_RUNTIME_DIR` overrides the protected per-user runtime root for daemon endpoint, token,
+  lock, and log files. Production services should normally rely on the platform default; CI uses the
+  override to isolate test runs.
+- `ATHANOR_LOG_FORMAT` selects daemon log formatting. Use the default structured JSONL format for
+  services and automation so logs remain machine-readable.
+- `ATHANOR_PROJECT_REGISTRY` overrides the project registry file location. CI and isolated smoke
+  tests pass an explicit registry path instead of using the user's default registry.
+- `XDG_RUNTIME_DIR` is the preferred Linux base for protected runtime state when
+  `ATHANOR_RUNTIME_DIR` is not set.
+- `LOCALAPPDATA` is the preferred Windows base for protected runtime state when
+  `ATHANOR_RUNTIME_DIR` is not set.
+- `HOME` and `USERPROFILE` are fallback locations for per-user project registry storage when no
+  explicit registry path is provided.
+- `USERNAME` and `USERDOMAIN` identify the current Windows user for per-user Task Scheduler service
+  registration and ACL ownership.
+
 ## External Adapters
 
 External process adapters are disabled by default:
@@ -90,3 +108,23 @@ include SHA-256 files, Sigstore bundles, and GitHub build provenance attestation
 
 Before deployment, verify the checksum and Sigstore bundle, install the binaries, register a project,
 and run the authenticated `start -> ping -> index -> context -> stop` smoke sequence.
+
+Release workflow:
+
+- `.github/workflows/release.yml` runs on version tags and builds both supported release targets.
+- The `build` job checks out source, installs the pinned Rust toolchain for each matrix target,
+  restores the Rust build cache, builds locked release binaries, packages platform archives, writes
+  SHA-256 checksums, installs Cosign, signs archives and checksums, emits build provenance
+  attestations, and uploads target artifacts.
+- The `publish` job downloads all build artifacts and publishes the GitHub release with generated
+  release notes.
+
+Production gate workflow:
+
+- `.github/workflows/production.yml` runs on pull requests, manual dispatch, and the nightly schedule.
+- The `daemon-e2e` job checks out source, installs Rust with `clippy` and `rustfmt`, restores cache,
+  and runs authenticated daemon lifecycle checks on Linux and Windows against an isolated runtime
+  directory and registry.
+- On Windows, the same job also installs, checks, stops, and uninstalls the per-user service task.
+- The scheduled `nightly-soak` job starts a watched daemon and repeatedly exercises `ping`,
+  `overview`, and `context` for one hour before stopping the daemon.
