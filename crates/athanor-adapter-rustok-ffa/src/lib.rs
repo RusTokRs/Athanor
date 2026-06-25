@@ -355,12 +355,32 @@ fn surface_diagnostics(surface: &SurfaceState, snapshot: &SnapshotId) -> Vec<Dia
                     || has_api)
         })
     {
-        diagnostics.push(layer_missing_diagnostic(
-            snapshot,
-            "rustok_ffa_transport_profile_missing",
-            "FFA transport profile is missing",
-            surface,
-        ));
+        if let Some((marker, evidence)) = surface
+            .markers
+            .iter()
+            .find(|(marker, _)| marker.role == "transport")
+        {
+            diagnostics.push(diagnostic(
+                snapshot,
+                "rustok_ffa_transport_profile_missing",
+                Severity::Medium,
+                "FFA transport profile is missing",
+                format!(
+                    "{} {} transport layer does not expose a native, GraphQL, REST, or API fallback profile",
+                    surface.module, surface.surface
+                ),
+                surface,
+                Some(marker),
+                evidence.clone(),
+            ));
+        } else {
+            diagnostics.push(layer_missing_diagnostic(
+                snapshot,
+                "rustok_ffa_transport_profile_missing",
+                "FFA transport profile is missing",
+                surface,
+            ));
+        }
     }
     if has_ui && (!has_core || !has_transport) {
         diagnostics.push(layer_missing_diagnostic(
@@ -556,16 +576,16 @@ fn detect_markers(content: &str, classified: &ClassifiedPath, path: &str) -> Sou
             &["use leptos", "leptos::", "leptos_meta", "leptos_router"],
         ),
         has_component: content.contains("#[component]"),
-        has_server_fn: content.contains("#[server") || content.contains("server_fn::"),
+        has_server_fn: contains_server_marker(content),
         has_leptos_graphql: content.contains("leptos_graphql"),
         has_execute_graphql: content.contains("execute_graphql")
             || content.contains("GraphQLRequest"),
-        calls_raw_api: contains_any(content, &["crate::api", "super::api", "api::"]),
+        calls_raw_api: contains_raw_api_reference(content),
         calls_transport_facade: contains_any(
             content,
             &["crate::transport", "super::transport", "transport::"],
         ),
-        uses_ui_leptos: contains_any(content, &["ui::leptos", "leptos::"]),
+        uses_ui_leptos: contains_ui_leptos_reference(content),
         has_native_server_adapter: path.contains("native_server_adapter")
             || content.contains("native_server_adapter"),
         has_graphql_adapter: path.contains("graphql_adapter")
@@ -578,6 +598,39 @@ fn detect_markers(content: &str, classified: &ClassifiedPath, path: &str) -> Sou
 
 fn contains_any(content: &str, needles: &[&str]) -> bool {
     needles.iter().any(|needle| content.contains(needle))
+}
+
+fn contains_raw_api_reference(content: &str) -> bool {
+    content.lines().any(|line| {
+        line.contains("crate::api")
+            || line.contains("super::api")
+            || line.contains("self::api")
+            || line.trim_start().starts_with("api::")
+            || line.contains("{api::")
+            || line.contains("(api::")
+            || line.contains(" api::")
+    })
+}
+
+fn contains_ui_leptos_reference(content: &str) -> bool {
+    contains_any(
+        content,
+        &[
+            "ui::leptos",
+            "::ui::leptos",
+            "ui::admin",
+            "::ui::admin",
+            "ui::storefront",
+            "::ui::storefront",
+        ],
+    )
+}
+
+fn contains_server_marker(content: &str) -> bool {
+    content.lines().any(|line| {
+        let trimmed = line.trim_start();
+        trimmed.starts_with("#[server") || trimmed.starts_with("server_fn::")
+    })
 }
 
 fn first_marker_line(content: &str) -> Option<u32> {
@@ -761,6 +814,62 @@ mod tests {
             "apps/admin/src/module_shell.rs",
             "use rustok_blog::ui::leptos;",
         )));
+    }
+
+    #[test]
+    fn marker_detection_does_not_treat_rustok_api_or_plain_leptos_as_boundary_bypass() {
+        let classified = ClassifiedPath {
+            module: "blog".to_string(),
+            surface: "admin".to_string(),
+            role: "ui_leptos".to_string(),
+            canonical_ui_adapter: true,
+            host_wiring: false,
+        };
+        let marker = detect_markers(
+            "use leptos::prelude::*;\nuse rustok_api::{AdminQueryKey, UiRouteContext};",
+            &classified,
+            "crates/rustok-blog/admin/src/ui/leptos.rs",
+        );
+
+        assert!(!marker.calls_raw_api);
+        assert!(!marker.uses_ui_leptos);
+    }
+
+    #[test]
+    fn marker_detection_ignores_server_marker_inside_copy_text() {
+        let classified = ClassifiedPath {
+            module: "media".to_string(),
+            surface: "admin".to_string(),
+            role: "ui_leptos".to_string(),
+            canonical_ui_adapter: true,
+            host_wiring: false,
+        };
+        let marker = detect_markers(
+            r#"let subtitle = "Native #[server] calls cover the read flow.";"#,
+            &classified,
+            "crates/rustok-media/admin/src/ui/leptos.rs",
+        );
+
+        assert!(!marker.has_server_fn);
+    }
+
+    #[test]
+    fn marker_detection_keeps_real_raw_api_and_ui_leptos_references() {
+        let classified = ClassifiedPath {
+            module: "blog".to_string(),
+            surface: "admin".to_string(),
+            role: "ui_leptos".to_string(),
+            canonical_ui_adapter: true,
+            host_wiring: false,
+        };
+        let marker = detect_markers(
+            "use crate::api;\npub fn render() { rustok_blog_admin::ui::leptos::BlogAdmin(); }",
+            &classified,
+            "crates/rustok-blog/admin/src/ui/leptos.rs",
+        );
+
+        assert!(marker.calls_raw_api);
+        assert!(marker.uses_ui_leptos);
     }
 
     #[tokio::test]
