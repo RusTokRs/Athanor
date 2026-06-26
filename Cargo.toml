@@ -2,6 +2,7 @@
 members = [
     "apps/ath",
     "apps/athd",
+    "crates/athanor-adapter-rustok-page-builder",
     "crates/athanor-adapter-rustok-fba",
     "crates/athanor-adapter-rustok-ffa",
     "crates/athanor-app",

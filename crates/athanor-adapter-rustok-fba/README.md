@@ -8,7 +8,7 @@ It provides three built-in adapter ids:
 - `builtin.linker.rustok_fba`
 - `builtin.checker.rustok_fba`
 
-The adapter is separate from the FFA adapter. FBA reads registry JSON and code markers from Rust port implementations; documentation is secondary evidence only and does not define readiness.
+The adapter is separate from the FFA adapter. FBA reads registry JSON and code markers from Rust port implementations; documentation is secondary evidence only and does not define readiness. Port code may live in `src/ports.rs`, `src/ports/mod.rs`, or nested `src/ports/**/*.rs` files; all port-code files for one module are merged before diagnostics run.
 
 ## Model
 

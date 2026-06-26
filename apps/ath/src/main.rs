@@ -12,25 +12,29 @@ use athanor_app::{
     EntityExplanation, ExplainOptions, GenerationOptions, GraphCycles, GraphCyclesOptions,
     GraphExportOptions, GraphFbaDependenciesOptions, GraphFbaModuleOptions, GraphFbaPortOptions,
     GraphFbaViolationsOptions, GraphFfaSurfaceOptions, GraphFfaViolationsOptions, GraphHubs,
-    GraphHubsOptions, GraphPageRank, GraphPageRankOptions, GraphPath, GraphPathOptions,
-    GraphRelated, GraphRelatedOptions, HtmlReportOptions, ImpactAnalysis, ImpactOptions,
-    IndexOptions, IndexReport, InitOptions, OperationsDocsCheckOptions, OperationsDocsCheckReport,
-    OverviewOptions, ProjectRegisterOptions, ProjectRegistration, ProjectRegistryOptions,
-    ProjectRegistryReport, ProjectUnregisterOptions, RepairApplyOptions, RepairApplyReport,
-    RepairCleanupOptions, RepairCleanupReport, RepairInspectOptions, RepairInspectReport,
-    RepairRecoverCanonicalOptions, RepairRecoverCanonicalReport, RepairRegenerateOptions,
-    RepairRegenerateReport, RepositoryOverview, RustokFbaAudit, RustokFbaAuditOptions,
-    RustokFbaGraph, RustokFfaAudit, RustokFfaAuditOptions, RustokFfaGraph, WikiOptions,
+    GraphHubsOptions, GraphPageBuilderConsumerOptions, GraphPageBuilderProviderOptions,
+    GraphPageBuilderViolationsOptions, GraphPageRank, GraphPageRankOptions, GraphPath,
+    GraphPathOptions, GraphRelated, GraphRelatedOptions, HtmlReportOptions, ImpactAnalysis,
+    ImpactOptions, IndexOptions, IndexReport, InitOptions, OperationsDocsCheckOptions,
+    OperationsDocsCheckReport, OverviewOptions, ProjectRegisterOptions, ProjectRegistration,
+    ProjectRegistryOptions, ProjectRegistryReport, ProjectUnregisterOptions, RepairApplyOptions,
+    RepairApplyReport, RepairCleanupOptions, RepairCleanupReport, RepairInspectOptions,
+    RepairInspectReport, RepairRecoverCanonicalOptions, RepairRecoverCanonicalReport,
+    RepairRegenerateOptions, RepairRegenerateReport, RepositoryOverview, RustokFbaAudit,
+    RustokFbaAuditOptions, RustokFbaGraph, RustokFfaAudit, RustokFfaAuditOptions, RustokFfaGraph,
+    RustokPageBuilderAudit, RustokPageBuilderAuditOptions, RustokPageBuilderGraph, WikiOptions,
     apply_repair, benchmark_index, check_affected, check_docs, check_operations_docs,
     check_project, cleanup_api_contracts, cleanup_repair, context_project, coverage_project,
     default_adapter_trust_path, default_project_registry_path, diff_api_contracts,
     docs_apply_patch, docs_drift, docs_propose_fix, explain_project, generate_project,
     graph_fba_dependencies, graph_fba_module, graph_fba_port, graph_fba_violations,
-    graph_ffa_surface, graph_ffa_violations, impact_project, index_project, init_project,
-    inspect_repair, list_adapter_plugin_trust, list_registered_projects, overview_project,
-    project_html_report, project_wiki, recover_canonical_repair, regenerate_repair,
-    register_project, resolve_registered_project, rustok_fba_audit, rustok_ffa_audit,
-    snapshot_api_contract, trust_adapter_plugin, unregister_project, untrust_adapter_plugin,
+    graph_ffa_surface, graph_ffa_violations, graph_page_builder_consumer,
+    graph_page_builder_provider, graph_page_builder_violations, impact_project, index_project,
+    init_project, inspect_repair, list_adapter_plugin_trust, list_registered_projects,
+    overview_project, project_html_report, project_wiki, recover_canonical_repair,
+    regenerate_repair, register_project, resolve_registered_project, rustok_fba_audit,
+    rustok_ffa_audit, rustok_page_builder_audit, snapshot_api_contract, trust_adapter_plugin,
+    unregister_project, untrust_adapter_plugin,
 };
 use athanor_domain::ContextLevel;
 use clap::{Parser, Subcommand, ValueEnum};
@@ -68,6 +72,8 @@ enum DiagnosticScopeArg {
     RustokFfa,
     #[value(name = "rustok-fba")]
     RustokFba,
+    #[value(name = "rustok-page-builder")]
+    RustokPageBuilder,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -105,6 +111,7 @@ impl DiagnosticScopeArg {
             Self::Runbooks => Some(DiagnosticScope::Runbooks),
             Self::RustokFfa => Some(DiagnosticScope::RustokFfa),
             Self::RustokFba => Some(DiagnosticScope::RustokFba),
+            Self::RustokPageBuilder => Some(DiagnosticScope::RustokPageBuilder),
         }
     }
 }
@@ -1755,6 +1762,20 @@ async fn handle_manual_rustok_arch_command() -> Result<bool> {
             }
             Ok(true)
         }
+        [first, second, third, rest @ ..]
+            if first == "rustok" && second == "page-builder" && third == "audit" =>
+        {
+            let flags = parse_arch_flags(rest, true)?;
+            let report =
+                rustok_page_builder_audit(RustokPageBuilderAuditOptions { root: flags.path })
+                    .await?;
+            if flags.json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                print_rustok_page_builder_audit(&report);
+            }
+            Ok(true)
+        }
         [first, second, third, module, surface, rest @ ..]
             if first == "graph" && second == "ffa" && third == "surface" =>
         {
@@ -1789,6 +1810,41 @@ async fn handle_manual_rustok_arch_command() -> Result<bool> {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
                 print_rustok_fba_graph(&report);
+            }
+            Ok(true)
+        }
+        [first, second, third, rest @ ..]
+            if first == "graph" && second == "page-builder" && third == "provider" =>
+        {
+            let flags = parse_arch_flags(rest, true)?;
+            let report = graph_page_builder_provider(GraphPageBuilderProviderOptions {
+                root: flags.path,
+                max_nodes: flags.max_nodes,
+                max_edges: flags.max_edges,
+            })
+            .await?;
+            if flags.json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                print_rustok_page_builder_graph(&report);
+            }
+            Ok(true)
+        }
+        [first, second, third, module, rest @ ..]
+            if first == "graph" && second == "page-builder" && third == "consumer" =>
+        {
+            let flags = parse_arch_flags(rest, true)?;
+            let report = graph_page_builder_consumer(GraphPageBuilderConsumerOptions {
+                root: flags.path,
+                module: module.clone(),
+                max_nodes: flags.max_nodes,
+                max_edges: flags.max_edges,
+            })
+            .await?;
+            if flags.json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                print_rustok_page_builder_graph(&report);
             }
             Ok(true)
         }
@@ -1866,6 +1922,24 @@ async fn handle_manual_rustok_arch_command() -> Result<bool> {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
                 print_rustok_fba_graph(&report);
+            }
+            Ok(true)
+        }
+        [first, second, third, rest @ ..]
+            if first == "graph" && second == "page-builder" && third == "violations" =>
+        {
+            let flags = parse_fba_violations_flags(rest)?;
+            let report = graph_page_builder_violations(GraphPageBuilderViolationsOptions {
+                root: flags.path,
+                module: flags.module,
+                max_nodes: flags.max_nodes,
+                max_edges: flags.max_edges,
+            })
+            .await?;
+            if flags.json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                print_rustok_page_builder_graph(&report);
             }
             Ok(true)
         }
@@ -2700,6 +2774,63 @@ fn print_rustok_fba_graph(report: &RustokFbaGraph) {
     let root = report.root.as_deref().unwrap_or("violations");
     println!(
         "RusTok FBA graph for {} (snapshot: {}, nodes: {}, edges: {}, diagnostics: {}, omitted nodes: {}, omitted edges: {})",
+        root,
+        report.snapshot,
+        report.nodes.len(),
+        report.edges.len(),
+        report.diagnostics.len(),
+        report.omitted.nodes,
+        report.omitted.edges
+    );
+    for diagnostic in &report.diagnostics {
+        println!("  ! {:?} {}", diagnostic.severity, diagnostic.title);
+    }
+    for node in &report.nodes {
+        let source = node.source.as_deref().unwrap_or("unknown source");
+        println!("  - [{}] {} source={}", node.kind, node.id, source);
+    }
+    for edge in &report.edges {
+        println!("    {} -> {} [{}]", edge.from, edge.to, edge.kind);
+    }
+}
+
+fn print_rustok_page_builder_audit(report: &RustokPageBuilderAudit) {
+    println!(
+        "RusTok Page Builder audit (snapshot: {}, providers: {}, consumers: {}, contracts: {}, capabilities: {}, fallback profiles: {}, wave evidence: {}, diagnostics: {})",
+        report.snapshot,
+        report.summary.providers_total,
+        report.summary.consumers_total,
+        report.summary.contracts_total,
+        report.summary.capabilities_total,
+        report.summary.fallback_profiles_total,
+        report.summary.wave_evidence_total,
+        report.summary.diagnostics_open
+    );
+    if report.consumers.is_empty() {
+        println!("  consumers: (none)");
+    } else {
+        println!("  consumers:");
+        for consumer in &report.consumers {
+            let diagnostics = if consumer.diagnostics.is_empty() {
+                "none".to_string()
+            } else {
+                consumer.diagnostics.join(", ")
+            };
+            println!(
+                "  - {} module={} diagnostics={}",
+                consumer.id, consumer.module, diagnostics
+            );
+        }
+    }
+    if !report.diagnostics.is_empty() {
+        println!("  diagnostics: {}", report.diagnostics.join(", "));
+    }
+}
+
+fn print_rustok_page_builder_graph(report: &RustokPageBuilderGraph) {
+    let root = report.root.as_deref().unwrap_or("violations");
+    println!(
+        "RusTok Page Builder graph for {} (snapshot: {}, nodes: {}, edges: {}, diagnostics: {}, omitted nodes: {}, omitted edges: {})",
         root,
         report.snapshot,
         report.nodes.len(),

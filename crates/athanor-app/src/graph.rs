@@ -23,6 +23,13 @@ pub const RUSTOK_FBA_MODULE_GRAPH_SCHEMA: &str = "athanor.rustok_fba_module_grap
 pub const RUSTOK_FBA_PORT_GRAPH_SCHEMA: &str = "athanor.rustok_fba_port_graph.v1";
 pub const RUSTOK_FBA_DEPENDENCIES_GRAPH_SCHEMA: &str = "athanor.rustok_fba_dependencies_graph.v1";
 pub const RUSTOK_FBA_VIOLATIONS_GRAPH_SCHEMA: &str = "athanor.rustok_fba_violations_graph.v1";
+pub const RUSTOK_PAGE_BUILDER_AUDIT_SCHEMA: &str = "athanor.rustok_page_builder_audit.v1";
+pub const RUSTOK_PAGE_BUILDER_PROVIDER_GRAPH_SCHEMA: &str =
+    "athanor.rustok_page_builder_provider_graph.v1";
+pub const RUSTOK_PAGE_BUILDER_CONSUMER_GRAPH_SCHEMA: &str =
+    "athanor.rustok_page_builder_consumer_graph.v1";
+pub const RUSTOK_PAGE_BUILDER_VIOLATIONS_GRAPH_SCHEMA: &str =
+    "athanor.rustok_page_builder_violations_graph.v1";
 
 #[derive(Debug, Clone)]
 pub struct GraphExportOptions {
@@ -87,6 +94,11 @@ pub struct RustokFbaAuditOptions {
 }
 
 #[derive(Debug, Clone)]
+pub struct RustokPageBuilderAuditOptions {
+    pub root: PathBuf,
+}
+
+#[derive(Debug, Clone)]
 pub struct GraphFfaSurfaceOptions {
     pub root: PathBuf,
     pub module: String,
@@ -131,6 +143,29 @@ pub struct GraphFbaDependenciesOptions {
 
 #[derive(Debug, Clone)]
 pub struct GraphFbaViolationsOptions {
+    pub root: PathBuf,
+    pub module: Option<String>,
+    pub max_nodes: usize,
+    pub max_edges: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct GraphPageBuilderConsumerOptions {
+    pub root: PathBuf,
+    pub module: String,
+    pub max_nodes: usize,
+    pub max_edges: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct GraphPageBuilderProviderOptions {
+    pub root: PathBuf,
+    pub max_nodes: usize,
+    pub max_edges: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct GraphPageBuilderViolationsOptions {
     pub root: PathBuf,
     pub module: Option<String>,
     pub max_nodes: usize,
@@ -387,6 +422,65 @@ pub struct RustokFbaGraphEdge {
     pub evidence: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct RustokPageBuilderAudit {
+    pub schema: String,
+    pub snapshot: String,
+    pub summary: RustokPageBuilderAuditSummary,
+    pub providers: Vec<String>,
+    pub consumers: Vec<RustokPageBuilderAuditConsumer>,
+    pub contracts: Vec<String>,
+    pub capabilities: Vec<String>,
+    pub fallback_profiles: Vec<String>,
+    pub wave_evidence: Vec<String>,
+    pub diagnostics: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct RustokPageBuilderAuditSummary {
+    pub providers_total: usize,
+    pub consumers_total: usize,
+    pub contracts_total: usize,
+    pub capabilities_total: usize,
+    pub fallback_profiles_total: usize,
+    pub wave_evidence_total: usize,
+    pub diagnostics_open: usize,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct RustokPageBuilderAuditConsumer {
+    pub id: String,
+    pub module: String,
+    pub diagnostics: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct RustokPageBuilderGraph {
+    pub schema: String,
+    pub snapshot: String,
+    pub root: Option<String>,
+    pub nodes: Vec<RustokPageBuilderGraphNode>,
+    pub edges: Vec<RustokPageBuilderGraphEdge>,
+    pub diagnostics: Vec<Diagnostic>,
+    pub omitted: GraphOmitted,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct RustokPageBuilderGraphNode {
+    pub id: String,
+    pub kind: String,
+    pub name: String,
+    pub source: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct RustokPageBuilderGraphEdge {
+    pub from: String,
+    pub to: String,
+    pub kind: String,
+    pub evidence: Vec<String>,
+}
+
 pub async fn export_graph(options: GraphExportOptions) -> Result<GraphExport> {
     if options.max_entities == 0 || options.max_relations == 0 {
         bail!("graph export entity and relation limits must be greater than zero");
@@ -601,6 +695,13 @@ pub async fn rustok_fba_audit(options: RustokFbaAuditOptions) -> Result<RustokFb
     Ok(build_rustok_fba_audit(&snapshot))
 }
 
+pub async fn rustok_page_builder_audit(
+    options: RustokPageBuilderAuditOptions,
+) -> Result<RustokPageBuilderAudit> {
+    let snapshot = load_latest_graph_snapshot(options.root).await?;
+    Ok(build_rustok_page_builder_audit(&snapshot))
+}
+
 pub async fn graph_ffa_surface(options: GraphFfaSurfaceOptions) -> Result<RustokFfaGraph> {
     if options.max_nodes == 0 || options.max_edges == 0 {
         bail!("FFA graph limits must be greater than zero");
@@ -677,6 +778,46 @@ pub async fn graph_fba_violations(options: GraphFbaViolationsOptions) -> Result<
     }
     let snapshot = load_latest_graph_snapshot(options.root).await?;
     Ok(build_rustok_fba_violations_graph(
+        &snapshot,
+        options.module.as_deref(),
+        options.max_nodes,
+        options.max_edges,
+    ))
+}
+
+pub async fn graph_page_builder_provider(
+    options: GraphPageBuilderProviderOptions,
+) -> Result<RustokPageBuilderGraph> {
+    if options.max_nodes == 0 || options.max_edges == 0 {
+        bail!("Page Builder graph limits must be greater than zero");
+    }
+    let snapshot = load_latest_graph_snapshot(options.root).await?;
+    build_rustok_page_builder_provider_graph(&snapshot, options.max_nodes, options.max_edges)
+}
+
+pub async fn graph_page_builder_consumer(
+    options: GraphPageBuilderConsumerOptions,
+) -> Result<RustokPageBuilderGraph> {
+    if options.max_nodes == 0 || options.max_edges == 0 {
+        bail!("Page Builder graph limits must be greater than zero");
+    }
+    let snapshot = load_latest_graph_snapshot(options.root).await?;
+    build_rustok_page_builder_consumer_graph(
+        &snapshot,
+        &options.module,
+        options.max_nodes,
+        options.max_edges,
+    )
+}
+
+pub async fn graph_page_builder_violations(
+    options: GraphPageBuilderViolationsOptions,
+) -> Result<RustokPageBuilderGraph> {
+    if options.max_nodes == 0 || options.max_edges == 0 {
+        bail!("Page Builder graph limits must be greater than zero");
+    }
+    let snapshot = load_latest_graph_snapshot(options.root).await?;
+    Ok(build_rustok_page_builder_violations_graph(
         &snapshot,
         options.module.as_deref(),
         options.max_nodes,
@@ -769,6 +910,253 @@ pub fn build_rustok_fba_audit(snapshot: &CanonicalSnapshot) -> RustokFbaAudit {
         },
         modules,
     }
+}
+
+pub fn build_rustok_page_builder_audit(snapshot: &CanonicalSnapshot) -> RustokPageBuilderAudit {
+    let diagnostics = page_builder_diagnostics(snapshot, None);
+    let diagnostics_by_module = diagnostics_by_module(&diagnostics);
+    let mut providers = Vec::new();
+    let mut consumers = Vec::new();
+    let mut contracts = Vec::new();
+    let mut capabilities = Vec::new();
+    let mut fallback_profiles = Vec::new();
+    let mut wave_evidence = Vec::new();
+
+    for entity in &snapshot.entities {
+        if !is_page_builder_entity(entity) {
+            continue;
+        }
+        let stable = entity.stable_key.0.clone();
+        match entity.kind {
+            athanor_domain::EntityKind::Other(ref kind)
+                if kind == "rustok_page_builder_provider" =>
+            {
+                providers.push(stable);
+            }
+            athanor_domain::EntityKind::Other(ref kind)
+                if kind == "rustok_page_builder_consumer" =>
+            {
+                let module = stable
+                    .strip_prefix("page_builder_consumer://")
+                    .unwrap_or(entity.name.as_str())
+                    .to_string();
+                consumers.push(RustokPageBuilderAuditConsumer {
+                    id: stable,
+                    module: module.clone(),
+                    diagnostics: diagnostics_by_module
+                        .get(&module)
+                        .cloned()
+                        .unwrap_or_default(),
+                });
+            }
+            athanor_domain::EntityKind::Other(ref kind)
+                if kind == "rustok_page_builder_contract" =>
+            {
+                contracts.push(stable);
+            }
+            athanor_domain::EntityKind::Other(ref kind)
+                if kind == "rustok_page_builder_capability" =>
+            {
+                capabilities.push(stable);
+            }
+            athanor_domain::EntityKind::Other(ref kind)
+                if kind == "rustok_page_builder_fallback_profile" =>
+            {
+                fallback_profiles.push(stable);
+            }
+            athanor_domain::EntityKind::Other(ref kind)
+                if kind == "rustok_page_builder_wave_evidence" =>
+            {
+                wave_evidence.push(stable);
+            }
+            _ => {}
+        }
+    }
+
+    providers.sort();
+    consumers.sort_by(|left, right| left.module.cmp(&right.module));
+    contracts.sort();
+    capabilities.sort();
+    fallback_profiles.sort();
+    wave_evidence.sort();
+    let diagnostics = diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.id.0.clone())
+        .collect::<Vec<_>>();
+
+    RustokPageBuilderAudit {
+        schema: RUSTOK_PAGE_BUILDER_AUDIT_SCHEMA.to_string(),
+        snapshot: snapshot_id(snapshot),
+        summary: RustokPageBuilderAuditSummary {
+            providers_total: providers.len(),
+            consumers_total: consumers.len(),
+            contracts_total: contracts.len(),
+            capabilities_total: capabilities.len(),
+            fallback_profiles_total: fallback_profiles.len(),
+            wave_evidence_total: wave_evidence.len(),
+            diagnostics_open: diagnostics.len(),
+        },
+        providers,
+        consumers,
+        contracts,
+        capabilities,
+        fallback_profiles,
+        wave_evidence,
+        diagnostics,
+    }
+}
+
+pub fn build_rustok_page_builder_provider_graph(
+    snapshot: &CanonicalSnapshot,
+    max_nodes: usize,
+    max_edges: usize,
+) -> Result<RustokPageBuilderGraph> {
+    let provider_key = "page_builder_provider://page_builder";
+    let entity_by_stable = snapshot
+        .entities
+        .iter()
+        .map(|entity| (entity.stable_key.0.as_str(), entity))
+        .collect::<HashMap<_, _>>();
+    let provider = entity_by_stable
+        .get(provider_key)
+        .ok_or_else(|| anyhow::anyhow!("Page Builder provider not found for `{provider_key}`"))?;
+    let mut selected_ids = BTreeSet::from([provider.id.0.clone()]);
+    let mut edges = Vec::new();
+    let entity_by_id = entity_by_id(snapshot);
+    for relation in &snapshot.relations {
+        let from = entity_by_id.get(relation.from.0.as_str());
+        let to = entity_by_id.get(relation.to.0.as_str());
+        let touches = relation.from == provider.id
+            || relation.to == provider.id
+            || from.is_some_and(|entity| is_page_builder_entity(entity))
+                && to.is_some_and(|entity| is_page_builder_entity(entity))
+                && relation
+                    .payload
+                    .get("schema")
+                    .and_then(serde_json::Value::as_str)
+                    == Some("rustok.page_builder.relation.v1");
+        if touches {
+            selected_ids.insert(relation.from.0.clone());
+            selected_ids.insert(relation.to.0.clone());
+            push_page_builder_edge(&mut edges, relation, &entity_by_id);
+        }
+    }
+    Ok(page_builder_graph_from_selection(
+        snapshot,
+        RUSTOK_PAGE_BUILDER_PROVIDER_GRAPH_SCHEMA,
+        Some(provider_key.to_string()),
+        selected_ids,
+        edges,
+        page_builder_diagnostics(snapshot, None),
+        max_nodes,
+        max_edges,
+    ))
+}
+
+pub fn build_rustok_page_builder_consumer_graph(
+    snapshot: &CanonicalSnapshot,
+    module: &str,
+    max_nodes: usize,
+    max_edges: usize,
+) -> Result<RustokPageBuilderGraph> {
+    let consumer_key = format!("page_builder_consumer://{module}");
+    let entity_by_id = entity_by_id(snapshot);
+    let consumer = snapshot
+        .entities
+        .iter()
+        .find(|entity| entity.stable_key.0 == consumer_key)
+        .ok_or_else(|| anyhow::anyhow!("Page Builder consumer not found for `{consumer_key}`"))?;
+    let mut selected_ids = BTreeSet::from([consumer.id.0.clone()]);
+    let mut edges = Vec::new();
+    for relation in &snapshot.relations {
+        let from = entity_by_id.get(relation.from.0.as_str());
+        let to = entity_by_id.get(relation.to.0.as_str());
+        let touches = relation.from == consumer.id
+            || relation.to == consumer.id
+            || from.is_some_and(|entity| entity.stable_key.0.contains(&format!("://{module}/")))
+            || to.is_some_and(|entity| entity.stable_key.0.contains(&format!("://{module}/")));
+        if touches
+            && (from.is_some_and(|entity| is_page_builder_entity(entity))
+                || to.is_some_and(|entity| is_page_builder_entity(entity)))
+        {
+            selected_ids.insert(relation.from.0.clone());
+            selected_ids.insert(relation.to.0.clone());
+            push_page_builder_edge(&mut edges, relation, &entity_by_id);
+        }
+    }
+    Ok(page_builder_graph_from_selection(
+        snapshot,
+        RUSTOK_PAGE_BUILDER_CONSUMER_GRAPH_SCHEMA,
+        Some(consumer_key),
+        selected_ids,
+        edges,
+        page_builder_diagnostics(snapshot, Some(module)),
+        max_nodes,
+        max_edges,
+    ))
+}
+
+pub fn build_rustok_page_builder_violations_graph(
+    snapshot: &CanonicalSnapshot,
+    module: Option<&str>,
+    max_nodes: usize,
+    max_edges: usize,
+) -> RustokPageBuilderGraph {
+    let diagnostics = page_builder_diagnostics(snapshot, module);
+    let entity_by_stable = snapshot
+        .entities
+        .iter()
+        .map(|entity| (entity.stable_key.0.as_str(), entity))
+        .collect::<HashMap<_, _>>();
+    let mut node_keys = BTreeSet::new();
+    let mut edges = Vec::new();
+    for diagnostic in &diagnostics {
+        let diag_module = diagnostic
+            .payload
+            .get("module")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("page_builder");
+        let consumer_key = format!("page_builder_consumer://{diag_module}");
+        let provider_key = "page_builder_provider://page_builder".to_string();
+        let root_key = if entity_by_stable.contains_key(consumer_key.as_str()) {
+            consumer_key
+        } else {
+            provider_key
+        };
+        node_keys.insert(root_key.clone());
+        if let Some(path) = diagnostic
+            .payload
+            .get("path")
+            .and_then(serde_json::Value::as_str)
+        {
+            let file_key = format!("file://{path}");
+            node_keys.insert(file_key.clone());
+            edges.push(RustokPageBuilderGraphEdge {
+                from: root_key,
+                to: file_key,
+                kind: "evidenced_by".to_string(),
+                evidence: diagnostic_evidence(diagnostic),
+            });
+        }
+    }
+    let selected_ids = node_keys
+        .iter()
+        .filter_map(|key| {
+            entity_by_stable
+                .get(key.as_str())
+                .map(|entity| entity.id.0.clone())
+        })
+        .collect::<BTreeSet<_>>();
+    page_builder_graph_from_selection(
+        snapshot,
+        RUSTOK_PAGE_BUILDER_VIOLATIONS_GRAPH_SCHEMA,
+        module.map(|module| format!("page_builder_consumer://{module}")),
+        selected_ids,
+        edges,
+        diagnostics,
+        max_nodes,
+        max_edges,
+    )
 }
 
 pub fn build_rustok_fba_module_graph(
@@ -2176,6 +2564,115 @@ fn entity_by_id(snapshot: &CanonicalSnapshot) -> HashMap<&str, &Entity> {
         .iter()
         .map(|entity| (entity.id.0.as_str(), entity))
         .collect()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn page_builder_graph_from_selection(
+    snapshot: &CanonicalSnapshot,
+    schema: &str,
+    root: Option<String>,
+    selected_ids: BTreeSet<String>,
+    mut edges: Vec<RustokPageBuilderGraphEdge>,
+    diagnostics: Vec<Diagnostic>,
+    max_nodes: usize,
+    max_edges: usize,
+) -> RustokPageBuilderGraph {
+    let entity_by_id = entity_by_id(snapshot);
+    let total_nodes = selected_ids.len();
+    let total_edges = edges.len();
+    let mut nodes = selected_ids
+        .iter()
+        .filter_map(|id| entity_by_id.get(id.as_str()))
+        .map(|entity| RustokPageBuilderGraphNode {
+            id: entity.stable_key.0.clone(),
+            kind: serialized_name(&entity.kind),
+            name: entity.name.clone(),
+            source: entity.source.as_ref().map(|source| {
+                source.line_start.map_or_else(
+                    || source.path.clone(),
+                    |line| format!("{}:{line}", source.path),
+                )
+            }),
+        })
+        .collect::<Vec<_>>();
+    nodes.sort_by(|left, right| left.id.cmp(&right.id));
+    nodes.truncate(max_nodes);
+    let retained = nodes
+        .iter()
+        .map(|node| node.id.as_str())
+        .collect::<BTreeSet<_>>();
+    edges.retain(|edge| {
+        retained.contains(edge.from.as_str()) && retained.contains(edge.to.as_str())
+    });
+    edges.sort_by(|left, right| {
+        (&left.from, &left.to, &left.kind).cmp(&(&right.from, &right.to, &right.kind))
+    });
+    edges.truncate(max_edges);
+
+    RustokPageBuilderGraph {
+        schema: schema.to_string(),
+        snapshot: snapshot_id(snapshot),
+        root,
+        nodes,
+        edges,
+        diagnostics,
+        omitted: GraphOmitted {
+            nodes: total_nodes.saturating_sub(max_nodes.min(total_nodes)),
+            edges: total_edges.saturating_sub(max_edges.min(total_edges)),
+            reason: "rustok_page_builder_graph_limits".to_string(),
+        },
+    }
+}
+
+fn push_page_builder_edge(
+    edges: &mut Vec<RustokPageBuilderGraphEdge>,
+    relation: &Relation,
+    entity_by_id: &HashMap<&str, &Entity>,
+) {
+    let Some(from) = entity_by_id.get(relation.from.0.as_str()) else {
+        return;
+    };
+    let Some(to) = entity_by_id.get(relation.to.0.as_str()) else {
+        return;
+    };
+    edges.push(RustokPageBuilderGraphEdge {
+        from: from.stable_key.0.clone(),
+        to: to.stable_key.0.clone(),
+        kind: serialized_name(&relation.kind),
+        evidence: relation_evidence(relation),
+    });
+}
+
+fn is_page_builder_entity(entity: &Entity) -> bool {
+    matches!(
+        &entity.kind,
+        athanor_domain::EntityKind::Other(kind) if kind.starts_with("rustok_page_builder_")
+    )
+}
+
+fn page_builder_diagnostics(snapshot: &CanonicalSnapshot, module: Option<&str>) -> Vec<Diagnostic> {
+    let mut diagnostics = snapshot
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| {
+            matches!(
+                &diagnostic.kind,
+                DiagnosticKind::Other(kind) if kind.starts_with("rustok_page_builder_")
+            )
+        })
+        .filter(|diagnostic| {
+            module.is_none_or(|module| {
+                diagnostic
+                    .payload
+                    .get("module")
+                    .and_then(serde_json::Value::as_str)
+                    == Some(module)
+            })
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    diagnostics.sort_by(|left, right| left.id.0.cmp(&right.id.0));
+    diagnostics
 }
 
 #[derive(Debug, Default)]

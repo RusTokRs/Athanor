@@ -33,6 +33,7 @@ Crates:
 - `athanor-extractor-rust`
 - `athanor-adapter-rustok-fba`
 - `athanor-adapter-rustok-ffa`
+- `athanor-adapter-rustok-page-builder`
 - `athanor-linker-api`
 - `athanor-linker-markdown`
 - `athanor-checker-markdown`
@@ -142,6 +143,8 @@ ath check rustok-ffa
 ath check rustok-ffa --json
 ath rustok fba audit
 ath rustok fba audit --json
+ath rustok page-builder audit
+ath rustok page-builder audit --json
 ath graph fba module <module>
 ath graph fba module <module> --json
 ath graph fba port <module> <port>
@@ -150,8 +153,16 @@ ath graph fba dependencies --module <module>
 ath graph fba dependencies --module <module> --json
 ath graph fba violations --module <module>
 ath graph fba violations --module <module> --json
+ath graph page-builder provider
+ath graph page-builder provider --json
+ath graph page-builder consumer <module>
+ath graph page-builder consumer <module> --json
+ath graph page-builder violations --module <module>
+ath graph page-builder violations --module <module> --json
 ath check rustok-fba
 ath check rustok-fba --json
+ath check rustok-page-builder
+ath check rustok-page-builder --json
 ath projects list
 ath projects list --json
 ath projects add <project-id> <path>
@@ -553,6 +564,26 @@ Purpose:
 - emits canonical `fba_module`, `fba_contract`, `fba_port`, `fba_operation`, `fba_profile`, and `fba_dependency` entities with evidence-backed relations
 - diagnoses FBA-only issues under the `rustok_fba_*` prefix
 - exposes bounded agent-facing read models through `ath rustok fba audit`, `ath graph fba module`, `ath graph fba port`, `ath graph fba dependencies`, `ath graph fba violations`, and `ath check rustok-fba`
+
+### RusTok Page Builder Adapter And Graph Extension
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-adapter-rustok-page-builder`
+- `crates/athanor-app/src/runtime.rs`
+- `crates/athanor-app/src/graph.rs`
+- `crates/athanor-app/src/check.rs`
+- `apps/ath/src/main.rs`
+
+Purpose:
+
+- adds opt-in built-in factories `builtin.extractor.rustok_page_builder`, `builtin.linker.rustok_page_builder`, and `builtin.checker.rustok_page_builder`
+- extracts Page Builder provider registry, adapter seam, wave evidence, consumer manifest, content-format, and FSD surface markers without mixing with FFA or FBA
+- emits canonical Page Builder provider, consumer, contract, capability, fallback-profile, wave-evidence, adapter-seam, content-surface, and FSD-surface entities with evidence-backed relations
+- diagnoses Page Builder-only issues under the `rustok_page_builder_*` prefix
+- exposes bounded agent-facing read models through `ath rustok page-builder audit`, `ath graph page-builder provider`, `ath graph page-builder consumer`, `ath graph page-builder violations`, and `ath check rustok-page-builder`
 
 ### External Process Extractors, Linkers, And Checkers
 
@@ -2317,6 +2348,52 @@ Purpose:
 
 This backlog tracks the remaining global plan from `start.md`. The entries below are prioritized by dependency order and current product value; each item should be moved into `Implemented` only after code, documentation, and required verification are complete.
 
+### JavaScript/TypeScript Adapter Initial Slice
+
+Status: planned.
+
+Priority: P1.
+
+Scope:
+
+- add one built-in `athanor-extractor-js-ts` language adapter for mixed JavaScript and TypeScript projects instead of separate JS and TS adapters
+- support `.js`, `.jsx`, `.mjs`, `.cjs`, `.ts`, `.tsx`, `.mts`, and `.cts` source files with per-file language hints preserved in emitted metadata
+- use a maintained Rust parser backend for the initial implementation rather than writing a custom JavaScript/TypeScript parser
+- keep parser-specific AST structures inside the adapter; emit backend-independent canonical entities, facts, relations, diagnostics, stable keys, evidence, and ownership
+- extract an initial source graph for modules, imports, exports, functions, classes, type/interface declarations where available, and package-level dependencies
+- register the adapter through the app-layer runtime only after adapter docs, crate README, focused fixtures, and validation tests prove canonical output metadata is complete
+- keep framework-specific behavior such as React, Next.js, NestJS, Express, Vue, route inference, component semantics, and project conventions out of the base language adapter unless represented as explicit later adapter slices
+
+Acceptance:
+
+- mixed JS/TS repositories can be indexed through one adapter without requiring agents to run separate JavaScript and TypeScript analysis paths
+- canonical output remains parser-backend independent and satisfies evidence, ownership, and adapter validation requirements
+- unsupported syntax, parser failures, skipped files, and partial extraction are surfaced as evidence-backed diagnostics or capability/coverage facts rather than being silently ignored
+- the initial adapter is usable offline, has focused fixtures for JavaScript, TypeScript, JSX, TSX, ESM, and CommonJS, and passes the full required verification commands
+
+### JavaScript/TypeScript Dual-Parser Verification Mode
+
+Status: planned.
+
+Priority: P1.
+
+Scope:
+
+- add an optional precision mode inside `athanor-extractor-js-ts` that can run a second maintained Rust parser backend for the same affected JS/TS source file
+- normalize each backend's findings into comparable adapter-local rows such as modules, imports, exports, declarations, source ranges, and recoverable parser diagnostics instead of comparing raw ASTs
+- compare normalized backend results and emit canonical output only through the same backend-independent extraction model used by normal mode
+- report parser disagreement, backend-only findings, source-range mismatches, recovery differences, and unsupported syntax through evidence-backed diagnostics and bounded metrics
+- prefer explicit confidence/diagnostic reporting over silently merging contradictory backend results
+- make the second backend opt-in through configuration or feature gating so normal indexing remains fast and deterministic for large repositories
+- document parser backend selection, performance tradeoffs, known disagreement classes, and how precision mode affects coverage output
+
+Acceptance:
+
+- users can enable higher-precision JS/TS extraction for important repositories without changing Athanor core/domain contracts
+- disagreement reports are bounded, deterministic, evidence-backed, and suitable for agent-facing commands rather than requiring generated artifact inspection
+- normal mode and precision mode produce stable canonical ids for agreed findings
+- tests cover agreeing parser output, one-backend parse failure, backend-only declaration/import findings, and source-range disagreement
+
 ### Daemon Fault-Injection Coverage
 
 Status: planned.
@@ -2641,7 +2718,8 @@ Status: planned.
 
 Scope:
 
-- deepen TypeScript/JavaScript, Python, Go, PHP, Java, C#, and C/C++ support through adapters
+- deepen Python, Go, PHP, Java, C#, and C/C++ support through adapters
+- extend JavaScript/TypeScript beyond the initial promoted adapter slices with deeper semantic, framework, and optional external-index support
 - add framework adapters and optional LSP/SCIP/LSIF import/export paths
 - preserve adapter-first boundaries for every language and framework integration
 

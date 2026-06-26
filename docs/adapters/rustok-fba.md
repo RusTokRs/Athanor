@@ -56,8 +56,15 @@ The extractor reads machine contracts and code markers:
 
 - `crates/rustok-*/contracts/*-fba-registry.json`
 - `crates/rustok-*/src/ports.rs`
+- `crates/rustok-*/src/ports/mod.rs`
+- `crates/rustok-*/src/ports/**/*.rs`
 
 Registry JSON is the source of declared module role, contract version, ports, operations, consumers, provider dependencies, fallback profiles, evidence paths, and contract-test cases. Rust code confirms port traits, operations, shared `PortContext`/`PortError`, and `PortCallPolicy` usage.
+
+When a module splits port traits, implementations, and policy calls across multiple
+`src/ports` files, the checker merges those code markers into one module-level code
+view before emitting diagnostics. This keeps `ports.rs -> ports/` refactors from
+creating false missing-port or missing-policy findings.
 
 Canonical entities:
 

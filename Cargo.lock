@@ -429,6 +429,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "athanor-adapter-rustok-page-builder"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "athanor-core",
+ "athanor-domain",
+ "athanor-extractor-basic",
+ "serde",
+ "serde_json",
+ "tokio",
+ "toml",
+]
+
+[[package]]
 name = "athanor-app"
 version = "0.1.0"
 dependencies = [
@@ -436,6 +450,7 @@ dependencies = [
  "async-trait",
  "athanor-adapter-rustok-fba",
  "athanor-adapter-rustok-ffa",
+ "athanor-adapter-rustok-page-builder",
  "athanor-checker-api",
  "athanor-checker-markdown",
  "athanor-core",

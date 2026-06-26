@@ -9,6 +9,9 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, bail};
 use athanor_adapter_rustok_fba::{RustokFbaChecker, RustokFbaExtractor, RustokFbaLinker};
 use athanor_adapter_rustok_ffa::{RustokFfaChecker, RustokFfaExtractor, RustokFfaLinker};
+use athanor_adapter_rustok_page_builder::{
+    RustokPageBuilderChecker, RustokPageBuilderExtractor, RustokPageBuilderLinker,
+};
 use athanor_checker_api::{
     ApiConsistencyChecker, DeploymentDocsChecker, EnvDocsChecker, RunbookConsistencyChecker,
     ScriptDocsChecker,
@@ -221,6 +224,9 @@ impl AdapterRegistry {
             (AdapterPluginKind::Extractor, "builtin.extractor.rustok_fba") => {
                 Ok(self.builtin_extractor_rustok_fba())
             }
+            (AdapterPluginKind::Extractor, "builtin.extractor.rustok_page_builder") => {
+                Ok(self.builtin_extractor_rustok_page_builder())
+            }
             (AdapterPluginKind::Linker, "builtin.linker.markdown_containment") => {
                 Ok(self.builtin_linker_markdown_containment())
             }
@@ -233,6 +239,9 @@ impl AdapterRegistry {
             }
             (AdapterPluginKind::Linker, "builtin.linker.rustok_fba") => {
                 Ok(self.builtin_linker_rustok_fba())
+            }
+            (AdapterPluginKind::Linker, "builtin.linker.rustok_page_builder") => {
+                Ok(self.builtin_linker_rustok_page_builder())
             }
             (AdapterPluginKind::Checker, "builtin.checker.markdown_structure") => {
                 Ok(self.builtin_checker_markdown_structure())
@@ -257,6 +266,9 @@ impl AdapterRegistry {
             }
             (AdapterPluginKind::Checker, "builtin.checker.rustok_fba") => {
                 Ok(self.builtin_checker_rustok_fba())
+            }
+            (AdapterPluginKind::Checker, "builtin.checker.rustok_page_builder") => {
+                Ok(self.builtin_checker_rustok_page_builder())
             }
             (AdapterPluginKind::Source, _) => self.external_process_source(adapter, manifest_dir),
             (AdapterPluginKind::Extractor, _) => {
@@ -402,6 +414,12 @@ impl AdapterRegistry {
         })
     }
 
+    fn builtin_extractor_rustok_page_builder(self) -> Self {
+        self.register_extractor_id("builtin.extractor.rustok_page_builder", || {
+            Box::new(RustokPageBuilderExtractor)
+        })
+    }
+
     fn builtin_linker_markdown_containment(self) -> Self {
         self.register_linker_id("builtin.linker.markdown_containment", || {
             Box::new(MarkdownContainmentLinker)
@@ -424,6 +442,12 @@ impl AdapterRegistry {
 
     fn builtin_linker_rustok_fba(self) -> Self {
         self.register_linker_id("builtin.linker.rustok_fba", || Box::new(RustokFbaLinker))
+    }
+
+    fn builtin_linker_rustok_page_builder(self) -> Self {
+        self.register_linker_id("builtin.linker.rustok_page_builder", || {
+            Box::new(RustokPageBuilderLinker)
+        })
     }
 
     fn builtin_checker_markdown_structure(self) -> Self {
@@ -466,6 +490,12 @@ impl AdapterRegistry {
 
     fn builtin_checker_rustok_fba(self) -> Self {
         self.register_checker_id("builtin.checker.rustok_fba", || Box::new(RustokFbaChecker))
+    }
+
+    fn builtin_checker_rustok_page_builder(self) -> Self {
+        self.register_checker_id("builtin.checker.rustok_page_builder", || {
+            Box::new(RustokPageBuilderChecker)
+        })
     }
 
     fn register_source_id(

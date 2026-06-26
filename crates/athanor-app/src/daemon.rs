@@ -4783,7 +4783,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn unix_local_socket_endpoint_removes_stale_socket_file() {
-        let root = temp_root("unix-local-socket");
+        let root = short_unix_temp_root("unix-local-socket");
         let socket_path = root.join("daemon.sock");
         fs::write(&socket_path, "stale").unwrap();
 
@@ -4794,6 +4794,19 @@ mod tests {
         assert!(endpoint.guard.is_some());
         assert!(!socket_path.exists());
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    fn short_unix_temp_root(label: &str) -> PathBuf {
+        let root = PathBuf::from("/tmp").join(format!(
+            "ath-{label}-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        root
     }
 
     #[cfg(windows)]

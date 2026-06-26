@@ -25,6 +25,7 @@ Use this file to find the right document before changing code, adapters, plugins
 
 - [Indexing pipeline](architecture/pipeline.md): source discovery, extraction, linking, checking, storage, and JSONL export.
 - [Adapter architecture](architecture/adapters.md): adapter-first boundaries and current adapter map.
+- [RusTok Page Builder adapter](adapters/rustok-page-builder.md): opt-in Page Builder provider/consumer/FSD code-audit adapter and bounded graph commands for RusTok.
 - [RusTok FBA adapter](adapters/rustok-fba.md): opt-in FBA code-audit adapter and bounded graph commands for RusTok.
 - [RusTok FFA adapter](adapters/rustok-ffa.md): opt-in FFA code-audit adapter and bounded graph commands for RusTok.
 
@@ -117,6 +118,7 @@ High-level adapter docs:
 - [OpenAPI extractor](adapters/extractor-openapi.md)
 - [Operations extractor](adapters/extractor-operations.md)
 - [Rust extractor](adapters/extractor-rust.md)
+- [RusTok Page Builder adapter](adapters/rustok-page-builder.md)
 - [RusTok FBA adapter](adapters/rustok-fba.md)
 - [RusTok FFA adapter](adapters/rustok-ffa.md)
 - [API knowledge linker](adapters/linker-api.md)
@@ -139,6 +141,7 @@ Crate-local adapter docs:
 - [`athanor-extractor-openapi`](../crates/athanor-extractor-openapi/README.md)
 - [`athanor-extractor-operations`](../crates/athanor-extractor-operations/README.md)
 - [`athanor-extractor-rust`](../crates/athanor-extractor-rust/README.md)
+- [`athanor-adapter-rustok-page-builder`](../crates/athanor-adapter-rustok-page-builder/README.md)
 - [`athanor-adapter-rustok-fba`](../crates/athanor-adapter-rustok-fba/README.md)
 - [`athanor-adapter-rustok-ffa`](../crates/athanor-adapter-rustok-ffa/README.md)
 - [`athanor-linker-api`](../crates/athanor-linker-api/README.md)

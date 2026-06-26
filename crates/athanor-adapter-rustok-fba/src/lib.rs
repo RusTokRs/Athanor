@@ -359,10 +359,7 @@ impl Checker for RustokFbaChecker {
             .filter(|fact| is_port_code_fact(fact))
             .filter_map(|fact| port_code_from_fact(fact).map(|marker| (fact, marker)))
             .collect::<Vec<_>>();
-        let code_by_module = code_markers
-            .iter()
-            .map(|(_, marker)| (marker.module.as_str(), marker))
-            .collect::<HashMap<_, _>>();
+        let code_by_module = merged_code_markers_by_module(&code_markers);
         let registry_modules = registries
             .iter()
             .map(|(_, marker)| marker.module.as_str())
@@ -433,7 +430,7 @@ impl Checker for RustokFbaChecker {
                 ));
             }
 
-            let code = code_by_module.get(registry.module.as_str()).copied();
+            let code = code_by_module.get(registry.module.as_str());
             let code_ports = code
                 .map(|marker| {
                     marker
@@ -452,7 +449,7 @@ impl Checker for RustokFbaChecker {
                         Severity::High,
                         format!("FBA port trait {} is missing in code", port.name),
                         format!(
-                            "{} declares {} but no matching trait was found in src/ports.rs",
+                            "{} declares {} but no matching trait was found in src/ports",
                             registry.module, port.name
                         ),
                         registry,
@@ -474,7 +471,7 @@ impl Checker for RustokFbaChecker {
                             "rustok_fba_port_operation_missing",
                             Severity::High,
                             format!("FBA operation {operation} is missing in code"),
-                            format!("{} declares {}.{operation}, but the method was not found in src/ports.rs", registry.module, port.name),
+                            format!("{} declares {}.{operation}, but the method was not found in src/ports", registry.module, port.name),
                             registry,
                             Some(&port.name),
                             fact.evidence.clone(),
@@ -599,7 +596,7 @@ impl Checker for RustokFbaChecker {
                     Severity::Medium,
                     "FBA code has no registry",
                     format!(
-                        "{} has src/ports.rs FBA markers but no contracts/*-fba-registry.json",
+                        "{} has src/ports FBA markers but no contracts/*-fba-registry.json",
                         marker.module
                     ),
                     &FbaRegistryMarker::from_code_marker(marker),
@@ -1298,6 +1295,47 @@ fn serialized_relation_kind(kind: &RelationKind) -> String {
         .unwrap_or_else(|| "other".to_string())
 }
 
+fn merged_code_markers_by_module(
+    code_markers: &[(&Fact, FbaPortCodeMarker)],
+) -> HashMap<String, FbaPortCodeMarker> {
+    let mut by_module = HashMap::<String, FbaPortCodeMarker>::new();
+    for (_, marker) in code_markers {
+        by_module
+            .entry(marker.module.clone())
+            .and_modify(|existing| merge_code_marker(existing, marker))
+            .or_insert_with(|| marker.clone());
+    }
+    by_module
+}
+
+fn merge_code_marker(existing: &mut FbaPortCodeMarker, marker: &FbaPortCodeMarker) {
+    existing.has_port_context |= marker.has_port_context;
+    existing.has_port_error |= marker.has_port_error;
+    existing.has_read_policy |= marker.has_read_policy;
+    existing.has_write_policy |= marker.has_write_policy;
+    existing.first_marker_line = existing.first_marker_line.or(marker.first_marker_line);
+    for port in &marker.ports {
+        match existing
+            .ports
+            .iter_mut()
+            .find(|existing_port| existing_port.name == port.name)
+        {
+            Some(existing_port) => {
+                for operation in &port.operations {
+                    if !existing_port
+                        .operations
+                        .iter()
+                        .any(|existing| existing == operation)
+                    {
+                        existing_port.operations.push(operation.clone());
+                    }
+                }
+            }
+            None => existing.ports.push(port.clone()),
+        }
+    }
+}
+
 fn registry_from_fact(fact: &Fact) -> Option<FbaRegistryMarker> {
     serde_json::from_value(fact.value.clone()).ok()
 }
@@ -1321,7 +1359,9 @@ fn is_fba_registry_path(path: &str) -> bool {
 }
 
 fn is_rustok_ports_path(path: &str) -> bool {
-    path.starts_with("crates/rustok-") && path.ends_with("/src/ports.rs")
+    path.starts_with("crates/rustok-")
+        && (path.ends_with("/src/ports.rs")
+            || (path.contains("/src/ports/") && path.ends_with(".rs")))
 }
 
 fn module_from_crate_path(path: &str) -> Option<String> {
@@ -1382,6 +1422,15 @@ mod tests {
     use athanor_domain::{EvidenceStatus, RepoId, SnapshotId};
 
     use super::*;
+
+    fn source(path: &str, content: &str) -> SourceFile {
+        SourceFile {
+            path: path.to_string(),
+            language_hint: Some("rust".to_string()),
+            content_hash: Some("hash".to_string()),
+            content: Some(content.to_string()),
+        }
+    }
 
     #[tokio::test]
     async fn discovers_provider_registry_ports_and_operations() {
@@ -1474,6 +1523,121 @@ mod tests {
         );
         assert!(marker.has_port_context);
         assert!(marker.has_read_policy);
+    }
+
+    #[test]
+    fn supports_flat_mod_and_nested_port_paths() {
+        let extractor = RustokFbaExtractor;
+
+        assert!(extractor.supports(&source(
+            "crates/rustok-cart/src/ports.rs",
+            "pub trait CartSnapshotReadPort {}",
+        )));
+        assert!(extractor.supports(&source(
+            "crates/rustok-cart/src/ports/mod.rs",
+            "pub trait CartSnapshotReadPort {}",
+        )));
+        assert!(extractor.supports(&source(
+            "crates\\rustok-cart\\src\\ports\\cart\\read.rs",
+            "pub trait CartSnapshotReadPort {}",
+        )));
+    }
+
+    #[tokio::test]
+    async fn detects_port_trait_operations_from_mod_rs() {
+        let output = RustokFbaExtractor
+            .extract(ExtractInput {
+                repo: RepoId("repo".to_string()),
+                snapshot: SnapshotId("snap".to_string()),
+                source: source(
+                    "crates/rustok-cart/src/ports/mod.rs",
+                    r#"
+                    use rustok_api::{PortContext, PortError};
+                    pub trait CartSnapshotReadPort: Send + Sync {
+                        async fn read_cart_checkout_snapshot(&self, context: PortContext) -> Result<(), PortError>;
+                    }
+                    "#,
+                ),
+            })
+            .await
+            .unwrap();
+        let marker: FbaPortCodeMarker =
+            serde_json::from_value(output.facts[0].value.clone()).unwrap();
+
+        assert_eq!(marker.path, "crates/rustok-cart/src/ports/mod.rs");
+        assert_eq!(marker.module, "cart");
+        assert_eq!(marker.ports[0].name, "CartSnapshotReadPort");
+        assert_eq!(
+            marker.ports[0].operations,
+            vec!["read_cart_checkout_snapshot"]
+        );
+    }
+
+    #[tokio::test]
+    async fn checker_merges_split_port_code_files_per_module() {
+        let registry = registry_fact(
+            "inventory",
+            "crates/rustok-inventory/contracts/inventory-fba-registry.json",
+            vec![FbaPortSpec {
+                name: "InventoryReservationPort".to_string(),
+                owner: None,
+                operations: vec![
+                    "check_availability".to_string(),
+                    "reserve_inventory".to_string(),
+                ],
+                context: Some("rustok_api::ports::PortContext".to_string()),
+                error: Some("rustok_api::ports::PortError".to_string()),
+                idempotency_required: false,
+                deadline_required: true,
+                read_operations: vec!["check_availability".to_string()],
+                write_operations: vec!["reserve_inventory".to_string()],
+            }],
+        );
+        let trait_file = code_fact_with_path(
+            "inventory",
+            "crates/rustok-inventory/src/ports/mod.rs",
+            vec![FbaCodePort {
+                name: "InventoryReservationPort".to_string(),
+                operations: vec!["check_availability".to_string()],
+            }],
+            true,
+            true,
+            false,
+            false,
+        );
+        let impl_file = code_fact_with_path(
+            "inventory",
+            "crates/rustok-inventory/src/ports/reservation.rs",
+            vec![FbaCodePort {
+                name: "InventoryReservationPort".to_string(),
+                operations: vec!["reserve_inventory".to_string()],
+            }],
+            false,
+            false,
+            false,
+            true,
+        );
+
+        let diagnostics = RustokFbaChecker
+            .check(CheckInput {
+                snapshot: SnapshotId("snap".to_string()),
+                entities: Arc::new(Vec::new()),
+                facts: Arc::new(vec![registry, trait_file, impl_file]),
+                relations: Arc::new(Vec::new()),
+                affected: AffectedSubset::default(),
+            })
+            .await
+            .unwrap();
+
+        assert!(!diagnostics.iter().any(|diagnostic| matches!(
+            diagnostic.kind,
+            DiagnosticKind::Other(ref kind)
+                if kind == "rustok_fba_port_trait_missing"
+                    || kind == "rustok_fba_port_operation_missing"
+                    || kind == "rustok_fba_context_missing"
+                    || kind == "rustok_fba_error_missing"
+                    || kind == "rustok_fba_policy_missing"
+        )));
     }
 
     #[tokio::test]
@@ -1606,15 +1770,27 @@ mod tests {
 
     fn code_fact(module: &str, ports: Vec<FbaCodePort>) -> Fact {
         let path = format!("crates/rustok-{module}/src/ports.rs");
+        code_fact_with_path(module, &path, ports, true, true, true, true)
+    }
+
+    fn code_fact_with_path(
+        module: &str,
+        path: &str,
+        ports: Vec<FbaCodePort>,
+        has_port_context: bool,
+        has_port_error: bool,
+        has_read_policy: bool,
+        has_write_policy: bool,
+    ) -> Fact {
         let marker = FbaPortCodeMarker {
             schema: "rustok.fba.port_code.v1".to_string(),
-            path: path.clone(),
+            path: path.to_string(),
             module: module.to_string(),
             ports,
-            has_port_context: true,
-            has_port_error: true,
-            has_read_policy: true,
-            has_write_policy: true,
+            has_port_context,
+            has_port_error,
+            has_read_policy,
+            has_write_policy,
             first_marker_line: Some(1),
         };
         Fact {
@@ -1624,7 +1800,7 @@ mod tests {
             object: None,
             value: serde_json::to_value(marker).unwrap(),
             evidence: vec![Evidence {
-                source_file: Some(path.clone()),
+                source_file: Some(path.to_string()),
                 line_start: Some(1),
                 line_end: Some(1),
                 extractor: Some("test".to_string()),
@@ -1632,7 +1808,7 @@ mod tests {
                 confidence: 1.0,
                 status: EvidenceStatus::Verified,
             }],
-            ownership: ownership_for_file(&path),
+            ownership: ownership_for_file(path),
             snapshot: SnapshotId("snap".to_string()),
             extractor: "test".to_string(),
             confidence: 1.0,
