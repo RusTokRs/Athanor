@@ -3357,6 +3357,63 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn invalid_request_json_gets_structured_error_without_work() {
+        let root = temp_root("invalid-request-json");
+        let state = Arc::new(test_daemon_state(&root, false));
+        let (server, mut client) = tokio::io::duplex(256);
+        let server_task = tokio::spawn(handle_connection(server, Arc::clone(&state)));
+
+        client.write_all(b"{not-json\n").await.unwrap();
+        client.shutdown().await.unwrap();
+
+        let mut response = Vec::new();
+        client.read_to_end(&mut response).await.unwrap();
+        let response: DaemonResponse = serde_json::from_slice(&response).unwrap();
+        assert!(!response.ok);
+        assert_eq!(response.project_id, "alpha");
+        assert!(
+            response
+                .error
+                .as_deref()
+                .unwrap_or_default()
+                .contains("invalid daemon request JSON")
+        );
+        assert!(!server_task.await.unwrap().unwrap());
+        assert!(state.jobs.lock().unwrap().is_empty());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn request_project_mismatch_is_rejected_without_work() {
+        let root = temp_root("project-mismatch");
+        let state = Arc::new(test_daemon_state(&root, false));
+
+        let (response, shutdown) = execute_request(
+            Arc::clone(&state),
+            DaemonRequest {
+                schema: DAEMON_REQUEST_SCHEMA.to_string(),
+                request_id: "req-project-mismatch".to_string(),
+                project_id: "beta".to_string(),
+                auth_token: Some(state.auth_token.clone()),
+                command: DaemonCommand::Status,
+            },
+        )
+        .await;
+
+        assert!(!response.ok);
+        assert!(!shutdown);
+        assert!(
+            response
+                .error
+                .as_deref()
+                .unwrap_or_default()
+                .contains("does not match daemon project")
+        );
+        assert!(state.jobs.lock().unwrap().is_empty());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
     async fn oversized_request_gets_structured_error_without_work() {
         let root = temp_root("oversized-request");
         let mut state = test_daemon_state(&root, false);
@@ -3383,6 +3440,50 @@ mod tests {
         );
         assert!(!server_task.await.unwrap().unwrap());
         assert!(state.jobs.lock().unwrap().is_empty());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn client_rejects_empty_and_invalid_wire_responses() {
+        let root = temp_root("client-invalid-response");
+        let endpoint = test_daemon_state(&root, false).endpoint;
+        let request = DaemonRequest {
+            schema: DAEMON_REQUEST_SCHEMA.to_string(),
+            request_id: "req-client-invalid-response".to_string(),
+            project_id: "alpha".to_string(),
+            auth_token: Some("a".repeat(crate::DAEMON_TOKEN_BYTES * 2)),
+            command: DaemonCommand::Status,
+        };
+
+        let (mut server, client) = tokio::io::duplex(4096);
+        let empty_server_task = tokio::spawn(async move {
+            let mut request_bytes = Vec::new();
+            server.read_to_end(&mut request_bytes).await.unwrap();
+            request_bytes
+        });
+        let error = request_daemon_over_stream(client, &endpoint, &request)
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("empty response"));
+        assert!(!empty_server_task.await.unwrap().is_empty());
+
+        let (mut server, client) = tokio::io::duplex(4096);
+        let server_task = tokio::spawn(async move {
+            let mut request_bytes = Vec::new();
+            server.read_to_end(&mut request_bytes).await.unwrap();
+            server.write_all(b"not-json").await.unwrap();
+            server.shutdown().await.unwrap();
+            request_bytes
+        });
+        let error = request_daemon_over_stream(client, &endpoint, &request)
+            .await
+            .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("failed to parse daemon response")
+        );
+        assert!(!server_task.await.unwrap().is_empty());
         fs::remove_dir_all(root).unwrap();
     }
 

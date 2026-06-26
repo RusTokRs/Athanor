@@ -2252,6 +2252,7 @@ Purpose:
 - adds coverage that malformed daemon request shapes are rejected without creating daemon jobs, and stopping daemons allow lifecycle reads while rejecting new work
 - adds coverage that invalid read/query command parameters are rejected without creating daemon jobs, and cancelling a running read-only job returns a non-cancellable error without mutating the job
 - adds coverage that duplicate writable daemon jobs are rejected without creating a second job, and protocol cancellation of a queued writable job finishes it and removes its cancellation token
+- adds coverage that invalid request JSON, project mismatches, empty daemon responses, and invalid daemon response JSON fail with bounded errors without creating work
 - adds coverage for clients disconnecting before sending a request without creating daemon jobs
 - adds coverage for oversized daemon requests returning structured errors without creating daemon jobs
 - adds coverage for client-side daemon byte limits: oversized outbound requests are not written and oversized wire responses are rejected before parsing
