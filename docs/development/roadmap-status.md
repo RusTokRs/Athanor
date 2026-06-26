@@ -294,6 +294,7 @@ extractors:
   MarkdownExtractor
   OpenApiExtractor
   OperationsExtractor
+  JsTsExtractor
   RustExtractor
 
 linkers:
@@ -2344,32 +2345,42 @@ Purpose:
 - keeps coverage reporting bounded and deterministic for CLI use and future daemon/MCP routing
 - leaves canonical capability declarations, parser recovery diagnostics, unsupported syntax diagnostics, and `ath capabilities` for a later analysis-completeness slice
 
+### JavaScript/TypeScript Adapter Initial Slice
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-extractor-js-ts`
+- `crates/athanor-core/src/ports.rs`
+- `crates/athanor-app/src/pipeline.rs`
+- `crates/athanor-app/src/runtime.rs`
+- `crates/athanor-source-fs/src/lib.rs`
+- `docs/README.md`
+- `docs/architecture/adapters.md`
+- `docs/architecture/pipeline.md`
+- `docs/adapters/extractor-js-ts.md`
+- `docs/development/roadmap-status.md`
+
+Purpose:
+
+- adds one built-in `athanor-extractor-js-ts` language adapter for mixed JavaScript and TypeScript projects
+- supports `.js`, `.jsx`, `.mjs`, `.cjs`, `.ts`, `.tsx`, `.mts`, and `.cts` source files with per-file language hints preserved in emitted metadata
+- parses JavaScript/JSX through `tree-sitter-javascript` and TypeScript/TSX through `tree-sitter-typescript`
+- keeps parser-specific AST structures inside the adapter and emits backend-independent canonical module, function, class, symbol, package, dependency, fact, and diagnostic objects
+- extracts module import/export payloads, functions, methods, classes, TypeScript interface/type declarations, and `package.json` package/dependency declarations
+- extends extractor output so adapters can emit evidence-backed diagnostics directly when parser recovery or unsupported syntax is detected
+- registers the adapter through the app-layer runtime by default after focused adapter tests and documentation updates
+- keeps React, Next.js, NestJS, Express, Vue, route inference, component semantics, and project conventions out of the base language adapter
+
+Current limitations:
+
+- import/export findings are available as module payload data; canonical import relations are deferred to a linker slice
+- parser errors and unsupported declaration shapes are diagnostic-backed, but deeper capability reporting remains part of the Analysis Completeness Reporting backlog
+
 ## Next
 
 This backlog tracks the remaining global plan from `start.md`. The entries below are prioritized by dependency order and current product value; each item should be moved into `Implemented` only after code, documentation, and required verification are complete.
-
-### JavaScript/TypeScript Adapter Initial Slice
-
-Status: planned.
-
-Priority: P1.
-
-Scope:
-
-- add one built-in `athanor-extractor-js-ts` language adapter for mixed JavaScript and TypeScript projects instead of separate JS and TS adapters
-- support `.js`, `.jsx`, `.mjs`, `.cjs`, `.ts`, `.tsx`, `.mts`, and `.cts` source files with per-file language hints preserved in emitted metadata
-- use a maintained Rust parser backend for the initial implementation rather than writing a custom JavaScript/TypeScript parser
-- keep parser-specific AST structures inside the adapter; emit backend-independent canonical entities, facts, relations, diagnostics, stable keys, evidence, and ownership
-- extract an initial source graph for modules, imports, exports, functions, classes, type/interface declarations where available, and package-level dependencies
-- register the adapter through the app-layer runtime only after adapter docs, crate README, focused fixtures, and validation tests prove canonical output metadata is complete
-- keep framework-specific behavior such as React, Next.js, NestJS, Express, Vue, route inference, component semantics, and project conventions out of the base language adapter unless represented as explicit later adapter slices
-
-Acceptance:
-
-- mixed JS/TS repositories can be indexed through one adapter without requiring agents to run separate JavaScript and TypeScript analysis paths
-- canonical output remains parser-backend independent and satisfies evidence, ownership, and adapter validation requirements
-- unsupported syntax, parser failures, skipped files, and partial extraction are surfaced as evidence-backed diagnostics or capability/coverage facts rather than being silently ignored
-- the initial adapter is usable offline, has focused fixtures for JavaScript, TypeScript, JSX, TSX, ESM, and CommonJS, and passes the full required verification commands
 
 ### JavaScript/TypeScript Dual-Parser Verification Mode
 

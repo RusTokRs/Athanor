@@ -38,6 +38,7 @@ Use this file to find the right document before changing code, adapters, plugins
 - [Library adoption plan](development/library-adoption-plan.md): approved dependencies, adapter boundaries, risks, and acceptance criteria.
 - [Documentation completeness policy](development/docs-completeness-policy.md): `athanor.toml` policy fields and the `ath docs check` CI gate.
 - [RusTok FFA/FBA adapter improvement plan](development/rustok-ffa-fba-adapter-improvement-plan.md): project-specific iteration plan for improving RusTok adapter and graph visibility without mixing it into the global roadmap.
+- [DartScope and Dart/Flutter adapter plan](development/dartscope-dart-flutter-plan.md): project-side plan for a separate `D:\DartScope` community Rust library and an Athanor adapter wrapper.
 - [Roadmap status](development/roadmap-status.md): current verified implementation status and next recommended task.
 
 ## Operations Documentation
@@ -115,6 +116,7 @@ High-level adapter docs:
 
 - [Basic extractor](adapters/extractor-basic.md)
 - [Markdown extractor](adapters/extractor-markdown.md)
+- [JavaScript/TypeScript extractor](adapters/extractor-js-ts.md)
 - [OpenAPI extractor](adapters/extractor-openapi.md)
 - [Operations extractor](adapters/extractor-operations.md)
 - [Rust extractor](adapters/extractor-rust.md)
@@ -138,6 +140,7 @@ Crate-local adapter docs:
 
 - [`athanor-extractor-basic`](../crates/athanor-extractor-basic/README.md)
 - [`athanor-extractor-markdown`](../crates/athanor-extractor-markdown/README.md)
+- [`athanor-extractor-js-ts`](../crates/athanor-extractor-js-ts/README.md)
 - [`athanor-extractor-openapi`](../crates/athanor-extractor-openapi/README.md)
 - [`athanor-extractor-operations`](../crates/athanor-extractor-operations/README.md)
 - [`athanor-extractor-rust`](../crates/athanor-extractor-rust/README.md)

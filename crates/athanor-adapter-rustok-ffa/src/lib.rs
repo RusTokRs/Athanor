@@ -155,6 +155,7 @@ impl Extractor for RustokFfaExtractor {
         Ok(ExtractOutput {
             entities: vec![file, surface, layer],
             facts: vec![fact],
+            diagnostics: Vec::new(),
         })
     }
 }
@@ -297,6 +298,7 @@ fn extract_docs_statuses(source: &SourceFile, snapshot: &SnapshotId, path: &str)
     ExtractOutput {
         entities: vec![file],
         facts,
+        diagnostics: Vec::new(),
     }
 }
 
@@ -340,6 +342,7 @@ fn extract_local_plan_status(
     ExtractOutput {
         entities: vec![file],
         facts,
+        diagnostics: Vec::new(),
     }
 }
 

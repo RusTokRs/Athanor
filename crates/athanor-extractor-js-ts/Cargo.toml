@@ -1,0 +1,25 @@
+[package]
+name = "athanor-extractor-js-ts"
+version = "0.1.0"
+authors.workspace = true
+description.workspace = true
+documentation.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+athanor-core = { path = "../athanor-core" }
+athanor-domain = { path = "../athanor-domain" }
+athanor-extractor-basic = { path = "../athanor-extractor-basic" }
+serde_json.workspace = true
+tree-sitter.workspace = true
+tree-sitter-javascript.workspace = true
+tree-sitter-typescript.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true

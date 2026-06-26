@@ -341,7 +341,7 @@ impl IndexPipeline {
             "starting extraction"
         );
         let extraction_started = Instant::now();
-        let (extracted_entities, extracted_facts, extraction_metrics) =
+        let (extracted_entities, extracted_facts, extracted_diagnostics, extraction_metrics) =
             self.extract(&repo, &snapshot, &files_to_extract).await?;
         metrics.extraction_ms = elapsed_ms(extraction_started.elapsed());
         metrics.adapters.extend(extraction_metrics);
@@ -349,6 +349,7 @@ impl IndexPipeline {
         info!(
             entities = extracted_entities.len(),
             facts = extracted_facts.len(),
+            diagnostics = extracted_diagnostics.len(),
             "completed extraction"
         );
         let affected_extracted =
@@ -370,6 +371,7 @@ impl IndexPipeline {
         );
         entities.extend(extracted_entities);
         facts.extend(extracted_facts);
+        prior_diagnostics.extend(extracted_diagnostics);
         metrics.merge_ms = elapsed_ms(merge_started.elapsed());
         let canonicalize_extracted_started = Instant::now();
         let entities = Arc::new(canonicalize_entities(entities));
@@ -510,7 +512,12 @@ impl IndexPipeline {
         repo: &RepoId,
         snapshot: &SnapshotId,
         files: &[SourceFile],
-    ) -> Result<(Vec<Entity>, Vec<Fact>, Vec<AdapterRunMetrics>)> {
+    ) -> Result<(
+        Vec<Entity>,
+        Vec<Fact>,
+        Vec<Diagnostic>,
+        Vec<AdapterRunMetrics>,
+    )> {
         let tasks = files
             .iter()
             .flat_map(|source| {
@@ -552,10 +559,12 @@ impl IndexPipeline {
 
                 validate_entities(extractor_name, &output.entities)?;
                 validate_facts(extractor_name, &output.facts)?;
+                validate_diagnostics(extractor_name, &output.diagnostics)?;
                 debug!(
                     extractor = extractor_name,
                     entities = output.entities.len(),
                     facts = output.facts.len(),
+                    diagnostics = output.diagnostics.len(),
                     "extractor emitted canonical objects"
                 );
                 let metrics = AdapterRunMetrics {
@@ -566,6 +575,7 @@ impl IndexPipeline {
                     input_files: 1,
                     output_entities: output.entities.len(),
                     output_facts: output.facts.len(),
+                    output_diagnostics: output.diagnostics.len(),
                     ..AdapterRunMetrics::default()
                 };
                 Ok::<_, anyhow::Error>(ExtractorTaskOutput { output, metrics })
@@ -574,6 +584,7 @@ impl IndexPipeline {
 
         let mut entities = Vec::new();
         let mut facts = Vec::new();
+        let mut diagnostics = Vec::new();
         let mut metrics = Vec::new();
 
         while let Some(output) = outputs.next().await {
@@ -581,6 +592,7 @@ impl IndexPipeline {
                 Ok(output) => {
                     entities.extend(output.output.entities);
                     facts.extend(output.output.facts);
+                    diagnostics.extend(output.output.diagnostics);
                     metrics.push(output.metrics);
                 }
                 Err(error) => {
@@ -593,6 +605,7 @@ impl IndexPipeline {
         Ok((
             canonicalize_entities(entities),
             canonicalize_facts(facts),
+            canonicalize_diagnostics(diagnostics),
             metrics,
         ))
     }
@@ -1307,6 +1320,7 @@ mod tests {
             Ok(ExtractOutput {
                 entities: vec![entity("ent_left", "docs/shared.md")],
                 facts: vec![fact("fact_shared")],
+                diagnostics: Vec::new(),
             })
         }
     }

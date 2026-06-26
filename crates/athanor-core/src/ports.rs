@@ -97,8 +97,12 @@ pub struct ExtractInput {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ExtractOutput {
+    #[serde(default)]
     pub entities: Vec<Entity>,
+    #[serde(default)]
     pub facts: Vec<Fact>,
+    #[serde(default)]
+    pub diagnostics: Vec<Diagnostic>,
 }
 
 #[async_trait]

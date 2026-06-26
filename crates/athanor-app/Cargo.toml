@@ -22,6 +22,7 @@ athanor-adapter-rustok-ffa = { path = "../athanor-adapter-rustok-ffa" }
 athanor-core = { path = "../athanor-core" }
 athanor-domain = { path = "../athanor-domain" }
 athanor-extractor-basic = { path = "../athanor-extractor-basic" }
+athanor-extractor-js-ts = { path = "../athanor-extractor-js-ts" }
 athanor-extractor-markdown = { path = "../athanor-extractor-markdown" }
 athanor-extractor-openapi = { path = "../athanor-extractor-openapi" }
 athanor-extractor-operations = { path = "../athanor-extractor-operations" }

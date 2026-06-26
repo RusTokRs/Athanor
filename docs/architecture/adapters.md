@@ -89,6 +89,7 @@ Ownership should list every source file that can invalidate the emitted object. 
 | `athanor-search-tantivy` | `SearchIndex` | Index and search canonical entities using Tantivy. |
 | `athanor-extractor-basic` | `Extractor` | Emit file entities and file discovery facts. |
 | `athanor-extractor-markdown` | `Extractor` | Parse YAML documentation frontmatter and CommonMark/GFM headings, then emit documentation page/section, runbook, and operation-step knowledge. |
+| `athanor-extractor-js-ts` | `Extractor` | Parse JavaScript, JSX, TypeScript, TSX, and `package.json` through tree-sitter grammars, then emit source modules, declarations, package/dependency entities, definition facts, and parser/unsupported-syntax diagnostics. |
 | `athanor-extractor-openapi` | `Extractor` | Parse project OpenAPI 3.1 through `oas3`, retain a 3.0 fallback, ignore test fixture specs during project discovery, and emit operation/schema/example knowledge. |
 | `athanor-extractor-operations` | `Extractor` | Parse operations files such as dotenv, Cargo manifest, Makefile, Dockerfile, shell script, docker-compose, GitHub Actions, Kubernetes YAML, SQL migration, and runtime config sources into environment, package/dependency, command, deployment/service, database migration, and runtime configuration knowledge without storing raw secret values. |
 | `athanor-extractor-rust` | `Extractor` | Emit Rust module, function, and symbol definitions. |
@@ -168,6 +169,7 @@ Current built-in adapter ids:
 builtin.source.local_filesystem
 builtin.extractor.file
 builtin.extractor.markdown
+builtin.extractor.js_ts
 builtin.extractor.openapi
 builtin.extractor.operations
 builtin.extractor.rust

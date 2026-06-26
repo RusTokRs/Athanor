@@ -95,8 +95,10 @@ fn language_hint(path: &Path) -> Option<String> {
             "toml" => "toml",
             "json" => "json",
             "yaml" | "yml" => "yaml",
-            "js" => "javascript",
-            "ts" => "typescript",
+            "js" | "mjs" | "cjs" => "javascript",
+            "jsx" => "javascriptreact",
+            "ts" | "mts" | "cts" => "typescript",
+            "tsx" => "typescriptreact",
             "py" => "python",
             "go" => "go",
             "php" => "php",
@@ -148,5 +150,41 @@ mod tests {
         assert!(files[0].content_hash.is_some());
 
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn maps_javascript_and_typescript_extensions() {
+        assert_eq!(
+            language_hint(Path::new("src/app.js")).as_deref(),
+            Some("javascript")
+        );
+        assert_eq!(
+            language_hint(Path::new("src/app.jsx")).as_deref(),
+            Some("javascriptreact")
+        );
+        assert_eq!(
+            language_hint(Path::new("src/app.mjs")).as_deref(),
+            Some("javascript")
+        );
+        assert_eq!(
+            language_hint(Path::new("src/app.cjs")).as_deref(),
+            Some("javascript")
+        );
+        assert_eq!(
+            language_hint(Path::new("src/app.ts")).as_deref(),
+            Some("typescript")
+        );
+        assert_eq!(
+            language_hint(Path::new("src/app.tsx")).as_deref(),
+            Some("typescriptreact")
+        );
+        assert_eq!(
+            language_hint(Path::new("src/app.mts")).as_deref(),
+            Some("typescript")
+        );
+        assert_eq!(
+            language_hint(Path::new("src/app.cts")).as_deref(),
+            Some("typescript")
+        );
     }
 }

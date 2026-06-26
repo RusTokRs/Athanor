@@ -241,7 +241,11 @@ impl Extractor for RustExtractor {
             });
         }
 
-        Ok(ExtractOutput { entities, facts })
+        Ok(ExtractOutput {
+            entities,
+            facts,
+            diagnostics: Vec::new(),
+        })
     }
 }
 

@@ -46,3 +46,14 @@ cargo run -p ath --quiet -- index .
 ## Current Next Step
 
 Check `docs/development/roadmap-status.md`.
+
+## Companion Repositories
+
+- `D:\DartScope` is planned as a separate Git repository for the long-lived, community-facing Rust
+  toolkit for Dart and Flutter code intelligence. It should stay outside the Athanor workspace.
+- Athanor should only contain an adapter wrapper, such as `athanor-extractor-dart-flutter`, that
+  consumes DartScope and maps its output into Athanor canonical entities, facts, relations,
+  diagnostics, evidence, ownership, and stable keys.
+- Do not merge DartScope parser/analyzer implementation into Athanor. Keep the reusable library
+  independent so it can be developed, documented, released, and used by the wider Dart/Flutter
+  community without depending on Athanor.

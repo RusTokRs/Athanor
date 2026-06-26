@@ -158,7 +158,11 @@ impl Extractor for OperationsExtractor {
             );
         }
 
-        Ok(ExtractOutput { entities, facts })
+        Ok(ExtractOutput {
+            entities,
+            facts,
+            diagnostics: Vec::new(),
+        })
     }
 }
 

@@ -126,7 +126,11 @@ impl Extractor for OpenApiExtractor {
             }
         }
 
-        Ok(ExtractOutput { entities, facts })
+        Ok(ExtractOutput {
+            entities,
+            facts,
+            diagnostics: Vec::new(),
+        })
     }
 }
 

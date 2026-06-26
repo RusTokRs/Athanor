@@ -729,6 +729,7 @@ fn extract_registry(source: &SourceFile, snapshot: &SnapshotId, path: &str) -> E
     ExtractOutput {
         entities,
         facts: vec![fact],
+        diagnostics: Vec::new(),
     }
 }
 
@@ -797,6 +798,7 @@ fn extract_port_code(source: &SourceFile, snapshot: &SnapshotId, path: &str) -> 
     ExtractOutput {
         entities,
         facts: vec![fact],
+        diagnostics: Vec::new(),
     }
 }
 

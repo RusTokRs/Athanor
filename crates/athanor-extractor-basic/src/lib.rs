@@ -44,6 +44,7 @@ impl Extractor for FileExtractor {
         Ok(ExtractOutput {
             entities: vec![entity],
             facts: vec![fact],
+            diagnostics: Vec::new(),
         })
     }
 }

@@ -908,6 +908,7 @@ fn extract_provider_registry(
             extractor: PAGE_BUILDER_EXTRACTOR_ID.to_string(),
             confidence: 1.0,
         }],
+        diagnostics: Vec::new(),
     }
 }
 
@@ -963,6 +964,7 @@ fn extract_adapter_seams(source: &SourceFile, snapshot: &SnapshotId, path: &str)
             extractor: PAGE_BUILDER_EXTRACTOR_ID.to_string(),
             confidence: 1.0,
         }],
+        diagnostics: Vec::new(),
     }
 }
 
@@ -1064,6 +1066,7 @@ fn extract_wave_evidence(source: &SourceFile, snapshot: &SnapshotId, path: &str)
             extractor: PAGE_BUILDER_EXTRACTOR_ID.to_string(),
             confidence: 1.0,
         }],
+        diagnostics: Vec::new(),
     }
 }
 
@@ -1122,6 +1125,7 @@ fn extract_consumer_manifest(
             extractor: PAGE_BUILDER_EXTRACTOR_ID.to_string(),
             confidence: 1.0,
         }],
+        diagnostics: Vec::new(),
     }
 }
 
@@ -1182,7 +1186,11 @@ fn extract_content_surface(
         });
     }
     dedup_entities(&mut entities);
-    ExtractOutput { entities, facts }
+    ExtractOutput {
+        entities,
+        facts,
+        diagnostics: Vec::new(),
+    }
 }
 
 fn extract_fsd_surface(
@@ -1251,6 +1259,7 @@ fn extract_fsd_surface(
             extractor: PAGE_BUILDER_EXTRACTOR_ID.to_string(),
             confidence: 1.0,
         }],
+        diagnostics: Vec::new(),
     }
 }
 
@@ -1321,7 +1330,11 @@ fn extract_host_mount_surfaces(
         });
     }
     dedup_entities(&mut entities);
-    ExtractOutput { entities, facts }
+    ExtractOutput {
+        entities,
+        facts,
+        diagnostics: Vec::new(),
+    }
 }
 
 fn provider_marker_from_value(path: &str, value: &Value) -> Option<PageBuilderProviderMarker> {

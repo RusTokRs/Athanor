@@ -203,7 +203,11 @@ impl Extractor for MarkdownExtractor {
             });
         }
 
-        Ok(ExtractOutput { entities, facts })
+        Ok(ExtractOutput {
+            entities,
+            facts,
+            diagnostics: Vec::new(),
+        })
     }
 }
 

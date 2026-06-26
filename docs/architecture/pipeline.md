@@ -59,51 +59,52 @@ flowchart TD
 3. `athanor-extractor-markdown` parses optional YAML frontmatter plus CommonMark/GFM heading events, then creates identity/language-aware documentation page/section entities, runbook entities for runbook frontmatter, operation-step entities for runbook ordered-list items, and `doc_section_found` facts.
 4. `athanor-extractor-openapi` dispatches project OpenAPI 3.1 to `oas3` and 3.0 to a maintained-YAML legacy parser, ignores OpenAPI files under `tests/fixtures` during project discovery, then extracts operations, component schemas, request/response schema uses, and media examples.
 5. `athanor-extractor-operations` parses dotenv, Cargo manifest, Makefile, Dockerfile, shell script, docker-compose, GitHub Actions, Kubernetes YAML, SQL migration, and runtime config sources into environment-variable, package/dependency, script-command, deployment/service, database migration, and runtime configuration knowledge.
-6. `athanor-extractor-rust` parses Rust files into module, function, symbol, and environment-variable entities plus `symbol_defined` and `env_var_used` facts.
-7. `athanor-linker-markdown` creates `contains` relations plus verified `documents` relations for exact entity/concept keys declared in Markdown frontmatter.
-8. `athanor-linker-api` links OpenAPI operations to matching Rust handlers, Markdown API documentation, same-document request/response component schemas, and declared examples.
-9. When a RusTok repository opts in through `.athanor/adapters/rustok-ffa.json`, `athanor-adapter-rustok-ffa` extracts FFA surface/layer markers from code, links FFA surface/layer/file relations, and emits `rustok_ffa_*` diagnostics.
-10. When a RusTok repository opts in through `.athanor/adapters/rustok-fba.json`, `athanor-adapter-rustok-fba` extracts FBA registry and port-code markers, links FBA module/contract/port/operation/profile/dependency relations, and emits `rustok_fba_*` diagnostics.
-11. When a RusTok repository opts in through `.athanor/adapters/rustok-page-builder.json`, `athanor-adapter-rustok-page-builder` extracts Page Builder provider registry, adapter seam, wave evidence, consumer manifest, content-format, and FSD surface markers, links Page Builder provider/consumer/contract/capability/fallback/evidence/content/FSD relations, and emits `rustok_page_builder_*` diagnostics.
-12. `athanor-checker-markdown` creates documentation structure, unresolved-reference, and duplicate-identity diagnostics.
-13. `athanor-checker-api` diagnoses OpenAPI operations without linked implementations or documentation, local component schema references that did not resolve, examples that violate their declared schemas, undocumented environment variables, undocumented runtime configuration keys, undocumented script commands, undocumented deployment resources, runbooks not tied to operational knowledge, runbooks without operation steps, and runbook steps that do not cover declared operational targets.
-14. `RuntimeBuilder` discovers adapter plugin manifests from `.athanor/adapters/*.json` and `.athanor/plugins/*/athanor-adapter.json`, then applies enabled adapter entries that match known app-layer factory ids.
-15. `RuntimeBuilder` builds the configured `IndexPipeline` from an `AdapterRegistry`.
-16. `IndexStateStore` classifies discovered files as changed, unchanged, or removed by comparing them with the previous state.
-17. File additions or removals trigger a safe full rebuild so absence diagnostics cannot remain stale.
-18. `IndexPipeline` extracts changed files only when a previous canonical snapshot is available from `CanonicalSnapshotStore`; extractor/source-file tasks run concurrently with a fixed limit of 16 in-flight tasks.
-19. `IndexPipeline` carries unchanged canonical objects forward from the previous canonical snapshot, rewrites carried snapshot ids to the new snapshot, drops objects whose ownership includes changed or removed paths, and canonicalizes merged objects by id so duplicated carried/new objects cannot persist in the next snapshot.
-20. `IndexPipeline` builds an affected subset from newly extracted objects, then passes it to linkers and checkers alongside the merged full context. In-process linker and checker inputs share full-context entity, fact, and relation lists through `Arc<Vec<T>>` values so the complete entity and fact lists are moved into shared allocations once and reused across downstream phases.
-21. `IndexPipeline` validates newly emitted canonical objects for required evidence and ownership metadata.
-22. If validation fails, `ath index` writes the aggregated adapter validation report to the configured validation report path.
-23. In `--validate-only` mode, the CLI writes a structured validation result artifact for successful runs, then stops without persisting a canonical snapshot, read model, or index state.
-24. `IndexPipeline` records bounded indexing metrics for phase timings, aggregated adapter timings and object counts, affected-file counts, canonical object counts, and validation issue counts. `ath index --json` and other JSON-facing callers return the report without requiring generated JSONL reads.
-25. `ath bench --size <small|medium|large>` creates synthetic Markdown, Rust, and OpenAPI fixtures, runs the normal index path, and emits `athanor.index_benchmark.v1` with the same bounded index metrics so performance regressions can be measured without reading generated JSONL artifacts.
-26. Otherwise, `IndexPipeline` stores the merged canonical objects for the current run through `KnowledgeStore`.
-27. `JsonlReadModelWriter` exports JSONL read models to `.athanor/generated/current/jsonl`.
-28. `IndexStateStore` persists file hash state to `.athanor/state/index-state.json` for the next run.
-29. On demand, `ath coverage` reads the latest durable canonical snapshot plus persisted index state and emits bounded `athanor.coverage.v1` file, adapter, and diagnostic-kind coverage rows without running indexing or reading generated JSONL artifacts.
-30. On demand, `ath wiki` loads the latest durable canonical snapshot and performs a staged replacement of the neutral Markdown wiki read model.
-31. On demand, `ath report html` loads the same snapshot and performs a staged replacement of a self-contained HTML report.
-32. On demand, `ath generate` projects JSONL, wiki, and HTML into one immutable generation, writes a complete generation manifest, and then switches `current.json` to that generation.
-33. On demand, `ath check env` reports environment variables used by Rust code or declared in operations/config files, plus runtime configuration keys, that are not linked from editable documentation.
-34. On demand, `ath check scripts` reports operational script commands not linked from editable documentation.
-35. On demand, `ath check deployment` reports deployment and service resources not linked from editable documentation.
-36. On demand, `ath check runbooks` reports runbooks that do not reference known operational targets or have no extracted operation steps.
-37. On demand, `ath update --changed` runs the same incremental indexing path through an explicit update command, writes a new durable snapshot, refreshes JSONL read models, and updates persisted file change state.
-38. On demand, `ath check affected` compares current source discovery with persisted index state and reports latest-snapshot diagnostics plus stale local artifact status for changed workflows without writing a new snapshot.
-39. On demand, `ath context --diff` builds a bounded context pack rooted in entities owned by changed or removed files without writing a new snapshot.
-40. On demand, `ath repair inspect` validates local canonical and generated pointers, manifests, and orphaned immutable artifacts without modifying files.
-41. On demand, `ath repair cleanup` removes orphaned immutable canonical snapshots and generated generations identified by repair inspection.
-42. On demand, `ath repair regenerate` publishes a fresh coordinated generated generation when the current generated pointer is stale, missing, or invalid.
-43. On demand, `ath repair recover-canonical` repoints a missing or invalid canonical latest pointer to the newest valid local canonical snapshot.
-44. On demand, `ath repair apply` runs canonical recovery, generated regeneration, and orphan cleanup in deterministic order.
-45. On demand, `ath docs operations check` aggregates environment, script, deployment, and runbook documentation diagnostics and fails when any are open.
-46. On demand, `ath docs check` evaluates editable documentation under the configured path against frontmatter completeness and diagnostic severity policy.
-47. On demand, `ath docs drift` reports editable documentation not verified against the latest canonical snapshot.
-48. On demand, `ath docs propose-fix` writes a reviewable JSON patch proposal for editable documentation frontmatter policy and drift findings.
-49. On demand, `ath docs apply-patch <id-or-path>` explicitly applies one generated documentation patch proposal after verifying it still targets the latest canonical snapshot.
-50. On demand, `ath api snapshot` publishes the latest API contract immutably, `ath api diff` compares contract snapshots, and `ath api cleanup` removes old API contract artifacts through explicit retention. When `[api.retention].auto_cleanup` or a one-off `--cleanup` flag is enabled, successful snapshot and diff commands run the same retention cleanup after publication.
+6. `athanor-extractor-js-ts` parses JavaScript, JSX, TypeScript, TSX, and `package.json` files through tree-sitter grammars, then emits module, declaration, package, dependency, definition-fact, parser-error, and unsupported-syntax knowledge.
+7. `athanor-extractor-rust` parses Rust files into module, function, symbol, and environment-variable entities plus `symbol_defined` and `env_var_used` facts.
+8. `athanor-linker-markdown` creates `contains` relations plus verified `documents` relations for exact entity/concept keys declared in Markdown frontmatter.
+9. `athanor-linker-api` links OpenAPI operations to matching Rust handlers, Markdown API documentation, same-document request/response component schemas, and declared examples.
+10. When a RusTok repository opts in through `.athanor/adapters/rustok-ffa.json`, `athanor-adapter-rustok-ffa` extracts FFA surface/layer markers from code, links FFA surface/layer/file relations, and emits `rustok_ffa_*` diagnostics.
+11. When a RusTok repository opts in through `.athanor/adapters/rustok-fba.json`, `athanor-adapter-rustok-fba` extracts FBA registry and port-code markers, links FBA module/contract/port/operation/profile/dependency relations, and emits `rustok_fba_*` diagnostics.
+12. When a RusTok repository opts in through `.athanor/adapters/rustok-page-builder.json`, `athanor-adapter-rustok-page-builder` extracts Page Builder provider registry, adapter seam, wave evidence, consumer manifest, content-format, and FSD surface markers, links Page Builder provider/consumer/contract/capability/fallback/evidence/content/FSD relations, and emits `rustok_page_builder_*` diagnostics.
+13. `athanor-checker-markdown` creates documentation structure, unresolved-reference, and duplicate-identity diagnostics.
+14. `athanor-checker-api` diagnoses OpenAPI operations without linked implementations or documentation, local component schema references that did not resolve, examples that violate their declared schemas, undocumented environment variables, undocumented runtime configuration keys, undocumented script commands, undocumented deployment resources, runbooks not tied to operational knowledge, runbooks without operation steps, and runbook steps that do not cover declared operational targets.
+15. `RuntimeBuilder` discovers adapter plugin manifests from `.athanor/adapters/*.json` and `.athanor/plugins/*/athanor-adapter.json`, then applies enabled adapter entries that match known app-layer factory ids.
+16. `RuntimeBuilder` builds the configured `IndexPipeline` from an `AdapterRegistry`.
+17. `IndexStateStore` classifies discovered files as changed, unchanged, or removed by comparing them with the previous state.
+18. File additions or removals trigger a safe full rebuild so absence diagnostics cannot remain stale.
+19. `IndexPipeline` extracts changed files only when a previous canonical snapshot is available from `CanonicalSnapshotStore`; extractor/source-file tasks run concurrently with a fixed limit of 16 in-flight tasks.
+20. `IndexPipeline` carries unchanged canonical objects forward from the previous canonical snapshot, rewrites carried snapshot ids to the new snapshot, drops objects whose ownership includes changed or removed paths, and canonicalizes merged objects by id so duplicated carried/new objects cannot persist in the next snapshot.
+21. `IndexPipeline` builds an affected subset from newly extracted objects, then passes it to linkers and checkers alongside the merged full context. In-process linker and checker inputs share full-context entity, fact, and relation lists through `Arc<Vec<T>>` values so the complete entity and fact lists are moved into shared allocations once and reused across downstream phases.
+22. `IndexPipeline` validates newly emitted canonical objects for required evidence and ownership metadata, including diagnostics emitted by extractors or checkers.
+23. If validation fails, `ath index` writes the aggregated adapter validation report to the configured validation report path.
+24. In `--validate-only` mode, the CLI writes a structured validation result artifact for successful runs, then stops without persisting a canonical snapshot, read model, or index state.
+25. `IndexPipeline` records bounded indexing metrics for phase timings, aggregated adapter timings and object counts, affected-file counts, canonical object counts, and validation issue counts. `ath index --json` and other JSON-facing callers return the report without requiring generated JSONL reads.
+26. `ath bench --size <small|medium|large>` creates synthetic Markdown, Rust, and OpenAPI fixtures, runs the normal index path, and emits `athanor.index_benchmark.v1` with the same bounded index metrics so performance regressions can be measured without reading generated JSONL artifacts.
+27. Otherwise, `IndexPipeline` stores the merged canonical objects for the current run through `KnowledgeStore`.
+28. `JsonlReadModelWriter` exports JSONL read models to `.athanor/generated/current/jsonl`.
+29. `IndexStateStore` persists file hash state to `.athanor/state/index-state.json` for the next run.
+30. On demand, `ath coverage` reads the latest durable canonical snapshot plus persisted index state and emits bounded `athanor.coverage.v1` file, adapter, and diagnostic-kind coverage rows without running indexing or reading generated JSONL artifacts.
+31. On demand, `ath wiki` loads the latest durable canonical snapshot and performs a staged replacement of the neutral Markdown wiki read model.
+32. On demand, `ath report html` loads the same snapshot and performs a staged replacement of a self-contained HTML report.
+33. On demand, `ath generate` projects JSONL, wiki, and HTML into one immutable generation, writes a complete generation manifest, and then switches `current.json` to that generation.
+34. On demand, `ath check env` reports environment variables used by Rust code or declared in operations/config files, plus runtime configuration keys, that are not linked from editable documentation.
+35. On demand, `ath check scripts` reports operational script commands not linked from editable documentation.
+36. On demand, `ath check deployment` reports deployment and service resources not linked from editable documentation.
+37. On demand, `ath check runbooks` reports runbooks that do not reference known operational targets or have no extracted operation steps.
+38. On demand, `ath update --changed` runs the same incremental indexing path through an explicit update command, writes a new durable snapshot, refreshes JSONL read models, and updates persisted file change state.
+39. On demand, `ath check affected` compares current source discovery with persisted index state and reports latest-snapshot diagnostics plus stale local artifact status for changed workflows without writing a new snapshot.
+40. On demand, `ath context --diff` builds a bounded context pack rooted in entities owned by changed or removed files without writing a new snapshot.
+41. On demand, `ath repair inspect` validates local canonical and generated pointers, manifests, and orphaned immutable artifacts without modifying files.
+42. On demand, `ath repair cleanup` removes orphaned immutable canonical snapshots and generated generations identified by repair inspection.
+43. On demand, `ath repair regenerate` publishes a fresh coordinated generated generation when the current generated pointer is stale, missing, or invalid.
+44. On demand, `ath repair recover-canonical` repoints a missing or invalid canonical latest pointer to the newest valid local canonical snapshot.
+45. On demand, `ath repair apply` runs canonical recovery, generated regeneration, and orphan cleanup in deterministic order.
+46. On demand, `ath docs operations check` aggregates environment, script, deployment, and runbook documentation diagnostics and fails when any are open.
+47. On demand, `ath docs check` evaluates editable documentation under the configured path against frontmatter completeness and diagnostic severity policy.
+48. On demand, `ath docs drift` reports editable documentation not verified against the latest canonical snapshot.
+49. On demand, `ath docs propose-fix` writes a reviewable JSON patch proposal for editable documentation frontmatter policy and drift findings.
+50. On demand, `ath docs apply-patch <id-or-path>` explicitly applies one generated documentation patch proposal after verifying it still targets the latest canonical snapshot.
+51. On demand, `ath api snapshot` publishes the latest API contract immutably, `ath api diff` compares contract snapshots, and `ath api cleanup` removes old API contract artifacts through explicit retention. When `[api.retention].auto_cleanup` or a one-off `--cleanup` flag is enabled, successful snapshot and diff commands run the same retention cleanup after publication.
 
 ## Pipeline Assembly
 
@@ -712,6 +713,7 @@ extractors:
   MarkdownExtractor
   OpenApiExtractor
   OperationsExtractor
+  JsTsExtractor
   RustExtractor
 
 linkers:
@@ -843,6 +845,7 @@ Generated JSONL files and Markdown wiki pages under `.athanor/generated/current`
 - Diagnostic check views expose open findings; API strict mode adds a CI threshold and historical contract comparison, while per-kind suppression remains deferred.
 - The completeness gate has a project-level severity threshold but does not yet support per-kind suppressions or baseline comparison.
 - Rust extraction does not expand macros, emit trait method declarations, or infer imports, calls, and framework routes.
+- JavaScript/TypeScript extraction stores import/export data in module payloads but does not yet materialize canonical import relations or infer framework-specific routes, components, pages, controllers, or project conventions.
 - OpenAPI extraction supports 3.0.x and 3.1.x through replaceable parser backends but does not support Swagger 2.x/OpenAPI 3.2, resolve external references, merge specifications, or infer code handlers. Example validation is offline and covers media-type inline/named values; external and schema-level examples remain deferred.
 - API knowledge linking is lexical for code/docs and resolves only same-document component schemas; framework route metadata, call graphs, and Rust schema/type links are not implemented.
 - API consistency diagnostics check unresolved local component schema references but do not compare schema fields with Rust types or check status codes, auth, or permissions yet.
