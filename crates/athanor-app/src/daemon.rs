@@ -3039,6 +3039,310 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn malformed_request_shape_is_rejected_without_work() {
+        let root = temp_root("malformed-request-shape");
+        let state = Arc::new(test_daemon_state(&root, false));
+
+        for (request, expected_error) in [
+            (
+                DaemonRequest {
+                    schema: "athanor.daemon_request.v999".to_string(),
+                    request_id: "req-bad-schema".to_string(),
+                    project_id: "alpha".to_string(),
+                    auth_token: Some(state.auth_token.clone()),
+                    command: DaemonCommand::Status,
+                },
+                "unsupported daemon request schema",
+            ),
+            (
+                DaemonRequest {
+                    schema: DAEMON_REQUEST_SCHEMA.to_string(),
+                    request_id: "x".repeat(129),
+                    project_id: "alpha".to_string(),
+                    auth_token: Some(state.auth_token.clone()),
+                    command: DaemonCommand::Status,
+                },
+                "request_id must contain 1-128 characters",
+            ),
+            (
+                DaemonRequest {
+                    schema: DAEMON_REQUEST_SCHEMA.to_string(),
+                    request_id: "req-empty-project".to_string(),
+                    project_id: String::new(),
+                    auth_token: Some(state.auth_token.clone()),
+                    command: DaemonCommand::Status,
+                },
+                "project_id must not be empty",
+            ),
+        ] {
+            let (response, shutdown) = execute_request(Arc::clone(&state), request).await;
+            assert!(!response.ok);
+            assert!(!shutdown);
+            assert!(
+                response
+                    .error
+                    .as_deref()
+                    .unwrap_or_default()
+                    .contains(expected_error)
+            );
+        }
+
+        assert!(state.jobs.lock().unwrap().is_empty());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn stopping_daemon_allows_lifecycle_reads_but_rejects_new_work() {
+        let root = temp_root("stopping-lifecycle");
+        let state = Arc::new(test_daemon_state(&root, false));
+        let job_id = start_daemon_job(
+            &state,
+            DaemonJobKind::Overview,
+            "completed overview".to_string(),
+        )
+        .unwrap();
+        finish_daemon_job(
+            &state,
+            &job_id,
+            DaemonJobStatus::Succeeded,
+            Some(serde_json::json!({"ok": true})),
+            None,
+        )
+        .unwrap();
+        set_lifecycle(&state, DaemonLifecycleState::Stopping);
+
+        let token = Some(state.auth_token.clone());
+        for command in [
+            DaemonCommand::Status,
+            DaemonCommand::Jobs { limit: 10 },
+            DaemonCommand::Job {
+                job_id: job_id.clone(),
+            },
+        ] {
+            let (response, shutdown) = execute_request(
+                Arc::clone(&state),
+                DaemonRequest {
+                    schema: DAEMON_REQUEST_SCHEMA.to_string(),
+                    request_id: "req-lifecycle-read".to_string(),
+                    project_id: "alpha".to_string(),
+                    auth_token: token.clone(),
+                    command,
+                },
+            )
+            .await;
+            assert!(response.ok);
+            assert!(!shutdown);
+        }
+
+        let (response, shutdown) = execute_request(
+            Arc::clone(&state),
+            DaemonRequest {
+                schema: DAEMON_REQUEST_SCHEMA.to_string(),
+                request_id: "req-new-work".to_string(),
+                project_id: "alpha".to_string(),
+                auth_token: token,
+                command: DaemonCommand::Index,
+            },
+        )
+        .await;
+        assert!(!response.ok);
+        assert!(!shutdown);
+        assert_eq!(
+            response.error.as_deref(),
+            Some("daemon is stopping and does not accept new work")
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn invalid_query_parameters_are_rejected_without_work() {
+        let root = temp_root("invalid-query-parameters");
+        let state = Arc::new(test_daemon_state(&root, false));
+        let token = Some(state.auth_token.clone());
+
+        for (command, expected_error) in [
+            (DaemonCommand::Jobs { limit: 0 }, "jobs limit"),
+            (DaemonCommand::Overview { top: 0 }, "overview top"),
+            (
+                DaemonCommand::Explain {
+                    stable_key: "  ".to_string(),
+                },
+                "stable key must not be empty",
+            ),
+            (
+                DaemonCommand::Search {
+                    query: "  ".to_string(),
+                    limit: 10,
+                },
+                "search query must not be empty",
+            ),
+            (
+                DaemonCommand::Search {
+                    query: "login".to_string(),
+                    limit: 0,
+                },
+                "search limit",
+            ),
+            (
+                DaemonCommand::Context {
+                    task: "  ".to_string(),
+                    diff: false,
+                    level: ContextLevel::Normal,
+                    limits: ContextLimitOverrides::default(),
+                },
+                "context task must not be empty",
+            ),
+        ] {
+            let (response, shutdown) = execute_request(
+                Arc::clone(&state),
+                DaemonRequest {
+                    schema: DAEMON_REQUEST_SCHEMA.to_string(),
+                    request_id: "req-invalid-query".to_string(),
+                    project_id: "alpha".to_string(),
+                    auth_token: token.clone(),
+                    command,
+                },
+            )
+            .await;
+            assert!(!response.ok);
+            assert!(!shutdown);
+            assert!(
+                response
+                    .error
+                    .as_deref()
+                    .unwrap_or_default()
+                    .contains(expected_error)
+            );
+        }
+
+        assert!(state.jobs.lock().unwrap().is_empty());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn cancelling_running_read_only_job_returns_non_cancellable_error() {
+        let root = temp_root("cancel-read-only");
+        let state = Arc::new(test_daemon_state(&root, false));
+        let job_id =
+            start_daemon_job(&state, DaemonJobKind::Search, "running search".to_string()).unwrap();
+        assert!(mark_daemon_job_running(&state, &job_id).unwrap());
+
+        let (response, shutdown) = execute_request(
+            Arc::clone(&state),
+            DaemonRequest {
+                schema: DAEMON_REQUEST_SCHEMA.to_string(),
+                request_id: "req-cancel-read-only".to_string(),
+                project_id: "alpha".to_string(),
+                auth_token: Some(state.auth_token.clone()),
+                command: DaemonCommand::Cancel {
+                    job_id: job_id.clone(),
+                },
+            },
+        )
+        .await;
+
+        assert!(!response.ok);
+        assert!(!shutdown);
+        assert!(
+            response
+                .error
+                .as_deref()
+                .unwrap_or_default()
+                .contains("is running and is not cancellable")
+        );
+        let job = get_daemon_job(&state, &job_id).unwrap();
+        assert_eq!(job.status, DaemonJobStatus::Running);
+        assert!(job.finished_at_unix_ms.is_none());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn duplicate_writable_jobs_are_rejected_without_starting_new_work() {
+        for (label, kind, command, expected_error) in [
+            (
+                "index",
+                DaemonJobKind::Index,
+                DaemonCommand::Index,
+                "index job is already queued or running",
+            ),
+            (
+                "generate",
+                DaemonJobKind::Generate,
+                DaemonCommand::Generate,
+                "generate job is already queued or running",
+            ),
+            (
+                "wiki",
+                DaemonJobKind::Wiki,
+                DaemonCommand::Wiki,
+                "wiki job is already queued or running",
+            ),
+            (
+                "html",
+                DaemonJobKind::HtmlReport,
+                DaemonCommand::HtmlReport,
+                "HTML report job is already queued or running",
+            ),
+        ] {
+            let root = temp_root(&format!("duplicate-{label}"));
+            let state = Arc::new(test_daemon_state(&root, false));
+            let existing = start_daemon_job(&state, kind, format!("running {label} job")).unwrap();
+            assert!(mark_daemon_job_running(&state, &existing).unwrap());
+
+            let (response, shutdown) = execute_request(
+                Arc::clone(&state),
+                DaemonRequest {
+                    schema: DAEMON_REQUEST_SCHEMA.to_string(),
+                    request_id: format!("req-duplicate-{label}"),
+                    project_id: "alpha".to_string(),
+                    auth_token: Some(state.auth_token.clone()),
+                    command,
+                },
+            )
+            .await;
+
+            assert!(!response.ok);
+            assert!(!shutdown);
+            assert_eq!(response.error.as_deref(), Some(expected_error));
+            assert_eq!(list_daemon_jobs(&state, 10).unwrap().total, 1);
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn protocol_cancel_queued_writable_job_finishes_and_removes_token() {
+        let root = temp_root("cancel-queued-writable");
+        let state = Arc::new(test_daemon_state(&root, false));
+        let (job_id, cancellation) =
+            start_cancellable_daemon_job(&state, DaemonJobKind::Index, "queued index".to_string())
+                .unwrap();
+
+        let (response, shutdown) = execute_request(
+            Arc::clone(&state),
+            DaemonRequest {
+                schema: DAEMON_REQUEST_SCHEMA.to_string(),
+                request_id: "req-cancel-queued".to_string(),
+                project_id: "alpha".to_string(),
+                auth_token: Some(state.auth_token.clone()),
+                command: DaemonCommand::Cancel {
+                    job_id: job_id.clone(),
+                },
+            },
+        )
+        .await;
+
+        assert!(response.ok);
+        assert!(!shutdown);
+        assert!(cancellation.is_cancelled());
+        let job = get_daemon_job(&state, &job_id).unwrap();
+        assert_eq!(job.status, DaemonJobStatus::Cancelled);
+        assert_eq!(job.error.as_deref(), Some("job cancelled before start"));
+        assert!(job.finished_at_unix_ms.is_some());
+        assert!(cancellation_token(&state, &job_id).unwrap().is_none());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
     async fn client_disconnect_before_request_does_not_create_work() {
         let root = temp_root("disconnect-before-request");
         let state = Arc::new(test_daemon_state(&root, false));
@@ -3973,6 +4277,8 @@ mod tests {
             Some("snap_read_only")
         );
         assert!(has_active_job(&state, DaemonJobKind::Index).unwrap());
+        invalidate_daemon_caches(&state);
+        drop(state);
         fs::remove_dir_all(root).unwrap();
     }
 

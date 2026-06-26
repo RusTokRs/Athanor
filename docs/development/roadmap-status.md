@@ -2249,6 +2249,9 @@ Implemented in:
 Purpose:
 
 - treats client disconnects during response writes as non-fatal connection outcomes instead of failed daemon request handling
+- adds coverage that malformed daemon request shapes are rejected without creating daemon jobs, and stopping daemons allow lifecycle reads while rejecting new work
+- adds coverage that invalid read/query command parameters are rejected without creating daemon jobs, and cancelling a running read-only job returns a non-cancellable error without mutating the job
+- adds coverage that duplicate writable daemon jobs are rejected without creating a second job, and protocol cancellation of a queued writable job finishes it and removes its cancellation token
 - adds coverage for clients disconnecting before sending a request without creating daemon jobs
 - adds coverage for oversized daemon requests returning structured errors without creating daemon jobs
 - adds coverage for client-side daemon byte limits: oversized outbound requests are not written and oversized wire responses are rejected before parsing
@@ -2258,6 +2261,7 @@ Purpose:
 - adds coverage that index and generation jobs finished with an `operation cancelled` error are recorded as cancelled and drop their cancellation tokens
 - adds coverage that daemon shutdown cancellation requests active jobs, times out while they remain active, and drains successfully after cancellation is recorded
 - adds coverage that daemon `status`, `explain`, `search`, `overview`, and `context` requests still complete while an index job is already running
+- keeps the read-only daemon contention coverage deterministic on Windows by releasing cached search resources before temporary project cleanup
 - adds platform coverage for local socket setup metadata: Unix stale socket cleanup or Windows named-pipe label sanitization where available
 - deduplicates daemon watcher source paths after debounce delivery, filters `.athanor` artifact noise, and covers event storms being skipped while an index job is already active
 - keeps the existing single-instance lock, busy response, authentication, protocol-v1 compatibility, cancellation state, staging cleanup, and oversized response tests intact
