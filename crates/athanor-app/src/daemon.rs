@@ -3083,6 +3083,107 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn client_refuses_to_send_oversized_request() {
+        let root = temp_root("client-oversized-request");
+        let mut endpoint = test_daemon_state(&root, false).endpoint;
+        endpoint.max_request_bytes = 64;
+        let (mut server, client) = tokio::io::duplex(4096);
+        let request = DaemonRequest {
+            schema: DAEMON_REQUEST_SCHEMA.to_string(),
+            request_id: "req-client-oversized-request".repeat(8),
+            project_id: "alpha".to_string(),
+            auth_token: Some("a".repeat(crate::DAEMON_TOKEN_BYTES * 2)),
+            command: DaemonCommand::Status,
+        };
+
+        let error = request_daemon_over_stream(client, &endpoint, &request)
+            .await
+            .unwrap_err();
+
+        assert!(error.to_string().contains("daemon request exceeds"));
+        let mut written = Vec::new();
+        server.read_to_end(&mut written).await.unwrap();
+        assert!(written.is_empty());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn client_rejects_oversized_wire_response() {
+        let root = temp_root("client-oversized-response");
+        let mut endpoint = test_daemon_state(&root, false).endpoint;
+        endpoint.max_response_bytes = 64;
+        let (mut server, client) = tokio::io::duplex(4096);
+        let request = DaemonRequest {
+            schema: DAEMON_REQUEST_SCHEMA.to_string(),
+            request_id: "req-client-oversized-response".to_string(),
+            project_id: "alpha".to_string(),
+            auth_token: Some("a".repeat(crate::DAEMON_TOKEN_BYTES * 2)),
+            command: DaemonCommand::Status,
+        };
+        let server_task = tokio::spawn(async move {
+            let mut request_bytes = Vec::new();
+            server.read_to_end(&mut request_bytes).await.unwrap();
+            server.write_all(&[b'x'; 65]).await.unwrap();
+            server.shutdown().await.unwrap();
+            request_bytes
+        });
+
+        let error = request_daemon_over_stream(client, &endpoint, &request)
+            .await
+            .unwrap_err();
+
+        assert!(error.to_string().contains("daemon response exceeds"));
+        let request_bytes = server_task.await.unwrap();
+        assert!(!request_bytes.is_empty());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn rejects_unsafe_serve_options_before_binding() {
+        let root = temp_root("unsafe-serve-options");
+        let options = |label: &str| DaemonServeOptions {
+            project_id: format!("alpha-{label}"),
+            root: root.clone(),
+            registry_path: root.join("projects.json"),
+            listen: "127.0.0.1:0".parse().unwrap(),
+            transport: DaemonTransport::Tcp,
+            max_concurrent_requests: 4,
+            max_job_history: 100,
+            watch: false,
+            watch_poll: false,
+            debounce_ms: 1000,
+            max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
+            max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
+            insecure_allow_v1: false,
+            runtime_dir: Some(root.join(format!(".athanor/daemon-{label}"))),
+            shutdown_timeout: Duration::from_secs(5),
+        };
+
+        let mut watch_poll_without_watch = options("watch-poll");
+        watch_poll_without_watch.watch_poll = true;
+        let error = serve_daemon(watch_poll_without_watch).await.unwrap_err();
+        assert!(error.to_string().contains("watch_poll requires --watch"));
+
+        let mut invalid_debounce = options("debounce");
+        invalid_debounce.watch = true;
+        invalid_debounce.debounce_ms = 99;
+        let error = serve_daemon(invalid_debounce).await.unwrap_err();
+        assert!(error.to_string().contains("debounce_ms"));
+
+        let mut non_loopback = options("non-loopback");
+        non_loopback.listen = "192.0.2.1:0".parse().unwrap();
+        let error = serve_daemon(non_loopback).await.unwrap_err();
+        assert!(error.to_string().contains("loopback"));
+
+        let mut oversized_protocol_limit = options("protocol-limit");
+        oversized_protocol_limit.max_request_bytes = MAX_PROTOCOL_BYTES + 1;
+        let error = serve_daemon(oversized_protocol_limit).await.unwrap_err();
+        assert!(error.to_string().contains("max_request_bytes"));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
     async fn client_rejects_stale_or_corrupt_runtime_metadata_before_connecting() {
         let root = temp_root("stale-runtime-metadata");
         let runtime_dir = root.join(".athanor/daemon");
@@ -3100,6 +3201,20 @@ mod tests {
             auth_token: None,
             command: DaemonCommand::Status,
         };
+
+        fs::write(runtime_dir.join("endpoint.json"), "{not-json\n").unwrap();
+        let error = request_daemon(
+            DaemonClientOptions {
+                root: root.clone(),
+                runtime_dir: Some(runtime_dir.clone()),
+            },
+            request(),
+        )
+        .await
+        .unwrap_err();
+        assert!(error.to_string().contains("failed to parse"));
+
+        write_endpoint(&runtime_dir.join("endpoint.json"), &endpoint).unwrap();
         let error = request_daemon(
             DaemonClientOptions {
                 root: root.clone(),
@@ -3663,6 +3778,43 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn shutdown_drain_times_out_until_active_jobs_finish() {
+        let root = temp_root("shutdown-drain");
+        let state = test_daemon_state(&root, false);
+        let (job_id, cancellation) = start_cancellable_daemon_job(
+            &state,
+            DaemonJobKind::Index,
+            "long running index".to_string(),
+        )
+        .unwrap();
+        assert!(mark_daemon_job_running(&state, &job_id).unwrap());
+
+        cancel_active_jobs(&state);
+
+        let cancelling = get_daemon_job(&state, &job_id).unwrap();
+        assert_eq!(cancelling.status, DaemonJobStatus::Cancelling);
+        assert!(cancellation.is_cancelled());
+        let error = drain_active_jobs(&state, Duration::from_millis(1))
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("timed out draining 1 active"));
+
+        finish_daemon_job(
+            &state,
+            &job_id,
+            DaemonJobStatus::Cancelled,
+            None,
+            Some("operation cancelled".to_string()),
+        )
+        .unwrap();
+
+        drain_active_jobs(&state, Duration::from_millis(100))
+            .await
+            .unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
     async fn read_only_requests_continue_while_index_job_is_running() {
         let root = temp_root("read-only-during-index");
         let state = Arc::new(test_daemon_state(&root, false));
@@ -3755,6 +3907,70 @@ mod tests {
                 .and_then(|result| result.get("returned"))
                 .and_then(Value::as_u64),
             Some(1)
+        );
+        let token = Some(state.auth_token.clone());
+        let overview = execute_request(
+            Arc::clone(&state),
+            DaemonRequest {
+                schema: DAEMON_REQUEST_SCHEMA.to_string(),
+                request_id: "req-overview".to_string(),
+                project_id: "alpha".to_string(),
+                auth_token: token.clone(),
+                command: DaemonCommand::Overview { top: 10 },
+            },
+        );
+        let context = execute_request(
+            Arc::clone(&state),
+            DaemonRequest {
+                schema: DAEMON_REQUEST_SCHEMA.to_string(),
+                request_id: "req-context".to_string(),
+                project_id: "alpha".to_string(),
+                auth_token: token,
+                command: DaemonCommand::Context {
+                    task: "login".to_string(),
+                    diff: false,
+                    level: ContextLevel::Normal,
+                    limits: ContextLimitOverrides::default(),
+                },
+            },
+        );
+
+        let ((overview, _), (context, _)) = tokio::join!(overview, context);
+        assert!(overview.ok);
+        assert!(context.ok);
+        assert_eq!(
+            overview
+                .result
+                .as_ref()
+                .and_then(|result| result.get("schema"))
+                .and_then(Value::as_str),
+            Some("athanor.overview.v1")
+        );
+        assert_eq!(
+            overview
+                .result
+                .as_ref()
+                .and_then(|result| result.get("snapshot"))
+                .and_then(Value::as_str),
+            Some("snap_read_only")
+        );
+        assert_eq!(
+            context
+                .result
+                .as_ref()
+                .and_then(|result| result.get("payload"))
+                .and_then(|payload| payload.get("schema"))
+                .and_then(Value::as_str),
+            Some("athanor.context_pack.v1")
+        );
+        assert_eq!(
+            context
+                .result
+                .as_ref()
+                .and_then(|result| result.get("payload"))
+                .and_then(|payload| payload.get("snapshot"))
+                .and_then(Value::as_str),
+            Some("snap_read_only")
         );
         assert!(has_active_job(&state, DaemonJobKind::Index).unwrap());
         fs::remove_dir_all(root).unwrap();
@@ -4044,6 +4260,38 @@ mod tests {
                 .unwrap_or_default()
                 .contains("response exceeds size limit")
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_local_socket_endpoint_removes_stale_socket_file() {
+        let root = temp_root("unix-local-socket");
+        let socket_path = root.join("daemon.sock");
+        fs::write(&socket_path, "stale").unwrap();
+
+        let endpoint = local_socket_endpoint(&root, "runtime-test").unwrap();
+
+        assert_eq!(endpoint.socket_path.as_deref(), Some(socket_path.as_path()));
+        assert!(endpoint.pipe_name.is_none());
+        assert!(endpoint.guard.is_some());
+        assert!(!socket_path.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_local_socket_endpoint_sanitizes_pipe_name() {
+        let root = temp_root("windows-local-socket");
+
+        let endpoint = local_socket_endpoint(&root, "runtime:bad/value").unwrap();
+
+        assert!(endpoint.socket_path.is_none());
+        assert_eq!(
+            endpoint.pipe_name.as_deref(),
+            Some(r"\\.\pipe\athanor-runtime_bad_value")
+        );
+        assert!(endpoint.guard.is_none());
+        fs::remove_dir_all(root).unwrap();
     }
 
     fn temp_root(label: &str) -> PathBuf {

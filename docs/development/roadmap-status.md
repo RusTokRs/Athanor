@@ -2251,9 +2251,14 @@ Purpose:
 - treats client disconnects during response writes as non-fatal connection outcomes instead of failed daemon request handling
 - adds coverage for clients disconnecting before sending a request without creating daemon jobs
 - adds coverage for oversized daemon requests returning structured errors without creating daemon jobs
-- adds coverage for stale runtime metadata before connection attempts, including endpoint token-path mismatch, unsupported endpoint schema, and corrupted token files
+- adds coverage for client-side daemon byte limits: oversized outbound requests are not written and oversized wire responses are rejected before parsing
+- adds coverage for stale and corrupted runtime metadata before connection attempts, including invalid endpoint JSON, endpoint token-path mismatch, unsupported endpoint schema, and corrupted token files
+- adds coverage that daemon runtime endpoint and token files are removed when the runtime file guard is dropped
+- adds coverage that unsafe daemon serve options are rejected before binding, including polling without watch, invalid debounce, non-loopback TCP, and oversized protocol limits
 - adds coverage that index and generation jobs finished with an `operation cancelled` error are recorded as cancelled and drop their cancellation tokens
-- adds coverage that daemon `status`, `explain`, and `search` requests still complete while an index job is already running
+- adds coverage that daemon shutdown cancellation requests active jobs, times out while they remain active, and drains successfully after cancellation is recorded
+- adds coverage that daemon `status`, `explain`, `search`, `overview`, and `context` requests still complete while an index job is already running
+- adds platform coverage for local socket setup metadata: Unix stale socket cleanup or Windows named-pipe label sanitization where available
 - deduplicates daemon watcher source paths after debounce delivery, filters `.athanor` artifact noise, and covers event storms being skipped while an index job is already active
 - keeps the existing single-instance lock, busy response, authentication, protocol-v1 compatibility, cancellation state, staging cleanup, and oversized response tests intact
 
@@ -2293,7 +2298,7 @@ Scope:
 - extend daemon tests beyond existing token, v1 compatibility, busy response, and oversized response unit coverage
 - cover daemon crash/restart behavior beyond the implemented stale endpoint metadata, stale token, stale lock recovery, and corrupted endpoint metadata client-side checks
 - cover cancellation during real long-running index and generation job execution beyond the implemented daemon job-state cancellation result mapping
-- cover parallel read-only context requests while an index job is running, extending the implemented status/search/explain coverage
+- cover deeper parallel read-only request contention while an index job is running, beyond the implemented status/search/explain/overview/context coverage
 - cover live watcher debounce timing beyond the implemented source-path deduplication, artifact filtering, and active-index skip behavior
 - cover Unix socket permissions and Windows named pipe lifecycle where platform support is available
 

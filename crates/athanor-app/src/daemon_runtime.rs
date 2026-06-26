@@ -290,4 +290,25 @@ mod tests {
         DaemonRuntimeLock::acquire(&path, "alpha").unwrap();
         fs::remove_dir_all(root).unwrap();
     }
+
+    #[test]
+    fn runtime_file_guard_removes_endpoint_and_token_files_on_drop() {
+        let root =
+            std::env::temp_dir().join(format!("athanor-runtime-guard-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let endpoint = root.join("endpoint.json");
+        let token = root.join("token");
+        fs::write(&endpoint, "{}\n").unwrap();
+        fs::write(&token, "secret\n").unwrap();
+
+        {
+            let _guard = RuntimeFileGuard::new([endpoint.clone(), token.clone()]);
+            assert!(endpoint.is_file());
+            assert!(token.is_file());
+        }
+
+        assert!(!endpoint.exists());
+        assert!(!token.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
 }
