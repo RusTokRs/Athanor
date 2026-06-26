@@ -3654,6 +3654,24 @@ mod tests {
         );
 
         endpoint.schema = DAEMON_ENDPOINT_SCHEMA.to_string();
+        endpoint.protocol_version = DAEMON_PROTOCOL_VERSION + 1;
+        write_endpoint(&runtime_dir.join("endpoint.json"), &endpoint).unwrap();
+        let error = request_daemon(
+            DaemonClientOptions {
+                root: root.clone(),
+                runtime_dir: Some(runtime_dir.clone()),
+            },
+            request(),
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("unsupported daemon protocol version")
+        );
+
+        endpoint.protocol_version = DAEMON_PROTOCOL_VERSION;
         write_endpoint(&runtime_dir.join("endpoint.json"), &endpoint).unwrap();
         fs::write(runtime_dir.join("token"), "not-a-token\n").unwrap();
         let error = request_daemon(
@@ -4051,6 +4069,59 @@ mod tests {
         assert!(scheduled.is_none());
         assert_eq!(list_daemon_jobs(&state, 10).unwrap().total, 1);
         assert!(has_active_job(&state, DaemonJobKind::Index).unwrap());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn polling_watcher_debounces_source_changes_and_ignores_artifacts() {
+        let root = temp_root("polling-watcher");
+        let source_dir = root.join("src");
+        let docs_dir = root.join("docs");
+        let artifact_dir = root.join(".athanor/generated/current/jsonl");
+        fs::create_dir_all(&source_dir).unwrap();
+        fs::create_dir_all(&docs_dir).unwrap();
+        fs::create_dir_all(&artifact_dir).unwrap();
+        let source = source_dir.join("lib.rs");
+        let docs = docs_dir.join("README.md");
+        let artifact = artifact_dir.join("entities.jsonl");
+
+        let (watch_tx, mut watch_rx) = mpsc::unbounded_channel();
+        let _watcher = start_file_watcher(&root, Duration::from_millis(100), true, watch_tx)
+            .expect("polling watcher should start");
+
+        fs::write(&source, "pub fn changed() {}\n").unwrap();
+        fs::write(&docs, "# Changed\n").unwrap();
+        fs::write(&artifact, "{}\n").unwrap();
+
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        let mut observed = Vec::new();
+        while tokio::time::Instant::now() < deadline {
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            match tokio::time::timeout(remaining, watch_rx.recv()).await {
+                Ok(Some(paths)) => {
+                    observed.extend(paths);
+                    observed.sort();
+                    observed.dedup();
+                    if observed.contains(&source) && observed.contains(&docs) {
+                        break;
+                    }
+                }
+                Ok(None) => break,
+                Err(_) => break,
+            }
+        }
+
+        assert!(
+            observed.contains(&source),
+            "missing source event: {observed:?}"
+        );
+        assert!(observed.contains(&docs), "missing docs event: {observed:?}");
+        assert!(
+            !observed
+                .iter()
+                .any(|path| path.starts_with(root.join(".athanor"))),
+            "artifact paths should be filtered: {observed:?}"
+        );
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -4609,6 +4680,46 @@ mod tests {
                 .as_deref()
                 .unwrap_or_default()
                 .contains("daemon is busy")
+        );
+        task.await.unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn busy_response_masks_invalid_authentication() {
+        let root = temp_root("busy-auth");
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let mut state = test_daemon_state(&root, false);
+        state.endpoint.address = address;
+        let task = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            handle_busy_connection(stream, &state).await.unwrap();
+        });
+
+        let mut stream = TcpStream::connect(address).await.unwrap();
+        let request = DaemonRequest {
+            schema: DAEMON_REQUEST_SCHEMA.to_string(),
+            request_id: "req-busy-auth".to_string(),
+            project_id: "alpha".to_string(),
+            auth_token: Some("bad-token".to_string()),
+            command: DaemonCommand::Status,
+        };
+        stream
+            .write_all(&serde_json::to_vec(&request).unwrap())
+            .await
+            .unwrap();
+        stream.write_all(b"\n").await.unwrap();
+        stream.shutdown().await.unwrap();
+
+        let mut response = Vec::new();
+        stream.read_to_end(&mut response).await.unwrap();
+        let response: DaemonResponse = serde_json::from_slice(&response).unwrap();
+        assert!(!response.ok);
+        assert_eq!(response.request_id, "req-busy-auth");
+        assert_eq!(
+            response.error.as_deref(),
+            Some("daemon authentication failed")
         );
         task.await.unwrap();
         fs::remove_dir_all(root).unwrap();

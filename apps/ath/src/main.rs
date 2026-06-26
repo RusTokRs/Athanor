@@ -5,32 +5,32 @@ use athanor_app::{
     AdapterTrustListOptions, AdapterTrustOptions, AdapterTrustReport, AffectedCheckOptions,
     AffectedCheckReport, ApiCleanupOptions, ApiCleanupReport, ApiContractDiff, ApiDiffOptions,
     ApiRetentionOverrides, ApiSnapshotOptions, ApiSnapshotReport, BenchmarkOptions,
-    BenchmarkReport, BenchmarkSize, ContextLimitOverrides, ContextOptions, DiagnosticCheckOptions,
-    DiagnosticCheckReport, DiagnosticScope, DocsApplyPatchOptions, DocsApplyPatchReport,
-    DocsCheckOptions, DocsCheckReport, DocsDriftOptions, DocsDriftReport, DocsProposeFixOptions,
-    DocsProposeFixReport, EntityExplanation, ExplainOptions, GenerationOptions, GraphCycles,
-    GraphCyclesOptions, GraphExportOptions, GraphFbaDependenciesOptions, GraphFbaModuleOptions,
-    GraphFbaPortOptions, GraphFbaViolationsOptions, GraphFfaSurfaceOptions,
-    GraphFfaViolationsOptions, GraphHubs, GraphHubsOptions, GraphPageRank, GraphPageRankOptions,
-    GraphPath, GraphPathOptions, GraphRelated, GraphRelatedOptions, HtmlReportOptions,
-    ImpactAnalysis, ImpactOptions, IndexOptions, IndexReport, InitOptions,
-    OperationsDocsCheckOptions, OperationsDocsCheckReport, OverviewOptions, ProjectRegisterOptions,
-    ProjectRegistration, ProjectRegistryOptions, ProjectRegistryReport, ProjectUnregisterOptions,
-    RepairApplyOptions, RepairApplyReport, RepairCleanupOptions, RepairCleanupReport,
-    RepairInspectOptions, RepairInspectReport, RepairRecoverCanonicalOptions,
-    RepairRecoverCanonicalReport, RepairRegenerateOptions, RepairRegenerateReport,
-    RepositoryOverview, RustokFbaAudit, RustokFbaAuditOptions, RustokFbaGraph, RustokFfaAudit,
-    RustokFfaAuditOptions, RustokFfaGraph, WikiOptions, apply_repair, benchmark_index,
-    check_affected, check_docs, check_operations_docs, check_project, cleanup_api_contracts,
-    cleanup_repair, context_project, default_adapter_trust_path, default_project_registry_path,
-    diff_api_contracts, docs_apply_patch, docs_drift, docs_propose_fix, explain_project,
-    generate_project, graph_fba_dependencies, graph_fba_module, graph_fba_port,
-    graph_fba_violations, graph_ffa_surface, graph_ffa_violations, impact_project, index_project,
-    init_project, inspect_repair, list_adapter_plugin_trust, list_registered_projects,
-    overview_project, project_html_report, project_wiki, recover_canonical_repair,
-    regenerate_repair, register_project, resolve_registered_project, rustok_fba_audit,
-    rustok_ffa_audit, snapshot_api_contract, trust_adapter_plugin, unregister_project,
-    untrust_adapter_plugin,
+    BenchmarkReport, BenchmarkSize, ContextLimitOverrides, ContextOptions, CoverageOptions,
+    CoverageReport, DiagnosticCheckOptions, DiagnosticCheckReport, DiagnosticScope,
+    DocsApplyPatchOptions, DocsApplyPatchReport, DocsCheckOptions, DocsCheckReport,
+    DocsDriftOptions, DocsDriftReport, DocsProposeFixOptions, DocsProposeFixReport,
+    EntityExplanation, ExplainOptions, GenerationOptions, GraphCycles, GraphCyclesOptions,
+    GraphExportOptions, GraphFbaDependenciesOptions, GraphFbaModuleOptions, GraphFbaPortOptions,
+    GraphFbaViolationsOptions, GraphFfaSurfaceOptions, GraphFfaViolationsOptions, GraphHubs,
+    GraphHubsOptions, GraphPageRank, GraphPageRankOptions, GraphPath, GraphPathOptions,
+    GraphRelated, GraphRelatedOptions, HtmlReportOptions, ImpactAnalysis, ImpactOptions,
+    IndexOptions, IndexReport, InitOptions, OperationsDocsCheckOptions, OperationsDocsCheckReport,
+    OverviewOptions, ProjectRegisterOptions, ProjectRegistration, ProjectRegistryOptions,
+    ProjectRegistryReport, ProjectUnregisterOptions, RepairApplyOptions, RepairApplyReport,
+    RepairCleanupOptions, RepairCleanupReport, RepairInspectOptions, RepairInspectReport,
+    RepairRecoverCanonicalOptions, RepairRecoverCanonicalReport, RepairRegenerateOptions,
+    RepairRegenerateReport, RepositoryOverview, RustokFbaAudit, RustokFbaAuditOptions,
+    RustokFbaGraph, RustokFfaAudit, RustokFfaAuditOptions, RustokFfaGraph, WikiOptions,
+    apply_repair, benchmark_index, check_affected, check_docs, check_operations_docs,
+    check_project, cleanup_api_contracts, cleanup_repair, context_project, coverage_project,
+    default_adapter_trust_path, default_project_registry_path, diff_api_contracts,
+    docs_apply_patch, docs_drift, docs_propose_fix, explain_project, generate_project,
+    graph_fba_dependencies, graph_fba_module, graph_fba_port, graph_fba_violations,
+    graph_ffa_surface, graph_ffa_violations, impact_project, index_project, init_project,
+    inspect_repair, list_adapter_plugin_trust, list_registered_projects, overview_project,
+    project_html_report, project_wiki, recover_canonical_repair, regenerate_repair,
+    register_project, resolve_registered_project, rustok_fba_audit, rustok_ffa_audit,
+    snapshot_api_contract, trust_adapter_plugin, unregister_project, untrust_adapter_plugin,
 };
 use athanor_domain::ContextLevel;
 use clap::{Parser, Subcommand, ValueEnum};
@@ -255,6 +255,24 @@ enum Command {
         /// Fail on open API diagnostics or breaking contract changes.
         #[arg(long)]
         strict: bool,
+    },
+    /// Report bounded analysis coverage from the latest canonical snapshot.
+    Coverage {
+        /// Project root. Defaults to the current directory.
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Restrict coverage rows to one adapter name.
+        #[arg(long)]
+        adapter: Option<String>,
+        /// Restrict coverage rows to one source file under the project root.
+        #[arg(long)]
+        file: Option<PathBuf>,
+        /// Maximum rows per coverage section.
+        #[arg(long, default_value_t = 50)]
+        limit: usize,
+        /// Print the complete coverage report as JSON.
+        #[arg(long)]
+        json: bool,
     },
     /// Check editable documentation against the configured completeness policy.
     Docs {
@@ -1023,6 +1041,26 @@ async fn main() -> Result<()> {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
                 print_check_report(&report)?;
+            }
+        }
+        Some(Command::Coverage {
+            path,
+            adapter,
+            file,
+            limit,
+            json,
+        }) => {
+            let report = coverage_project(CoverageOptions {
+                root: path,
+                adapter,
+                file,
+                limit,
+            })
+            .await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                print_coverage_report(&report);
             }
         }
         Some(Command::Docs {
@@ -2644,6 +2682,80 @@ fn print_check_report(report: &DiagnosticCheckReport) -> Result<()> {
         );
     }
     Ok(())
+}
+
+fn print_coverage_report(report: &CoverageReport) {
+    println!(
+        "coverage for {}: {} tracked files, {} files with canonical objects, {} open diagnostics",
+        report.snapshot,
+        report.totals.tracked_files,
+        report.totals.files_with_canonical_objects,
+        report.totals.open_diagnostics
+    );
+    println!(
+        "canonical objects: {} entities, {} facts, {} relations, {} diagnostics",
+        report.totals.entities,
+        report.totals.facts,
+        report.totals.relations,
+        report.totals.diagnostics
+    );
+    if let Some(adapter) = &report.filters.adapter {
+        println!("adapter filter: {adapter}");
+    }
+    if let Some(file) = &report.filters.file {
+        println!("file filter: {file}");
+    }
+    println!("adapters:");
+    if report.adapters.is_empty() {
+        println!("  (none)");
+    } else {
+        for adapter in &report.adapters {
+            println!(
+                "  - {}: {} files, {} facts, {} evidence items, {} diagnostics",
+                adapter.adapter,
+                adapter.files,
+                adapter.facts,
+                adapter.evidence_items,
+                adapter.diagnostics
+            );
+        }
+    }
+    println!("files:");
+    if report.files.is_empty() {
+        println!("  (none)");
+    } else {
+        for file in &report.files {
+            println!(
+                "  - {}: {} entities, {} facts, {} relations, {} diagnostics ({} open)",
+                file.path,
+                file.entities,
+                file.facts,
+                file.relations,
+                file.diagnostics,
+                file.open_diagnostics
+            );
+        }
+    }
+    println!("diagnostics:");
+    if report.diagnostics.is_empty() {
+        println!("  (none)");
+    } else {
+        for diagnostic in &report.diagnostics {
+            println!(
+                "  - {}: {} total, {} open, {} files",
+                diagnostic.kind, diagnostic.total, diagnostic.open, diagnostic.files
+            );
+        }
+    }
+    if report.omitted.files > 0 || report.omitted.adapters > 0 || report.omitted.diagnostics > 0 {
+        println!(
+            "omitted: {} files, {} adapters, {} diagnostic kinds (limit {})",
+            report.omitted.files,
+            report.omitted.adapters,
+            report.omitted.diagnostics,
+            report.limits.limit
+        );
+    }
 }
 
 fn print_affected_check_report(report: &AffectedCheckReport) -> Result<()> {

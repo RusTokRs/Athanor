@@ -63,6 +63,10 @@ ath update --changed
 ath update --changed --json
 ath overview
 ath overview --json
+ath coverage
+ath coverage --json
+ath coverage --adapter <id>
+ath coverage --file <path>
 ath context <task>
 ath context <task> --json
 ath context --diff
@@ -2253,6 +2257,7 @@ Purpose:
 - adds coverage that invalid read/query command parameters are rejected without creating daemon jobs, and cancelling a running read-only job returns a non-cancellable error without mutating the job
 - adds coverage that duplicate writable daemon jobs are rejected without creating a second job, and protocol cancellation of a queued writable job finishes it and removes its cancellation token
 - adds coverage that invalid request JSON, project mismatches, empty daemon responses, and invalid daemon response JSON fail with bounded errors without creating work
+- adds coverage that unsupported endpoint protocol metadata is rejected before connection and busy responses mask invalid authentication as a generic authentication failure
 - adds coverage for clients disconnecting before sending a request without creating daemon jobs
 - adds coverage for oversized daemon requests returning structured errors without creating daemon jobs
 - adds coverage for client-side daemon byte limits: oversized outbound requests are not written and oversized wire responses are rejected before parsing
@@ -2264,7 +2269,7 @@ Purpose:
 - adds coverage that daemon `status`, `explain`, `search`, `overview`, and `context` requests still complete while an index job is already running
 - keeps the read-only daemon contention coverage deterministic on Windows by releasing cached search resources before temporary project cleanup
 - adds platform coverage for local socket setup metadata: Unix stale socket cleanup or Windows named-pipe label sanitization where available
-- deduplicates daemon watcher source paths after debounce delivery, filters `.athanor` artifact noise, and covers event storms being skipped while an index job is already active
+- deduplicates daemon watcher source paths after debounce delivery, filters `.athanor` artifact noise, covers event storms being skipped while an index job is already active, and adds a live polling-watcher debounce smoke test for source changes versus generated artifacts
 - keeps the existing single-instance lock, busy response, authentication, protocol-v1 compatibility, cancellation state, staging cleanup, and oversized response tests intact
 
 ### Pipeline Shared Input Copy Reduction
@@ -2287,6 +2292,26 @@ Purpose:
 - preserves external process adapter JSON compatibility because `Arc<Vec<T>>` serializes to the same JSON arrays as the previous shared slice fields
 - returns owned vectors for canonical storage through `Arc::try_unwrap` when no adapter retained a reference, falling back to a clone only when necessary
 - adds a regression test proving linker and checker phases observe the same entity and fact shared-context allocations
+
+### Analysis Coverage Report Slice
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-app/src/coverage.rs`
+- `apps/ath/src/main.rs`
+- `docs/README.md`
+- `docs/architecture/pipeline.md`
+- `docs/development/roadmap-status.md`
+
+Purpose:
+
+- adds `ath coverage`, `ath coverage --json`, `ath coverage --adapter <id>`, and `ath coverage --file <path>`
+- reads the latest canonical snapshot and `.athanor/state/index-state.json` without running indexing or reading generated JSONL artifacts
+- emits stable `athanor.coverage.v1` with tracked-file counts, canonical object counts, adapter evidence/fact coverage, diagnostic-kind counts, file-level rows, applied filters, explicit row limits, and omitted counts
+- keeps coverage reporting bounded and deterministic for CLI use and future daemon/MCP routing
+- leaves canonical capability declarations, parser recovery diagnostics, unsupported syntax diagnostics, and `ath capabilities` for a later analysis-completeness slice
 
 ## Next
 
@@ -2322,7 +2347,7 @@ Priority: P2.
 Scope:
 
 - add canonical coverage/capability facts or diagnostics with evidence for unsupported syntax, skipped files, partial parsing, parser recovery, and extractor confidence
-- expose bounded commands such as `ath capabilities`, `ath capabilities --json`, `ath coverage`, `ath coverage --json`, `ath coverage --adapter <id>`, and `ath coverage --file <path>`
+- expose bounded commands such as `ath capabilities`, `ath capabilities --json`, and deeper `ath coverage` variants for fully processed, partially processed, skipped, and unsupported constructs
 - report per-adapter discovered files, fully processed files, partially processed files, skipped files, unsupported constructs, and omitted counts when limits apply
 - keep coverage output agent-facing through stable schemas and explicit limits instead of requiring generated artifact reads
 

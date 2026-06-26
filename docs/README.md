@@ -265,6 +265,10 @@ Repository overview and task-focused context packs can be read from the latest c
 ```bash
 cargo run -p ath --quiet -- overview .
 cargo run -p ath --quiet -- overview . --json
+cargo run -p ath --quiet -- coverage .
+cargo run -p ath --quiet -- coverage . --json
+cargo run -p ath --quiet -- coverage . --adapter MarkdownExtractor
+cargo run -p ath --quiet -- coverage . --file docs/README.md
 cargo run -p ath --quiet -- search "task"
 cargo run -p ath --quiet -- search "task" --json
 cargo run -p ath --quiet -- context "task"
@@ -326,6 +330,11 @@ cargo run -p athd --quiet -- context athanor --diff --level summary --budget 200
 cargo run -p athd --quiet -- stop athanor
 cargo run -p athd --quiet -- service uninstall athanor --json
 ```
+
+`coverage` emits bounded `athanor.coverage.v1` reports from the latest canonical snapshot and
+persisted index state. It summarizes tracked files, canonical object counts, adapter evidence/fact
+coverage, diagnostic-kind counts, file-level rows, applied filters, explicit row limits, and omitted
+counts without reading generated JSONL artifacts or running a new index.
 
 Canonical entities can be explained directly from the latest snapshot:
 
