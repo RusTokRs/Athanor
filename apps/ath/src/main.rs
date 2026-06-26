@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use athanor_app::{
     AdapterTrustListOptions, AdapterTrustOptions, AdapterTrustReport, AffectedCheckOptions,
     AffectedCheckReport, ApiCleanupOptions, ApiCleanupReport, ApiContractDiff, ApiDiffOptions,
@@ -255,24 +255,6 @@ enum Command {
         /// Fail on open API diagnostics or breaking contract changes.
         #[arg(long)]
         strict: bool,
-    },
-    /// Report bounded analysis coverage from the latest canonical snapshot.
-    Coverage {
-        /// Project root. Defaults to the current directory.
-        #[arg(default_value = ".")]
-        path: PathBuf,
-        /// Restrict coverage rows to one adapter name.
-        #[arg(long)]
-        adapter: Option<String>,
-        /// Restrict coverage rows to one source file under the project root.
-        #[arg(long)]
-        file: Option<PathBuf>,
-        /// Maximum rows per coverage section.
-        #[arg(long, default_value_t = 50)]
-        limit: usize,
-        /// Print the complete coverage report as JSON.
-        #[arg(long)]
-        json: bool,
     },
     /// Check editable documentation against the configured completeness policy.
     Docs {
@@ -812,6 +794,9 @@ fn adapter_trust_path(trust_store: Option<PathBuf>) -> Result<PathBuf> {
 #[tokio::main]
 async fn main() -> Result<()> {
     init_tracing();
+    if handle_manual_coverage_command().await? {
+        return Ok(());
+    }
     if handle_manual_rustok_arch_command().await? {
         return Ok(());
     }
@@ -1041,26 +1026,6 @@ async fn main() -> Result<()> {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
                 print_check_report(&report)?;
-            }
-        }
-        Some(Command::Coverage {
-            path,
-            adapter,
-            file,
-            limit,
-            json,
-        }) => {
-            let report = coverage_project(CoverageOptions {
-                root: path,
-                adapter,
-                file,
-                limit,
-            })
-            .await?;
-            if json {
-                println!("{}", serde_json::to_string_pretty(&report)?);
-            } else {
-                print_coverage_report(&report);
             }
         }
         Some(Command::Docs {
@@ -1650,6 +1615,117 @@ fn init_tracing() {
         .with_env_filter(filter)
         .with_writer(std::io::stderr)
         .try_init();
+}
+
+#[derive(Debug)]
+struct CoverageFlags {
+    path: PathBuf,
+    adapter: Option<String>,
+    file: Option<PathBuf>,
+    limit: usize,
+    json: bool,
+}
+
+async fn handle_manual_coverage_command() -> Result<bool> {
+    let args = std::env::args().skip(1).collect::<Vec<_>>();
+    let [first, rest @ ..] = args.as_slice() else {
+        return Ok(false);
+    };
+    if first != "coverage" {
+        return Ok(false);
+    }
+    if rest.iter().any(|arg| arg == "--help" || arg == "-h") {
+        print_coverage_help();
+        return Ok(true);
+    }
+    let flags = parse_coverage_flags(rest)?;
+    let report = coverage_project(CoverageOptions {
+        root: flags.path,
+        adapter: flags.adapter,
+        file: flags.file,
+        limit: flags.limit,
+    })
+    .await?;
+    if flags.json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        print_coverage_report(&report);
+    }
+    Ok(true)
+}
+
+fn print_coverage_help() {
+    println!("Report bounded analysis coverage from the latest canonical snapshot");
+    println!();
+    println!("Usage: ath coverage [PATH] [--adapter <ID>] [--file <PATH>] [--limit <N>] [--json]");
+    println!();
+    println!("Options:");
+    println!("      --adapter <ID>   Restrict coverage rows to one adapter name");
+    println!(
+        "      --file <PATH>    Restrict coverage rows to one source file under the project root"
+    );
+    println!("      --limit <N>      Maximum rows per coverage section [default: 50]");
+    println!("      --json           Print the complete coverage report as JSON");
+    println!("  -h, --help           Print help");
+}
+
+fn parse_coverage_flags(args: &[String]) -> Result<CoverageFlags> {
+    let mut path = None;
+    let mut adapter = None;
+    let mut file = None;
+    let mut limit = 50;
+    let mut json = false;
+    let mut index = 0;
+
+    while index < args.len() {
+        match args[index].as_str() {
+            "--json" => {
+                json = true;
+                index += 1;
+            }
+            "--adapter" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or_else(|| anyhow::anyhow!("--adapter requires a value"))?;
+                adapter = Some(value.clone());
+                index += 2;
+            }
+            "--file" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or_else(|| anyhow::anyhow!("--file requires a value"))?;
+                file = Some(PathBuf::from(value));
+                index += 2;
+            }
+            "--limit" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or_else(|| anyhow::anyhow!("--limit requires a value"))?;
+                limit = value
+                    .parse::<usize>()
+                    .context("--limit must be a positive integer")?;
+                index += 2;
+            }
+            value if value.starts_with("--") => {
+                anyhow::bail!("unknown coverage flag `{value}`");
+            }
+            value => {
+                if path.is_some() {
+                    anyhow::bail!("coverage accepts at most one project path");
+                }
+                path = Some(PathBuf::from(value));
+                index += 1;
+            }
+        }
+    }
+
+    Ok(CoverageFlags {
+        path: path.unwrap_or_else(|| PathBuf::from(".")),
+        adapter,
+        file,
+        limit,
+        json,
+    })
 }
 
 async fn handle_manual_rustok_arch_command() -> Result<bool> {

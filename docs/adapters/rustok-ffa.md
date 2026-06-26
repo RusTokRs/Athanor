@@ -75,6 +75,13 @@ ffa_layer://<module>/<surface>/<core|transport|ui_leptos|ui_support|api|host_wir
 
 The marker fact kind is `rustok_ffa_source_marker`. Marker payloads include the module, surface, role, normalized path, canonical UI-adapter flag, host-wiring flag, Leptos/component/server markers, raw API calls, transport-facade calls, and transport profile hints. Only `ui/leptos.rs` or `ui/leptos/` satisfies the explicit `ui_leptos` layer; other UI files are retained as `ui_support` and are still checked for raw transport calls. Native-first facades with typed `ServerFn` and `Graphql` errors plus a `*_with_fallback` operation count as an explicit transition transport profile.
 
+The main code roles tolerate ordinary Rust module layout refactors: `src/core.rs`,
+`src/core/mod.rs`, and nested `src/core/**/*.rs` all map to
+`ffa_layer://<module>/<surface>/core`; `src/transport.rs`, `src/transport/mod.rs`,
+and nested `src/transport/**/*.rs` all map to the transport layer; `src/ui/leptos.rs`,
+`src/ui/leptos/mod.rs`, and nested `src/ui/leptos/**/*.rs` all map to the explicit
+`ui_leptos` layer.
+
 Readiness-board rows and module-local `docs/implementation-plan.md` status blocks use the secondary fact kind `rustok_ffa_docs_status`. Duplicate board rows, missing board coverage, code/board structural-shape mismatches, and local/central FFA/FBA status mismatches produce evidence-backed docs drift diagnostics.
 
 ## Linking

@@ -1235,9 +1235,91 @@ mod tests {
             "ui_leptos"
         );
         assert_eq!(
+            role_for_module_path("crates/rustok-auth/admin/src/ui/leptos/mod.rs", "admin"),
+            "ui_leptos"
+        );
+        assert_eq!(
             role_for_module_path("crates/rustok-auth/admin/src/ui/reset.rs", "admin"),
             "ui_support"
         );
+    }
+
+    #[test]
+    fn module_layout_variants_map_to_stable_roles() {
+        let cases = [
+            ("crates/rustok-auth/admin/src/core.rs", "core"),
+            ("crates/rustok-auth/admin/src/core/mod.rs", "core"),
+            ("crates/rustok-auth/admin/src/core/state/model.rs", "core"),
+            ("crates/rustok-auth/admin/src/transport.rs", "transport"),
+            ("crates/rustok-auth/admin/src/transport/mod.rs", "transport"),
+            (
+                "crates/rustok-auth/admin/src/transport/native/client.rs",
+                "transport",
+            ),
+            ("crates/rustok-auth/admin/src/ui/leptos.rs", "ui_leptos"),
+            ("crates/rustok-auth/admin/src/ui/leptos/mod.rs", "ui_leptos"),
+            (
+                "crates/rustok-auth/admin/src/ui/leptos/components/form.rs",
+                "ui_leptos",
+            ),
+            ("crates/rustok-auth/admin/src/ui/reset.rs", "ui_support"),
+            ("crates/rustok-auth/admin/src/api/session.rs", "api"),
+            ("crates/rustok-auth/admin/src/lib.rs", "crate_root"),
+            ("crates/rustok-auth/admin/Cargo.toml", "manifest"),
+            ("crates/rustok-auth/admin/rustok-module.toml", "manifest"),
+        ];
+
+        for (path, expected_role) in cases {
+            assert_eq!(role_for_module_path(path, "admin"), expected_role, "{path}");
+        }
+    }
+
+    #[tokio::test]
+    async fn nested_layer_files_link_to_same_canonical_layer() {
+        let inputs = [
+            source("crates/rustok-blog/admin/src/core/mod.rs", "mod state;"),
+            source(
+                "crates/rustok-blog/admin/src/core/state.rs",
+                "pub struct State;",
+            ),
+        ];
+        let mut entities = Vec::new();
+        let mut facts = Vec::new();
+        for source in inputs {
+            let output = RustokFfaExtractor
+                .extract(ExtractInput {
+                    repo: RepoId("repo".to_string()),
+                    snapshot: SnapshotId("snap".to_string()),
+                    source,
+                })
+                .await
+                .unwrap();
+            entities.extend(output.entities);
+            facts.extend(output.facts);
+        }
+
+        let core_layer_id = entities
+            .iter()
+            .find(|entity| entity.stable_key.0 == "ffa_layer://blog/admin/core")
+            .map(|entity| entity.id.clone())
+            .expect("core layer entity is extracted");
+
+        let relations = RustokFfaLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap".to_string()),
+                entities: std::sync::Arc::new(entities),
+                facts: std::sync::Arc::new(facts),
+                affected: Default::default(),
+            })
+            .await
+            .unwrap();
+
+        let implemented_core_files = relations
+            .iter()
+            .filter(|relation| relation.from == core_layer_id)
+            .filter(|relation| matches!(relation.kind, RelationKind::ImplementedBy))
+            .count();
+        assert_eq!(implemented_core_files, 2);
     }
 
     #[test]
@@ -1365,6 +1447,55 @@ mod tests {
             .unwrap();
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[tokio::test]
+    async fn clean_directory_layout_surface_has_no_missing_layer_diagnostics() {
+        let inputs = [
+            source("crates/rustok-blog/admin/src/core/mod.rs", "pub mod state;"),
+            source(
+                "crates/rustok-blog/admin/src/transport/mod.rs",
+                "pub mod native_server_adapter;",
+            ),
+            source(
+                "crates/rustok-blog/admin/src/ui/leptos/mod.rs",
+                "#[component]\npub fn View() { crate::transport::load(); }",
+            ),
+        ];
+        let mut entities = Vec::new();
+        let mut facts = Vec::new();
+        for source in inputs {
+            let output = RustokFfaExtractor
+                .extract(ExtractInput {
+                    repo: RepoId("repo".to_string()),
+                    snapshot: SnapshotId("snap".to_string()),
+                    source,
+                })
+                .await
+                .unwrap();
+            entities.extend(output.entities);
+            facts.extend(output.facts);
+        }
+
+        let diagnostics = RustokFfaChecker
+            .check(CheckInput {
+                snapshot: SnapshotId("snap".to_string()),
+                entities: std::sync::Arc::new(entities),
+                facts: std::sync::Arc::new(facts),
+                relations: std::sync::Arc::new(Vec::new()),
+                affected: Default::default(),
+            })
+            .await
+            .unwrap();
+
+        assert!(!diagnostics.iter().any(|diagnostic| matches!(
+            diagnostic.kind,
+            DiagnosticKind::Other(ref kind)
+                if kind == "rustok_ffa_surface_missing_core"
+                    || kind == "rustok_ffa_surface_missing_transport"
+                    || kind == "rustok_ffa_surface_missing_ui_adapter"
+                    || kind == "rustok_ffa_forgotten_surface"
+        )));
     }
 
     #[tokio::test]

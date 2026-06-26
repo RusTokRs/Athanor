@@ -204,12 +204,16 @@ fn build_coverage_report(
         if !adapter_matches(&adapter, &adapter_filter) {
             continue;
         }
+        let matched_paths = paths
+            .into_iter()
+            .filter(|path| path_matches(path, &file_filter))
+            .collect::<Vec<_>>();
+        if matched_paths.is_empty() {
+            continue;
+        }
         let entry = adapters.entry(adapter.clone()).or_default();
         entry.facts += 1;
-        for path in paths {
-            if !path_matches(&path, &file_filter) {
-                continue;
-            }
+        for path in matched_paths {
             entry.files.insert(path.clone());
             let file = files.entry(path).or_default();
             file.facts += 1;
@@ -225,15 +229,15 @@ fn build_coverage_report(
             if !adapter_matches(adapter, &adapter_filter) {
                 continue;
             }
-            let adapter_entry = adapters.entry(adapter.to_string()).or_default();
-            adapter_entry.evidence_items += 1;
-            if let Some(path) = &evidence.source_file {
-                if path_matches(path, &file_filter) {
-                    adapter_entry.files.insert(path.clone());
-                    let file = files.entry(path.clone()).or_default();
-                    file.relations += 1;
-                    file.adapters.insert(adapter.to_string());
-                }
+            if let Some(path) = &evidence.source_file
+                && path_matches(path, &file_filter)
+            {
+                let adapter_entry = adapters.entry(adapter.to_string()).or_default();
+                adapter_entry.evidence_items += 1;
+                adapter_entry.files.insert(path.clone());
+                let file = files.entry(path.clone()).or_default();
+                file.relations += 1;
+                file.adapters.insert(adapter.to_string());
             }
         }
     }
@@ -251,6 +255,13 @@ fn build_coverage_report(
         {
             continue;
         }
+        let paths = paths
+            .into_iter()
+            .filter(|path| path_matches(path, &file_filter))
+            .collect::<Vec<_>>();
+        if paths.is_empty() && file_filter.is_some() {
+            continue;
+        }
         let kind = diagnostic_kind_name(diagnostic);
         let diagnostic_entry = diagnostics.entry(kind).or_default();
         diagnostic_entry.total += 1;
@@ -261,9 +272,6 @@ fn build_coverage_report(
             adapters.entry(adapter.clone()).or_default().diagnostics += 1;
         }
         for path in paths {
-            if !path_matches(&path, &file_filter) {
-                continue;
-            }
             diagnostic_entry.files.insert(path.clone());
             for adapter in &adapter_names {
                 adapters
