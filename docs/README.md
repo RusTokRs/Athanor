@@ -36,6 +36,7 @@ Use this file to find the right document before changing code, adapters, plugins
 - [Production operation](development/production.md): authenticated daemon v2, per-user services, runtime permissions, release verification, and external-adapter policy.
 - [Library adoption plan](development/library-adoption-plan.md): approved dependencies, adapter boundaries, risks, and acceptance criteria.
 - [Documentation completeness policy](development/docs-completeness-policy.md): `athanor.toml` policy fields and the `ath docs check` CI gate.
+- [RusTok FFA/FBA adapter improvement plan](development/rustok-ffa-fba-adapter-improvement-plan.md): project-specific iteration plan for improving RusTok adapter and graph visibility without mixing it into the global roadmap.
 - [Roadmap status](development/roadmap-status.md): current verified implementation status and next recommended task.
 
 ## Operations Documentation

@@ -2,6 +2,7 @@
 id: doc://docs/adapters/rustok-ffa.md
 kind: adapter
 language: en
+last_verified_snapshot: snap_jsonl_00000191
 source_language: en
 status: verified
 ---
