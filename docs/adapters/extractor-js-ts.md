@@ -50,7 +50,7 @@ Module payloads include normalized `imports` and `exports` arrays. Import relati
 
 ## Diagnostics
 
-Recoverable parser errors produce `js_ts_parse_error` diagnostics. Unsupported declaration shapes detected during extraction produce `js_ts_unsupported_syntax` diagnostics. Diagnostics include source evidence, ownership, and the originating parser/language metadata.
+Recoverable parser errors produce `js_ts_parse_error` diagnostics coalesced at the outer parser error node, so one parser failure does not produce duplicate nested findings. Parser input strips a leading UTF-8 BOM and accepts Node-style shebangs before tree-sitter parsing. Unsupported top-level declaration shapes detected during extraction produce `js_ts_unsupported_syntax` diagnostics. Ordinary top-level runtime statements in scripts and ambient TypeScript `declare module` blocks are not treated as unsupported declaration diagnostics. Diagnostics include source evidence, ownership, and the originating parser/language metadata.
 
 ## Boundaries
 

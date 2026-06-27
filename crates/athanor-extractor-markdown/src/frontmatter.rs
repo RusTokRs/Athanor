@@ -44,7 +44,7 @@ pub fn parse_markdown_frontmatter(content: &str) -> CoreResult<ParsedMarkdownFro
     let Some(first) = lines.next() else {
         return Ok(ParsedMarkdownFrontmatter::default());
     };
-    if trimmed_line(first) != "---" {
+    if trimmed_line(first).trim_start_matches('\u{feff}') != "---" {
         return Ok(ParsedMarkdownFrontmatter::default());
     }
 
@@ -109,6 +109,18 @@ mod tests {
             Some(DocumentationLayer::Editable)
         );
         assert_eq!(&content[parsed.body_offset..], "# Auth\r\n");
+    }
+
+    #[test]
+    fn parses_frontmatter_after_utf8_bom() {
+        let content = "\u{feff}---\nid: doc://docs/auth.md\n---\n# Auth\n";
+        let parsed = parse_markdown_frontmatter(content).unwrap();
+
+        assert_eq!(
+            parsed.metadata.unwrap().id.as_deref(),
+            Some("doc://docs/auth.md")
+        );
+        assert_eq!(&content[parsed.body_offset..], "# Auth\n");
     }
 
     #[test]

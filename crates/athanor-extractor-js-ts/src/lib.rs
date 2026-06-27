@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use async_trait::async_trait;
 use athanor_core::{CoreResult, ExtractInput, ExtractOutput, Extractor, SourceFile};
 use athanor_domain::{
@@ -53,7 +55,9 @@ impl Extractor for JsTsExtractor {
             }
         }
 
-        let Some(tree) = parser.parse(content, None) else {
+        let parse_content = normalized_parse_content(content);
+        let parse_bytes = parse_content.as_bytes();
+        let Some(tree) = parser.parse(parse_bytes, None) else {
             return Ok(ExtractOutput::default());
         };
 
@@ -65,7 +69,7 @@ impl Extractor for JsTsExtractor {
 
         collect_source_items(
             root,
-            content.as_bytes(),
+            parse_bytes,
             &mut declarations,
             &mut imports,
             &mut exports,
@@ -86,7 +90,7 @@ impl Extractor for JsTsExtractor {
             &input.source.path,
             &input.snapshot,
             root,
-            content.as_bytes(),
+            parse_bytes,
             &mut diagnostics,
         );
 
@@ -194,6 +198,15 @@ impl Extractor for JsTsExtractor {
             facts,
             diagnostics,
         })
+    }
+}
+
+fn normalized_parse_content(content: &str) -> Cow<'_, str> {
+    let content = content.strip_prefix('\u{feff}').unwrap_or(content);
+    if let Some(rest) = content.strip_prefix("#!") {
+        Cow::Owned(format!("//{rest}"))
+    } else {
+        Cow::Borrowed(content)
     }
 }
 
@@ -494,6 +507,7 @@ fn collect_parse_errors(
                 "node_kind": node.kind(),
             }),
         }));
+        return;
     }
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
@@ -515,12 +529,14 @@ fn collect_unsupported_top_level(
     for child in root.named_children(&mut cursor) {
         if matches!(
             child.kind(),
-            "import_statement"
+            "ambient_declaration"
+                | "import_statement"
                 | "export_statement"
                 | "function_declaration"
                 | "generator_function_declaration"
                 | "class_declaration"
                 | "interface_declaration"
+                | "module_declaration"
                 | "type_alias_declaration"
                 | "lexical_declaration"
                 | "variable_declaration"
@@ -528,7 +544,7 @@ fn collect_unsupported_top_level(
         ) {
             continue;
         }
-        if child.kind().ends_with("statement") || child.kind().ends_with("declaration") {
+        if child.kind().ends_with("declaration") {
             diagnostics.push(diagnostic(DiagnosticSpec {
                 extractor,
                 path,
@@ -862,6 +878,78 @@ mod tests {
                 .iter()
                 .any(|fact| fact.kind == FactKind::SymbolDefined)
         );
+        let parse_errors = output
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| {
+                diagnostic.kind == DiagnosticKind::Other("js_ts_parse_error".to_string())
+            })
+            .count();
+        assert_eq!(parse_errors, 1);
+    }
+
+    #[tokio::test]
+    async fn ignores_top_level_runtime_statements_as_unsupported_declarations() {
+        let output = JsTsExtractor
+            .extract(input(
+                "scripts/check.mjs",
+                "console.log('checking');\nif (process.env.CI) { console.log('ci'); }\n",
+                "javascript",
+            ))
+            .await
+            .unwrap();
+
+        assert!(output.diagnostics.iter().all(|diagnostic| {
+            diagnostic.kind != DiagnosticKind::Other("js_ts_unsupported_syntax".to_string())
+        }));
+    }
+
+    #[tokio::test]
+    async fn parses_node_shebang_without_parser_diagnostics() {
+        let output = JsTsExtractor
+            .extract(input(
+                "scripts/check.mjs",
+                "#!/usr/bin/env node\nconsole.log('checking');\n",
+                "javascript",
+            ))
+            .await
+            .unwrap();
+
+        assert!(output.diagnostics.iter().all(|diagnostic| {
+            diagnostic.kind != DiagnosticKind::Other("js_ts_parse_error".to_string())
+        }));
+    }
+
+    #[tokio::test]
+    async fn parses_utf8_bom_prefixed_tsx_without_parser_diagnostics() {
+        let output = JsTsExtractor
+            .extract(input(
+                "src/index.tsx",
+                "\u{feff}export const App = () => <main />;\n",
+                "typescriptreact",
+            ))
+            .await
+            .unwrap();
+
+        assert!(output.diagnostics.iter().all(|diagnostic| {
+            diagnostic.kind != DiagnosticKind::Other("js_ts_parse_error".to_string())
+        }));
+    }
+
+    #[tokio::test]
+    async fn accepts_typescript_ambient_module_declarations() {
+        let output = JsTsExtractor
+            .extract(input(
+                "src/next-auth.d.ts",
+                "import { DefaultSession } from 'next-auth';\n\ndeclare module 'next-auth' {\n  interface Session { user: DefaultSession['user'] }\n}\n",
+                "typescript",
+            ))
+            .await
+            .unwrap();
+
+        assert!(output.diagnostics.iter().all(|diagnostic| {
+            diagnostic.kind != DiagnosticKind::Other("js_ts_unsupported_syntax".to_string())
+        }));
     }
 
     #[tokio::test]

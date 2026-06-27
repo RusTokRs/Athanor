@@ -46,7 +46,30 @@ blocked
 
 Do not mark a task `verified` without running checks.
 
-## 3. Adapter-First Decision
+## 3. Rustok-First Iteration
+
+Until Athanor's internal Rustok workflows are stable, prefer short Rustok-facing iterations over
+large speculative implementation batches:
+
+1. Choose one concrete Rustok scenario or pain point.
+2. Implement the smallest useful Athanor-side slice.
+3. Run the required local verification for the files changed.
+4. When the real Rustok repository is available, run bounded commands such as `ath index`,
+   `ath overview`, `ath coverage`, `ath check rustok-*`, `ath rustok ... audit`,
+   `ath graph ...`, and `ath context ...`.
+5. Choose the real-repository probes by the surface being changed. Rust backend and Rust-native
+   frontend work should emphasize Rust/FBA/FFA/Page Builder graph and diagnostic commands. Next.js
+   frontend work should emphasize JavaScript/TypeScript coverage, context, search, and any
+   Next/Page Builder-specific adapter commands that exist for that slice. Documentation and
+   operations changes should emphasize docs, affected, drift, and operations checks.
+6. Evaluate signal quality before expanding: diagnostics noise, evidence accuracy, stable keys,
+   graph usefulness, context-pack usefulness, runtime cost, and incremental rebuild behavior.
+7. Fix the slice until it is useful for real Rustok work, then expand to the next adjacent slice.
+
+Do not rely on reading generated JSONL, wiki, HTML, or graph exports to judge a Rustok iteration.
+Use bounded CLI or future daemon/MCP commands.
+
+## 4. Adapter-First Decision
 
 Ask:
 
@@ -59,7 +82,7 @@ If it is format-specific, backend-specific, transport-specific, UI-specific, fra
 
 Change `athanor-domain` or `athanor-core` only when the concept remains valid after replacing adapters.
 
-## 4. Modularity Checklist
+## 5. Modularity Checklist
 
 Before adding a feature, check:
 
@@ -74,7 +97,7 @@ Before adding a feature, check:
 
 If the answer is no, document why.
 
-## 5. Documentation By Default
+## 6. Documentation By Default
 
 Documentation is required in the same task when changing:
 
@@ -100,7 +123,7 @@ New adapter crates must have a `README.md`.
 
 If documentation is added, renamed, removed, or its purpose changes, update `docs/README.md` in the same task.
 
-## 6. Agent-Facing Output Rule
+## 7. Agent-Facing Output Rule
 
 Athanor must not require agents to read large generated artifacts directly.
 
@@ -118,7 +141,7 @@ If a feature creates or depends on a large generated artifact, it is not complet
 there is a bounded command or API that returns the relevant slice without requiring full-artifact
 reading.
 
-## 7. Verification
+## 8. Verification
 
 Run for code changes:
 
@@ -136,7 +159,7 @@ cargo run -p ath --quiet -- index .
 
 For docs-only changes, no Rust checks are required unless code or generated behavior changed.
 
-## 8. Completion Note
+## 9. Completion Note
 
 Final reports should include:
 

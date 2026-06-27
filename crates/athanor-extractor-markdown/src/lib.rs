@@ -284,7 +284,8 @@ fn markdown_headings(content: &str, body_offset: usize) -> Vec<MarkdownHeading> 
 
     let mut headings = Vec::new();
     let mut current: Option<MarkdownHeading> = None;
-    let body = &content[body_offset.min(content.len())..];
+    let body_offset = markdown_body_offset(content, body_offset);
+    let body = &content[body_offset..];
     for (event, range) in Parser::new_ext(body, options).into_offset_iter() {
         match event {
             Event::Start(Tag::Heading { level, .. }) => {
@@ -330,7 +331,8 @@ fn markdown_operation_steps(content: &str, body_offset: usize) -> Vec<MarkdownOp
     let mut ordered_list_depth = 0usize;
     let mut current: Option<MarkdownOperationStepDraft> = None;
     let mut steps = Vec::new();
-    let body = &content[body_offset.min(content.len())..];
+    let body_offset = markdown_body_offset(content, body_offset);
+    let body = &content[body_offset..];
 
     for (event, range) in Parser::new_ext(body, options).into_offset_iter() {
         let line_start = line_for_offset(content, body_offset + range.start);
@@ -385,6 +387,15 @@ fn markdown_operation_steps(content: &str, body_offset: usize) -> Vec<MarkdownOp
     }
 
     steps
+}
+
+fn markdown_body_offset(content: &str, body_offset: usize) -> usize {
+    let offset = body_offset.min(content.len());
+    if content[offset..].starts_with('\u{feff}') {
+        offset + '\u{feff}'.len_utf8()
+    } else {
+        offset
+    }
 }
 
 fn heading_level(level: HeadingLevel) -> usize {
@@ -569,6 +580,27 @@ mod tests {
             section.stable_key.0,
             "doc://docs/auth.md#login-with-tokens-and-code"
         );
+    }
+
+    #[tokio::test]
+    async fn extracts_headings_after_utf8_bom() {
+        let output = extract("\u{feff}# Documentation `rustok-tax`\n\n## Purpose\n").await;
+        let page = output
+            .entities
+            .iter()
+            .find(|entity| entity.kind == EntityKind::DocumentationPage)
+            .unwrap();
+        let h1 = output
+            .entities
+            .iter()
+            .find(|entity| {
+                entity.kind == EntityKind::DocumentationSection
+                    && entity.name == "Documentation rustok-tax"
+            })
+            .unwrap();
+
+        assert_eq!(page.title.as_deref(), Some("Documentation rustok-tax"));
+        assert_eq!(h1.source.as_ref().unwrap().line_start, Some(1));
     }
 
     #[tokio::test]

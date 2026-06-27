@@ -2280,6 +2280,7 @@ Status: verified.
 Implemented in:
 
 - `crates/athanor-app/src/daemon.rs`
+- `crates/athanor-app/src/daemon_runtime.rs`
 - `docs/development/roadmap-status.md`
 
 Purpose:
@@ -2294,6 +2295,7 @@ Purpose:
 - adds coverage for oversized daemon requests returning structured errors without creating daemon jobs
 - adds coverage for client-side daemon byte limits: oversized outbound requests are not written and oversized wire responses are rejected before parsing
 - adds coverage for stale and corrupted runtime metadata before connection attempts, including invalid endpoint JSON, endpoint token-path mismatch, unsupported endpoint schema, and corrupted token files
+- adds coverage that reacquiring a daemon runtime lock after a simulated crash replaces stale lock metadata with the current project id, process id, and Athanor version
 - adds coverage that daemon runtime endpoint and token files are removed when the runtime file guard is dropped
 - adds coverage that unsafe daemon serve options are rejected before binding, including polling without watch, invalid debounce, non-loopback TCP, and oversized protocol limits
 - adds coverage that index and generation jobs finished with an `operation cancelled` error are recorded as cancelled and drop their cancellation tokens
@@ -2370,8 +2372,9 @@ Purpose:
 - keeps parser-specific AST structures inside the adapter and emits backend-independent canonical module, function, class, symbol, package, dependency, fact, and diagnostic objects
 - extracts module import/export payloads, functions, methods, classes, TypeScript interface/type declarations, and `package.json` package/dependency declarations
 - extends extractor output so adapters can emit evidence-backed diagnostics directly when parser recovery or unsupported syntax is detected
+- coalesces nested tree-sitter parse errors at the outer parser error node, strips leading UTF-8 BOMs, accepts Node shebang scripts, and avoids reporting ordinary top-level runtime statements or ambient module declarations as unsupported declaration diagnostics, reducing JS/TS noise on real Rustok frontend files
 - registers the adapter through the app-layer runtime by default after focused adapter tests and documentation updates
-- advances persisted index state to v30 so existing projects rebuild once and pick up JavaScript/TypeScript canonical knowledge for unchanged files
+- advances persisted index state to v32 so existing projects rebuild once and pick up JavaScript/TypeScript and Markdown diagnostic noise-reduction changes for unchanged files
 - keeps React, Next.js, NestJS, Express, Vue, route inference, component semantics, and project conventions out of the base language adapter
 
 Current limitations:

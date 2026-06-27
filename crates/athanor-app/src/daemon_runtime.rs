@@ -292,6 +292,35 @@ mod tests {
     }
 
     #[test]
+    fn file_lock_replaces_stale_metadata_when_reacquired() {
+        let root =
+            std::env::temp_dir().join(format!("athanor-runtime-stale-lock-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("lock");
+        fs::write(
+            &path,
+            serde_json::json!({
+                "project_id": "old-project",
+                "pid": 999999,
+                "athanor_version": "0.0.0-stale"
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        {
+            let _lock = DaemonRuntimeLock::acquire(&path, "beta").unwrap();
+        }
+
+        let metadata: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(metadata["project_id"], "beta");
+        assert_eq!(metadata["pid"], serde_json::json!(std::process::id()));
+        assert_eq!(metadata["athanor_version"], env!("CARGO_PKG_VERSION"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn runtime_file_guard_removes_endpoint_and_token_files_on_drop() {
         let root =
             std::env::temp_dir().join(format!("athanor-runtime-guard-{}", std::process::id()));

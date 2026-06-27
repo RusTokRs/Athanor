@@ -59,7 +59,8 @@ athd service uninstall my-project
 
 `athd stop` rejects new work, requests cooperative cancellation for active jobs, waits up to 30
 seconds by default, and then removes endpoint and token files. The OS-held lock is released
-automatically after crashes, so stale lock metadata does not block restart.
+automatically after crashes, and the next successful lock acquisition replaces stale lock metadata,
+so stale lock files do not block restart or preserve old process identity.
 
 Structured JSONL daemon logs are written under the runtime directory. Logs rotate at 10 MiB and keep
 five historical files.

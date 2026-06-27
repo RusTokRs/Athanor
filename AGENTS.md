@@ -19,6 +19,7 @@ Before implementation work:
 ## Core Rules
 
 - Prefer adapter-first design.
+- While Athanor is primarily being shaped for Rustok, use Rustok-first iterative development: make the smallest useful change, verify it locally, run bounded Athanor commands against the real Rustok repository when available, tune signal quality, and only then expand scope.
 - Keep `athanor-domain` and `athanor-core` free of adapter-specific details.
 - Do not duplicate stable ID generation, evidence builders, JSONL writer, path normalization, or registry logic.
 - Facts, relations, and diagnostics must include evidence.
