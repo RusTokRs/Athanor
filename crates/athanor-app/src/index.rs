@@ -351,7 +351,7 @@ fn remove_validation_result(path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn repo_id_for_root(root: &Path) -> String {
+pub(crate) fn repo_id_for_root(root: &Path) -> String {
     format!(
         "repo_{:016x}",
         stable_hash(root.to_string_lossy().as_bytes())

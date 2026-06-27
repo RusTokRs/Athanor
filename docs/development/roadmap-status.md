@@ -60,6 +60,9 @@ ath index --validate-only --validation-result <path>
 ath bench --size small
 ath bench --size medium --json
 ath bench --size large --root <path> --keep-fixture --json
+ath validate-changed --path <path>
+ath validate-changed --path <path> --json
+ath validate-changed --path <path> --file <file> --json
 ath update --changed
 ath update --changed --json
 ath overview
@@ -210,6 +213,7 @@ ath repair inspect
 ath repair inspect --json
 ath repair cleanup
 ath repair cleanup --dry-run
+ath repair cleanup --generated-only --dry-run
 ath repair cleanup --dry-run --keep-canonical <N> --keep-generated <N>
 ath repair cleanup --json
 ath repair regenerate
@@ -220,6 +224,7 @@ ath repair recover-canonical --dry-run
 ath repair recover-canonical --json
 ath repair apply
 ath repair apply --dry-run
+ath repair apply --generated-only --dry-run
 ath repair apply --dry-run --keep-canonical <N> --keep-generated <N>
 ath repair apply --json
 ```
@@ -2169,12 +2174,14 @@ Implemented in:
 - `crates/athanor-app/src/runtime.rs`
 - `apps/ath/src/main.rs`
 - `docs/README.md`
+- `docs/operations/env-athanor-adapter-trust.md`
 - `docs/architecture/adapters.md`
 - `docs/development/production.md`
 
 Purpose:
 
 - adds a user-level adapter trust store at `~/.athanor/adapter-trust.json` or `ATHANOR_ADAPTER_TRUST`
+- documents `ATHANOR_ADAPTER_TRUST` as the explicit adapter trust store override
 - records trusted adapter manifests by canonical manifest path and SHA-256 manifest content hash
 - requires `[adapters].allow_external_process = true`, a matching executable allowlist entry, and a matching user-level trust record before loading external process adapters from discovered manifests
 - invalidates trust automatically when a manifest changes
@@ -2508,6 +2515,40 @@ Purpose:
 - emits the normal `athanor.context_pack.v1` payload plus diff file counts
 - keeps the command read-only and does not commit a new index snapshot
 
+### Fast Changed-File Extractor Preflight
+
+Status: verified.
+
+Implemented in:
+
+- `apps/ath/src/main.rs`
+- `crates/athanor-app/src/lib.rs`
+- `crates/athanor-app/src/pipeline.rs`
+- `crates/athanor-app/src/runtime.rs`
+- `crates/athanor-app/src/validate_changed.rs`
+- `crates/athanor-extractor-markdown/src/lib.rs`
+- `crates/athanor-source-fs/src/lib.rs`
+- `docs/README.md`
+- `docs/architecture/pipeline.md`
+- `docs/development/agent-workflow.md`
+- `docs/development/roadmap-status.md`
+
+Purpose:
+
+- adds `ath validate-changed --path <path>`, `ath validate-changed --path <path> --json`, and explicit `--file <path>` narrowing
+- selects changed and untracked paths from Git status, with an index-state fallback for non-Git roots
+- reads only selected changed files instead of performing full repository source discovery
+- runs matching extractors and canonical metadata validation without linkers, checkers, storage, index-state updates, or JSONL read-model writes
+- returns `athanor.changed_validation.v1` with changed/removed counts, extractor diagnostics, and extraction metrics
+- verified on `D:\RusTok`: three changed frontend files completed with no diagnostics and `source_discovery_ms = 0`, `extraction_ms = 128`, compared with roughly 166 seconds for a writable one-file incremental index
+- optimized markdown line lookup after real preflight measurements on Athanor docs: `docs/development/roadmap-status.md` markdown extraction dropped from about 17.8 seconds to 36 ms, and `docs/architecture/pipeline.md` dropped from about 4.1 seconds to 10 ms
+
+Current limitations:
+
+- this is a parser/extractor preflight, not full graph validation
+- deleted files are counted but cannot produce extractor diagnostics
+- full canonical consistency still requires `ath index`, `ath update --changed`, and scoped `ath check ...` commands
+
 ### Changed-File Update Command
 
 Status: verified.
@@ -2549,6 +2590,7 @@ Status: verified.
 Implemented in:
 
 - `apps/ath/src/main.rs`
+- `crates/athanor-app/src/check.rs`
 - `crates/athanor-app/src/repair.rs`
 - `docs/README.md`
 - `docs/architecture/pipeline.md`
@@ -2556,6 +2598,7 @@ Implemented in:
 Purpose:
 
 - adds `ath repair cleanup`, `ath repair cleanup --dry-run`, and `ath repair cleanup --json`
+- adds `ath repair cleanup --generated-only` for stale generated generation cleanup without removing orphan canonical snapshots
 - removes orphan canonical snapshot directories not selected by `.athanor/store/canonical/jsonl/latest.json`
 - removes orphan generated generation directories not selected by `.athanor/generated/current.json`
 - supports `--keep-canonical <N>` and `--keep-generated <N>` to retain the newest N orphan artifacts of each kind
@@ -2622,6 +2665,7 @@ Purpose:
 - runs canonical latest-pointer recovery, generated-current regeneration, and orphan artifact cleanup in deterministic order
 - reports all stage outputs and final remaining issues as `athanor.repair_apply.v1`
 - keeps `--dry-run` read-only across every stage
+- passes `--generated-only` to the cleanup stage when canonical snapshot cleanup should be skipped
 - passes `--keep-canonical <N>` and `--keep-generated <N>` retention settings to the cleanup stage
 - delegates artifact deletion to the same root-checked cleanup rules as `ath repair cleanup`
 

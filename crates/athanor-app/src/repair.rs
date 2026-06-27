@@ -23,6 +23,7 @@ pub struct RepairCleanupOptions {
     pub dry_run: bool,
     pub keep_canonical: usize,
     pub keep_generated: usize,
+    pub generated_only: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -43,6 +44,7 @@ pub struct RepairApplyOptions {
     pub dry_run: bool,
     pub keep_canonical: usize,
     pub keep_generated: usize,
+    pub generated_only: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -206,26 +208,28 @@ pub fn cleanup_repair(options: RepairCleanupOptions) -> Result<RepairCleanupRepo
     let mut removed = Vec::new();
     let mut retained = Vec::new();
 
-    let (canonical_remove, canonical_retain) = split_retained(
-        &inspection.canonical.orphan_snapshots,
-        options.keep_canonical,
-    );
-    for snapshot in canonical_retain {
-        retained.push(RepairCleanupRetained {
-            kind: RepairCleanupRemovalKind::CanonicalSnapshot,
-            id: snapshot.clone(),
-            path: canonical_snapshots_root.join(snapshot),
-        });
-    }
-    for snapshot in canonical_remove {
-        let path = canonical_snapshots_root.join(snapshot);
-        removed.push(RepairCleanupRemoval {
-            kind: RepairCleanupRemovalKind::CanonicalSnapshot,
-            id: snapshot.clone(),
-            path: path.clone(),
-        });
-        if !options.dry_run {
-            remove_directory_inside(&canonical_snapshots_root, &path)?;
+    if !options.generated_only {
+        let (canonical_remove, canonical_retain) = split_retained(
+            &inspection.canonical.orphan_snapshots,
+            options.keep_canonical,
+        );
+        for snapshot in canonical_retain {
+            retained.push(RepairCleanupRetained {
+                kind: RepairCleanupRemovalKind::CanonicalSnapshot,
+                id: snapshot.clone(),
+                path: canonical_snapshots_root.join(snapshot),
+            });
+        }
+        for snapshot in canonical_remove {
+            let path = canonical_snapshots_root.join(snapshot);
+            removed.push(RepairCleanupRemoval {
+                kind: RepairCleanupRemovalKind::CanonicalSnapshot,
+                id: snapshot.clone(),
+                path: path.clone(),
+            });
+            if !options.dry_run {
+                remove_directory_inside(&canonical_snapshots_root, &path)?;
+            }
         }
     }
 
@@ -365,6 +369,7 @@ pub async fn apply_repair(options: RepairApplyOptions) -> Result<RepairApplyRepo
         dry_run: options.dry_run,
         keep_canonical: options.keep_canonical,
         keep_generated: options.keep_generated,
+        generated_only: options.generated_only,
     })?;
     let remaining_issues = if options.dry_run {
         cleanup.remaining_issues.clone()
@@ -899,6 +904,7 @@ mod tests {
             dry_run: false,
             keep_canonical: 0,
             keep_generated: 0,
+            generated_only: false,
         })
         .unwrap();
 
@@ -947,6 +953,7 @@ mod tests {
             dry_run: true,
             keep_canonical: 0,
             keep_generated: 0,
+            generated_only: false,
         })
         .unwrap();
 
@@ -1014,6 +1021,7 @@ mod tests {
             dry_run: false,
             keep_canonical: 1,
             keep_generated: 1,
+            generated_only: false,
         })
         .unwrap();
 
@@ -1037,6 +1045,71 @@ mod tests {
         assert!(!generated_root.join("generations/00000001").exists());
         assert!(generated_root.join("generations/00000002").is_dir());
         assert!(generated_root.join("generations/00000003").is_dir());
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn cleanup_generated_only_leaves_orphan_canonical_snapshots() {
+        let root = temp_root();
+        let canonical_root = root.join(".athanor/store/canonical/jsonl");
+        let generated_root = root.join(".athanor/generated");
+        fs::create_dir_all(canonical_root.join("snapshots/snap_jsonl_00000001")).unwrap();
+        fs::create_dir_all(canonical_root.join("snapshots/snap_jsonl_00000002")).unwrap();
+        fs::write(
+            canonical_root.join("latest.json"),
+            r#"{"snapshot":"snap_jsonl_00000002"}"#,
+        )
+        .unwrap();
+        fs::write(
+            canonical_root.join("snapshots/snap_jsonl_00000001/manifest.json"),
+            r#"{"schema":"athanor.canonical_snapshot.v1","snapshot":"snap_jsonl_00000001"}"#,
+        )
+        .unwrap();
+        fs::write(
+            canonical_root.join("snapshots/snap_jsonl_00000002/manifest.json"),
+            r#"{"schema":"athanor.canonical_snapshot.v1","snapshot":"snap_jsonl_00000002"}"#,
+        )
+        .unwrap();
+        fs::create_dir_all(generated_root.join("generations/00000001")).unwrap();
+        fs::create_dir_all(generated_root.join("generations/00000002")).unwrap();
+        fs::write(
+            generated_root.join("current.json"),
+            r#"{"schema":"athanor.generated_current.v1","generation":"00000002","snapshot":"snap_jsonl_00000002","path":"generations/00000002","manifest":"generations/00000002/manifest.json"}"#,
+        )
+        .unwrap();
+        fs::write(
+            generated_root.join("generations/00000001/manifest.json"),
+            r#"{"schema":"athanor.generated_generation.v1","generation":"00000001","snapshot":"snap_jsonl_00000001"}"#,
+        )
+        .unwrap();
+        fs::write(
+            generated_root.join("generations/00000002/manifest.json"),
+            r#"{"schema":"athanor.generated_generation.v1","generation":"00000002","snapshot":"snap_jsonl_00000002"}"#,
+        )
+        .unwrap();
+
+        let report = cleanup_repair(RepairCleanupOptions {
+            root: root.clone(),
+            dry_run: false,
+            keep_canonical: 0,
+            keep_generated: 0,
+            generated_only: true,
+        })
+        .unwrap();
+
+        assert_eq!(report.removed.len(), 1);
+        assert_eq!(
+            report.removed[0].kind,
+            RepairCleanupRemovalKind::GeneratedGeneration
+        );
+        assert!(
+            canonical_root
+                .join("snapshots/snap_jsonl_00000001")
+                .is_dir()
+        );
+        assert!(!generated_root.join("generations/00000001").exists());
+        assert!(generated_root.join("generations/00000002").is_dir());
 
         fs::remove_dir_all(root).unwrap();
     }
@@ -1358,6 +1431,7 @@ mod tests {
             dry_run: false,
             keep_canonical: 0,
             keep_generated: 0,
+            generated_only: false,
         })
         .await
         .unwrap();

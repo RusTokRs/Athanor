@@ -5,36 +5,36 @@ use athanor_app::{
     AdapterTrustListOptions, AdapterTrustOptions, AdapterTrustReport, AffectedCheckOptions,
     AffectedCheckReport, ApiCleanupOptions, ApiCleanupReport, ApiContractDiff, ApiDiffOptions,
     ApiRetentionOverrides, ApiSnapshotOptions, ApiSnapshotReport, BenchmarkOptions,
-    BenchmarkReport, BenchmarkSize, ContextLimitOverrides, ContextOptions, CoverageOptions,
-    CoverageReport, DiagnosticCheckOptions, DiagnosticCheckReport, DiagnosticScope,
-    DocsApplyPatchOptions, DocsApplyPatchReport, DocsCheckOptions, DocsCheckReport,
-    DocsDriftOptions, DocsDriftReport, DocsProposeFixOptions, DocsProposeFixReport,
-    EntityExplanation, ExplainOptions, GenerationOptions, GraphCycles, GraphCyclesOptions,
-    GraphExportOptions, GraphFbaDependenciesOptions, GraphFbaModuleOptions, GraphFbaPortOptions,
-    GraphFbaViolationsOptions, GraphFfaSurfaceOptions, GraphFfaViolationsOptions, GraphHubs,
-    GraphHubsOptions, GraphPageBuilderConsumerOptions, GraphPageBuilderProviderOptions,
-    GraphPageBuilderViolationsOptions, GraphPageRank, GraphPageRankOptions, GraphPath,
-    GraphPathOptions, GraphRelated, GraphRelatedOptions, HtmlReportOptions, ImpactAnalysis,
-    ImpactOptions, IndexOptions, IndexReport, InitOptions, OperationsDocsCheckOptions,
-    OperationsDocsCheckReport, OverviewOptions, ProjectRegisterOptions, ProjectRegistration,
-    ProjectRegistryOptions, ProjectRegistryReport, ProjectUnregisterOptions, RepairApplyOptions,
-    RepairApplyReport, RepairCleanupOptions, RepairCleanupReport, RepairInspectOptions,
-    RepairInspectReport, RepairRecoverCanonicalOptions, RepairRecoverCanonicalReport,
-    RepairRegenerateOptions, RepairRegenerateReport, RepositoryOverview, RustokFbaAudit,
-    RustokFbaAuditOptions, RustokFbaGraph, RustokFfaAudit, RustokFfaAuditOptions, RustokFfaGraph,
-    RustokPageBuilderAudit, RustokPageBuilderAuditOptions, RustokPageBuilderGraph, WikiOptions,
-    apply_repair, benchmark_index, check_affected, check_docs, check_operations_docs,
-    check_project, cleanup_api_contracts, cleanup_repair, context_project, coverage_project,
-    default_adapter_trust_path, default_project_registry_path, diff_api_contracts,
-    docs_apply_patch, docs_drift, docs_propose_fix, explain_project, generate_project,
-    graph_fba_dependencies, graph_fba_module, graph_fba_port, graph_fba_violations,
-    graph_ffa_surface, graph_ffa_violations, graph_page_builder_consumer,
+    BenchmarkReport, BenchmarkSize, ChangedValidationOptions, ContextLimitOverrides,
+    ContextOptions, CoverageOptions, CoverageReport, DiagnosticCheckOptions, DiagnosticCheckReport,
+    DiagnosticScope, DocsApplyPatchOptions, DocsApplyPatchReport, DocsCheckOptions,
+    DocsCheckReport, DocsDriftOptions, DocsDriftReport, DocsProposeFixOptions,
+    DocsProposeFixReport, EntityExplanation, ExplainOptions, GenerationOptions, GraphCycles,
+    GraphCyclesOptions, GraphExportOptions, GraphFbaDependenciesOptions, GraphFbaModuleOptions,
+    GraphFbaPortOptions, GraphFbaViolationsOptions, GraphFfaSurfaceOptions,
+    GraphFfaViolationsOptions, GraphHubs, GraphHubsOptions, GraphPageBuilderConsumerOptions,
+    GraphPageBuilderProviderOptions, GraphPageBuilderViolationsOptions, GraphPageRank,
+    GraphPageRankOptions, GraphPath, GraphPathOptions, GraphRelated, GraphRelatedOptions,
+    HtmlReportOptions, ImpactAnalysis, ImpactOptions, IndexOptions, IndexReport, InitOptions,
+    OperationsDocsCheckOptions, OperationsDocsCheckReport, OverviewOptions, ProjectRegisterOptions,
+    ProjectRegistration, ProjectRegistryOptions, ProjectRegistryReport, ProjectUnregisterOptions,
+    RepairApplyOptions, RepairApplyReport, RepairCleanupOptions, RepairCleanupReport,
+    RepairInspectOptions, RepairInspectReport, RepairRecoverCanonicalOptions,
+    RepairRecoverCanonicalReport, RepairRegenerateOptions, RepairRegenerateReport,
+    RepositoryOverview, RustokFbaAudit, RustokFbaAuditOptions, RustokFbaGraph, RustokFfaAudit,
+    RustokFfaAuditOptions, RustokFfaGraph, RustokPageBuilderAudit, RustokPageBuilderAuditOptions,
+    RustokPageBuilderGraph, WikiOptions, apply_repair, benchmark_index, check_affected, check_docs,
+    check_operations_docs, check_project, cleanup_api_contracts, cleanup_repair, context_project,
+    coverage_project, default_adapter_trust_path, default_project_registry_path,
+    diff_api_contracts, docs_apply_patch, docs_drift, docs_propose_fix, explain_project,
+    generate_project, graph_fba_dependencies, graph_fba_module, graph_fba_port,
+    graph_fba_violations, graph_ffa_surface, graph_ffa_violations, graph_page_builder_consumer,
     graph_page_builder_provider, graph_page_builder_violations, impact_project, index_project,
     init_project, inspect_repair, list_adapter_plugin_trust, list_registered_projects,
     overview_project, project_html_report, project_wiki, recover_canonical_repair,
     regenerate_repair, register_project, resolve_registered_project, rustok_fba_audit,
     rustok_ffa_audit, rustok_page_builder_audit, snapshot_api_contract, trust_adapter_plugin,
-    unregister_project, untrust_adapter_plugin,
+    unregister_project, untrust_adapter_plugin, validate_changed,
 };
 use athanor_domain::ContextLevel;
 use clap::{Parser, Subcommand, ValueEnum};
@@ -173,6 +173,18 @@ enum Command {
         #[arg(long)]
         changed: bool,
         /// Print the complete update report as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Validate changed source files through extractors without writing a snapshot.
+    ValidateChanged {
+        /// Project root. Defaults to the current directory.
+        #[arg(long, default_value = ".")]
+        path: PathBuf,
+        /// Validate a specific source file. Repeat to validate multiple files instead of Git changes.
+        #[arg(long = "file")]
+        files: Vec<PathBuf>,
+        /// Print the complete changed-file validation report as JSON.
         #[arg(long)]
         json: bool,
     },
@@ -580,6 +592,9 @@ enum RepairCommand {
         /// Number of newest orphan generated generations to retain.
         #[arg(long, default_value_t = 0)]
         keep_generated: usize,
+        /// Remove only orphan generated generations, leaving canonical snapshots untouched.
+        #[arg(long)]
+        generated_only: bool,
         /// Print the complete cleanup report as JSON.
         #[arg(long)]
         json: bool,
@@ -622,6 +637,9 @@ enum RepairCommand {
         /// Number of newest orphan generated generations to retain during cleanup.
         #[arg(long, default_value_t = 0)]
         keep_generated: usize,
+        /// Remove only orphan generated generations during cleanup.
+        #[arg(long)]
+        generated_only: bool,
         /// Print the complete apply report as JSON.
         #[arg(long)]
         json: bool,
@@ -875,6 +893,28 @@ async fn main() -> Result<()> {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
                 print_index_report(&report, "updated")?;
+            }
+        }
+        Some(Command::ValidateChanged { path, files, json }) => {
+            let report = validate_changed(ChangedValidationOptions { root: path, files }).await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                println!(
+                    "validated {} changed files through extractors using snapshot {}",
+                    report.files_checked, report.snapshot
+                );
+                println!(
+                    "affected files: {} changed, {} removed",
+                    report.changed_files, report.removed_files
+                );
+                println!(
+                    "diagnostics: {}, metrics: total {} ms, discovery {} ms, extraction {} ms",
+                    report.diagnostics.len(),
+                    report.metrics.total_ms,
+                    report.metrics.source_discovery_ms,
+                    report.metrics.extraction_ms
+                );
             }
         }
         Some(Command::Context {
@@ -1497,6 +1537,7 @@ async fn main() -> Result<()> {
                 dry_run,
                 keep_canonical,
                 keep_generated,
+                generated_only,
                 json,
             } => {
                 let report = cleanup_repair(RepairCleanupOptions {
@@ -1504,6 +1545,7 @@ async fn main() -> Result<()> {
                     dry_run,
                     keep_canonical,
                     keep_generated,
+                    generated_only,
                 })?;
                 if json {
                     println!("{}", serde_json::to_string_pretty(&report)?);
@@ -1547,6 +1589,7 @@ async fn main() -> Result<()> {
                 dry_run,
                 keep_canonical,
                 keep_generated,
+                generated_only,
                 json,
             } => {
                 let report = apply_repair(RepairApplyOptions {
@@ -1554,6 +1597,7 @@ async fn main() -> Result<()> {
                     dry_run,
                     keep_canonical,
                     keep_generated,
+                    generated_only,
                 })
                 .await?;
                 if json {

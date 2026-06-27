@@ -553,8 +553,9 @@ fn repair_issue_to_artifact_status(issue: &RepairIssue) -> Option<AffectedArtifa
                 kind: AffectedArtifactKind::GeneratedGeneration,
                 path: issue.path.clone(),
                 message: issue.message.clone(),
-                suggested_command: "cargo run -p ath --quiet -- repair cleanup . --dry-run"
-                    .to_string(),
+                suggested_command:
+                    "cargo run -p ath --quiet -- repair cleanup . --generated-only --dry-run"
+                        .to_string(),
             })
         }
         _ => None,

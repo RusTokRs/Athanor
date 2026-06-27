@@ -28,6 +28,7 @@ pub mod report;
 pub mod runtime;
 pub mod search;
 pub mod store;
+pub mod validate_changed;
 pub mod wiki;
 
 pub use api::*;
@@ -57,4 +58,5 @@ pub use report::*;
 pub use runtime::*;
 pub use search::*;
 pub use store::*;
+pub use validate_changed::*;
 pub use wiki::*;

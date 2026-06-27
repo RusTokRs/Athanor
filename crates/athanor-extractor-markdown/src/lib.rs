@@ -32,8 +32,9 @@ impl Extractor for MarkdownExtractor {
         };
         let parsed = parse_markdown_frontmatter(content)?;
         let metadata = parsed.metadata.unwrap_or_default();
-        let headings = markdown_headings(content, parsed.body_offset);
-        let operation_steps = markdown_operation_steps(content, parsed.body_offset);
+        let line_index = LineIndex::new(content);
+        let headings = markdown_headings(content, parsed.body_offset, &line_index);
+        let operation_steps = markdown_operation_steps(content, parsed.body_offset, &line_index);
         let page_key = page_stable_key(&input.source.path, &metadata)?;
         let language = metadata
             .language
@@ -64,7 +65,7 @@ impl Extractor for MarkdownExtractor {
             source: Some(SourceLocation {
                 path: input.source.path.clone(),
                 line_start: Some(1),
-                line_end: line_count(content),
+                line_end: line_index.line_count(),
             }),
             language: Some(language.clone()),
             aliases: Vec::new(),
@@ -101,7 +102,7 @@ impl Extractor for MarkdownExtractor {
                 source: Some(SourceLocation {
                     path: input.source.path.clone(),
                     line_start: Some(1),
-                    line_end: line_count(content),
+                    line_end: line_index.line_count(),
                 }),
                 language: Some(language.clone()),
                 aliases: Vec::new(),
@@ -275,7 +276,43 @@ fn inferred_documentation_layer(path: &str) -> DocumentationLayer {
     }
 }
 
-fn markdown_headings(content: &str, body_offset: usize) -> Vec<MarkdownHeading> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LineIndex {
+    newline_offsets: Vec<usize>,
+    line_count: Option<u32>,
+}
+
+impl LineIndex {
+    fn new(content: &str) -> Self {
+        let newline_offsets: Vec<usize> = content
+            .as_bytes()
+            .iter()
+            .enumerate()
+            .filter_map(|(offset, byte)| (*byte == b'\n').then_some(offset))
+            .collect();
+        let line_count = (!content.is_empty()).then_some(newline_offsets.len() as u32 + 1);
+        Self {
+            newline_offsets,
+            line_count,
+        }
+    }
+
+    fn line_for_offset(&self, offset: usize) -> u32 {
+        self.newline_offsets
+            .partition_point(|newline| *newline < offset) as u32
+            + 1
+    }
+
+    fn line_count(&self) -> Option<u32> {
+        self.line_count
+    }
+}
+
+fn markdown_headings(
+    content: &str,
+    body_offset: usize,
+    line_index: &LineIndex,
+) -> Vec<MarkdownHeading> {
     let mut options = Options::empty();
     options.insert(Options::ENABLE_TABLES);
     options.insert(Options::ENABLE_FOOTNOTES);
@@ -292,7 +329,7 @@ fn markdown_headings(content: &str, body_offset: usize) -> Vec<MarkdownHeading> 
                 current = Some(MarkdownHeading {
                     level: heading_level(level),
                     title: String::new(),
-                    line: line_for_offset(content, body_offset + range.start),
+                    line: line_index.line_for_offset(body_offset + range.start),
                 });
             }
             Event::Text(text) | Event::Code(text) => {
@@ -321,7 +358,11 @@ fn markdown_headings(content: &str, body_offset: usize) -> Vec<MarkdownHeading> 
     headings
 }
 
-fn markdown_operation_steps(content: &str, body_offset: usize) -> Vec<MarkdownOperationStep> {
+fn markdown_operation_steps(
+    content: &str,
+    body_offset: usize,
+    line_index: &LineIndex,
+) -> Vec<MarkdownOperationStep> {
     let mut options = Options::empty();
     options.insert(Options::ENABLE_TABLES);
     options.insert(Options::ENABLE_FOOTNOTES);
@@ -335,8 +376,8 @@ fn markdown_operation_steps(content: &str, body_offset: usize) -> Vec<MarkdownOp
     let body = &content[body_offset..];
 
     for (event, range) in Parser::new_ext(body, options).into_offset_iter() {
-        let line_start = line_for_offset(content, body_offset + range.start);
-        let line_end = line_for_offset(content, body_offset + range.end);
+        let line_start = line_index.line_for_offset(body_offset + range.start);
+        let line_end = line_index.line_for_offset(body_offset + range.end);
         match event {
             Event::Start(Tag::List(Some(_))) => {
                 ordered_list_depth += 1;
@@ -407,19 +448,6 @@ fn heading_level(level: HeadingLevel) -> usize {
         HeadingLevel::H5 => 5,
         HeadingLevel::H6 => 6,
     }
-}
-
-fn line_for_offset(content: &str, offset: usize) -> u32 {
-    content.as_bytes()[..offset.min(content.len())]
-        .iter()
-        .filter(|byte| **byte == b'\n')
-        .count() as u32
-        + 1
-}
-
-fn line_count(content: &str) -> Option<u32> {
-    let count = content.lines().count();
-    (count > 0).then_some(count as u32)
 }
 
 fn slugify(input: &str) -> String {
@@ -735,6 +763,25 @@ entities:
             .unwrap_err();
 
         assert!(error.to_string().contains("must be a non-empty `doc://`"));
+    }
+
+    #[test]
+    fn line_index_maps_offsets_without_rescanning_content() {
+        let index = LineIndex::new("first\nsecond\nthird");
+
+        assert_eq!(index.line_count(), Some(3));
+        assert_eq!(index.line_for_offset(0), 1);
+        assert_eq!(index.line_for_offset(5), 1);
+        assert_eq!(index.line_for_offset(6), 2);
+        assert_eq!(index.line_for_offset(13), 3);
+    }
+
+    #[test]
+    fn line_index_reports_no_lines_for_empty_content() {
+        let index = LineIndex::new("");
+
+        assert_eq!(index.line_count(), None);
+        assert_eq!(index.line_for_offset(0), 1);
     }
 
     #[tokio::test]

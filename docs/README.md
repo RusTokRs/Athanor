@@ -45,6 +45,7 @@ Use this file to find the right document before changing code, adapters, plugins
 
 Environment variables:
 
+- [ATHANOR_ADAPTER_TRUST](operations/env-athanor-adapter-trust.md)
 - [ATHANOR_LOG_FORMAT](operations/env-athanor-log-format.md)
 - [ATHANOR_PROJECT_REGISTRY](operations/env-athanor-project-registry.md)
 - [ATHANOR_RUNTIME_DIR](operations/env-athanor-runtime-dir.md)
@@ -173,6 +174,7 @@ Local generated and canonical artifacts can be inspected without modification:
 cargo run -p ath --quiet -- repair inspect .
 cargo run -p ath --quiet -- repair inspect . --json
 cargo run -p ath --quiet -- repair cleanup . --dry-run
+cargo run -p ath --quiet -- repair cleanup . --generated-only --dry-run
 cargo run -p ath --quiet -- repair cleanup . --dry-run --keep-canonical 3 --keep-generated 2
 cargo run -p ath --quiet -- repair cleanup .
 cargo run -p ath --quiet -- repair regenerate . --dry-run
@@ -180,6 +182,7 @@ cargo run -p ath --quiet -- repair regenerate .
 cargo run -p ath --quiet -- repair recover-canonical . --dry-run
 cargo run -p ath --quiet -- repair recover-canonical .
 cargo run -p ath --quiet -- repair apply . --dry-run
+cargo run -p ath --quiet -- repair apply . --generated-only --dry-run
 cargo run -p ath --quiet -- repair apply . --dry-run --keep-canonical 3 --keep-generated 2
 cargo run -p ath --quiet -- repair apply .
 ```
@@ -205,6 +208,8 @@ It writes immutable generation directories and updates a portable JSON pointer o
 `current.json` records the generation id, canonical snapshot id, relative generation path, and manifest path. Consumers should resolve coordinated outputs through this pointer.
 
 The individual commands retain direct compatibility outputs under `.athanor/generated/current`.
+Use `repair cleanup --generated-only` when clearing stale generated generation directories without
+removing orphan canonical snapshots.
 
 The current CLI uses `JsonlReadModelWriter` to write generated JSONL read models to:
 
@@ -262,9 +267,19 @@ Tracing output is written to `stderr`, so JSON and normal command output remain 
 Changed files can be committed into a fresh durable snapshot through the explicit update command:
 
 ```bash
+cargo run -p ath --quiet -- validate-changed --path .
+cargo run -p ath --quiet -- validate-changed --path . --json
+cargo run -p ath --quiet -- validate-changed --path . --file docs/development/roadmap-status.md --json
 cargo run -p ath --quiet -- update . --changed
 cargo run -p ath --quiet -- update . --changed --json
 ```
+
+`validate-changed` is a fast extractor-only preflight for tight edit loops. It selects changed and
+untracked files from Git status, falls back to persisted index state outside Git repositories, runs
+matching extractors on those files only, and reports extractor diagnostics without running linkers,
+checkers, storage, state updates, or JSONL read-model writes. Pass one or more `--file <path>`
+arguments to validate an explicit file set before broader changed-file checks. Use `index` or
+`update --changed` after the narrow preflight when full canonical graph validation is required.
 
 Repository overview and task-focused context packs can be read from the latest canonical snapshot:
 

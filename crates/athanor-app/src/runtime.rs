@@ -734,6 +734,20 @@ impl RuntimeBuilder {
     pub fn build_index_pipeline(self, store: impl KnowledgeStore + 'static) -> IndexPipeline {
         self.registry.build_index_pipeline(&self.root, store)
     }
+
+    pub fn build_extraction_pipeline(
+        self,
+        source: Box<dyn SourceProvider>,
+        store: impl KnowledgeStore + 'static,
+    ) -> IndexPipeline {
+        let mut pipeline = IndexPipeline::new(store).boxed_source(source);
+
+        for factory in &self.registry.extractor_factories {
+            pipeline = pipeline.boxed_extractor(factory());
+        }
+
+        pipeline
+    }
 }
 
 pub fn discover_adapter_plugins(root: impl AsRef<Path>) -> Result<Vec<DiscoveredAdapterPlugin>> {

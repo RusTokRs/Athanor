@@ -3,7 +3,8 @@ id: doc://docs/development/dart-flutter-adapter-plan.md
 kind: development_plan
 language: en
 source_language: en
-status: draft
+last_verified_snapshot: snap_jsonl_00000222
+status: verified
 ---
 
 # Dart/Flutter Adapter Plan

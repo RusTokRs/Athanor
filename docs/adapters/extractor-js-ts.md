@@ -3,7 +3,8 @@ id: doc://docs/adapters/extractor-js-ts.md
 kind: adapter
 language: en
 source_language: en
-status: draft
+last_verified_snapshot: snap_jsonl_00000222
+status: verified
 ---
 
 # JavaScript/TypeScript Extractor

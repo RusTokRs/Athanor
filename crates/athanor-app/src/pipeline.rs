@@ -263,6 +263,60 @@ impl IndexPipeline {
             .await
     }
 
+    pub async fn run_extraction_only(
+        self,
+        repo: RepoId,
+        base: SnapshotBase,
+        affected_files: AffectedFileSet,
+    ) -> Result<IndexPipelineOutput> {
+        let pipeline_started = Instant::now();
+        let mut metrics = IndexPipelineMetrics {
+            schema: INDEX_METRICS_SCHEMA,
+            ..IndexPipelineMetrics::default()
+        };
+
+        let source_started = Instant::now();
+        let (files, source_metrics) = self.discover_sources().await?;
+        metrics.source_discovery_ms = elapsed_ms(source_started.elapsed());
+        metrics.files_discovered = files.len();
+        metrics.files_to_extract = files.len();
+        metrics.changed_files = affected_files.changed.len();
+        metrics.unchanged_files = affected_files.unchanged.len();
+        metrics.removed_files = affected_files.removed.len();
+        metrics.adapters.extend(source_metrics);
+
+        let snapshot_started = Instant::now();
+        let snapshot = self
+            .store
+            .begin_snapshot(repo.clone(), base)
+            .await
+            .context("failed to begin validation snapshot")?;
+        metrics.snapshot_begin_ms = elapsed_ms(snapshot_started.elapsed());
+
+        let extraction_started = Instant::now();
+        let (entities, facts, diagnostics, extraction_metrics) =
+            self.extract(&repo, &snapshot, &files).await?;
+        metrics.extraction_ms = elapsed_ms(extraction_started.elapsed());
+        metrics.adapters.extend(extraction_metrics);
+
+        metrics.entities = entities.len();
+        metrics.facts = facts.len();
+        metrics.diagnostics = diagnostics.len();
+        metrics.total_ms = elapsed_ms(pipeline_started.elapsed());
+        metrics.adapters = aggregate_adapter_metrics(metrics.adapters);
+
+        Ok(IndexPipelineOutput {
+            snapshot,
+            files,
+            entities,
+            facts,
+            relations: Vec::new(),
+            diagnostics,
+            affected_files,
+            metrics,
+        })
+    }
+
     async fn run_with_incremental_inner(
         self,
         repo: RepoId,

@@ -56,20 +56,28 @@ fn collect_files(root: &Path, current: &Path, files: &mut Vec<SourceFile>) -> Co
             let relative = path
                 .strip_prefix(root)
                 .map_err(|err| CoreError::Adapter(format!("failed to strip root prefix: {err}")))?;
-            let content = fs::read(&path).map_err(|err| {
-                CoreError::Adapter(format!("failed to read {}: {err}", path.display()))
-            })?;
-
-            files.push(SourceFile {
-                path: normalize_path(relative),
-                language_hint: language_hint(relative),
-                content_hash: Some(format!("fnv1a64:{:016x}", fnv1a64(&content))),
-                content: String::from_utf8(content).ok(),
-            });
+            files.push(read_source_file_at(root, relative)?.expect("path is a file"));
         }
     }
 
     Ok(())
+}
+
+pub fn read_source_file_at(root: &Path, relative: &Path) -> CoreResult<Option<SourceFile>> {
+    let path = root.join(relative);
+    if !path.is_file() {
+        return Ok(None);
+    }
+
+    let content = fs::read(&path)
+        .map_err(|err| CoreError::Adapter(format!("failed to read {}: {err}", path.display())))?;
+
+    Ok(Some(SourceFile {
+        path: normalize_path(relative),
+        language_hint: language_hint(relative),
+        content_hash: Some(format!("fnv1a64:{:016x}", fnv1a64(&content))),
+        content: String::from_utf8(content).ok(),
+    }))
 }
 
 fn should_ignore(file_name: &str) -> bool {
@@ -186,5 +194,36 @@ mod tests {
             language_hint(Path::new("src/app.cts")).as_deref(),
             Some("typescript")
         );
+    }
+
+    #[test]
+    fn reads_single_source_file_at_relative_path() {
+        let root = std::env::temp_dir().join(format!(
+            "athanor-source-fs-single-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(
+            root.join("src/app.tsx"),
+            "export const App = () => <main />;\n",
+        )
+        .unwrap();
+
+        let source = read_source_file_at(&root, Path::new("src/app.tsx"))
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(source.path, "src/app.tsx");
+        assert_eq!(source.language_hint.as_deref(), Some("typescriptreact"));
+        assert!(source.content_hash.is_some());
+        assert_eq!(
+            source.content.as_deref(),
+            Some("export const App = () => <main />;\n")
+        );
+
+        fs::remove_dir_all(root).unwrap();
     }
 }

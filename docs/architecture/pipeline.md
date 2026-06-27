@@ -91,9 +91,10 @@ flowchart TD
 35. On demand, `ath check scripts` reports operational script commands not linked from editable documentation.
 36. On demand, `ath check deployment` reports deployment and service resources not linked from editable documentation.
 37. On demand, `ath check runbooks` reports runbooks that do not reference known operational targets or have no extracted operation steps.
-38. On demand, `ath update --changed` runs the same incremental indexing path through an explicit update command, writes a new durable snapshot, refreshes JSONL read models, and updates persisted file change state.
-39. On demand, `ath check affected` compares current source discovery with persisted index state and reports latest-snapshot diagnostics plus stale local artifact status for changed workflows without writing a new snapshot.
-40. On demand, `ath context --diff` builds a bounded context pack rooted in entities owned by changed or removed files without writing a new snapshot.
+38. On demand, `ath validate-changed` runs a fast extractor-only preflight for explicit `--file` selections, changed Git paths, or index-state changed paths outside Git repositories, without running linkers, checkers, storage, state updates, or read-model writes.
+39. On demand, `ath update --changed` runs the same incremental indexing path through an explicit update command, writes a new durable snapshot, refreshes JSONL read models, and updates persisted file change state.
+40. On demand, `ath check affected` compares current source discovery with persisted index state and reports latest-snapshot diagnostics plus stale local artifact status for changed workflows without writing a new snapshot.
+41. On demand, `ath context --diff` builds a bounded context pack rooted in entities owned by changed or removed files without writing a new snapshot.
 41. On demand, `ath repair inspect` validates local canonical and generated pointers, manifests, and orphaned immutable artifacts without modifying files.
 42. On demand, `ath repair cleanup` removes orphaned immutable canonical snapshots and generated generations identified by repair inspection.
 43. On demand, `ath repair regenerate` publishes a fresh coordinated generated generation when the current generated pointer is stale, missing, or invalid.
@@ -136,6 +137,7 @@ flowchart TD
 - `serve_daemon` and `request_daemon`: local daemon lifecycle and newline-delimited JSON command
   protocol for one explicitly resolved project id.
 - `check_project`: scoped API, documentation, environment, script, deployment, and runbook diagnostic reporting from the latest canonical snapshot.
+- `validate_changed`: extractor-only changed-file preflight from Git status or persisted index state.
 - `check_affected`: read-only changed-file diagnostic reporting from latest canonical snapshot plus persisted index state.
 - `check_operations_docs`: aggregate environment, script, deployment, and runbook documentation diagnostics from one latest canonical snapshot load.
 - `check_docs`: configurable editable-documentation completeness gate from the latest canonical snapshot.
@@ -219,12 +221,13 @@ artifact directories:
 - canonical snapshot directories not selected by `.athanor/store/canonical/jsonl/latest.json`
 - generated generation directories not selected by `.athanor/generated/current.json`
 
-`--dry-run` reports planned removals without deleting files. `--keep-canonical <N>` and
-`--keep-generated <N>` retain the newest N orphan canonical snapshots or generated generations while
-still allowing older orphans to be removed. `--json` emits `athanor.repair_cleanup.v1`, including
-the initial inspection, removed or planned removals, retained artifacts, and remaining issues after
-cleanup. The command does not rewrite pointers, regenerate stale outputs, or remove the current
-canonical snapshot or current generated generation.
+`--dry-run` reports planned removals without deleting files. `--generated-only` narrows cleanup to
+orphan generated generation directories and leaves orphan canonical snapshots untouched. `--keep-canonical
+<N>` and `--keep-generated <N>` retain the newest N orphan canonical snapshots or generated
+generations while still allowing older orphans to be removed. `--json` emits
+`athanor.repair_cleanup.v1`, including the initial inspection, removed or planned removals, retained
+artifacts, and remaining issues after cleanup. The command does not rewrite pointers, regenerate
+stale outputs, or remove the current canonical snapshot or current generated generation.
 
 `ath repair regenerate [path]` repairs generated-current selection issues by running the same
 coordinated generation path as `ath generate`. It publishes a new immutable generation from the
@@ -253,9 +256,9 @@ modify, or delete canonical snapshot directories.
 
 `--dry-run` returns the planned stage reports without writing or deleting artifacts. Without
 `--dry-run`, the command may delete orphan canonical snapshots and orphan generated generations
-through the same rules as `ath repair cleanup`. `--keep-canonical <N>` and `--keep-generated <N>`
-are passed to the cleanup stage. `--json` emits `athanor.repair_apply.v1`, including each stage
-report and final remaining issues.
+through the same rules as `ath repair cleanup`. `--generated-only`, `--keep-canonical <N>`, and
+`--keep-generated <N>` are passed to the cleanup stage. `--json` emits
+`athanor.repair_apply.v1`, including each stage report and final remaining issues.
 
 ## Context Pack Generation
 
@@ -581,6 +584,15 @@ service as `ath index`, uses the persisted index state to classify changed, unch
 files, writes a fresh canonical snapshot, refreshes `.athanor/generated/current/jsonl`, and updates
 `.athanor/state/index-state.json` after success. The command requires `--changed` so accidental
 full-style update entrypoints stay explicit; `--json` emits the serialized index report.
+
+`ath validate-changed` is the fast extractor-only preflight for tight edit loops. It accepts explicit
+`--file <path>` selections for the exact files under repair; without explicit files, it selects
+changed, deleted, and untracked paths from `git status --porcelain=v1 -z` when the project is inside
+a Git repository, otherwise it compares files from `.athanor/state/index-state.json` against current
+file hashes. The command reads only selected changed files, runs matching extractors, validates
+emitted canonical metadata, and returns diagnostics plus extraction metrics. It intentionally does
+not run linkers, checkers, canonical storage, state updates, or JSONL read-model writes, so it is
+useful for parser and extractor diagnostics but does not prove full graph consistency.
 
 `ath check affected` is a read-only changed-file diagnostic and artifact-status view. It loads the
 latest canonical snapshot, reads `.athanor/state/index-state.json`, discovers current source files,
