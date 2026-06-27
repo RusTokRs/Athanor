@@ -2371,6 +2371,7 @@ Purpose:
 - extracts module import/export payloads, functions, methods, classes, TypeScript interface/type declarations, and `package.json` package/dependency declarations
 - extends extractor output so adapters can emit evidence-backed diagnostics directly when parser recovery or unsupported syntax is detected
 - registers the adapter through the app-layer runtime by default after focused adapter tests and documentation updates
+- advances persisted index state to v30 so existing projects rebuild once and pick up JavaScript/TypeScript canonical knowledge for unchanged files
 - keeps React, Next.js, NestJS, Express, Vue, route inference, component semantics, and project conventions out of the base language adapter
 
 Current limitations:
