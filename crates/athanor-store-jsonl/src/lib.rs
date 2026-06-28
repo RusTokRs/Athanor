@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -458,15 +458,20 @@ fn write_jsonl<T: Serialize>(path: &Path, items: &[T]) -> CoreResult<()> {
             .map_err(|err| CoreError::Adapter(format!("failed to create JSONL dir: {err}")))?;
     }
 
-    let mut file = File::create(path)
+    let file = File::create(path)
         .map_err(|err| CoreError::Adapter(format!("failed to create JSONL file: {err}")))?;
+    let mut writer = BufWriter::with_capacity(1024 * 1024, file);
 
     for item in items {
-        serde_json::to_writer(&mut file, item)
+        serde_json::to_writer(&mut writer, item)
             .map_err(|err| CoreError::Adapter(format!("failed to write JSONL item: {err}")))?;
-        file.write_all(b"\n")
+        writer
+            .write_all(b"\n")
             .map_err(|err| CoreError::Adapter(format!("failed to write JSONL newline: {err}")))?;
     }
+    writer
+        .flush()
+        .map_err(|err| CoreError::Adapter(format!("failed to flush JSONL file: {err}")))?;
 
     Ok(())
 }

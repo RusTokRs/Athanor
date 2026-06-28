@@ -1,16 +1,18 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 use crate::config::load_config;
 use crate::store::init_store;
 use anyhow::{Context, Result, bail};
-use athanor_core::{CanonicalSnapshotStore, ProjectInput};
+use athanor_core::CanonicalSnapshotStore;
 use athanor_projector_html::{
-    HTML_REPORT_PROJECTION_SCHEMA, HtmlReportProjectionPayload, HtmlReportProjector,
+    HTML_REPORT_PROJECTION_SCHEMA, HtmlReportProjectionPayload,
+    project_html_report_payload_cancellable,
 };
 use athanor_projector_support::{NewDirectoryPublication, replace_output_file, write_output_file};
 use athanor_projector_wiki::{
-    MarkdownWikiProjector, WIKI_PROJECTION_SCHEMA, WikiProjectionPayload,
+    WIKI_PROJECTION_SCHEMA, WikiProjectionPayload, project_wiki_payload_cancellable,
 };
 use serde::{Deserialize, Serialize};
 
@@ -24,10 +26,13 @@ pub const GENERATED_CURRENT_SCHEMA: &str = "athanor.generated_current.v1";
 #[derive(Debug, Clone)]
 pub struct GenerationOptions {
     pub root: PathBuf,
+    pub force: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct GenerationReport {
+    pub schema: &'static str,
+    pub status: GenerationStatus,
     pub root: PathBuf,
     pub generation: String,
     pub generation_dir: PathBuf,
@@ -37,6 +42,25 @@ pub struct GenerationReport {
     pub facts: usize,
     pub relations: usize,
     pub diagnostics: usize,
+    pub metrics: GenerationMetrics,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum GenerationStatus {
+    Published,
+    UpToDate,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct GenerationMetrics {
+    pub schema: &'static str,
+    pub total_ms: u64,
+    pub snapshot_load_ms: u64,
+    pub jsonl_ms: u64,
+    pub wiki_ms: u64,
+    pub html_ms: u64,
+    pub publish_ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -84,6 +108,7 @@ async fn generate_project_inner(
     options: GenerationOptions,
     cancellation: Option<CancellationToken>,
 ) -> Result<GenerationReport> {
+    let total_started = Instant::now();
     check_cancelled(&cancellation)?;
     let root = normalize_canonical_path(
         options
@@ -96,6 +121,7 @@ async fn generate_project_inner(
     let generation = next_generation_id(&generations_dir)?;
     let generation_dir = generations_dir.join(&generation);
     let current_pointer = generated_root.join("current.json");
+    let snapshot_load_started = Instant::now();
     let config = load_config(&root)?;
     let store = init_store(&root, &config).await?;
     let snapshot = store
@@ -105,20 +131,51 @@ async fn generate_project_inner(
     let Some(snapshot) = snapshot else {
         bail!("no canonical snapshot found; run `ath index` first");
     };
+    let snapshot_load_ms = elapsed_ms(snapshot_load_started);
     check_cancelled(&cancellation)?;
     let snapshot_id = snapshot
         .snapshot
         .clone()
         .context("latest canonical snapshot has no snapshot id")?;
+    if !options.force
+        && let Some(current) = load_current_generation_if_current(&generated_root, &snapshot_id.0)?
+    {
+        let generation_dir = generated_root.join(&current.path);
+        return Ok(GenerationReport {
+            schema: "athanor.generation.v1",
+            status: GenerationStatus::UpToDate,
+            root,
+            generation: current.generation.clone(),
+            generation_dir,
+            current_pointer,
+            snapshot: snapshot_id.0,
+            entities: snapshot.entities.len(),
+            facts: snapshot.facts.len(),
+            relations: snapshot.relations.len(),
+            diagnostics: snapshot.diagnostics.len(),
+            metrics: GenerationMetrics {
+                schema: "athanor.generation_metrics.v1",
+                total_ms: elapsed_ms(total_started),
+                snapshot_load_ms,
+                jsonl_ms: 0,
+                wiki_ms: 0,
+                html_ms: 0,
+                publish_ms: 0,
+            },
+        });
+    }
 
     let publication = NewDirectoryPublication::new(&generation_dir, "generated generation")
         .context("failed to prepare generated generation")?;
     let staging = publication.staging_path().to_path_buf();
+    let jsonl_started = Instant::now();
     JsonlReadModelWriter::new(staging.join("jsonl"))
         .write_canonical_snapshot(&snapshot)
         .context("failed to project generation JSONL")?;
+    let jsonl_ms = elapsed_ms(jsonl_started);
     check_cancelled(&cancellation)?;
 
+    let wiki_started = Instant::now();
     let wiki_payload = WikiProjectionPayload {
         schema: WIKI_PROJECTION_SCHEMA.to_string(),
         entities: snapshot.entities.clone(),
@@ -126,24 +183,19 @@ async fn generate_project_inner(
         relations: snapshot.relations.clone(),
         diagnostics: snapshot.diagnostics.clone(),
     };
-    MarkdownWikiProjector
-        .project_cancellable(
-            ProjectInput {
-                snapshot: snapshot_id.clone(),
-                target: staging.join("wiki").to_string_lossy().into_owned(),
-                payload: serde_json::to_value(wiki_payload)
-                    .context("failed to build generation wiki input")?,
-            },
-            || {
-                cancellation
-                    .as_ref()
-                    .is_some_and(CancellationToken::is_cancelled)
-            },
-        )
-        .await
-        .context("failed to project generation wiki")?;
-    check_cancelled(&cancellation)?;
+    let wiki_target = staging.join("wiki");
+    let wiki_snapshot = snapshot_id.0.clone();
+    let wiki_cancellation = cancellation.clone();
+    let wiki = tokio::task::spawn_blocking(move || {
+        project_wiki_payload_cancellable(&wiki_target, &wiki_snapshot, wiki_payload, &|| {
+            wiki_cancellation
+                .as_ref()
+                .is_some_and(CancellationToken::is_cancelled)
+        })
+        .map(|_| elapsed_ms(wiki_started))
+    });
 
+    let html_started = Instant::now();
     let html_payload = HtmlReportProjectionPayload {
         schema: HTML_REPORT_PROJECTION_SCHEMA.to_string(),
         entities: snapshot.entities.clone(),
@@ -151,24 +203,28 @@ async fn generate_project_inner(
         relations: snapshot.relations.clone(),
         diagnostics: snapshot.diagnostics.clone(),
     };
-    HtmlReportProjector
-        .project_cancellable(
-            ProjectInput {
-                snapshot: snapshot_id.clone(),
-                target: staging.join("html").to_string_lossy().into_owned(),
-                payload: serde_json::to_value(html_payload)
-                    .context("failed to build generation HTML input")?,
-            },
-            || {
-                cancellation
-                    .as_ref()
-                    .is_some_and(CancellationToken::is_cancelled)
-            },
-        )
-        .await
+    let html_target = staging.join("html");
+    let html_snapshot = snapshot_id.0.clone();
+    let html_cancellation = cancellation.clone();
+    let html = tokio::task::spawn_blocking(move || {
+        project_html_report_payload_cancellable(html_target, &html_snapshot, html_payload, &|| {
+            html_cancellation
+                .as_ref()
+                .is_some_and(CancellationToken::is_cancelled)
+        })
+        .map(|_| elapsed_ms(html_started))
+    });
+
+    let (wiki_result, html_result) = tokio::join!(wiki, html);
+    let wiki_ms = wiki_result
+        .context("generation wiki worker panicked")?
+        .context("failed to project generation wiki")?;
+    let html_ms = html_result
+        .context("generation HTML report worker panicked")?
         .context("failed to project generation HTML report")?;
     check_cancelled(&cancellation)?;
 
+    let publish_started = Instant::now();
     let manifest = GenerationManifest {
         schema: GENERATED_GENERATION_SCHEMA,
         status: "complete",
@@ -210,8 +266,11 @@ async fn generate_project_inner(
         "current generation pointer",
     )
     .context("failed to update current generation pointer")?;
+    let publish_ms = elapsed_ms(publish_started);
 
     Ok(GenerationReport {
+        schema: "athanor.generation.v1",
+        status: GenerationStatus::Published,
         root,
         generation,
         generation_dir,
@@ -221,7 +280,60 @@ async fn generate_project_inner(
         facts: snapshot.facts.len(),
         relations: snapshot.relations.len(),
         diagnostics: snapshot.diagnostics.len(),
+        metrics: GenerationMetrics {
+            schema: "athanor.generation_metrics.v1",
+            total_ms: elapsed_ms(total_started),
+            snapshot_load_ms,
+            jsonl_ms,
+            wiki_ms,
+            html_ms,
+            publish_ms,
+        },
     })
+}
+
+fn elapsed_ms(started: Instant) -> u64 {
+    u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX)
+}
+
+fn load_current_generation_if_current(
+    generated_root: &Path,
+    latest_snapshot: &str,
+) -> Result<Option<CurrentGeneration>> {
+    let current_pointer = generated_root.join("current.json");
+    let Ok(content) = fs::read_to_string(&current_pointer) else {
+        return Ok(None);
+    };
+    let current: CurrentGeneration =
+        serde_json::from_str(&content).context("failed to parse current generation pointer")?;
+    if current.schema != GENERATED_CURRENT_SCHEMA || current.snapshot != latest_snapshot {
+        return Ok(None);
+    }
+    let generation_dir = generated_root.join(&current.path);
+    let manifest_path = generated_root.join(&current.manifest);
+    if !generation_dir.is_dir() || !manifest_path.is_file() {
+        return Ok(None);
+    }
+    let manifest: GenerationManifestOwned = serde_json::from_str(
+        &fs::read_to_string(&manifest_path)
+            .context("failed to read current generation manifest")?,
+    )
+    .context("failed to parse current generation manifest")?;
+    if manifest.schema == GENERATED_GENERATION_SCHEMA
+        && manifest.generation == current.generation
+        && manifest.snapshot == latest_snapshot
+    {
+        Ok(Some(current))
+    } else {
+        Ok(None)
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct GenerationManifestOwned {
+    schema: String,
+    generation: String,
+    snapshot: String,
 }
 
 fn check_cancelled(cancellation: &Option<CancellationToken>) -> Result<()> {
@@ -288,21 +400,40 @@ mod tests {
             .unwrap();
         store.commit_snapshot(snapshot.clone()).await.unwrap();
 
-        let first = generate_project(GenerationOptions { root: root.clone() })
-            .await
-            .unwrap();
-        let second = generate_project(GenerationOptions { root: root.clone() })
-            .await
-            .unwrap();
+        let first = generate_project(GenerationOptions {
+            root: root.clone(),
+            force: false,
+        })
+        .await
+        .unwrap();
+        let second = generate_project(GenerationOptions {
+            root: root.clone(),
+            force: false,
+        })
+        .await
+        .unwrap();
+        let forced = generate_project(GenerationOptions {
+            root: root.clone(),
+            force: true,
+        })
+        .await
+        .unwrap();
 
         assert_eq!(first.generation, "00000001");
-        assert_eq!(second.generation, "00000002");
+        assert_eq!(first.status, GenerationStatus::Published);
+        assert_eq!(second.generation, "00000001");
+        assert_eq!(second.status, GenerationStatus::UpToDate);
+        assert_eq!(second.metrics.jsonl_ms, 0);
+        assert_eq!(second.metrics.wiki_ms, 0);
+        assert_eq!(second.metrics.html_ms, 0);
+        assert_eq!(forced.generation, "00000002");
+        assert_eq!(forced.status, GenerationStatus::Published);
         assert!(first.generation_dir.join("jsonl/manifest.json").is_file());
         assert!(first.generation_dir.join("wiki/index.md").is_file());
         assert!(first.generation_dir.join("html/index.html").is_file());
         assert!(first.generation_dir.join("manifest.json").is_file());
         let pointer: CurrentGeneration =
-            serde_json::from_str(&fs::read_to_string(&second.current_pointer).unwrap()).unwrap();
+            serde_json::from_str(&fs::read_to_string(&forced.current_pointer).unwrap()).unwrap();
         assert_eq!(pointer.generation, "00000002");
         assert_eq!(pointer.snapshot, snapshot.0);
         assert!(first.generation_dir.is_dir());

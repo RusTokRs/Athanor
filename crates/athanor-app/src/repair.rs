@@ -282,9 +282,12 @@ pub async fn regenerate_repair(options: RepairRegenerateOptions) -> Result<Repai
 
     let generated = if needed && !options.dry_run {
         Some(
-            generate_project(GenerationOptions { root: root.clone() })
-                .await
-                .context("failed to regenerate generated outputs")?,
+            generate_project(GenerationOptions {
+                root: root.clone(),
+                force: false,
+            })
+            .await
+            .context("failed to regenerate generated outputs")?,
         )
     } else {
         None

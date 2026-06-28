@@ -52,7 +52,8 @@ None. The adapter does not run commands, use the network, or modify project file
 
 ## Limitations
 
-- Import/export data is currently stored in module payloads and definition facts; canonical import relations are deferred to a linker slice.
+- Import/export data is stored in module payloads and definition facts. The separate
+  `athanor-linker-js-ts` adapter materializes exact relative module imports.
 - JSX and TSX component semantics are not inferred. Components are emitted as normal functions or classes.
 - Framework-specific routes, controllers, pages, schemas, and conventions are intentionally out of scope.
 - Parser errors are reported as coalesced diagnostics, and extraction continues with recoverable declarations.

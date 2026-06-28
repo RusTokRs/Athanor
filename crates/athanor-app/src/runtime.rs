@@ -28,6 +28,7 @@ use athanor_extractor_openapi::OpenApiExtractor;
 use athanor_extractor_operations::OperationsExtractor;
 use athanor_extractor_rust::RustExtractor;
 use athanor_linker_api::ApiKnowledgeLinker;
+use athanor_linker_js_ts::JsTsImportLinker;
 use athanor_linker_markdown::MarkdownContainmentLinker;
 use athanor_linker_rust::RustLinker;
 use athanor_source_fs::LocalFileSystemSource;
@@ -166,6 +167,7 @@ impl AdapterRegistry {
             .builtin_extractor_rust()
             .builtin_linker_markdown_containment()
             .builtin_linker_api_knowledge()
+            .builtin_linker_js_ts_imports()
             .builtin_linker_rust()
             .builtin_checker_markdown_structure()
             .builtin_checker_api_consistency()
@@ -237,6 +239,9 @@ impl AdapterRegistry {
             }
             (AdapterPluginKind::Linker, "builtin.linker.api_knowledge") => {
                 Ok(self.builtin_linker_api_knowledge())
+            }
+            (AdapterPluginKind::Linker, "builtin.linker.js_ts_imports") => {
+                Ok(self.builtin_linker_js_ts_imports())
             }
             (AdapterPluginKind::Linker, "builtin.linker.rust") => Ok(self.builtin_linker_rust()),
             (AdapterPluginKind::Linker, "builtin.linker.rustok_ffa") => {
@@ -438,6 +443,12 @@ impl AdapterRegistry {
     fn builtin_linker_api_knowledge(self) -> Self {
         self.register_linker_id("builtin.linker.api_knowledge", || {
             Box::new(ApiKnowledgeLinker)
+        })
+    }
+
+    fn builtin_linker_js_ts_imports(self) -> Self {
+        self.register_linker_id("builtin.linker.js_ts_imports", || {
+            Box::new(JsTsImportLinker)
         })
     }
 

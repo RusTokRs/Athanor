@@ -35,6 +35,7 @@ Crates:
 - `athanor-adapter-rustok-ffa`
 - `athanor-adapter-rustok-page-builder`
 - `athanor-linker-api`
+- `athanor-linker-js-ts`
 - `athanor-linker-markdown`
 - `athanor-checker-markdown`
 - `athanor-checker-api`
@@ -305,6 +306,8 @@ extractors:
 linkers:
   MarkdownContainmentLinker
   ApiKnowledgeLinker
+  JsTsImportLinker
+  RustLinker
 
 checkers:
   MarkdownStructureChecker
@@ -879,6 +882,19 @@ Purpose:
 - preserves the previous pointer when projection fails
 - keeps direct `.athanor/generated/current/*` outputs as uncoordinated compatibility paths
 - extends `JsonlReadModelWriter` to project a loaded canonical snapshot without duplicating JSONL writing logic
+- adds `athanor.generation.v1` reports with per-phase `athanor.generation_metrics.v1` timings;
+  normal generation prints the timings and `repair regenerate --json` exposes the bounded report
+- indexes entity attachments once per wiki/HTML projection instead of scanning every canonical
+  fact, relation, diagnostic, and entity lookup for every generated entity page
+- builds coordinated wiki and HTML outputs in parallel after JSONL projection while still switching
+  the current generation pointer only after both output trees finish successfully
+- treats `ath generate` as idempotent when the current generated pointer already targets the latest
+  canonical snapshot, returning an `up_to_date` report without rewriting generated JSONL, wiki, or
+  HTML read models
+- pre-creates high-volume wiki/HTML page directories before writing entity and diagnostic pages,
+  avoiding repeated parent-directory creation checks inside per-page loops
+- buffers canonical-store and generated-read-model JSONL serialization with explicit flushes,
+  avoiding per-token filesystem writes while preserving the same line-delimited contract
 
 ### Library Adoption Plan
 
@@ -2386,8 +2402,35 @@ Purpose:
 
 Current limitations:
 
-- import/export findings are available as module payload data; canonical import relations are deferred to a linker slice
+- exact relative import findings are materialized by the JS/TS import linker; package, alias,
+  dynamic, CommonJS, export, and re-export relations remain deferred
 - parser errors and unsupported declaration shapes are diagnostic-backed, but deeper capability reporting remains part of the Analysis Completeness Reporting backlog
+
+### JavaScript/TypeScript Relative Import Linker
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-linker-js-ts`
+- `crates/athanor-app/src/runtime.rs`
+- `crates/athanor-app/src/index_state.rs`
+- `docs/adapters/linker-js-ts.md`
+- `docs/architecture/adapters.md`
+- `docs/development/roadmap-status.md`
+
+Purpose:
+
+- adds the built-in `js-ts-imports` linker over normalized JS/TS module import payloads
+- resolves only exact relative imports against existing canonical modules, including extensionless
+  paths and directory `index` modules
+- emits verified `imports` relations with import-line evidence and ownership from both source files
+- re-emits a relation when either module is affected so new or changed targets can resolve imports
+  from unchanged source modules during incremental indexing
+- advances persisted index state to v33 so existing repositories rebuild once and receive JS/TS
+  import relations
+- keeps package, Node built-in, workspace alias, TypeScript path alias, dynamic import, CommonJS,
+  export, re-export, symbol binding, and framework semantics outside this precise initial slice
 
 ## Next
 

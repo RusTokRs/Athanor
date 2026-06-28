@@ -1,5 +1,5 @@
 [package]
-name = "athanor-projector-support"
+name = "athanor-linker-js-ts"
 version = "0.1.0"
 authors.workspace = true
 description.workspace = true
@@ -12,9 +12,11 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+async-trait.workspace = true
 athanor-core = { path = "../athanor-core" }
 athanor-domain = { path = "../athanor-domain" }
-serde.workspace = true
+athanor-extractor-basic = { path = "../athanor-extractor-basic" }
+serde_json.workspace = true
 
 [dev-dependencies]
-serde_json.workspace = true
+tokio.workspace = true

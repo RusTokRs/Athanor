@@ -1,8 +1,9 @@
+use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
 use athanor_core::{CoreError, CoreResult};
-use athanor_domain::{Diagnostic, Entity, Fact, Relation};
+use athanor_domain::{Diagnostic, Entity, EntityId, Fact, Relation};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug)]
@@ -86,6 +87,72 @@ pub struct CanonicalProjectionPayload {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+pub struct CanonicalProjectionIndex<'a> {
+    entities: HashMap<&'a str, &'a Entity>,
+    facts: HashMap<&'a str, Vec<&'a Fact>>,
+    relations: HashMap<&'a str, Vec<&'a Relation>>,
+    diagnostics: HashMap<&'a str, Vec<&'a Diagnostic>>,
+}
+
+impl<'a> CanonicalProjectionIndex<'a> {
+    pub fn new(payload: &'a CanonicalProjectionPayload) -> Self {
+        let entities = payload
+            .entities
+            .iter()
+            .map(|entity| (entity.id.0.as_str(), entity))
+            .collect();
+        let mut facts = HashMap::<&str, Vec<&Fact>>::new();
+        for fact in &payload.facts {
+            facts.entry(&fact.subject.0).or_default().push(fact);
+            if let Some(object) = &fact.object
+                && object != &fact.subject
+            {
+                facts.entry(&object.0).or_default().push(fact);
+            }
+        }
+        let mut relations = HashMap::<&str, Vec<&Relation>>::new();
+        for relation in &payload.relations {
+            relations
+                .entry(&relation.from.0)
+                .or_default()
+                .push(relation);
+            if relation.to != relation.from {
+                relations.entry(&relation.to.0).or_default().push(relation);
+            }
+        }
+        let mut diagnostics = HashMap::<&str, Vec<&Diagnostic>>::new();
+        for diagnostic in &payload.diagnostics {
+            for entity in &diagnostic.entities {
+                diagnostics.entry(&entity.0).or_default().push(diagnostic);
+            }
+        }
+        Self {
+            entities,
+            facts,
+            relations,
+            diagnostics,
+        }
+    }
+
+    pub fn entity(&self, id: &EntityId) -> Option<&'a Entity> {
+        self.entities.get(id.0.as_str()).copied()
+    }
+
+    pub fn facts(&self, id: &EntityId) -> &[&'a Fact] {
+        self.facts.get(id.0.as_str()).map_or(&[], Vec::as_slice)
+    }
+
+    pub fn relations(&self, id: &EntityId) -> &[&'a Relation] {
+        self.relations.get(id.0.as_str()).map_or(&[], Vec::as_slice)
+    }
+
+    pub fn diagnostics(&self, id: &EntityId) -> &[&'a Diagnostic] {
+        self.diagnostics
+            .get(id.0.as_str())
+            .map_or(&[], Vec::as_slice)
+    }
+}
+
 pub fn publish_staged_directory(
     target: &Path,
     output_kind: &str,
@@ -138,6 +205,10 @@ pub fn write_output_file(path: &Path, content: &str) -> CoreResult<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(io_error("create output directory", parent))?;
     }
+    fs::write(path, content).map_err(io_error("write output file", path))
+}
+
+pub fn write_output_file_with_existing_parent(path: &Path, content: &str) -> CoreResult<()> {
     fs::write(path, content).map_err(io_error("write output file", path))
 }
 
@@ -218,7 +289,73 @@ fn adapter_error(message: String) -> CoreError {
 
 #[cfg(test)]
 mod tests {
+    use athanor_domain::{
+        EntityId, EntityKind, Fact, FactId, FactKind, RelationId, RelationKind, RelationStatus,
+        SnapshotId, StableKey,
+    };
+    use serde_json::Value;
+
     use super::*;
+
+    #[test]
+    fn indexes_canonical_attachments_once_for_both_endpoints() {
+        let left = entity("ent_left");
+        let right = entity("ent_right");
+        let fact = Fact {
+            id: FactId("fact_link".to_string()),
+            kind: FactKind::SymbolDefined,
+            subject: left.id.clone(),
+            object: Some(right.id.clone()),
+            value: Value::Null,
+            evidence: Vec::new(),
+            ownership: Vec::new(),
+            snapshot: SnapshotId("snap_test".to_string()),
+            extractor: "test".to_string(),
+            confidence: 1.0,
+        };
+        let relation = Relation {
+            id: RelationId("rel_link".to_string()),
+            kind: RelationKind::Imports,
+            from: left.id.clone(),
+            to: right.id.clone(),
+            status: RelationStatus::Verified,
+            confidence: 1.0,
+            evidence: Vec::new(),
+            ownership: Vec::new(),
+            snapshot: SnapshotId("snap_test".to_string()),
+            payload: Value::Null,
+        };
+        let payload = CanonicalProjectionPayload {
+            schema: "test".to_string(),
+            entities: vec![left.clone(), right.clone()],
+            facts: vec![fact],
+            relations: vec![relation],
+            diagnostics: Vec::new(),
+        };
+
+        let index = CanonicalProjectionIndex::new(&payload);
+
+        assert_eq!(index.entity(&right.id).unwrap().id, right.id);
+        assert_eq!(index.facts(&left.id).len(), 1);
+        assert_eq!(index.facts(&right.id).len(), 1);
+        assert_eq!(index.relations(&left.id).len(), 1);
+        assert_eq!(index.relations(&right.id).len(), 1);
+    }
+
+    fn entity(id: &str) -> Entity {
+        Entity {
+            id: EntityId(id.to_string()),
+            stable_key: StableKey(format!("symbol://{id}")),
+            kind: EntityKind::Symbol,
+            name: id.to_string(),
+            title: None,
+            source: None,
+            language: None,
+            aliases: Vec::new(),
+            ownership: Vec::new(),
+            payload: Value::Null,
+        }
+    }
 
     #[test]
     fn replaces_complete_directory_and_removes_stale_files() {

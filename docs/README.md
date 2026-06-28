@@ -126,6 +126,7 @@ High-level adapter docs:
 - [RusTok FFA adapter](adapters/rustok-ffa.md)
 - [API knowledge linker](adapters/linker-api.md)
 - [Markdown linker](adapters/linker-markdown.md)
+- [JavaScript/TypeScript import linker](adapters/linker-js-ts.md)
 - [Rust linker](adapters/linker-rust.md)
 - [Markdown checker](adapters/checker-markdown.md)
 - [API consistency & environment checker](adapters/checker-api.md)
@@ -150,6 +151,7 @@ Crate-local adapter docs:
 - [`athanor-adapter-rustok-ffa`](../crates/athanor-adapter-rustok-ffa/README.md)
 - [`athanor-linker-api`](../crates/athanor-linker-api/README.md)
 - [`athanor-linker-markdown`](../crates/athanor-linker-markdown/README.md)
+- [`athanor-linker-js-ts`](../crates/athanor-linker-js-ts/README.md)
 - [`athanor-linker-rust`](../crates/athanor-linker-rust/README.md)
 - [`athanor-checker-markdown`](../crates/athanor-checker-markdown/README.md)
 - [`athanor-checker-api`](../crates/athanor-checker-api/README.md)
@@ -206,6 +208,16 @@ It writes immutable generation directories and updates a portable JSON pointer o
 ```
 
 `current.json` records the generation id, canonical snapshot id, relative generation path, and manifest path. Consumers should resolve coordinated outputs through this pointer.
+
+Generation reports include `athanor.generation_metrics.v1` timings for canonical snapshot loading,
+JSONL, wiki, HTML, and publication phases. Text generation output prints the timings, while
+`repair regenerate --json` exposes the complete bounded report when regeneration is needed. Wiki
+and HTML entity pages use one shared attachment index per projection so large repositories do not
+rescan every fact and relation for every entity. Coordinated generation builds wiki and HTML outputs
+in parallel after JSONL projection; publication still waits for both outputs before switching the
+current pointer. Re-running `generate` is idempotent when the current generated pointer already
+matches the latest canonical snapshot; the command reports the selected generation and skips JSONL,
+wiki, HTML, and publication work.
 
 The individual commands retain direct compatibility outputs under `.athanor/generated/current`.
 Use `repair cleanup --generated-only` when clearing stale generated generation directories without

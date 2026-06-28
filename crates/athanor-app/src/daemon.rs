@@ -1001,7 +1001,7 @@ async fn execute_request(
                                 .map_err(anyhow::Error::from)
                                 .and_then(|runtime| {
                                     runtime.block_on(generate_project_cancellable(
-                                        GenerationOptions { root },
+                                        GenerationOptions { root, force: false },
                                         cancellation_for_task.clone(),
                                     ))
                                 });

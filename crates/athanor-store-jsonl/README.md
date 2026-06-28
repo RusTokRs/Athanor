@@ -46,6 +46,10 @@ Persists:
 
 The adapter does not create new domain knowledge itself.
 
+JSONL files are serialized through bounded buffered writers and explicitly flushed before snapshot
+publication. This preserves line-delimited output while avoiding per-token filesystem writes on
+large Windows repositories.
+
 ## Commands And Network
 
 - Does not run external commands.

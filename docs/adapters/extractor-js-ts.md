@@ -47,7 +47,8 @@ Source files emit:
 - `dependency` entities for dependency declarations
 - `symbol_defined` facts with dependency kind, version requirement, source evidence, and ownership
 
-Module payloads include normalized `imports` and `exports` arrays. Import relation materialization is deferred to a later linker slice.
+Module payloads include normalized `imports` and `exports` arrays. The built-in JS/TS import linker
+uses those payloads to materialize exact relative module imports without exposing parser AST nodes.
 
 ## Diagnostics
 
@@ -55,7 +56,7 @@ Recoverable parser errors produce `js_ts_parse_error` diagnostics coalesced at t
 
 ## Boundaries
 
-The adapter deliberately avoids framework-specific semantics such as React components, Next.js pages, NestJS controllers, Express routes, Vue components, and project convention inference. Those belong in later adapter slices.
+The adapter deliberately avoids framework-specific semantics such as React components, Next.js pages, NestJS controllers, Express routes, Vue components, and project convention inference. Package and alias import resolution also remain outside the base language slice.
 
 ## Verification
 

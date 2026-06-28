@@ -198,6 +198,27 @@ Generation ids are local zero-padded sequence numbers. The service builds the co
 
 After publication, the service replaces `.athanor/generated/current.json` with an `athanor.generated_current.v1` document containing the generation id, snapshot id, relative generation path, and manifest path. The pointer is the final write, so any projector failure leaves the previous current generation selected. A pointer-write failure can leave a complete unreferenced generation, which is safe and can be collected later.
 
+Generation reports include bounded `athanor.generation_metrics.v1` timings for snapshot loading,
+JSONL projection, wiki projection, HTML projection, and final publication. Normal `ath generate`
+output prints those timings; existing `repair regenerate --json` includes the complete generation
+report when repair-triggered regeneration is needed. Wiki and HTML build one canonical attachment
+index per projection and reuse it for every entity page, avoiding repeated full scans of facts,
+relations, diagnostics, and entity lookup tables on large repositories.
+
+Coordinated generation projects JSONL first, then builds wiki and HTML outputs in parallel inside
+the staged generation directory. The generation is still published only after both projection tasks
+finish successfully, so cancellation or projection failure preserves the previously selected
+generation pointer.
+
+If `.athanor/generated/current.json` already selects a valid generation for the latest canonical
+snapshot, `ath generate` returns an `up_to_date` generation report and skips JSONL, wiki, HTML, and
+publication phases. This keeps repeated verification loops from rewriting large generated read
+models when no canonical snapshot changed.
+
+Canonical-store and generated-read-model JSONL writers use 1 MiB buffered output with explicit
+flushes. This keeps the same JSONL contract while avoiding per-token filesystem writes during large
+snapshot storage and generation.
+
 The JSON pointer is used instead of a filesystem symlink so publication works without elevated link privileges on Windows. Individual `ath index`, `ath wiki`, and `ath report html` commands continue to write direct compatibility outputs under `.athanor/generated/current`; only `ath generate` guarantees cross-format snapshot consistency.
 
 ## Repair Inspection
@@ -731,6 +752,8 @@ extractors:
 linkers:
   MarkdownContainmentLinker
   ApiKnowledgeLinker
+  JsTsImportLinker
+  RustLinker
 
 checkers:
   MarkdownStructureChecker
@@ -847,7 +870,7 @@ checkers:
   <docs-patch-id>.json
 ```
 
-Generated JSONL files and Markdown wiki pages under `.athanor/generated/current` are read models. They are not the source of truth and may be deleted and rebuilt. `validation-report.json` is written only for adapter contract validation failures and is removed after a successful index run. `validation-result.json` is written only for successful `--validate-only` runs and is removed after validation failures or normal index runs. Durable canonical snapshots live under `.athanor/store/canonical/jsonl`. API contract snapshots and diffs under `.athanor/api` are generated artifacts, but they are retained explicitly because they form the contract comparison baseline. The state file records the last indexed file paths, content hashes, language hints, and snapshot id so later runs can classify changed, unchanged, and removed files. Its schema is versioned so changes to built-in extraction, linking, or checking semantics can force a safe one-time full rebuild; the JavaScript/TypeScript and Markdown diagnostic noise reduction advances it to `athanor.index_state.v32`.
+Generated JSONL files and Markdown wiki pages under `.athanor/generated/current` are read models. They are not the source of truth and may be deleted and rebuilt. `validation-report.json` is written only for adapter contract validation failures and is removed after a successful index run. `validation-result.json` is written only for successful `--validate-only` runs and is removed after validation failures or normal index runs. Durable canonical snapshots live under `.athanor/store/canonical/jsonl`. API contract snapshots and diffs under `.athanor/api` are generated artifacts, but they are retained explicitly because they form the contract comparison baseline. The state file records the last indexed file paths, content hashes, language hints, and snapshot id so later runs can classify changed, unchanged, and removed files. Its schema is versioned so changes to built-in extraction, linking, or checking semantics can force a safe one-time full rebuild; relative JavaScript/TypeScript import relation materialization advances it to `athanor.index_state.v33`.
 
 ## Current Limitations
 
@@ -857,7 +880,7 @@ Generated JSONL files and Markdown wiki pages under `.athanor/generated/current`
 - Diagnostic check views expose open findings; API strict mode adds a CI threshold and historical contract comparison, while per-kind suppression remains deferred.
 - The completeness gate has a project-level severity threshold but does not yet support per-kind suppressions or baseline comparison.
 - Rust extraction does not expand macros, emit trait method declarations, or infer imports, calls, and framework routes.
-- JavaScript/TypeScript extraction stores import/export data in module payloads but does not yet materialize canonical import relations or infer framework-specific routes, components, pages, controllers, or project conventions.
+- JavaScript/TypeScript linking materializes exact relative module imports but does not yet resolve package, workspace alias, TypeScript path alias, dynamic, CommonJS, export, or re-export relations, or infer framework-specific routes, components, pages, controllers, or project conventions.
 - OpenAPI extraction supports 3.0.x and 3.1.x through replaceable parser backends but does not support Swagger 2.x/OpenAPI 3.2, resolve external references, merge specifications, or infer code handlers. Example validation is offline and covers media-type inline/named values; external and schema-level examples remain deferred.
 - API knowledge linking is lexical for code/docs and resolves only same-document component schemas; framework route metadata, call graphs, and Rust schema/type links are not implemented.
 - API consistency diagnostics check unresolved local component schema references but do not compare schema fields with Rust types or check status codes, auth, or permissions yet.

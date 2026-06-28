@@ -1267,18 +1267,38 @@ async fn main() -> Result<()> {
             println!("wrote HTML report to {}", report.output_dir.display());
         }
         Some(Command::Generate { path }) => {
-            let report = generate_project(GenerationOptions { root: path }).await?;
+            let report = generate_project(GenerationOptions {
+                root: path,
+                force: false,
+            })
+            .await?;
+            if report.status == athanor_app::GenerationStatus::UpToDate {
+                println!(
+                    "current generation {} is already up to date for snapshot {}",
+                    report.generation, report.snapshot
+                );
+            } else {
+                println!(
+                    "published generation {} from snapshot {}",
+                    report.generation, report.snapshot
+                );
+                println!(
+                    "wrote generated outputs to {}",
+                    report.generation_dir.display()
+                );
+                println!(
+                    "updated current pointer at {}",
+                    report.current_pointer.display()
+                );
+            }
             println!(
-                "published generation {} from snapshot {}",
-                report.generation, report.snapshot
-            );
-            println!(
-                "wrote generated outputs to {}",
-                report.generation_dir.display()
-            );
-            println!(
-                "updated current pointer at {}",
-                report.current_pointer.display()
+                "generation timings: total={}ms snapshot={}ms jsonl={}ms wiki={}ms html={}ms publish={}ms",
+                report.metrics.total_ms,
+                report.metrics.snapshot_load_ms,
+                report.metrics.jsonl_ms,
+                report.metrics.wiki_ms,
+                report.metrics.html_ms,
+                report.metrics.publish_ms
             );
         }
         Some(Command::Graph { command }) => match command {

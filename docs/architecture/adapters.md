@@ -97,6 +97,7 @@ Ownership should list every source file that can invalidate the emitted object. 
 | `athanor-adapter-rustok-fba` | `Extractor`, `Linker`, `Checker` | Opt-in RusTok FBA code-audit adapter that emits FBA module/contract/port/operation/profile/dependency entities, FBA relations, and FBA-only diagnostics. |
 | `athanor-adapter-rustok-ffa` | `Extractor`, `Linker`, `Checker` | Opt-in RusTok FFA code-audit adapter that emits FFA surface/layer entities, surface/layer/file relations, and FFA-only diagnostics. |
 | `athanor-linker-api` | `Linker` | Link OpenAPI operations to Rust functions, Markdown documentation, component schemas, and examples. |
+| `athanor-linker-js-ts` | `Linker` | Resolve exact relative JavaScript/TypeScript module imports into evidence-backed canonical relations. |
 | `athanor-linker-markdown` | `Linker` | Link Markdown containment and exact frontmatter entity/concept references. |
 | `athanor-linker-rust` | `Linker` | Link Rust module containment, imports, static function call graph, and test cases. |
 | `athanor-checker-markdown` | `Checker` | Diagnose Markdown structure, unresolved frontmatter references, and duplicate document identities. |
@@ -177,6 +178,7 @@ builtin.extractor.rustok_fba
 builtin.extractor.rustok_ffa
 builtin.extractor.rustok_page_builder
 builtin.linker.api_knowledge
+builtin.linker.js_ts_imports
 builtin.linker.markdown_containment
 builtin.linker.rust
 builtin.linker.rustok_fba

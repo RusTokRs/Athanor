@@ -1,5 +1,5 @@
 use std::fs::{self, File};
-use std::io::Write;
+use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -115,15 +115,20 @@ fn write_jsonl<T: Serialize>(path: &Path, items: &[T]) -> Result<()> {
             .with_context(|| format!("failed to create {}", parent.display()))?;
     }
 
-    let mut file =
+    let file =
         File::create(path).with_context(|| format!("failed to create {}", path.display()))?;
+    let mut writer = BufWriter::with_capacity(1024 * 1024, file);
 
     for item in items {
-        serde_json::to_writer(&mut file, item)
+        serde_json::to_writer(&mut writer, item)
             .with_context(|| format!("failed to write JSON to {}", path.display()))?;
-        file.write_all(b"\n")
+        writer
+            .write_all(b"\n")
             .with_context(|| format!("failed to write newline to {}", path.display()))?;
     }
+    writer
+        .flush()
+        .with_context(|| format!("failed to flush {}", path.display()))?;
 
     Ok(())
 }

@@ -1,11 +1,13 @@
 use std::collections::HashMap;
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
 use athanor_core::{CoreError, CoreResult, ProjectInput, Projector};
 use athanor_domain::{Diagnostic, DiagnosticStatus, Entity};
 use athanor_projector_support::{
-    CanonicalProjectionPayload, publish_staged_directory, safe_filename, write_output_file,
+    CanonicalProjectionIndex, CanonicalProjectionPayload, publish_staged_directory, safe_filename,
+    write_output_file, write_output_file_with_existing_parent,
 };
 use serde::Serialize;
 use serde_json::json;
@@ -36,7 +38,7 @@ impl MarkdownWikiProjector {
         }
 
         let target = PathBuf::from(input.target);
-        write_projection(&target, &input.snapshot.0, payload, &is_cancelled)
+        project_wiki_payload_cancellable(&target, &input.snapshot.0, payload, &is_cancelled)
     }
 }
 
@@ -49,6 +51,21 @@ impl Projector for MarkdownWikiProjector {
     async fn project(&self, input: ProjectInput) -> CoreResult<()> {
         self.project_cancellable(input, || false).await
     }
+}
+
+pub fn project_wiki_payload_cancellable(
+    target: &Path,
+    snapshot: &str,
+    payload: WikiProjectionPayload,
+    is_cancelled: &dyn Fn() -> bool,
+) -> CoreResult<()> {
+    if payload.schema != WIKI_PROJECTION_SCHEMA {
+        return Err(adapter_error(format!(
+            "unsupported wiki projection schema: {}",
+            payload.schema
+        )));
+    }
+    write_projection(target, snapshot, payload, is_cancelled)
 }
 
 fn write_projection(
@@ -94,6 +111,7 @@ fn write_projection(
     });
     let manifest = serde_json::to_string_pretty(&manifest)
         .map_err(|error| adapter_error(format!("serialize wiki manifest: {error}")))?;
+    let projection_index = CanonicalProjectionIndex::new(&payload);
 
     publish_staged_directory(target, "wiki", |staging| {
         ensure_not_cancelled(is_cancelled)?;
@@ -101,23 +119,35 @@ fn write_projection(
             &staging.join("index.md"),
             &render_index(snapshot, &payload, &entity_files),
         )?;
+        let entities_dir = staging.join("entities");
+        fs::create_dir_all(&entities_dir).map_err(|error| {
+            adapter_error(format!(
+                "create wiki entities directory {}: {error}",
+                entities_dir.display()
+            ))
+        })?;
         for entity in &payload.entities {
             ensure_not_cancelled(is_cancelled)?;
-            write_output_file(
-                &staging.join("entities").join(entity_filename(entity)),
-                &render_entity(snapshot, entity, &payload, &entity_files),
+            write_output_file_with_existing_parent(
+                &entities_dir.join(entity_filename(entity)),
+                &render_entity(snapshot, entity, &projection_index, &entity_files),
             )?;
         }
+        let diagnostics_dir = staging.join("diagnostics");
+        fs::create_dir_all(&diagnostics_dir).map_err(|error| {
+            adapter_error(format!(
+                "create wiki diagnostics directory {}: {error}",
+                diagnostics_dir.display()
+            ))
+        })?;
         for diagnostic in payload
             .diagnostics
             .iter()
             .filter(|diagnostic| diagnostic.status == DiagnosticStatus::Open)
         {
             ensure_not_cancelled(is_cancelled)?;
-            write_output_file(
-                &staging
-                    .join("diagnostics")
-                    .join(diagnostic_filename(diagnostic)),
+            write_output_file_with_existing_parent(
+                &diagnostics_dir.join(diagnostic_filename(diagnostic)),
                 &render_diagnostic(snapshot, diagnostic, &entity_files),
             )?;
         }
@@ -180,7 +210,7 @@ fn render_index(
 fn render_entity(
     snapshot: &str,
     entity: &Entity,
-    payload: &WikiProjectionPayload,
+    projection_index: &CanonicalProjectionIndex<'_>,
     entity_files: &HashMap<String, String>,
 ) -> String {
     let mut output = frontmatter(
@@ -201,11 +231,7 @@ fn render_entity(
     }
 
     output.push_str("## Facts\n\n");
-    let facts = payload
-        .facts
-        .iter()
-        .filter(|fact| fact.subject == entity.id || fact.object.as_ref() == Some(&entity.id))
-        .collect::<Vec<_>>();
+    let facts = projection_index.facts(&entity.id);
     if facts.is_empty() {
         output.push_str("No canonical facts.\n");
     } else {
@@ -219,11 +245,7 @@ fn render_entity(
     }
 
     output.push_str("\n## Relations\n\n");
-    let relations = payload
-        .relations
-        .iter()
-        .filter(|relation| relation.from == entity.id || relation.to == entity.id)
-        .collect::<Vec<_>>();
+    let relations = projection_index.relations(&entity.id);
     if relations.is_empty() {
         output.push_str("No canonical relations.\n");
     } else {
@@ -247,9 +269,10 @@ fn render_entity(
     }
 
     output.push_str("\n## Open diagnostics\n\n");
-    let diagnostics = payload.diagnostics.iter().filter(|diagnostic| {
-        diagnostic.status == DiagnosticStatus::Open && diagnostic.entities.contains(&entity.id)
-    });
+    let diagnostics = projection_index
+        .diagnostics(&entity.id)
+        .iter()
+        .filter(|diagnostic| diagnostic.status == DiagnosticStatus::Open);
     let mut found = false;
     for diagnostic in diagnostics {
         found = true;

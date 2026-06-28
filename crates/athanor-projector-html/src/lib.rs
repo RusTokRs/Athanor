@@ -1,11 +1,13 @@
 use std::collections::{BTreeMap, HashMap};
+use std::fs;
 use std::path::PathBuf;
 
 use async_trait::async_trait;
 use athanor_core::{CoreError, CoreResult, ProjectInput, Projector};
 use athanor_domain::{Diagnostic, DiagnosticStatus, Entity, Relation};
 use athanor_projector_support::{
-    CanonicalProjectionPayload, publish_staged_directory, safe_filename, write_output_file,
+    CanonicalProjectionIndex, CanonicalProjectionPayload, publish_staged_directory, safe_filename,
+    write_output_file, write_output_file_with_existing_parent,
 };
 use serde::Serialize;
 use serde_json::json;
@@ -35,7 +37,7 @@ impl HtmlReportProjector {
             )));
         }
 
-        write_projection(
+        project_html_report_payload_cancellable(
             PathBuf::from(input.target),
             &input.snapshot.0,
             payload,
@@ -53,6 +55,21 @@ impl Projector for HtmlReportProjector {
     async fn project(&self, input: ProjectInput) -> CoreResult<()> {
         self.project_cancellable(input, || false).await
     }
+}
+
+pub fn project_html_report_payload_cancellable(
+    target: PathBuf,
+    snapshot: &str,
+    payload: HtmlReportProjectionPayload,
+    is_cancelled: &dyn Fn() -> bool,
+) -> CoreResult<()> {
+    if payload.schema != HTML_REPORT_PROJECTION_SCHEMA {
+        return Err(adapter_error(format!(
+            "unsupported HTML report projection schema: {}",
+            payload.schema
+        )));
+    }
+    write_projection(target, snapshot, payload, is_cancelled)
 }
 
 fn write_projection(
@@ -90,15 +107,23 @@ fn write_projection(
     });
     let manifest = serde_json::to_string_pretty(&manifest)
         .map_err(|error| adapter_error(format!("serialize HTML report manifest: {error}")))?;
+    let projection_index = CanonicalProjectionIndex::new(&payload);
 
     publish_staged_directory(&target, "HTML report", |staging| {
         ensure_not_cancelled(is_cancelled)?;
         write_output_file(&staging.join("index.html"), &report)?;
+        let entities_dir = staging.join("entities");
+        fs::create_dir_all(&entities_dir).map_err(|error| {
+            adapter_error(format!(
+                "create HTML entity directory {}: {error}",
+                entities_dir.display()
+            ))
+        })?;
         for entity in &payload.entities {
             ensure_not_cancelled(is_cancelled)?;
-            write_output_file(
-                &staging.join(entity_report_path(entity)),
-                &render_entity_page(snapshot, &payload, entity),
+            write_output_file_with_existing_parent(
+                &entities_dir.join(entity_report_filename(entity)),
+                &render_entity_page(snapshot, &payload, &projection_index, entity),
             )?;
         }
         ensure_not_cancelled(is_cancelled)?;
@@ -371,28 +396,12 @@ fn render_entity_row(
 fn render_entity_page(
     snapshot: &str,
     payload: &HtmlReportProjectionPayload,
+    projection_index: &CanonicalProjectionIndex<'_>,
     entity: &Entity,
 ) -> String {
-    let entity_by_id = payload
-        .entities
-        .iter()
-        .map(|entity| (entity.id.0.as_str(), entity))
-        .collect::<HashMap<_, _>>();
-    let relations = payload
-        .relations
-        .iter()
-        .filter(|relation| relation.from == entity.id || relation.to == entity.id)
-        .collect::<Vec<_>>();
-    let facts = payload
-        .facts
-        .iter()
-        .filter(|fact| fact.subject == entity.id || fact.object.as_ref() == Some(&entity.id))
-        .collect::<Vec<_>>();
-    let diagnostics = payload
-        .diagnostics
-        .iter()
-        .filter(|diagnostic| diagnostic.entities.contains(&entity.id))
-        .collect::<Vec<_>>();
+    let relations = projection_index.relations(&entity.id);
+    let facts = projection_index.facts(&entity.id);
+    let diagnostics = projection_index.diagnostics(&entity.id);
     let source = entity.source.as_ref().map_or_else(String::new, |source| {
         source.line_start.map_or_else(
             || source.path.clone(),
@@ -436,9 +445,9 @@ fn render_entity_page(
         detail(&mut output, "Ownership", &owners);
     }
     output.push_str("</dl></section>\n");
-    render_entity_relations(&mut output, &relations, entity, &entity_by_id);
-    render_entity_facts(&mut output, &facts);
-    render_entity_diagnostics(&mut output, &diagnostics, &payload.entities);
+    render_entity_relations(&mut output, relations, entity, projection_index);
+    render_entity_facts(&mut output, facts);
+    render_entity_diagnostics(&mut output, diagnostics, &payload.entities);
     output.push_str("</main>\n</body>\n</html>\n");
     output
 }
@@ -458,7 +467,7 @@ fn render_entity_relations(
     output: &mut String,
     relations: &[&Relation],
     current: &Entity,
-    entity_by_id: &HashMap<&str, &Entity>,
+    projection_index: &CanonicalProjectionIndex<'_>,
 ) {
     output.push_str("<section><h2>Relations</h2>");
     if relations.is_empty() {
@@ -473,7 +482,7 @@ fn render_entity_relations(
         } else {
             &relation.from
         };
-        let neighbor = entity_by_id.get(neighbor_id.0.as_str()).copied();
+        let neighbor = projection_index.entity(neighbor_id);
         output.push_str(&format!(
             "<tr><td><code>{}</code></td><td>{}</td><td>{}</td><td>{}</td><td>{} ({:.2})</td><td><code>{}</code></td></tr>",
             escape_html(&relation.id.0),
@@ -538,7 +547,11 @@ fn linked_entity_label(entity: Option<&Entity>, fallback_id: &str) -> String {
 }
 
 fn entity_report_path(entity: &Entity) -> String {
-    format!("entities/{}.html", safe_filename(&entity.id.0))
+    format!("entities/{}", entity_report_filename(entity))
+}
+
+fn entity_report_filename(entity: &Entity) -> String {
+    format!("{}.html", safe_filename(&entity.id.0))
 }
 
 fn evidence_locations(evidence: &[athanor_domain::Evidence]) -> Vec<String> {
