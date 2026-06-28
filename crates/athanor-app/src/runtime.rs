@@ -3,35 +3,15 @@ use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::OnceLock;
 use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
-use athanor_adapter_rustok_fba::{RustokFbaChecker, RustokFbaExtractor, RustokFbaLinker};
-use athanor_adapter_rustok_ffa::{RustokFfaChecker, RustokFfaExtractor, RustokFfaLinker};
-use athanor_adapter_rustok_page_builder::{
-    RustokPageBuilderChecker, RustokPageBuilderExtractor, RustokPageBuilderLinker,
-};
-use athanor_checker_api::{
-    ApiConsistencyChecker, DeploymentDocsChecker, EnvDocsChecker, RunbookConsistencyChecker,
-    ScriptDocsChecker,
-};
-use athanor_checker_markdown::MarkdownStructureChecker;
 use athanor_core::{
     CheckInput, Checker, CoreError, CoreResult, ExtractInput, ExtractOutput, Extractor,
     KnowledgeStore, LinkInput, Linker, SourceFile, SourceProvider,
 };
-use athanor_extractor_basic::FileExtractor;
-use athanor_extractor_js_ts::JsTsExtractor;
-use athanor_extractor_markdown::MarkdownExtractor;
-use athanor_extractor_openapi::OpenApiExtractor;
-use athanor_extractor_operations::OperationsExtractor;
-use athanor_extractor_rust::RustExtractor;
-use athanor_linker_api::ApiKnowledgeLinker;
-use athanor_linker_js_ts::JsTsImportLinker;
-use athanor_linker_markdown::MarkdownContainmentLinker;
-use athanor_linker_rust::RustLinker;
-use athanor_source_fs::LocalFileSystemSource;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tracing::{debug, warn};
@@ -45,6 +25,27 @@ type SourceFactory = Box<dyn Fn(&Path) -> Box<dyn SourceProvider> + Send + Sync>
 type ExtractorFactory = Box<dyn Fn() -> Box<dyn Extractor> + Send + Sync>;
 type LinkerFactory = Box<dyn Fn() -> Box<dyn Linker> + Send + Sync>;
 type CheckerFactory = Box<dyn Fn() -> Box<dyn Checker> + Send + Sync>;
+type AdapterRegistryFactory = fn() -> AdapterRegistry;
+type BuiltinAdapterResolver =
+    fn(AdapterRegistry, AdapterPluginKind, &str) -> Option<AdapterRegistry>;
+
+static DEFAULT_ADAPTER_REGISTRY_FACTORY: OnceLock<AdapterRegistryFactory> = OnceLock::new();
+static BUILTIN_ADAPTER_RESOLVER: OnceLock<BuiltinAdapterResolver> = OnceLock::new();
+
+pub fn install_default_adapter_registry(factory: AdapterRegistryFactory) {
+    let _ = DEFAULT_ADAPTER_REGISTRY_FACTORY.set(factory);
+}
+
+pub fn install_builtin_adapter_resolver(resolver: BuiltinAdapterResolver) {
+    let _ = BUILTIN_ADAPTER_RESOLVER.set(resolver);
+}
+
+pub fn default_adapter_registry() -> AdapterRegistry {
+    DEFAULT_ADAPTER_REGISTRY_FACTORY
+        .get()
+        .map(|factory| factory())
+        .unwrap_or_else(AdapterRegistry::empty)
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -157,24 +158,7 @@ impl AdapterRegistry {
     }
 
     pub fn built_in() -> Self {
-        Self::empty()
-            .builtin_source_local_filesystem()
-            .builtin_extractor_file()
-            .builtin_extractor_markdown()
-            .builtin_extractor_openapi()
-            .builtin_extractor_operations()
-            .builtin_extractor_js_ts()
-            .builtin_extractor_rust()
-            .builtin_linker_markdown_containment()
-            .builtin_linker_api_knowledge()
-            .builtin_linker_js_ts_imports()
-            .builtin_linker_rust()
-            .builtin_checker_markdown_structure()
-            .builtin_checker_api_consistency()
-            .builtin_checker_env_docs()
-            .builtin_checker_script_docs()
-            .builtin_checker_deployment_docs()
-            .builtin_checker_runbook_consistency()
+        default_adapter_registry()
     }
 
     pub fn with_plugin_manifest(self, manifest: &AdapterPluginManifest) -> Result<Self> {
@@ -203,89 +187,23 @@ impl AdapterRegistry {
     }
 
     fn with_adapter_entry(self, adapter: &AdapterPluginEntry, manifest_dir: &Path) -> Result<Self> {
-        match (adapter.kind, adapter.id.as_str()) {
-            (AdapterPluginKind::Source, "builtin.source.local_filesystem") => {
-                Ok(self.builtin_source_local_filesystem())
+        if adapter.command.is_none() && let Some(resolver) = BUILTIN_ADAPTER_RESOLVER.get() {
+            if let Some(registry) = resolver(self, adapter.kind, adapter.id.as_str()) {
+                return Ok(registry);
             }
-            (AdapterPluginKind::Extractor, "builtin.extractor.file") => {
-                Ok(self.builtin_extractor_file())
-            }
-            (AdapterPluginKind::Extractor, "builtin.extractor.markdown") => {
-                Ok(self.builtin_extractor_markdown())
-            }
-            (AdapterPluginKind::Extractor, "builtin.extractor.openapi") => {
-                Ok(self.builtin_extractor_openapi())
-            }
-            (AdapterPluginKind::Extractor, "builtin.extractor.operations") => {
-                Ok(self.builtin_extractor_operations())
-            }
-            (AdapterPluginKind::Extractor, "builtin.extractor.js_ts") => {
-                Ok(self.builtin_extractor_js_ts())
-            }
-            (AdapterPluginKind::Extractor, "builtin.extractor.rust") => {
-                Ok(self.builtin_extractor_rust())
-            }
-            (AdapterPluginKind::Extractor, "builtin.extractor.rustok_ffa") => {
-                Ok(self.builtin_extractor_rustok_ffa())
-            }
-            (AdapterPluginKind::Extractor, "builtin.extractor.rustok_fba") => {
-                Ok(self.builtin_extractor_rustok_fba())
-            }
-            (AdapterPluginKind::Extractor, "builtin.extractor.rustok_page_builder") => {
-                Ok(self.builtin_extractor_rustok_page_builder())
-            }
-            (AdapterPluginKind::Linker, "builtin.linker.markdown_containment") => {
-                Ok(self.builtin_linker_markdown_containment())
-            }
-            (AdapterPluginKind::Linker, "builtin.linker.api_knowledge") => {
-                Ok(self.builtin_linker_api_knowledge())
-            }
-            (AdapterPluginKind::Linker, "builtin.linker.js_ts_imports") => {
-                Ok(self.builtin_linker_js_ts_imports())
-            }
-            (AdapterPluginKind::Linker, "builtin.linker.rust") => Ok(self.builtin_linker_rust()),
-            (AdapterPluginKind::Linker, "builtin.linker.rustok_ffa") => {
-                Ok(self.builtin_linker_rustok_ffa())
-            }
-            (AdapterPluginKind::Linker, "builtin.linker.rustok_fba") => {
-                Ok(self.builtin_linker_rustok_fba())
-            }
-            (AdapterPluginKind::Linker, "builtin.linker.rustok_page_builder") => {
-                Ok(self.builtin_linker_rustok_page_builder())
-            }
-            (AdapterPluginKind::Checker, "builtin.checker.markdown_structure") => {
-                Ok(self.builtin_checker_markdown_structure())
-            }
-            (AdapterPluginKind::Checker, "builtin.checker.api_consistency") => {
-                Ok(self.builtin_checker_api_consistency())
-            }
-            (AdapterPluginKind::Checker, "builtin.checker.env_docs") => {
-                Ok(self.builtin_checker_env_docs())
-            }
-            (AdapterPluginKind::Checker, "builtin.checker.script_docs") => {
-                Ok(self.builtin_checker_script_docs())
-            }
-            (AdapterPluginKind::Checker, "builtin.checker.deployment_docs") => {
-                Ok(self.builtin_checker_deployment_docs())
-            }
-            (AdapterPluginKind::Checker, "builtin.checker.runbook_consistency") => {
-                Ok(self.builtin_checker_runbook_consistency())
-            }
-            (AdapterPluginKind::Checker, "builtin.checker.rustok_ffa") => {
-                Ok(self.builtin_checker_rustok_ffa())
-            }
-            (AdapterPluginKind::Checker, "builtin.checker.rustok_fba") => {
-                Ok(self.builtin_checker_rustok_fba())
-            }
-            (AdapterPluginKind::Checker, "builtin.checker.rustok_page_builder") => {
-                Ok(self.builtin_checker_rustok_page_builder())
-            }
-            (AdapterPluginKind::Source, _) => self.external_process_source(adapter, manifest_dir),
-            (AdapterPluginKind::Extractor, _) => {
-                self.external_process_extractor(adapter, manifest_dir)
-            }
-            (AdapterPluginKind::Linker, _) => self.external_process_linker(adapter, manifest_dir),
-            (AdapterPluginKind::Checker, _) => self.external_process_checker(adapter, manifest_dir),
+
+            bail!(
+                "unknown {:?} adapter id {} and no command was provided",
+                adapter.kind,
+                adapter.id
+            );
+        }
+
+        match adapter.kind {
+            AdapterPluginKind::Source => self.external_process_source(adapter, manifest_dir),
+            AdapterPluginKind::Extractor => self.external_process_extractor(adapter, manifest_dir),
+            AdapterPluginKind::Linker => self.external_process_linker(adapter, manifest_dir),
+            AdapterPluginKind::Checker => self.external_process_checker(adapter, manifest_dir),
         }
     }
 
@@ -384,141 +302,7 @@ impl AdapterRegistry {
         }))
     }
 
-    fn builtin_source_local_filesystem(self) -> Self {
-        self.register_source_id("builtin.source.local_filesystem", |root| {
-            Box::new(LocalFileSystemSource::new(root))
-        })
-    }
-
-    fn builtin_extractor_file(self) -> Self {
-        self.register_extractor_id("builtin.extractor.file", || Box::new(FileExtractor))
-    }
-
-    fn builtin_extractor_markdown(self) -> Self {
-        self.register_extractor_id("builtin.extractor.markdown", || Box::new(MarkdownExtractor))
-    }
-
-    fn builtin_extractor_openapi(self) -> Self {
-        self.register_extractor_id("builtin.extractor.openapi", || Box::new(OpenApiExtractor))
-    }
-
-    fn builtin_extractor_operations(self) -> Self {
-        self.register_extractor_id("builtin.extractor.operations", || {
-            Box::new(OperationsExtractor)
-        })
-    }
-
-    fn builtin_extractor_js_ts(self) -> Self {
-        self.register_extractor_id("builtin.extractor.js_ts", || Box::new(JsTsExtractor))
-    }
-
-    fn builtin_extractor_rust(self) -> Self {
-        self.register_extractor_id("builtin.extractor.rust", || Box::new(RustExtractor))
-    }
-
-    fn builtin_extractor_rustok_ffa(self) -> Self {
-        self.register_extractor_id("builtin.extractor.rustok_ffa", || {
-            Box::new(RustokFfaExtractor)
-        })
-    }
-
-    fn builtin_extractor_rustok_fba(self) -> Self {
-        self.register_extractor_id("builtin.extractor.rustok_fba", || {
-            Box::new(RustokFbaExtractor)
-        })
-    }
-
-    fn builtin_extractor_rustok_page_builder(self) -> Self {
-        self.register_extractor_id("builtin.extractor.rustok_page_builder", || {
-            Box::new(RustokPageBuilderExtractor)
-        })
-    }
-
-    fn builtin_linker_markdown_containment(self) -> Self {
-        self.register_linker_id("builtin.linker.markdown_containment", || {
-            Box::new(MarkdownContainmentLinker)
-        })
-    }
-
-    fn builtin_linker_api_knowledge(self) -> Self {
-        self.register_linker_id("builtin.linker.api_knowledge", || {
-            Box::new(ApiKnowledgeLinker)
-        })
-    }
-
-    fn builtin_linker_js_ts_imports(self) -> Self {
-        self.register_linker_id("builtin.linker.js_ts_imports", || {
-            Box::new(JsTsImportLinker)
-        })
-    }
-
-    fn builtin_linker_rust(self) -> Self {
-        self.register_linker_id("builtin.linker.rust", || Box::new(RustLinker))
-    }
-
-    fn builtin_linker_rustok_ffa(self) -> Self {
-        self.register_linker_id("builtin.linker.rustok_ffa", || Box::new(RustokFfaLinker))
-    }
-
-    fn builtin_linker_rustok_fba(self) -> Self {
-        self.register_linker_id("builtin.linker.rustok_fba", || Box::new(RustokFbaLinker))
-    }
-
-    fn builtin_linker_rustok_page_builder(self) -> Self {
-        self.register_linker_id("builtin.linker.rustok_page_builder", || {
-            Box::new(RustokPageBuilderLinker)
-        })
-    }
-
-    fn builtin_checker_markdown_structure(self) -> Self {
-        self.register_checker_id("builtin.checker.markdown_structure", || {
-            Box::new(MarkdownStructureChecker)
-        })
-    }
-
-    fn builtin_checker_api_consistency(self) -> Self {
-        self.register_checker_id("builtin.checker.api_consistency", || {
-            Box::new(ApiConsistencyChecker)
-        })
-    }
-
-    fn builtin_checker_env_docs(self) -> Self {
-        self.register_checker_id("builtin.checker.env_docs", || Box::new(EnvDocsChecker))
-    }
-
-    fn builtin_checker_script_docs(self) -> Self {
-        self.register_checker_id("builtin.checker.script_docs", || {
-            Box::new(ScriptDocsChecker)
-        })
-    }
-
-    fn builtin_checker_deployment_docs(self) -> Self {
-        self.register_checker_id("builtin.checker.deployment_docs", || {
-            Box::new(DeploymentDocsChecker)
-        })
-    }
-
-    fn builtin_checker_runbook_consistency(self) -> Self {
-        self.register_checker_id("builtin.checker.runbook_consistency", || {
-            Box::new(RunbookConsistencyChecker)
-        })
-    }
-
-    fn builtin_checker_rustok_ffa(self) -> Self {
-        self.register_checker_id("builtin.checker.rustok_ffa", || Box::new(RustokFfaChecker))
-    }
-
-    fn builtin_checker_rustok_fba(self) -> Self {
-        self.register_checker_id("builtin.checker.rustok_fba", || Box::new(RustokFbaChecker))
-    }
-
-    fn builtin_checker_rustok_page_builder(self) -> Self {
-        self.register_checker_id("builtin.checker.rustok_page_builder", || {
-            Box::new(RustokPageBuilderChecker)
-        })
-    }
-
-    fn register_source_id(
+    pub fn register_source_id(
         mut self,
         id: &str,
         factory: impl Fn(&Path) -> Box<dyn SourceProvider> + Send + Sync + 'static,
@@ -530,7 +314,7 @@ impl AdapterRegistry {
         self
     }
 
-    fn register_extractor_id(
+    pub fn register_extractor_id(
         mut self,
         id: &str,
         factory: impl Fn() -> Box<dyn Extractor> + Send + Sync + 'static,
@@ -542,7 +326,7 @@ impl AdapterRegistry {
         self
     }
 
-    fn register_linker_id(
+    pub fn register_linker_id(
         mut self,
         id: &str,
         factory: impl Fn() -> Box<dyn Linker> + Send + Sync + 'static,
@@ -554,7 +338,7 @@ impl AdapterRegistry {
         self
     }
 
-    fn register_checker_id(
+    pub fn register_checker_id(
         mut self,
         id: &str,
         factory: impl Fn() -> Box<dyn Checker> + Send + Sync + 'static,
@@ -1503,10 +1287,10 @@ mod tests {
     use std::time::Duration;
 
     use athanor_domain::{EntityKind, RelationKind, RepoId, SnapshotBase};
-    use athanor_store_memory::MemoryKnowledgeStore;
     use serde_json::Value;
 
     use super::*;
+    use crate::transient_store::TransientKnowledgeStore;
 
     #[tokio::test]
     async fn builds_builtin_index_pipeline() {
@@ -1522,7 +1306,7 @@ mod tests {
         fs::write(root.join("docs/runtime.md"), "# Runtime\n\n## Registry\n").unwrap();
 
         let output = RuntimeBuilder::new(&root)
-            .build_index_pipeline(MemoryKnowledgeStore::new())
+            .build_index_pipeline(TransientKnowledgeStore::new())
             .run(
                 RepoId("repo_runtime_test".to_string()),
                 SnapshotBase {
@@ -1592,7 +1376,7 @@ mod tests {
                     .with_plugin_manifest(&manifest)
                     .unwrap(),
             )
-            .build_index_pipeline(MemoryKnowledgeStore::new())
+            .build_index_pipeline(TransientKnowledgeStore::new())
             .run(
                 RepoId("repo_runtime_plugin_test".to_string()),
                 SnapshotBase {
@@ -1647,7 +1431,7 @@ mod tests {
                     .with_plugin_manifest(&manifest)
                     .unwrap(),
             )
-            .build_index_pipeline(MemoryKnowledgeStore::new())
+            .build_index_pipeline(TransientKnowledgeStore::new())
             .run(
                 RepoId("repo_runtime_plugin_dedupe_test".to_string()),
                 SnapshotBase {
@@ -1713,7 +1497,7 @@ mod tests {
                     .with_plugin_manifest(&manifest)
                     .unwrap(),
             )
-            .build_index_pipeline(MemoryKnowledgeStore::new())
+            .build_index_pipeline(TransientKnowledgeStore::new())
             .run(
                 RepoId("repo_runtime_process_extractor_test".to_string()),
                 SnapshotBase {
@@ -2004,7 +1788,7 @@ mod tests {
                     .with_plugin_manifest(&manifest)
                     .unwrap(),
             )
-            .build_index_pipeline(MemoryKnowledgeStore::new())
+            .build_index_pipeline(TransientKnowledgeStore::new())
             .run(
                 RepoId("repo_runtime_process_source_test".to_string()),
                 SnapshotBase {
@@ -2079,7 +1863,7 @@ mod tests {
                     .with_plugin_manifest(&manifest)
                     .unwrap(),
             )
-            .build_index_pipeline(MemoryKnowledgeStore::new())
+            .build_index_pipeline(TransientKnowledgeStore::new())
             .run(
                 RepoId("repo_runtime_process_downstream_test".to_string()),
                 SnapshotBase {

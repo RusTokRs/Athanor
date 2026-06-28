@@ -5,10 +5,11 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use athanor_core::CanonicalSnapshotStore;
 use athanor_domain::{RepoId, SnapshotBase};
-use athanor_store_memory::MemoryKnowledgeStore;
 use serde::Serialize;
 
+use crate::hash::stable_hash;
 use crate::project_path::normalize_canonical_path;
+use crate::transient_store::TransientKnowledgeStore;
 use crate::{
     AdapterValidationReport, CancellationToken, IncrementalIndexContext, IndexPipelineMetrics,
     IndexState, IndexStateStore, JsonlReadModelWriter, RuntimeBuilder, config::load_config,
@@ -116,7 +117,7 @@ async fn index_project_inner(
             )
             .with_discovered_plugins()
             .context("failed to discover adapter plugins")?
-            .build_index_pipeline(MemoryKnowledgeStore::new());
+            .build_index_pipeline(TransientKnowledgeStore::new());
         if let Some(cancellation) = cancellation.clone() {
             pipeline
                 .run_with_incremental_cancellable(
@@ -356,17 +357,6 @@ pub(crate) fn repo_id_for_root(root: &Path) -> String {
         "repo_{:016x}",
         stable_hash(root.to_string_lossy().as_bytes())
     )
-}
-
-fn stable_hash(bytes: &[u8]) -> u64 {
-    let mut hash = 0xcbf29ce484222325u64;
-
-    for byte in bytes {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x100000001b3);
-    }
-
-    hash
 }
 
 #[cfg(test)]

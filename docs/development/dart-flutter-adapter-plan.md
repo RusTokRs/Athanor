@@ -30,6 +30,7 @@ DartScope owns:
 - parser backends and parser recovery
 - DartScope spans and diagnostics
 - imports, exports, parts, package metadata, and project relationships
+- Dart-embedded GraphQL operation documents used by Flutter clients
 - Flutter framework hints and optional rule/lint output
 - DartScope JSON output for general tooling
 
@@ -94,6 +95,9 @@ Candidate entities:
   variable symbols
 - Flutter widget, screen, route, asset, localization key, and theme/design-system hint
   where DartScope reports sufficient confidence
+- GraphQL operation document used by a Dart/Flutter client
+- GraphQL operation use at a Dart/Flutter client call site when DartScope reports the
+  operation constant, client call kind, enclosing symbol, and source span
 
 Candidate facts and relations:
 
@@ -104,6 +108,36 @@ Candidate facts and relations:
 - class extends or mixes in another symbol when DartScope can report it
 - widget or screen declares route
 - source references asset or localization key
+- Dart/Flutter client operation calls GraphQL root field
+- repository method, callable, or top-level initializer symbol uses a GraphQL operation
+  constant
+
+Route mapping rule:
+
+- high-confidence DartScope route hints with `resolved_path` may become canonical route
+  facts when evidence and ownership can be attached directly
+- medium-confidence expression route hints, such as constants, interpolated paths, or
+  `routeEntry.routeSegment` without `resolved_path`, should be mapped as unresolved or
+  heuristic route findings until DartScope has a resolver-backed route model
+- Athanor should not resolve Dart route expressions itself; generally useful route
+  resolution belongs in DartScope
+
+GraphQL mapping rule:
+
+- DartScope GraphQL operation findings should map to canonical API/client-operation
+  facts only with source span evidence and ownership
+- operation type, operation name, constant name, and root fields are DartScope output;
+  Athanor should not parse GraphQL documents independently inside the Dart/Flutter
+  adapter
+- DartScope GraphQL operation uses should map operation constants to the Dart
+  `enclosing_symbol` that passes them into `query`, `mutate`, or `subscribe`; symbol
+  kind should be preserved so Athanor can distinguish methods/functions from provider
+  or other top-level initializer variables
+- when a use references an operation constant that DartScope also resolved as an
+  operation document, Athanor may create a relation from callable -> operation -> root
+  field, preserving DartScope evidence for both the document and the call site
+- matching mobile GraphQL root fields to server GraphQL schema/resolvers belongs in a
+  later cross-source linker after server-side GraphQL extraction exists
 
 Candidate diagnostics:
 
@@ -118,6 +152,33 @@ Candidate diagnostics:
 
 Every emitted Athanor fact, relation, and diagnostic must include evidence and
 ownership. Every emitted entity must include ownership.
+
+## Real-Project Feedback Loop
+
+The Dart/Flutter integration should be tuned against one real Rustok Flutter frontend
+before broad adapter expansion.
+
+Iteration loop:
+
+```text
+real Rustok Flutter frontend
+  -> dartscope analyze-project
+  -> discrepancy notes
+  -> reduced DartScope fixture/test
+  -> DartScope parser/model fix
+  -> Athanor adapter mapping update only after the library output is stable
+```
+
+Rules:
+
+- Do not copy the real frontend into DartScope fixtures when it is private or too large.
+- Reduce each reusable miss or false positive into a small synthetic DartScope fixture.
+- Prefer DartScope diagnostics or confidence metadata over confident output for
+  ambiguous Flutter behavior.
+- Keep Athanor changes limited to mapping stable DartScope output into canonical
+  knowledge.
+- Run bounded Athanor commands against the real repository only after the DartScope
+  output for the relevant fixture is stable.
 
 ## Non-Goals
 
@@ -231,7 +292,8 @@ or generated behavior changed.
 
 ## Current Recommended Next Step
 
-1. Build the initial DartScope workspace and file-analysis API in `D:\DartScope`.
-2. Keep this Athanor adapter plan as the integration contract.
-3. Add `athanor-extractor-dart-flutter` only after DartScope exposes stable spans,
+1. Use `dartscope analyze-project` against one real Rustok Flutter frontend.
+2. Convert misses and false positives into reduced DartScope fixtures.
+3. Keep this Athanor adapter plan as the integration contract.
+4. Add `athanor-extractor-dart-flutter` only after DartScope exposes stable spans,
    diagnostics, and JSON/API output for the first fixtures.

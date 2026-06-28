@@ -6,19 +6,17 @@ use crate::config::load_config;
 use crate::store::init_store;
 use anyhow::{Context, Result, bail};
 use athanor_core::CanonicalSnapshotStore;
-use athanor_projector_html::{
-    HTML_REPORT_PROJECTION_SCHEMA, HtmlReportProjectionPayload,
-    project_html_report_payload_cancellable,
-};
 use athanor_projector_support::{NewDirectoryPublication, replace_output_file, write_output_file};
-use athanor_projector_wiki::{
-    WIKI_PROJECTION_SCHEMA, WikiProjectionPayload, project_wiki_payload_cancellable,
-};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 
 use crate::CancellationToken;
 use crate::JsonlReadModelWriter;
 use crate::project_path::normalize_canonical_path;
+use crate::projection::{
+    HTML_REPORT_PROJECTION_SCHEMA, WIKI_PROJECTION_SCHEMA, project_html_payload,
+    project_wiki_payload,
+};
 
 pub const GENERATED_GENERATION_SCHEMA: &str = "athanor.generated_generation.v1";
 pub const GENERATED_CURRENT_SCHEMA: &str = "athanor.generated_current.v1";
@@ -176,18 +174,18 @@ async fn generate_project_inner(
     check_cancelled(&cancellation)?;
 
     let wiki_started = Instant::now();
-    let wiki_payload = WikiProjectionPayload {
-        schema: WIKI_PROJECTION_SCHEMA.to_string(),
-        entities: snapshot.entities.clone(),
-        facts: snapshot.facts.clone(),
-        relations: snapshot.relations.clone(),
-        diagnostics: snapshot.diagnostics.clone(),
-    };
+    let wiki_payload = json!({
+        "schema": WIKI_PROJECTION_SCHEMA,
+        "entities": snapshot.entities.clone(),
+        "facts": snapshot.facts.clone(),
+        "relations": snapshot.relations.clone(),
+        "diagnostics": snapshot.diagnostics.clone(),
+    });
     let wiki_target = staging.join("wiki");
     let wiki_snapshot = snapshot_id.0.clone();
     let wiki_cancellation = cancellation.clone();
     let wiki = tokio::task::spawn_blocking(move || {
-        project_wiki_payload_cancellable(&wiki_target, &wiki_snapshot, wiki_payload, &|| {
+        project_wiki_payload(&wiki_target, &wiki_snapshot, wiki_payload, &|| {
             wiki_cancellation
                 .as_ref()
                 .is_some_and(CancellationToken::is_cancelled)
@@ -196,18 +194,18 @@ async fn generate_project_inner(
     });
 
     let html_started = Instant::now();
-    let html_payload = HtmlReportProjectionPayload {
-        schema: HTML_REPORT_PROJECTION_SCHEMA.to_string(),
-        entities: snapshot.entities.clone(),
-        facts: snapshot.facts.clone(),
-        relations: snapshot.relations.clone(),
-        diagnostics: snapshot.diagnostics.clone(),
-    };
+    let html_payload = json!({
+        "schema": HTML_REPORT_PROJECTION_SCHEMA,
+        "entities": snapshot.entities.clone(),
+        "facts": snapshot.facts.clone(),
+        "relations": snapshot.relations.clone(),
+        "diagnostics": snapshot.diagnostics.clone(),
+    });
     let html_target = staging.join("html");
     let html_snapshot = snapshot_id.0.clone();
     let html_cancellation = cancellation.clone();
     let html = tokio::task::spawn_blocking(move || {
-        project_html_report_payload_cancellable(html_target, &html_snapshot, html_payload, &|| {
+        project_html_payload(&html_target, &html_snapshot, html_payload, &|| {
             html_cancellation
                 .as_ref()
                 .is_some_and(CancellationToken::is_cancelled)

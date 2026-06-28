@@ -6,13 +6,13 @@ use crate::config::load_config;
 use crate::index_state::IndexStateStore;
 use crate::store::init_store;
 use anyhow::{Context, Result, bail};
-use athanor_core::{CanonicalSnapshot, CanonicalSnapshotStore, SearchIndex, SourceProvider};
+use athanor_core::{CanonicalSnapshot, CanonicalSnapshotStore};
 use athanor_domain::{ContextLevel, ContextPack, ContextPackId, Entity};
-use athanor_extractor_basic::stable_hash;
-use athanor_source_fs::LocalFileSystemSource;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+use crate::hash::stable_hash;
+use crate::local_source::discover_source_files;
 use crate::project_path::normalize_canonical_path;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -126,10 +126,7 @@ pub async fn context_project(options: ContextOptions) -> Result<ContextPack> {
     if options.diff {
         let state_store = IndexStateStore::new(root.join(".athanor/state/index-state.json"));
         let previous_state = state_store.load().context("failed to load index state")?;
-        let source = LocalFileSystemSource::new(&root);
-        let current_files = source
-            .discover()
-            .await
+        let current_files = discover_source_files(&root)
             .context("failed to discover source files for diff context")?;
         let affected_files = previous_state.affected_files(&current_files);
         let affected_paths = affected_files

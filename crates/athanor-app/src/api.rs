@@ -11,11 +11,11 @@ use athanor_domain::{
     Diagnostic, DiagnosticId, DiagnosticKind, DiagnosticStatus, Entity, EntityId, EntityKind,
     Evidence, EvidenceStatus, Ownership, Severity, SnapshotId, SourceLocation,
 };
-use athanor_extractor_basic::stable_hash;
 use athanor_projector_support::replace_output_file;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::hash::stable_hash;
 use crate::project_path::normalize_canonical_path;
 
 pub const API_CONTRACT_SNAPSHOT_SCHEMA: &str = "athanor.api_contract_snapshot.v2";

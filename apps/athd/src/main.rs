@@ -345,6 +345,7 @@ enum ServiceCommand {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    athanor_runtime_defaults::install();
     let cli = Cli::parse();
     init_tracing(command_log_file(&cli.command))?;
     match cli.command {

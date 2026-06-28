@@ -15,6 +15,7 @@ rust-version.workspace = true
 anyhow.workspace = true
 athanor-app = { path = "../../crates/athanor-app" }
 athanor-domain = { path = "../../crates/athanor-domain" }
+athanor-runtime-defaults = { path = "../../crates/athanor-runtime-defaults" }
 athanor-transport-mcp = { path = "../../crates/athanor-transport-mcp" }
 clap.workspace = true
 serde.workspace = true

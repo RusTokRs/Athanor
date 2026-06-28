@@ -5,14 +5,14 @@ use std::process::Command;
 use anyhow::{Context, Result};
 use athanor_core::{CoreResult, SourceFile, SourceProvider};
 use athanor_domain::{Diagnostic, RepoId, SnapshotBase, SnapshotId};
-use athanor_source_fs::read_source_file_at;
-use athanor_store_memory::MemoryKnowledgeStore;
 use serde::Serialize;
 
 use crate::config::load_config;
 use crate::index::repo_id_for_root;
 use crate::index_state::{AffectedFileSet, IndexStateStore};
+use crate::local_source::read_source_file_at;
 use crate::project_path::normalize_canonical_path;
+use crate::transient_store::TransientKnowledgeStore;
 use crate::{IndexPipelineMetrics, RuntimeBuilder};
 
 pub const CHANGED_VALIDATION_SCHEMA: &str = "athanor.changed_validation.v1";
@@ -75,7 +75,7 @@ pub async fn validate_changed(
         .context("failed to discover adapter plugins")?
         .build_extraction_pipeline(
             Box::new(SelectedFilesSource { files }),
-            MemoryKnowledgeStore::new(),
+            TransientKnowledgeStore::new(),
         );
     let output = pipeline
         .run_extraction_only(

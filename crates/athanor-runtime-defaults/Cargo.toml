@@ -1,0 +1,43 @@
+[package]
+name = "athanor-runtime-defaults"
+version = "0.1.0"
+authors.workspace = true
+description.workspace = true
+documentation.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+athanor-adapter-rustok-fba = { path = "../athanor-adapter-rustok-fba" }
+athanor-adapter-rustok-ffa = { path = "../athanor-adapter-rustok-ffa" }
+athanor-adapter-rustok-page-builder = { path = "../athanor-adapter-rustok-page-builder" }
+athanor-app = { path = "../athanor-app" }
+athanor-checker-api = { path = "../athanor-checker-api" }
+athanor-checker-markdown = { path = "../athanor-checker-markdown" }
+athanor-core = { path = "../athanor-core" }
+athanor-extractor-basic = { path = "../athanor-extractor-basic" }
+athanor-extractor-js-ts = { path = "../athanor-extractor-js-ts" }
+athanor-extractor-markdown = { path = "../athanor-extractor-markdown" }
+athanor-extractor-openapi = { path = "../athanor-extractor-openapi" }
+athanor-extractor-operations = { path = "../athanor-extractor-operations" }
+athanor-extractor-rust = { path = "../athanor-extractor-rust" }
+athanor-linker-api = { path = "../athanor-linker-api" }
+athanor-linker-js-ts = { path = "../athanor-linker-js-ts" }
+athanor-linker-markdown = { path = "../athanor-linker-markdown" }
+athanor-linker-rust = { path = "../athanor-linker-rust" }
+athanor-projector-html = { path = "../athanor-projector-html" }
+athanor-projector-wiki = { path = "../athanor-projector-wiki" }
+athanor-search-tantivy = { path = "../athanor-search-tantivy" }
+athanor-source-fs = { path = "../athanor-source-fs" }
+athanor-store-jsonl = { path = "../athanor-store-jsonl" }
+athanor-store-surrealdb = { path = "../athanor-store-surrealdb", optional = true }
+serde_json.workspace = true
+
+[features]
+default = ["store-surreal"]
+store-surreal = ["dep:athanor-store-surrealdb"]

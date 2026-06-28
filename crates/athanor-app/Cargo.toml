@@ -14,31 +14,9 @@ rust-version.workspace = true
 [dependencies]
 anyhow.workspace = true
 async-trait.workspace = true
-athanor-checker-markdown = { path = "../athanor-checker-markdown" }
-athanor-checker-api = { path = "../athanor-checker-api" }
-athanor-adapter-rustok-page-builder = { path = "../athanor-adapter-rustok-page-builder" }
-athanor-adapter-rustok-fba = { path = "../athanor-adapter-rustok-fba" }
-athanor-adapter-rustok-ffa = { path = "../athanor-adapter-rustok-ffa" }
 athanor-core = { path = "../athanor-core" }
 athanor-domain = { path = "../athanor-domain" }
-athanor-extractor-basic = { path = "../athanor-extractor-basic" }
-athanor-extractor-js-ts = { path = "../athanor-extractor-js-ts" }
-athanor-extractor-markdown = { path = "../athanor-extractor-markdown" }
-athanor-extractor-openapi = { path = "../athanor-extractor-openapi" }
-athanor-extractor-operations = { path = "../athanor-extractor-operations" }
-athanor-extractor-rust = { path = "../athanor-extractor-rust" }
-athanor-linker-markdown = { path = "../athanor-linker-markdown" }
-athanor-linker-api = { path = "../athanor-linker-api" }
-athanor-linker-js-ts = { path = "../athanor-linker-js-ts" }
-athanor-linker-rust = { path = "../athanor-linker-rust" }
-athanor-projector-wiki = { path = "../athanor-projector-wiki" }
-athanor-projector-html = { path = "../athanor-projector-html" }
 athanor-projector-support = { path = "../athanor-projector-support" }
-athanor-source-fs = { path = "../athanor-source-fs" }
-athanor-store-jsonl = { path = "../athanor-store-jsonl" }
-athanor-store-memory = { path = "../athanor-store-memory" }
-athanor-store-surrealdb = { path = "../athanor-store-surrealdb", optional = true }
-athanor-search-tantivy = { path = "../athanor-search-tantivy" }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
@@ -51,9 +29,6 @@ notify-debouncer-mini.workspace = true
 fs2.workspace = true
 getrandom.workspace = true
 
-[features]
-default = ["store-surreal"]
-store-surreal = ["dep:athanor-store-surrealdb"]
-
 [dev-dependencies]
+athanor-store-jsonl = { path = "../athanor-store-jsonl" }
 tokio.workspace = true

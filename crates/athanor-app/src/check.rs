@@ -7,11 +7,11 @@ use crate::index_state::{AffectedFileSet, IndexStateStore};
 use crate::repair::{RepairInspectOptions, RepairIssue, inspect_repair};
 use crate::store::init_store;
 use anyhow::{Context, Result};
-use athanor_core::{CanonicalSnapshotStore, SourceProvider};
+use athanor_core::CanonicalSnapshotStore;
 use athanor_domain::{Diagnostic, DiagnosticKind, DiagnosticStatus, Entity, EntityId, Severity};
-use athanor_source_fs::LocalFileSystemSource;
 use serde::{Deserialize, Serialize};
 
+use crate::local_source::discover_source_files;
 use crate::project_path::normalize_canonical_path;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -170,11 +170,8 @@ pub async fn check_affected(options: AffectedCheckOptions) -> Result<AffectedChe
 
     let state_store = IndexStateStore::new(root.join(".athanor/state/index-state.json"));
     let previous_state = state_store.load().context("failed to load index state")?;
-    let source = LocalFileSystemSource::new(&root);
-    let current_files = source
-        .discover()
-        .await
-        .context("failed to discover source files for affected check")?;
+    let current_files =
+        discover_source_files(&root).context("failed to discover source files for affected check")?;
     let affected_files = previous_state.affected_files(&current_files);
     let affected_paths = affected_path_set(&affected_files);
     let affected_entity_ids = affected_entity_ids(&snapshot.entities, &affected_paths);

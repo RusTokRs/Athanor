@@ -818,6 +818,7 @@ fn adapter_trust_path(trust_store: Option<PathBuf>) -> Result<PathBuf> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    athanor_runtime_defaults::install();
     init_tracing();
     if handle_manual_coverage_command().await? {
         return Ok(());

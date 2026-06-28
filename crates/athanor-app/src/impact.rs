@@ -4,12 +4,12 @@ use std::path::{Path, PathBuf};
 use crate::config::load_config;
 use crate::store::init_store;
 use anyhow::{Context, Result, bail};
-use athanor_core::{CanonicalSnapshot, CanonicalSnapshotStore, SourceProvider};
+use athanor_core::{CanonicalSnapshot, CanonicalSnapshotStore};
 use athanor_domain::{Diagnostic, Entity, EntityId, Relation, RelationKind};
-use athanor_source_fs::LocalFileSystemSource;
 use serde::Serialize;
 
 use crate::index_state::IndexStateStore;
+use crate::local_source::discover_source_files;
 use crate::project_path::normalize_canonical_path;
 
 #[derive(Debug, Clone, Serialize)]
@@ -93,10 +93,7 @@ pub async fn impact_project(options: ImpactOptions) -> Result<ImpactAnalysis> {
         let state_store = IndexStateStore::new(root.join(".athanor/state/index-state.json"));
         let previous_state = state_store.load().context("failed to load index state")?;
 
-        let source = LocalFileSystemSource::new(&root);
-        let current_files = source
-            .discover()
-            .await
+        let current_files = discover_source_files(&root)
             .context("failed to discover source files for diff comparison")?;
 
         let affected_files = previous_state.affected_files(&current_files);

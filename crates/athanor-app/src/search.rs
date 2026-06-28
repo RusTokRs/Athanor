@@ -5,12 +5,20 @@ use athanor_core::{
     CanonicalSnapshot, CanonicalSnapshotStore, SearchDocument, SearchIndex, SearchQuery,
 };
 use athanor_domain::{Entity, EntityId, Ownership, SourceLocation};
-use athanor_search_tantivy::TantivySearchIndex;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, OnceLock};
 
 use crate::project_path::normalize_canonical_path;
+
+type SearchIndexFactory = fn(&Path, Option<Vec<SearchDocument>>) -> Result<Arc<dyn SearchIndex>>;
+
+static SEARCH_INDEX_FACTORY: OnceLock<SearchIndexFactory> = OnceLock::new();
+
+pub fn install_search_index_factory(factory: SearchIndexFactory) {
+    let _ = SEARCH_INDEX_FACTORY.set(factory);
+}
 
 #[derive(Debug, Clone)]
 pub struct SearchOptions {
@@ -103,7 +111,7 @@ pub async fn search_snapshot(
 
     // Open or rebuild index if snapshot changed or index doesn't exist
     let index = get_or_build_search_index(snapshot, &snapshot_id, &index_dir).await?;
-    search_snapshot_with_index(root, snapshot, query, limit, &index).await
+    search_snapshot_with_index(root, snapshot, query, limit, index.as_ref()).await
 }
 
 pub async fn search_snapshot_with_index(
@@ -111,7 +119,7 @@ pub async fn search_snapshot_with_index(
     snapshot: &CanonicalSnapshot,
     query: String,
     limit: usize,
-    index: &impl SearchIndex,
+    index: &dyn SearchIndex,
 ) -> Result<SearchReport> {
     if query.trim().is_empty() {
         bail!("search query must not be empty");
@@ -179,7 +187,7 @@ pub async fn get_or_build_search_index(
     snapshot: &CanonicalSnapshot,
     snapshot_id: &str,
     index_dir: &Path,
-) -> Result<TantivySearchIndex> {
+) -> Result<Arc<dyn SearchIndex>> {
     get_or_build_search_index_sync(snapshot, snapshot_id, index_dir)
 }
 
@@ -187,7 +195,10 @@ pub fn get_or_build_search_index_sync(
     snapshot: &CanonicalSnapshot,
     snapshot_id: &str,
     index_dir: &Path,
-) -> Result<TantivySearchIndex> {
+) -> Result<Arc<dyn SearchIndex>> {
+    let Some(factory) = SEARCH_INDEX_FACTORY.get() else {
+        bail!("no Athanor search index factory is installed");
+    };
     let meta_path = index_dir.join("index_meta.json");
     let needs_rebuild = if index_dir.exists() && meta_path.exists() {
         if let Ok(meta_str) = fs::read_to_string(&meta_path) {
@@ -216,8 +227,7 @@ pub fn get_or_build_search_index_sync(
                 })
             })
             .collect::<Result<Vec<_>>>()?;
-        let index = TantivySearchIndex::rebuild(index_dir, documents)
-            .context("failed to rebuild search index")?;
+        let index = factory(index_dir, Some(documents)).context("failed to rebuild search index")?;
 
         let meta = IndexMeta {
             snapshot_id: snapshot_id.to_string(),
@@ -227,7 +237,7 @@ pub fn get_or_build_search_index_sync(
         return Ok(index);
     }
 
-    TantivySearchIndex::open_or_create(index_dir).context("failed to open search index")
+    factory(index_dir, None).context("failed to open search index")
 }
 
 pub fn entity_text(entity: &Entity) -> String {

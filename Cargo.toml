@@ -23,6 +23,7 @@ members = [
     "crates/athanor-projector-wiki",
     "crates/athanor-projector-support",
     "crates/athanor-projector-html",
+    "crates/athanor-runtime-defaults",
     "crates/athanor-source-fs",
     "crates/athanor-store-jsonl",
     "crates/athanor-store-memory",

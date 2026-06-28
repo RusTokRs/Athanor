@@ -394,6 +394,7 @@ dependencies = [
  "anyhow",
  "athanor-app",
  "athanor-domain",
+ "athanor-runtime-defaults",
  "athanor-transport-mcp",
  "clap",
  "serde",
@@ -448,31 +449,10 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "athanor-adapter-rustok-fba",
- "athanor-adapter-rustok-ffa",
- "athanor-adapter-rustok-page-builder",
- "athanor-checker-api",
- "athanor-checker-markdown",
  "athanor-core",
  "athanor-domain",
- "athanor-extractor-basic",
- "athanor-extractor-js-ts",
- "athanor-extractor-markdown",
- "athanor-extractor-openapi",
- "athanor-extractor-operations",
- "athanor-extractor-rust",
- "athanor-linker-api",
- "athanor-linker-js-ts",
- "athanor-linker-markdown",
- "athanor-linker-rust",
- "athanor-projector-html",
  "athanor-projector-support",
- "athanor-projector-wiki",
- "athanor-search-tantivy",
- "athanor-source-fs",
  "athanor-store-jsonl",
- "athanor-store-memory",
- "athanor-store-surrealdb",
  "fs2",
  "futures",
  "getrandom 0.3.4",
@@ -699,6 +679,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "athanor-runtime-defaults"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "athanor-adapter-rustok-fba",
+ "athanor-adapter-rustok-ffa",
+ "athanor-adapter-rustok-page-builder",
+ "athanor-app",
+ "athanor-checker-api",
+ "athanor-checker-markdown",
+ "athanor-core",
+ "athanor-extractor-basic",
+ "athanor-extractor-js-ts",
+ "athanor-extractor-markdown",
+ "athanor-extractor-openapi",
+ "athanor-extractor-operations",
+ "athanor-extractor-rust",
+ "athanor-linker-api",
+ "athanor-linker-js-ts",
+ "athanor-linker-markdown",
+ "athanor-linker-rust",
+ "athanor-projector-html",
+ "athanor-projector-wiki",
+ "athanor-search-tantivy",
+ "athanor-source-fs",
+ "athanor-store-jsonl",
+ "athanor-store-surrealdb",
+ "serde_json",
+]
+
+[[package]]
 name = "athanor-search-tantivy"
 version = "0.1.0"
 dependencies = [
@@ -776,6 +787,7 @@ dependencies = [
  "anyhow",
  "athanor-app",
  "athanor-domain",
+ "athanor-runtime-defaults",
  "clap",
  "serde_json",
  "tokio",

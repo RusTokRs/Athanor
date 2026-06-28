@@ -1111,11 +1111,11 @@ mod tests {
         EvidenceStatus, FactId, FactKind, Ownership, RelationId, RelationKind, RelationStatus,
         Severity, SourceLocation, StableKey,
     };
-    use athanor_store_memory::MemoryKnowledgeStore;
     use serde_json::json;
     use std::sync::Mutex;
 
     use super::*;
+    use crate::transient_store::TransientKnowledgeStore;
 
     #[test]
     fn prunes_relation_when_any_owned_source_changes() {
@@ -1168,7 +1168,7 @@ mod tests {
     #[tokio::test]
     async fn shares_full_context_between_linkers_and_checkers() {
         let tracker = Arc::new(Mutex::new(SharedInputPointers::default()));
-        let pipeline = IndexPipeline::new(MemoryKnowledgeStore::new())
+        let pipeline = IndexPipeline::new(TransientKnowledgeStore::new())
             .source(TestSource)
             .extractor(TestExtractor)
             .linker(CapturingLinker {

@@ -30,7 +30,6 @@ use tokio::sync::{Semaphore, mpsc};
 
 use athanor_core::{CanonicalSnapshot, CanonicalSnapshotStore, SearchIndex};
 use athanor_domain::ContextLevel;
-use athanor_search_tantivy::TantivySearchIndex;
 
 use crate::explain::explain_snapshot;
 use crate::search::{get_or_build_search_index_sync, search_snapshot_with_index};
@@ -260,7 +259,7 @@ struct DaemonState {
 
 struct CachedSearchIndex {
     snapshot_id: String,
-    index: Arc<TantivySearchIndex>,
+    index: Arc<dyn SearchIndex>,
 }
 
 impl fmt::Debug for CachedSearchIndex {
@@ -1833,7 +1832,7 @@ fn snapshot_id(snapshot: &CanonicalSnapshot) -> Result<String> {
 fn search_index_for_daemon(
     state: &DaemonState,
     snapshot: &CanonicalSnapshot,
-) -> Result<Arc<TantivySearchIndex>> {
+) -> Result<Arc<dyn SearchIndex>> {
     let snapshot_id = snapshot_id(snapshot)?;
     let mut cache = state
         .search_index_cache
@@ -1848,11 +1847,7 @@ fn search_index_for_daemon(
         .endpoint
         .root
         .join(".athanor/generated/current/search");
-    let index = Arc::new(get_or_build_search_index_sync(
-        snapshot,
-        &snapshot_id,
-        &index_dir,
-    )?);
+    let index = get_or_build_search_index_sync(snapshot, &snapshot_id, &index_dir)?;
     *cache = Some(CachedSearchIndex {
         snapshot_id,
         index: Arc::clone(&index),

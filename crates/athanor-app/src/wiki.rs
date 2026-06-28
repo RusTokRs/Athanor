@@ -3,13 +3,12 @@ use std::path::PathBuf;
 use crate::config::load_config;
 use crate::store::init_store;
 use anyhow::{Context, Result, bail};
-use athanor_core::{CanonicalSnapshotStore, ProjectInput};
-use athanor_projector_wiki::{
-    MarkdownWikiProjector, WIKI_PROJECTION_SCHEMA, WikiProjectionPayload,
-};
+use athanor_core::CanonicalSnapshotStore;
+use serde_json::json;
 
 use crate::CancellationToken;
 use crate::project_path::normalize_canonical_path;
+use crate::projection::{WIKI_PROJECTION_SCHEMA, project_wiki_payload};
 
 #[derive(Debug, Clone)]
 pub struct WikiOptions {
@@ -88,30 +87,20 @@ async fn project_wiki_inner(
         relations: snapshot.relations.len(),
         open_diagnostics,
     };
-    let payload = WikiProjectionPayload {
-        schema: WIKI_PROJECTION_SCHEMA.to_string(),
-        entities: snapshot.entities,
-        facts: snapshot.facts,
-        relations: snapshot.relations,
-        diagnostics: snapshot.diagnostics,
-    };
+    let payload = json!({
+        "schema": WIKI_PROJECTION_SCHEMA,
+        "entities": snapshot.entities,
+        "facts": snapshot.facts,
+        "relations": snapshot.relations,
+        "diagnostics": snapshot.diagnostics,
+    });
 
-    MarkdownWikiProjector
-        .project_cancellable(
-            ProjectInput {
-                snapshot: snapshot_id,
-                target: output_dir.to_string_lossy().into_owned(),
-                payload: serde_json::to_value(payload)
-                    .context("failed to build wiki projection input")?,
-            },
-            || {
-                cancellation
-                    .as_ref()
-                    .is_some_and(CancellationToken::is_cancelled)
-            },
-        )
-        .await
-        .context("failed to project Markdown wiki")?;
+    project_wiki_payload(&output_dir, &snapshot_id.0, payload, &|| {
+        cancellation
+            .as_ref()
+            .is_some_and(CancellationToken::is_cancelled)
+    })
+    .context("failed to project Markdown wiki")?;
 
     Ok(report)
 }
