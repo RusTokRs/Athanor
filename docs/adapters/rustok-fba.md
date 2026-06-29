@@ -2,7 +2,7 @@
 id: doc://docs/adapters/rustok-fba.md
 kind: adapter
 language: en
-last_verified_snapshot: snap_jsonl_00000255
+last_verified_snapshot: snap_jsonl_00000261
 source_language: en
 status: verified
 ---
@@ -87,9 +87,16 @@ The linker consumes FBA facts and emits canonical graph relations:
 
 - `contains`: module to contract, contract to port, port to operation, contract to profile
 - `implemented_by`: FBA module or port to evidence file
+- `rustok_fba_module_requires_dependency`: consumer module to dependency declaration
+- `rustok_fba_contract_requires_dependency`: consumer contract to dependency declaration
 - `rustok_fba_consumer_requires_provider`: consumer dependency to provider module
 
-Relations include evidence and ownership inherited from marker facts.
+Relations include evidence and ownership inherited from marker facts. Registry facts and
+registry-derived entity sources use the first registry identity anchor line, such as `module`,
+`module_slug`, `provider`, `contract_version`, or `role`, instead of always pointing at line 1 or
+leaving entity source lines empty. Provider and consumer placeholder entities emitted from
+dependency declarations do not claim source ownership; registry and code facts provide the primary
+source for the real module, contract, port, operation, and dependency entities.
 
 ## Diagnostics
 
@@ -150,3 +157,8 @@ from the absence of more specific downstream diagnostics.
 The summary `dependency_edges_resolved` count is per dependency edge. A consumer with multiple
 providers can therefore report partial resolution instead of collapsing all dependencies for that
 module to all-resolved or all-unresolved.
+Generic graph traversal can follow `consumer module -> dependency -> provider module` and
+`consumer contract -> dependency -> provider module` paths for registry-declared provider
+dependencies. Provider-side `consumers` declarations still point dependency nodes at the provider
+module, preserve hyphenated consumer module slugs, and act as cross-check evidence rather than as
+the consumer's primary declaration source.

@@ -2,7 +2,7 @@
 id: doc://docs/development/roadmap-status.md
 kind: developer_guide
 language: en
-last_verified_snapshot: snap_jsonl_00000255
+last_verified_snapshot: snap_jsonl_00000261
 source_language: en
 status: verified
 ---
@@ -2509,6 +2509,54 @@ Acceptance:
 - daemon restart and repair behavior is deterministic after interrupted jobs or corrupted runtime metadata
 - atomic publication guarantees remain intact under cancellation and process termination
 - all dangerous protocol and lifecycle edge cases are represented by automated tests or explicitly documented as out of scope
+
+### OpenAPI And GraphQL Contract Consistency
+
+Status: planned.
+
+Priority: P1.
+
+Scope:
+
+- add a community-facing GraphQL contract adapter alongside the existing OpenAPI adapter, covering SDL, introspection JSON, `.graphql`/`.gql` operations, embedded frontend operations where practical, types, fields, arguments, directives, deprecations, and validation diagnostics
+- normalize OpenAPI and GraphQL findings into a shared API contract model for operations, types, fields, inputs, enums, examples, errors, authentication requirements, deprecations, and ownership without making Athanor core/domain depend on either protocol
+- extend API linking and checking so REST operations, GraphQL queries/mutations/subscriptions, schema types, examples, documentation pages, frontend callsites, backend route handlers, resolver implementations, and generated clients can be compared through bounded commands
+- report cross-protocol drift with evidence, including missing implementations, undocumented operations, invalid examples, incompatible type fields, enum differences, nullability or required-field mismatches, stale frontend operations, and deprecated contract usage
+- add Rustok-specific API checks as an opt-in adapter layer that maps REST and GraphQL contracts onto FBA module ownership, Loco routes, resolver code, permissions, Page Builder consumers, dashboards, and published platform compatibility rules
+- expose agent-facing commands such as `ath api consistency`, `ath api consistency --json`, `ath graph api operation <id>`, `ath graph api type <name>`, `ath check rustok-api`, and `ath rustok api audit` with explicit limits, stable schemas, canonical ids, and evidence links
+- keep GraphQL support adapter-first and community-usable, while the Rustok adapter only adds platform interpretation such as module ownership, permission gates, compatibility windows, and product dashboards
+
+Acceptance:
+
+- OpenAPI and GraphQL receive equal first-class contract treatment without duplicating canonical API registry, evidence building, path normalization, or stable id logic
+- community users can validate GraphQL contracts, operations, examples, documentation links, and implementation links without enabling Rustok-specific adapters
+- Rustok users can detect REST/GraphQL drift for the same platform capability, including permission mismatches, FBA ownership violations, Page Builder dependencies on unstable operations, and breaking changes to published APIs
+- every reported inconsistency includes source evidence and ownership, and every large comparison is available through bounded CLI, daemon, and future MCP outputs instead of requiring generated artifact inspection
+- tests cover GraphQL SDL extraction, introspection extraction, operation validation, OpenAPI/GraphQL type drift, frontend stale-operation detection, missing resolver or route implementation, and Rustok permission or ownership mismatches
+
+### Whole-Code Relationship Graph And Change Map
+
+Status: planned.
+
+Priority: P1.
+
+Scope:
+
+- provide a community-facing code relationship graph that connects contracts, source modules, symbols, call edges, imports, routes, resolvers, database models, migrations, generated clients, frontend callsites, tests, documentation, operations files, and diagnostics through canonical entities, facts, relations, ownership, and evidence
+- add a bounded change-map workflow that answers "where must I inspect or edit for this change?" from a task prompt, explicit target stable key, or working-tree diff without requiring agents to read generated graph, JSONL, wiki, or HTML artifacts
+- expose commands such as `ath change-map <task>`, `ath change-map --target <stable-key>`, `ath change-map --diff`, `ath change-map --json`, and daemon/MCP equivalents with explicit limits, relation-chain explanations, omitted counts, canonical ids, stable keys, file paths, and evidence anchors
+- rank impacted items by relation type, direction, confidence, ownership, open diagnostics, test coverage, and proximity to changed files while keeping the result deterministic and explainable
+- extend language and framework adapters over time so the graph includes deeper Rust, JavaScript/TypeScript, GraphQL, OpenAPI, SeaORM/database, frontend framework, test, CI, and operations relations without moving adapter-specific semantics into `athanor-domain` or `athanor-core`
+- support community projects first through generic relation kinds and adapter contracts, then add Rustok-specific interpretation as an opt-in layer for FBA modules, FFA surfaces, Page Builder providers/consumers, Loco routes, permissions, published platform APIs, dashboards, and compatibility rules
+- keep graph visualizations and exports disposable read models; normal agent workflows must use bounded graph, impact, context, and change-map commands instead of inspecting complete generated artifacts
+
+Acceptance:
+
+- community users can ask for a change map and receive a bounded, evidence-backed list of likely code, contract, docs, test, and operations locations to inspect or update
+- Rustok users receive the same generic map plus platform-specific reasons such as FBA ownership, permission gates, Page Builder dependencies, route/resolver ownership, and compatibility risk
+- every returned item includes why it was selected, the relation chain from the task/diff/target, source evidence, ownership, and stable canonical identifiers
+- results degrade honestly when adapters only provide partial knowledge, including confidence, omitted counts, unsupported syntax or skipped-file diagnostics, and links to capability/completeness reports
+- tests cover task-targeted change maps, diff-based change maps, relation-chain explanations, deterministic ranking, omitted-limit reporting, missing-test surfacing, and Rustok-specific platform annotations
 
 ### Analysis Completeness Reporting
 

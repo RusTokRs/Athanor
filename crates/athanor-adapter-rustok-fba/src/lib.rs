@@ -277,12 +277,33 @@ impl Linker for RustokFbaLinker {
 
             for consumer in &registry.consumers {
                 if let Some(profile) = &consumer.profile {
-                    let dependency = fba_dependency_entity(
+                    let dependency = fba_dependency_placeholder_entity(
                         &consumer.module,
                         &registry.module,
                         profile,
                         &input.snapshot,
-                        Some(&registry.path),
+                        &registry.path,
+                    );
+                    let consumer_module = fba_module_placeholder_entity(
+                        &consumer.module,
+                        &input.snapshot,
+                        &registry.path,
+                    );
+                    push_relation(
+                        &mut relations,
+                        &mut seen,
+                        &input.snapshot,
+                        RelationKind::Other("rustok_fba_module_requires_dependency".to_string()),
+                        &consumer_module.id,
+                        &dependency.id,
+                        fact.evidence.clone(),
+                        fact.ownership.clone(),
+                        json!({
+                            "schema": "rustok.fba.relation.v1",
+                            "consumer": consumer.module,
+                            "provider": registry.module,
+                            "profile": profile,
+                        }),
                     );
                     push_relation(
                         &mut relations,
@@ -316,8 +337,53 @@ impl Linker for RustokFbaLinker {
                         &input.snapshot,
                         Some(&registry.path),
                     );
-                    let provider_module =
-                        fba_module_entity(&provider.module, &input.snapshot, Some(&registry.path));
+                    let provider_module = fba_module_placeholder_entity(
+                        &provider.module,
+                        &input.snapshot,
+                        &registry.path,
+                    );
+                    push_relation(
+                        &mut relations,
+                        &mut seen,
+                        &input.snapshot,
+                        RelationKind::Other("rustok_fba_module_requires_dependency".to_string()),
+                        &module.id,
+                        &dependency.id,
+                        fact.evidence.clone(),
+                        fact.ownership.clone(),
+                        json!({
+                            "schema": "rustok.fba.relation.v1",
+                            "consumer": registry.module,
+                            "provider": provider.module,
+                            "profile": profile,
+                        }),
+                    );
+                    if let Some(contract_version) = &registry.contract_version {
+                        let contract = fba_contract_entity(
+                            &registry.module,
+                            contract_version,
+                            &input.snapshot,
+                            Some(&registry.path),
+                        );
+                        push_relation(
+                            &mut relations,
+                            &mut seen,
+                            &input.snapshot,
+                            RelationKind::Other(
+                                "rustok_fba_contract_requires_dependency".to_string(),
+                            ),
+                            &contract.id,
+                            &dependency.id,
+                            fact.evidence.clone(),
+                            fact.ownership.clone(),
+                            json!({
+                                "schema": "rustok.fba.relation.v1",
+                                "consumer": registry.module,
+                                "provider": provider.module,
+                                "profile": profile,
+                            }),
+                        );
+                    }
                     push_relation(
                         &mut relations,
                         &mut seen,
@@ -1178,17 +1244,26 @@ fn extract_registry(source: &SourceFile, snapshot: &SnapshotId, path: &str) -> E
     }
     for consumer in &marker.consumers {
         if let Some(profile) = &consumer.profile {
-            entities.push(fba_dependency_entity(
+            entities.push(fba_module_placeholder_entity(
+                &consumer.module,
+                snapshot,
+                path,
+            ));
+            entities.push(fba_dependency_placeholder_entity(
                 &consumer.module,
                 &marker.module,
                 profile,
                 snapshot,
-                Some(path),
+                path,
             ));
         }
     }
     for provider in &marker.providers {
-        entities.push(fba_module_entity(&provider.module, snapshot, Some(path)));
+        entities.push(fba_module_placeholder_entity(
+            &provider.module,
+            snapshot,
+            path,
+        ));
         for profile in provider
             .profiles
             .iter()
@@ -1203,6 +1278,8 @@ fn extract_registry(source: &SourceFile, snapshot: &SnapshotId, path: &str) -> E
             ));
         }
     }
+    let evidence_line = registry_anchor_line(content);
+    anchor_registry_entity_sources(&mut entities, path, evidence_line);
     dedup_entities(&mut entities);
 
     let fact = Fact {
@@ -1214,7 +1291,12 @@ fn extract_registry(source: &SourceFile, snapshot: &SnapshotId, path: &str) -> E
         subject: file.id,
         object: None,
         value: serde_json::to_value(marker).expect("FbaRegistryMarker serializes"),
-        evidence: vec![evidence_for_file(path, FBA_EXTRACTOR_ID, Some(1), Some(1))],
+        evidence: vec![evidence_for_file(
+            path,
+            FBA_EXTRACTOR_ID,
+            evidence_line,
+            evidence_line,
+        )],
         ownership: ownership_for_file(path),
         snapshot: snapshot.clone(),
         extractor: FBA_EXTRACTOR_ID.to_string(),
@@ -1540,10 +1622,15 @@ fn port_spec_from_value(value: &Value) -> Option<FbaPortSpec> {
 
 fn consumer_from_value(value: &Value) -> Option<FbaConsumerSpec> {
     Some(FbaConsumerSpec {
-        module: value.get("module")?.as_str()?.to_string(),
+        module: value
+            .get("module")
+            .and_then(Value::as_str)
+            .or_else(|| value.get("module_slug").and_then(Value::as_str))?
+            .to_string(),
         profile: value
             .get("profile")
             .and_then(Value::as_str)
+            .or_else(|| value.get("contract").and_then(Value::as_str))
             .map(str::to_string),
         fallback_profiles: string_array(value.get("fallback_profiles")),
         degraded_modes: string_array(value.get("degraded_modes")),
@@ -1687,6 +1774,12 @@ fn fba_module_entity(module: &str, snapshot: &SnapshotId, path: Option<&str>) ->
     }
 }
 
+fn fba_module_placeholder_entity(module: &str, snapshot: &SnapshotId, owner_path: &str) -> Entity {
+    let mut entity = fba_module_entity(module, snapshot, Some(owner_path));
+    entity.source = None;
+    entity
+}
+
 fn fba_contract_entity(
     module: &str,
     contract_version: &str,
@@ -1823,6 +1916,18 @@ fn fba_dependency_entity(
     }
 }
 
+fn fba_dependency_placeholder_entity(
+    consumer: &str,
+    provider: &str,
+    profile: &str,
+    snapshot: &SnapshotId,
+    owner_path: &str,
+) -> Entity {
+    let mut entity = fba_dependency_entity(consumer, provider, profile, snapshot, Some(owner_path));
+    entity.source = None;
+    entity
+}
+
 #[allow(clippy::too_many_arguments)]
 fn push_relation(
     relations: &mut Vec<Relation>,
@@ -1901,6 +2006,21 @@ fn diagnostic(
 fn dedup_entities(entities: &mut Vec<Entity>) {
     let mut seen = BTreeSet::new();
     entities.retain(|entity| seen.insert(entity.id.0.clone()));
+}
+
+fn anchor_registry_entity_sources(entities: &mut [Entity], path: &str, line: Option<u32>) {
+    for entity in entities {
+        if entity.kind == EntityKind::File {
+            continue;
+        }
+        let Some(source) = entity.source.as_mut() else {
+            continue;
+        };
+        if source.path == path {
+            source.line_start = line;
+            source.line_end = line;
+        }
+    }
 }
 
 fn source_location(path: &str) -> SourceLocation {
@@ -2027,6 +2147,22 @@ fn first_marker_line(content: &str) -> Option<u32> {
     })
 }
 
+fn registry_anchor_line(content: &str) -> Option<u32> {
+    content.lines().enumerate().find_map(|(index, line)| {
+        contains_any(
+            line,
+            &[
+                "\"module\"",
+                "\"module_slug\"",
+                "\"provider\"",
+                "\"contract_version\"",
+                "\"role\"",
+            ],
+        )
+        .then_some(index as u32 + 1)
+    })
+}
+
 fn string_array(value: Option<&Value>) -> Vec<String> {
     value
         .and_then(Value::as_array)
@@ -2111,6 +2247,63 @@ mod tests {
                 == "fba_operation://inventory/InventoryReservationPort/reserve_inventory"
         }));
         assert_eq!(output.facts.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn registry_fact_and_entity_source_use_identity_anchor_line() {
+        let output = RustokFbaExtractor
+            .extract(ExtractInput {
+                repo: RepoId("repo".to_string()),
+                snapshot: SnapshotId("snap".to_string()),
+                source: source(
+                    "crates/rustok-inventory/contracts/inventory-fba-registry.json",
+                    r#"
+
+{
+  "schema_version": 1,
+  "module": "inventory",
+  "role": "provider",
+  "contract_version": "inventory.reservation.v1"
+}"#,
+                ),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(output.facts.len(), 1);
+        assert_eq!(output.facts[0].evidence[0].line_start, Some(5));
+        assert_eq!(output.facts[0].evidence[0].line_end, Some(5));
+
+        let module = output
+            .entities
+            .iter()
+            .find(|entity| entity.stable_key.0 == "fba_module://inventory")
+            .expect("module entity");
+        assert_eq!(
+            module.source.as_ref().and_then(|source| source.line_start),
+            Some(5)
+        );
+        assert_eq!(
+            module.source.as_ref().and_then(|source| source.line_end),
+            Some(5)
+        );
+
+        let file = output
+            .entities
+            .iter()
+            .find(|entity| {
+                entity.stable_key.0
+                    == "file://crates/rustok-inventory/contracts/inventory-fba-registry.json"
+            })
+            .expect("file entity");
+        assert_eq!(
+            file.source.as_ref().and_then(|source| source.line_start),
+            None
+        );
+        assert_eq!(
+            file.source.as_ref().and_then(|source| source.line_end),
+            None
+        );
     }
 
     #[tokio::test]
@@ -2359,6 +2552,178 @@ mod tests {
                 .iter()
                 .all(|relation| !relation.evidence.is_empty() && !relation.ownership.is_empty())
         );
+    }
+
+    #[tokio::test]
+    async fn linker_connects_consumer_module_and_contract_to_provider_dependency() {
+        let extracted = RustokFbaExtractor
+            .extract(ExtractInput {
+                repo: RepoId("repo".to_string()),
+                snapshot: SnapshotId("snap".to_string()),
+                source: source(
+                    "crates/rustok-commerce/contracts/commerce-fba-registry.json",
+                    r#"{
+                        "module": "commerce",
+                        "role": "orchestrator_consumer",
+                        "contract_version": "commerce.checkout_orchestration.fba.v1",
+                        "provider_dependencies": [{
+                            "module": "payment",
+                            "contract_version": "payment.checkout.v1",
+                            "port": "PaymentCollectionPort",
+                            "required_profiles": ["checkout_orchestration"],
+                            "fallback_profiles": ["embedded_native"]
+                        }]
+                    }"#,
+                ),
+            })
+            .await
+            .unwrap();
+
+        let relations = RustokFbaLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap".to_string()),
+                entities: Arc::new(extracted.entities),
+                facts: Arc::new(extracted.facts),
+                affected: AffectedSubset::default(),
+            })
+            .await
+            .unwrap();
+        let module = fba_module_entity("commerce", &SnapshotId("snap".to_string()), None);
+        let contract = fba_contract_entity(
+            "commerce",
+            "commerce.checkout_orchestration.fba.v1",
+            &SnapshotId("snap".to_string()),
+            None,
+        );
+        let dependency = fba_dependency_entity(
+            "commerce",
+            "payment",
+            "checkout_orchestration",
+            &SnapshotId("snap".to_string()),
+            None,
+        );
+
+        assert!(relations.iter().any(|relation| {
+            relation.from == module.id
+                && relation.to == dependency.id
+                && relation.kind
+                    == RelationKind::Other("rustok_fba_module_requires_dependency".to_string())
+        }));
+        assert!(relations.iter().any(|relation| {
+            relation.from == contract.id
+                && relation.to == dependency.id
+                && relation.kind
+                    == RelationKind::Other("rustok_fba_contract_requires_dependency".to_string())
+        }));
+    }
+
+    #[tokio::test]
+    async fn provider_dependency_placeholders_do_not_claim_provider_source() {
+        let extracted = RustokFbaExtractor
+            .extract(ExtractInput {
+                repo: RepoId("repo".to_string()),
+                snapshot: SnapshotId("snap".to_string()),
+                source: source(
+                    "crates/rustok-commerce/contracts/commerce-fba-registry.json",
+                    r#"{
+                        "module": "commerce",
+                        "role": "consumer",
+                        "provider_dependencies": [{
+                            "module": "payment",
+                            "required_profiles": ["checkout_orchestration"]
+                        }]
+                    }"#,
+                ),
+            })
+            .await
+            .unwrap();
+
+        let provider = extracted
+            .entities
+            .iter()
+            .find(|entity| entity.stable_key.0 == "fba_module://payment")
+            .expect("provider placeholder entity");
+        let dependency = extracted
+            .entities
+            .iter()
+            .find(|entity| {
+                entity.stable_key.0 == "fba_dependency://commerce/payment/checkout_orchestration"
+            })
+            .expect("consumer dependency entity");
+
+        assert!(provider.source.is_none());
+        assert_eq!(
+            dependency
+                .source
+                .as_ref()
+                .map(|source| source.path.as_str()),
+            Some("crates/rustok-commerce/contracts/commerce-fba-registry.json")
+        );
+    }
+
+    #[tokio::test]
+    async fn nested_page_builder_registry_exposes_consumers_as_dependencies() {
+        let extracted = RustokFbaExtractor
+            .extract(ExtractInput {
+                repo: RepoId("repo".to_string()),
+                snapshot: SnapshotId("snap".to_string()),
+                source: source(
+                    "crates/rustok-page-builder/contracts/page-builder-fba-registry.json",
+                    r#"{
+                        "status": "in_progress",
+                        "provider": {
+                            "module_slug": "page_builder",
+                            "contract": "grapesjs_v1"
+                        },
+                        "consumers": [{
+                            "module_slug": "pages",
+                            "contract": "grapesjs_v1"
+                        }]
+                    }"#,
+                ),
+            })
+            .await
+            .unwrap();
+        let marker: FbaRegistryMarker =
+            serde_json::from_value(extracted.facts[0].value.clone()).unwrap();
+
+        assert_eq!(marker.module, "page_builder");
+        assert_eq!(marker.contract_version.as_deref(), Some("grapesjs_v1"));
+        assert_eq!(marker.consumers[0].module, "pages");
+        assert_eq!(marker.consumers[0].profile.as_deref(), Some("grapesjs_v1"));
+        assert!(extracted.entities.iter().any(|entity| {
+            entity.stable_key.0 == "fba_dependency://pages/page_builder/grapesjs_v1"
+        }));
+    }
+
+    #[tokio::test]
+    async fn provider_side_consumers_preserve_hyphenated_module_slugs() {
+        let extracted = RustokFbaExtractor
+            .extract(ExtractInput {
+                repo: RepoId("repo".to_string()),
+                snapshot: SnapshotId("snap".to_string()),
+                source: source(
+                    "crates/rustok-media/contracts/media-fba-registry.json",
+                    r#"{
+                        "module": "media",
+                        "role": "provider",
+                        "contract_version": "media.asset_read.v1",
+                        "consumers": [{
+                            "module": "ai-media",
+                            "profile": "embedded_native"
+                        }]
+                    }"#,
+                ),
+            })
+            .await
+            .unwrap();
+
+        assert!(extracted.entities.iter().any(|entity| {
+            entity.stable_key.0 == "fba_dependency://ai-media/media/embedded_native"
+        }));
+        assert!(!extracted.entities.iter().any(|entity| {
+            entity.stable_key.0 == "fba_dependency://ai_media/media/embedded_native"
+        }));
     }
 
     #[tokio::test]

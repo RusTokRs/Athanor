@@ -2,7 +2,7 @@
 id: doc://docs/architecture/adapters.md
 kind: architecture
 language: en
-last_verified_snapshot: snap_jsonl_00000255
+last_verified_snapshot: snap_jsonl_00000261
 source_language: en
 status: verified
 ---

@@ -26,7 +26,7 @@ Canonical entities:
 - `fba_profile://<module>/<profile>`
 - `fba_dependency://<consumer>/<provider>/<profile>`
 
-The linker connects modules, contracts, ports, operations, profiles, dependency declarations, and evidence files with bounded canonical relations.
+The linker connects modules, contracts, ports, operations, profiles, dependency declarations, and evidence files with bounded canonical relations. Consumer registries also link the consumer module and contract to each `fba_dependency://...` node before the dependency points at the provider module, so generic graph path queries can traverse consumer-to-provider dependencies. Provider-side `consumers` declarations preserve hyphenated module slugs such as `ai-media` when creating dependency keys. Registry facts and registry-derived entity sources use the first registry identity anchor line instead of always pointing at line 1 or leaving entity source lines empty.
 
 ## Diagnostics
 

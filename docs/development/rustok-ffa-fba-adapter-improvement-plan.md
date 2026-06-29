@@ -2,7 +2,7 @@
 id: doc://docs/development/rustok-ffa-fba-adapter-improvement-plan.md
 kind: development_plan
 language: en
-last_verified_snapshot: snap_jsonl_00000255
+last_verified_snapshot: snap_jsonl_00000261
 source_language: en
 status: verified
 ---
@@ -250,7 +250,12 @@ Tests:
 Status: implemented. FBA now cross-checks provider dependencies against provider registries for
 contract versions, declared ports, provider profiles, provider-side consumer profile entries,
 fallback profiles, and degraded modes. The checks tolerate module slug aliases and valid composite
-contract-version/profile forms used by existing RusTok registries.
+contract-version/profile forms used by existing RusTok registries. Consumer dependency declarations
+also create generic graph paths from consumer module/contract to dependency to provider, while
+provider-side consumer declarations preserve hyphenated module slugs such as `ai-media`.
+Placeholder entities avoid claiming primary source ownership from the real provider registry or
+port-code source, and registry facts plus registry-derived entity sources now anchor at the first
+registry identity line instead of defaulting to line 1 or leaving entity source lines empty.
 
 Deepen FBA relationship checks beyond registry presence.
 
@@ -455,8 +460,8 @@ Reject or rework changes that:
   stronger tests and explicit non-completeness role accounting.
 - FBA port discovery must be generalized before `ports.rs -> ports/` refactors, otherwise
   agents can see false missing-port diagnostics.
-- FBA module slug/path aliases need explicit handling for hyphen/underscore modules such
-  as `page_builder`.
+- FBA module slug/path aliases need explicit handling for remaining mixed hyphen/underscore modules;
+  provider-side consumer declarations already preserve hyphenated slugs such as `ai-media`.
 
 ## Current Baseline
 
