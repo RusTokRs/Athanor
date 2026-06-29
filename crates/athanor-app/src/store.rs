@@ -42,6 +42,9 @@ pub fn install_store_factory(factory: StoreFactory) {
 }
 
 pub async fn init_store(root: &Path, config: &ProjectConfig) -> Result<AthanorStore> {
+    #[cfg(test)]
+    crate::ensure_test_runtime();
+
     let Some(factory) = STORE_FACTORY.get() else {
         bail!("no Athanor store factory is installed");
     };

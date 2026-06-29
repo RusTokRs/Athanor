@@ -1,14 +1,13 @@
 ---
+entities:
+- env://ATHANOR_RUNTIME_DIR
 id: doc://docs/operations/env-athanor-runtime-dir.md
 kind: operations_documentation
 language: en
+last_verified_snapshot: snap_jsonl_00000251
 source_language: en
-entities:
-  - env://ATHANOR_RUNTIME_DIR
-last_verified_snapshot: snap_jsonl_00000167
 status: verified
 ---
-
 # Environment Variable `ATHANOR_RUNTIME_DIR`
 
 ## Purpose

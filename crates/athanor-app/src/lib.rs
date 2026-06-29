@@ -23,14 +23,16 @@ mod local_source;
 pub mod overview;
 pub mod pipeline;
 mod project_path;
-mod projection;
 pub mod project_registry;
+mod projection;
 pub mod read_model;
 pub mod repair;
 pub mod report;
 pub mod runtime;
 pub mod search;
 pub mod store;
+#[cfg(test)]
+mod test_runtime;
 mod transient_store;
 pub mod validate_changed;
 pub mod wiki;
@@ -55,8 +57,8 @@ pub use index_state::*;
 pub use init::*;
 pub use overview::*;
 pub use pipeline::*;
-pub use projection::{install_html_projector_factory, install_wiki_projector_factory};
 pub use project_registry::*;
+pub use projection::{install_html_projector_factory, install_wiki_projector_factory};
 pub use read_model::*;
 pub use repair::*;
 pub use report::*;
@@ -65,3 +67,8 @@ pub use search::*;
 pub use store::*;
 pub use validate_changed::*;
 pub use wiki::*;
+
+#[cfg(test)]
+pub(crate) fn ensure_test_runtime() {
+    test_runtime::install();
+}

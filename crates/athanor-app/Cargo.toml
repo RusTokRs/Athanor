@@ -23,12 +23,25 @@ sha2.workspace = true
 serde_yaml_ng.workspace = true
 toml.workspace = true
 tracing.workspace = true
-tokio = { workspace = true, features = ["io-util", "net", "signal", "sync"] }
+tokio = { workspace = true, features = ["io-util", "net", "signal", "sync", "time"] }
 futures = "0.3"
 notify-debouncer-mini.workspace = true
 fs2.workspace = true
-getrandom.workspace = true
+getrandom = { workspace = true, features = ["std"] }
 
 [dev-dependencies]
+athanor-checker-api = { path = "../athanor-checker-api" }
+athanor-checker-markdown = { path = "../athanor-checker-markdown" }
+athanor-extractor-basic = { path = "../athanor-extractor-basic" }
+athanor-extractor-markdown = { path = "../athanor-extractor-markdown" }
+athanor-extractor-openapi = { path = "../athanor-extractor-openapi" }
+athanor-extractor-rust = { path = "../athanor-extractor-rust" }
+athanor-linker-api = { path = "../athanor-linker-api" }
+athanor-linker-markdown = { path = "../athanor-linker-markdown" }
+athanor-linker-rust = { path = "../athanor-linker-rust" }
+athanor-projector-html = { path = "../athanor-projector-html" }
+athanor-projector-wiki = { path = "../athanor-projector-wiki" }
+athanor-search-tantivy = { path = "../athanor-search-tantivy" }
+athanor-source-fs = { path = "../athanor-source-fs" }
 athanor-store-jsonl = { path = "../athanor-store-jsonl" }
 tokio.workspace = true

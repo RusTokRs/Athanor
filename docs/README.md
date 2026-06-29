@@ -2,11 +2,10 @@
 id: doc://docs/README.md
 kind: project_overview
 language: en
-last_verified_snapshot: snap_jsonl_00000090
+last_verified_snapshot: snap_jsonl_00000251
 source_language: en
 status: verified
 ---
-
 # Athanor Documentation Map
 
 This is the documentation index for Athanor.
@@ -397,7 +396,8 @@ cargo run -p ath --quiet -- check affected --json
 potentially stale local artifacts tied to the latest canonical snapshot: coordinated generated
 generations, direct wiki and HTML report outputs, API contract latest pointers, and API diff
 directories. It also reports editable documentation drift only for affected documents whose
-`last_verified_snapshot` does not match the latest canonical snapshot. It suggests explicit
+`last_verified_snapshot` is missing or older than the latest canonical snapshot's immediate
+predecessor. It suggests explicit
 follow-up commands but does not regenerate, rewrite, or delete artifacts.
 
 Editable documentation can be checked against the project completeness policy:

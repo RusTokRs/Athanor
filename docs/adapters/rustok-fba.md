@@ -2,11 +2,10 @@
 id: doc://docs/adapters/rustok-fba.md
 kind: adapter
 language: en
-last_verified_snapshot: snap_jsonl_00000191
+last_verified_snapshot: snap_jsonl_00000251
 source_language: en
 status: verified
 ---
-
 # RusTok FBA Adapter
 
 `athanor-adapter-rustok-fba` is an opt-in code-audit adapter for RusTok Fluid Backend Architecture (FBA).
@@ -58,6 +57,8 @@ The extractor reads machine contracts and code markers:
 - `crates/rustok-*/src/ports.rs`
 - `crates/rustok-*/src/ports/mod.rs`
 - `crates/rustok-*/src/ports/**/*.rs`
+- `crates/rustok-*/docs/implementation-plan.md`
+- `docs/modules/registry.md`
 
 Registry JSON is the source of declared module role, contract version, ports, operations, consumers, provider dependencies, fallback profiles, evidence paths, and contract-test cases. Rust code confirms port traits, operations, shared `PortContext`/`PortError`, and `PortCallPolicy` usage.
 
@@ -77,7 +78,8 @@ fba_profile://<module>/<profile>
 fba_dependency://<consumer>/<provider>/<profile>
 ```
 
-The registry fact kind is `rustok_fba_registry`. The code marker fact kind is `rustok_fba_port_code`.
+The registry fact kind is `rustok_fba_registry`. The code marker fact kind is
+`rustok_fba_port_code`; bounded documentation references use `rustok_fba_docs_status`.
 
 ## Linking
 
@@ -103,8 +105,12 @@ The checker emits only diagnostics whose kind starts with `rustok_fba_`:
 - `rustok_fba_contract_tests_missing`
 - `rustok_fba_evidence_missing`
 - `rustok_fba_consumer_provider_unresolved`
+- `rustok_fba_docs_drift`
 
-Documentation status is secondary drift evidence only and does not define FBA readiness.
+Documentation status is secondary drift evidence only and does not define FBA readiness. The FBA
+drift check compares registry status, contract versions, verifier/evidence references, the module
+implementation plan, and the central FFA/FBA readiness board. Its diagnostics include both registry
+and documentation evidence so violation graphs lead to the file that needs synchronization.
 
 ## Graph Commands
 
@@ -116,3 +122,21 @@ Default limits:
 - edges: 160
 
 The violations graph includes only violated backend boundaries and evidence files, not clean implementation edges.
+
+Audit summaries distinguish registry-backed modules from dependency-only module nodes and report
+`in_progress_modules` and `status_unknown_modules` explicitly. A zero diagnostic count therefore
+means that checked contracts are consistent; it does not claim that every migration is complete.
+
+Registry-backed rows also expose evidence-derived contract requirements met/total and an integer
+`completion_percent`. Applicable requirements cover port code, declared traits and operations,
+shared context/error, required policy and idempotency semantics, evidence, contract tests, and
+dependency resolution. Requirements that do not apply are excluded from the denominator;
+dependency-only rows remain unscored with `completion_percent: null`. Migration `status` and open
+diagnostics remain separate fields and are never hidden by the contract percentage.
+Operation, context, error, and policy requirements depend on the matching port trait being present;
+when the trait itself is missing, those dependent requirements remain unmet instead of being inferred
+from the absence of more specific downstream diagnostics.
+
+The summary `dependency_edges_resolved` count is per dependency edge. A consumer with multiple
+providers can therefore report partial resolution instead of collapsing all dependencies for that
+module to all-resolved or all-unresolved.

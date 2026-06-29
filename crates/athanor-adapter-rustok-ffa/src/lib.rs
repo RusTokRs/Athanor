@@ -312,10 +312,8 @@ fn extract_local_plan_status(
     let module = path
         .split('/')
         .find(|part| part.starts_with("rustok-"))
-        .map(|part| part.trim_start_matches("rustok-").replace('-', "_"));
-    let status = module
-        .as_deref()
-        .and_then(|module| parse_local_plan_status(content, path, module));
+        .map(|part| part.trim_start_matches("rustok-"));
+    let status = module.and_then(|module| parse_local_plan_status(content, path, module));
     let facts = status
         .into_iter()
         .map(|marker| Fact {
@@ -1657,5 +1655,50 @@ pub async fn complete_checkout_with_fallback() {}
 
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0].message.contains("not_applicable"));
+    }
+
+    #[tokio::test]
+    async fn hyphenated_module_local_plan_matches_registry_slug() {
+        let inputs = [
+            source(
+                "docs/modules/registry.md",
+                "| `ai-content` | admin | `in_progress` | `not_started` | `core_transport_ui` | plan |",
+            ),
+            source(
+                "crates/rustok-ai-content/docs/implementation-plan.md",
+                r#"
+- FFA status: `in_progress`
+- FBA status: `not_started`
+- Structural shape: `core_transport_ui`
+"#,
+            ),
+        ];
+        let mut entities = Vec::new();
+        let mut facts = Vec::new();
+        for source in inputs {
+            let output = RustokFfaExtractor
+                .extract(ExtractInput {
+                    repo: RepoId("repo".to_string()),
+                    snapshot: SnapshotId("snap".to_string()),
+                    source,
+                })
+                .await
+                .unwrap();
+            entities.extend(output.entities);
+            facts.extend(output.facts);
+        }
+
+        let diagnostics = RustokFfaChecker
+            .check(CheckInput {
+                snapshot: SnapshotId("snap".to_string()),
+                entities: std::sync::Arc::new(entities),
+                facts: std::sync::Arc::new(facts),
+                relations: std::sync::Arc::new(Vec::new()),
+                affected: Default::default(),
+            })
+            .await
+            .unwrap();
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
     }
 }

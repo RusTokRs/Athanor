@@ -1,14 +1,13 @@
 ---
+entities:
+- env://XDG_RUNTIME_DIR
 id: doc://docs/operations/env-xdg-runtime-dir.md
 kind: operations_documentation
 language: en
+last_verified_snapshot: snap_jsonl_00000251
 source_language: en
-entities:
-  - env://XDG_RUNTIME_DIR
-last_verified_snapshot: snap_jsonl_00000167
 status: verified
 ---
-
 # Environment Variable `XDG_RUNTIME_DIR`
 
 ## Purpose

@@ -196,6 +196,9 @@ pub fn get_or_build_search_index_sync(
     snapshot_id: &str,
     index_dir: &Path,
 ) -> Result<Arc<dyn SearchIndex>> {
+    #[cfg(test)]
+    crate::ensure_test_runtime();
+
     let Some(factory) = SEARCH_INDEX_FACTORY.get() else {
         bail!("no Athanor search index factory is installed");
     };
@@ -227,7 +230,8 @@ pub fn get_or_build_search_index_sync(
                 })
             })
             .collect::<Result<Vec<_>>>()?;
-        let index = factory(index_dir, Some(documents)).context("failed to rebuild search index")?;
+        let index =
+            factory(index_dir, Some(documents)).context("failed to rebuild search index")?;
 
         let meta = IndexMeta {
             snapshot_id: snapshot_id.to_string(),

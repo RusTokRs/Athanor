@@ -1,14 +1,13 @@
 ---
+entities:
+- env://ATHANOR_ADAPTER_TRUST
 id: doc://docs/operations/env-athanor-adapter-trust.md
 kind: operations_documentation
 language: en
+last_verified_snapshot: snap_jsonl_00000251
 source_language: en
-entities:
-  - env://ATHANOR_ADAPTER_TRUST
-last_verified_snapshot: snap_jsonl_00000224
 status: verified
 ---
-
 # Environment Variable `ATHANOR_ADAPTER_TRUST`
 
 ## Purpose

@@ -149,6 +149,7 @@ pub async fn docs_drift(options: DocsDriftOptions) -> Result<DocsDriftReport> {
         .map_or_else(|| "unknown".to_string(), |snapshot| snapshot.0.clone());
     Ok(build_docs_drift_report(
         snapshot,
+        None,
         &canonical.entities,
         &config.docs,
     ))
@@ -358,9 +359,11 @@ fn build_docs_check_report(
 
 pub(crate) fn build_docs_drift_report(
     snapshot: String,
+    accepted_previous_snapshot: Option<String>,
     entities: &[Entity],
     config: &DocsConfig,
 ) -> DocsDriftReport {
+    let accepted_snapshots = accepted_verification_snapshots(&snapshot, accepted_previous_snapshot);
     let editable_path = normalize_policy_path(&config.editable_path);
     let pages = entities
         .iter()
@@ -372,7 +375,10 @@ pub(crate) fn build_docs_drift_report(
             let verified_snapshot = page.payload["last_verified_snapshot"]
                 .as_str()
                 .map(str::to_string);
-            if verified_snapshot.as_deref() == Some(snapshot.as_str()) {
+            if verified_snapshot
+                .as_deref()
+                .is_some_and(|verified| accepted_snapshots.contains(verified))
+            {
                 return None;
             }
             Some(DriftedDocument {
@@ -412,7 +418,7 @@ fn build_docs_patch_proposal(
     project_root: Option<&Path>,
 ) -> DocsPatchProposal {
     let check = build_docs_check_report(snapshot.clone(), entities, diagnostics, config);
-    let drift = build_docs_drift_report(snapshot.clone(), entities, config);
+    let drift = build_docs_drift_report(snapshot.clone(), None, entities, config);
     let editable_path = normalize_policy_path(&config.editable_path);
     let pages = entities
         .iter()
@@ -1853,6 +1859,33 @@ fn is_editable_page(entity: &Entity, editable_path: &str) -> bool {
     })
 }
 
+fn accepted_verification_snapshots(
+    snapshot: &str,
+    accepted_previous_snapshot: Option<String>,
+) -> BTreeSet<String> {
+    let mut accepted = BTreeSet::from([snapshot.to_string()]);
+    if let Some(previous) = accepted_previous_snapshot {
+        accepted.insert(previous);
+    } else if let Some(previous) = immediate_previous_snapshot(snapshot) {
+        accepted.insert(previous);
+    }
+    accepted
+}
+
+fn immediate_previous_snapshot(snapshot: &str) -> Option<String> {
+    let split_at = snapshot
+        .char_indices()
+        .rev()
+        .find(|(_, character)| !character.is_ascii_digit())
+        .map_or(0, |(index, character)| index + character.len_utf8());
+    let (prefix, suffix) = snapshot.split_at(split_at);
+    if prefix.is_empty() || suffix.is_empty() {
+        return None;
+    }
+    let previous = suffix.parse::<u64>().ok()?.checked_sub(1)?;
+    Some(format!("{prefix}{previous:0width$}", width = suffix.len()))
+}
+
 fn policy_violations(
     page: &Entity,
     snapshot: &str,
@@ -2128,6 +2161,7 @@ mod tests {
 
         let report = build_docs_drift_report(
             "snap_current".to_string(),
+            None,
             &[current, stale, missing],
             &DocsConfig::default(),
         );
@@ -2141,6 +2175,49 @@ mod tests {
         );
         assert_eq!(
             report.drifted_documents[1].reason,
+            "verified_against_older_snapshot"
+        );
+    }
+
+    #[test]
+    fn treats_immediate_predecessor_snapshot_as_current_verification() {
+        let page = page(
+            "docs/current.md",
+            "editable",
+            json!({"last_verified_snapshot": "snap_jsonl_00000041"}),
+        );
+
+        let report = build_docs_drift_report(
+            "snap_jsonl_00000042".to_string(),
+            None,
+            &[page],
+            &DocsConfig::default(),
+        );
+
+        assert_eq!(report.editable_documents, 1);
+        assert_eq!(report.current_documents, 1);
+        assert!(report.drifted_documents.is_empty());
+    }
+
+    #[test]
+    fn reports_verification_older_than_immediate_predecessor_as_drift() {
+        let page = page(
+            "docs/stale.md",
+            "editable",
+            json!({"last_verified_snapshot": "snap_jsonl_00000040"}),
+        );
+
+        let report = build_docs_drift_report(
+            "snap_jsonl_00000042".to_string(),
+            None,
+            &[page],
+            &DocsConfig::default(),
+        );
+
+        assert_eq!(report.current_documents, 0);
+        assert_eq!(report.drifted_documents.len(), 1);
+        assert_eq!(
+            report.drifted_documents[0].reason,
             "verified_against_older_snapshot"
         );
     }

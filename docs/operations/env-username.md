@@ -1,14 +1,13 @@
 ---
+entities:
+- env://USERNAME
 id: doc://docs/operations/env-username.md
 kind: operations_documentation
 language: en
+last_verified_snapshot: snap_jsonl_00000251
 source_language: en
-entities:
-  - env://USERNAME
-last_verified_snapshot: snap_jsonl_00000167
 status: verified
 ---
-
 # Environment Variable `USERNAME`
 
 ## Purpose

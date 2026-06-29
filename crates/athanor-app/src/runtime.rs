@@ -41,6 +41,9 @@ pub fn install_builtin_adapter_resolver(resolver: BuiltinAdapterResolver) {
 }
 
 pub fn default_adapter_registry() -> AdapterRegistry {
+    #[cfg(test)]
+    crate::ensure_test_runtime();
+
     DEFAULT_ADAPTER_REGISTRY_FACTORY
         .get()
         .map(|factory| factory())
@@ -187,7 +190,12 @@ impl AdapterRegistry {
     }
 
     fn with_adapter_entry(self, adapter: &AdapterPluginEntry, manifest_dir: &Path) -> Result<Self> {
-        if adapter.command.is_none() && let Some(resolver) = BUILTIN_ADAPTER_RESOLVER.get() {
+        #[cfg(test)]
+        crate::ensure_test_runtime();
+
+        if adapter.command.is_none()
+            && let Some(resolver) = BUILTIN_ADAPTER_RESOLVER.get()
+        {
             if let Some(registry) = resolver(self, adapter.kind, adapter.id.as_str()) {
                 return Ok(registry);
             }

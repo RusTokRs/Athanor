@@ -2,7 +2,7 @@
 id: doc://docs/architecture/pipeline.md
 kind: architecture
 language: en
-last_verified_snapshot: snap_jsonl_00000090
+last_verified_snapshot: snap_jsonl_00000251
 source_language: en
 status: verified
 ---
@@ -64,7 +64,7 @@ flowchart TD
 8. `athanor-linker-markdown` creates `contains` relations plus verified `documents` relations for exact entity/concept keys declared in Markdown frontmatter.
 9. `athanor-linker-api` links OpenAPI operations to matching Rust handlers, Markdown API documentation, same-document request/response component schemas, and declared examples.
 10. When a RusTok repository opts in through `.athanor/adapters/rustok-ffa.json`, `athanor-adapter-rustok-ffa` extracts FFA surface/layer markers from code, links FFA surface/layer/file relations, and emits `rustok_ffa_*` diagnostics.
-11. When a RusTok repository opts in through `.athanor/adapters/rustok-fba.json`, `athanor-adapter-rustok-fba` extracts FBA registry and port-code markers, links FBA module/contract/port/operation/profile/dependency relations, and emits `rustok_fba_*` diagnostics.
+11. When a RusTok repository opts in through `.athanor/adapters/rustok-fba.json`, `athanor-adapter-rustok-fba` extracts FBA registry, port-code, local-plan, and central-board markers, links FBA module/contract/port/operation/profile/dependency relations, and emits evidence-backed `rustok_fba_*` diagnostics including secondary documentation drift findings.
 12. When a RusTok repository opts in through `.athanor/adapters/rustok-page-builder.json`, `athanor-adapter-rustok-page-builder` extracts Page Builder provider registry, adapter seam, wave evidence, consumer manifest, content-format, and FSD surface markers, links Page Builder provider/consumer/contract/capability/fallback/evidence/content/FSD relations, and emits `rustok_page_builder_*` diagnostics.
 13. `athanor-checker-markdown` creates documentation structure, unresolved-reference, and duplicate-identity diagnostics.
 14. `athanor-checker-api` diagnoses OpenAPI operations without linked implementations or documentation, local component schema references that did not resolve, examples that violate their declared schemas, undocumented environment variables, undocumented runtime configuration keys, undocumented script commands, undocumented deployment resources, runbooks not tied to operational knowledge, runbooks without operation steps, and runbook steps that do not cover declared operational targets.
@@ -73,7 +73,11 @@ flowchart TD
 17. `IndexStateStore` classifies discovered files as changed, unchanged, or removed by comparing them with the previous state.
 18. File additions or removals trigger a safe full rebuild so absence diagnostics cannot remain stale.
 19. `IndexPipeline` extracts changed files only when a previous canonical snapshot is available from `CanonicalSnapshotStore`; extractor/source-file tasks run concurrently with a fixed limit of 16 in-flight tasks.
-20. `IndexPipeline` carries unchanged canonical objects forward from the previous canonical snapshot, rewrites carried snapshot ids to the new snapshot, drops objects whose ownership includes changed or removed paths, and canonicalizes merged objects by id so duplicated carried/new objects cannot persist in the next snapshot.
+20. `IndexPipeline` skips canonical snapshot creation when a previous snapshot is available and
+    source discovery finds no changed or removed files; otherwise it carries unchanged canonical
+    objects forward from the previous canonical snapshot, rewrites carried snapshot ids to the new
+    snapshot, drops objects whose ownership includes changed or removed paths, and canonicalizes
+    merged objects by id so duplicated carried/new objects cannot persist in the next snapshot.
 21. `IndexPipeline` builds an affected subset from newly extracted objects, then passes it to linkers and checkers alongside the merged full context. In-process linker and checker inputs share full-context entity, fact, and relation lists through `Arc<Vec<T>>` values so the complete entity and fact lists are moved into shared allocations once and reused across downstream phases.
 22. `IndexPipeline` validates newly emitted canonical objects for required evidence and ownership metadata, including diagnostics emitted by extractors or checkers.
 23. If validation fails, `ath index` writes the aggregated adapter validation report to the configured validation report path.
@@ -115,6 +119,11 @@ flowchart TD
 - `benchmark_index`: synthetic small, medium, and large benchmark fixtures for the normal index path.
 - `AdapterRegistry`: ordered factories for source, extractor, linker, and checker adapters.
 - `RuntimeBuilder`: app-layer runtime assembly for a project root, registry, and discovered adapter plugin manifests.
+- `athanor-runtime-defaults`: the production composition root installed by `ath` and `athd`.
+  `athanor-app` uses a focused test-only composition with real JSONL, Tantivy, projector, and
+  fixture-relevant source/extractor/linker/checker adapters so package tests exercise the same
+  boundaries without depending on binary startup or adding adapter dependencies to production app
+  code.
 - `JsonlReadModelWriter`: reusable JSONL export for generated read models.
 - `JsonlKnowledgeStore`: durable local canonical snapshot store used by the CLI.
 - `overview_project`: bounded repository orientation from the latest canonical snapshot.
@@ -128,8 +137,8 @@ flowchart TD
 - `graph_hubs`: bounded degree-centrality ranking over canonical relations.
 - `graph_pagerank`: bounded directed PageRank ranking over canonical relations.
 - `graph_cycles`: bounded directed-cycle detection over canonical relations.
-- `rustok_ffa_audit`, `graph_ffa_surface`, and `graph_ffa_violations`: bounded RusTok FFA read models from canonical FFA entities, relations, and diagnostics.
-- `rustok_fba_audit`, `graph_fba_module`, `graph_fba_port`, `graph_fba_dependencies`, and `graph_fba_violations`: bounded RusTok FBA read models from canonical FBA entities, relations, and diagnostics.
+- `rustok_ffa_audit`, `graph_ffa_surface`, and `graph_ffa_violations`: bounded RusTok FFA read models from canonical FFA entities, relations, and diagnostics, with observed/actionable/scaffold/host-wiring audit scope and explicit core/transport/UI structural completion reported separately.
+- `rustok_fba_audit`, `graph_fba_module`, `graph_fba_port`, `graph_fba_dependencies`, and `graph_fba_violations`: bounded RusTok FBA read models from canonical FBA entities, relations, and diagnostics, with registry-backed/dependency-only and migration-status counts plus applicable evidence-derived contract requirements kept explicit.
 - `rustok_page_builder_audit`, `graph_page_builder_provider`, `graph_page_builder_consumer`, and `graph_page_builder_violations`: bounded RusTok Page Builder read models from canonical Page Builder entities, relations, and diagnostics.
 - `list_registered_projects`, `register_project`, `resolve_registered_project`, and
   `unregister_project`: explicit user-level repository identity management for future daemon and
@@ -642,7 +651,8 @@ The gate does not re-index or modify documentation. Generated documentation is e
 it is present in a canonical snapshot.
 
 `ath docs drift` uses the same editable path selection but does not apply status, required-field,
-or diagnostic thresholds. It reports pages with a missing or non-current `last_verified_snapshot`;
+or diagnostic thresholds. It reports pages with a missing `last_verified_snapshot` or one older
+than the latest canonical snapshot's immediate predecessor;
 `--json` emits `athanor.docs_drift.v1`. Drift is informational and does not produce a failing exit
 status.
 
@@ -870,7 +880,7 @@ checkers:
   <docs-patch-id>.json
 ```
 
-Generated JSONL files and Markdown wiki pages under `.athanor/generated/current` are read models. They are not the source of truth and may be deleted and rebuilt. `validation-report.json` is written only for adapter contract validation failures and is removed after a successful index run. `validation-result.json` is written only for successful `--validate-only` runs and is removed after validation failures or normal index runs. Durable canonical snapshots live under `.athanor/store/canonical/jsonl`. API contract snapshots and diffs under `.athanor/api` are generated artifacts, but they are retained explicitly because they form the contract comparison baseline. The state file records the last indexed file paths, content hashes, language hints, and snapshot id so later runs can classify changed, unchanged, and removed files. Its schema is versioned so changes to built-in extraction, linking, or checking semantics can force a safe one-time full rebuild; relative JavaScript/TypeScript import relation materialization advances it to `athanor.index_state.v33`.
+Generated JSONL files and Markdown wiki pages under `.athanor/generated/current` are read models. They are not the source of truth and may be deleted and rebuilt. `validation-report.json` is written only for adapter contract validation failures and is removed after a successful index run. `validation-result.json` is written only for successful `--validate-only` runs and is removed after validation failures or normal index runs. Durable canonical snapshots live under `.athanor/store/canonical/jsonl`. API contract snapshots and diffs under `.athanor/api` are generated artifacts, but they are retained explicitly because they form the contract comparison baseline. The state file records the last indexed file paths, content hashes, language hints, and snapshot id so later runs can classify changed, unchanged, and removed files. Its schema is versioned so changes to built-in extraction, linking, or checking semantics can force a safe one-time full rebuild; FBA documentation-drift extraction advances it to `athanor.index_state.v35`.
 
 ## Current Limitations
 

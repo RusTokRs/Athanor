@@ -2,11 +2,10 @@
 id: doc://docs/development/production.md
 kind: development
 language: en
+last_verified_snapshot: snap_jsonl_00000251
 source_language: en
-last_verified_snapshot: snap_jsonl_00000163
 status: verified
 ---
-
 # Production Operation
 
 Athanor production v1 is a single-user local daemon for Windows 10/11 and systemd-based Linux.

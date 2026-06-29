@@ -2,11 +2,10 @@
 id: doc://docs/adapters/linker-js-ts.md
 kind: adapter
 language: en
+last_verified_snapshot: snap_jsonl_00000251
 source_language: en
-last_verified_snapshot: snap_jsonl_00000227
 status: verified
 ---
-
 # JavaScript/TypeScript Import Linker
 
 Crate: `athanor-linker-js-ts`

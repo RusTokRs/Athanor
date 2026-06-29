@@ -2747,12 +2747,23 @@ fn print_repair_apply_report(report: &RepairApplyReport) {
 }
 
 fn print_rustok_ffa_audit(report: &RustokFfaAudit) {
+    let completion = report
+        .summary
+        .completion_percent
+        .map_or_else(|| "n/a".to_string(), |percent| format!("{percent}%"));
     println!(
-        "RusTok FFA audit (snapshot: {}, surfaces: {}, complete: {}, incomplete: {}, diagnostics: {})",
+        "RusTok FFA audit (snapshot: {}, observed: {}, actionable: {}, complete: {}, incomplete: {}, structural completion: {}, missing core/transport/ui: {}/{}/{}, scaffolds: {}, host wiring: {}, diagnostics: {})",
         report.snapshot,
+        report.summary.observed_surfaces,
         report.summary.surfaces_total,
         report.summary.core_transport_ui,
         report.summary.incomplete,
+        completion,
+        report.summary.missing_core,
+        report.summary.missing_transport,
+        report.summary.missing_ui_adapter,
+        report.summary.scaffold_surfaces,
+        report.summary.host_wiring_surfaces,
         report.summary.diagnostics_open
     );
     if report.surfaces.is_empty() {
@@ -2765,10 +2776,16 @@ fn print_rustok_ffa_audit(report: &RustokFfaAudit) {
         } else {
             surface.diagnostics.join(", ")
         };
+        let completion = surface
+            .completion_percent
+            .map_or_else(|| "n/a".to_string(), |percent| format!("{percent}%"));
         println!(
-            "  - {} shape={} layers={} files={} diagnostics={}",
+            "  - {} shape={} structural_completion={} requirements={}/{} layers={} files={} diagnostics={}",
             surface.id,
             surface.shape,
+            completion,
+            surface.requirements_met,
+            surface.requirements_total,
             surface.layers.join(","),
             surface.files.len(),
             diagnostics
@@ -2801,14 +2818,27 @@ fn print_rustok_ffa_graph(report: &RustokFfaGraph) {
 }
 
 fn print_rustok_fba_audit(report: &RustokFbaAudit) {
+    let completion = report
+        .summary
+        .completion_percent
+        .map_or_else(|| "n/a".to_string(), |percent| format!("{percent}%"));
     println!(
-        "RusTok FBA audit (snapshot: {}, modules: {}, providers: {}, consumers: {}, ports: {}, operations: {}, diagnostics: {})",
+        "RusTok FBA audit (snapshot: {}, modules: {}, registered: {}, dependency-only: {}, in progress: {}, status unknown: {}, contract completion: {} ({}/{}), providers: {}, consumers: {}, ports: {}, operations: {}, dependency edges: {}/{}, diagnostics: {})",
         report.snapshot,
         report.summary.modules_total,
+        report.summary.registered_modules,
+        report.summary.dependency_only_modules,
+        report.summary.in_progress_modules,
+        report.summary.status_unknown_modules,
+        completion,
+        report.summary.requirements_met,
+        report.summary.requirements_total,
         report.summary.provider_modules,
         report.summary.consumer_modules,
         report.summary.ports_total,
         report.summary.operations_total,
+        report.summary.dependency_edges_resolved,
+        report.summary.dependency_edges_total,
         report.summary.diagnostics_open
     );
     if report.modules.is_empty() {
@@ -2821,12 +2851,18 @@ fn print_rustok_fba_audit(report: &RustokFbaAudit) {
         } else {
             module.diagnostics.join(", ")
         };
+        let completion = module
+            .completion_percent
+            .map_or_else(|| "n/a".to_string(), |percent| format!("{percent}%"));
         println!(
-            "  - {} role={} status={} contract={} ports={} operations={} dependencies={} diagnostics={}",
+            "  - {} role={} status={} contract={} contract_completion={} requirements={}/{} ports={} operations={} dependencies={} diagnostics={}",
             module.id,
             module.role.as_deref().unwrap_or("unknown"),
             module.status.as_deref().unwrap_or("unknown"),
             module.contract_version.as_deref().unwrap_or("none"),
+            completion,
+            module.requirements_met,
+            module.requirements_total,
             module.ports.len(),
             module.operations.len(),
             module.dependencies.len(),

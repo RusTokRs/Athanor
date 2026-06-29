@@ -477,9 +477,11 @@ mod tests {
         .unwrap();
 
         assert_eq!(second_report.files_indexed, 2);
+        assert_eq!(second_report.snapshot, report.snapshot);
         assert_eq!(second_report.changed_files, 0);
         assert_eq!(second_report.unchanged_files, 2);
         assert_eq!(second_report.removed_files, 0);
+        assert_eq!(second_report.metrics.pipeline.files_to_extract, 0);
         let second_entities =
             fs::read_to_string(second_report.output_dir.join("entities.jsonl")).unwrap();
         assert!(second_entities.contains("file://src/lib.rs"));

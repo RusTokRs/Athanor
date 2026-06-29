@@ -2,7 +2,7 @@
 id: doc://docs/development/docs-completeness-policy.md
 kind: developer_guide
 language: en
-last_verified_snapshot: snap_jsonl_00000090
+last_verified_snapshot: snap_jsonl_00000251
 source_language: en
 status: verified
 ---
@@ -59,9 +59,12 @@ selected open documentation diagnostic reaches the configured threshold. JSON ou
 `athanor.docs_check.v1`. Generated documentation is always excluded, and the command never edits
 source files or re-indexes the project.
 
-`ath docs drift` lists editable pages whose `last_verified_snapshot` is absent or differs from the
-latest canonical snapshot. It does not apply the completeness policy or fail because drift exists.
-JSON output uses `athanor.docs_drift.v1` and includes current and drifted document counts.
+`ath docs drift` lists editable pages whose `last_verified_snapshot` is absent or older than the
+latest canonical snapshot's immediate predecessor. The immediate predecessor is accepted because the
+normal `docs propose-fix` -> `docs apply-patch` -> `index` loop can only write the snapshot that was
+current before the follow-up index minted the next sequential snapshot id. It does not apply the
+completeness policy or fail because drift exists. JSON output uses `athanor.docs_drift.v1` and
+includes current and drifted document counts.
 
 `ath docs operations check` aggregates environment, script, deployment, and runbook documentation
 diagnostics from the latest canonical snapshot. Text output prints one operational summary and the

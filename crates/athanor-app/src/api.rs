@@ -839,10 +839,14 @@ fn object_key_set(value: Option<&Value>) -> BTreeSet<&str> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
     use athanor_domain::{EntityId, StableKey};
     use serde_json::json;
 
     use super::*;
+
+    static NEXT_TEMP_ROOT: AtomicU64 = AtomicU64::new(1);
 
     #[test]
     fn classifies_removed_and_changed_contract_items_as_breaking() {
@@ -1157,11 +1161,9 @@ keep_diffs = 1
 
     fn temp_root() -> PathBuf {
         let root = std::env::temp_dir().join(format!(
-            "athanor-api-test-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
+            "athanor-api-test-{}-{}",
+            std::process::id(),
+            NEXT_TEMP_ROOT.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir_all(&root).unwrap();
         root

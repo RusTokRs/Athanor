@@ -2,11 +2,10 @@
 id: doc://docs/adapters/rustok-page-builder.md
 kind: adapter
 language: en
-last_verified_snapshot: snap_jsonl_00000191
+last_verified_snapshot: snap_jsonl_00000251
 source_language: en
 status: verified
 ---
-
 # RusTok Page Builder Adapter
 
 `athanor-adapter-rustok-page-builder` is an opt-in code-audit adapter for the RusTok Page Builder provider/consumer track.

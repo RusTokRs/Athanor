@@ -1,14 +1,13 @@
 ---
+entities:
+- script-command://.github/workflows/security.yml#github-actions:workflow
 id: doc://docs/operations/script-script-command-github-workflows-security-yml-github-actions-workflow.md
 kind: operations_documentation
 language: en
+last_verified_snapshot: snap_jsonl_00000251
 source_language: en
-entities:
-  - script-command://.github/workflows/security.yml#github-actions:workflow
-last_verified_snapshot: snap_jsonl_00000090
 status: verified
 ---
-
 # Script Command `GitHub Actions workflow Security Audit`
 
 ## Purpose

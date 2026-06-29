@@ -1,14 +1,13 @@
 ---
+entities:
+- script-command://.github/workflows/production.yml#github-actions:job:daemon-e2e:step:6:run
 id: doc://docs/operations/script-script-command-github-workflows-production-yml-github-actions-job-daemon-e2e-step-6-run.md
 kind: operations_documentation
 language: en
+last_verified_snapshot: snap_jsonl_00000251
 source_language: en
-entities:
-  - script-command://.github/workflows/production.yml#github-actions:job:daemon-e2e:step:6:run
-last_verified_snapshot: snap_jsonl_00000167
 status: verified
 ---
-
 # Script Command `GitHub Actions run step Windows per-user service lifecycle`
 
 ## Purpose

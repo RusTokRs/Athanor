@@ -1,14 +1,13 @@
 ---
+entities:
+- env://USERPROFILE
 id: doc://docs/operations/env-userprofile.md
 kind: operations_documentation
 language: en
+last_verified_snapshot: snap_jsonl_00000251
 source_language: en
-entities:
-  - env://USERPROFILE
-last_verified_snapshot: snap_jsonl_00000167
 status: verified
 ---
-
 # Environment Variable `USERPROFILE`
 
 ## Purpose

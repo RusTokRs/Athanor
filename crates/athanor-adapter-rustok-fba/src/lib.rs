@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use async_trait::async_trait;
 use athanor_core::{
@@ -19,6 +19,7 @@ pub const FBA_LINKER_ID: &str = "rustok_fba_linker";
 pub const FBA_CHECKER_ID: &str = "rustok_fba_checker";
 pub const FBA_REGISTRY_FACT_KIND: &str = "rustok_fba_registry";
 pub const FBA_PORT_CODE_FACT_KIND: &str = "rustok_fba_port_code";
+pub const FBA_DOCS_FACT_KIND: &str = "rustok_fba_docs_status";
 pub const FBA_MODULE_ENTITY_KIND: &str = "rustok_fba_module";
 pub const FBA_CONTRACT_ENTITY_KIND: &str = "rustok_fba_contract";
 pub const FBA_PORT_ENTITY_KIND: &str = "rustok_fba_port";
@@ -105,6 +106,17 @@ pub struct FbaPortCodeMarker {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct FbaDocsMarker {
+    schema: String,
+    source_kind: String,
+    path: String,
+    module: String,
+    fba_status: Option<String>,
+    references: Vec<String>,
+    line: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FbaCodePort {
     pub name: String,
     pub operations: Vec<String>,
@@ -118,7 +130,10 @@ impl Extractor for RustokFbaExtractor {
 
     fn supports(&self, source: &SourceFile) -> bool {
         let path = normalize_path(&source.path);
-        is_fba_registry_path(&path) || is_rustok_ports_path(&path)
+        is_fba_registry_path(&path)
+            || is_rustok_ports_path(&path)
+            || is_fba_readiness_board_path(&path)
+            || is_module_implementation_plan_path(&path)
     }
 
     async fn extract(&self, input: ExtractInput) -> CoreResult<ExtractOutput> {
@@ -128,6 +143,16 @@ impl Extractor for RustokFbaExtractor {
         }
         if is_rustok_ports_path(&path) {
             return Ok(extract_port_code(&input.source, &input.snapshot, &path));
+        }
+        if is_fba_readiness_board_path(&path) {
+            return Ok(extract_readiness_board(
+                &input.source,
+                &input.snapshot,
+                &path,
+            ));
+        }
+        if is_module_implementation_plan_path(&path) {
+            return Ok(extract_local_plan(&input.source, &input.snapshot, &path));
         }
         Ok(ExtractOutput::default())
     }
@@ -607,6 +632,8 @@ impl Checker for RustokFbaChecker {
             }
         }
 
+        diagnostics.extend(fba_docs_drift_diagnostics(&input, &registries));
+
         diagnostics.sort_by_key(|diagnostic| diagnostic.id.0.clone());
         diagnostics.dedup_by(|left, right| left.id == right.id);
         Ok(diagnostics)
@@ -631,6 +658,225 @@ impl FbaRegistryMarker {
             contract_tests_status: None,
             contract_test_cases: Vec::new(),
         }
+    }
+}
+
+fn fba_docs_drift_diagnostics(
+    input: &CheckInput,
+    registries: &[(&Fact, FbaRegistryMarker)],
+) -> Vec<Diagnostic> {
+    let mut docs_by_module =
+        BTreeMap::<String, BTreeMap<String, Vec<(&Fact, FbaDocsMarker)>>>::new();
+    for fact in input
+        .facts
+        .iter()
+        .filter(|fact| fact.kind == FactKind::Other(FBA_DOCS_FACT_KIND.to_string()))
+    {
+        let Ok(marker) = serde_json::from_value::<FbaDocsMarker>(fact.value.clone()) else {
+            continue;
+        };
+        let aliases = BTreeSet::from([
+            marker.module.clone(),
+            marker.module.replace('-', "_"),
+            marker.module.replace('_', "-"),
+        ]);
+        for alias in aliases {
+            docs_by_module
+                .entry(alias)
+                .or_default()
+                .entry(marker.source_kind.clone())
+                .or_default()
+                .push((fact, marker.clone()));
+        }
+    }
+
+    let mut diagnostics = Vec::new();
+    for (registry_fact, registry) in registries {
+        let module_docs = docs_by_module.get(&registry.module);
+        let local_entries = module_docs.and_then(|docs| docs.get("local_plan"));
+        let board_entries = module_docs.and_then(|docs| docs.get("central_board"));
+        let local = local_entries.and_then(|entries| entries.last());
+        let board = board_entries.and_then(|entries| entries.last());
+
+        if let Some(entries) = board_entries
+            && entries.len() > 1
+        {
+            diagnostics.push(fba_docs_drift_diagnostic(
+                &input.snapshot,
+                registry,
+                registry_fact,
+                Some(entries.last().expect("non-empty board entries").0),
+                "duplicate_central_board_row",
+                format!(
+                    "{} appears {} times in the FFA/FBA readiness board",
+                    registry.module,
+                    entries.len()
+                ),
+            ));
+        }
+
+        let Some((local_fact, local_marker)) = local else {
+            diagnostics.push(fba_docs_drift_diagnostic(
+                &input.snapshot,
+                registry,
+                registry_fact,
+                None,
+                "local_plan_missing",
+                format!(
+                    "{} FBA registry has no indexed local implementation plan",
+                    registry.module
+                ),
+            ));
+            continue;
+        };
+        let Some((board_fact, board_marker)) = board else {
+            diagnostics.push(fba_docs_drift_diagnostic(
+                &input.snapshot,
+                registry,
+                registry_fact,
+                Some(local_fact),
+                "central_board_missing",
+                format!(
+                    "{} FBA registry has no central readiness-board row",
+                    registry.module
+                ),
+            ));
+            continue;
+        };
+
+        if let Some(status) = &registry.status {
+            for (source, fact, marker) in [
+                ("local plan", *local_fact, local_marker),
+                ("central board", *board_fact, board_marker),
+            ] {
+                if marker.fba_status.as_deref() != Some(status.as_str()) {
+                    diagnostics.push(fba_docs_drift_diagnostic(
+                        &input.snapshot,
+                        registry,
+                        registry_fact,
+                        Some(fact),
+                        &format!("{source}_status"),
+                        format!(
+                            "{} registry status {} differs from {source} status {}",
+                            registry.module,
+                            status,
+                            marker.fba_status.as_deref().unwrap_or("missing")
+                        ),
+                    ));
+                }
+            }
+        }
+
+        let expected_contracts = registry
+            .contract_version
+            .iter()
+            .filter_map(|version| version.split('+').next())
+            .collect::<BTreeSet<_>>();
+        for contract in expected_contracts {
+            for (source, fact, marker) in [
+                ("local plan", *local_fact, local_marker),
+                ("central board", *board_fact, board_marker),
+            ] {
+                if !docs_reference_matches(&marker.references, contract) {
+                    diagnostics.push(fba_docs_drift_diagnostic(
+                        &input.snapshot,
+                        registry,
+                        registry_fact,
+                        Some(fact),
+                        &format!("{source}_contract_version"),
+                        format!(
+                            "{} {source} does not reference registry contract version {}",
+                            registry.module, contract
+                        ),
+                    ));
+                }
+            }
+        }
+
+        for path in registry.evidence_paths.iter().filter(|path| {
+            path.as_str() != registry.path
+                && path.as_str() != local_marker.path
+                && path.as_str() != board_marker.path
+        }) {
+            if !docs_reference_matches(&local_marker.references, path) {
+                diagnostics.push(fba_docs_drift_diagnostic(
+                    &input.snapshot,
+                    registry,
+                    registry_fact,
+                    Some(local_fact),
+                    "local_plan_evidence",
+                    format!(
+                        "{} local plan does not reference registry evidence {}",
+                        registry.module, path
+                    ),
+                ));
+            }
+        }
+    }
+    diagnostics
+}
+
+fn docs_reference_matches(references: &[String], expected: &str) -> bool {
+    let expected = normalize_path(expected);
+    if references
+        .iter()
+        .any(|reference| reference == &expected || reference.contains(&expected))
+    {
+        return true;
+    }
+    let Some(script) = expected
+        .strip_prefix("scripts/verify/verify-")
+        .and_then(|value| value.strip_suffix(".mjs"))
+    else {
+        return false;
+    };
+    let command = format!("verify:{}", script.replace('-', ":"));
+    let aggregate = script
+        .strip_suffix("-registries")
+        .map(|script| format!("verify:{}", script.replace('-', ":")));
+    references.iter().any(|reference| {
+        reference.contains(&command)
+            || aggregate
+                .as_ref()
+                .is_some_and(|command| reference.contains(command))
+    })
+}
+
+fn fba_docs_drift_diagnostic(
+    snapshot: &SnapshotId,
+    registry: &FbaRegistryMarker,
+    registry_fact: &Fact,
+    docs_fact: Option<&Fact>,
+    reason: &str,
+    message: String,
+) -> Diagnostic {
+    let mut evidence = registry_fact.evidence.clone();
+    let mut ownership = registry_fact.ownership.clone();
+    if let Some(fact) = docs_fact {
+        evidence.extend(fact.evidence.clone());
+        ownership.extend(fact.ownership.clone());
+    }
+    Diagnostic {
+        id: DiagnosticId(format!(
+            "diag_rustok_fba_docs_{:016x}",
+            stable_hash(format!("{}:{}:{}", registry.module, registry.path, reason).as_bytes())
+        )),
+        kind: DiagnosticKind::Other("rustok_fba_docs_drift".to_string()),
+        severity: Severity::Medium,
+        status: DiagnosticStatus::Open,
+        title: "FBA documentation drift".to_string(),
+        message,
+        entities: Vec::new(),
+        evidence,
+        ownership,
+        snapshot: snapshot.clone(),
+        suggested_fix: None,
+        payload: json!({
+            "schema": "rustok.fba.diagnostic.v1",
+            "module": registry.module,
+            "reason": reason,
+            "path": registry.path,
+        }),
     }
 }
 
@@ -731,6 +977,116 @@ fn extract_registry(source: &SourceFile, snapshot: &SnapshotId, path: &str) -> E
         facts: vec![fact],
         diagnostics: Vec::new(),
     }
+}
+
+fn extract_readiness_board(
+    source: &SourceFile,
+    snapshot: &SnapshotId,
+    path: &str,
+) -> ExtractOutput {
+    let file = file_entity(source, &snapshot.0);
+    let facts = source
+        .content
+        .as_deref()
+        .unwrap_or_default()
+        .lines()
+        .enumerate()
+        .filter_map(|(index, line)| {
+            let columns = line.split('|').map(str::trim).collect::<Vec<_>>();
+            if columns.len() < 7 || !columns[1].starts_with('`') {
+                return None;
+            }
+            let module = columns[1].trim_matches('`');
+            if module.is_empty() || module == "Module slug" {
+                return None;
+            }
+            Some(FbaDocsMarker {
+                schema: "rustok.fba.docs_status.v1".to_string(),
+                source_kind: "central_board".to_string(),
+                path: path.to_string(),
+                module: module.to_string(),
+                fba_status: Some(columns[4].trim_matches('`').to_string()),
+                references: documentation_references(line),
+                line: index as u32 + 1,
+            })
+        })
+        .map(|marker| fba_docs_fact(&file, snapshot, marker))
+        .collect();
+    ExtractOutput {
+        entities: vec![file],
+        facts,
+        diagnostics: Vec::new(),
+    }
+}
+
+fn extract_local_plan(source: &SourceFile, snapshot: &SnapshotId, path: &str) -> ExtractOutput {
+    let file = file_entity(source, &snapshot.0);
+    let content = source.content.as_deref().unwrap_or_default();
+    let Some(module) = module_from_crate_path(path) else {
+        return ExtractOutput::default();
+    };
+    let fba_status = content.lines().find_map(|line| {
+        line.trim()
+            .strip_prefix("- FBA status:")?
+            .trim()
+            .strip_prefix('`')?
+            .split('`')
+            .next()
+            .map(str::to_string)
+    });
+    let line = content
+        .lines()
+        .position(|line| line.trim().starts_with("- FBA status:"))
+        .map(|index| index as u32 + 1)
+        .unwrap_or(1);
+    let marker = FbaDocsMarker {
+        schema: "rustok.fba.docs_status.v1".to_string(),
+        source_kind: "local_plan".to_string(),
+        path: path.to_string(),
+        module,
+        fba_status,
+        references: documentation_references(content),
+        line,
+    };
+    ExtractOutput {
+        entities: vec![file.clone()],
+        facts: vec![fba_docs_fact(&file, snapshot, marker)],
+        diagnostics: Vec::new(),
+    }
+}
+
+fn fba_docs_fact(file: &Entity, snapshot: &SnapshotId, marker: FbaDocsMarker) -> Fact {
+    Fact {
+        id: FactId(format!(
+            "fact_rustok_fba_docs_{:016x}",
+            stable_hash(format!("{}:{}:{}", marker.path, marker.module, marker.line).as_bytes())
+        )),
+        kind: FactKind::Other(FBA_DOCS_FACT_KIND.to_string()),
+        subject: file.id.clone(),
+        object: None,
+        value: serde_json::to_value(&marker).expect("FbaDocsMarker serializes"),
+        evidence: vec![evidence_for_file(
+            &marker.path,
+            FBA_EXTRACTOR_ID,
+            Some(marker.line),
+            Some(marker.line),
+        )],
+        ownership: ownership_for_file(&marker.path),
+        snapshot: snapshot.clone(),
+        extractor: FBA_EXTRACTOR_ID.to_string(),
+        confidence: 1.0,
+    }
+}
+
+fn documentation_references(content: &str) -> Vec<String> {
+    let mut references = BTreeSet::new();
+    for segment in content.split('`').skip(1).step_by(2) {
+        let reference = normalize_path(segment.trim());
+        if !reference.is_empty() {
+            references.insert(reference);
+        }
+    }
+    references.into_iter().collect()
 }
 
 fn extract_port_code(source: &SourceFile, snapshot: &SnapshotId, path: &str) -> ExtractOutput {
@@ -1360,6 +1716,15 @@ fn is_fba_registry_path(path: &str) -> bool {
         && path.ends_with("-fba-registry.json")
 }
 
+fn is_fba_readiness_board_path(path: &str) -> bool {
+    path == "docs/modules/registry.md" || path.ends_with("/docs/modules/registry.md")
+}
+
+fn is_module_implementation_plan_path(path: &str) -> bool {
+    (path.starts_with("crates/rustok-") || path.contains("/crates/rustok-"))
+        && path.ends_with("/docs/implementation-plan.md")
+}
+
 fn is_rustok_ports_path(path: &str) -> bool {
     path.starts_with("crates/rustok-")
         && (path.ends_with("/src/ports.rs")
@@ -1729,6 +2094,99 @@ mod tests {
                 .iter()
                 .all(|relation| !relation.evidence.is_empty() && !relation.ownership.is_empty())
         );
+    }
+
+    #[tokio::test]
+    async fn local_plan_missing_registry_evidence_emits_fba_docs_drift() {
+        let diagnostics = docs_diagnostics_for_sources(vec![
+            source(
+                "crates/rustok-email/contracts/email-fba-registry.json",
+                r#"{
+                    "module": "email",
+                    "role": "provider",
+                    "status": "in_progress",
+                    "contract_version": "email.delivery.v1",
+                    "evidence": {
+                        "local_plan": "crates/rustok-email/docs/implementation-plan.md",
+                        "central_board": "docs/modules/registry.md",
+                        "verifier": "scripts/verify/verify-email-fba.mjs"
+                    }
+                }"#,
+            ),
+            source(
+                "crates/rustok-email/docs/implementation-plan.md",
+                "- FBA status: `in_progress`\n- Contract: `email.delivery.v1`\n",
+            ),
+            source(
+                "docs/modules/registry.md",
+                "| `email` | none | `not_started` | `in_progress` | `no_ui_boundary` | `crates/rustok-email/docs/implementation-plan.md` `email.delivery.v1` |",
+            ),
+        ])
+        .await;
+
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == DiagnosticKind::Other("rustok_fba_docs_drift".to_string())
+                && diagnostic
+                    .message
+                    .contains("scripts/verify/verify-email-fba.mjs")
+        }));
+    }
+
+    #[tokio::test]
+    async fn stale_central_contract_version_emits_fba_docs_drift() {
+        let diagnostics = docs_diagnostics_for_sources(vec![
+            source(
+                "crates/rustok-email/contracts/email-fba-registry.json",
+                r#"{
+                    "module": "email",
+                    "role": "provider",
+                    "status": "in_progress",
+                    "contract_version": "email.delivery.v2"
+                }"#,
+            ),
+            source(
+                "crates/rustok-email/docs/implementation-plan.md",
+                "- FBA status: `in_progress`\n- Contract: `email.delivery.v2`\n",
+            ),
+            source(
+                "docs/modules/registry.md",
+                "| `email` | none | `not_started` | `in_progress` | `no_ui_boundary` | `crates/rustok-email/docs/implementation-plan.md` `email.delivery.v1` |",
+            ),
+        ])
+        .await;
+
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == DiagnosticKind::Other("rustok_fba_docs_drift".to_string())
+                && diagnostic.message.contains("central board")
+                && diagnostic.message.contains("email.delivery.v2")
+        }));
+    }
+
+    async fn docs_diagnostics_for_sources(sources: Vec<SourceFile>) -> Vec<Diagnostic> {
+        let mut entities = Vec::new();
+        let mut facts = Vec::new();
+        for source in sources {
+            let output = RustokFbaExtractor
+                .extract(ExtractInput {
+                    repo: RepoId("repo".to_string()),
+                    snapshot: SnapshotId("snap".to_string()),
+                    source,
+                })
+                .await
+                .unwrap();
+            entities.extend(output.entities);
+            facts.extend(output.facts);
+        }
+        RustokFbaChecker
+            .check(CheckInput {
+                snapshot: SnapshotId("snap".to_string()),
+                entities: Arc::new(entities),
+                facts: Arc::new(facts),
+                relations: Arc::new(Vec::new()),
+                affected: AffectedSubset::default(),
+            })
+            .await
+            .unwrap()
     }
 
     fn registry_fact(module: &str, path: &str, ports: Vec<FbaPortSpec>) -> Fact {

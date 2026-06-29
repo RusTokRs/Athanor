@@ -1,14 +1,13 @@
 ---
+entities:
+- env://CARGO_PKG_VERSION
 id: doc://docs/operations/env-cargo-pkg-version.md
 kind: operations_documentation
 language: en
+last_verified_snapshot: snap_jsonl_00000251
 source_language: en
-entities:
-  - env://CARGO_PKG_VERSION
-last_verified_snapshot: snap_jsonl_00000090
 status: verified
 ---
-
 # Environment Variable `CARGO_PKG_VERSION`
 
 ## Purpose

@@ -50,8 +50,7 @@ pub(crate) fn read_source_file_at(root: &Path, relative: &Path) -> Result<Option
         return Ok(None);
     }
 
-    let content =
-        fs::read(&path).with_context(|| format!("failed to read {}", path.display()))?;
+    let content = fs::read(&path).with_context(|| format!("failed to read {}", path.display()))?;
 
     Ok(Some(SourceFile {
         path: normalize_path(relative),

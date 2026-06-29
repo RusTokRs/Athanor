@@ -1,14 +1,13 @@
 ---
+entities:
+- script-command://.github/workflows/production.yml#github-actions:job:nightly-soak
 id: doc://docs/operations/script-script-command-github-workflows-production-yml-github-actions-job-nightly-soak.md
 kind: operations_documentation
 language: en
+last_verified_snapshot: snap_jsonl_00000251
 source_language: en
-entities:
-  - script-command://.github/workflows/production.yml#github-actions:job:nightly-soak
-last_verified_snapshot: snap_jsonl_00000167
 status: verified
 ---
-
 # Script Command `GitHub Actions job nightly-soak`
 
 ## Purpose

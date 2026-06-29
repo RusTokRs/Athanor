@@ -1,14 +1,13 @@
 ---
+entities:
+- script-command://.github/workflows/ci.yml#github-actions:job:quality:step:4:run
 id: doc://docs/operations/script-script-command-github-workflows-ci-yml-github-actions-job-quality-step-4-run.md
 kind: operations_documentation
 language: en
+last_verified_snapshot: snap_jsonl_00000251
 source_language: en
-entities:
-  - script-command://.github/workflows/ci.yml#github-actions:job:quality:step:4:run
-last_verified_snapshot: snap_jsonl_00000090
 status: verified
 ---
-
 # Script Command `GitHub Actions run step Check formatting`
 
 ## Purpose

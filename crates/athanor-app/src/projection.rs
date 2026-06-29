@@ -26,6 +26,9 @@ pub(crate) fn project_wiki_payload(
     payload: Value,
     is_cancelled: &dyn Fn() -> bool,
 ) -> Result<()> {
+    #[cfg(test)]
+    crate::ensure_test_runtime();
+
     let Some(factory) = WIKI_PROJECTOR_FACTORY.get() else {
         bail!("no Athanor wiki projector factory is installed");
     };
@@ -39,6 +42,9 @@ pub(crate) fn project_html_payload(
     payload: Value,
     is_cancelled: &dyn Fn() -> bool,
 ) -> Result<()> {
+    #[cfg(test)]
+    crate::ensure_test_runtime();
+
     let Some(factory) = HTML_PROJECTOR_FACTORY.get() else {
         bail!("no Athanor HTML projector factory is installed");
     };

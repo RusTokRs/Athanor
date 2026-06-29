@@ -2,11 +2,10 @@
 id: doc://docs/development/dart-flutter-adapter-plan.md
 kind: development_plan
 language: en
+last_verified_snapshot: snap_jsonl_00000251
 source_language: en
-last_verified_snapshot: snap_jsonl_00000222
 status: verified
 ---
-
 # Dart/Flutter Adapter Plan
 
 This is the Athanor-side plan for consuming the external DartScope library from a

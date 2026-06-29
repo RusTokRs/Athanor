@@ -1,14 +1,13 @@
 ---
+entities:
+- script-command://.github/workflows/ci.yml#github-actions:job:security
 id: doc://docs/operations/script-script-command-github-workflows-ci-yml-github-actions-job-security.md
 kind: operations_documentation
 language: en
+last_verified_snapshot: snap_jsonl_00000251
 source_language: en
-entities:
-  - script-command://.github/workflows/ci.yml#github-actions:job:security
-last_verified_snapshot: snap_jsonl_00000090
 status: verified
 ---
-
 # Script Command `GitHub Actions job Security & License Checks`
 
 ## Purpose

@@ -170,8 +170,8 @@ pub async fn check_affected(options: AffectedCheckOptions) -> Result<AffectedChe
 
     let state_store = IndexStateStore::new(root.join(".athanor/state/index-state.json"));
     let previous_state = state_store.load().context("failed to load index state")?;
-    let current_files =
-        discover_source_files(&root).context("failed to discover source files for affected check")?;
+    let current_files = discover_source_files(&root)
+        .context("failed to discover source files for affected check")?;
     let affected_files = previous_state.affected_files(&current_files);
     let affected_paths = affected_path_set(&affected_files);
     let affected_entity_ids = affected_entity_ids(&snapshot.entities, &affected_paths);
@@ -515,7 +515,7 @@ fn affected_documentation_drift(
     config: &crate::config::DocsConfig,
     affected_paths: &BTreeSet<String>,
 ) -> Vec<DriftedDocument> {
-    let mut drifted_documents = build_docs_drift_report(snapshot, entities, config)
+    let mut drifted_documents = build_docs_drift_report(snapshot, None, entities, config)
         .drifted_documents
         .into_iter()
         .filter(|document| affected_paths.contains(&document.path))

@@ -7,15 +7,16 @@ use athanor_adapter_rustok_page_builder::{
 };
 use athanor_app::{
     AdapterPluginKind, AdapterRegistry, AthanorStore, ProjectConfig, StorageMode,
-    install_builtin_adapter_resolver, install_default_adapter_registry, install_store_factory,
-    install_search_index_factory, install_html_projector_factory, install_wiki_projector_factory,
+    install_builtin_adapter_resolver, install_default_adapter_registry,
+    install_html_projector_factory, install_search_index_factory, install_store_factory,
+    install_wiki_projector_factory,
 };
-use athanor_core::{SearchDocument, SearchIndex};
 use athanor_checker_api::{
     ApiConsistencyChecker, DeploymentDocsChecker, EnvDocsChecker, RunbookConsistencyChecker,
     ScriptDocsChecker,
 };
 use athanor_checker_markdown::MarkdownStructureChecker;
+use athanor_core::{SearchDocument, SearchIndex};
 use athanor_extractor_basic::FileExtractor;
 use athanor_extractor_js_ts::JsTsExtractor;
 use athanor_extractor_markdown::MarkdownExtractor;
@@ -179,33 +180,34 @@ pub fn resolve_builtin_adapter(
     id: &str,
 ) -> Option<AdapterRegistry> {
     match (kind, id) {
-        (AdapterPluginKind::Source, "builtin.source.local_filesystem") => {
-            Some(registry.register_source_id("builtin.source.local_filesystem", |root| {
+        (AdapterPluginKind::Source, "builtin.source.local_filesystem") => Some(
+            registry.register_source_id("builtin.source.local_filesystem", |root| {
                 Box::new(LocalFileSystemSource::new(root))
-            }))
-        }
-        (AdapterPluginKind::Extractor, "builtin.extractor.file") => {
-            Some(registry.register_extractor_id("builtin.extractor.file", || Box::new(FileExtractor)))
-        }
+            }),
+        ),
+        (AdapterPluginKind::Extractor, "builtin.extractor.file") => Some(
+            registry.register_extractor_id("builtin.extractor.file", || Box::new(FileExtractor)),
+        ),
         (AdapterPluginKind::Extractor, "builtin.extractor.markdown") => Some(
             registry.register_extractor_id("builtin.extractor.markdown", || {
                 Box::new(MarkdownExtractor)
             }),
         ),
         (AdapterPluginKind::Extractor, "builtin.extractor.openapi") => Some(
-            registry.register_extractor_id("builtin.extractor.openapi", || Box::new(OpenApiExtractor)),
+            registry
+                .register_extractor_id("builtin.extractor.openapi", || Box::new(OpenApiExtractor)),
         ),
         (AdapterPluginKind::Extractor, "builtin.extractor.operations") => Some(
             registry.register_extractor_id("builtin.extractor.operations", || {
                 Box::new(OperationsExtractor)
             }),
         ),
-        (AdapterPluginKind::Extractor, "builtin.extractor.js_ts") => {
-            Some(registry.register_extractor_id("builtin.extractor.js_ts", || Box::new(JsTsExtractor)))
-        }
-        (AdapterPluginKind::Extractor, "builtin.extractor.rust") => {
-            Some(registry.register_extractor_id("builtin.extractor.rust", || Box::new(RustExtractor)))
-        }
+        (AdapterPluginKind::Extractor, "builtin.extractor.js_ts") => Some(
+            registry.register_extractor_id("builtin.extractor.js_ts", || Box::new(JsTsExtractor)),
+        ),
+        (AdapterPluginKind::Extractor, "builtin.extractor.rust") => Some(
+            registry.register_extractor_id("builtin.extractor.rust", || Box::new(RustExtractor)),
+        ),
         (AdapterPluginKind::Extractor, "builtin.extractor.rustok_ffa") => Some(
             registry.register_extractor_id("builtin.extractor.rustok_ffa", || {
                 Box::new(RustokFfaExtractor)
@@ -239,16 +241,12 @@ pub fn resolve_builtin_adapter(
         (AdapterPluginKind::Linker, "builtin.linker.rust") => {
             Some(registry.register_linker_id("builtin.linker.rust", || Box::new(RustLinker)))
         }
-        (AdapterPluginKind::Linker, "builtin.linker.rustok_ffa") => {
-            Some(registry.register_linker_id("builtin.linker.rustok_ffa", || {
-                Box::new(RustokFfaLinker)
-            }))
-        }
-        (AdapterPluginKind::Linker, "builtin.linker.rustok_fba") => {
-            Some(registry.register_linker_id("builtin.linker.rustok_fba", || {
-                Box::new(RustokFbaLinker)
-            }))
-        }
+        (AdapterPluginKind::Linker, "builtin.linker.rustok_ffa") => Some(
+            registry.register_linker_id("builtin.linker.rustok_ffa", || Box::new(RustokFfaLinker)),
+        ),
+        (AdapterPluginKind::Linker, "builtin.linker.rustok_fba") => Some(
+            registry.register_linker_id("builtin.linker.rustok_fba", || Box::new(RustokFbaLinker)),
+        ),
         (AdapterPluginKind::Linker, "builtin.linker.rustok_page_builder") => Some(
             registry.register_linker_id("builtin.linker.rustok_page_builder", || {
                 Box::new(RustokPageBuilderLinker)
@@ -264,9 +262,9 @@ pub fn resolve_builtin_adapter(
                 Box::new(ApiConsistencyChecker)
             }),
         ),
-        (AdapterPluginKind::Checker, "builtin.checker.env_docs") => {
-            Some(registry.register_checker_id("builtin.checker.env_docs", || Box::new(EnvDocsChecker)))
-        }
+        (AdapterPluginKind::Checker, "builtin.checker.env_docs") => Some(
+            registry.register_checker_id("builtin.checker.env_docs", || Box::new(EnvDocsChecker)),
+        ),
         (AdapterPluginKind::Checker, "builtin.checker.script_docs") => Some(
             registry.register_checker_id("builtin.checker.script_docs", || {
                 Box::new(ScriptDocsChecker)
@@ -282,16 +280,14 @@ pub fn resolve_builtin_adapter(
                 Box::new(RunbookConsistencyChecker)
             }),
         ),
-        (AdapterPluginKind::Checker, "builtin.checker.rustok_ffa") => {
-            Some(registry.register_checker_id("builtin.checker.rustok_ffa", || {
-                Box::new(RustokFfaChecker)
-            }))
-        }
-        (AdapterPluginKind::Checker, "builtin.checker.rustok_fba") => {
-            Some(registry.register_checker_id("builtin.checker.rustok_fba", || {
-                Box::new(RustokFbaChecker)
-            }))
-        }
+        (AdapterPluginKind::Checker, "builtin.checker.rustok_ffa") => Some(
+            registry
+                .register_checker_id("builtin.checker.rustok_ffa", || Box::new(RustokFfaChecker)),
+        ),
+        (AdapterPluginKind::Checker, "builtin.checker.rustok_fba") => Some(
+            registry
+                .register_checker_id("builtin.checker.rustok_fba", || Box::new(RustokFbaChecker)),
+        ),
         (AdapterPluginKind::Checker, "builtin.checker.rustok_page_builder") => Some(
             registry.register_checker_id("builtin.checker.rustok_page_builder", || {
                 Box::new(RustokPageBuilderChecker)

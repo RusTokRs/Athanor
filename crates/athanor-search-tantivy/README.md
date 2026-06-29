@@ -19,3 +19,7 @@ keeping incremental single-document updates available through the `SearchIndex` 
 Incremental writer instances disable background segment merging because loaded Tantivy readers
 can retain memory-mapped segment files on Windows; the next full snapshot rebuild compacts the
 disposable index.
+
+Writer commits use a short bounded retry only for `PermissionDenied` I/O failures. This covers
+transient Windows mmap/antivirus file-lock races without retrying schema, lock ownership, or other
+deterministic Tantivy errors.

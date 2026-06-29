@@ -6,7 +6,7 @@ use serde_json::Value;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use tantivy::{
-    Index, IndexReader, IndexWriter, TantivyDocument,
+    Index, IndexReader, IndexWriter, TantivyDocument, TantivyError,
     collector::TopDocs,
     doc,
     indexer::NoMergePolicy,
@@ -16,6 +16,8 @@ use tantivy::{
         Value as TantivyValue,
     },
 };
+
+const COMMIT_PERMISSION_RETRIES: usize = 3;
 
 pub struct TantivySearchIndex {
     index: Index,
@@ -77,11 +79,30 @@ impl TantivySearchIndex {
                 fields.payload => payload,
             ))?;
         }
-        writer.commit()?;
+        commit_writer(&mut writer)?;
         drop(writer);
 
         Self::open_or_create(path)
     }
+}
+
+fn commit_writer(writer: &mut IndexWriter) -> tantivy::Result<()> {
+    for attempt in 0..=COMMIT_PERMISSION_RETRIES {
+        match writer.commit() {
+            Ok(_) => return Ok(()),
+            Err(error)
+                if attempt < COMMIT_PERMISSION_RETRIES && is_transient_permission_error(&error) =>
+            {
+                std::thread::sleep(std::time::Duration::from_millis(10 * (attempt as u64 + 1)));
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    unreachable!("bounded commit retry loop always returns")
+}
+
+fn is_transient_permission_error(error: &TantivyError) -> bool {
+    matches!(error, TantivyError::IoError(error) if error.kind() == std::io::ErrorKind::PermissionDenied)
 }
 
 struct SearchFields {
@@ -153,8 +174,7 @@ impl SearchIndex for TantivySearchIndex {
             ))
             .map_err(|e| CoreError::Adapter(format!("Tantivy index error: {e}")))?;
 
-        writer
-            .commit()
+        commit_writer(&mut writer)
             .map_err(|e| CoreError::Adapter(format!("Tantivy writer commit error: {e}")))?;
 
         self.reader
@@ -172,8 +192,7 @@ impl SearchIndex for TantivySearchIndex {
         let term = tantivy::Term::from_field_text(self.id_field, id);
         writer.delete_term(term);
 
-        writer
-            .commit()
+        commit_writer(&mut writer)
             .map_err(|e| CoreError::Adapter(format!("Tantivy writer commit error: {e}")))?;
 
         self.reader
@@ -229,6 +248,18 @@ impl SearchIndex for TantivySearchIndex {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn retries_only_permission_denied_io_errors() {
+        let denied = TantivyError::IoError(Arc::new(std::io::Error::from(
+            std::io::ErrorKind::PermissionDenied,
+        )));
+        let missing =
+            TantivyError::IoError(Arc::new(std::io::Error::from(std::io::ErrorKind::NotFound)));
+
+        assert!(is_transient_permission_error(&denied));
+        assert!(!is_transient_permission_error(&missing));
+    }
 
     #[tokio::test]
     async fn test_tantivy_search_index() {

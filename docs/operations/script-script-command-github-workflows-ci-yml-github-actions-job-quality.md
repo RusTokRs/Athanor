@@ -1,14 +1,13 @@
 ---
+entities:
+- script-command://.github/workflows/ci.yml#github-actions:job:quality
 id: doc://docs/operations/script-script-command-github-workflows-ci-yml-github-actions-job-quality.md
 kind: operations_documentation
 language: en
+last_verified_snapshot: snap_jsonl_00000251
 source_language: en
-entities:
-  - script-command://.github/workflows/ci.yml#github-actions:job:quality
-last_verified_snapshot: snap_jsonl_00000090
 status: verified
 ---
-
 # Script Command `GitHub Actions job Rust 1.95 / ${{ matrix.os }}`
 
 ## Purpose

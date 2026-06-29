@@ -2,11 +2,10 @@
 id: doc://docs/adapters/extractor-js-ts.md
 kind: adapter
 language: en
+last_verified_snapshot: snap_jsonl_00000251
 source_language: en
-last_verified_snapshot: snap_jsonl_00000222
 status: verified
 ---
-
 # JavaScript/TypeScript Extractor
 
 Crate: `athanor-extractor-js-ts`

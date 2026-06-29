@@ -24,3 +24,11 @@ The linker connects surfaces to layers with `contains` and layers to files with 
 ## Diagnostics
 
 The checker emits FFA-only diagnostics with ids prefixed by `rustok_ffa_`, including core Leptos imports, raw UI transport calls, missing FFA layers, missing transport profiles, host-owned module UI, and duplicate readiness-board entries.
+
+The audit summary reports observed, actionable, scaffold, and host-wiring surface counts
+separately. Scaffold and host-wiring rows remain visible without inflating the actionable
+completion count.
+
+Actionable rows expose core, transport, and explicit UI-adapter presence as a three-requirement
+structural numerator/denominator with an integer percentage. Non-actionable rows report no
+percentage, and open diagnostics remain visible independently.

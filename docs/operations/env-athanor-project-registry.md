@@ -1,14 +1,13 @@
 ---
+entities:
+- env://ATHANOR_PROJECT_REGISTRY
 id: doc://docs/operations/env-athanor-project-registry.md
 kind: operations_documentation
 language: en
+last_verified_snapshot: snap_jsonl_00000251
 source_language: en
-entities:
-  - env://ATHANOR_PROJECT_REGISTRY
-last_verified_snapshot: snap_jsonl_00000167
 status: verified
 ---
-
 # Environment Variable `ATHANOR_PROJECT_REGISTRY`
 
 ## Purpose

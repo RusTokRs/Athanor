@@ -1,14 +1,13 @@
 ---
+entities:
+- script-command://.github/workflows/release.yml#github-actions:job:publish:step:2:uses
 id: doc://docs/operations/script-script-command-github-workflows-release-yml-github-actions-job-publish-step-2-uses.md
 kind: operations_documentation
 language: en
+last_verified_snapshot: snap_jsonl_00000251
 source_language: en
-entities:
-  - script-command://.github/workflows/release.yml#github-actions:job:publish:step:2:uses
-last_verified_snapshot: snap_jsonl_00000167
 status: verified
 ---
-
 # Script Command `GitHub Actions uses step publish step 2`
 
 ## Purpose

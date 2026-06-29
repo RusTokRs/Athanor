@@ -8,7 +8,9 @@ use athanor_core::{
     AffectedSubset, CanonicalSnapshot, CheckInput, Checker, ExtractInput, Extractor,
     KnowledgeStore, LinkInput, Linker, SourceFile, SourceProvider,
 };
-use athanor_domain::{Diagnostic, Entity, Fact, Relation, RepoId, SnapshotBase, SnapshotId};
+use athanor_domain::{
+    Diagnostic, DiagnosticKind, Entity, Fact, Relation, RepoId, SnapshotBase, SnapshotId,
+};
 use serde::Serialize;
 use serde_json::Value;
 use tracing::{Instrument, debug, debug_span, error, info};
@@ -374,6 +376,41 @@ impl IndexPipeline {
         metrics.changed_files = affected_files.changed.len();
         metrics.unchanged_files = affected_files.unchanged.len();
         metrics.removed_files = affected_files.removed.len();
+
+        if previous_snapshot_available
+            && affected_files.changed.is_empty()
+            && affected_files.removed.is_empty()
+            && let Some(previous) = incremental.previous_snapshot.as_ref()
+        {
+            let snapshot = previous
+                .snapshot
+                .clone()
+                .context("previous canonical snapshot has no snapshot id")?;
+            metrics.files_to_extract = 0;
+            metrics.entities = previous.entities.len();
+            metrics.facts = previous.facts.len();
+            metrics.relations = previous.relations.len();
+            metrics.diagnostics = previous.diagnostics.len();
+            metrics.total_ms = elapsed_ms(pipeline_started.elapsed());
+            metrics.adapters = aggregate_adapter_metrics(metrics.adapters);
+
+            info!(
+                snapshot = snapshot.0,
+                unchanged_files = affected_files.unchanged.len(),
+                "skipping canonical snapshot creation because no source files changed"
+            );
+
+            return Ok(IndexPipelineOutput {
+                snapshot,
+                files,
+                entities: previous.entities.clone(),
+                facts: previous.facts.clone(),
+                relations: previous.relations.clone(),
+                diagnostics: previous.diagnostics.clone(),
+                affected_files,
+                metrics,
+            });
+        }
 
         let snapshot_started = Instant::now();
         let snapshot = self
@@ -1005,6 +1042,7 @@ fn carried_forward_read_model(
                 .iter()
                 .all(|entity| entity_ids.contains(entity))
                 && !diagnostic_owned_by_any_path(diagnostic, &affected_paths)
+                && !diagnostic_invalidated_by_changed_path(diagnostic, &affected_paths)
         })
         .map(|mut diagnostic| {
             diagnostic.snapshot = snapshot.clone();
@@ -1070,6 +1108,32 @@ fn relation_owned_by_any_path(relation: &Relation, paths: &BTreeSet<String>) -> 
 fn diagnostic_owned_by_any_path(diagnostic: &Diagnostic, paths: &BTreeSet<String>) -> bool {
     ownership_belongs_to_any_path(&diagnostic.ownership, paths)
         || evidence_belongs_to_any_path(&diagnostic.evidence, paths)
+}
+
+fn diagnostic_invalidated_by_changed_path(
+    diagnostic: &Diagnostic,
+    changed_paths: &BTreeSet<String>,
+) -> bool {
+    let DiagnosticKind::Other(kind) = &diagnostic.kind else {
+        return false;
+    };
+    kind.starts_with("rustok_ffa_")
+        && changed_paths
+            .iter()
+            .any(|path| is_rustok_ffa_input_path(path))
+}
+
+fn is_rustok_ffa_input_path(path: &str) -> bool {
+    path == "docs/modules/registry.md"
+        || path.ends_with("/docs/modules/registry.md")
+        || ((path.starts_with("crates/rustok-") || path.contains("/crates/rustok-"))
+            && (path.ends_with("/docs/implementation-plan.md")
+                || path.contains("/admin/")
+                || path.contains("/storefront/")))
+        || path.starts_with("apps/admin/")
+        || path.starts_with("apps/storefront/")
+        || path.contains("/apps/admin/")
+        || path.contains("/apps/storefront/")
 }
 
 fn ownership_belongs_to_any_path(
@@ -1149,6 +1213,35 @@ mod tests {
         );
 
         assert!(relations.is_empty());
+    }
+
+    #[test]
+    fn prunes_rustok_ffa_diagnostics_when_related_plan_changes() {
+        let snapshot = SnapshotId("snap_next".to_string());
+        let entity = entity("ent_left", "docs/modules/registry.md");
+        let mut diagnostic = diagnostic(
+            "diag_rustok_ffa_docs_drift",
+            "stale docs drift",
+            "snap_previous",
+        );
+        diagnostic.kind = DiagnosticKind::Other("rustok_ffa_docs_drift".to_string());
+        diagnostic.evidence = vec![evidence("docs/modules/registry.md")];
+        diagnostic.ownership = vec![ownership("docs/modules/registry.md")];
+
+        let (_, _, _, diagnostics) = carried_forward_read_model(
+            Some(CanonicalSnapshot {
+                snapshot: Some(SnapshotId("snap_previous".to_string())),
+                entities: vec![entity],
+                facts: Vec::new(),
+                relations: Vec::new(),
+                diagnostics: vec![diagnostic],
+            }),
+            &snapshot,
+            &BTreeSet::from(["crates/rustok-ai-content/docs/implementation-plan.md".to_string()]),
+            &BTreeSet::new(),
+        );
+
+        assert!(diagnostics.is_empty());
     }
 
     #[test]

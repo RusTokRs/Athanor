@@ -320,9 +320,18 @@ pub struct RustokFfaAudit {
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct RustokFfaAuditSummary {
+    pub observed_surfaces: usize,
     pub surfaces_total: usize,
     pub core_transport_ui: usize,
     pub incomplete: usize,
+    pub requirements_met: usize,
+    pub requirements_total: usize,
+    pub completion_percent: Option<u8>,
+    pub missing_core: usize,
+    pub missing_transport: usize,
+    pub missing_ui_adapter: usize,
+    pub scaffold_surfaces: usize,
+    pub host_wiring_surfaces: usize,
     pub diagnostics_open: usize,
 }
 
@@ -332,6 +341,15 @@ pub struct RustokFfaAuditSurface {
     pub module: String,
     pub surface: String,
     pub shape: String,
+    pub actionable: bool,
+    pub requirements_met: usize,
+    pub requirements_total: usize,
+    pub completion_percent: Option<u8>,
+    pub core_present: bool,
+    pub transport_present: bool,
+    pub ui_adapter_present: bool,
+    pub host_wiring_present: bool,
+    pub diagnostics_open: usize,
     pub layers: Vec<String>,
     pub files: Vec<String>,
     pub diagnostics: Vec<String>,
@@ -375,6 +393,18 @@ pub struct RustokFbaAudit {
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct RustokFbaAuditSummary {
     pub modules_total: usize,
+    pub registered_modules: usize,
+    pub dependency_only_modules: usize,
+    pub in_progress_modules: usize,
+    pub status_unknown_modules: usize,
+    pub requirements_met: usize,
+    pub requirements_total: usize,
+    pub completion_percent: Option<u8>,
+    pub modules_with_port_code: usize,
+    pub modules_with_complete_operations: usize,
+    pub modules_with_evidence: usize,
+    pub dependency_edges_resolved: usize,
+    pub dependency_edges_total: usize,
     pub provider_modules: usize,
     pub consumer_modules: usize,
     pub ports_total: usize,
@@ -388,6 +418,20 @@ pub struct RustokFbaAuditModule {
     pub module: String,
     pub role: Option<String>,
     pub status: Option<String>,
+    pub registry_present: bool,
+    pub requirements_met: usize,
+    pub requirements_total: usize,
+    pub completion_percent: Option<u8>,
+    pub port_code_present: Option<bool>,
+    pub port_traits_present: Option<bool>,
+    pub operations_implemented: Option<bool>,
+    pub context_present: Option<bool>,
+    pub error_present: Option<bool>,
+    pub policy_present: Option<bool>,
+    pub evidence_present: Option<bool>,
+    pub contract_tests_present: Option<bool>,
+    pub write_idempotency_present: Option<bool>,
+    pub dependencies_resolved: Option<bool>,
     pub contract_version: Option<String>,
     pub ports: Vec<String>,
     pub operations: Vec<String>,
@@ -862,11 +906,83 @@ pub fn build_rustok_fba_audit(snapshot: &CanonicalSnapshot) -> RustokFbaAudit {
                 .get(&module)
                 .cloned()
                 .unwrap_or_default();
+            let diagnostic_absent =
+                |kind: &str| !diagnostics.iter().any(|diagnostic| diagnostic == kind);
+            let has_declared_ports = details.declared_ports > 0;
+            let has_declared_operations = details.declared_operations > 0;
+            let has_dependencies = !dependencies.is_empty();
+            let port_code_present = has_declared_ports.then_some(details.port_code_present);
+            let port_traits_present =
+                has_declared_ports.then(|| diagnostic_absent("rustok_fba_port_trait_missing"));
+            let port_traits_are_present = port_traits_present.unwrap_or(false);
+            let operations_implemented = has_declared_operations.then(|| {
+                port_traits_are_present && diagnostic_absent("rustok_fba_port_operation_missing")
+            });
+            let context_present = has_declared_ports.then(|| {
+                port_traits_are_present && diagnostic_absent("rustok_fba_context_missing")
+            });
+            let error_present = has_declared_ports
+                .then(|| port_traits_are_present && diagnostic_absent("rustok_fba_error_missing"));
+            let policy_present = details
+                .requires_policy
+                .then(|| port_traits_are_present && diagnostic_absent("rustok_fba_policy_missing"));
+            let evidence_present = details
+                .registry_present
+                .then(|| diagnostic_absent("rustok_fba_evidence_missing"));
+            let contract_tests_present =
+                has_declared_ports.then(|| diagnostic_absent("rustok_fba_contract_tests_missing"));
+            let write_idempotency_present = details
+                .requires_idempotency
+                .then(|| diagnostic_absent("rustok_fba_write_idempotency_missing"));
+            let dependencies_resolved = has_dependencies
+                .then(|| diagnostic_absent("rustok_fba_consumer_provider_unresolved"));
+            let requirement_values = [
+                port_code_present,
+                port_traits_present,
+                operations_implemented,
+                context_present,
+                error_present,
+                policy_present,
+                evidence_present,
+                contract_tests_present,
+                write_idempotency_present,
+                dependencies_resolved,
+            ];
+            let requirements_total = if details.registry_present {
+                1 + requirement_values
+                    .iter()
+                    .filter(|value| value.is_some())
+                    .count()
+            } else {
+                0
+            };
+            let requirements_met = if details.registry_present {
+                1 + requirement_values
+                    .iter()
+                    .filter(|value| **value == Some(true))
+                    .count()
+            } else {
+                0
+            };
             RustokFbaAuditModule {
                 id: format!("fba_module://{module}"),
                 module,
                 role: details.role,
                 status: details.status,
+                registry_present: details.registry_present,
+                requirements_met,
+                requirements_total,
+                completion_percent: completion_percent(requirements_met, requirements_total),
+                port_code_present,
+                port_traits_present,
+                operations_implemented,
+                context_present,
+                error_present,
+                policy_present,
+                evidence_present,
+                contract_tests_present,
+                write_idempotency_present,
+                dependencies_resolved,
                 contract_version: details.contract_version,
                 ports,
                 operations,
@@ -890,18 +1006,71 @@ pub fn build_rustok_fba_audit(snapshot: &CanonicalSnapshot) -> RustokFbaAudit {
             )
         })
         .count();
+    let registered_modules = modules
+        .iter()
+        .filter(|module| module.registry_present)
+        .count();
+    let registered_module_ids = modules
+        .iter()
+        .filter(|module| module.registry_present)
+        .map(|module| module.module.as_str())
+        .collect::<BTreeSet<_>>();
+    let in_progress_modules = modules
+        .iter()
+        .filter(|module| module.status.as_deref() == Some("in_progress"))
+        .count();
+    let status_unknown_modules = modules
+        .iter()
+        .filter(|module| module.status.is_none())
+        .count();
     let ports_total = modules.iter().map(|module| module.ports.len()).sum();
     let operations_total = modules.iter().map(|module| module.operations.len()).sum();
     let diagnostics_open = modules
         .iter()
         .map(|module| module.diagnostics.len())
         .sum::<usize>();
+    let requirements_met = modules.iter().map(|module| module.requirements_met).sum();
+    let requirements_total = modules.iter().map(|module| module.requirements_total).sum();
+    let modules_with_port_code = modules
+        .iter()
+        .filter(|module| module.port_code_present == Some(true))
+        .count();
+    let modules_with_complete_operations = modules
+        .iter()
+        .filter(|module| module.operations_implemented == Some(true))
+        .count();
+    let modules_with_evidence = modules
+        .iter()
+        .filter(|module| module.evidence_present == Some(true))
+        .count();
+    let dependency_edges_total = modules.iter().map(|module| module.dependencies.len()).sum();
+    let dependency_edges_resolved = modules
+        .iter()
+        .flat_map(|module| module.dependencies.iter())
+        .filter(|dependency| {
+            dependency
+                .split_once(':')
+                .is_some_and(|(provider, _)| registered_module_ids.contains(provider))
+        })
+        .count();
 
     RustokFbaAudit {
         schema: RUSTOK_FBA_AUDIT_SCHEMA.to_string(),
         snapshot: snapshot_id,
         summary: RustokFbaAuditSummary {
             modules_total: modules.len(),
+            registered_modules,
+            dependency_only_modules: modules.len().saturating_sub(registered_modules),
+            in_progress_modules,
+            status_unknown_modules,
+            requirements_met,
+            requirements_total,
+            completion_percent: completion_percent(requirements_met, requirements_total),
+            modules_with_port_code,
+            modules_with_complete_operations,
+            modules_with_evidence,
+            dependency_edges_resolved,
+            dependency_edges_total,
             provider_modules,
             consumer_modules,
             ports_total,
@@ -1339,7 +1508,7 @@ pub fn build_rustok_fba_violations_graph(
         };
         let module_key = format!("fba_module://{diag_module}");
         node_keys.insert(module_key.clone());
-        if let Some(port) = diagnostic
+        let evidence_root = if let Some(port) = diagnostic
             .payload
             .get("port")
             .and_then(serde_json::Value::as_str)
@@ -1352,29 +1521,27 @@ pub fn build_rustok_fba_violations_graph(
                 kind: "violates".to_string(),
                 evidence: diagnostic_evidence(diagnostic),
             });
-            if let Some(path) = diagnostic
-                .payload
-                .get("path")
-                .and_then(serde_json::Value::as_str)
-            {
-                let file_key = format!("file://{path}");
-                node_keys.insert(file_key.clone());
-                edges.push(RustokFbaGraphEdge {
-                    from: port_key,
-                    to: file_key,
-                    kind: "evidenced_by".to_string(),
-                    evidence: diagnostic_evidence(diagnostic),
-                });
-            }
-        } else if let Some(path) = diagnostic
+            port_key
+        } else {
+            module_key
+        };
+        let mut evidence_paths = diagnostic
+            .evidence
+            .iter()
+            .filter_map(|evidence| evidence.source_file.as_deref())
+            .collect::<BTreeSet<_>>();
+        if let Some(path) = diagnostic
             .payload
             .get("path")
             .and_then(serde_json::Value::as_str)
         {
+            evidence_paths.insert(path);
+        }
+        for path in evidence_paths {
             let file_key = format!("file://{path}");
             node_keys.insert(file_key.clone());
             edges.push(RustokFbaGraphEdge {
-                from: module_key,
+                from: evidence_root.clone(),
                 to: file_key,
                 kind: "evidenced_by".to_string(),
                 evidence: diagnostic_evidence(diagnostic),
@@ -1417,11 +1584,35 @@ pub fn build_rustok_ffa_audit(snapshot: &CanonicalSnapshot) -> RustokFfaAudit {
                 .get(&key)
                 .cloned()
                 .unwrap_or_default();
+            let shape = ffa_shape(&layers);
+            let actionable = !matches!(shape.as_str(), "host_wiring" | "scaffold");
+            let core_present = layers.iter().any(|layer| layer == "core");
+            let transport_present = layers.iter().any(|layer| layer == "transport");
+            let ui_adapter_present = layers.iter().any(|layer| layer == "ui_leptos");
+            let host_wiring_present = layers.iter().any(|layer| layer == "host_wiring");
+            let requirements_met = if actionable {
+                [core_present, transport_present, ui_adapter_present]
+                    .into_iter()
+                    .filter(|present| *present)
+                    .count()
+            } else {
+                0
+            };
+            let requirements_total = usize::from(actionable) * 3;
             RustokFfaAuditSurface {
                 id: format!("ffa_surface://{module}/{surface}"),
                 module,
                 surface,
-                shape: ffa_shape(&layers),
+                shape,
+                actionable,
+                requirements_met,
+                requirements_total,
+                completion_percent: completion_percent(requirements_met, requirements_total),
+                core_present,
+                transport_present,
+                ui_adapter_present,
+                host_wiring_present,
+                diagnostics_open: diagnostics.len(),
                 layers,
                 files,
                 diagnostics,
@@ -1435,6 +1626,14 @@ pub fn build_rustok_ffa_audit(snapshot: &CanonicalSnapshot) -> RustokFfaAudit {
         .iter()
         .filter(|surface| !matches!(surface.shape.as_str(), "host_wiring" | "scaffold"))
         .count();
+    let scaffold_surfaces = surfaces
+        .iter()
+        .filter(|surface| surface.shape == "scaffold")
+        .count();
+    let host_wiring_surfaces = surfaces
+        .iter()
+        .filter(|surface| surface.shape == "host_wiring")
+        .count();
     let core_transport_ui = surfaces
         .iter()
         .filter(|surface| surface.shape == "core_transport_ui")
@@ -1443,14 +1642,43 @@ pub fn build_rustok_ffa_audit(snapshot: &CanonicalSnapshot) -> RustokFfaAudit {
         .iter()
         .map(|surface| surface.diagnostics.len())
         .sum::<usize>();
+    let requirements_met = surfaces
+        .iter()
+        .map(|surface| surface.requirements_met)
+        .sum();
+    let requirements_total = surfaces
+        .iter()
+        .map(|surface| surface.requirements_total)
+        .sum();
+    let missing_core = surfaces
+        .iter()
+        .filter(|surface| surface.actionable && !surface.core_present)
+        .count();
+    let missing_transport = surfaces
+        .iter()
+        .filter(|surface| surface.actionable && !surface.transport_present)
+        .count();
+    let missing_ui_adapter = surfaces
+        .iter()
+        .filter(|surface| surface.actionable && !surface.ui_adapter_present)
+        .count();
 
     RustokFfaAudit {
         schema: RUSTOK_FFA_AUDIT_SCHEMA.to_string(),
         snapshot: snapshot_id,
         summary: RustokFfaAuditSummary {
+            observed_surfaces: surfaces.len(),
             surfaces_total: actionable_surfaces,
             core_transport_ui,
             incomplete: actionable_surfaces.saturating_sub(core_transport_ui),
+            requirements_met,
+            requirements_total,
+            completion_percent: completion_percent(requirements_met, requirements_total),
+            missing_core,
+            missing_transport,
+            missing_ui_adapter,
+            scaffold_surfaces,
+            host_wiring_surfaces,
             diagnostics_open,
         },
         surfaces,
@@ -2677,6 +2905,12 @@ fn page_builder_diagnostics(snapshot: &CanonicalSnapshot, module: Option<&str>) 
 
 #[derive(Debug, Default)]
 struct FbaModuleDetails {
+    registry_present: bool,
+    port_code_present: bool,
+    declared_ports: usize,
+    declared_operations: usize,
+    requires_policy: bool,
+    requires_idempotency: bool,
     role: Option<String>,
     status: Option<String>,
     contract_version: Option<String>,
@@ -2743,6 +2977,29 @@ fn fba_module_index(snapshot: &CanonicalSnapshot) -> BTreeMap<String, FbaModuleD
             && let Some(module) = fact.value.get("module").and_then(serde_json::Value::as_str)
         {
             let details = index.entry(module.to_string()).or_default();
+            details.registry_present = true;
+            if let Some(ports) = fact
+                .value
+                .get("ports")
+                .and_then(serde_json::Value::as_array)
+            {
+                details.declared_ports = ports.len();
+                details.declared_operations = ports
+                    .iter()
+                    .filter_map(|port| port.get("operations").and_then(serde_json::Value::as_array))
+                    .map(Vec::len)
+                    .sum();
+                details.requires_policy = ports.iter().any(|port| {
+                    port.get("deadline_required")
+                        .and_then(serde_json::Value::as_bool)
+                        .unwrap_or(false)
+                });
+                details.requires_idempotency = ports.iter().any(|port| {
+                    port.get("idempotency_required")
+                        .and_then(serde_json::Value::as_bool)
+                        .unwrap_or(false)
+                });
+            }
             details.role = fact
                 .value
                 .get("role")
@@ -2761,6 +3018,14 @@ fn fba_module_index(snapshot: &CanonicalSnapshot) -> BTreeMap<String, FbaModuleD
                 .and_then(serde_json::Value::as_str)
                 .map(str::to_string)
                 .or(details.contract_version.take());
+        }
+        if matches!(&fact.kind, athanor_domain::FactKind::Other(kind) if kind == "rustok_fba_port_code")
+            && let Some(module) = fact.value.get("module").and_then(serde_json::Value::as_str)
+        {
+            index
+                .entry(module.to_string())
+                .or_default()
+                .port_code_present = true;
         }
     }
     index
@@ -3016,6 +3281,10 @@ fn ffa_shape(layers: &[String]) -> String {
     .to_string()
 }
 
+fn completion_percent(completed: usize, total: usize) -> Option<u8> {
+    (total > 0).then(|| ((completed * 100 + total / 2) / total).min(100) as u8)
+}
+
 fn parse_ffa_surface_key(stable_key: &str) -> Option<(&str, &str)> {
     let rest = stable_key.strip_prefix("ffa_surface://")?;
     let mut parts = rest.split('/');
@@ -3137,8 +3406,8 @@ fn serialized_name(value: &impl serde::Serialize) -> String {
 mod tests {
     use athanor_core::CanonicalSnapshot;
     use athanor_domain::{
-        EntityId, EntityKind, Evidence, EvidenceStatus, RelationId, RelationKind, RelationStatus,
-        SnapshotId, SourceLocation, StableKey,
+        EntityId, EntityKind, Evidence, EvidenceStatus, Fact, FactId, FactKind, RelationId,
+        RelationKind, RelationStatus, SnapshotId, SourceLocation, StableKey,
     };
     use serde_json::json;
 
@@ -4005,6 +4274,63 @@ mod tests {
         );
     }
 
+    #[test]
+    fn fba_violations_graph_includes_every_diagnostic_evidence_file() {
+        let module = entity(
+            "ent_fba_module",
+            "fba_module://inventory",
+            EntityKind::Other("rustok_fba_module".to_string()),
+            "inventory",
+        );
+        let registry = entity(
+            "ent_registry_file",
+            "file://crates/rustok-inventory/contracts/inventory-fba-registry.json",
+            EntityKind::File,
+            "inventory-fba-registry.json",
+        );
+        let plan = entity(
+            "ent_plan_file",
+            "file://crates/rustok-inventory/docs/implementation-plan.md",
+            EntityKind::File,
+            "implementation-plan.md",
+        );
+        let mut diagnostic = fba_diagnostic(
+            "diag_docs_drift",
+            "rustok_fba_docs_drift",
+            "inventory",
+            None,
+            Some("crates/rustok-inventory/contracts/inventory-fba-registry.json"),
+        );
+        diagnostic.evidence.push(Evidence {
+            source_file: Some("crates/rustok-inventory/docs/implementation-plan.md".to_string()),
+            line_start: Some(20),
+            line_end: Some(20),
+            extractor: Some("test".to_string()),
+            commit_hash: None,
+            confidence: 1.0,
+            status: EvidenceStatus::Verified,
+        });
+        let snapshot = CanonicalSnapshot {
+            entities: vec![module, registry, plan],
+            diagnostics: vec![diagnostic],
+            ..CanonicalSnapshot::default()
+        };
+
+        let graph = build_rustok_fba_violations_graph(&snapshot, Some("inventory"), 80, 160);
+
+        assert!(graph.nodes.iter().any(|node| {
+            node.id == "file://crates/rustok-inventory/docs/implementation-plan.md"
+        }));
+        assert_eq!(
+            graph
+                .edges
+                .iter()
+                .filter(|edge| edge.kind == "evidenced_by")
+                .count(),
+            2
+        );
+    }
+
     fn entity(id: &str, stable_key: &str, kind: EntityKind, name: &str) -> Entity {
         Entity {
             id: EntityId(id.to_string()),
@@ -4139,5 +4465,325 @@ mod tests {
             ]),
             "core_transport_ui"
         );
+    }
+
+    #[test]
+    fn ffa_audit_summary_exposes_scaffold_and_host_wiring_rows() {
+        let complete = entity(
+            "ent_complete",
+            "ffa_surface://blog/admin",
+            EntityKind::Other("rustok_ffa_surface".to_string()),
+            "blog/admin",
+        );
+        let scaffold = entity(
+            "ent_scaffold",
+            "ffa_surface://draft/admin",
+            EntityKind::Other("rustok_ffa_surface".to_string()),
+            "draft/admin",
+        );
+        let partial = entity(
+            "ent_partial",
+            "ffa_surface://partial/admin",
+            EntityKind::Other("rustok_ffa_surface".to_string()),
+            "partial/admin",
+        );
+        let host = entity(
+            "ent_host",
+            "ffa_surface://host/admin",
+            EntityKind::Other("rustok_ffa_surface".to_string()),
+            "host/admin",
+        );
+        let layers = [
+            ("core", &complete),
+            ("transport", &complete),
+            ("ui_leptos", &complete),
+            ("core", &partial),
+            ("manifest", &scaffold),
+            ("host_wiring", &host),
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(index, (role, surface))| {
+            let module_surface = surface.stable_key.0.trim_start_matches("ffa_surface://");
+            let layer = entity(
+                &format!("ent_layer_{index}"),
+                &format!("ffa_layer://{module_surface}/{role}"),
+                EntityKind::Other("rustok_ffa_layer".to_string()),
+                role,
+            );
+            (surface.clone(), layer)
+        })
+        .collect::<Vec<_>>();
+        let snapshot = CanonicalSnapshot {
+            entities: vec![complete, partial, scaffold, host]
+                .into_iter()
+                .chain(layers.iter().map(|(_, layer)| layer.clone()))
+                .collect(),
+            relations: layers
+                .iter()
+                .enumerate()
+                .map(|(index, (surface, layer))| {
+                    relation(
+                        &format!("rel_surface_layer_{index}"),
+                        RelationKind::Contains,
+                        surface,
+                        layer,
+                    )
+                })
+                .collect(),
+            ..CanonicalSnapshot::default()
+        };
+
+        let report = build_rustok_ffa_audit(&snapshot);
+
+        assert_eq!(report.summary.observed_surfaces, 4);
+        assert_eq!(report.summary.surfaces_total, 2);
+        assert_eq!(report.summary.core_transport_ui, 1);
+        assert_eq!(report.summary.incomplete, 1);
+        assert_eq!(report.summary.requirements_met, 4);
+        assert_eq!(report.summary.requirements_total, 6);
+        assert_eq!(report.summary.completion_percent, Some(67));
+        assert_eq!(report.summary.missing_core, 0);
+        assert_eq!(report.summary.missing_transport, 1);
+        assert_eq!(report.summary.missing_ui_adapter, 1);
+        assert_eq!(report.summary.scaffold_surfaces, 1);
+        assert_eq!(report.summary.host_wiring_surfaces, 1);
+        let scaffold = report
+            .surfaces
+            .iter()
+            .find(|surface| surface.shape == "scaffold")
+            .unwrap();
+        assert!(!scaffold.actionable);
+        assert_eq!(scaffold.completion_percent, None);
+    }
+
+    #[test]
+    fn fba_audit_summary_separates_registered_and_dependency_only_modules() {
+        let provider = entity(
+            "ent_provider",
+            "fba_module://inventory",
+            EntityKind::Other("rustok_fba_module".to_string()),
+            "inventory",
+        );
+        let dependency_only = entity(
+            "ent_consumer",
+            "fba_module://checkout-host",
+            EntityKind::Other("rustok_fba_module".to_string()),
+            "checkout-host",
+        );
+        let snapshot = CanonicalSnapshot {
+            entities: vec![provider.clone(), dependency_only],
+            facts: vec![
+                Fact {
+                    id: FactId("fact_inventory_registry".to_string()),
+                    kind: FactKind::Other("rustok_fba_registry".to_string()),
+                    subject: provider.id.clone(),
+                    object: None,
+                    value: json!({
+                        "module": "inventory",
+                        "role": "provider",
+                        "status": "in_progress",
+                        "contract_version": "inventory.v1",
+                        "ports": [{
+                            "name": "InventoryPort",
+                            "operations": ["reserve"],
+                            "deadline_required": true,
+                            "idempotency_required": true
+                        }]
+                    }),
+                    evidence: Vec::new(),
+                    ownership: Vec::new(),
+                    snapshot: SnapshotId("snap_test".to_string()),
+                    extractor: "test".to_string(),
+                    confidence: 1.0,
+                },
+                Fact {
+                    id: FactId("fact_inventory_code".to_string()),
+                    kind: FactKind::Other("rustok_fba_port_code".to_string()),
+                    subject: provider.id,
+                    object: None,
+                    value: json!({"module": "inventory"}),
+                    evidence: Vec::new(),
+                    ownership: Vec::new(),
+                    snapshot: SnapshotId("snap_test".to_string()),
+                    extractor: "test".to_string(),
+                    confidence: 1.0,
+                },
+            ],
+            ..CanonicalSnapshot::default()
+        };
+
+        let report = build_rustok_fba_audit(&snapshot);
+
+        assert_eq!(report.summary.modules_total, 2);
+        assert_eq!(report.summary.registered_modules, 1);
+        assert_eq!(report.summary.dependency_only_modules, 1);
+        assert_eq!(report.summary.in_progress_modules, 1);
+        assert_eq!(report.summary.status_unknown_modules, 1);
+        assert_eq!(report.summary.requirements_met, 10);
+        assert_eq!(report.summary.requirements_total, 10);
+        assert_eq!(report.summary.completion_percent, Some(100));
+        assert_eq!(report.summary.modules_with_port_code, 1);
+        assert_eq!(report.summary.modules_with_complete_operations, 1);
+        assert_eq!(report.summary.modules_with_evidence, 1);
+        assert!(report.modules[1].registry_present);
+        assert_eq!(report.modules[0].completion_percent, None);
+        assert_eq!(report.modules[1].port_code_present, Some(true));
+    }
+
+    #[test]
+    fn fba_audit_counts_resolved_dependency_edges_individually() {
+        let inventory = entity(
+            "ent_inventory",
+            "fba_module://inventory",
+            EntityKind::Other("rustok_fba_module".to_string()),
+            "inventory",
+        );
+        let checkout = entity(
+            "ent_checkout",
+            "fba_module://checkout",
+            EntityKind::Other("rustok_fba_module".to_string()),
+            "checkout",
+        );
+        let inventory_dependency = entity(
+            "ent_checkout_inventory_dependency",
+            "fba_dependency://checkout/inventory/primary",
+            EntityKind::Other("rustok_fba_dependency".to_string()),
+            "checkout/inventory/primary",
+        );
+        let missing_dependency = entity(
+            "ent_checkout_missing_dependency",
+            "fba_dependency://checkout/missing-provider/primary",
+            EntityKind::Other("rustok_fba_dependency".to_string()),
+            "checkout/missing-provider/primary",
+        );
+        let snapshot = CanonicalSnapshot {
+            entities: vec![
+                inventory.clone(),
+                checkout.clone(),
+                inventory_dependency,
+                missing_dependency,
+            ],
+            facts: vec![
+                Fact {
+                    id: FactId("fact_inventory_registry".to_string()),
+                    kind: FactKind::Other("rustok_fba_registry".to_string()),
+                    subject: inventory.id,
+                    object: None,
+                    value: json!({
+                        "module": "inventory",
+                        "role": "provider",
+                        "status": "in_progress",
+                        "contract_version": "inventory.v1",
+                        "ports": []
+                    }),
+                    evidence: Vec::new(),
+                    ownership: Vec::new(),
+                    snapshot: SnapshotId("snap_test".to_string()),
+                    extractor: "test".to_string(),
+                    confidence: 1.0,
+                },
+                Fact {
+                    id: FactId("fact_checkout_registry".to_string()),
+                    kind: FactKind::Other("rustok_fba_registry".to_string()),
+                    subject: checkout.id,
+                    object: None,
+                    value: json!({
+                        "module": "checkout",
+                        "role": "consumer",
+                        "status": "in_progress",
+                        "providers": [
+                            {"module": "inventory"},
+                            {"module": "missing-provider"}
+                        ],
+                        "ports": []
+                    }),
+                    evidence: Vec::new(),
+                    ownership: Vec::new(),
+                    snapshot: SnapshotId("snap_test".to_string()),
+                    extractor: "test".to_string(),
+                    confidence: 1.0,
+                },
+            ],
+            diagnostics: vec![fba_diagnostic(
+                "diag_missing_provider",
+                "rustok_fba_consumer_provider_unresolved",
+                "checkout",
+                None,
+                Some("contracts/checkout-fba-registry.json"),
+            )],
+            ..CanonicalSnapshot::default()
+        };
+
+        let report = build_rustok_fba_audit(&snapshot);
+
+        assert_eq!(report.summary.dependency_edges_total, 2);
+        assert_eq!(report.summary.dependency_edges_resolved, 1);
+        let checkout = report
+            .modules
+            .iter()
+            .find(|module| module.module == "checkout")
+            .unwrap();
+        assert_eq!(checkout.dependencies_resolved, Some(false));
+    }
+
+    #[test]
+    fn fba_audit_does_not_mark_dependent_port_requirements_met_when_trait_is_missing() {
+        let inventory = entity(
+            "ent_inventory",
+            "fba_module://inventory",
+            EntityKind::Other("rustok_fba_module".to_string()),
+            "inventory",
+        );
+        let snapshot = CanonicalSnapshot {
+            entities: vec![inventory.clone()],
+            facts: vec![Fact {
+                id: FactId("fact_inventory_registry".to_string()),
+                kind: FactKind::Other("rustok_fba_registry".to_string()),
+                subject: inventory.id,
+                object: None,
+                value: json!({
+                    "module": "inventory",
+                    "role": "provider",
+                    "status": "in_progress",
+                    "contract_version": "inventory.v1",
+                    "ports": [{
+                        "name": "InventoryPort",
+                        "operations": ["reserve"],
+                        "deadline_required": true
+                    }]
+                }),
+                evidence: Vec::new(),
+                ownership: Vec::new(),
+                snapshot: SnapshotId("snap_test".to_string()),
+                extractor: "test".to_string(),
+                confidence: 1.0,
+            }],
+            diagnostics: vec![fba_diagnostic(
+                "diag_missing_trait",
+                "rustok_fba_port_trait_missing",
+                "inventory",
+                Some("InventoryPort"),
+                Some("contracts/inventory-fba-registry.json"),
+            )],
+            ..CanonicalSnapshot::default()
+        };
+
+        let report = build_rustok_fba_audit(&snapshot);
+        let module = report
+            .modules
+            .iter()
+            .find(|module| module.module == "inventory")
+            .unwrap();
+
+        assert_eq!(module.port_code_present, Some(false));
+        assert_eq!(module.port_traits_present, Some(false));
+        assert_eq!(module.operations_implemented, Some(false));
+        assert_eq!(module.context_present, Some(false));
+        assert_eq!(module.error_present, Some(false));
+        assert_eq!(module.policy_present, Some(false));
+        assert_eq!(module.requirements_met, 3);
+        assert_eq!(module.requirements_total, 9);
+        assert_eq!(module.completion_percent, Some(33));
     }
 }

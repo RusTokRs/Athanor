@@ -2,7 +2,7 @@
 id: doc://docs/development/roadmap-status.md
 kind: developer_guide
 language: en
-last_verified_snapshot: snap_jsonl_00000090
+last_verified_snapshot: snap_jsonl_00000251
 source_language: en
 status: verified
 ---
@@ -390,6 +390,7 @@ Purpose:
 
 - loads the previous canonical snapshot from `CanonicalSnapshotStore`
 - extracts changed files only when a previous canonical snapshot is available
+- reuses the previous canonical snapshot id when source discovery finds no changed or removed files
 - carries unchanged entities, facts, relations, and diagnostics into the new snapshot
 - rewrites carried fact, relation, diagnostic, and snapshot-bearing entity payloads to the new snapshot id
 - drops old canonical objects owned by changed or removed paths before rebuilding affected downstream outputs
@@ -553,6 +554,32 @@ Purpose:
 - fails fast for unknown adapter ids or invalid manifest schemas
 - supports external process extractors, linkers, and checkers through manifest `command` entries
 - keeps source process adapters explicitly deferred
+- keeps production adapter installation in `athanor-runtime-defaults` while `athanor-app` package
+  tests install a focused fixture-only composition; direct package tests no longer depend on
+  workspace feature unification or CLI startup side effects
+
+### RusTok FFA Adapter And Graph Extension
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-adapter-rustok-ffa`
+- `crates/athanor-app/src/runtime.rs`
+- `crates/athanor-app/src/graph.rs`
+- `crates/athanor-app/src/check.rs`
+- `apps/ath/src/main.rs`
+
+Purpose:
+
+- adds opt-in built-in factories `builtin.extractor.rustok_ffa`, `builtin.linker.rustok_ffa`, and `builtin.checker.rustok_ffa`
+- extracts FFA source markers and documentation status without mixing with FBA
+- emits canonical FFA surface and layer entities with evidence-backed relations
+- diagnoses FFA-only issues under the `rustok_ffa_*` prefix
+- exposes bounded agent-facing read models through `ath rustok ffa audit`, `ath graph ffa surface`, `ath graph ffa violations`, and `ath check rustok-ffa`
+- makes FFA audit scope explicit through observed, actionable, scaffold, and host-wiring counts
+- reports FFA core/transport/UI structural completion through explicit numerators, denominators,
+  missing-layer counts, and integer percentages while leaving non-actionable rows unscored
 
 ### RusTok FBA Adapter And Graph Extension
 
@@ -573,6 +600,9 @@ Purpose:
 - emits canonical `fba_module`, `fba_contract`, `fba_port`, `fba_operation`, `fba_profile`, and `fba_dependency` entities with evidence-backed relations
 - diagnoses FBA-only issues under the `rustok_fba_*` prefix
 - exposes bounded agent-facing read models through `ath rustok fba audit`, `ath graph fba module`, `ath graph fba port`, `ath graph fba dependencies`, `ath graph fba violations`, and `ath check rustok-fba`
+- makes FBA audit scope explicit through registry-backed, dependency-only, in-progress, and unknown-status module counts
+- reports FBA contract completion through applicable evidence-derived requirements while keeping
+  dependency-only rows unscored and migration status independent
 
 ### RusTok Page Builder Adapter And Graph Extension
 

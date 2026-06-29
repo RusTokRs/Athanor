@@ -2,11 +2,10 @@
 id: doc://docs/adapters/rustok-ffa.md
 kind: adapter
 language: en
-last_verified_snapshot: snap_jsonl_00000191
+last_verified_snapshot: snap_jsonl_00000251
 source_language: en
 status: verified
 ---
-
 # RusTok FFA Adapter
 
 `athanor-adapter-rustok-ffa` is an opt-in code-audit adapter for RusTok Fluid Frontend Architecture (FFA).
@@ -120,4 +119,10 @@ Default limits:
 
 The violations graph includes only violated boundaries and evidence files, not clean implementation edges.
 
-Audit summaries exclude `host_wiring` and manifest-only `scaffold` entries from complete/incomplete counts while retaining them in the detailed surface list for bounded inspection.
+Audit summaries exclude `host_wiring` and manifest-only `scaffold` entries from actionable
+complete/incomplete counts. They expose `observed_surfaces`, `scaffold_surfaces`, and
+`host_wiring_surfaces` separately, so a clean actionable count cannot hide non-actionable rows.
+For actionable surfaces, the audit also reports explicit structural requirements met/total,
+integer `completion_percent`, and missing core/transport/UI-adapter counts. Non-actionable
+scaffold and host-wiring rows use a zero denominator and `completion_percent: null`; diagnostics
+remain separate and are never hidden by the percentage.

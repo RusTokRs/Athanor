@@ -2,11 +2,10 @@
 id: doc://docs/development/rustok-ffa-fba-adapter-improvement-plan.md
 kind: development_plan
 language: en
-last_verified_snapshot: snap_jsonl_00000191
+last_verified_snapshot: snap_jsonl_00000251
 source_language: en
 status: verified
 ---
-
 # RusTok FFA/FBA Adapter Improvement Plan
 
 This is a project-specific plan for improving RusTok FFA and FBA visibility in Athanor.
@@ -172,6 +171,9 @@ Tests:
 
 ## Improvement 2: FBA Port Layout Discovery
 
+Status: implemented. The extractor supports `src/ports.rs`, `src/ports/mod.rs`, and nested
+`src/ports/**/*.rs`, then merges module-level code markers before checking registry requirements.
+
 Support equivalent port layouts as one canonical FBA code source.
 
 Current baseline: the FBA extractor only supports `crates/rustok-*/src/ports.rs`.
@@ -274,6 +276,11 @@ Tests:
 
 ## Improvement 6: Documentation Drift Coverage
 
+Status: implemented. FBA now emits the separate `rustok_fba_docs_drift` diagnostic for registry,
+local-plan, and central-board disagreements in status, contract versions, verifier/evidence
+references, and duplicate board rows. Documentation remains secondary evidence and is not used by
+the progress calculation.
+
 Make documentation drift visible without using docs as the source of readiness.
 
 Current baseline:
@@ -333,6 +340,13 @@ Tests:
 - host-owned UI file for module behavior emits a diagnostic.
 
 ## Improvement 8: Progress Metrics
+
+Status: implemented. FFA reports actionable core/transport/UI requirements with
+explicit numerators, denominators, missing-layer counts, and integer completion percentages while
+excluding scaffold/host rows as not applicable. FBA reports registry-backed contract requirements
+for applicable port code, traits, operations, context/error, policy/idempotency, evidence,
+contract-test, and dependency-resolution signals. Dependency-only rows are unscored, and migration
+status plus diagnostics remain explicit independent signals.
 
 Add explicit progress metrics to FFA and FBA audit reports so agents can rank work and
 users can see whether migration is moving.
@@ -447,9 +461,8 @@ metadata and write-semantics marker drift were fixed.
 
 Known next priority:
 
-1. Harden FFA layer layout tests and role accounting.
-2. Implement FBA port layout discovery.
-3. Add canonical module slug/path alias handling.
-4. Add progress metrics to FFA/FBA audit reports.
-5. Expand documentation drift coverage for FBA.
-6. Re-run the full iteration loop against `D:\rustok`.
+1. Add canonical module slug/path alias handling.
+2. Deepen evidence-aware dependency diagnostics and consumer/provider cross-checks.
+3. Add FFA host-wiring visibility.
+4. Add bounded next-slice context graphs.
+5. Re-run the full iteration loop against `D:\rustok` after each slice.

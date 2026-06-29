@@ -8,7 +8,12 @@ It provides three built-in adapter ids:
 - `builtin.linker.rustok_fba`
 - `builtin.checker.rustok_fba`
 
-The adapter is separate from the FFA adapter. FBA reads registry JSON and code markers from Rust port implementations; documentation is secondary evidence only and does not define readiness. Port code may live in `src/ports.rs`, `src/ports/mod.rs`, or nested `src/ports/**/*.rs` files; all port-code files for one module are merged before diagnostics run.
+The adapter is separate from the FFA adapter. FBA reads registry JSON and code markers from Rust
+port implementations. It also compares registry metadata with module implementation plans and the
+central FFA/FBA readiness board. Documentation is secondary drift evidence only and does not define
+readiness or increase completion percentages. Port code may live in `src/ports.rs`,
+`src/ports/mod.rs`, or nested `src/ports/**/*.rs` files; all port-code files for one module are
+merged before diagnostics run.
 
 ## Model
 
@@ -26,3 +31,17 @@ The linker connects modules, contracts, ports, operations, profiles, dependency 
 ## Diagnostics
 
 The checker emits FBA-only diagnostics with ids prefixed by `rustok_fba_`, including missing registries, missing port traits or operations, missing shared context/error contracts, missing call policy enforcement, missing write idempotency contract assertions, missing contract tests, missing registry evidence, and unresolved consumer/provider declarations.
+
+`rustok_fba_docs_drift` reports status, contract-version, verifier, and evidence-reference drift
+between an FBA registry, its local implementation plan, and `docs/modules/registry.md`. These
+diagnostics carry registry and documentation evidence paths so bounded violation graphs point at the
+files that need synchronization.
+
+The audit summary reports registry-backed and dependency-only modules separately, together with
+in-progress and unknown-status counts. Contract consistency is not presented as migration
+completion.
+
+Registry-backed modules expose an evidence-derived contract numerator, denominator, and integer
+percentage across applicable port, operation, context/error, policy, evidence, contract-test, and
+dependency requirements. Dependency-only nodes are not scored, and migration status remains a
+separate signal.
