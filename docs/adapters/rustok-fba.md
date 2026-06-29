@@ -2,7 +2,7 @@
 id: doc://docs/adapters/rustok-fba.md
 kind: adapter
 language: en
-last_verified_snapshot: snap_jsonl_00000251
+last_verified_snapshot: snap_jsonl_00000255
 source_language: en
 status: verified
 ---
@@ -105,12 +105,22 @@ The checker emits only diagnostics whose kind starts with `rustok_fba_`:
 - `rustok_fba_contract_tests_missing`
 - `rustok_fba_evidence_missing`
 - `rustok_fba_consumer_provider_unresolved`
+- `rustok_fba_provider_contract_mismatch`
+- `rustok_fba_provider_port_unknown`
+- `rustok_fba_provider_profile_unknown`
+- `rustok_fba_provider_consumer_missing`
+- `rustok_fba_consumer_profile_mismatch`
+- `rustok_fba_fallback_profile_mismatch`
+- `rustok_fba_degraded_mode_mismatch`
 - `rustok_fba_docs_drift`
 
 Documentation status is secondary drift evidence only and does not define FBA readiness. The FBA
 drift check compares registry status, contract versions, verifier/evidence references, the module
 implementation plan, and the central FFA/FBA readiness board. Its diagnostics include both registry
 and documentation evidence so violation graphs lead to the file that needs synchronization.
+Consumer/provider cross-check diagnostics compare dependency declarations with the provider
+registry before declaring an edge clean: required contract versions, ports, provider profiles,
+provider-side consumer profile entries, fallback profiles, and degraded modes must agree.
 
 ## Graph Commands
 

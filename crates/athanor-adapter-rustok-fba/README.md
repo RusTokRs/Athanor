@@ -30,7 +30,7 @@ The linker connects modules, contracts, ports, operations, profiles, dependency 
 
 ## Diagnostics
 
-The checker emits FBA-only diagnostics with ids prefixed by `rustok_fba_`, including missing registries, missing port traits or operations, missing shared context/error contracts, missing call policy enforcement, missing write idempotency contract assertions, missing contract tests, missing registry evidence, and unresolved consumer/provider declarations.
+The checker emits FBA-only diagnostics with ids prefixed by `rustok_fba_`, including missing registries, missing port traits or operations, missing shared context/error contracts, missing call policy enforcement, missing write idempotency contract assertions, missing contract tests, missing registry evidence, and unresolved consumer/provider declarations. Consumer/provider cross-checks also compare declared contract versions, required ports, required provider profiles, provider-side consumer profiles, fallback profiles, and degraded modes across the two registries.
 
 `rustok_fba_docs_drift` reports status, contract-version, verifier, and evidence-reference drift
 between an FBA registry, its local implementation plan, and `docs/modules/registry.md`. These

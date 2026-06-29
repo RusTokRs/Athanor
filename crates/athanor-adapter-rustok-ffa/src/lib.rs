@@ -422,12 +422,16 @@ fn docs_drift_diagnostics(
             continue;
         };
         if marker.source_kind == "registry" {
-            registry
-                .entry((marker.module.clone(), marker.surfaces.clone()))
-                .or_default()
-                .push((marker, fact));
+            for module in docs_module_aliases(&marker.module) {
+                registry
+                    .entry((module, marker.surfaces.clone()))
+                    .or_default()
+                    .push((marker.clone(), fact));
+            }
         } else if marker.source_kind == "local_plan" {
-            local_plans.insert(marker.module.clone(), (marker, fact));
+            for module in docs_module_aliases(&marker.module) {
+                local_plans.insert(module, (marker.clone(), fact));
+            }
         }
     }
 
@@ -539,6 +543,14 @@ fn docs_drift_diagnostics(
         }
     }
     diagnostics
+}
+
+fn docs_module_aliases(module: &str) -> BTreeSet<String> {
+    BTreeSet::from([
+        module.to_string(),
+        module.replace('-', "_"),
+        module.replace('_', "-"),
+    ])
 }
 
 fn surface_code_shape(surface: &SurfaceState) -> &'static str {
@@ -1658,11 +1670,11 @@ pub async fn complete_checkout_with_fallback() {}
     }
 
     #[tokio::test]
-    async fn hyphenated_module_local_plan_matches_registry_slug() {
+    async fn hyphenated_module_local_plan_matches_underscored_registry_slug() {
         let inputs = [
             source(
                 "docs/modules/registry.md",
-                "| `ai-content` | admin | `in_progress` | `not_started` | `core_transport_ui` | plan |",
+                "| `ai_content` | admin | `in_progress` | `not_started` | `core_transport_ui` | plan |",
             ),
             source(
                 "crates/rustok-ai-content/docs/implementation-plan.md",

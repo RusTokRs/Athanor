@@ -2,7 +2,7 @@
 id: doc://docs/adapters/checker-api.md
 kind: module_documentation
 language: en
-last_verified_snapshot: snap_jsonl_00000251
+last_verified_snapshot: snap_jsonl_00000255
 source_language: en
 status: verified
 ---

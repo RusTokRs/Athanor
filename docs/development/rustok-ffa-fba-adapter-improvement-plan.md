@@ -2,7 +2,7 @@
 id: doc://docs/development/rustok-ffa-fba-adapter-improvement-plan.md
 kind: development_plan
 language: en
-last_verified_snapshot: snap_jsonl_00000251
+last_verified_snapshot: snap_jsonl_00000255
 source_language: en
 status: verified
 ---
@@ -246,6 +246,11 @@ Tests:
 - graph omitted counts remain accurate under low node and edge limits.
 
 ## Improvement 5: FBA Consumer/Provider Cross-Checks
+
+Status: implemented. FBA now cross-checks provider dependencies against provider registries for
+contract versions, declared ports, provider profiles, provider-side consumer profile entries,
+fallback profiles, and degraded modes. The checks tolerate module slug aliases and valid composite
+contract-version/profile forms used by existing RusTok registries.
 
 Deepen FBA relationship checks beyond registry presence.
 

@@ -43,11 +43,13 @@ pub struct FbaRegistryMarker {
     pub module: String,
     pub role: String,
     pub status: Option<String>,
+    pub consumer_profile: Option<String>,
     pub contract_version: Option<String>,
     pub ports: Vec<FbaPortSpec>,
     pub consumers: Vec<FbaConsumerSpec>,
     pub providers: Vec<FbaProviderDependency>,
     pub profiles: Vec<String>,
+    pub contract_test_profiles: Vec<String>,
     pub evidence_paths: Vec<String>,
     pub in_process_impl_source: Option<String>,
     pub contract_tests_status: Option<String>,
@@ -393,6 +395,12 @@ impl Checker for RustokFbaChecker {
             .iter()
             .map(|(_, marker)| marker.path.as_str())
             .collect::<BTreeSet<_>>();
+        let mut registry_by_module = BTreeMap::new();
+        for (fact, marker) in &registries {
+            for alias in module_aliases(&marker.module) {
+                registry_by_module.insert(alias, (*fact, marker));
+            }
+        }
 
         let mut diagnostics = Vec::new();
 
@@ -589,7 +597,19 @@ impl Checker for RustokFbaChecker {
             }
 
             for provider in &registry.providers {
-                if !registry_modules.contains(provider.module.as_str())
+                let provider_registry = module_aliases(&provider.module)
+                    .iter()
+                    .find_map(|module| registry_by_module.get(module));
+                if let Some((provider_fact, provider_marker)) = provider_registry {
+                    diagnostics.extend(provider_dependency_diagnostics(
+                        &input.snapshot,
+                        fact,
+                        registry,
+                        provider,
+                        provider_fact,
+                        provider_marker,
+                    ));
+                } else if !registry_modules.contains(provider.module.as_str())
                     && !registry_paths.contains(provider_registry_path(&provider.module).as_str())
                 {
                     diagnostics.push(diagnostic(
@@ -648,11 +668,13 @@ impl FbaRegistryMarker {
             module: marker.module.clone(),
             role: "code".to_string(),
             status: None,
+            consumer_profile: None,
             contract_version: None,
             ports: Vec::new(),
             consumers: Vec::new(),
             providers: Vec::new(),
             profiles: Vec::new(),
+            contract_test_profiles: Vec::new(),
             evidence_paths: Vec::new(),
             in_process_impl_source: None,
             contract_tests_status: None,
@@ -661,12 +683,236 @@ impl FbaRegistryMarker {
     }
 }
 
+fn provider_dependency_diagnostics(
+    snapshot: &SnapshotId,
+    consumer_fact: &Fact,
+    consumer: &FbaRegistryMarker,
+    dependency: &FbaProviderDependency,
+    provider_fact: &Fact,
+    provider: &FbaRegistryMarker,
+) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    if let Some(required) = dependency.contract_version.as_deref()
+        && !provider_contract_matches(provider.contract_version.as_deref(), required)
+    {
+        diagnostics.push(provider_dependency_diagnostic(
+            snapshot,
+            "rustok_fba_provider_contract_mismatch",
+            Severity::High,
+            "FBA provider contract version mismatch",
+            format!(
+                "{} requires {} contract {}, but provider registry declares {}",
+                consumer.module,
+                dependency.module,
+                required,
+                provider.contract_version.as_deref().unwrap_or("missing")
+            ),
+            consumer_fact,
+            consumer,
+            provider_fact,
+            provider,
+        ));
+    }
+
+    let provider_ports = provider
+        .ports
+        .iter()
+        .map(|port| port.name.as_str())
+        .collect::<BTreeSet<_>>();
+    let unknown_ports = dependency
+        .ports
+        .iter()
+        .filter(|port| !provider_ports.contains(port.as_str()))
+        .cloned()
+        .collect::<Vec<_>>();
+    if !unknown_ports.is_empty() {
+        diagnostics.push(provider_dependency_diagnostic(
+            snapshot,
+            "rustok_fba_provider_port_unknown",
+            Severity::High,
+            "FBA provider port is unknown",
+            format!(
+                "{} requires {} ports {}, but they are absent from the provider registry",
+                consumer.module,
+                dependency.module,
+                unknown_ports.join(", ")
+            ),
+            consumer_fact,
+            consumer,
+            provider_fact,
+            provider,
+        ));
+    }
+
+    let mut supported_profiles = provider
+        .contract_test_profiles
+        .iter()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>();
+    supported_profiles.extend(
+        provider
+            .consumers
+            .iter()
+            .filter_map(|consumer| consumer.profile.as_deref()),
+    );
+    let unknown_profiles = dependency
+        .profiles
+        .iter()
+        .filter(|profile| !supported_profiles.contains(profile.as_str()))
+        .cloned()
+        .collect::<Vec<_>>();
+    if !unknown_profiles.is_empty() {
+        diagnostics.push(provider_dependency_diagnostic(
+            snapshot,
+            "rustok_fba_provider_profile_unknown",
+            Severity::Medium,
+            "FBA provider profile is unknown",
+            format!(
+                "{} requires {} profiles {}, but the provider contract tests do not declare them",
+                consumer.module,
+                dependency.module,
+                unknown_profiles.join(", ")
+            ),
+            consumer_fact,
+            consumer,
+            provider_fact,
+            provider,
+        ));
+    }
+
+    let consumer_aliases = module_aliases(&consumer.module);
+    let provider_consumer = provider
+        .consumers
+        .iter()
+        .find(|candidate| !consumer_aliases.is_disjoint(&module_aliases(&candidate.module)));
+    let Some(provider_consumer) = provider_consumer else {
+        diagnostics.push(provider_dependency_diagnostic(
+            snapshot,
+            "rustok_fba_provider_consumer_missing",
+            Severity::High,
+            "FBA provider does not declare the consumer",
+            format!(
+                "{} depends on {}, but the provider registry has no matching consumer declaration",
+                consumer.module, dependency.module
+            ),
+            consumer_fact,
+            consumer,
+            provider_fact,
+            provider,
+        ));
+        return diagnostics;
+    };
+
+    if consumer.consumer_profile.is_some() && consumer.consumer_profile != provider_consumer.profile
+    {
+        diagnostics.push(provider_dependency_diagnostic(
+            snapshot,
+            "rustok_fba_consumer_profile_mismatch",
+            Severity::Medium,
+            "FBA consumer profile mismatch",
+            format!(
+                "{} declares consumer profile {}, but {} records {}",
+                consumer.module,
+                consumer.consumer_profile.as_deref().unwrap_or("missing"),
+                dependency.module,
+                provider_consumer.profile.as_deref().unwrap_or("missing")
+            ),
+            consumer_fact,
+            consumer,
+            provider_fact,
+            provider,
+        ));
+    }
+    if !same_string_set(
+        &dependency.fallback_profiles,
+        &provider_consumer.fallback_profiles,
+    ) {
+        diagnostics.push(provider_dependency_diagnostic(
+            snapshot,
+            "rustok_fba_fallback_profile_mismatch",
+            Severity::Medium,
+            "FBA fallback profiles mismatch",
+            format!(
+                "{} and {} declare different fallback profiles for their dependency",
+                consumer.module, dependency.module
+            ),
+            consumer_fact,
+            consumer,
+            provider_fact,
+            provider,
+        ));
+    }
+    if !same_string_set(
+        &dependency.degraded_modes,
+        &provider_consumer.degraded_modes,
+    ) {
+        diagnostics.push(provider_dependency_diagnostic(
+            snapshot,
+            "rustok_fba_degraded_mode_mismatch",
+            Severity::Medium,
+            "FBA degraded modes mismatch",
+            format!(
+                "{} and {} declare different degraded modes for their dependency",
+                consumer.module, dependency.module
+            ),
+            consumer_fact,
+            consumer,
+            provider_fact,
+            provider,
+        ));
+    }
+    diagnostics
+}
+
+fn provider_contract_matches(provided: Option<&str>, required: &str) -> bool {
+    provided.is_some_and(|provided| {
+        provided == required || provided.split('+').any(|version| version == required)
+    })
+}
+
+fn same_string_set(left: &[String], right: &[String]) -> bool {
+    left.iter().collect::<BTreeSet<_>>() == right.iter().collect::<BTreeSet<_>>()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn provider_dependency_diagnostic(
+    snapshot: &SnapshotId,
+    kind: &str,
+    severity: Severity,
+    title: &str,
+    message: String,
+    consumer_fact: &Fact,
+    consumer: &FbaRegistryMarker,
+    provider_fact: &Fact,
+    provider: &FbaRegistryMarker,
+) -> Diagnostic {
+    let mut evidence = consumer_fact.evidence.clone();
+    evidence.extend(provider_fact.evidence.clone());
+    let mut ownership = consumer_fact.ownership.clone();
+    ownership.extend(provider_fact.ownership.clone());
+    let mut diagnostic = diagnostic(
+        snapshot, kind, severity, title, message, consumer, None, evidence, ownership,
+    );
+    diagnostic.payload["provider"] = json!(provider.module);
+    diagnostic.payload["provider_path"] = json!(provider.path);
+    diagnostic
+}
+
+fn module_aliases(module: &str) -> BTreeSet<String> {
+    BTreeSet::from([
+        module.to_string(),
+        module.replace('-', "_"),
+        module.replace('_', "-"),
+    ])
+}
+
 fn fba_docs_drift_diagnostics(
     input: &CheckInput,
     registries: &[(&Fact, FbaRegistryMarker)],
 ) -> Vec<Diagnostic> {
     let mut docs_by_module =
         BTreeMap::<String, BTreeMap<String, Vec<(&Fact, FbaDocsMarker)>>>::new();
+    let mut central_board_fact = None;
     for fact in input
         .facts
         .iter()
@@ -675,6 +921,9 @@ fn fba_docs_drift_diagnostics(
         let Ok(marker) = serde_json::from_value::<FbaDocsMarker>(fact.value.clone()) else {
             continue;
         };
+        if marker.source_kind == "central_board" {
+            central_board_fact.get_or_insert(fact);
+        }
         let aliases = BTreeSet::from([
             marker.module.clone(),
             marker.module.replace('-', "_"),
@@ -734,7 +983,7 @@ fn fba_docs_drift_diagnostics(
                 &input.snapshot,
                 registry,
                 registry_fact,
-                Some(local_fact),
+                central_board_fact.or(Some(*local_fact)),
                 "central_board_missing",
                 format!(
                     "{} FBA registry has no central readiness-board row",
@@ -1201,6 +1450,7 @@ fn registry_marker_from_value(path: &str, value: &Value) -> Option<FbaRegistryMa
         .unwrap_or_default();
     let mut profiles = BTreeSet::new();
     collect_string_array(value.get("fallback_profiles"), &mut profiles);
+    collect_string_array(value.pointer("/contract_tests/profiles"), &mut profiles);
     for consumer in &consumers {
         if let Some(profile) = &consumer.profile {
             profiles.insert(profile.clone());
@@ -1220,6 +1470,8 @@ fn registry_marker_from_value(path: &str, value: &Value) -> Option<FbaRegistryMa
     }
     let evidence_paths = evidence_paths(value);
     let contract_tests = value.get("contract_tests");
+    let contract_test_profiles =
+        string_array(contract_tests.and_then(|tests| tests.get("profiles")));
     Some(FbaRegistryMarker {
         schema: "rustok.fba.registry.v1".to_string(),
         path: path.to_string(),
@@ -1229,11 +1481,16 @@ fn registry_marker_from_value(path: &str, value: &Value) -> Option<FbaRegistryMa
             .get("status")
             .and_then(Value::as_str)
             .map(str::to_string),
+        consumer_profile: value
+            .get("consumer_profile")
+            .and_then(Value::as_str)
+            .map(str::to_string),
         contract_version,
         ports,
         consumers,
         providers,
         profiles: profiles.into_iter().collect(),
+        contract_test_profiles,
         evidence_paths,
         in_process_impl_source: value
             .pointer("/in_process_provider_impl/source")
@@ -1300,8 +1557,16 @@ fn provider_dependency_from_value(value: &Value) -> Option<FbaProviderDependency
             .get("contract_version")
             .and_then(Value::as_str)
             .map(str::to_string),
-        ports: string_array(value.get("ports")),
-        profiles: string_array(value.get("profiles")),
+        ports: value
+            .get("port")
+            .and_then(Value::as_str)
+            .map(|port| vec![port.to_string()])
+            .unwrap_or_else(|| string_array(value.get("ports"))),
+        profiles: string_array(
+            value
+                .get("profiles")
+                .or_else(|| value.get("required_profiles")),
+        ),
         fallback_profiles: string_array(value.get("fallback_profiles")),
         degraded_modes: string_array(value.get("degraded_modes")),
     })
@@ -2162,6 +2427,149 @@ mod tests {
         }));
     }
 
+    #[tokio::test]
+    async fn missing_central_row_is_owned_by_the_board_for_incremental_invalidation() {
+        let diagnostics = docs_diagnostics_for_sources(vec![
+            source(
+                "crates/rustok-tax/contracts/tax-fba-registry.json",
+                r#"{
+                    "module": "tax",
+                    "role": "provider",
+                    "status": "in_progress",
+                    "contract_version": "tax.calculation.v1"
+                }"#,
+            ),
+            source(
+                "crates/rustok-tax/docs/implementation-plan.md",
+                "- FBA status: `in_progress`\n- Contract: `tax.calculation.v1`\n",
+            ),
+            source(
+                "docs/modules/registry.md",
+                "| `email` | none | `not_started` | `in_progress` | `no_ui_boundary` | plan |",
+            ),
+        ])
+        .await;
+
+        let diagnostic = diagnostics
+            .iter()
+            .find(|diagnostic| {
+                diagnostic
+                    .message
+                    .contains("no central readiness-board row")
+            })
+            .expect("missing central-board row diagnostic");
+        assert!(
+            diagnostic
+                .ownership
+                .iter()
+                .any(|ownership| { ownership.source_file == "docs/modules/registry.md" })
+        );
+    }
+
+    #[tokio::test]
+    async fn matching_consumer_and_provider_registries_have_no_dependency_diagnostics() {
+        let diagnostics = dependency_diagnostics_for(
+            "comments.thread.v1",
+            "CommentsThreadPort",
+            "in_process",
+            "blog_post_comments",
+            "embedded_native",
+            "show_cached_thread_snapshot",
+        )
+        .await;
+
+        assert!(!diagnostics.iter().any(|diagnostic| {
+            matches!(&diagnostic.kind, DiagnosticKind::Other(kind) if kind.starts_with("rustok_fba_provider_")
+                || kind == "rustok_fba_consumer_profile_mismatch"
+                || kind == "rustok_fba_fallback_profile_mismatch"
+                || kind == "rustok_fba_degraded_mode_mismatch")
+        }));
+    }
+
+    #[tokio::test]
+    async fn consumer_provider_contract_drift_emits_precise_diagnostics() {
+        let diagnostics = dependency_diagnostics_for(
+            "comments.thread.v2",
+            "MissingPort",
+            "remote_only",
+            "wrong_profile",
+            "remote_only",
+            "hide_comment_form",
+        )
+        .await;
+        let kinds = diagnostics
+            .iter()
+            .filter_map(|diagnostic| match &diagnostic.kind {
+                DiagnosticKind::Other(kind) => Some(kind.as_str()),
+                _ => None,
+            })
+            .collect::<BTreeSet<_>>();
+
+        for expected in [
+            "rustok_fba_provider_contract_mismatch",
+            "rustok_fba_provider_port_unknown",
+            "rustok_fba_provider_profile_unknown",
+            "rustok_fba_consumer_profile_mismatch",
+            "rustok_fba_fallback_profile_mismatch",
+            "rustok_fba_degraded_mode_mismatch",
+        ] {
+            assert!(kinds.contains(expected), "missing {expected}: {kinds:?}");
+        }
+    }
+
+    async fn dependency_diagnostics_for(
+        contract_version: &str,
+        port: &str,
+        required_profile: &str,
+        consumer_profile: &str,
+        fallback_profile: &str,
+        degraded_mode: &str,
+    ) -> Vec<Diagnostic> {
+        docs_diagnostics_for_sources(vec![
+            source(
+                "crates/rustok-comments/contracts/comments-fba-registry.json",
+                r#"{
+                    "module": "comments",
+                    "role": "provider",
+                    "status": "in_progress",
+                    "contract_version": "comments.thread.v1",
+                    "ports": [{"name": "CommentsThreadPort", "operations": ["list_comments"]}],
+                    "consumers": [{
+                        "module": "blog",
+                        "profile": "blog_post_comments",
+                        "fallback_profiles": ["embedded_native"],
+                        "degraded_modes": ["show_cached_thread_snapshot"]
+                    }],
+                    "contract_tests": {
+                        "status": "planned_cases_locked",
+                        "profiles": ["in_process", "remote_adapter_placeholder"],
+                        "cases": [{"operation": "list_comments"}]
+                    }
+                }"#,
+            ),
+            source(
+                "crates/rustok-blog/contracts/blog-fba-registry.json",
+                &format!(
+                    r#"{{
+                        "module": "blog",
+                        "role": "consumer",
+                        "status": "in_progress",
+                        "consumer_profile": "{consumer_profile}",
+                        "provider_dependencies": [{{
+                            "module": "comments",
+                            "contract_version": "{contract_version}",
+                            "port": "{port}",
+                            "required_profiles": ["{required_profile}"],
+                            "fallback_profiles": ["{fallback_profile}"],
+                            "degraded_modes": ["{degraded_mode}"]
+                        }}]
+                    }}"#
+                ),
+            ),
+        ])
+        .await
+    }
+
     async fn docs_diagnostics_for_sources(sources: Vec<SourceFile>) -> Vec<Diagnostic> {
         let mut entities = Vec::new();
         let mut facts = Vec::new();
@@ -2196,11 +2604,13 @@ mod tests {
             module: module.to_string(),
             role: "provider".to_string(),
             status: Some("in_progress".to_string()),
+            consumer_profile: None,
             contract_version: Some(format!("{module}.v1")),
             ports,
             consumers: Vec::new(),
             providers: Vec::new(),
             profiles: Vec::new(),
+            contract_test_profiles: Vec::new(),
             evidence_paths: vec!["docs/modules/registry.md".to_string()],
             in_process_impl_source: None,
             contract_tests_status: Some("planned_cases_locked".to_string()),
