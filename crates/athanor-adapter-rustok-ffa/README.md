@@ -20,6 +20,9 @@ Canonical entities:
 Supported roles are `core`, `transport`, `ui_leptos`, `ui_support`, `api`, `host_wiring`, `manifest`, `crate_root`, and `other`. Flat files, `mod.rs`, and nested files under `src/core/`, `src/transport/`, and `src/ui/leptos/` map to the same canonical layer ids as `src/core.rs`, `src/transport.rs`, and `src/ui/leptos.rs`. Only `ui/leptos.rs` or `ui/leptos/` satisfies the explicit UI-adapter layer; adjacent UI files remain visible as `ui_support`.
 
 The linker connects surfaces to layers with `contains` and layers to files with `implemented_by`.
+Surface and layer entities carry source anchors to the detected marker file. The anchor prefers a
+recognized FFA marker line, falls back to the first code declaration/import, and uses TOML identity
+lines for manifest layers.
 
 ## Diagnostics
 

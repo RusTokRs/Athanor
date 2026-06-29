@@ -172,6 +172,11 @@ impl Linker for RustokFbaLinker {
             .iter()
             .map(|entity| (entity.id.0.as_str(), entity))
             .collect::<HashMap<_, _>>();
+        let entity_by_stable_key = input
+            .entities
+            .iter()
+            .map(|entity| (entity.stable_key.0.as_str(), entity))
+            .collect::<HashMap<_, _>>();
         let mut relations = Vec::new();
         let mut seen = BTreeSet::new();
 
@@ -209,7 +214,7 @@ impl Linker for RustokFbaLinker {
                     RelationKind::Contains,
                     &module.id,
                     &contract.id,
-                    fact.evidence.clone(),
+                    entity_evidence_or_fact(&entity_by_stable_key, &contract.stable_key.0, fact),
                     fact.ownership.clone(),
                     json!({"schema": "rustok.fba.relation.v1", "kind": "module_provides_contract"}),
                 );
@@ -228,7 +233,11 @@ impl Linker for RustokFbaLinker {
                         RelationKind::Contains,
                         &contract.id,
                         &port_entity.id,
-                        fact.evidence.clone(),
+                        entity_evidence_or_fact(
+                            &entity_by_stable_key,
+                            &port_entity.stable_key.0,
+                            fact,
+                        ),
                         fact.ownership.clone(),
                         json!({"schema": "rustok.fba.relation.v1", "kind": "contract_exposes_port"}),
                     );
@@ -247,7 +256,11 @@ impl Linker for RustokFbaLinker {
                             RelationKind::Contains,
                             &port_entity.id,
                             &operation_entity.id,
-                            fact.evidence.clone(),
+                            entity_evidence_or_fact(
+                                &entity_by_stable_key,
+                                &operation_entity.stable_key.0,
+                                fact,
+                            ),
                             fact.ownership.clone(),
                             json!({"schema": "rustok.fba.relation.v1", "kind": "port_has_operation"}),
                         );
@@ -268,7 +281,11 @@ impl Linker for RustokFbaLinker {
                         RelationKind::Contains,
                         &contract.id,
                         &profile_entity.id,
-                        fact.evidence.clone(),
+                        entity_evidence_or_fact(
+                            &entity_by_stable_key,
+                            &profile_entity.stable_key.0,
+                            fact,
+                        ),
                         fact.ownership.clone(),
                         json!({"schema": "rustok.fba.relation.v1", "kind": "contract_has_profile"}),
                     );
@@ -277,12 +294,12 @@ impl Linker for RustokFbaLinker {
 
             for consumer in &registry.consumers {
                 if let Some(profile) = &consumer.profile {
-                    let dependency = fba_dependency_placeholder_entity(
+                    let dependency = fba_dependency_entity(
                         &consumer.module,
                         &registry.module,
                         profile,
                         &input.snapshot,
-                        &registry.path,
+                        Some(&registry.path),
                     );
                     let consumer_module = fba_module_placeholder_entity(
                         &consumer.module,
@@ -296,7 +313,11 @@ impl Linker for RustokFbaLinker {
                         RelationKind::Other("rustok_fba_module_requires_dependency".to_string()),
                         &consumer_module.id,
                         &dependency.id,
-                        fact.evidence.clone(),
+                        entity_evidence_or_fact(
+                            &entity_by_stable_key,
+                            &dependency.stable_key.0,
+                            fact,
+                        ),
                         fact.ownership.clone(),
                         json!({
                             "schema": "rustok.fba.relation.v1",
@@ -312,7 +333,11 @@ impl Linker for RustokFbaLinker {
                         RelationKind::Other("rustok_fba_consumer_requires_provider".to_string()),
                         &dependency.id,
                         &module.id,
-                        fact.evidence.clone(),
+                        entity_evidence_or_fact(
+                            &entity_by_stable_key,
+                            &dependency.stable_key.0,
+                            fact,
+                        ),
                         fact.ownership.clone(),
                         json!({
                             "schema": "rustok.fba.relation.v1",
@@ -349,7 +374,11 @@ impl Linker for RustokFbaLinker {
                         RelationKind::Other("rustok_fba_module_requires_dependency".to_string()),
                         &module.id,
                         &dependency.id,
-                        fact.evidence.clone(),
+                        entity_evidence_or_fact(
+                            &entity_by_stable_key,
+                            &dependency.stable_key.0,
+                            fact,
+                        ),
                         fact.ownership.clone(),
                         json!({
                             "schema": "rustok.fba.relation.v1",
@@ -374,7 +403,11 @@ impl Linker for RustokFbaLinker {
                             ),
                             &contract.id,
                             &dependency.id,
-                            fact.evidence.clone(),
+                            entity_evidence_or_fact(
+                                &entity_by_stable_key,
+                                &dependency.stable_key.0,
+                                fact,
+                            ),
                             fact.ownership.clone(),
                             json!({
                                 "schema": "rustok.fba.relation.v1",
@@ -391,7 +424,11 @@ impl Linker for RustokFbaLinker {
                         RelationKind::Other("rustok_fba_consumer_requires_provider".to_string()),
                         &dependency.id,
                         &provider_module.id,
-                        fact.evidence.clone(),
+                        entity_evidence_or_fact(
+                            &entity_by_stable_key,
+                            &dependency.stable_key.0,
+                            fact,
+                        ),
                         fact.ownership.clone(),
                         json!({
                             "schema": "rustok.fba.relation.v1",
@@ -1207,39 +1244,37 @@ fn extract_registry(source: &SourceFile, snapshot: &SnapshotId, path: &str) -> E
     let file = file_entity(source, &snapshot.0);
     let mut entities = vec![
         file.clone(),
-        fba_module_entity(&marker.module, snapshot, Some(path)),
+        registry_entity_with_line(
+            fba_module_entity(&marker.module, snapshot, Some(path)),
+            json_property_line(content, &["module", "module_slug"], &marker.module),
+        ),
     ];
     if let Some(contract_version) = &marker.contract_version {
-        entities.push(fba_contract_entity(
-            &marker.module,
-            contract_version,
-            snapshot,
-            Some(path),
+        entities.push(registry_entity_with_line(
+            fba_contract_entity(&marker.module, contract_version, snapshot, Some(path)),
+            json_property_line(content, &["contract_version", "contract"], contract_version),
         ));
     }
     for port in &marker.ports {
-        entities.push(fba_port_entity(
-            &marker.module,
-            &port.name,
-            snapshot,
-            Some(path),
+        entities.push(registry_entity_with_line(
+            fba_port_entity(&marker.module, &port.name, snapshot, Some(path)),
+            json_property_line(content, &["name"], &port.name),
         ));
         for operation in &port.operations {
-            entities.push(fba_operation_entity(
-                &marker.module,
-                &port.name,
-                operation,
-                snapshot,
-                Some(path),
+            entities.push(registry_entity_with_line(
+                fba_operation_entity(&marker.module, &port.name, operation, snapshot, Some(path)),
+                json_value_line(content, &["operation"], operation),
             ));
         }
     }
     for profile in &marker.profiles {
-        entities.push(fba_profile_entity(
-            &marker.module,
-            profile,
-            snapshot,
-            Some(path),
+        entities.push(registry_entity_with_line(
+            fba_profile_entity(&marker.module, profile, snapshot, Some(path)),
+            json_value_line(
+                content,
+                &["consumer_profile", "profile", "contract"],
+                profile,
+            ),
         ));
     }
     for consumer in &marker.consumers {
@@ -1249,12 +1284,10 @@ fn extract_registry(source: &SourceFile, snapshot: &SnapshotId, path: &str) -> E
                 snapshot,
                 path,
             ));
-            entities.push(fba_dependency_placeholder_entity(
-                &consumer.module,
-                &marker.module,
-                profile,
-                snapshot,
-                path,
+            let consumer_line = json_property_line(content, &["module"], &consumer.module);
+            entities.push(registry_entity_with_line(
+                fba_dependency_entity(&consumer.module, &marker.module, profile, snapshot, Some(path)),
+                json_value_line_from(content, &["profile"], profile, consumer_line.unwrap_or(1)),
             ));
         }
     }
@@ -1269,17 +1302,20 @@ fn extract_registry(source: &SourceFile, snapshot: &SnapshotId, path: &str) -> E
             .iter()
             .chain(provider.fallback_profiles.iter())
         {
-            entities.push(fba_dependency_entity(
-                &marker.module,
-                &provider.module,
-                profile,
-                snapshot,
-                Some(path),
+            let provider_line = json_property_line(content, &["module"], &provider.module);
+            entities.push(registry_entity_with_line(
+                fba_dependency_entity(
+                    &marker.module,
+                    &provider.module,
+                    profile,
+                    snapshot,
+                    Some(path),
+                ),
+                json_value_line_from(content, &["profile"], profile, provider_line.unwrap_or(1)),
             ));
         }
     }
     let evidence_line = registry_anchor_line(content);
-    anchor_registry_entity_sources(&mut entities, path, evidence_line);
     dedup_entities(&mut entities);
 
     let fact = Fact {
@@ -2008,19 +2044,12 @@ fn dedup_entities(entities: &mut Vec<Entity>) {
     entities.retain(|entity| seen.insert(entity.id.0.clone()));
 }
 
-fn anchor_registry_entity_sources(entities: &mut [Entity], path: &str, line: Option<u32>) {
-    for entity in entities {
-        if entity.kind == EntityKind::File {
-            continue;
-        }
-        let Some(source) = entity.source.as_mut() else {
-            continue;
-        };
-        if source.path == path {
-            source.line_start = line;
-            source.line_end = line;
-        }
+fn registry_entity_with_line(mut entity: Entity, line: Option<u32>) -> Entity {
+    if let Some(source) = entity.source.as_mut() {
+        source.line_start = line;
+        source.line_end = line;
     }
+    entity
 }
 
 fn source_location(path: &str) -> SourceLocation {
@@ -2081,6 +2110,25 @@ fn merge_code_marker(existing: &mut FbaPortCodeMarker, marker: &FbaPortCodeMarke
 
 fn registry_from_fact(fact: &Fact) -> Option<FbaRegistryMarker> {
     serde_json::from_value(fact.value.clone()).ok()
+}
+
+fn entity_evidence_or_fact(
+    entity_by_stable_key: &HashMap<&str, &Entity>,
+    stable_key: &str,
+    fact: &Fact,
+) -> Vec<Evidence> {
+    entity_by_stable_key
+        .get(stable_key)
+        .and_then(|entity| entity.source.as_ref())
+        .map(|source| {
+            vec![evidence_for_file(
+                &source.path,
+                FBA_EXTRACTOR_ID,
+                source.line_start,
+                source.line_end,
+            )]
+        })
+        .unwrap_or_else(|| fact.evidence.clone())
 }
 
 fn port_code_from_fact(fact: &Fact) -> Option<FbaPortCodeMarker> {
@@ -2160,6 +2208,71 @@ fn registry_anchor_line(content: &str) -> Option<u32> {
             ],
         )
         .then_some(index as u32 + 1)
+    })
+}
+
+fn json_value_line(content: &str, property_names: &[&str], value: &str) -> Option<u32> {
+    json_value_line_from(content, property_names, value, 1)
+}
+
+fn json_property_line(content: &str, property_names: &[&str], value: &str) -> Option<u32> {
+    json_property_line_from(content, property_names, value, 1)
+}
+
+fn json_value_line_from(
+    content: &str,
+    property_names: &[&str],
+    value: &str,
+    start_line: u32,
+) -> Option<u32> {
+    match (
+        json_property_line_from(content, property_names, value, start_line),
+        json_array_value_line_from(content, value, start_line),
+    ) {
+        (Some(property), Some(array)) => Some(property.min(array)),
+        (property, array) => property.or(array),
+    }
+}
+
+fn json_property_line_from(
+    content: &str,
+    property_names: &[&str],
+    value: &str,
+    start_line: u32,
+) -> Option<u32> {
+    let encoded_value = serde_json::to_string(value).ok()?;
+    content.lines().enumerate().find_map(|(index, line)| {
+        let line_number = index as u32 + 1;
+        if line_number < start_line {
+            return None;
+        }
+        property_names
+            .iter()
+            .any(|property_name| {
+                let encoded_property = format!("\"{property_name}\"");
+                line.find(&encoded_property)
+                    .and_then(|property_start| {
+                        line[property_start + encoded_property.len()..]
+                            .find(':')
+                            .map(|colon| property_start + encoded_property.len() + colon + 1)
+                    })
+                    .is_some_and(|value_start| {
+                        line[value_start..].trim_start().starts_with(&encoded_value)
+                    })
+            })
+            .then_some(line_number)
+    })
+}
+
+fn json_array_value_line_from(content: &str, value: &str, start_line: u32) -> Option<u32> {
+    let encoded_value = serde_json::to_string(value).ok()?;
+    content.lines().enumerate().find_map(|(index, line)| {
+        let line_number = index as u32 + 1;
+        if line_number < start_line {
+            return None;
+        }
+        let trimmed = line.trim().trim_end_matches(',').trim();
+        (trimmed == encoded_value || line.contains(&encoded_value)).then_some(line_number)
     })
 }
 
@@ -2250,7 +2363,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn registry_fact_and_entity_source_use_identity_anchor_line() {
+    async fn registry_fact_and_module_source_use_identity_anchor_line() {
         let output = RustokFbaExtractor
             .extract(ExtractInput {
                 repo: RepoId("repo".to_string()),
@@ -2288,6 +2401,21 @@ mod tests {
             Some(5)
         );
 
+        let contract = output
+            .entities
+            .iter()
+            .find(|entity| {
+                entity.stable_key.0 == "fba_contract://inventory/inventory.reservation.v1"
+            })
+            .expect("contract entity");
+        assert_eq!(
+            contract
+                .source
+                .as_ref()
+                .and_then(|source| source.line_start),
+            Some(7)
+        );
+
         let file = output
             .entities
             .iter()
@@ -2304,6 +2432,93 @@ mod tests {
             file.source.as_ref().and_then(|source| source.line_end),
             None
         );
+    }
+
+    #[tokio::test]
+    async fn registry_entities_use_their_own_declaration_lines() {
+        let output = RustokFbaExtractor
+            .extract(ExtractInput {
+                repo: RepoId("repo".to_string()),
+                snapshot: SnapshotId("snap".to_string()),
+                source: source(
+                    "crates/rustok-inventory/contracts/inventory-fba-registry.json",
+                    r#"{
+  "schema_version": 1,
+  "module": "inventory",
+  "role": "consumer",
+  "contract_version": "inventory.reservation.v1",
+  "ports": [{
+    "name": "InventoryReservationPort",
+    "operations": [
+      "check_availability",
+      "reserve_inventory"
+    ]
+  }],
+  "fallback_profiles": [
+    "embedded_native"
+  ],
+  "provider_dependencies": [{
+    "module": "payment",
+    "required_profiles": [
+      "checkout_orchestration"
+    ]
+  }],
+  "contract_tests": {
+    "profiles": [
+      "checkout_orchestration"
+    ],
+    "cases": [{
+      "operation": "reserve_inventory"
+    }]
+  }
+}"#,
+                ),
+            })
+            .await
+            .unwrap();
+
+        for (stable_key, expected_line) in [
+            ("fba_module://inventory", 3),
+            ("fba_contract://inventory/inventory.reservation.v1", 5),
+            ("fba_port://inventory/InventoryReservationPort", 7),
+            (
+                "fba_operation://inventory/InventoryReservationPort/check_availability",
+                9,
+            ),
+            (
+                "fba_operation://inventory/InventoryReservationPort/reserve_inventory",
+                10,
+            ),
+            ("fba_profile://inventory/embedded_native", 14),
+            ("fba_profile://inventory/checkout_orchestration", 19),
+            (
+                "fba_dependency://inventory/payment/checkout_orchestration",
+                19,
+            ),
+        ] {
+            let entity = output
+                .entities
+                .iter()
+                .find(|entity| entity.stable_key.0 == stable_key)
+                .unwrap_or_else(|| panic!("missing entity {stable_key}"));
+            assert_eq!(
+                entity.source.as_ref().and_then(|source| source.line_start),
+                Some(expected_line),
+                "unexpected source line for {stable_key}"
+            );
+            assert_eq!(
+                entity.source.as_ref().and_then(|source| source.line_end),
+                Some(expected_line),
+                "unexpected source end line for {stable_key}"
+            );
+        }
+
+        let provider_placeholder = output
+            .entities
+            .iter()
+            .find(|entity| entity.stable_key.0 == "fba_module://payment")
+            .expect("provider placeholder");
+        assert!(provider_placeholder.source.is_none());
     }
 
     #[tokio::test]
@@ -2515,12 +2730,23 @@ mod tests {
             content_hash: None,
             content: Some(
                 r#"{
-                    "module": "cart",
-                    "role": "provider",
-                    "contract_version": "cart.checkout_snapshot.v1",
-                    "ports": [{"name": "CartSnapshotReadPort", "operations": ["read_cart_checkout_snapshot"]}],
-                    "contract_tests": {"status": "planned_cases_locked", "cases": [{"operation": "read_cart_checkout_snapshot"}]}
-                }"#.to_string(),
+  "module": "cart",
+  "role": "provider",
+  "contract_version": "cart.checkout_snapshot.v1",
+  "ports": [{
+    "name": "CartSnapshotReadPort",
+    "operations": [
+      "read_cart_checkout_snapshot"
+    ]
+  }],
+  "contract_tests": {
+    "status": "planned_cases_locked",
+    "cases": [{
+      "operation": "read_cart_checkout_snapshot"
+    }]
+  }
+}"#
+                .to_string(),
             ),
         };
         let extracted = RustokFbaExtractor
@@ -2552,6 +2778,24 @@ mod tests {
                 .iter()
                 .all(|relation| !relation.evidence.is_empty() && !relation.ownership.is_empty())
         );
+
+        let operation = fba_operation_entity(
+            "cart",
+            "CartSnapshotReadPort",
+            "read_cart_checkout_snapshot",
+            &SnapshotId("snap".to_string()),
+            None,
+        );
+        let operation_relation = relations
+            .iter()
+            .find(|relation| {
+                relation.to == operation.id
+                    && relation.payload.get("kind").and_then(Value::as_str)
+                        == Some("port_has_operation")
+            })
+            .expect("port_has_operation relation exists");
+        assert_eq!(operation_relation.evidence[0].line_start, Some(8));
+        assert_eq!(operation_relation.evidence[0].line_end, Some(8));
     }
 
     #[tokio::test]
@@ -2563,17 +2807,21 @@ mod tests {
                 source: source(
                     "crates/rustok-commerce/contracts/commerce-fba-registry.json",
                     r#"{
-                        "module": "commerce",
-                        "role": "orchestrator_consumer",
-                        "contract_version": "commerce.checkout_orchestration.fba.v1",
-                        "provider_dependencies": [{
-                            "module": "payment",
-                            "contract_version": "payment.checkout.v1",
-                            "port": "PaymentCollectionPort",
-                            "required_profiles": ["checkout_orchestration"],
-                            "fallback_profiles": ["embedded_native"]
-                        }]
-                    }"#,
+  "module": "commerce",
+  "role": "orchestrator_consumer",
+  "contract_version": "commerce.checkout_orchestration.fba.v1",
+  "provider_dependencies": [{
+    "module": "payment",
+    "contract_version": "payment.checkout.v1",
+    "port": "PaymentCollectionPort",
+    "required_profiles": [
+      "checkout_orchestration"
+    ],
+    "fallback_profiles": [
+      "embedded_native"
+    ]
+  }]
+}"#,
                 ),
             })
             .await
@@ -2603,12 +2851,15 @@ mod tests {
             None,
         );
 
-        assert!(relations.iter().any(|relation| {
+        let module_relation = relations.iter().find(|relation| {
             relation.from == module.id
                 && relation.to == dependency.id
                 && relation.kind
                     == RelationKind::Other("rustok_fba_module_requires_dependency".to_string())
-        }));
+        });
+        let module_relation = module_relation.expect("module dependency relation exists");
+        assert_eq!(module_relation.evidence[0].line_start, Some(10));
+        assert_eq!(module_relation.evidence[0].line_end, Some(10));
         assert!(relations.iter().any(|relation| {
             relation.from == contract.id
                 && relation.to == dependency.id

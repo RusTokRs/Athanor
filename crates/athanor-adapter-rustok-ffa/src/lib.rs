@@ -117,12 +117,14 @@ impl Extractor for RustokFfaExtractor {
 
         let content = input.source.content.as_deref().unwrap_or_default();
         let markers = detect_markers(content, &classified, &path);
+        let anchor_line = markers.first_marker_line;
         let file = file_entity(&input.source, &input.snapshot.0);
         let surface = surface_entity(
             &classified.module,
             &classified.surface,
             &input.snapshot,
             Some(&path),
+            anchor_line,
         );
         let layer = layer_entity(
             &classified.module,
@@ -130,6 +132,7 @@ impl Extractor for RustokFfaExtractor {
             &classified.role,
             &input.snapshot,
             Some(&path),
+            anchor_line,
         );
         let fact = Fact {
             id: FactId(format!(
@@ -143,8 +146,8 @@ impl Extractor for RustokFfaExtractor {
             evidence: vec![evidence_for_file(
                 &path,
                 self.name(),
-                first_marker_line(content),
-                first_marker_line(content),
+                anchor_line,
+                anchor_line,
             )],
             ownership: ownership_for_file(&path),
             snapshot: input.snapshot,
@@ -182,13 +185,20 @@ impl Linker for RustokFfaLinker {
             let Some(file) = entity_by_id.get(fact.subject.0.as_str()) else {
                 continue;
             };
-            let surface = surface_entity(&marker.module, &marker.surface, &input.snapshot, None);
+            let surface = surface_entity(
+                &marker.module,
+                &marker.surface,
+                &input.snapshot,
+                Some(&marker.path),
+                marker.first_marker_line,
+            );
             let layer = layer_entity(
                 &marker.module,
                 &marker.surface,
                 &marker.role,
                 &input.snapshot,
                 Some(&marker.path),
+                marker.first_marker_line,
             );
 
             push_relation(
@@ -874,6 +884,7 @@ fn surface_entity(
     surface: &str,
     snapshot: &SnapshotId,
     path: Option<&str>,
+    line: Option<u32>,
 ) -> Entity {
     let stable_key = format!("ffa_surface://{module}/{surface}");
     Entity {
@@ -885,7 +896,7 @@ fn surface_entity(
         kind: EntityKind::Other(FFA_SURFACE_ENTITY_KIND.to_string()),
         name: format!("{module}/{surface}"),
         title: Some(format!("RusTok FFA {module} {surface} surface")),
-        source: None,
+        source: path.map(|path| source_location(path, line)),
         language: None,
         aliases: Vec::new(),
         ownership: path.map_or_else(Vec::new, ownership_for_file),
@@ -904,6 +915,7 @@ fn layer_entity(
     role: &str,
     snapshot: &SnapshotId,
     path: Option<&str>,
+    line: Option<u32>,
 ) -> Entity {
     let stable_key = format!("ffa_layer://{module}/{surface}/{role}");
     Entity {
@@ -915,11 +927,7 @@ fn layer_entity(
         kind: EntityKind::Other(FFA_LAYER_ENTITY_KIND.to_string()),
         name: format!("{module}/{surface}/{role}"),
         title: Some(format!("RusTok FFA {module} {surface} {role} layer")),
-        source: path.map(|path| SourceLocation {
-            path: path.to_string(),
-            line_start: None,
-            line_end: None,
-        }),
+        source: path.map(|path| source_location(path, line)),
         language: Some(LanguageCode("rust".to_string())),
         aliases: Vec::new(),
         ownership: path.map_or_else(Vec::new, ownership_for_file),
@@ -966,7 +974,7 @@ fn detect_markers(content: &str, classified: &ClassifiedPath, path: &str) -> Sou
         has_native_graphql_fallback: content.contains("ServerFn(")
             && content.contains("Graphql(")
             && content.contains("_with_fallback"),
-        first_marker_line: first_marker_line(content),
+        first_marker_line: source_anchor_line(content, path, &classified.role),
     }
 }
 
@@ -1007,7 +1015,25 @@ fn contains_server_marker(content: &str) -> bool {
     })
 }
 
-fn first_marker_line(content: &str) -> Option<u32> {
+fn source_location(path: &str, line: Option<u32>) -> SourceLocation {
+    SourceLocation {
+        path: path.to_string(),
+        line_start: line,
+        line_end: line,
+    }
+}
+
+fn source_anchor_line(content: &str, path: &str, role: &str) -> Option<u32> {
+    if role == "manifest" || path.ends_with(".toml") {
+        return toml_identity_line(content).or_else(|| first_non_empty_line(content));
+    }
+
+    first_ffa_marker_line(content)
+        .or_else(|| first_code_declaration_line(content))
+        .or_else(|| first_non_empty_line(content))
+}
+
+fn first_ffa_marker_line(content: &str) -> Option<u32> {
     content.lines().enumerate().find_map(|(index, line)| {
         contains_any(
             line,
@@ -1023,6 +1049,36 @@ fn first_marker_line(content: &str) -> Option<u32> {
         )
         .then_some(index as u32 + 1)
     })
+}
+
+fn first_code_declaration_line(content: &str) -> Option<u32> {
+    content.lines().enumerate().find_map(|(index, line)| {
+        let trimmed = line.trim_start();
+        (trimmed.starts_with("use ")
+            || trimmed.starts_with("pub ")
+            || trimmed.starts_with("fn ")
+            || trimmed.starts_with("struct ")
+            || trimmed.starts_with("enum ")
+            || trimmed.starts_with("impl ")
+            || trimmed.starts_with("const ")
+            || trimmed.starts_with("export ")
+            || trimmed.starts_with("import "))
+        .then_some(index as u32 + 1)
+    })
+}
+
+fn toml_identity_line(content: &str) -> Option<u32> {
+    content.lines().enumerate().find_map(|(index, line)| {
+        let trimmed = line.trim_start();
+        (trimmed.starts_with("name") || trimmed == "[package]").then_some(index as u32 + 1)
+    })
+}
+
+fn first_non_empty_line(content: &str) -> Option<u32> {
+    content
+        .lines()
+        .enumerate()
+        .find_map(|(index, line)| (!line.trim().is_empty()).then_some(index as u32 + 1))
 }
 
 fn classify_path(path: &str) -> Option<ClassifiedPath> {
@@ -1184,6 +1240,86 @@ mod tests {
                 .iter()
                 .any(|entity| entity.stable_key.0 == "ffa_layer://blog/admin/core")
         );
+    }
+
+    #[tokio::test]
+    async fn surface_and_layer_entities_use_marker_source_anchor() {
+        let output = RustokFfaExtractor
+            .extract(ExtractInput {
+                repo: RepoId("repo".to_string()),
+                snapshot: SnapshotId("snap".to_string()),
+                source: source(
+                    "crates/rustok-blog/admin/src/ui/leptos.rs",
+                    "use leptos::prelude::*;\n#[component]\npub fn BlogAdmin() {}",
+                ),
+            })
+            .await
+            .unwrap();
+
+        for stable_key in [
+            "ffa_surface://blog/admin",
+            "ffa_layer://blog/admin/ui_leptos",
+        ] {
+            let source = output
+                .entities
+                .iter()
+                .find(|entity| entity.stable_key.0 == stable_key)
+                .and_then(|entity| entity.source.as_ref())
+                .expect("FFA entity has source anchor");
+            assert_eq!(source.path, "crates/rustok-blog/admin/src/ui/leptos.rs");
+            assert_eq!(source.line_start, Some(1));
+            assert_eq!(source.line_end, Some(1));
+        }
+    }
+
+    #[tokio::test]
+    async fn source_anchor_falls_back_to_declaration_when_no_marker_exists() {
+        let output = RustokFfaExtractor
+            .extract(ExtractInput {
+                repo: RepoId("repo".to_string()),
+                snapshot: SnapshotId("snap".to_string()),
+                source: source(
+                    "crates/rustok-product/storefront/src/core.rs",
+                    "\nuse crate::model::ProductDetail;\n\npub struct ProductStorefrontState;",
+                ),
+            })
+            .await
+            .unwrap();
+
+        let source = output
+            .entities
+            .iter()
+            .find(|entity| entity.stable_key.0 == "ffa_surface://product/storefront")
+            .and_then(|entity| entity.source.as_ref())
+            .expect("surface has source anchor");
+        assert_eq!(source.path, "crates/rustok-product/storefront/src/core.rs");
+        assert_eq!(source.line_start, Some(2));
+        assert_eq!(source.line_end, Some(2));
+    }
+
+    #[tokio::test]
+    async fn manifest_layer_anchors_to_toml_identity_line() {
+        let output = RustokFfaExtractor
+            .extract(ExtractInput {
+                repo: RepoId("repo".to_string()),
+                snapshot: SnapshotId("snap".to_string()),
+                source: source(
+                    "crates/rustok-product/storefront/Cargo.toml",
+                    "[package]\nname = \"rustok-product-storefront\"\n\n[features]\nssr = [\"leptos/ssr\"]",
+                ),
+            })
+            .await
+            .unwrap();
+
+        let source = output
+            .entities
+            .iter()
+            .find(|entity| entity.stable_key.0 == "ffa_layer://product/storefront/manifest")
+            .and_then(|entity| entity.source.as_ref())
+            .expect("manifest layer has source anchor");
+        assert_eq!(source.path, "crates/rustok-product/storefront/Cargo.toml");
+        assert_eq!(source.line_start, Some(1));
+        assert_eq!(source.line_end, Some(1));
     }
 
     #[test]

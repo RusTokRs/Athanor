@@ -4,7 +4,7 @@ entities:
 id: doc://docs/operations/script-script-command-github-workflows-release-yml-github-actions-job-build-step-5-run.md
 kind: operations_documentation
 language: en
-last_verified_snapshot: snap_jsonl_00000261
+last_verified_snapshot: snap_jsonl_00000272
 source_language: en
 status: verified
 ---

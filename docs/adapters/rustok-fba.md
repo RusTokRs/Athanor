@@ -2,7 +2,7 @@
 id: doc://docs/adapters/rustok-fba.md
 kind: adapter
 language: en
-last_verified_snapshot: snap_jsonl_00000261
+last_verified_snapshot: snap_jsonl_00000272
 source_language: en
 status: verified
 ---
@@ -91,12 +91,15 @@ The linker consumes FBA facts and emits canonical graph relations:
 - `rustok_fba_contract_requires_dependency`: consumer contract to dependency declaration
 - `rustok_fba_consumer_requires_provider`: consumer dependency to provider module
 
-Relations include evidence and ownership inherited from marker facts. Registry facts and
-registry-derived entity sources use the first registry identity anchor line, such as `module`,
-`module_slug`, `provider`, `contract_version`, or `role`, instead of always pointing at line 1 or
-leaving entity source lines empty. Provider and consumer placeholder entities emitted from
-dependency declarations do not claim source ownership; registry and code facts provide the primary
-source for the real module, contract, port, operation, and dependency entities.
+Relations include evidence and ownership inherited from marker facts. Registry facts use the first
+registry identity anchor line, such as `module`, `module_slug`, `provider`, `contract_version`, or
+`role`. Registry-derived module, contract, port, operation, profile, and consumer dependency
+entities use the line of their own JSON declaration instead of sharing one registry-wide line.
+Provider and consumer placeholder entities emitted from dependency declarations do not claim source
+ownership; registry and code facts provide the primary source for the real module, contract, port,
+operation, and dependency entities.
+Registry-derived relations use the target entity source line as evidence where possible, so
+`ath explain` and graph output navigate to concrete declarations rather than the registry header.
 
 ## Diagnostics
 

@@ -2,7 +2,7 @@
 id: doc://docs/adapters/store-surrealdb.md
 kind: module_documentation
 language: en
-last_verified_snapshot: snap_jsonl_00000261
+last_verified_snapshot: snap_jsonl_00000272
 source_language: en
 status: verified
 ---

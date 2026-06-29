@@ -2,7 +2,7 @@
 id: doc://docs/development/rustok-ffa-fba-adapter-improvement-plan.md
 kind: development_plan
 language: en
-last_verified_snapshot: snap_jsonl_00000261
+last_verified_snapshot: snap_jsonl_00000272
 source_language: en
 status: verified
 ---
@@ -45,8 +45,14 @@ Every adapter improvement must be tested against `D:\rustok` immediately after i
 - FFA emits `ffa_surface://...` and `ffa_layer://...` entities.
 - Current FFA layer roles are `core`, `transport`, `ui_leptos`, `ui_support`,
   `api`, `host_wiring`, `manifest`, `crate_root`, and `other`.
+- FFA surface and layer entities should keep source anchors to the detected marker file,
+  preferring marker lines, declaration/import lines, or TOML identity lines so manual
+  `ath explain` checks do not stop at ownership-only evidence.
 - FBA emits `fba_module://...`, `fba_contract://...`, `fba_port://...`,
   `fba_operation://...`, `fba_profile://...`, and `fba_dependency://...` entities.
+- FBA registry-derived relations should use target entity source lines as evidence where possible,
+  so `ath explain` and violation graphs navigate to concrete contract, port, operation, profile,
+  or dependency declarations.
 - Facts, relations, and diagnostics include evidence.
 - Graph commands return bounded subgraphs with stable schemas and omitted counts.
 - Rustok adapters remain opt-in through `.athanor/adapters/*.json`.
@@ -254,8 +260,9 @@ contract-version/profile forms used by existing RusTok registries. Consumer depe
 also create generic graph paths from consumer module/contract to dependency to provider, while
 provider-side consumer declarations preserve hyphenated module slugs such as `ai-media`.
 Placeholder entities avoid claiming primary source ownership from the real provider registry or
-port-code source, and registry facts plus registry-derived entity sources now anchor at the first
-registry identity line instead of defaulting to line 1 or leaving entity source lines empty.
+port-code source. Registry facts anchor at the first registry identity line; registry-derived
+module, contract, port, operation, profile, and consumer dependency entities anchor at their own
+JSON declarations instead of sharing one registry-wide line.
 
 Deepen FBA relationship checks beyond registry presence.
 

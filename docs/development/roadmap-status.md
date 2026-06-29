@@ -2,7 +2,7 @@
 id: doc://docs/development/roadmap-status.md
 kind: developer_guide
 language: en
-last_verified_snapshot: snap_jsonl_00000261
+last_verified_snapshot: snap_jsonl_00000272
 source_language: en
 status: verified
 ---
