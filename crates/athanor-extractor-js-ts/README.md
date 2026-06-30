@@ -14,6 +14,8 @@ Implements: `Extractor`
 - `FactKind::SymbolDefined` for emitted source declarations and package dependency declarations
 - `DiagnosticKind::Other("js_ts_parse_error")` when tree-sitter reports parser errors, coalesced at the outer parser error node to avoid duplicate nested findings
 - `DiagnosticKind::Other("js_ts_unsupported_syntax")` for unsupported top-level declaration shapes detected during extraction
+- feature-gated parser verification diagnostics for backend-only findings, source-range mismatches,
+  and recovery differences between tree-sitter and Oxc
 
 All emitted objects include ownership metadata for the source file. Facts and diagnostics include source evidence.
 
@@ -46,6 +48,16 @@ The adapter uses tree-sitter JavaScript, TypeScript, and TSX grammars. Parser AS
 
 The parser input strips a leading UTF-8 BOM and accepts Node-style shebangs before handing source text to tree-sitter. Ambient TypeScript `declare module` blocks are accepted as known declaration syntax and are not reported as unsupported top-level declarations.
 
+Build `ath` or `athd` with `--features js-ts-precision` to run Oxc as a second parser for every
+affected JS/TS source file. The adapter compares normalized declaration, import, re-export, source
+range, and recovery rows rather than raw ASTs. Tree-sitter remains the canonical-output backend;
+Oxc disagreements produce evidence-backed diagnostics instead of silently merging results.
+
+Precision reports are stored in the module payload as bounded `athanor.js_ts_precision.v1`
+metrics. At most 64 disagreement diagnostics are emitted per file, with explicit reported and
+omitted counts. Switching between normal and precision builds changes the persisted index-state
+schema so unchanged JS/TS files are safely rebuilt once.
+
 ## Side Effects
 
 None. The adapter does not run commands, use the network, or modify project files.
@@ -59,9 +71,14 @@ None. The adapter does not run commands, use the network, or modify project file
 - Parser errors are reported as coalesced diagnostics, and extraction continues with recoverable declarations.
 - Top-level runtime statements in scripts and ambient module declarations are not treated as unsupported declaration diagnostics.
 - Dynamic CommonJS exports and computed declaration names are not fully resolved.
+- Precision mode increases JS/TS parsing cost because affected files are parsed twice. It compares
+  named functions, classes, interfaces, type aliases, static imports, and source-backed re-exports;
+  method and variable-bound function comparison remains intentionally excluded until both backends
+  expose an equally stable adapter-local representation.
 
 ## Test
 
 ```bash
 cargo test -p athanor-extractor-js-ts
+cargo test -p athanor-extractor-js-ts --features precision-parser
 ```

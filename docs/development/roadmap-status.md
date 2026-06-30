@@ -2436,6 +2436,48 @@ Current limitations:
   dynamic, CommonJS, export, and re-export relations remain deferred
 - parser errors and unsupported declaration shapes are diagnostic-backed, but deeper capability reporting remains part of the Analysis Completeness Reporting backlog
 
+### JavaScript/TypeScript Dual-Parser Verification Mode
+
+Status: verified.
+
+Implemented in:
+
+- `crates/athanor-extractor-js-ts`
+- `crates/athanor-runtime-defaults`
+- `crates/athanor-app/src/index_state.rs`
+- `apps/ath`
+- `apps/athd`
+- `docs/README.md`
+- `docs/adapters/extractor-js-ts.md`
+- `docs/architecture/adapters.md`
+- `docs/architecture/pipeline.md`
+- `docs/development/roadmap-status.md`
+
+Purpose:
+
+- adds opt-in `js-ts-precision` build features for `ath` and `athd`, leaving normal indexing on the
+  existing single tree-sitter backend
+- runs maintained Rust-native Oxc as a second parser for affected JS/TS source files and compares
+  adapter-local normalized declarations, static imports, source-backed re-exports, ranges, and
+  parser recovery state rather than raw ASTs
+- retains tree-sitter as the canonical-output backend so agreed findings keep normal stable keys
+  and ids; contradictory findings are never silently merged
+- emits evidence-backed diagnostics for backend-only findings, source-range mismatches, and
+  recovery differences
+- records bounded `athanor.js_ts_precision.v1` module metrics with a per-file limit of 64 reported
+  disagreements plus explicit omitted counts
+- uses a precision-specific index-state schema so switching the build mode safely rebuilds
+  unchanged sources once
+- keeps `ath coverage` schema-stable while exposing precision diagnostic kinds and file counts
+  through its existing bounded diagnostic summaries
+
+Current limitations:
+
+- precision comparison excludes methods and variable-bound functions until both parser backends
+  expose an equally stable adapter-local representation
+- precision mode parses every affected JS/TS file twice and is intended for high-value repositories
+  or verification runs rather than the default large-repository path
+
 ### JavaScript/TypeScript Relative Import Linker
 
 Status: verified.
@@ -2465,29 +2507,6 @@ Purpose:
 ## Next
 
 This backlog tracks the remaining global plan from `start.md`. The entries below are prioritized by dependency order and current product value; each item should be moved into `Implemented` only after code, documentation, and required verification are complete.
-
-### JavaScript/TypeScript Dual-Parser Verification Mode
-
-Status: planned.
-
-Priority: P1.
-
-Scope:
-
-- add an optional precision mode inside `athanor-extractor-js-ts` that can run a second maintained Rust parser backend for the same affected JS/TS source file
-- normalize each backend's findings into comparable adapter-local rows such as modules, imports, exports, declarations, source ranges, and recoverable parser diagnostics instead of comparing raw ASTs
-- compare normalized backend results and emit canonical output only through the same backend-independent extraction model used by normal mode
-- report parser disagreement, backend-only findings, source-range mismatches, recovery differences, and unsupported syntax through evidence-backed diagnostics and bounded metrics
-- prefer explicit confidence/diagnostic reporting over silently merging contradictory backend results
-- make the second backend opt-in through configuration or feature gating so normal indexing remains fast and deterministic for large repositories
-- document parser backend selection, performance tradeoffs, known disagreement classes, and how precision mode affects coverage output
-
-Acceptance:
-
-- users can enable higher-precision JS/TS extraction for important repositories without changing Athanor core/domain contracts
-- disagreement reports are bounded, deterministic, evidence-backed, and suitable for agent-facing commands rather than requiring generated artifact inspection
-- normal mode and precision mode produce stable canonical ids for agreed findings
-- tests cover agreeing parser output, one-backend parse failure, backend-only declaration/import findings, and source-range disagreement
 
 ### Daemon Fault-Injection Coverage
 

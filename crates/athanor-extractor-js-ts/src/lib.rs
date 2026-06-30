@@ -1,4 +1,6 @@
 use std::borrow::Cow;
+#[cfg(feature = "precision-parser")]
+use std::collections::BTreeMap;
 
 use async_trait::async_trait;
 use athanor_core::{CoreResult, ExtractInput, ExtractOutput, Extractor, SourceFile};
@@ -94,6 +96,26 @@ impl Extractor for JsTsExtractor {
             &mut diagnostics,
         );
 
+        #[cfg(feature = "precision-parser")]
+        let precision = verify_with_oxc(
+            self.name(),
+            &input.source.path,
+            &input.snapshot,
+            PrecisionVerificationInput {
+                content: parse_content.as_ref(),
+                declarations: &declarations,
+                imports: &imports,
+                exports: &exports,
+                primary_recoveries: diagnostics
+                    .iter()
+                    .filter(|diagnostic| {
+                        diagnostic.kind == DiagnosticKind::Other("js_ts_parse_error".to_string())
+                    })
+                    .count(),
+            },
+            &mut diagnostics,
+        );
+
         let mut entities = Vec::new();
         let mut facts = Vec::new();
         let context = ExtractionEvidenceContext {
@@ -107,6 +129,18 @@ impl Extractor for JsTsExtractor {
             "ent_js_ts_module_{:016x}",
             stable_hash(module_stable_key.0.as_bytes())
         ));
+        #[allow(unused_mut)]
+        let mut module_payload = json!({
+            "language_hint": input.source.language_hint,
+            "parser": language.parser_name,
+            "imports": imports,
+            "exports": exports,
+            "declaration_count": declarations.len(),
+        });
+        #[cfg(feature = "precision-parser")]
+        {
+            module_payload["precision_verification"] = precision;
+        }
 
         entities.push(Entity {
             id: module_id.clone(),
@@ -122,13 +156,7 @@ impl Extractor for JsTsExtractor {
             language: Some(LanguageCode(language.hint.to_string())),
             aliases: Vec::new(),
             ownership: ownership.clone(),
-            payload: json!({
-                "language_hint": input.source.language_hint,
-                "parser": language.parser_name,
-                "imports": imports,
-                "exports": exports,
-                "declaration_count": declarations.len(),
-            }),
+            payload: module_payload,
         });
 
         facts.push(symbol_fact(
@@ -562,6 +590,380 @@ fn collect_unsupported_top_level(
     }
 }
 
+#[cfg(feature = "precision-parser")]
+const MAX_PRECISION_DIAGNOSTICS: usize = 64;
+
+#[cfg(feature = "precision-parser")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct VerificationRow {
+    kind: String,
+    key: String,
+    range: (u32, u32),
+}
+
+#[cfg(feature = "precision-parser")]
+#[derive(Debug)]
+struct VerificationDifference {
+    kind: &'static str,
+    key: String,
+    primary_range: Option<(u32, u32)>,
+    secondary_range: Option<(u32, u32)>,
+}
+
+#[cfg(feature = "precision-parser")]
+struct PrecisionVerificationInput<'a> {
+    content: &'a str,
+    declarations: &'a [SourceDeclaration],
+    imports: &'a [Value],
+    exports: &'a [Value],
+    primary_recoveries: usize,
+}
+
+#[cfg(feature = "precision-parser")]
+fn verify_with_oxc(
+    extractor: &str,
+    path: &str,
+    snapshot: &SnapshotId,
+    input: PrecisionVerificationInput<'_>,
+    diagnostics: &mut Vec<Diagnostic>,
+) -> Value {
+    let primary_rows = primary_verification_rows(input.declarations, input.imports, input.exports);
+    let secondary = oxc_verification_rows(path, input.content);
+    let mut differences = compare_verification_rows(&primary_rows, &secondary.rows);
+
+    append_recovery_difference(
+        input.primary_recoveries,
+        secondary.recoveries,
+        secondary.panicked,
+        &mut differences,
+    );
+
+    differences.sort_by(|left, right| {
+        (left.kind, left.key.as_str()).cmp(&(right.kind, right.key.as_str()))
+    });
+    let total_differences = differences.len();
+    for difference in differences.iter().take(MAX_PRECISION_DIAGNOSTICS) {
+        let range = difference
+            .primary_range
+            .or(difference.secondary_range)
+            .unwrap_or((1, 1));
+        let diagnostic_kind = match difference.kind {
+            "source_range_mismatch" => "js_ts_parser_source_range_mismatch",
+            "recovery_difference" => "js_ts_parser_recovery_difference",
+            _ => "js_ts_parser_backend_only_finding",
+        };
+        diagnostics.push(precision_diagnostic(
+            DiagnosticSpec {
+                extractor,
+                path,
+                snapshot,
+                kind: diagnostic_kind,
+                title: "JavaScript/TypeScript parser disagreement",
+                message: format!(
+                    "tree-sitter and Oxc disagree about {} ({}) in {path}",
+                    difference.key, difference.kind
+                ),
+                range,
+                payload: json!({
+                    "disagreement_kind": difference.kind,
+                    "finding": difference.key,
+                    "primary_backend": "tree-sitter",
+                    "secondary_backend": "oxc",
+                    "primary_range": difference.primary_range,
+                    "secondary_range": difference.secondary_range,
+                }),
+            },
+            &difference.key,
+        ));
+    }
+
+    json!({
+        "schema": "athanor.js_ts_precision.v1",
+        "enabled": true,
+        "primary_backend": "tree-sitter",
+        "secondary_backend": "oxc",
+        "primary_rows": primary_rows.len(),
+        "secondary_rows": secondary.rows.len(),
+        "primary_recoveries": input.primary_recoveries,
+        "secondary_recoveries": secondary.recoveries,
+        "secondary_panicked": secondary.panicked,
+        "differences": total_differences,
+        "reported_differences": total_differences.min(MAX_PRECISION_DIAGNOSTICS),
+        "omitted_differences": total_differences.saturating_sub(MAX_PRECISION_DIAGNOSTICS),
+        "diagnostic_limit": MAX_PRECISION_DIAGNOSTICS,
+    })
+}
+
+#[cfg(feature = "precision-parser")]
+fn primary_verification_rows(
+    declarations: &[SourceDeclaration],
+    imports: &[Value],
+    exports: &[Value],
+) -> Vec<VerificationRow> {
+    let mut rows = declarations
+        .iter()
+        .filter(|declaration| {
+            declaration.symbol_kind != "method"
+                && !matches!(
+                    declaration.source_node.as_str(),
+                    "arrow_function" | "function" | "function_expression"
+                )
+        })
+        .map(|declaration| VerificationRow {
+            kind: "declaration".to_string(),
+            key: format!("{}:{}", declaration.symbol_kind, declaration.qualified_name),
+            range: declaration.line_range,
+        })
+        .collect::<Vec<_>>();
+    rows.extend(imports.iter().filter_map(|import| {
+        Some(VerificationRow {
+            kind: "import".to_string(),
+            key: import.get("source")?.as_str()?.to_string(),
+            range: value_line_range(import),
+        })
+    }));
+    rows.extend(exports.iter().filter_map(|export| {
+        Some(VerificationRow {
+            kind: "export".to_string(),
+            key: export.get("source")?.as_str()?.to_string(),
+            range: value_line_range(export),
+        })
+    }));
+    rows.sort_by(|left, right| {
+        (&left.kind, &left.key, left.range).cmp(&(&right.kind, &right.key, right.range))
+    });
+    rows
+}
+
+#[cfg(feature = "precision-parser")]
+fn value_line_range(value: &Value) -> (u32, u32) {
+    (
+        value.get("line_start").and_then(Value::as_u64).unwrap_or(1) as u32,
+        value.get("line_end").and_then(Value::as_u64).unwrap_or(1) as u32,
+    )
+}
+
+#[cfg(feature = "precision-parser")]
+struct OxcVerification {
+    rows: Vec<VerificationRow>,
+    recoveries: usize,
+    panicked: bool,
+}
+
+#[cfg(feature = "precision-parser")]
+fn oxc_verification_rows(path: &str, content: &str) -> OxcVerification {
+    use std::path::Path;
+
+    use oxc_allocator::Allocator;
+    use oxc_ast_visit::Visit;
+    use oxc_parser::Parser as OxcParser;
+    use oxc_span::SourceType;
+
+    let allocator = Allocator::default();
+    let source_type = SourceType::from_path(Path::new(path)).unwrap_or_default();
+    let parsed = OxcParser::new(&allocator, content, source_type).parse();
+    let recoveries = parsed.diagnostics.len();
+    let panicked = parsed.panicked;
+    let mut visitor = OxcVerificationVisitor::new(content);
+    visitor.visit_program(&parsed.program);
+    visitor.rows.sort_by(|left, right| {
+        (&left.kind, &left.key, left.range).cmp(&(&right.kind, &right.key, right.range))
+    });
+    OxcVerification {
+        rows: visitor.rows,
+        recoveries,
+        panicked,
+    }
+}
+
+#[cfg(feature = "precision-parser")]
+struct OxcVerificationVisitor<'s> {
+    content: &'s str,
+    rows: Vec<VerificationRow>,
+}
+
+#[cfg(feature = "precision-parser")]
+impl<'s> OxcVerificationVisitor<'s> {
+    fn new(content: &'s str) -> Self {
+        Self {
+            content,
+            rows: Vec::new(),
+        }
+    }
+
+    fn push(&mut self, kind: &str, key: String, span: oxc_span::Span) {
+        self.rows.push(VerificationRow {
+            kind: kind.to_string(),
+            key,
+            range: byte_span_line_range(self.content, span.start, span.end),
+        });
+    }
+}
+
+#[cfg(feature = "precision-parser")]
+impl<'a> oxc_ast_visit::Visit<'a> for OxcVerificationVisitor<'_> {
+    fn visit_function(
+        &mut self,
+        function: &oxc_ast::ast::Function<'a>,
+        flags: oxc_syntax::scope::ScopeFlags,
+    ) {
+        if let Some(identifier) = &function.id {
+            self.push(
+                "declaration",
+                format!("function:{}", identifier.name.as_str()),
+                function.span,
+            );
+        }
+        oxc_ast_visit::walk::walk_function(self, function, flags);
+    }
+
+    fn visit_class(&mut self, class: &oxc_ast::ast::Class<'a>) {
+        if let Some(identifier) = &class.id {
+            self.push(
+                "declaration",
+                format!("class:{}", identifier.name.as_str()),
+                class.span,
+            );
+        }
+        oxc_ast_visit::walk::walk_class(self, class);
+    }
+
+    fn visit_ts_interface_declaration(
+        &mut self,
+        declaration: &oxc_ast::ast::TSInterfaceDeclaration<'a>,
+    ) {
+        self.push(
+            "declaration",
+            format!("interface:{}", declaration.id.name.as_str()),
+            declaration.span,
+        );
+        oxc_ast_visit::walk::walk_ts_interface_declaration(self, declaration);
+    }
+
+    fn visit_ts_type_alias_declaration(
+        &mut self,
+        declaration: &oxc_ast::ast::TSTypeAliasDeclaration<'a>,
+    ) {
+        self.push(
+            "declaration",
+            format!("type_alias:{}", declaration.id.name.as_str()),
+            declaration.span,
+        );
+        oxc_ast_visit::walk::walk_ts_type_alias_declaration(self, declaration);
+    }
+
+    fn visit_import_declaration(&mut self, declaration: &oxc_ast::ast::ImportDeclaration<'a>) {
+        self.push(
+            "import",
+            declaration.source.value.as_str().to_string(),
+            declaration.span,
+        );
+        oxc_ast_visit::walk::walk_import_declaration(self, declaration);
+    }
+
+    fn visit_export_named_declaration(
+        &mut self,
+        declaration: &oxc_ast::ast::ExportNamedDeclaration<'a>,
+    ) {
+        if let Some(source) = &declaration.source {
+            self.push(
+                "export",
+                source.value.as_str().to_string(),
+                declaration.span,
+            );
+        }
+        oxc_ast_visit::walk::walk_export_named_declaration(self, declaration);
+    }
+}
+
+#[cfg(feature = "precision-parser")]
+fn byte_span_line_range(content: &str, start: u32, end: u32) -> (u32, u32) {
+    let line = |offset: u32| {
+        content
+            .as_bytes()
+            .iter()
+            .take(offset as usize)
+            .filter(|byte| **byte == b'\n')
+            .count() as u32
+            + 1
+    };
+    (line(start), line(end))
+}
+
+#[cfg(feature = "precision-parser")]
+fn compare_verification_rows(
+    primary: &[VerificationRow],
+    secondary: &[VerificationRow],
+) -> Vec<VerificationDifference> {
+    let primary = primary
+        .iter()
+        .map(|row| ((row.kind.as_str(), row.key.as_str()), row.range))
+        .collect::<BTreeMap<_, _>>();
+    let secondary = secondary
+        .iter()
+        .map(|row| ((row.kind.as_str(), row.key.as_str()), row.range))
+        .collect::<BTreeMap<_, _>>();
+    let mut differences = Vec::new();
+
+    for ((kind, key), primary_range) in &primary {
+        match secondary.get(&(*kind, *key)) {
+            None => differences.push(VerificationDifference {
+                kind: "primary_backend_only",
+                key: format!("{kind}:{key}"),
+                primary_range: Some(*primary_range),
+                secondary_range: None,
+            }),
+            Some(secondary_range) if secondary_range != primary_range => {
+                differences.push(VerificationDifference {
+                    kind: "source_range_mismatch",
+                    key: format!("{kind}:{key}"),
+                    primary_range: Some(*primary_range),
+                    secondary_range: Some(*secondary_range),
+                });
+            }
+            Some(_) => {}
+        }
+    }
+    for ((kind, key), secondary_range) in &secondary {
+        if !primary.contains_key(&(*kind, *key)) {
+            differences.push(VerificationDifference {
+                kind: "secondary_backend_only",
+                key: format!("{kind}:{key}"),
+                primary_range: None,
+                secondary_range: Some(*secondary_range),
+            });
+        }
+    }
+    differences
+}
+
+#[cfg(feature = "precision-parser")]
+fn append_recovery_difference(
+    primary_recoveries: usize,
+    secondary_recoveries: usize,
+    secondary_panicked: bool,
+    differences: &mut Vec<VerificationDifference>,
+) {
+    if primary_recoveries != secondary_recoveries || secondary_panicked {
+        differences.push(VerificationDifference {
+            kind: "recovery_difference",
+            key: "parser-recovery".to_string(),
+            primary_range: Some((1, 1)),
+            secondary_range: Some((1, 1)),
+        });
+    }
+}
+
+#[cfg(feature = "precision-parser")]
+fn precision_diagnostic(spec: DiagnosticSpec<'_>, finding: &str) -> Diagnostic {
+    let mut output = diagnostic(spec);
+    output.id = DiagnosticId(format!(
+        "diag_js_ts_parser_verification_{:016x}",
+        stable_hash(format!("{}:{finding}", output.id.0).as_bytes())
+    ));
+    output
+}
+
 struct DiagnosticSpec<'a> {
     extractor: &'a str,
     path: &'a str,
@@ -976,6 +1378,86 @@ mod tests {
                 && entity.stable_key.0 == "dependency://npm:vitest"
                 && entity.payload["dependency_kind"] == "devDependencies"
         }));
+    }
+
+    #[cfg(feature = "precision-parser")]
+    #[tokio::test]
+    async fn precision_mode_records_agreeing_backend_rows_without_changing_ids() {
+        let output = JsTsExtractor
+            .extract(input(
+                "src/auth.ts",
+                "import { token } from './token';\nexport function login() {}\ninterface Session {}\n",
+                "typescript",
+            ))
+            .await
+            .unwrap();
+        let module = output
+            .entities
+            .iter()
+            .find(|entity| entity.kind == EntityKind::Module)
+            .unwrap();
+
+        assert_eq!(
+            module.stable_key.0, "module://js-ts:src/auth.ts",
+            "precision mode must retain normal canonical ids"
+        );
+        assert_eq!(module.payload["precision_verification"]["differences"], 0);
+    }
+
+    #[cfg(feature = "precision-parser")]
+    #[test]
+    fn precision_comparison_reports_backend_only_and_range_findings() {
+        let primary = vec![
+            VerificationRow {
+                kind: "declaration".to_string(),
+                key: "function:login".to_string(),
+                range: (2, 2),
+            },
+            VerificationRow {
+                kind: "import".to_string(),
+                key: "./primary".to_string(),
+                range: (1, 1),
+            },
+        ];
+        let secondary = vec![
+            VerificationRow {
+                kind: "declaration".to_string(),
+                key: "function:login".to_string(),
+                range: (2, 3),
+            },
+            VerificationRow {
+                kind: "import".to_string(),
+                key: "./secondary".to_string(),
+                range: (1, 1),
+            },
+        ];
+
+        let differences = compare_verification_rows(&primary, &secondary);
+        assert!(
+            differences
+                .iter()
+                .any(|difference| difference.kind == "source_range_mismatch")
+        );
+        assert!(
+            differences
+                .iter()
+                .any(|difference| difference.kind == "primary_backend_only")
+        );
+        assert!(
+            differences
+                .iter()
+                .any(|difference| difference.kind == "secondary_backend_only")
+        );
+    }
+
+    #[cfg(feature = "precision-parser")]
+    #[test]
+    fn precision_comparison_reports_one_backend_parse_failure() {
+        let mut differences = Vec::new();
+        append_recovery_difference(0, 1, true, &mut differences);
+
+        assert_eq!(differences.len(), 1);
+        assert_eq!(differences[0].kind, "recovery_difference");
     }
 
     fn input(path: &str, content: &str, language_hint: &str) -> ExtractInput {

@@ -29,6 +29,10 @@ notify-debouncer-mini.workspace = true
 fs2.workspace = true
 getrandom = { workspace = true, features = ["std"] }
 
+[features]
+default = []
+js-ts-precision = []
+
 [dev-dependencies]
 athanor-checker-api = { path = "../athanor-checker-api" }
 athanor-checker-markdown = { path = "../athanor-checker-markdown" }

@@ -1286,7 +1286,13 @@ fn extract_registry(source: &SourceFile, snapshot: &SnapshotId, path: &str) -> E
             ));
             let consumer_line = json_property_line(content, &["module"], &consumer.module);
             entities.push(registry_entity_with_line(
-                fba_dependency_entity(&consumer.module, &marker.module, profile, snapshot, Some(path)),
+                fba_dependency_entity(
+                    &consumer.module,
+                    &marker.module,
+                    profile,
+                    snapshot,
+                    Some(path),
+                ),
                 json_value_line_from(content, &["profile"], profile, consumer_line.unwrap_or(1)),
             ));
         }
@@ -1950,18 +1956,6 @@ fn fba_dependency_entity(
             "snapshot": snapshot.0,
         }),
     }
-}
-
-fn fba_dependency_placeholder_entity(
-    consumer: &str,
-    provider: &str,
-    profile: &str,
-    snapshot: &SnapshotId,
-    owner_path: &str,
-) -> Entity {
-    let mut entity = fba_dependency_entity(consumer, provider, profile, snapshot, Some(owner_path));
-    entity.source = None;
-    entity
 }
 
 #[allow(clippy::too_many_arguments)]

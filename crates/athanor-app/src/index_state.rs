@@ -6,7 +6,10 @@ use anyhow::{Context, Result};
 use athanor_core::SourceFile;
 use serde::{Deserialize, Serialize};
 
+#[cfg(not(feature = "js-ts-precision"))]
 pub const INDEX_STATE_SCHEMA: &str = "athanor.index_state.v46";
+#[cfg(feature = "js-ts-precision")]
+pub const INDEX_STATE_SCHEMA: &str = "athanor.index_state.v46-js-ts-precision-v1";
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IndexState {

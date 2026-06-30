@@ -41,3 +41,7 @@ serde_json.workspace = true
 [features]
 default = ["store-surreal"]
 store-surreal = ["dep:athanor-store-surrealdb"]
+js-ts-precision = [
+    "athanor-app/js-ts-precision",
+    "athanor-extractor-js-ts/precision-parser",
+]

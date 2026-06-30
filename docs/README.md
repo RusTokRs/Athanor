@@ -368,6 +368,11 @@ persisted index state. It summarizes tracked files, canonical object counts, ada
 coverage, diagnostic-kind counts, file-level rows, applied filters, explicit row limits, and omitted
 counts without reading generated JSONL artifacts or running a new index.
 
+For high-value JavaScript/TypeScript repositories, build `ath` or `athd` with the
+`js-ts-precision` feature to verify affected files with both tree-sitter and Oxc. The normal build
+keeps single-parser performance. Precision disagreements remain bounded evidence-backed canonical
+diagnostics, so their kinds and file counts appear in the same `coverage` report schema.
+
 Canonical entities can be explained directly from the latest snapshot:
 
 ```bash

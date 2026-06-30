@@ -59,7 +59,7 @@ flowchart TD
 3. `athanor-extractor-markdown` parses optional YAML frontmatter plus CommonMark/GFM heading events, then creates identity/language-aware documentation page/section entities, runbook entities for runbook frontmatter, operation-step entities for runbook ordered-list items, and `doc_section_found` facts.
 4. `athanor-extractor-openapi` dispatches project OpenAPI 3.1 to `oas3` and 3.0 to a maintained-YAML legacy parser, ignores OpenAPI files under `tests/fixtures` during project discovery, then extracts operations, component schemas, request/response schema uses, and media examples.
 5. `athanor-extractor-operations` parses dotenv, Cargo manifest, Makefile, Dockerfile, shell script, docker-compose, GitHub Actions, Kubernetes YAML, SQL migration, and runtime config sources into environment-variable, package/dependency, script-command, deployment/service, database migration, and runtime configuration knowledge.
-6. `athanor-extractor-js-ts` parses JavaScript, JSX, TypeScript, TSX, and `package.json` files through tree-sitter grammars, then emits module, declaration, package, dependency, definition-fact, parser-error, and unsupported-syntax knowledge.
+6. `athanor-extractor-js-ts` parses JavaScript, JSX, TypeScript, TSX, and `package.json` files through tree-sitter grammars, then emits module, declaration, package, dependency, definition-fact, parser-error, and unsupported-syntax knowledge. Feature-gated `js-ts-precision` builds also parse affected JS/TS files with Oxc, compare bounded normalized findings, and emit disagreement diagnostics without changing the canonical-output backend.
 7. `athanor-extractor-rust` parses Rust files into module, function, symbol, and environment-variable entities plus `symbol_defined` and `env_var_used` facts.
 8. `athanor-linker-markdown` creates `contains` relations plus verified `documents` relations for exact entity/concept keys declared in Markdown frontmatter.
 9. `athanor-linker-api` links OpenAPI operations to matching Rust handlers, Markdown API documentation, same-document request/response component schemas, and declared examples.
@@ -891,6 +891,10 @@ Generated JSONL files and Markdown wiki pages under `.athanor/generated/current`
 - The completeness gate has a project-level severity threshold but does not yet support per-kind suppressions or baseline comparison.
 - Rust extraction does not expand macros, emit trait method declarations, or infer imports, calls, and framework routes.
 - JavaScript/TypeScript linking materializes exact relative module imports but does not yet resolve package, workspace alias, TypeScript path alias, dynamic, CommonJS, export, or re-export relations, or infer framework-specific routes, components, pages, controllers, or project conventions.
+- JavaScript/TypeScript precision verification is opt-in because it parses affected files twice. It
+  compares named declarations, static imports, source-backed re-exports, ranges, and recovery state;
+  method and variable-bound function comparison remains deferred until both backends expose a
+  stable equivalent representation.
 - OpenAPI extraction supports 3.0.x and 3.1.x through replaceable parser backends but does not support Swagger 2.x/OpenAPI 3.2, resolve external references, merge specifications, or infer code handlers. Example validation is offline and covers media-type inline/named values; external and schema-level examples remain deferred.
 - API knowledge linking is lexical for code/docs and resolves only same-document component schemas; framework route metadata, call graphs, and Rust schema/type links are not implemented.
 - API consistency diagnostics check unresolved local component schema references but do not compare schema fields with Rust types or check status codes, auth, or permissions yet.
