@@ -72,6 +72,9 @@ ath coverage
 ath coverage --json
 ath coverage --adapter <id>
 ath coverage --file <path>
+ath capabilities
+ath capabilities --json
+ath capabilities --min-confidence <f>
 ath context <task>
 ath context <task> --json
 ath context --diff
@@ -2398,7 +2401,7 @@ Purpose:
 - reads the latest canonical snapshot and `.athanor/state/index-state.json` without running indexing or reading generated JSONL artifacts
 - emits stable `athanor.coverage.v1` with tracked-file counts, canonical object counts, adapter evidence/fact coverage, diagnostic-kind counts, file-level rows, applied filters, explicit row limits, and omitted counts
 - keeps coverage reporting bounded and deterministic for CLI use and future daemon/MCP routing
-- leaves canonical capability declarations, parser recovery diagnostics, unsupported syntax diagnostics, and `ath capabilities` for a later analysis-completeness slice
+- leaves canonical capability declarations, parser recovery diagnostics, and unsupported syntax diagnostics for a later analysis-completeness slice; the first `ath capabilities` slice is delivered under Analysis Completeness Reporting
 
 ### JavaScript/TypeScript Adapter Initial Slice
 
@@ -2579,7 +2582,7 @@ Acceptance:
 
 ### Analysis Completeness Reporting
 
-Status: planned.
+Status: in progress (first slice delivered).
 
 Priority: P2.
 
@@ -2589,6 +2592,19 @@ Scope:
 - expose bounded commands such as `ath capabilities`, `ath capabilities --json`, and deeper `ath coverage` variants for fully processed, partially processed, skipped, and unsupported constructs
 - report per-adapter discovered files, fully processed files, partially processed files, skipped files, unsupported constructs, and omitted counts when limits apply
 - keep coverage output agent-facing through stable schemas and explicit limits instead of requiring generated artifact reads
+
+Delivered (first slice):
+
+- adds `ath capabilities`, `ath capabilities --json`, `ath capabilities --limit <n>`, and `ath capabilities --min-confidence <f>`
+- reads the latest canonical snapshot and `.athanor/state/index-state.json` without running indexing or reading generated JSONL artifacts
+- emits stable `athanor.capabilities.v1` with tracked-file counts, content-processed counts and ratio (files that received extraction beyond the baseline `file` inventory adapter), per-language completeness, per-adapter files/facts/low-confidence/min-confidence rows, below-threshold facts with evidence paths, content-unprocessed file rows, explicit row limits, and omitted counts
+- unit tests cover content-unprocessed detection, low-confidence fact surfacing, and bounded limits with omitted counts
+
+Remaining:
+
+- canonical capability/coverage facts or diagnostics with evidence for unsupported syntax, skipped files, partial parsing, and parser recovery
+- deeper `ath coverage` variants for fully processed, partially processed, skipped, and unsupported constructs
+- documented adapter-level capability declarations
 
 Acceptance:
 

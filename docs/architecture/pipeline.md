@@ -88,6 +88,7 @@ flowchart TD
 28. `JsonlReadModelWriter` exports JSONL read models to `.athanor/generated/current/jsonl`.
 29. `IndexStateStore` persists file hash state to `.athanor/state/index-state.json` for the next run.
 30. On demand, `ath coverage` reads the latest durable canonical snapshot plus persisted index state and emits bounded `athanor.coverage.v1` file, adapter, and diagnostic-kind coverage rows without running indexing or reading generated JSONL artifacts.
+30a. On demand, `ath capabilities` reads the same snapshot and persisted index state and emits bounded `athanor.capabilities.v1` completeness rows: tracked files that received content extraction beyond the baseline `file` inventory adapter, per-language and per-adapter completeness, below-confidence extracted facts with evidence, and the discovered files that remain content-unprocessed.
 31. On demand, `ath wiki` loads the latest durable canonical snapshot and performs a staged replacement of the neutral Markdown wiki read model.
 32. On demand, `ath report html` loads the same snapshot and performs a staged replacement of a self-contained HTML report.
 33. On demand, `ath generate` projects JSONL, wiki, and HTML into one immutable generation, writes a complete generation manifest, and then switches `current.json` to that generation.
@@ -128,6 +129,7 @@ flowchart TD
 - `JsonlKnowledgeStore`: durable local canonical snapshot store used by the CLI.
 - `overview_project`: bounded repository orientation from the latest canonical snapshot.
 - `coverage_project`: bounded file, adapter, and diagnostic-kind coverage reporting from the latest canonical snapshot and persisted index state.
+- `capabilities_project`: bounded analysis-completeness reporting (content-unprocessed files, per-language and per-adapter completeness, and below-confidence facts) from the latest canonical snapshot and persisted index state.
 - `search_project`: bounded BM25 lexical entity search from the latest canonical snapshot and disposable Tantivy read model.
 - `context_project`: task-focused context-pack generation from the latest canonical snapshot.
 - `explain_project`: exact stable-key entity explanation from the latest canonical snapshot.
@@ -308,7 +310,7 @@ artifacts, and future search/vector outputs are backing read models or human ins
 They are not the conversational context interface for agents.
 
 Agent-facing workflows must use bounded commands or APIs such as `ath overview`, `ath coverage`,
-`ath context --diff`, `ath context`, `ath search`, `ath explain`, `ath graph related`, `ath graph path`,
+`ath capabilities`, `ath context --diff`, `ath context`, `ath search`, `ath explain`, `ath graph related`, `ath graph path`,
 `ath graph hubs`, `ath graph pagerank`, `ath graph cycles`, `ath check affected`, or future
 daemon/query endpoints. Those outputs must be
 deterministic, size-limited, and traceable back to canonical ids, stable keys, source anchors, and

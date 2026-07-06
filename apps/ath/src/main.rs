@@ -5,25 +5,27 @@ use athanor_app::{
     AdapterTrustListOptions, AdapterTrustOptions, AdapterTrustReport, AffectedCheckOptions,
     AffectedCheckReport, ApiCleanupOptions, ApiCleanupReport, ApiContractDiff, ApiDiffOptions,
     ApiRetentionOverrides, ApiSnapshotOptions, ApiSnapshotReport, BenchmarkOptions,
-    BenchmarkReport, BenchmarkSize, ChangedValidationOptions, ContextLimitOverrides,
-    ContextOptions, CoverageOptions, CoverageReport, DiagnosticCheckOptions, DiagnosticCheckReport,
-    DiagnosticScope, DocsApplyPatchOptions, DocsApplyPatchReport, DocsCheckOptions,
-    DocsCheckReport, DocsDriftOptions, DocsDriftReport, DocsProposeFixOptions,
-    DocsProposeFixReport, EntityExplanation, ExplainOptions, GenerationOptions, GraphCycles,
-    GraphCyclesOptions, GraphExportOptions, GraphFbaDependenciesOptions, GraphFbaModuleOptions,
-    GraphFbaPortOptions, GraphFbaViolationsOptions, GraphFfaSurfaceOptions,
-    GraphFfaViolationsOptions, GraphHubs, GraphHubsOptions, GraphPageBuilderConsumerOptions,
-    GraphPageBuilderProviderOptions, GraphPageBuilderViolationsOptions, GraphPageRank,
-    GraphPageRankOptions, GraphPath, GraphPathOptions, GraphRelated, GraphRelatedOptions,
-    HtmlReportOptions, ImpactAnalysis, ImpactOptions, IndexOptions, IndexReport, InitOptions,
-    OperationsDocsCheckOptions, OperationsDocsCheckReport, OverviewOptions, ProjectRegisterOptions,
-    ProjectRegistration, ProjectRegistryOptions, ProjectRegistryReport, ProjectUnregisterOptions,
-    RepairApplyOptions, RepairApplyReport, RepairCleanupOptions, RepairCleanupReport,
-    RepairInspectOptions, RepairInspectReport, RepairRecoverCanonicalOptions,
-    RepairRecoverCanonicalReport, RepairRegenerateOptions, RepairRegenerateReport,
-    RepositoryOverview, RustokFbaAudit, RustokFbaAuditOptions, RustokFbaGraph, RustokFfaAudit,
-    RustokFfaAuditOptions, RustokFfaGraph, RustokPageBuilderAudit, RustokPageBuilderAuditOptions,
-    RustokPageBuilderGraph, WikiOptions, apply_repair, benchmark_index, check_affected, check_docs,
+    BenchmarkReport, BenchmarkSize, CapabilitiesOptions, CapabilitiesReport,
+    ChangedValidationOptions, ContextLimitOverrides, ContextOptions, CoverageOptions,
+    CoverageReport, DEFAULT_CAPABILITIES_LIMIT, DEFAULT_CONFIDENCE_THRESHOLD,
+    DiagnosticCheckOptions, DiagnosticCheckReport, DiagnosticScope, DocsApplyPatchOptions,
+    DocsApplyPatchReport, DocsCheckOptions, DocsCheckReport, DocsDriftOptions, DocsDriftReport,
+    DocsProposeFixOptions, DocsProposeFixReport, EntityExplanation, ExplainOptions,
+    GenerationOptions, GraphCycles, GraphCyclesOptions, GraphExportOptions,
+    GraphFbaDependenciesOptions, GraphFbaModuleOptions, GraphFbaPortOptions,
+    GraphFbaViolationsOptions, GraphFfaSurfaceOptions, GraphFfaViolationsOptions, GraphHubs,
+    GraphHubsOptions, GraphPageBuilderConsumerOptions, GraphPageBuilderProviderOptions,
+    GraphPageBuilderViolationsOptions, GraphPageRank, GraphPageRankOptions, GraphPath,
+    GraphPathOptions, GraphRelated, GraphRelatedOptions, HtmlReportOptions, ImpactAnalysis,
+    ImpactOptions, IndexOptions, IndexReport, InitOptions, OperationsDocsCheckOptions,
+    OperationsDocsCheckReport, OverviewOptions, ProjectRegisterOptions, ProjectRegistration,
+    ProjectRegistryOptions, ProjectRegistryReport, ProjectUnregisterOptions, RepairApplyOptions,
+    RepairApplyReport, RepairCleanupOptions, RepairCleanupReport, RepairInspectOptions,
+    RepairInspectReport, RepairRecoverCanonicalOptions, RepairRecoverCanonicalReport,
+    RepairRegenerateOptions, RepairRegenerateReport, RepositoryOverview, RustokFbaAudit,
+    RustokFbaAuditOptions, RustokFbaGraph, RustokFfaAudit, RustokFfaAuditOptions, RustokFfaGraph,
+    RustokPageBuilderAudit, RustokPageBuilderAuditOptions, RustokPageBuilderGraph, WikiOptions,
+    apply_repair, benchmark_index, capabilities_project, check_affected, check_docs,
     check_operations_docs, check_project, cleanup_api_contracts, cleanup_repair, context_project,
     coverage_project, default_adapter_trust_path, default_project_registry_path,
     diff_api_contracts, docs_apply_patch, docs_drift, docs_propose_fix, explain_project,
@@ -821,6 +823,9 @@ async fn main() -> Result<()> {
     athanor_runtime_defaults::install();
     init_tracing();
     if handle_manual_coverage_command().await? {
+        return Ok(());
+    }
+    if handle_manual_capabilities_command().await? {
         return Ok(());
     }
     if handle_manual_rustok_arch_command().await? {
@@ -1796,6 +1801,110 @@ fn parse_coverage_flags(args: &[String]) -> Result<CoverageFlags> {
         adapter,
         file,
         limit,
+        json,
+    })
+}
+
+#[derive(Debug)]
+struct CapabilitiesFlags {
+    path: PathBuf,
+    limit: usize,
+    confidence_threshold: f32,
+    json: bool,
+}
+
+async fn handle_manual_capabilities_command() -> Result<bool> {
+    let args = std::env::args().skip(1).collect::<Vec<_>>();
+    let [first, rest @ ..] = args.as_slice() else {
+        return Ok(false);
+    };
+    if first != "capabilities" {
+        return Ok(false);
+    }
+    if rest.iter().any(|arg| arg == "--help" || arg == "-h") {
+        print_capabilities_help();
+        return Ok(true);
+    }
+    let flags = parse_capabilities_flags(rest)?;
+    let report = capabilities_project(CapabilitiesOptions {
+        root: flags.path,
+        limit: flags.limit,
+        confidence_threshold: flags.confidence_threshold,
+    })
+    .await?;
+    if flags.json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        print_capabilities_report(&report);
+    }
+    Ok(true)
+}
+
+fn print_capabilities_help() {
+    println!("Report bounded analysis completeness from the latest canonical snapshot");
+    println!();
+    println!("Usage: ath capabilities [PATH] [--limit <N>] [--min-confidence <F>] [--json]");
+    println!();
+    println!("Options:");
+    println!("      --limit <N>            Maximum rows per completeness section [default: 50]");
+    println!(
+        "      --min-confidence <F>   Facts below this confidence are reported as low confidence [default: 1.0]"
+    );
+    println!("      --json                 Print the complete capabilities report as JSON");
+    println!("  -h, --help                 Print help");
+}
+
+fn parse_capabilities_flags(args: &[String]) -> Result<CapabilitiesFlags> {
+    let mut path = None;
+    let mut limit = DEFAULT_CAPABILITIES_LIMIT;
+    let mut confidence_threshold = DEFAULT_CONFIDENCE_THRESHOLD;
+    let mut json = false;
+    let mut index = 0;
+
+    while index < args.len() {
+        match args[index].as_str() {
+            "--json" => {
+                json = true;
+                index += 1;
+            }
+            "--limit" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or_else(|| anyhow::anyhow!("--limit requires a value"))?;
+                limit = value
+                    .parse::<usize>()
+                    .context("--limit must be a positive integer")?;
+                index += 2;
+            }
+            "--min-confidence" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or_else(|| anyhow::anyhow!("--min-confidence requires a value"))?;
+                confidence_threshold = value
+                    .parse::<f32>()
+                    .context("--min-confidence must be a number")?;
+                if !(0.0..=1.0).contains(&confidence_threshold) {
+                    anyhow::bail!("--min-confidence must be between 0.0 and 1.0");
+                }
+                index += 2;
+            }
+            value if value.starts_with("--") => {
+                anyhow::bail!("unknown capabilities flag `{value}`");
+            }
+            value => {
+                if path.is_some() {
+                    anyhow::bail!("capabilities accepts at most one project path");
+                }
+                path = Some(PathBuf::from(value));
+                index += 1;
+            }
+        }
+    }
+
+    Ok(CapabilitiesFlags {
+        path: path.unwrap_or_else(|| PathBuf::from(".")),
+        limit,
+        confidence_threshold,
         json,
     })
 }
@@ -3061,6 +3170,98 @@ fn print_coverage_report(report: &CoverageReport) {
             report.omitted.files,
             report.omitted.adapters,
             report.omitted.diagnostics,
+            report.limits.limit
+        );
+    }
+}
+
+fn print_capabilities_report(report: &CapabilitiesReport) {
+    println!(
+        "capabilities for {}: {} tracked files, {} content-processed ({}%), {} unprocessed",
+        report.snapshot,
+        report.totals.tracked_files,
+        report.totals.processed_files,
+        report.totals.processed_ratio_percent,
+        report.totals.unprocessed_files
+    );
+    println!(
+        "processed means canonical objects from an adapter other than the `{}` baseline inventory adapter",
+        report.baseline_adapter
+    );
+    println!(
+        "facts: {} total, {} below confidence {} across {} adapters",
+        report.totals.facts,
+        report.totals.low_confidence_facts,
+        report.limits.confidence_threshold,
+        report.totals.adapters
+    );
+    println!("languages:");
+    if report.languages.is_empty() {
+        println!("  (none)");
+    } else {
+        for language in &report.languages {
+            println!(
+                "  - {}: {} tracked, {} processed ({}%), {} unprocessed",
+                language.language_hint,
+                language.tracked_files,
+                language.processed_files,
+                language.processed_ratio_percent,
+                language.unprocessed_files
+            );
+        }
+    }
+    println!("adapters:");
+    if report.adapters.is_empty() {
+        println!("  (none)");
+    } else {
+        for adapter in &report.adapters {
+            println!(
+                "  - {}: {} files, {} facts, {} low confidence, min confidence {}",
+                adapter.adapter,
+                adapter.processed_files,
+                adapter.facts,
+                adapter.low_confidence_facts,
+                adapter.min_confidence
+            );
+        }
+    }
+    println!("unprocessed files:");
+    if report.unprocessed_files.is_empty() {
+        println!("  (none)");
+    } else {
+        for file in &report.unprocessed_files {
+            println!("  - {} [{}]", file.path, file.language_hint);
+        }
+    }
+    println!("low confidence facts:");
+    if report.low_confidence_facts.is_empty() {
+        println!("  (none)");
+    } else {
+        for fact in &report.low_confidence_facts {
+            let location = fact.path.as_deref().map_or_else(
+                || "(no evidence path)".to_string(),
+                |path| match fact.line_start {
+                    Some(line) => format!("{path}:{line}"),
+                    None => path.to_string(),
+                },
+            );
+            println!(
+                "  - {} ({}) confidence {} [{}] {}",
+                fact.kind, fact.adapter, fact.confidence, location, fact.fact_id
+            );
+        }
+    }
+    if report.omitted.languages > 0
+        || report.omitted.adapters > 0
+        || report.omitted.unprocessed_files > 0
+        || report.omitted.low_confidence_facts > 0
+    {
+        println!(
+            "omitted: {} languages, {} adapters, {} unprocessed files, {} low confidence facts (limit {})",
+            report.omitted.languages,
+            report.omitted.adapters,
+            report.omitted.unprocessed_files,
+            report.omitted.low_confidence_facts,
             report.limits.limit
         );
     }
