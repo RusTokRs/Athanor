@@ -92,6 +92,14 @@ cargo run -p ath --quiet -- context "change authentication"
 cargo run -p ath --quiet -- context "change authentication" --json
 ```
 
+Report bounded analysis completeness (content-unprocessed files, per-language and per-adapter
+completeness, and below-confidence facts) from the latest canonical snapshot:
+
+```bash
+cargo run -p ath --quiet -- capabilities .
+cargo run -p ath --quiet -- capabilities . --json
+```
+
 For unattended local operation, register the project and install the authenticated per-user daemon:
 
 ```bash
