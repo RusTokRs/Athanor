@@ -131,6 +131,7 @@ High-level adapter docs:
 - [Markdown checker](adapters/checker-markdown.md)
 - [API consistency & environment checker](adapters/checker-api.md)
 - [Code impact analysis](adapters/impact.md)
+- [Whole-code change map](adapters/change-map.md)
 - [JSONL store](adapters/store-jsonl.md)
 - [SurrealDB store](adapters/store-surrealdb.md)
 - [Tantivy search index](adapters/search-tantivy.md)

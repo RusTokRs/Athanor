@@ -17,6 +17,9 @@ Implements: `Extractor`
 - `DiagnosticKind::Other("graphql_introspection_parse_error")` for invalid introspection JSON.
 - `DiagnosticKind::Other("graphql_introspection_empty")` when introspection JSON has no extractable non-built-in schema types or directive definitions.
 - `DiagnosticKind::Other("graphql_no_declarations")` when an explicit GraphQL source has no supported top-level operation, fragment, directive, or SDL declaration.
+- `DiagnosticKind::Other("graphql_unresolved_fragment_spread")` when an operation or fragment uses a spread that does not reference a fragment declared in the same file.
+- `DiagnosticKind::Other("graphql_unresolved_type_condition")` when an operation or fragment uses an inline type condition that does not reference a schema type declared in the same file.
+- `DiagnosticKind::Other("graphql_deprecated_field_used")` when an operation selects a field marked `@deprecated` in a schema type declared in the same file.
 
 Every emitted object has source-file ownership. Facts include source evidence and point to the
 canonical file entity. Diagnostics include source evidence and source-file ownership.
@@ -58,9 +61,13 @@ None. The adapter runs in-process without commands or network access.
 
 ## Limitations
 
-- This first slice does not validate GraphQL syntax, resolve captured fragment spreads or inline
-  type conditions, validate directive semantics, validate argument/variable usage beyond capturing
-  names and variable types, validate deprecated usage, or link resolvers/callsites.
+- Same-file fragment-spread and type-condition validation is implemented. Cross-file validation
+  requires linker-level resolution and is deferred.
+- Same-file deprecated field usage diagnostics are implemented. Cross-file deprecated usage
+  checking requires linker-level resolution and is deferred.
+- Resolver linking is handled externally by the API linker through `operation_name` matching.
+- This adapter does not validate GraphQL syntax, validate directive semantics, or validate
+  argument/variable usage beyond capturing names and variable types.
 - Embedded frontend GraphQL strings remain outside this extractor and should be handled by a later
   JS/TS-aware slice.
 - Field capture is best-effort for straightforward SDL bodies and intentionally bounded to avoid

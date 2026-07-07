@@ -2583,10 +2583,8 @@ Remaining:
 
 - replace or supplement the dependency-free recognizer with a formal GraphQL parser contract and
   fixture corpus
-- add operation validation, directive semantics, captured fragment-spread resolution, inline
-  type-condition validation, argument/variable usage validation beyond captured names and types,
-  deprecated-usage diagnostics, examples, resolver/callsite linking, and OpenAPI/GraphQL drift
-  checks
+- add directive semantics, argument/variable usage validation beyond captured names and types,
+  cross-file fragment-spread resolution, and OpenAPI/GraphQL drift checks
 
 Scope:
 
@@ -2635,14 +2633,22 @@ Current implementation:
 - states the adapter-dependent completeness limitation and points callers to `ath coverage --json`
 - runs the expanded `ath` async CLI on an explicit 8 MiB worker stack so Windows command parsing
   and snapshot queries do not overflow the default main-thread stack
+- validates change-map options (requires task, --target, or --diff; positive entity/file/diagnostic limits)
+- deduplicates seeds from multiple sources keeping the highest score and concatenating reasons
+- truncates BFS traversal at configured max_depth
+- ranks ImplementedBy/Calls higher than Contains/Defines through relation-weight scoring
+- diversifies returned entities across files when limits truncate results
+- aggregates per-file summaries with max score, entity kinds, stable keys, and reasons
+- bounds diagnostic return count independently of entity count
 
 Remaining:
 
 - add the planned GraphQL, deeper framework route/resolver, database model, generated-client, and
   frontend callsite relations that make the underlying community graph more complete
 - tune ranking and bounded runtime against the real Rustok repository as those relations land
-- add end-to-end task/diff daemon and MCP fixtures beyond the current app-level deterministic chain,
-  omission, missing-test, and Rustok annotation tests
+- add end-to-end daemon and MCP fixtures beyond the current app-level deterministic chain,
+  omission, missing-test, Rustok annotation, validation, scoring, depth-limit, diversification,
+  file-aggregation, and diagnostics-limit tests
 
 Scope:
 

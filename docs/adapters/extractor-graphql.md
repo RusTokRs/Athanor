@@ -40,6 +40,19 @@ adapter cannot extract useful contract knowledge: invalid introspection JSON, in
 without root operation types, non-built-in schema types, or directive definitions, or `.graphql`/`.gql`
 content without supported top-level operation/fragment/directive/SDL declarations.
 
+The extractor validates same-file GraphQL declarations and emits additional diagnostics:
+
+- **Unresolved fragment spreads** (`graphql_unresolved_fragment_spread`): reported at `Severity::Medium`
+  when an operation or fragment uses `...FragmentName` but no fragment with that name is declared in
+  the same file.
+- **Unresolved inline type conditions** (`graphql_unresolved_type_condition`): reported at
+  `Severity::Medium` when an operation or fragment uses `... on TypeName` but no schema type with
+  that name is declared in the same file.
+- **Deprecated field usage** (`graphql_deprecated_field_used`): reported at `Severity::Low` when an
+  operation selects a field that is marked `@deprecated` in a schema type declared in the same file.
+
+All validation diagnostics include a `suggested_fix` with actionable remediation guidance.
+
 Stable keys use the shared API contract namespace:
 
 ```text
@@ -64,9 +77,10 @@ boundaries. SDL `@deprecated` directives and introspection
 
 Limitations:
 
-- GraphQL syntax validation, directive semantics, argument/variable usage validation beyond captured names and types, captured
-  fragment-spread and inline type-condition validation, deprecated-usage checking,
-  resolver/callsite linking, and stale-operation checks are deferred.
+- GraphQL syntax validation, directive semantics, argument/variable usage validation beyond captured names and types,
+  and stale-operation checks are deferred.
+- Cross-file fragment-spread and type-condition validation requires linker-level resolution and is deferred.
+- Resolver linking is handled by the API linker through `operation_name` matching against Rust functions.
 - Embedded GraphQL in JavaScript/TypeScript sources is deferred to a later JS/TS-aware slice.
 - Field extraction is best-effort for straightforward SDL bodies and is not a replacement for a
   full GraphQL parser contract.

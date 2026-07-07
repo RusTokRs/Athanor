@@ -1117,4 +1117,399 @@ mod tests {
                 .any(|reason| reason.contains("no linked test"))
         );
     }
+
+    #[test]
+    fn validates_options_requiring_task_target_or_diff() {
+        let opts = ChangeMapOptions {
+            root: PathBuf::from("."),
+            task: None,
+            target: None,
+            diff: false,
+            max_entities: 30,
+            max_files: 20,
+            max_diagnostics: 20,
+            max_depth: 3,
+        };
+        assert!(validate_options(&opts).is_err());
+    }
+
+    #[test]
+    fn validates_options_accepting_empty_task() {
+        let opts = ChangeMapOptions {
+            root: PathBuf::from("."),
+            task: Some("   ".to_string()),
+            target: None,
+            diff: false,
+            max_entities: 30,
+            max_files: 20,
+            max_diagnostics: 20,
+            max_depth: 3,
+        };
+        assert!(validate_options(&opts).is_err());
+    }
+
+    #[test]
+    fn validates_options_requiring_positive_limits() {
+        let opts = ChangeMapOptions {
+            root: PathBuf::from("."),
+            task: Some("test".to_string()),
+            target: None,
+            diff: false,
+            max_entities: 0,
+            max_files: 20,
+            max_diagnostics: 20,
+            max_depth: 3,
+        };
+        assert!(validate_options(&opts).is_err());
+        let opts = ChangeMapOptions {
+            max_files: 0,
+            ..opts
+        };
+        assert!(validate_options(&opts).is_err());
+        let opts = ChangeMapOptions {
+            max_entities: 30,
+            max_diagnostics: 0,
+            ..opts
+        };
+        assert!(validate_options(&opts).is_err());
+    }
+
+    #[test]
+    fn deduplicates_seeds_keeping_highest_score() {
+        let (snapshot, endpoint) = fixture();
+        let seeds = vec![
+            Seed {
+                id: endpoint.id.clone(),
+                score: 800,
+                reason: "low score".to_string(),
+            },
+            Seed {
+                id: endpoint.id.clone(),
+                score: 1_200,
+                reason: "high score".to_string(),
+            },
+        ];
+        let report = build_change_map(
+            &snapshot,
+            ChangeMapQuery {
+                task: None,
+                target: None,
+                diff: false,
+                changed_files: Vec::new(),
+            },
+            seeds,
+            ChangeMapLimits {
+                max_entities: 10,
+                max_files: 10,
+                max_diagnostics: 10,
+                max_depth: 3,
+            },
+        );
+        let endpoint_item = report
+            .items
+            .iter()
+            .find(|item| item.entity.id == endpoint.id)
+            .unwrap();
+        assert_eq!(endpoint_item.score, 1_200);
+        assert!(
+            endpoint_item
+                .reasons
+                .iter()
+                .any(|r| r.contains("high score")),
+            "reasons: {:?}",
+            endpoint_item.reasons
+        );
+        assert!(
+            endpoint_item
+                .reasons
+                .iter()
+                .any(|r| r.contains("low score")),
+            "reasons: {:?}",
+            endpoint_item.reasons
+        );
+    }
+
+    #[test]
+    fn truncates_bfs_at_max_depth() {
+        let endpoint = entity(
+            "e1",
+            "api://GET:/a",
+            EntityKind::ApiEndpoint,
+            "a.yaml",
+            None,
+        );
+        let mid = entity("e2", "rust://a/b", EntityKind::Function, "a.rs", None);
+        let deep = entity("e3", "rust://b/c", EntityKind::Function, "b.rs", None);
+        let deeper = entity("e4", "rust://c/d", EntityKind::Function, "c.rs", None);
+        let relations = vec![
+            relation("r1", RelationKind::ImplementedBy, &endpoint, &mid, None),
+            relation("r2", RelationKind::Calls, &mid, &deep, None),
+            relation("r3", RelationKind::Calls, &deep, &deeper, None),
+        ];
+        let snapshot = CanonicalSnapshot {
+            snapshot: Some(SnapshotId("snap-1".to_string())),
+            entities: vec![endpoint.clone(), mid, deep, deeper],
+            facts: Vec::new(),
+            relations,
+            diagnostics: Vec::new(),
+        };
+        let report = build_change_map(
+            &snapshot,
+            ChangeMapQuery {
+                task: None,
+                target: None,
+                diff: false,
+                changed_files: Vec::new(),
+            },
+            vec![Seed {
+                id: endpoint.id,
+                score: 1_000,
+                reason: "seed".to_string(),
+            }],
+            ChangeMapLimits {
+                max_entities: 10,
+                max_files: 10,
+                max_diagnostics: 10,
+                max_depth: 2,
+            },
+        );
+        let ids: Vec<&str> = report
+            .items
+            .iter()
+            .map(|i| i.entity.id.0.as_str())
+            .collect();
+        assert!(ids.contains(&"e1"));
+        assert!(ids.contains(&"e2"));
+        assert!(ids.contains(&"e3"));
+        assert!(
+            !ids.contains(&"e4"),
+            "depth=2 should not reach e4, got: {ids:?}"
+        );
+    }
+
+    #[test]
+    fn ranks_implemented_by_higher_than_contains() {
+        let endpoint = entity(
+            "e1",
+            "api://GET:/x",
+            EntityKind::ApiEndpoint,
+            "api.yaml",
+            None,
+        );
+        let func = entity(
+            "e2",
+            "rust://x/handle",
+            EntityKind::Function,
+            "handle.rs",
+            None,
+        );
+        let module = entity("e3", "rust://x/mod", EntityKind::Module, "mod.rs", None);
+        let relations = vec![
+            relation("impl", RelationKind::ImplementedBy, &endpoint, &func, None),
+            relation("contains", RelationKind::Contains, &func, &module, None),
+        ];
+        let snapshot = CanonicalSnapshot {
+            snapshot: Some(SnapshotId("snap-1".to_string())),
+            entities: vec![endpoint.clone(), func, module],
+            facts: Vec::new(),
+            relations,
+            diagnostics: Vec::new(),
+        };
+        let report = build_change_map(
+            &snapshot,
+            ChangeMapQuery {
+                task: None,
+                target: None,
+                diff: false,
+                changed_files: Vec::new(),
+            },
+            vec![Seed {
+                id: endpoint.id,
+                score: 1_000,
+                reason: "seed".to_string(),
+            }],
+            ChangeMapLimits {
+                max_entities: 10,
+                max_files: 10,
+                max_diagnostics: 10,
+                max_depth: 3,
+            },
+        );
+        let func_item = report.items.iter().find(|i| i.entity.id.0 == "e2").unwrap();
+        let module_item = report.items.iter().find(|i| i.entity.id.0 == "e3").unwrap();
+        assert!(
+            func_item.score > module_item.score,
+            "ImplementedBy (weight 90) should score higher than Contains (weight 30): func={} module={}",
+            func_item.score,
+            module_item.score
+        );
+    }
+
+    #[test]
+    fn diversifies_entities_across_files() {
+        let e1 = entity(
+            "e1",
+            "api://GET:/a",
+            EntityKind::ApiEndpoint,
+            "same.yaml",
+            None,
+        );
+        let e2 = entity(
+            "e2",
+            "api://GET:/b",
+            EntityKind::ApiEndpoint,
+            "same.yaml",
+            None,
+        );
+        let e3 = entity("e3", "rust://c", EntityKind::Function, "other.rs", None);
+        let snapshot = CanonicalSnapshot {
+            snapshot: Some(SnapshotId("snap-1".to_string())),
+            entities: vec![e1.clone(), e2.clone(), e3.clone()],
+            facts: Vec::new(),
+            relations: Vec::new(),
+            diagnostics: Vec::new(),
+        };
+        let report = build_change_map(
+            &snapshot,
+            ChangeMapQuery {
+                task: None,
+                target: None,
+                diff: false,
+                changed_files: Vec::new(),
+            },
+            vec![
+                Seed {
+                    id: e1.id.clone(),
+                    score: 1_000,
+                    reason: "seed1".to_string(),
+                },
+                Seed {
+                    id: e2.id.clone(),
+                    score: 990,
+                    reason: "seed2".to_string(),
+                },
+                Seed {
+                    id: e3.id.clone(),
+                    score: 980,
+                    reason: "seed3".to_string(),
+                },
+            ],
+            ChangeMapLimits {
+                max_entities: 2,
+                max_files: 10,
+                max_diagnostics: 10,
+                max_depth: 1,
+            },
+        );
+        assert_eq!(report.items.len(), 2);
+        let files: Vec<&str> = report
+            .items
+            .iter()
+            .flat_map(|i| i.files.iter())
+            .map(|s| s.as_str())
+            .collect();
+        assert!(
+            files.contains(&"same.yaml") && files.contains(&"other.rs"),
+            "diversification should pick entities from different files, got: {files:?}"
+        );
+    }
+
+    #[test]
+    fn builds_file_aggregation_from_items() {
+        let endpoint = entity(
+            "e1",
+            "api://GET:/u",
+            EntityKind::ApiEndpoint,
+            "openapi.yaml",
+            None,
+        );
+        let handler = entity("e2", "rust://u/h", EntityKind::Function, "src/u.rs", None);
+        let relations = vec![relation(
+            "r1",
+            RelationKind::ImplementedBy,
+            &endpoint,
+            &handler,
+            None,
+        )];
+        let snapshot = CanonicalSnapshot {
+            snapshot: Some(SnapshotId("snap-1".to_string())),
+            entities: vec![endpoint.clone(), handler],
+            facts: Vec::new(),
+            relations,
+            diagnostics: Vec::new(),
+        };
+        let report = build_change_map(
+            &snapshot,
+            ChangeMapQuery {
+                task: None,
+                target: None,
+                diff: false,
+                changed_files: Vec::new(),
+            },
+            vec![Seed {
+                id: endpoint.id,
+                score: 1_000,
+                reason: "seed".to_string(),
+            }],
+            ChangeMapLimits {
+                max_entities: 10,
+                max_files: 10,
+                max_diagnostics: 10,
+                max_depth: 2,
+            },
+        );
+        assert_eq!(report.files.len(), 2);
+        assert_eq!(report.returned.files, 2);
+        assert_eq!(report.omitted.files, 0);
+        let openapi_file = report
+            .files
+            .iter()
+            .find(|f| f.path == "openapi.yaml")
+            .unwrap();
+        assert_eq!(openapi_file.rank, 1);
+        assert!(openapi_file.score >= 900);
+    }
+
+    #[test]
+    fn respects_diagnostics_limit() {
+        let (mut snapshot, endpoint) = fixture();
+        for i in 0..5 {
+            snapshot.diagnostics.push(Diagnostic {
+                id: DiagnosticId(format!("diag-{i}")),
+                kind: DiagnosticKind::UncoveredSymbol,
+                severity: Severity::High,
+                status: DiagnosticStatus::Open,
+                title: format!("Issue {i}"),
+                message: format!("Message {i}"),
+                entities: vec![endpoint.id.clone()],
+                evidence: entity_evidence(&endpoint),
+                ownership: endpoint.ownership.clone(),
+                snapshot: SnapshotId("snap-1".to_string()),
+                suggested_fix: None,
+                payload: json!({}),
+            });
+        }
+        let report = build_change_map(
+            &snapshot,
+            ChangeMapQuery {
+                task: None,
+                target: Some(endpoint.stable_key.0.clone()),
+                diff: false,
+                changed_files: Vec::new(),
+            },
+            vec![Seed {
+                id: endpoint.id,
+                score: 1_200,
+                reason: "target".to_string(),
+            }],
+            ChangeMapLimits {
+                max_entities: 10,
+                max_files: 10,
+                max_diagnostics: 2,
+                max_depth: 3,
+            },
+        );
+        assert_eq!(report.returned.diagnostics, 2);
+        assert_eq!(report.omitted.diagnostics, 3);
+    }
 }

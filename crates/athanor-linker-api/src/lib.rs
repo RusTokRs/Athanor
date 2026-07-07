@@ -102,6 +102,8 @@ impl Linker for ApiKnowledgeLinker {
             if let Some(operation_id) = endpoint_operation_id(endpoint) {
                 let normalized_operation_id = normalize(operation_id);
                 if !normalized_operation_id.is_empty() {
+                    let reason = endpoint_operation_id_source(endpoint)
+                        .unwrap_or("operation_id_matches_rust_function");
                     for function in functions_by_normalized_name
                         .get(normalized_operation_id.as_str())
                         .into_iter()
@@ -117,7 +119,7 @@ impl Linker for ApiKnowledgeLinker {
                                     function,
                                     RelationKind::ImplementedBy,
                                     self.name(),
-                                    "operation_id_matches_rust_function",
+                                    reason,
                                     operation_id,
                                     0.7,
                                 ),
@@ -234,7 +236,28 @@ fn endpoint_operation_id(endpoint: &Entity) -> Option<&str> {
     endpoint
         .payload
         .get("operation_id")
+        .or_else(|| endpoint.payload.get("operation_name"))
         .and_then(serde_json::Value::as_str)
+}
+
+fn endpoint_operation_id_source(endpoint: &Entity) -> Option<&'static str> {
+    if endpoint
+        .payload
+        .get("operation_id")
+        .and_then(serde_json::Value::as_str)
+        .is_some()
+    {
+        Some("operation_id_matches_rust_function")
+    } else if endpoint
+        .payload
+        .get("operation_name")
+        .and_then(serde_json::Value::as_str)
+        .is_some()
+    {
+        Some("operation_name_matches_rust_function")
+    } else {
+        None
+    }
 }
 
 fn endpoint_schema_uses<'a>(
@@ -644,6 +667,154 @@ mod tests {
             .unwrap();
 
         assert!(relations.is_empty());
+    }
+
+    #[tokio::test]
+    async fn links_graphql_operation_name_to_rust_function() {
+        let endpoint = entity(
+            "ent_graphql_endpoint",
+            "api://GRAPHQL_MUTATION:GetUser",
+            EntityKind::ApiEndpoint,
+            "MUTATION GetUser",
+            "schema.graphql",
+            json!({
+                "schema": "athanor.graphql_operation.v1",
+                "protocol": "graphql",
+                "operation_type": "mutation",
+                "operation_name": "GetUser",
+            }),
+        );
+        let function = entity(
+            "ent_function",
+            "symbol://rust:users::get_user",
+            EntityKind::Function,
+            "get_user",
+            "src/users.rs",
+            json!({}),
+        );
+        let entities = vec![endpoint.clone(), function.clone()];
+
+        let relations = ApiKnowledgeLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: entities.clone().into(),
+                facts: Vec::new().into(),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let implemented = relations
+            .iter()
+            .find(|relation| relation.kind == RelationKind::ImplementedBy)
+            .expect("expected ImplementedBy relation for GraphQL operation");
+        assert_eq!(implemented.from, endpoint.id);
+        assert_eq!(implemented.to, function.id);
+        assert_eq!(implemented.status, RelationStatus::Inferred);
+        assert_eq!(implemented.confidence, 0.7);
+        assert_eq!(
+            implemented.payload["reason"],
+            json!("operation_name_matches_rust_function")
+        );
+        assert_eq!(implemented.payload["matched_value"], json!("GetUser"));
+    }
+
+    #[tokio::test]
+    async fn does_not_link_graphql_operation_without_matching_function() {
+        let endpoint = entity(
+            "ent_graphql_endpoint",
+            "api://GRAPHQL_QUERY:ListUsers",
+            EntityKind::ApiEndpoint,
+            "QUERY ListUsers",
+            "schema.graphql",
+            json!({
+                "schema": "athanor.graphql_operation.v1",
+                "protocol": "graphql",
+                "operation_type": "query",
+                "operation_name": "ListUsers",
+            }),
+        );
+        let function = entity(
+            "ent_function",
+            "symbol://rust:users::get_user",
+            EntityKind::Function,
+            "get_user",
+            "src/users.rs",
+            json!({}),
+        );
+        let entities = vec![endpoint, function];
+
+        let relations = ApiKnowledgeLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: entities.clone().into(),
+                facts: Vec::new().into(),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        assert!(
+            relations.is_empty(),
+            "no relation should be created when operation_name does not match any function"
+        );
+    }
+
+    #[tokio::test]
+    async fn openapi_operation_id_takes_precedence_over_operation_name() {
+        let endpoint = entity(
+            "ent_endpoint",
+            "api://POST:/login",
+            EntityKind::ApiEndpoint,
+            "login",
+            "openapi.yaml",
+            json!({
+                "operation_id": "login",
+                "operation_name": "LoginUser",
+                "method": "POST",
+                "path": "/login",
+            }),
+        );
+        let function_login = entity(
+            "ent_function_login",
+            "symbol://rust:auth::login",
+            EntityKind::Function,
+            "login",
+            "src/auth.rs",
+            json!({}),
+        );
+        let function_login_user = entity(
+            "ent_function_login_user",
+            "symbol://rust:auth::login_user",
+            EntityKind::Function,
+            "login_user",
+            "src/auth.rs",
+            json!({}),
+        );
+        let entities = vec![endpoint, function_login, function_login_user];
+
+        let relations = ApiKnowledgeLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: entities.clone().into(),
+                facts: Vec::new().into(),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let implemented = relations
+            .iter()
+            .find(|relation| relation.kind == RelationKind::ImplementedBy)
+            .expect("expected one ImplementedBy relation");
+        assert_eq!(
+            implemented.to.0, "ent_function_login",
+            "operation_id should take precedence over operation_name"
+        );
+        assert_eq!(
+            implemented.payload["reason"],
+            json!("operation_id_matches_rust_function")
+        );
     }
 
     fn endpoint() -> Entity {

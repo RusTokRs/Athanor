@@ -136,6 +136,11 @@ impl Extractor for GraphQlExtractor {
         }
 
         let declarations = parse_graphql_declarations(content);
+
+        let mut validation_diagnostics =
+            validate_graphql_declarations(self.name(), &input, &declarations, &input.source.path);
+        diagnostics.append(&mut validation_diagnostics);
+
         if declarations.is_empty() {
             diagnostics.push(graphql_diagnostic(
                 self.name(),
@@ -799,6 +804,150 @@ fn parse_graphql_declarations(content: &str) -> Vec<GraphQlDeclaration<'_>> {
     }
 
     declarations
+}
+
+fn validate_graphql_declarations(
+    extractor: &str,
+    input: &ExtractInput,
+    declarations: &[GraphQlDeclaration<'_>],
+    path: &str,
+) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+
+    let declared_fragments: Vec<&str> = declarations
+        .iter()
+        .filter_map(|decl| match &decl.kind {
+            GraphQlDeclarationKind::Fragment { .. } => Some(decl.name.as_str()),
+            _ => None,
+        })
+        .collect();
+
+    let declared_schema_types: Vec<&str> = declarations
+        .iter()
+        .filter_map(|decl| match &decl.kind {
+            GraphQlDeclarationKind::Schema { .. } => Some(decl.name.as_str()),
+            _ => None,
+        })
+        .collect();
+
+    let deprecated_fields: Vec<(&str, &str)> = declarations
+        .iter()
+        .filter(|decl| matches!(decl.kind, GraphQlDeclarationKind::Schema { .. }))
+        .flat_map(|decl| {
+            decl.deprecated_members
+                .iter()
+                .map(move |dm| (decl.name.as_str(), dm.name.as_str()))
+        })
+        .collect();
+
+    for declaration in declarations {
+        for spread in &declaration.fragment_spreads {
+            if !declared_fragments.contains(&spread.as_str()) {
+                let identity = format!(
+                    "{}\0{}\0graphql_unresolved_fragment_spread\0{}\0{path}",
+                    extractor, input.source.path, spread
+                );
+                let hash = stable_hash(identity.as_bytes());
+                diagnostics.push(Diagnostic {
+                    id: DiagnosticId(format!("diag_graphql_unresolved_fragment_spread_{hash:016x}")),
+                    kind: DiagnosticKind::Other("graphql_unresolved_fragment_spread".to_string()),
+                    severity: Severity::Medium,
+                    status: DiagnosticStatus::Open,
+                    title: "Unresolved GraphQL fragment spread".to_string(),
+                    message: format!(
+                        "Fragment spread `...{spread}` does not reference a fragment declared in this file"
+                    ),
+                    entities: Vec::new(),
+                    evidence: vec![evidence_for_file(path, extractor, Some(declaration.line), Some(declaration.line))],
+                    ownership: ownership_for_file(path),
+                    snapshot: input.snapshot.clone(),
+                    suggested_fix: Some(format!(
+                        "Declare a fragment named `{spread}` in this file or correct the spread name"
+                    )),
+                    payload: json!({
+                        "spread_name": spread,
+                        "source_kind": "graphql_sdl_or_operation",
+                        "declared_fragments": declared_fragments,
+                    }),
+                });
+            }
+        }
+
+        for type_condition in &declaration.inline_type_conditions {
+            if !declared_schema_types.contains(&type_condition.as_str()) {
+                let identity = format!(
+                    "{}\0{}\0graphql_unresolved_type_condition\0{}\0{path}",
+                    extractor, input.source.path, type_condition
+                );
+                let hash = stable_hash(identity.as_bytes());
+                diagnostics.push(Diagnostic {
+                    id: DiagnosticId(format!("diag_graphql_unresolved_type_condition_{hash:016x}")),
+                    kind: DiagnosticKind::Other("graphql_unresolved_type_condition".to_string()),
+                    severity: Severity::Medium,
+                    status: DiagnosticStatus::Open,
+                    title: "Unresolved GraphQL inline type condition".to_string(),
+                    message: format!(
+                        "Inline fragment type condition `... on {type_condition}` does not reference a type declared in this file"
+                    ),
+                    entities: Vec::new(),
+                    evidence: vec![evidence_for_file(path, extractor, Some(declaration.line), Some(declaration.line))],
+                    ownership: ownership_for_file(path),
+                    snapshot: input.snapshot.clone(),
+                    suggested_fix: Some(format!(
+                        "Declare type `{type_condition}` in this file or correct the type condition"
+                    )),
+                    payload: json!({
+                        "type_condition": type_condition,
+                        "source_kind": "graphql_sdl_or_operation",
+                        "declared_schema_types": declared_schema_types,
+                    }),
+                });
+            }
+        }
+
+        if matches!(declaration.kind, GraphQlDeclarationKind::Operation { .. }) {
+            for field in &declaration.fields {
+                if let Some((type_name, reason)) = deprecated_fields
+                    .iter()
+                    .find(|(_, member)| *member == field.as_str())
+                {
+                    let deprecated_reason = reason.to_string();
+                    let identity = format!(
+                        "{}\0{}\0graphql_deprecated_field_used\0{}\0{path}",
+                        extractor, input.source.path, field
+                    );
+                    let hash = stable_hash(identity.as_bytes());
+                    diagnostics.push(Diagnostic {
+                        id: DiagnosticId(format!("diag_graphql_deprecated_field_used_{hash:016x}")),
+                        kind: DiagnosticKind::Other("graphql_deprecated_field_used".to_string()),
+                        severity: Severity::Low,
+                        status: DiagnosticStatus::Open,
+                        title: "Deprecated GraphQL field used in operation".to_string(),
+                        message: format!(
+                            "Operation `{}` selects deprecated field `{field}` from type `{type_name}`",
+                            declaration.name
+                        ),
+                        entities: Vec::new(),
+                        evidence: vec![evidence_for_file(path, extractor, Some(declaration.line), Some(declaration.line))],
+                        ownership: ownership_for_file(path),
+                        snapshot: input.snapshot.clone(),
+                        suggested_fix: Some(format!(
+                            "Replace `{field}` with a non-deprecated alternative: {deprecated_reason}"
+                        )),
+                        payload: json!({
+                            "field_name": field,
+                            "type_name": type_name,
+                            "deprecation_reason": deprecated_reason,
+                            "operation_name": declaration.name,
+                            "source_kind": "graphql_sdl_or_operation",
+                        }),
+                    });
+                }
+            }
+        }
+    }
+
+    diagnostics
 }
 
 fn start_body_capture<'a>(
@@ -1932,5 +2081,181 @@ fragment UserFields on User @client {
                 r#"{ "data": { "__schema": { "queryType": { "name": "Query" } } } }"#.to_string()
             ),
         }));
+    }
+
+    #[tokio::test]
+    async fn reports_unresolved_fragment_spread() {
+        let output = GraphQlExtractor
+            .extract(ExtractInput {
+                repo: RepoId("repo_test".to_string()),
+                snapshot: SnapshotId("snap_test".to_string()),
+                source: SourceFile {
+                    path: "query.graphql".to_string(),
+                    language_hint: Some("graphql".to_string()),
+                    content_hash: Some("hash".to_string()),
+                    content: Some(
+                        r#"
+query GetUser {
+  user {
+    id
+    ...NonExistentFragment
+  }
+}
+"#
+                        .to_string(),
+                    ),
+                },
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(output.entities.len(), 1);
+        assert_eq!(output.diagnostics.len(), 1);
+        let diag = &output.diagnostics[0];
+        assert_eq!(
+            diag.kind,
+            DiagnosticKind::Other("graphql_unresolved_fragment_spread".to_string())
+        );
+        assert_eq!(diag.severity, Severity::Medium);
+        assert!(diag.message.contains("NonExistentFragment"));
+        assert!(diag.suggested_fix.is_some());
+        assert!(!diag.evidence.is_empty());
+        assert!(!diag.ownership.is_empty());
+    }
+
+    #[tokio::test]
+    async fn reports_unresolved_type_condition() {
+        let output = GraphQlExtractor
+            .extract(ExtractInput {
+                repo: RepoId("repo_test".to_string()),
+                snapshot: SnapshotId("snap_test".to_string()),
+                source: SourceFile {
+                    path: "query.graphql".to_string(),
+                    language_hint: Some("graphql".to_string()),
+                    content_hash: Some("hash".to_string()),
+                    content: Some(
+                        r#"
+query GetUser {
+  user {
+    ... on UnknownType {
+      id
+    }
+  }
+}
+"#
+                        .to_string(),
+                    ),
+                },
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(output.entities.len(), 1);
+        assert_eq!(output.diagnostics.len(), 1);
+        let diag = &output.diagnostics[0];
+        assert_eq!(
+            diag.kind,
+            DiagnosticKind::Other("graphql_unresolved_type_condition".to_string())
+        );
+        assert_eq!(diag.severity, Severity::Medium);
+        assert!(diag.message.contains("UnknownType"));
+        assert!(diag.suggested_fix.is_some());
+        assert!(!diag.evidence.is_empty());
+        assert!(!diag.ownership.is_empty());
+    }
+
+    #[tokio::test]
+    async fn reports_deprecated_field_usage_in_operation() {
+        let output = GraphQlExtractor
+            .extract(ExtractInput {
+                repo: RepoId("repo_test".to_string()),
+                snapshot: SnapshotId("snap_test".to_string()),
+                source: SourceFile {
+                    path: "schema.graphql".to_string(),
+                    language_hint: Some("graphql".to_string()),
+                    content_hash: Some("hash".to_string()),
+                    content: Some(
+                        r#"
+type User {
+  id: ID!
+  name: String!
+  oldName: String @deprecated(reason: "Use name")
+}
+
+query GetUser {
+  user {
+    oldName
+  }
+}
+"#
+                        .to_string(),
+                    ),
+                },
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(output.entities.len(), 2);
+        let deprecated_diag = output
+            .diagnostics
+            .iter()
+            .find(|d| d.kind == DiagnosticKind::Other("graphql_deprecated_field_used".to_string()));
+        assert!(
+            deprecated_diag.is_some(),
+            "expected deprecated field diagnostic"
+        );
+        let diag = deprecated_diag.unwrap();
+        assert_eq!(diag.severity, Severity::Low);
+        assert!(diag.message.contains("oldName"));
+        assert!(diag.message.contains("deprecated"));
+        assert!(diag.suggested_fix.is_some());
+        assert!(!diag.evidence.is_empty());
+        assert!(!diag.ownership.is_empty());
+    }
+
+    #[tokio::test]
+    async fn no_diagnostics_when_fragments_and_types_resolve() {
+        let output = GraphQlExtractor
+            .extract(ExtractInput {
+                repo: RepoId("repo_test".to_string()),
+                snapshot: SnapshotId("snap_test".to_string()),
+                source: SourceFile {
+                    path: "schema.graphql".to_string(),
+                    language_hint: Some("graphql".to_string()),
+                    content_hash: Some("hash".to_string()),
+                    content: Some(
+                        r#"
+type User {
+  id: ID!
+  name: String!
+}
+
+fragment UserFields on User {
+  id
+  name
+}
+
+query GetUser {
+  user {
+    ...UserFields
+    ... on User {
+      name
+    }
+  }
+}
+"#
+                        .to_string(),
+                    ),
+                },
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(output.entities.len(), 3);
+        assert!(
+            output.diagnostics.is_empty(),
+            "expected no validation diagnostics, got: {:?}",
+            output.diagnostics
+        );
     }
 }
