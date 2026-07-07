@@ -2334,6 +2334,9 @@ Implemented in:
 
 - `crates/athanor-app/src/daemon.rs`
 - `crates/athanor-app/src/daemon_runtime.rs`
+- `crates/athanor-app/src/generation.rs`
+- `docs/architecture/pipeline.md`
+- `docs/development/production.md`
 - `docs/development/roadmap-status.md`
 
 Purpose:
@@ -2352,10 +2355,22 @@ Purpose:
 - adds coverage that daemon runtime endpoint and token files are removed when the runtime file guard is dropped
 - adds coverage that unsafe daemon serve options are rejected before binding, including polling without watch, invalid debounce, non-loopback TCP, and oversized protocol limits
 - adds coverage that index and generation jobs finished with an `operation cancelled` error are recorded as cancelled and drop their cancellation tokens
+- normalizes nested cancellable-job failures to a stable `operation cancelled` job error while
+  retaining failure context for non-cancellation errors
+- runs a real background index job over a large source set, cancels it after it enters `running`,
+  and verifies that no canonical latest pointer, index state, or JSONL read model is published
+- cancels a real coordinated generation after its staging directory exists and verifies that the
+  previous `current.json` remains byte-identical while the incomplete generation and staging
+  directory remain unpublished
 - adds coverage that daemon shutdown cancellation requests active jobs, times out while they remain active, and drains successfully after cancellation is recorded
 - adds coverage that daemon `status`, `explain`, `search`, `overview`, and `context` requests still complete while an index job is already running
+- extends running-index contention coverage with a concurrent 48-request burst across `status`,
+  `explain`, `search`, `overview`, and bounded `context`
 - keeps the read-only daemon contention coverage deterministic on Windows by releasing cached search resources before temporary project cleanup
 - adds platform coverage for local socket setup metadata: Unix stale socket cleanup or Windows named-pipe label sanitization where available
+- sets bound Unix domain sockets to owner-only mode `0600` and verifies the bound socket mode on
+  Unix; on Windows, verifies that the named-pipe acceptor serves a new connection after the prior
+  client and server instance disconnect
 - deduplicates daemon watcher source paths after debounce delivery, filters `.athanor` artifact noise, covers event storms being skipped while an index job is already active, and adds a live polling-watcher debounce smoke test for source changes versus generated artifacts
 - keeps the existing single-instance lock, busy response, authentication, protocol-v1 compatibility, cancellation state, staging cleanup, and oversized response tests intact
 
@@ -2508,32 +2523,63 @@ Purpose:
 
 This backlog tracks the remaining global plan from `start.md`. The entries below are prioritized by dependency order and current product value; each item should be moved into `Implemented` only after code, documentation, and required verification are complete.
 
-### Daemon Fault-Injection Coverage
-
-Status: planned.
-
-Priority: P1.
-
-Scope:
-
-- extend daemon tests beyond existing token, v1 compatibility, busy response, and oversized response unit coverage
-- cover daemon crash/restart behavior beyond the implemented stale endpoint metadata, stale token, stale lock recovery, and corrupted endpoint metadata client-side checks
-- cover cancellation during real long-running index and generation job execution beyond the implemented daemon job-state cancellation result mapping
-- cover deeper parallel read-only request contention while an index job is running, beyond the implemented status/search/explain/overview/context coverage
-- cover live watcher debounce timing beyond the implemented source-path deduplication, artifact filtering, and active-index skip behavior
-- cover Unix socket permissions and Windows named pipe lifecycle where platform support is available
-
-Acceptance:
-
-- daemon restart and repair behavior is deterministic after interrupted jobs or corrupted runtime metadata
-- atomic publication guarantees remain intact under cancellation and process termination
-- all dangerous protocol and lifecycle edge cases are represented by automated tests or explicitly documented as out of scope
-
 ### OpenAPI And GraphQL Contract Consistency
 
-Status: planned.
+Status: in progress.
 
 Priority: P1.
+
+Implemented first slice in:
+
+- `crates/athanor-extractor-graphql`
+- `crates/athanor-runtime-defaults`
+- `docs/adapters/extractor-graphql.md`
+- `docs/architecture/adapters.md`
+- `docs/development/roadmap-status.md`
+
+Current implementation:
+
+- adds an adapter-first `athanor-extractor-graphql` crate for standalone `.graphql` and `.gql`
+  files, GraphQL introspection JSON, plus sources with `language_hint = graphql`
+- emits GraphQL `query`, `mutation`, and `subscription` declarations as shared
+  `EntityKind::ApiEndpoint` API contract entities with `protocol = graphql`, operation type,
+  operation name, bounded declared variables, bounded variable type definitions, bounded argument
+  names, bounded root selections, bounded directive names, bounded fragment-spread names, and
+  bounded inline-fragment type conditions
+- emits GraphQL fragment declarations as adapter-scoped `EntityKind::Other("graphql_fragment")`
+  entities with type conditions, bounded root selections, bounded fragment-spread names, evidence,
+  and ownership
+- emits SDL and introspection directive definitions as adapter-scoped
+  `EntityKind::Other("graphql_directive")` entities with bounded location and argument names
+- emits SDL `schema`, `type`, `input`, `interface`, `enum`, `scalar`, and `union` declarations as
+  shared `EntityKind::ApiSchema` entities with bounded root operation, member, field-argument, and
+  directive names plus bounded field/member type names
+- emits GraphQL introspection JSON root operation types and schema `types` entries as shared
+  `EntityKind::ApiSchema` entities, skipping built-in `__*` types and preserving bounded root
+  operation, member, field-argument, and field/member type names
+- captures SDL and introspection deprecation metadata in GraphQL schema payloads for later
+  deprecated-usage and drift checks
+- emits evidence-backed GraphQL extractor diagnostics for invalid introspection JSON,
+  introspection JSON without extractable root operation types, non-built-in schema types, or
+  directive definitions, and explicit GraphQL files without supported top-level operation,
+  fragment, directive, or SDL declarations
+- records declaration facts with source evidence and source-file ownership, reusing
+  `FactKind::RouteDeclared`, `FactKind::Other("api_schema_declared")`,
+  `FactKind::Other("graphql_fragment_declared")`, and
+  `FactKind::Other("graphql_directive_declared")`
+- registers the adapter as `builtin.extractor.graphql` without adding GraphQL-specific concepts to
+  `athanor-domain` or `athanor-core`
+
+Remaining:
+
+- run required formatting, tests, clippy, and indexing verification before moving this slice to
+  `Implemented`
+- replace or supplement the dependency-free recognizer with a formal GraphQL parser contract and
+  fixture corpus
+- add operation validation, directive semantics, captured fragment-spread resolution, inline
+  type-condition validation, argument/variable usage validation beyond captured names and types,
+  deprecated-usage diagnostics, examples, resolver/callsite linking, and OpenAPI/GraphQL drift
+  checks
 
 Scope:
 
@@ -2555,9 +2601,41 @@ Acceptance:
 
 ### Whole-Code Relationship Graph And Change Map
 
-Status: planned.
+Status: in progress.
 
 Priority: P1.
+
+Implemented first slice in:
+
+- `crates/athanor-app/src/change_map.rs`
+- `apps/ath/src/main.rs`
+- `apps/athd/src/main.rs`
+- `crates/athanor-app/src/daemon.rs`
+- `crates/athanor-transport-mcp/src/lib.rs`
+
+Current implementation:
+
+- exposes task-, target-, and diff-rooted `ath change-map`, daemon `change-map`, and MCP
+  `change_map` queries over the latest canonical snapshot
+- returns bounded `athanor.change_map.v1` entities, ranked files, open diagnostics, explicit limits,
+  and omitted counts without requiring generated artifact reads
+- explains every transitive selection with relation ids, kinds, direction, confidence, endpoint
+  stable keys, and evidence anchors, while direct selections retain source and ownership anchors
+- reports linked tests or an explicit missing-test signal for code, API, database, feature, and
+  adapter-defined entities
+- turns non-Athanor adapter payload schemas into annotations, so opt-in Rustok FFA/FBA/Page Builder
+  knowledge enriches the generic map without importing Rustok adapter crates into the app service
+- states the adapter-dependent completeness limitation and points callers to `ath coverage --json`
+- runs the expanded `ath` async CLI on an explicit 8 MiB worker stack so Windows command parsing
+  and snapshot queries do not overflow the default main-thread stack
+
+Remaining:
+
+- add the planned GraphQL, deeper framework route/resolver, database model, generated-client, and
+  frontend callsite relations that make the underlying community graph more complete
+- tune ranking and bounded runtime against the real Rustok repository as those relations land
+- add end-to-end task/diff daemon and MCP fixtures beyond the current app-level deterministic chain,
+  omission, missing-test, and Rustok annotation tests
 
 Scope:
 

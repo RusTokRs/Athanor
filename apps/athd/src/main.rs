@@ -305,6 +305,28 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Request a bounded evidence-backed change map from the daemon.
+    ChangeMap {
+        project_id: String,
+        /// Task description used to find direct canonical matches.
+        task: Option<String>,
+        #[arg(long)]
+        target: Option<String>,
+        #[arg(long)]
+        diff: bool,
+        #[arg(long)]
+        registry: Option<PathBuf>,
+        #[arg(long, default_value_t = 30)]
+        max_entities: usize,
+        #[arg(long, default_value_t = 20)]
+        max_files: usize,
+        #[arg(long, default_value_t = 20)]
+        max_diagnostics: usize,
+        #[arg(long, default_value_t = 3)]
+        max_depth: usize,
+        #[arg(long)]
+        json: bool,
+    },
     /// Ask the daemon to stop cleanly.
     Stop {
         project_id: String,
@@ -585,6 +607,34 @@ async fn main() -> Result<()> {
                         max_diagnostics,
                         max_depth,
                     },
+                },
+            )
+            .await?,
+            json,
+        ),
+        Command::ChangeMap {
+            project_id,
+            task,
+            target,
+            diff,
+            registry,
+            max_entities,
+            max_files,
+            max_diagnostics,
+            max_depth,
+            json,
+        } => print_response(
+            request(
+                &project_id,
+                registry,
+                DaemonCommand::ChangeMap {
+                    task,
+                    target,
+                    diff,
+                    max_entities,
+                    max_files,
+                    max_diagnostics,
+                    max_depth,
                 },
             )
             .await?,

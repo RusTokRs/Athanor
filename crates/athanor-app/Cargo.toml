@@ -37,6 +37,7 @@ js-ts-precision = []
 athanor-checker-api = { path = "../athanor-checker-api" }
 athanor-checker-markdown = { path = "../athanor-checker-markdown" }
 athanor-extractor-basic = { path = "../athanor-extractor-basic" }
+athanor-extractor-graphql = { path = "../athanor-extractor-graphql" }
 athanor-extractor-markdown = { path = "../athanor-extractor-markdown" }
 athanor-extractor-openapi = { path = "../athanor-extractor-openapi" }
 athanor-extractor-rust = { path = "../athanor-extractor-rust" }

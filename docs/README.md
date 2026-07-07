@@ -117,6 +117,7 @@ High-level adapter docs:
 - [Basic extractor](adapters/extractor-basic.md)
 - [Markdown extractor](adapters/extractor-markdown.md)
 - [JavaScript/TypeScript extractor](adapters/extractor-js-ts.md)
+- [GraphQL extractor](adapters/extractor-graphql.md)
 - [OpenAPI extractor](adapters/extractor-openapi.md)
 - [Operations extractor](adapters/extractor-operations.md)
 - [Rust extractor](adapters/extractor-rust.md)
@@ -142,6 +143,7 @@ Crate-local adapter docs:
 - [`athanor-extractor-basic`](../crates/athanor-extractor-basic/README.md)
 - [`athanor-extractor-markdown`](../crates/athanor-extractor-markdown/README.md)
 - [`athanor-extractor-js-ts`](../crates/athanor-extractor-js-ts/README.md)
+- [`athanor-extractor-graphql`](../crates/athanor-extractor-graphql/README.md)
 - [`athanor-extractor-openapi`](../crates/athanor-extractor-openapi/README.md)
 - [`athanor-extractor-operations`](../crates/athanor-extractor-operations/README.md)
 - [`athanor-extractor-rust`](../crates/athanor-extractor-rust/README.md)
@@ -309,6 +311,9 @@ cargo run -p ath --quiet -- context --diff
 cargo run -p ath --quiet -- context --diff --json
 cargo run -p ath --quiet -- context "task" --level summary --budget 2000
 cargo run -p ath --quiet -- context "task" --level deep --max-files 20 --max-depth 2
+cargo run -p ath --quiet -- change-map "change authentication"
+cargo run -p ath --quiet -- change-map --target "api://POST:/login" --json
+cargo run -p ath --quiet -- change-map --diff --max-entities 30 --max-files 20 --json
 cargo run -p ath --quiet -- graph export --format json
 cargo run -p ath --quiet -- graph export --format graphml
 cargo run -p ath --quiet -- graph related "api://GET:/health"
@@ -359,6 +364,9 @@ cargo run -p athd --quiet -- search athanor "login" --limit 10 --json
 cargo run -p athd --quiet -- context athanor "task" --level summary --budget 2000
 cargo run -p athd --quiet -- context athanor "task" --level summary --budget 2000 --json
 cargo run -p athd --quiet -- context athanor --diff --level summary --budget 2000 --json
+cargo run -p athd --quiet -- change-map athanor "change authentication" --json
+cargo run -p athd --quiet -- change-map athanor --target "api://POST:/login" --json
+cargo run -p athd --quiet -- change-map athanor --diff --json
 cargo run -p athd --quiet -- stop athanor
 cargo run -p athd --quiet -- service uninstall athanor --json
 ```

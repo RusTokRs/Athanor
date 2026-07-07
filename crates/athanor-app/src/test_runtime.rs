@@ -8,6 +8,7 @@ use athanor_checker_api::ApiConsistencyChecker;
 use athanor_checker_markdown::MarkdownStructureChecker;
 use athanor_core::{SearchDocument, SearchIndex};
 use athanor_extractor_basic::FileExtractor;
+use athanor_extractor_graphql::GraphQlExtractor;
 use athanor_extractor_markdown::MarkdownExtractor;
 use athanor_extractor_openapi::OpenApiExtractor;
 use athanor_extractor_rust::RustExtractor;
@@ -100,6 +101,7 @@ fn default_adapter_registry() -> AdapterRegistry {
         .register_extractor_id("builtin.extractor.file", || Box::new(FileExtractor))
         .register_extractor_id("builtin.extractor.markdown", || Box::new(MarkdownExtractor))
         .register_extractor_id("builtin.extractor.openapi", || Box::new(OpenApiExtractor))
+        .register_extractor_id("builtin.extractor.graphql", || Box::new(GraphQlExtractor))
         .register_extractor_id("builtin.extractor.rust", || Box::new(RustExtractor))
         .register_linker_id("builtin.linker.markdown_containment", || {
             Box::new(MarkdownContainmentLinker)
@@ -129,6 +131,10 @@ fn resolve_builtin_adapter(
         ),
         (AdapterPluginKind::Extractor, "builtin.extractor.file") => Some(
             registry.register_extractor_id("builtin.extractor.file", || Box::new(FileExtractor)),
+        ),
+        (AdapterPluginKind::Extractor, "builtin.extractor.graphql") => Some(
+            registry
+                .register_extractor_id("builtin.extractor.graphql", || Box::new(GraphQlExtractor)),
         ),
         _ => None,
     }

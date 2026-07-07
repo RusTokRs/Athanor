@@ -6,7 +6,7 @@ use crate::store::init_store;
 use anyhow::{Context, Result, bail};
 use athanor_core::{CanonicalSnapshot, CanonicalSnapshotStore};
 use athanor_domain::{Diagnostic, Entity, EntityId, Relation, RelationKind};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::index_state::IndexStateStore;
 use crate::local_source::discover_source_files;
@@ -18,7 +18,7 @@ pub struct RelationFlow {
     pub direction: FlowDirection,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FlowDirection {
     Forward,

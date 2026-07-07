@@ -5,10 +5,10 @@ use athanor_app::{
     AdapterTrustListOptions, AdapterTrustOptions, AdapterTrustReport, AffectedCheckOptions,
     AffectedCheckReport, ApiCleanupOptions, ApiCleanupReport, ApiContractDiff, ApiDiffOptions,
     ApiRetentionOverrides, ApiSnapshotOptions, ApiSnapshotReport, BenchmarkOptions,
-    BenchmarkReport, BenchmarkSize, ChangedValidationOptions, ContextLimitOverrides,
-    ContextOptions, CoverageOptions, CoverageReport, DiagnosticCheckOptions, DiagnosticCheckReport,
-    DiagnosticScope, DocsApplyPatchOptions, DocsApplyPatchReport, DocsCheckOptions,
-    DocsCheckReport, DocsDriftOptions, DocsDriftReport, DocsProposeFixOptions,
+    BenchmarkReport, BenchmarkSize, ChangeMapOptions, ChangeMapReport, ChangedValidationOptions,
+    ContextLimitOverrides, ContextOptions, CoverageOptions, CoverageReport, DiagnosticCheckOptions,
+    DiagnosticCheckReport, DiagnosticScope, DocsApplyPatchOptions, DocsApplyPatchReport,
+    DocsCheckOptions, DocsCheckReport, DocsDriftOptions, DocsDriftReport, DocsProposeFixOptions,
     DocsProposeFixReport, EntityExplanation, ExplainOptions, GenerationOptions, GraphCycles,
     GraphCyclesOptions, GraphExportOptions, GraphFbaDependenciesOptions, GraphFbaModuleOptions,
     GraphFbaPortOptions, GraphFbaViolationsOptions, GraphFfaSurfaceOptions,
@@ -23,18 +23,18 @@ use athanor_app::{
     RepairRecoverCanonicalReport, RepairRegenerateOptions, RepairRegenerateReport,
     RepositoryOverview, RustokFbaAudit, RustokFbaAuditOptions, RustokFbaGraph, RustokFfaAudit,
     RustokFfaAuditOptions, RustokFfaGraph, RustokPageBuilderAudit, RustokPageBuilderAuditOptions,
-    RustokPageBuilderGraph, WikiOptions, apply_repair, benchmark_index, check_affected, check_docs,
-    check_operations_docs, check_project, cleanup_api_contracts, cleanup_repair, context_project,
-    coverage_project, default_adapter_trust_path, default_project_registry_path,
-    diff_api_contracts, docs_apply_patch, docs_drift, docs_propose_fix, explain_project,
-    generate_project, graph_fba_dependencies, graph_fba_module, graph_fba_port,
-    graph_fba_violations, graph_ffa_surface, graph_ffa_violations, graph_page_builder_consumer,
-    graph_page_builder_provider, graph_page_builder_violations, impact_project, index_project,
-    init_project, inspect_repair, list_adapter_plugin_trust, list_registered_projects,
-    overview_project, project_html_report, project_wiki, recover_canonical_repair,
-    regenerate_repair, register_project, resolve_registered_project, rustok_fba_audit,
-    rustok_ffa_audit, rustok_page_builder_audit, snapshot_api_contract, trust_adapter_plugin,
-    unregister_project, untrust_adapter_plugin, validate_changed,
+    RustokPageBuilderGraph, WikiOptions, apply_repair, benchmark_index, change_map_project,
+    check_affected, check_docs, check_operations_docs, check_project, cleanup_api_contracts,
+    cleanup_repair, context_project, coverage_project, default_adapter_trust_path,
+    default_project_registry_path, diff_api_contracts, docs_apply_patch, docs_drift,
+    docs_propose_fix, explain_project, generate_project, graph_fba_dependencies, graph_fba_module,
+    graph_fba_port, graph_fba_violations, graph_ffa_surface, graph_ffa_violations,
+    graph_page_builder_consumer, graph_page_builder_provider, graph_page_builder_violations,
+    impact_project, index_project, init_project, inspect_repair, list_adapter_plugin_trust,
+    list_registered_projects, overview_project, project_html_report, project_wiki,
+    recover_canonical_repair, regenerate_repair, register_project, resolve_registered_project,
+    rustok_fba_audit, rustok_ffa_audit, rustok_page_builder_audit, snapshot_api_contract,
+    trust_adapter_plugin, unregister_project, untrust_adapter_plugin, validate_changed,
 };
 use athanor_domain::ContextLevel;
 use clap::{Parser, Subcommand, ValueEnum};
@@ -259,6 +259,35 @@ enum Command {
         /// Maximum relation traversal depth.
         #[arg(long, default_value_t = 10)]
         max_depth: usize,
+    },
+    /// Build a bounded map of code, contracts, tests, docs, and operations likely affected by a change.
+    ChangeMap {
+        /// Task description used to find direct canonical matches. Optional with --target or --diff.
+        task: Option<String>,
+        /// Exact canonical stable key or source path to use as a direct root.
+        #[arg(long)]
+        target: Option<String>,
+        /// Build the map from files changed since the last index state.
+        #[arg(long)]
+        diff: bool,
+        /// Project root. Defaults to the current directory.
+        #[arg(long, default_value = ".")]
+        path: PathBuf,
+        /// Maximum number of canonical entities returned.
+        #[arg(long, default_value_t = 30)]
+        max_entities: usize,
+        /// Maximum number of source files returned.
+        #[arg(long, default_value_t = 20)]
+        max_files: usize,
+        /// Maximum number of open diagnostics returned.
+        #[arg(long, default_value_t = 20)]
+        max_diagnostics: usize,
+        /// Maximum relation traversal depth.
+        #[arg(long, default_value_t = 3)]
+        max_depth: usize,
+        /// Print the complete change map as JSON.
+        #[arg(long)]
+        json: bool,
     },
     /// Show open diagnostics from the latest canonical snapshot.
     Check {
@@ -816,8 +845,18 @@ fn adapter_trust_path(trust_store: Option<PathBuf>) -> Result<PathBuf> {
     trust_store.map_or_else(default_adapter_trust_path, Ok)
 }
 
+fn main() -> Result<()> {
+    std::thread::Builder::new()
+        .name("ath-cli".to_string())
+        .stack_size(8 * 1024 * 1024)
+        .spawn(run_cli)
+        .context("failed to start Athanor CLI thread")?
+        .join()
+        .map_err(|_| anyhow::anyhow!("Athanor CLI thread panicked"))?
+}
+
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn run_cli() -> Result<()> {
     athanor_runtime_defaults::install();
     init_tracing();
     if handle_manual_coverage_command().await? {
@@ -1001,6 +1040,34 @@ async fn main() -> Result<()> {
                 println!("{}", serde_json::to_string_pretty(&analysis)?);
             } else {
                 print_impact_analysis(&analysis)?;
+            }
+        }
+        Some(Command::ChangeMap {
+            task,
+            target,
+            diff,
+            path,
+            max_entities,
+            max_files,
+            max_diagnostics,
+            max_depth,
+            json,
+        }) => {
+            let report = change_map_project(ChangeMapOptions {
+                root: path,
+                task,
+                target,
+                diff,
+                max_entities,
+                max_files,
+                max_diagnostics,
+                max_depth,
+            })
+            .await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                print_change_map(&report)?;
             }
         }
         Some(Command::Check {
@@ -3392,6 +3459,83 @@ fn print_impact_analysis(analysis: &ImpactAnalysis) -> Result<()> {
         }
     }
 
+    Ok(())
+}
+
+fn print_change_map(report: &ChangeMapReport) -> Result<()> {
+    println!("Change Map (snapshot: {})", report.snapshot);
+    println!(
+        "Returned: {} entities, {} files, {} diagnostics; omitted: {}/{}/{}",
+        report.returned.entities,
+        report.returned.files,
+        report.returned.diagnostics,
+        report.omitted.entities,
+        report.omitted.files,
+        report.omitted.diagnostics
+    );
+    println!();
+    println!("Files:");
+    for file in &report.files {
+        println!("  {}. {} [score={}]", file.rank, file.path, file.score);
+        println!("     kinds: {}", file.entity_kinds.join(", "));
+    }
+    if report.files.is_empty() {
+        println!("  (none)");
+    }
+    println!();
+    println!("Entities:");
+    for item in &report.items {
+        println!(
+            "  {}. [{}] {} ({}) score={} depth={}",
+            item.rank,
+            serialized_name(&item.entity.kind)?,
+            item.entity.name,
+            item.entity.stable_key.0,
+            item.score,
+            item.depth
+        );
+        println!("     why: {}", item.reasons.join("; "));
+        for step in &item.path {
+            println!(
+                "     path: {} --{}:{}--> {} (confidence {:.2})",
+                step.from.stable_key,
+                step.relation_kind,
+                step.relation_id,
+                step.to.stable_key,
+                step.confidence
+            );
+        }
+        println!(
+            "     tests: {}{}",
+            serialized_name(&item.test_coverage.status)?,
+            if item.test_coverage.tests.is_empty() {
+                String::new()
+            } else {
+                format!(" ({})", item.test_coverage.tests.join(", "))
+            }
+        );
+        for annotation in &item.annotations {
+            println!(
+                "     annotation: {} [{}] {}",
+                annotation.source, annotation.schema, annotation.message
+            );
+        }
+    }
+    if report.items.is_empty() {
+        println!("  (none)");
+    }
+    println!();
+    println!("Completeness: {}", report.completeness.note);
+    if report.completeness.candidate_limit_reached {
+        println!(
+            "Traversal stopped at the internal candidate limit of {}.",
+            report.completeness.candidate_limit
+        );
+    }
+    println!(
+        "Inspect coverage: {}",
+        report.completeness.suggested_command
+    );
     Ok(())
 }
 

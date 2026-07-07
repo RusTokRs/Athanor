@@ -254,6 +254,22 @@ fn get_tools_list() -> Value {
                 }
             },
             {
+                "name": "change_map",
+                "description": "Build a bounded, evidence-backed map of likely change locations and relation chains.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "task": { "type": "string" },
+                        "target": { "type": "string" },
+                        "diff": { "type": "boolean" },
+                        "max_entities": { "type": "integer", "description": "Default 30." },
+                        "max_files": { "type": "integer", "description": "Default 20." },
+                        "max_diagnostics": { "type": "integer", "description": "Default 20." },
+                        "max_depth": { "type": "integer", "description": "Default 3." }
+                    }
+                }
+            },
+            {
                 "name": "check",
                 "description": "Show open diagnostics from the latest canonical snapshot.",
                 "inputSchema": {
@@ -394,6 +410,35 @@ async fn call_tool(root: &std::path::Path, name: &str, args: Value) -> Result<St
             .await?;
             Ok(serde_json::to_string_pretty(&report)?)
         }
+        "change_map" => {
+            let usize_arg = |name: &str, default: usize| {
+                args.get(name)
+                    .and_then(|value| value.as_u64())
+                    .map(|value| value as usize)
+                    .unwrap_or(default)
+            };
+            let report = athanor_app::change_map_project(athanor_app::ChangeMapOptions {
+                root: root.to_path_buf(),
+                task: args
+                    .get("task")
+                    .and_then(|value| value.as_str())
+                    .map(str::to_string),
+                target: args
+                    .get("target")
+                    .and_then(|value| value.as_str())
+                    .map(str::to_string),
+                diff: args
+                    .get("diff")
+                    .and_then(|value| value.as_bool())
+                    .unwrap_or(false),
+                max_entities: usize_arg("max_entities", 30),
+                max_files: usize_arg("max_files", 20),
+                max_diagnostics: usize_arg("max_diagnostics", 20),
+                max_depth: usize_arg("max_depth", 3),
+            })
+            .await?;
+            Ok(serde_json::to_string_pretty(&report)?)
+        }
         "check" => {
             let scope_str = args
                 .get("scope")
@@ -475,6 +520,7 @@ mod tests {
         assert!(tool_names.contains(&"explain"));
         assert!(tool_names.contains(&"context"));
         assert!(tool_names.contains(&"impact"));
+        assert!(tool_names.contains(&"change_map"));
         assert!(tool_names.contains(&"check"));
         assert!(tool_names.contains(&"index"));
     }

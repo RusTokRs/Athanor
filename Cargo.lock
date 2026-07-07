@@ -454,6 +454,7 @@ dependencies = [
  "athanor-core",
  "athanor-domain",
  "athanor-extractor-basic",
+ "athanor-extractor-graphql",
  "athanor-extractor-markdown",
  "athanor-extractor-openapi",
  "athanor-extractor-rust",
@@ -530,6 +531,18 @@ dependencies = [
  "async-trait",
  "athanor-core",
  "athanor-domain",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "athanor-extractor-graphql"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "athanor-core",
+ "athanor-domain",
+ "athanor-extractor-basic",
  "serde_json",
  "tokio",
 ]
@@ -710,6 +723,7 @@ dependencies = [
  "athanor-checker-markdown",
  "athanor-core",
  "athanor-extractor-basic",
+ "athanor-extractor-graphql",
  "athanor-extractor-js-ts",
  "athanor-extractor-markdown",
  "athanor-extractor-openapi",

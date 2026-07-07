@@ -14,6 +14,7 @@ members = [
     "crates/athanor-extractor-markdown",
     "crates/athanor-extractor-js-ts",
     "crates/athanor-extractor-openapi",
+    "crates/athanor-extractor-graphql",
     "crates/athanor-extractor-operations",
     "crates/athanor-extractor-rust",
     "crates/athanor-linker-markdown",

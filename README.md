@@ -92,6 +92,14 @@ cargo run -p ath --quiet -- context "change authentication"
 cargo run -p ath --quiet -- context "change authentication" --json
 ```
 
+Map the code, contracts, tests, documentation, and operations likely involved in a change:
+
+```bash
+cargo run -p ath --quiet -- change-map "change authentication"
+cargo run -p ath --quiet -- change-map --target "api://POST:/login" --json
+cargo run -p ath --quiet -- change-map --diff --json
+```
+
 For unattended local operation, register the project and install the authenticated per-user daemon:
 
 ```bash

@@ -31,7 +31,8 @@ directory and secret files use mode `0600`. Windows runtime paths disable inheri
 full access only to the current user. TCP binds are restricted to loopback. Local socket transport is
 recommended. On Unix platforms with short socket-path limits, the daemon may place the socket in a
 short private `0700` temporary directory while keeping endpoint metadata and authentication material
-under the protected runtime directory.
+under the protected runtime directory. Bound Unix domain sockets use mode `0600`. Windows named
+pipes are created per accepted connection and the acceptor recreates the server after disconnect.
 
 Protocol v1 is disabled by default. `--insecure-allow-v1` is a temporary migration option for
 loopback TCP only and must not be used by installed services.
@@ -60,6 +61,21 @@ athd service uninstall my-project
 seconds by default, and then removes endpoint and token files. The OS-held lock is released
 automatically after crashes, and the next successful lock acquisition replaces stale lock metadata,
 so stale lock files do not block restart or preserve old process identity.
+
+## Fault Recovery Boundaries
+
+Cancellation is exercised against real background index and coordinated generation jobs. Before
+commit/publication, a cancelled index leaves the canonical latest pointer, index state, and JSONL
+read model unchanged; a cancelled generation leaves the previous generated-current pointer selected
+and removes its staging directory. Read-only daemon queries remain available during indexing and are
+covered by concurrent mixed-command bursts.
+
+An abrupt OS process kill at an exact filesystem syscall boundary cannot be scheduled
+deterministically in an in-process unit test. That boundary is handled by immutable generation
+directories, final pointer replacement, OS-released runtime locks, and startup cleanup restricted to
+known staging paths. Linux and Windows production workflows cover full daemon process/service
+lifecycle. Mid-syscall kill injection remains a platform E2E/manual release-hardening technique, not
+a portable unit-test guarantee.
 
 Structured JSONL daemon logs are written under the runtime directory. Logs rotate at 10 MiB and keep
 five historical files.

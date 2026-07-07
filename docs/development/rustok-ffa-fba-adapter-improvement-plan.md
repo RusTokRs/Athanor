@@ -61,6 +61,67 @@ Every adapter improvement must be tested against `D:\rustok` immediately after i
 - Documentation checks are part of every adapter iteration because docs drift can hide
   stale migration state from agents even when code facts are correct.
 
+## RusTok Contract Surface Integration
+
+Athanor is the graph, relationship, documentation, and consistency assistant. RusTok should not
+grow a parallel contract-graph subsystem inside its application or domain crates. Keeping graph
+analysis in Athanor makes the tooling reusable for the wider community, keeps RusTok focused on
+runtime/product code, and avoids turning module crates into repositories for agent-only analysis
+logic.
+
+RusTok remains the source of truth for the contracts it actually owns:
+
+- module manifests, module-local docs, central module registry rows, and FFA/FBA evidence;
+- OpenAPI documents produced by module-owned `utoipa::OpenApi` exports and published reference
+  snapshots;
+- GraphQL schema/introspection snapshots, query/mutation/resolver ownership, and transport docs;
+- Leptos `#[server]` function entrypoints and DTOs where they are part of the current UI contract;
+- small verifier/export scripts required to make those artifacts reproducible during development
+  and CI.
+
+The boundary is:
+
+```text
+RusTok modules and apps
+  -> publish stable contracts and evidence artifacts
+  -> keep local docs accurate
+  -> run narrow verifier/export scripts
+
+Athanor
+  -> extracts OpenAPI, GraphQL, Rust, Markdown, operations, and RusTok-specific FFA/FBA facts
+  -> links contract, code, docs, ownership, and evidence
+  -> checks REST/GraphQL/server-function consistency
+  -> serves bounded graph, context, impact, and documentation views to agents and developers
+```
+
+This means Athanor should add a reusable GraphQL extractor rather than asking RusTok to implement
+GraphQL graph analysis locally. The extractor should accept GraphQL introspection JSON, SDL files,
+and later operation documents, then emit canonical schema/type/field/query/mutation entities with
+evidence and ownership. It should be generic first, with optional RusTok-specific linkers/checkers
+for module ownership and FFA/FBA parity.
+
+`athanor-checker-api` should grow cross-surface checks in bounded slices:
+
+- OpenAPI operation/schema entities linked to Rust handlers, DTOs, and documentation;
+- GraphQL query/mutation/type entities linked to resolvers, module ownership, and documentation;
+- RusTok Leptos `#[server]` entrypoints linked to the same module/service contracts where evidence
+  is available;
+- diagnostics for missing docs, unresolved ownership, incompatible DTO/schema shapes, and
+  REST/GraphQL/server-function parity drift.
+
+RusTok should keep only the minimum support code that is necessary for its normal development:
+
+- generation of `/api/openapi.json` and `/api/openapi.yaml`;
+- generation or export of GraphQL introspection/SDL snapshots;
+- reference artifact export scripts such as the existing `scripts/verify/export-reference-artifacts.sh`;
+- module-local verifier scripts that encode RusTok-specific architecture rules;
+- documentation updates that describe the real runtime contracts.
+
+Do not move reusable OpenAPI, GraphQL, graph, impact, documentation, or consistency analysis into
+RusTok just because a current RusTok task needs it. If the behavior is useful outside RusTok, put it
+behind an Athanor adapter/checker/linker boundary. Add RusTok-local code only when RusTok itself must
+produce or verify a runtime artifact that Athanor consumes.
+
 ## Iteration Loop
 
 Each improvement uses the same loop:

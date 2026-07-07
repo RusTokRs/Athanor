@@ -368,7 +368,7 @@ fn next_generation_id(generations_dir: &Path) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use athanor_core::KnowledgeStore;
-    use athanor_domain::{RepoId, SnapshotBase};
+    use athanor_domain::{Entity, EntityId, EntityKind, RepoId, SnapshotBase, StableKey};
     use athanor_store_jsonl::JsonlKnowledgeStore;
 
     use super::*;
@@ -435,6 +435,119 @@ mod tests {
         assert_eq!(pointer.generation, "00000002");
         assert_eq!(pointer.snapshot, snapshot.0);
         assert!(first.generation_dir.is_dir());
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn cancellation_during_real_generation_preserves_current_pointer() {
+        let root = std::env::temp_dir().join(format!(
+            "athanor-generation-cancel-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let store = JsonlKnowledgeStore::new(root.join(".athanor/store/canonical/jsonl"));
+        let first_snapshot = store
+            .begin_snapshot(
+                RepoId("repo_test".to_string()),
+                SnapshotBase {
+                    branch: None,
+                    commit: None,
+                    parent_snapshot: None,
+                    working_tree: true,
+                },
+            )
+            .await
+            .unwrap();
+        store.commit_snapshot(first_snapshot).await.unwrap();
+        let first = generate_project(GenerationOptions {
+            root: root.clone(),
+            force: false,
+        })
+        .await
+        .unwrap();
+        let original_pointer = fs::read(&first.current_pointer).unwrap();
+
+        let second_snapshot = store
+            .begin_snapshot(
+                RepoId("repo_test".to_string()),
+                SnapshotBase {
+                    branch: None,
+                    commit: None,
+                    parent_snapshot: None,
+                    working_tree: true,
+                },
+            )
+            .await
+            .unwrap();
+        let entities = (0..4_000)
+            .map(|index| Entity {
+                id: EntityId(format!("ent_cancel_{index:04}")),
+                stable_key: StableKey(format!("file://src/cancel_{index:04}.rs")),
+                kind: EntityKind::File,
+                name: format!("cancel_{index:04}.rs"),
+                title: None,
+                source: None,
+                language: None,
+                aliases: Vec::new(),
+                ownership: Vec::new(),
+                payload: json!({"index": index}),
+            })
+            .collect();
+        store
+            .put_entities(second_snapshot.clone(), entities)
+            .await
+            .unwrap();
+        store.commit_snapshot(second_snapshot).await.unwrap();
+
+        let cancellation = CancellationToken::new();
+        let worker_cancellation = cancellation.clone();
+        let worker_root = root.clone();
+        let worker = std::thread::spawn(move || {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(generate_project_cancellable(
+                    GenerationOptions {
+                        root: worker_root,
+                        force: true,
+                    },
+                    worker_cancellation,
+                ))
+        });
+        let staging = root.join(format!(
+            ".athanor/generated/generations/.00000002.tmp-{}",
+            std::process::id()
+        ));
+        for _ in 0..2_000 {
+            if staging.is_dir() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+        }
+        assert!(
+            staging.is_dir(),
+            "generation staging directory was not created"
+        );
+        cancellation.cancel();
+
+        let error = worker.join().unwrap().unwrap_err();
+        assert!(
+            error
+                .chain()
+                .any(|cause| cause.to_string() == "operation cancelled")
+        );
+        assert_eq!(fs::read(&first.current_pointer).unwrap(), original_pointer);
+        assert!(
+            !root
+                .join(".athanor/generated/generations/00000002")
+                .exists()
+        );
+        assert!(!staging.exists());
 
         fs::remove_dir_all(root).unwrap();
     }

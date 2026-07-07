@@ -34,12 +34,12 @@ use athanor_domain::ContextLevel;
 use crate::explain::explain_snapshot;
 use crate::search::{get_or_build_search_index_sync, search_snapshot_with_index};
 use crate::{
-    CancellationToken, ContextLimitOverrides, ContextLimits, ContextOptions, DaemonRuntimeLock,
-    DaemonRuntimePaths, GenerationOptions, HtmlReportOptions, IndexOptions, RepositoryOverview,
-    RuntimeFileGuard, WikiOptions, build_repository_overview, constant_time_token_eq,
-    context_project, create_daemon_token, generate_context_pack, generate_project_cancellable,
-    index_project_cancellable, project_html_report_cancellable, project_wiki_cancellable,
-    read_daemon_token,
+    CancellationToken, ChangeMapOptions, ContextLimitOverrides, ContextLimits, ContextOptions,
+    DaemonRuntimeLock, DaemonRuntimePaths, GenerationOptions, HtmlReportOptions, IndexOptions,
+    RepositoryOverview, RuntimeFileGuard, WikiOptions, build_repository_overview,
+    change_map_project, constant_time_token_eq, context_project, create_daemon_token,
+    generate_context_pack, generate_project_cancellable, index_project_cancellable,
+    project_html_report_cancellable, project_wiki_cancellable, read_daemon_token,
 };
 use crate::{config::load_config, store::init_store};
 
@@ -166,6 +166,18 @@ pub enum DaemonCommand {
         level: ContextLevel,
         limits: ContextLimitOverrides,
     },
+    ChangeMap {
+        #[serde(default)]
+        task: Option<String>,
+        #[serde(default)]
+        target: Option<String>,
+        #[serde(default)]
+        diff: bool,
+        max_entities: usize,
+        max_files: usize,
+        max_diagnostics: usize,
+        max_depth: usize,
+    },
     Shutdown,
 }
 
@@ -201,6 +213,7 @@ pub enum DaemonJobKind {
     Explain,
     Search,
     Context,
+    ChangeMap,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -1535,6 +1548,76 @@ async fn execute_request(
                 }
             }
         }
+        DaemonCommand::ChangeMap {
+            task,
+            target,
+            diff,
+            max_entities,
+            max_files,
+            max_diagnostics,
+            max_depth,
+        } => {
+            let job_id = match start_daemon_job(
+                &state,
+                DaemonJobKind::ChangeMap,
+                format!("change-map task={:?} target={target:?} diff={diff}", task),
+            ) {
+                Ok(job_id) => job_id,
+                Err(error) => {
+                    return (
+                        error_response(
+                            &request.request_id,
+                            &state.endpoint.project_id,
+                            &error.to_string(),
+                        ),
+                        false,
+                    );
+                }
+            };
+            match change_map_project(ChangeMapOptions {
+                root: state.endpoint.root.clone(),
+                task,
+                target,
+                diff,
+                max_entities,
+                max_files,
+                max_diagnostics,
+                max_depth,
+            })
+            .await
+            {
+                Ok(report) => {
+                    let _ =
+                        finish_daemon_job(&state, &job_id, DaemonJobStatus::Succeeded, None, None);
+                    (
+                        success_response(
+                            &request.request_id,
+                            &state.endpoint.project_id,
+                            serde_json::to_value(report).unwrap_or(Value::Null),
+                        ),
+                        false,
+                    )
+                }
+                Err(error) => {
+                    let error_message = error.to_string();
+                    let _ = finish_daemon_job(
+                        &state,
+                        &job_id,
+                        DaemonJobStatus::Failed,
+                        None,
+                        Some(error_message.clone()),
+                    );
+                    (
+                        error_response(
+                            &request.request_id,
+                            &state.endpoint.project_id,
+                            &error_message,
+                        ),
+                        false,
+                    )
+                }
+            }
+        }
         DaemonCommand::Shutdown => (
             success_response(
                 &request.request_id,
@@ -2306,15 +2389,18 @@ fn finish_cancellable_daemon_job_error(
     job_id: &str,
     error: anyhow::Error,
 ) -> Result<()> {
-    let status = if error
+    let cancelled = error
         .chain()
-        .any(|cause| cause.to_string().contains("operation cancelled"))
-    {
-        DaemonJobStatus::Cancelled
+        .any(|cause| cause.to_string().contains("operation cancelled"));
+    let (status, message) = if cancelled {
+        (
+            DaemonJobStatus::Cancelled,
+            "operation cancelled".to_string(),
+        )
     } else {
-        DaemonJobStatus::Failed
+        (DaemonJobStatus::Failed, error.to_string())
     };
-    finish_daemon_job(state, job_id, status, None, Some(error.to_string()))
+    finish_daemon_job(state, job_id, status, None, Some(message))
 }
 
 fn prune_daemon_jobs(jobs: &mut Vec<DaemonJob>, max_job_history: usize) {
@@ -2560,6 +2646,8 @@ async fn spawn_local_socket_acceptor(
         .context("local socket path is missing")?;
     let listener = UnixListener::bind(socket_path)
         .with_context(|| format!("failed to bind daemon socket {}", socket_path.display()))?;
+    fs::set_permissions(socket_path, fs::Permissions::from_mode(0o600))
+        .with_context(|| format!("failed to secure daemon socket {}", socket_path.display()))?;
     tokio::spawn(async move {
         loop {
             match listener.accept().await {
@@ -4249,6 +4337,62 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn cancelling_running_index_job_preserves_unpublished_artifacts() {
+        let root = temp_root("cancel-running-index");
+        let source_root = root.join("src");
+        fs::create_dir_all(&source_root).unwrap();
+        for index in 0..1_500 {
+            fs::write(
+                source_root.join(format!("module_{index:04}.rs")),
+                format!("pub fn function_{index:04}() -> usize {{ {index} }}\n"),
+            )
+            .unwrap();
+        }
+        let state = Arc::new(test_daemon_state(&root, false));
+        let started = start_index_job(&state, "cancellable real index".to_string()).unwrap();
+
+        let mut running = None;
+        for _ in 0..500 {
+            let job = get_daemon_job(&state, &started.id).unwrap();
+            if job.status == DaemonJobStatus::Running {
+                running = Some(job);
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+        assert!(running.is_some(), "index job never entered running state");
+
+        let cancelling = cancel_daemon_job(&state, &started.id).unwrap();
+        assert_eq!(cancelling.status, DaemonJobStatus::Cancelling);
+
+        let mut finished = None;
+        for _ in 0..1_000 {
+            let job = get_daemon_job(&state, &started.id).unwrap();
+            if matches!(
+                job.status,
+                DaemonJobStatus::Cancelled | DaemonJobStatus::Failed | DaemonJobStatus::Succeeded
+            ) {
+                finished = Some(job);
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+        let finished = finished.expect("index job did not finish after cancellation");
+        assert_eq!(finished.status, DaemonJobStatus::Cancelled);
+        assert_eq!(finished.error.as_deref(), Some("operation cancelled"));
+        assert!(cancellation_token(&state, &started.id).unwrap().is_none());
+        assert!(!root.join(".athanor/state/index-state.json").exists());
+        assert!(!root.join(".athanor/generated/current/jsonl").exists());
+        assert!(
+            !root
+                .join(".athanor/store/canonical/jsonl/latest.json")
+                .exists()
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
     async fn shutdown_drain_times_out_until_active_jobs_finish() {
         let root = temp_root("shutdown-drain");
         let state = test_daemon_state(&root, false);
@@ -4444,6 +4588,45 @@ mod tests {
             Some("snap_read_only")
         );
         assert!(has_active_job(&state, DaemonJobKind::Index).unwrap());
+
+        let burst = (0..48).map(|index| {
+            let command = match index % 5 {
+                0 => DaemonCommand::Status,
+                1 => DaemonCommand::Explain {
+                    stable_key: "api://POST:/login".to_string(),
+                },
+                2 => DaemonCommand::Search {
+                    query: "login".to_string(),
+                    limit: 10,
+                },
+                3 => DaemonCommand::Overview { top: 10 },
+                _ => DaemonCommand::Context {
+                    task: "login".to_string(),
+                    diff: false,
+                    level: ContextLevel::Normal,
+                    limits: ContextLimitOverrides::default(),
+                },
+            };
+            execute_request(
+                Arc::clone(&state),
+                DaemonRequest {
+                    schema: DAEMON_REQUEST_SCHEMA.to_string(),
+                    request_id: format!("req-burst-{index:02}"),
+                    project_id: "alpha".to_string(),
+                    auth_token: Some(state.auth_token.clone()),
+                    command,
+                },
+            )
+        });
+        let burst = futures::future::join_all(burst).await;
+        assert_eq!(burst.len(), 48);
+        assert!(
+            burst
+                .iter()
+                .all(|(response, shutdown)| response.ok && !shutdown)
+        );
+        assert!(has_active_job(&state, DaemonJobKind::Index).unwrap());
+
         invalidate_daemon_caches(&state);
         drop(state);
         fs::remove_dir_all(root).unwrap();
@@ -4776,8 +4959,8 @@ mod tests {
     }
 
     #[cfg(unix)]
-    #[test]
-    fn unix_local_socket_endpoint_removes_stale_socket_file() {
+    #[tokio::test]
+    async fn unix_local_socket_endpoint_removes_stale_file_and_uses_owner_only_permissions() {
         let root = short_unix_temp_root("unix-local-socket");
         let socket_path = root.join("daemon.sock");
         fs::write(&socket_path, "stale").unwrap();
@@ -4788,6 +4971,14 @@ mod tests {
         assert!(endpoint.pipe_name.is_none());
         assert!(endpoint.guard.is_some());
         assert!(!socket_path.exists());
+        let (accepted_tx, _accepted_rx) = mpsc::channel(1);
+        spawn_local_socket_acceptor(&endpoint, accepted_tx)
+            .await
+            .unwrap();
+        assert_eq!(
+            fs::metadata(&socket_path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -4817,6 +5008,54 @@ mod tests {
             Some(r"\\.\pipe\athanor-runtime_bad_value")
         );
         assert!(endpoint.guard.is_none());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn windows_named_pipe_acceptor_recreates_server_after_disconnect() {
+        let root = temp_root("windows-pipe-lifecycle");
+        let endpoint =
+            local_socket_endpoint(&root, &format!("runtime-lifecycle-{}", std::process::id()))
+                .unwrap();
+        let pipe_name = endpoint.pipe_name.clone().unwrap();
+        let (accepted_tx, mut accepted_rx) = mpsc::channel(2);
+        spawn_local_socket_acceptor(&endpoint, accepted_tx)
+            .await
+            .unwrap();
+
+        for _ in 0..2 {
+            let mut client = None;
+            let mut last_error = None;
+            for _ in 0..200 {
+                match PipeClientOptions::new().open(&pipe_name) {
+                    Ok(opened) => {
+                        client = Some(opened);
+                        break;
+                    }
+                    Err(error) => {
+                        last_error = Some(error);
+                        tokio::time::sleep(Duration::from_millis(5)).await;
+                    }
+                }
+            }
+            let client = client.unwrap_or_else(|| {
+                panic!(
+                    "failed to open test daemon pipe: {}",
+                    last_error
+                        .map(|error| error.to_string())
+                        .unwrap_or_else(|| "no connection attempt completed".to_string())
+                )
+            });
+            let accepted = tokio::time::timeout(Duration::from_secs(2), accepted_rx.recv())
+                .await
+                .unwrap()
+                .expect("named pipe acceptor stopped");
+            assert_eq!(accepted.peer, pipe_name);
+            drop(accepted);
+            drop(client);
+        }
+
         fs::remove_dir_all(root).unwrap();
     }
 

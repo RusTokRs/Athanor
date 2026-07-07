@@ -28,6 +28,7 @@ Core must not depend on:
 ```text
 Markdown parser
 OpenAPI parser
+GraphQL parser
 Rust parser
 Postgres
 SurrealDB
@@ -90,6 +91,7 @@ Ownership should list every source file that can invalidate the emitted object. 
 | `athanor-extractor-markdown` | `Extractor` | Parse YAML documentation frontmatter and CommonMark/GFM headings, then emit documentation page/section, runbook, and operation-step knowledge. |
 | `athanor-extractor-js-ts` | `Extractor` | Parse JavaScript, JSX, TypeScript, TSX, and `package.json` through tree-sitter grammars, optionally verify normalized JS/TS findings with feature-gated Oxc, then emit source modules, declarations, package/dependency entities, definition facts, and evidence-backed parser diagnostics. |
 | `athanor-extractor-openapi` | `Extractor` | Parse project OpenAPI 3.1 through `oas3`, retain a 3.0 fallback, ignore test fixture specs during project discovery, and emit operation/schema/example knowledge. |
+| `athanor-extractor-graphql` | `Extractor` | Extract standalone GraphQL SDL root schema/type, operation, fragment, directive, and introspection JSON files into shared API endpoint/schema or adapter-scoped fragment/directive knowledge with evidence-backed declarations. |
 | `athanor-extractor-operations` | `Extractor` | Parse operations files such as dotenv, Cargo manifest, Makefile, Dockerfile, shell script, docker-compose, GitHub Actions, Kubernetes YAML, SQL migration, and runtime config sources into environment, package/dependency, command, deployment/service, database migration, and runtime configuration knowledge without storing raw secret values. |
 | `athanor-extractor-rust` | `Extractor` | Emit Rust module, function, and symbol definitions. |
 | `athanor-adapter-rustok-page-builder` | `Extractor`, `Linker`, `Checker` | Opt-in RusTok Page Builder provider/consumer/FSD code-audit adapter that emits Page Builder provider, consumer, contract, capability, fallback, wave-evidence, adapter-seam, content-surface, and FSD-surface entities plus Page Builder-only diagnostics. |
@@ -171,6 +173,7 @@ builtin.extractor.file
 builtin.extractor.markdown
 builtin.extractor.js_ts
 builtin.extractor.openapi
+builtin.extractor.graphql
 builtin.extractor.operations
 builtin.extractor.rust
 builtin.extractor.rustok_fba
