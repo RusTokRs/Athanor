@@ -303,6 +303,9 @@ cargo run -p ath --quiet -- coverage .
 cargo run -p ath --quiet -- coverage . --json
 cargo run -p ath --quiet -- coverage . --adapter MarkdownExtractor
 cargo run -p ath --quiet -- coverage . --file docs/README.md
+cargo run -p ath --quiet -- capabilities .
+cargo run -p ath --quiet -- capabilities . --json
+cargo run -p ath --quiet -- capabilities . --min-confidence 0.8
 cargo run -p ath --quiet -- search "task"
 cargo run -p ath --quiet -- search "task" --json
 cargo run -p ath --quiet -- context "task"
@@ -375,6 +378,14 @@ cargo run -p athd --quiet -- service uninstall athanor --json
 persisted index state. It summarizes tracked files, canonical object counts, adapter evidence/fact
 coverage, diagnostic-kind counts, file-level rows, applied filters, explicit row limits, and omitted
 counts without reading generated JSONL artifacts or running a new index.
+
+`capabilities` emits bounded `athanor.capabilities.v1` analysis-completeness reports from the same
+snapshot and persisted index state. It reports how many tracked files received content extraction
+beyond the baseline `file` inventory adapter, per-language and per-adapter completeness, extracted
+facts below a confidence threshold (`--min-confidence`, default `1.0`) with their evidence, and the
+discovered files that remain content-unprocessed. Every section carries explicit row limits
+(`--limit`, default `50`) and omitted counts, so agents can find knowledge-graph gaps without
+reading generated JSONL artifacts or running a new index.
 
 For high-value JavaScript/TypeScript repositories, build `ath` or `athd` with the
 `js-ts-precision` feature to verify affected files with both tree-sitter and Oxc. The normal build

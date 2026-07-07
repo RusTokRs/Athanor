@@ -79,38 +79,38 @@ flowchart TD
     objects forward from the previous canonical snapshot, rewrites carried snapshot ids to the new
     snapshot, drops objects whose ownership includes changed or removed paths, and canonicalizes
     merged objects by id so duplicated carried/new objects cannot persist in the next snapshot.
-22. `IndexPipeline` builds an affected subset from newly extracted objects, then passes it to linkers and checkers alongside the merged full context. In-process linker and checker inputs share full-context entity, fact, and relation lists through `Arc<Vec<T>>` values so the complete entity and fact lists are moved into shared allocations once and reused across downstream phases.
-23. `IndexPipeline` validates newly emitted canonical objects for required evidence and ownership metadata, including diagnostics emitted by extractors or checkers.
-24. If validation fails, `ath index` writes the aggregated adapter validation report to the configured validation report path.
-25. In `--validate-only` mode, the CLI writes a structured validation result artifact for successful runs, then stops without persisting a canonical snapshot, read model, or index state.
-26. `IndexPipeline` records bounded indexing metrics for phase timings, aggregated adapter timings and object counts, affected-file counts, canonical object counts, and validation issue counts. `ath index --json` and other JSON-facing callers return the report without requiring generated JSONL reads.
-27. `ath bench --size <small|medium|large>` creates synthetic Markdown, Rust, and OpenAPI fixtures, runs the normal index path, and emits `athanor.index_benchmark.v1` with the same bounded index metrics so performance regressions can be measured without reading generated JSONL artifacts.
-28. Otherwise, `IndexPipeline` stores the merged canonical objects for the current run through `KnowledgeStore`.
-29. `JsonlReadModelWriter` exports JSONL read models to `.athanor/generated/current/jsonl`.
-30. `IndexStateStore` persists file hash state to `.athanor/state/index-state.json` for the next run.
-31. On demand, `ath coverage` reads the latest durable canonical snapshot plus persisted index state and emits bounded `athanor.coverage.v1` file, adapter, and diagnostic-kind coverage rows without running indexing or reading generated JSONL artifacts.
-32. On demand, `ath wiki` loads the latest durable canonical snapshot and performs a staged replacement of the neutral Markdown wiki read model.
-33. On demand, `ath report html` loads the same snapshot and performs a staged replacement of a self-contained HTML report.
-34. On demand, `ath generate` projects JSONL, wiki, and HTML into one immutable generation, writes a complete generation manifest, and then switches `current.json` to that generation.
-35. On demand, `ath check env` reports environment variables used by Rust code or declared in operations/config files, plus runtime configuration keys, that are not linked from editable documentation.
-36. On demand, `ath check scripts` reports operational script commands not linked from editable documentation.
-37. On demand, `ath check deployment` reports deployment and service resources not linked from editable documentation.
-38. On demand, `ath check runbooks` reports runbooks that do not reference known operational targets or have no extracted operation steps.
-39. On demand, `ath validate-changed` runs a fast extractor-only preflight for explicit `--file` selections, changed Git paths, or index-state changed paths outside Git repositories, without running linkers, checkers, storage, state updates, or read-model writes.
-40. On demand, `ath update --changed` runs the same incremental indexing path through an explicit update command, writes a new durable snapshot, refreshes JSONL read models, and updates persisted file change state.
-41. On demand, `ath check affected` compares current source discovery with persisted index state and reports latest-snapshot diagnostics plus stale local artifact status for changed workflows without writing a new snapshot.
-42. On demand, `ath context --diff` builds a bounded context pack rooted in entities owned by changed or removed files without writing a new snapshot.
-43. On demand, `ath repair inspect` validates local canonical and generated pointers, manifests, and orphaned immutable artifacts without modifying files.
-44. On demand, `ath repair cleanup` removes orphaned immutable canonical snapshots and generated generations identified by repair inspection.
-45. On demand, `ath repair regenerate` publishes a fresh coordinated generated generation when the current generated pointer is stale, missing, or invalid.
-46. On demand, `ath repair recover-canonical` repoints a missing or invalid canonical latest pointer to the newest valid local canonical snapshot.
-47. On demand, `ath repair apply` runs canonical recovery, generated regeneration, and orphan cleanup in deterministic order.
-48. On demand, `ath docs operations check` aggregates environment, script, deployment, and runbook documentation diagnostics and fails when any are open.
-49. On demand, `ath docs check` evaluates editable documentation under the configured path against frontmatter completeness and diagnostic severity policy.
-50. On demand, `ath docs drift` reports editable documentation not verified against the latest canonical snapshot.
-51. On demand, `ath docs propose-fix` writes a reviewable JSON patch proposal for editable documentation frontmatter policy and drift findings.
-52. On demand, `ath docs apply-patch <id-or-path>` explicitly applies one generated documentation patch proposal after verifying it still targets the latest canonical snapshot.
-53. On demand, `ath api snapshot` publishes the latest API contract immutably, `ath api diff` compares contract snapshots, and `ath api cleanup` removes old API contract artifacts through explicit retention. When `[api.retention].auto_cleanup` or a one-off `--cleanup` flag is enabled, successful snapshot and diff commands run the same retention cleanup after publication.
+21. `IndexPipeline` builds an affected subset from newly extracted objects, then passes it to linkers and checkers alongside the merged full context. In-process linker and checker inputs share full-context entity, fact, and relation lists through `Arc<Vec<T>>` values so the complete entity and fact lists are moved into shared allocations once and reused across downstream phases.
+22. `IndexPipeline` validates newly emitted canonical objects for required evidence and ownership metadata, including diagnostics emitted by extractors or checkers.
+23. If validation fails, `ath index` writes the aggregated adapter validation report to the configured validation report path.
+24. In `--validate-only` mode, the CLI writes a structured validation result artifact for successful runs, then stops without persisting a canonical snapshot, read model, or index state.
+25. `IndexPipeline` records bounded indexing metrics for phase timings, aggregated adapter timings and object counts, affected-file counts, canonical object counts, and validation issue counts. `ath index --json` and other JSON-facing callers return the report without requiring generated JSONL reads.
+26. `ath bench --size <small|medium|large>` creates synthetic Markdown, Rust, and OpenAPI fixtures, runs the normal index path, and emits `athanor.index_benchmark.v1` with the same bounded index metrics so performance regressions can be measured without reading generated JSONL artifacts.
+27. Otherwise, `IndexPipeline` stores the merged canonical objects for the current run through `KnowledgeStore`.
+28. `JsonlReadModelWriter` exports JSONL read models to `.athanor/generated/current/jsonl`.
+29. `IndexStateStore` persists file hash state to `.athanor/state/index-state.json` for the next run.
+30. On demand, `ath coverage` reads the latest durable canonical snapshot plus persisted index state and emits bounded `athanor.coverage.v1` file, adapter, and diagnostic-kind coverage rows without running indexing or reading generated JSONL artifacts.
+31. On demand, `ath wiki` loads the latest durable canonical snapshot and performs a staged replacement of the neutral Markdown wiki read model.
+32. On demand, `ath report html` loads the same snapshot and performs a staged replacement of a self-contained HTML report.
+33. On demand, `ath generate` projects JSONL, wiki, and HTML into one immutable generation, writes a complete generation manifest, and then switches `current.json` to that generation.
+34. On demand, `ath check env` reports environment variables used by Rust code or declared in operations/config files, plus runtime configuration keys, that are not linked from editable documentation.
+35. On demand, `ath check scripts` reports operational script commands not linked from editable documentation.
+36. On demand, `ath check deployment` reports deployment and service resources not linked from editable documentation.
+37. On demand, `ath check runbooks` reports runbooks that do not reference known operational targets or have no extracted operation steps.
+38. On demand, `ath validate-changed` runs a fast extractor-only preflight for explicit `--file` selections, changed Git paths, or index-state changed paths outside Git repositories, without running linkers, checkers, storage, state updates, or read-model writes.
+39. On demand, `ath update --changed` runs the same incremental indexing path through an explicit update command, writes a new durable snapshot, refreshes JSONL read models, and updates persisted file change state.
+40. On demand, `ath check affected` compares current source discovery with persisted index state and reports latest-snapshot diagnostics plus stale local artifact status for changed workflows without writing a new snapshot.
+41. On demand, `ath context --diff` builds a bounded context pack rooted in entities owned by changed or removed files without writing a new snapshot.
+41. On demand, `ath repair inspect` validates local canonical and generated pointers, manifests, and orphaned immutable artifacts without modifying files.
+42. On demand, `ath repair cleanup` removes orphaned immutable canonical snapshots and generated generations identified by repair inspection.
+43. On demand, `ath repair regenerate` publishes a fresh coordinated generated generation when the current generated pointer is stale, missing, or invalid.
+44. On demand, `ath repair recover-canonical` repoints a missing or invalid canonical latest pointer to the newest valid local canonical snapshot.
+45. On demand, `ath repair apply` runs canonical recovery, generated regeneration, and orphan cleanup in deterministic order.
+46. On demand, `ath docs operations check` aggregates environment, script, deployment, and runbook documentation diagnostics and fails when any are open.
+47. On demand, `ath docs check` evaluates editable documentation under the configured path against frontmatter completeness and diagnostic severity policy.
+48. On demand, `ath docs drift` reports editable documentation not verified against the latest canonical snapshot.
+49. On demand, `ath docs propose-fix` writes a reviewable JSON patch proposal for editable documentation frontmatter policy and drift findings.
+50. On demand, `ath docs apply-patch <id-or-path>` explicitly applies one generated documentation patch proposal after verifying it still targets the latest canonical snapshot.
+51. On demand, `ath api snapshot` publishes the latest API contract immutably, `ath api diff` compares contract snapshots, and `ath api cleanup` removes old API contract artifacts through explicit retention. When `[api.retention].auto_cleanup` or a one-off `--cleanup` flag is enabled, successful snapshot and diff commands run the same retention cleanup after publication.
 
 ## Pipeline Assembly
 
@@ -129,6 +129,7 @@ flowchart TD
 - `JsonlKnowledgeStore`: durable local canonical snapshot store used by the CLI.
 - `overview_project`: bounded repository orientation from the latest canonical snapshot.
 - `coverage_project`: bounded file, adapter, and diagnostic-kind coverage reporting from the latest canonical snapshot and persisted index state.
+- `capabilities_project`: bounded analysis-completeness reporting (content-unprocessed files, per-language and per-adapter completeness, and below-confidence facts) from the latest canonical snapshot and persisted index state.
 - `search_project`: bounded BM25 lexical entity search from the latest canonical snapshot and disposable Tantivy read model.
 - `context_project`: task-focused context-pack generation from the latest canonical snapshot.
 - `change_map_project`: bounded task-, target-, or diff-rooted change locations with deterministic
@@ -311,7 +312,7 @@ artifacts, and future search/vector outputs are backing read models or human ins
 They are not the conversational context interface for agents.
 
 Agent-facing workflows must use bounded commands or APIs such as `ath overview`, `ath coverage`,
-`ath context --diff`, `ath context`, `ath change-map`, `ath search`, `ath explain`, `ath graph related`, `ath graph path`,
+`ath context --diff`, `ath context`, `ath search`, `ath explain`, `ath graph related`, `ath graph path`,
 `ath graph hubs`, `ath graph pagerank`, `ath graph cycles`, `ath check affected`, or future
 daemon/query endpoints. Those outputs must be
 deterministic, size-limited, and traceable back to canonical ids, stable keys, source anchors, and
