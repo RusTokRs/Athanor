@@ -21,6 +21,11 @@ Implements: `Extractor`
 Every emitted object has source-file ownership. Facts include source evidence and point to the
 canonical file entity. Diagnostics include source evidence and source-file ownership.
 
+GraphQL operations use the shared API contract model, so the API consistency checker can report
+missing resolver/implementation links and missing Markdown documentation for GraphQL endpoints with
+protocol-aware diagnostics. OpenAPI example validation and deeper OpenAPI/GraphQL drift checks
+remain separate slices.
+
 ## Inputs
 
 UTF-8 `SourceFile` values with `.graphql` or `.gql` paths, or `language_hint = graphql`.

@@ -15,11 +15,15 @@ Port: `Checker`
 This crate houses five checkers:
 
 ### 1. API Consistency Checker (`ApiConsistencyChecker`)
-Reports OpenAPI operations without linked Rust implementations, implemented operations
-without linked Markdown documentation, and local request/response component `$ref` values without
-the corresponding schema relation. It also validates extracted `ApiExample` values against their
-declared schemas and emits `api_example_invalid` diagnostics. It consumes canonical entities and
-relations only; it does not parse source files itself.
+Reports shared API contract operations, including OpenAPI and GraphQL `ApiEndpoint` entities,
+without linked Rust implementations, routes, or resolvers; implemented operations without linked
+Markdown documentation; and local request/response component `$ref` values without the
+corresponding schema relation. Diagnostics are protocol-aware and include the inferred protocol in
+their payloads, while still consuming canonical entities and relations only. The checker does not
+parse source files itself.
+
+It also validates extracted OpenAPI `ApiExample` values against their declared schemas and emits
+`api_example_invalid` diagnostics.
 
 Documentation is satisfied by `documents_api`, `documents_operation`, or a verified generic
 `documents` relation such as an exact Markdown frontmatter declaration.
@@ -90,15 +94,15 @@ configuration, script command, deployment, runbook, operation-target, and relati
 additions and removals force a full rebuild at the pipeline level to keep absence diagnostics
 correct.
 
-Example validation uses adapter-private `jsonschema` 0.46.5 with Draft 4 for OpenAPI 3.0 and Draft
-2020-12 for OpenAPI 3.1. Same-document component schemas are assembled into an in-memory validation
-document. Default resolver features are disabled, so validation cannot read files or use the
-network. Compiled validators are cached by normalized schema during one checker run. External
-schema references are skipped, and OpenAPI 3.0 keywords beyond Draft 4 compatibility remain a
-documented limitation.
+Example validation is currently OpenAPI-specific. It uses adapter-private `jsonschema` 0.46.5 with
+Draft 4 for OpenAPI 3.0 and Draft 2020-12 for OpenAPI 3.1. Same-document component schemas are
+assembled into an in-memory validation document. Default resolver features are disabled, so
+validation cannot read files or use the network. Compiled validators are cached by normalized schema
+during one checker run. External schema references are skipped, and OpenAPI 3.0 keywords beyond
+Draft 4 compatibility remain a documented limitation.
 
-The checker is local and side-effect free. Deeper schema, status-code, authentication, permission,
-breaking-change, rollout, and step dependency checks are deferred.
+The checker is local and side-effect free. Deeper OpenAPI/GraphQL schema drift, status-code,
+authentication, permission, breaking-change, rollout, and step dependency checks are deferred.
 
 ## Configuration & Policy Enforcement
 

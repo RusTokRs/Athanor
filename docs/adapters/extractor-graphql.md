@@ -30,6 +30,11 @@ declarations emit `FactKind::RouteDeclared`; schema declarations emit
 `FactKind::Other("graphql_fragment_declared")`; directive definitions emit
 `FactKind::Other("graphql_directive_declared")`.
 
+Because operations use the shared `ApiEndpoint` kind, the API consistency checker can report
+missing GraphQL resolver/implementation links and missing operation documentation through the same
+bounded diagnostics used for OpenAPI contract operations. The diagnostics remain protocol-aware;
+OpenAPI-only example validation and deeper OpenAPI/GraphQL drift checks are still separate slices.
+
 Explicit GraphQL inputs also emit bounded diagnostics with source evidence and ownership when the
 adapter cannot extract useful contract knowledge: invalid introspection JSON, introspection JSON
 without root operation types, non-built-in schema types, or directive definitions, or `.graphql`/`.gql`

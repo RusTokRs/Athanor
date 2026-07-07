@@ -1144,13 +1144,20 @@ fn missing_implementation_diagnostic(
     checker: &str,
     snapshot: &SnapshotId,
 ) -> Diagnostic {
+    let protocol = api_protocol(endpoint);
+    let message = format!(
+        "The {protocol} operation is not linked to a Rust function, method, route, or resolver."
+    );
+    let suggested_fix = format!(
+        "Add or rename the {protocol} implementation to match the operation, or add explicit route/resolver metadata."
+    );
     diagnostic(
         endpoint,
         DiagnosticKind::ApiEndpointDocumentedButNotImplemented,
         Severity::High,
         "API endpoint has no linked implementation",
-        "The OpenAPI operation is not linked to a Rust function or method.",
-        "Add or rename the handler to match operationId, or add explicit route metadata.",
+        &message,
+        &suggested_fix,
         checker,
         snapshot,
         ownership_with_candidates(endpoint, functions),
@@ -1165,13 +1172,20 @@ fn missing_documentation_diagnostic(
     checker: &str,
     snapshot: &SnapshotId,
 ) -> Diagnostic {
+    let protocol = api_protocol(endpoint);
+    let message = format!(
+        "The implemented {protocol} operation is not linked to a Markdown page or section."
+    );
+    let suggested_fix = format!(
+        "Add API documentation mentioning the {protocol} operation id, path, query, mutation, subscription, or tag."
+    );
     diagnostic(
         endpoint,
         DiagnosticKind::ApiEndpointImplementedButNotDocumented,
         Severity::Medium,
         "Implemented API endpoint has no linked documentation",
-        "The implemented OpenAPI operation is not linked to a Markdown page or section.",
-        "Add an API documentation heading mentioning the operation id, path, or tag.",
+        &message,
+        &suggested_fix,
         checker,
         snapshot,
         ownership_with_candidate_groups(endpoint, documents, functions),
@@ -1186,6 +1200,7 @@ fn missing_schema_diagnostic(
     checker: &str,
     snapshot: &SnapshotId,
 ) -> Diagnostic {
+    let protocol = api_protocol(endpoint);
     let reference = schema_use
         .get("reference")
         .and_then(serde_json::Value::as_str)
@@ -1200,12 +1215,14 @@ fn missing_schema_diagnostic(
         DiagnosticKind::ApiRequestSchemaMismatch => (
             Severity::High,
             "API request references an unresolved schema",
-            "The OpenAPI request body references a component schema that was not linked.",
+            format!(
+                "The {protocol} request body references a component schema that was not linked."
+            ),
         ),
         _ => (
             Severity::Medium,
             "API response references an unresolved schema",
-            "The OpenAPI response references a component schema that was not linked.",
+            format!("The {protocol} response references a component schema that was not linked."),
         ),
     };
 
@@ -1218,7 +1235,7 @@ fn missing_schema_diagnostic(
         severity,
         status: DiagnosticStatus::Open,
         title: title.to_string(),
-        message: message.to_string(),
+        message,
         entities: vec![endpoint.id.clone()],
         evidence: vec![evidence_for_endpoint(endpoint, checker)],
         ownership: endpoint.ownership.clone(),
@@ -1228,6 +1245,7 @@ fn missing_schema_diagnostic(
         )),
         payload: json!({
             "endpoint": endpoint.stable_key.0,
+            "protocol": protocol,
             "schema_use": schema_use,
             "missing_relation": match kind_slug {
                 "api_request_schema_mismatch" => "schema_for_request",
@@ -1269,8 +1287,36 @@ fn diagnostic(
         suggested_fix: Some(suggested_fix.to_string()),
         payload: json!({
             "endpoint": endpoint.stable_key.0,
+            "protocol": api_protocol(endpoint),
             "missing_relation": missing_relation,
         }),
+    }
+}
+
+fn api_protocol(endpoint: &Entity) -> &'static str {
+    match endpoint
+        .payload
+        .get("protocol")
+        .and_then(serde_json::Value::as_str)
+    {
+        Some("graphql") => "GraphQL",
+        Some("openapi") => "OpenAPI",
+        Some("rest") => "REST",
+        Some(_) => "API",
+        None => {
+            if endpoint.stable_key.0.starts_with("api://GRAPHQL_") {
+                "GraphQL"
+            } else if endpoint.payload.get("openapi_version").is_some()
+                || endpoint
+                    .source
+                    .as_ref()
+                    .is_some_and(|source| source.path.contains("openapi"))
+            {
+                "OpenAPI"
+            } else {
+                "API"
+            }
+        }
     }
 }
 
@@ -1364,6 +1410,49 @@ mod tests {
         assert_eq!(diagnostics[0].severity, Severity::High);
         assert_eq!(diagnostics[0].ownership.len(), 2);
         assert!(!diagnostics[0].evidence.is_empty());
+    }
+
+    #[tokio::test]
+    async fn reports_graphql_endpoint_without_resolver_as_api_contract() {
+        let mut endpoint = entity(
+            "ent_graphql_endpoint",
+            "api://GRAPHQL_MUTATION:UpdateUser",
+            EntityKind::ApiEndpoint,
+            "schema.graphql",
+        );
+        endpoint.payload = json!({
+            "protocol": "graphql",
+            "operation_type": "mutation",
+            "operation_name": "UpdateUser"
+        });
+
+        let diagnostics = ApiConsistencyChecker
+            .check(input(
+                vec![endpoint.clone()],
+                Vec::new(),
+                vec![endpoint.clone()],
+                Vec::new(),
+            ))
+            .await
+            .unwrap();
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].kind,
+            DiagnosticKind::ApiEndpointDocumentedButNotImplemented
+        );
+        assert!(diagnostics[0].message.contains("GraphQL operation"));
+        assert!(
+            diagnostics[0]
+                .suggested_fix
+                .as_ref()
+                .is_some_and(|fix| { fix.contains("route/resolver metadata") })
+        );
+        assert_eq!(diagnostics[0].payload["protocol"], "GraphQL");
+        assert_eq!(
+            diagnostics[0].payload["endpoint"],
+            "api://GRAPHQL_MUTATION:UpdateUser"
+        );
     }
 
     #[tokio::test]

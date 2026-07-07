@@ -2535,7 +2535,9 @@ Priority: P1.
 Implemented first slice in:
 
 - `crates/athanor-extractor-graphql`
+- `crates/athanor-checker-api`
 - `crates/athanor-runtime-defaults`
+- `docs/adapters/checker-api.md`
 - `docs/adapters/extractor-graphql.md`
 - `docs/architecture/adapters.md`
 - `docs/development/roadmap-status.md`
@@ -2572,11 +2574,13 @@ Current implementation:
   `FactKind::Other("graphql_directive_declared")`
 - registers the adapter as `builtin.extractor.graphql` without adding GraphQL-specific concepts to
   `athanor-domain` or `athanor-core`
+- extends `ApiConsistencyChecker` so shared `ApiEndpoint` diagnostics are protocol-aware for
+  GraphQL and OpenAPI contract operations; missing implementation/resolver and documentation
+  diagnostics now include the inferred protocol in payloads while continuing to use canonical
+  entities, relations, evidence, and ownership
 
 Remaining:
 
-- run required formatting, tests, clippy, and indexing verification before moving this slice to
-  `Implemented`
 - replace or supplement the dependency-free recognizer with a formal GraphQL parser contract and
   fixture corpus
 - add operation validation, directive semantics, captured fragment-spread resolution, inline
