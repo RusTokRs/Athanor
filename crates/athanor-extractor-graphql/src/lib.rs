@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use async_trait::async_trait;
 use athanor_core::{CoreResult, ExtractInput, ExtractOutput, Extractor, SourceFile};
 use athanor_domain::{
@@ -271,6 +273,7 @@ struct GraphQlDeclaration<'a> {
     line: u32,
     variables: Vec<String>,
     variable_definitions: Vec<VariableDefinition>,
+    variable_references: Vec<String>,
     fields: Vec<String>,
     arguments: Vec<String>,
     argument_definitions: Vec<ArgumentDefinition>,
@@ -719,6 +722,7 @@ fn parse_graphql_declarations(content: &str) -> Vec<GraphQlDeclaration<'_>> {
                 line: line_number,
                 variables: parse_operation_variables(line),
                 variable_definitions: parse_operation_variable_definitions(line),
+                variable_references: Vec::new(),
                 fields: Vec::new(),
                 arguments: parse_operation_arguments(line),
                 argument_definitions: Vec::new(),
@@ -742,6 +746,7 @@ fn parse_graphql_declarations(content: &str) -> Vec<GraphQlDeclaration<'_>> {
                 line: line_number,
                 variables: Vec::new(),
                 variable_definitions: Vec::new(),
+                variable_references: Vec::new(),
                 fields: Vec::new(),
                 arguments,
                 argument_definitions: graphql_argument_definitions(line),
@@ -764,6 +769,7 @@ fn parse_graphql_declarations(content: &str) -> Vec<GraphQlDeclaration<'_>> {
                 line: line_number,
                 variables: Vec::new(),
                 variable_definitions: Vec::new(),
+                variable_references: Vec::new(),
                 fields: schema_root_fields(schema_kind, line),
                 arguments: Vec::new(),
                 argument_definitions: Vec::new(),
@@ -787,6 +793,7 @@ fn parse_graphql_declarations(content: &str) -> Vec<GraphQlDeclaration<'_>> {
                 line: line_number,
                 variables: Vec::new(),
                 variable_definitions: Vec::new(),
+                variable_references: Vec::new(),
                 fields: Vec::new(),
                 arguments: Vec::new(),
                 argument_definitions: Vec::new(),
@@ -837,6 +844,17 @@ fn validate_graphql_declarations(
             decl.deprecated_members
                 .iter()
                 .map(move |dm| (decl.name.as_str(), dm.name.as_str()))
+        })
+        .collect();
+
+    let declared_directives: HashMap<&str, Vec<&str>> = declarations
+        .iter()
+        .filter_map(|decl| match &decl.kind {
+            GraphQlDeclarationKind::Directive { locations } => Some((
+                decl.name.as_str(),
+                locations.iter().map(|s| s.as_str()).collect(),
+            )),
+            _ => None,
         })
         .collect();
 
@@ -945,9 +963,272 @@ fn validate_graphql_declarations(
                 }
             }
         }
+
+        if let Some(location) = declaration_location(declaration) {
+            for directive in &declaration.directives {
+                if !directive_allowed_at(directive, location, &declared_directives) {
+                    let identity = format!(
+                        "{}\0{}\0graphql_invalid_directive_location\0{}\0{}\0{path}",
+                        extractor, input.source.path, declaration.name, directive
+                    );
+                    let hash = stable_hash(identity.as_bytes());
+                    diagnostics.push(Diagnostic {
+                        id: DiagnosticId(format!("diag_graphql_invalid_directive_location_{hash:016x}")),
+                        kind: DiagnosticKind::Other("graphql_invalid_directive_location".to_string()),
+                        severity: Severity::Medium,
+                        status: DiagnosticStatus::Open,
+                        title: "GraphQL directive used at invalid location".to_string(),
+                        message: format!(
+                            "Directive `@{directive}` is used on `{}` but its declared location is {location}",
+                            declaration.name
+                        ),
+                        entities: Vec::new(),
+                        evidence: vec![evidence_for_file(path, extractor, Some(declaration.line), Some(declaration.line))],
+                        ownership: ownership_for_file(path),
+                        snapshot: input.snapshot.clone(),
+                        suggested_fix: Some(format!(
+                            "Remove `@{directive}` from `{}` or update the directive's location declaration in the SDL",
+                            declaration.name
+                        )),
+                        payload: json!({
+                            "directive_name": directive,
+                            "declaration_name": declaration.name,
+                            "location": location,
+                            "source_kind": "graphql_sdl_or_operation",
+                        }),
+                    });
+                }
+            }
+
+            if let Some(member_directives) = declaration_to_member_directives(declaration) {
+                for member in member_directives {
+                    for directive in &member.directives {
+                        if !directive_allowed_at(
+                            directive,
+                            "FIELD_DEFINITION",
+                            &declared_directives,
+                        ) {
+                            let identity = format!(
+                                "{}\0{}\0graphql_invalid_directive_location\0{}@{}\0{path}",
+                                extractor, input.source.path, declaration.name, member.name
+                            );
+                            let hash = stable_hash(identity.as_bytes());
+                            diagnostics.push(Diagnostic {
+                                id: DiagnosticId(format!("diag_graphql_invalid_directive_location_{hash:016x}")),
+                                kind: DiagnosticKind::Other("graphql_invalid_directive_location".to_string()),
+                                severity: Severity::Medium,
+                                status: DiagnosticStatus::Open,
+                                title: "GraphQL directive used at invalid location".to_string(),
+                                message: format!(
+                                    "Directive `@{directive}` is used on field `{}` of `{}` but its declared location is FIELD_DEFINITION",
+                                    member.name, declaration.name
+                                ),
+                                entities: Vec::new(),
+                                evidence: vec![evidence_for_file(path, extractor, Some(declaration.line), Some(declaration.line))],
+                                ownership: ownership_for_file(path),
+                                snapshot: input.snapshot.clone(),
+                                suggested_fix: Some(format!(
+                                    "Remove `@{directive}` from field `{}` of `{}` or update the directive's location declaration",
+                                    member.name, declaration.name
+                                )),
+                                payload: json!({
+                                    "directive_name": directive,
+                                    "declaration_name": declaration.name,
+                                    "member_name": member.name,
+                                    "location": "FIELD_DEFINITION",
+                                    "source_kind": "graphql_sdl_or_operation",
+                                }),
+                            });
+                }
+            }
+        }
+
+        if matches!(declaration.kind, GraphQlDeclarationKind::Operation { .. }) {
+            for var_def in &declaration.variable_definitions {
+                if !is_valid_graphql_type_syntax(&var_def.type_name) {
+                    let identity = format!(
+                        "{}\0{}\0graphql_invalid_variable_type\0{}\0{}\0{path}",
+                        extractor, input.source.path, declaration.name, var_def.type_name
+                    );
+                    let hash = stable_hash(identity.as_bytes());
+                    diagnostics.push(Diagnostic {
+                        id: DiagnosticId(format!("diag_graphql_invalid_variable_type_{hash:016x}")),
+                        kind: DiagnosticKind::Other("graphql_invalid_variable_type".to_string()),
+                        severity: Severity::Medium,
+                        status: DiagnosticStatus::Open,
+                        title: "Invalid GraphQL variable type syntax".to_string(),
+                        message: format!(
+                            "Variable `${}` in operation `{}` has invalid type syntax `{}`",
+                            var_def.name, declaration.name, var_def.type_name
+                        ),
+                        entities: Vec::new(),
+                        evidence: vec![evidence_for_file(
+                            path,
+                            extractor,
+                            Some(declaration.line),
+                            Some(declaration.line),
+                        )],
+                        ownership: ownership_for_file(path),
+                        snapshot: input.snapshot.clone(),
+                        suggested_fix: Some(format!(
+                            "Fix the type syntax for `${}`. Valid examples: `ID`, `String!`, `[Int]`, `[User!]!`",
+                            var_def.name
+                        )),
+                        payload: json!({
+                            "variable_name": var_def.name,
+                            "type_name": var_def.type_name,
+                            "operation_name": declaration.name,
+                            "source_kind": "graphql_sdl_or_operation",
+                        }),
+                    });
+                }
+            }
+        }
+            }
+        }
+
+        if matches!(declaration.kind, GraphQlDeclarationKind::Operation { .. }) {
+            let declared_var_names: Vec<&str> = declaration
+                .variable_definitions
+                .iter()
+                .map(|v| v.name.as_str())
+                .collect();
+
+            for var_ref in &declaration.variable_references {
+                if !declared_var_names.contains(&var_ref.as_str()) {
+                    let identity = format!(
+                        "{}\0{}\0graphql_undeclared_variable_reference\0{}\0{var_ref}\0{path}",
+                        extractor, input.source.path, declaration.name
+                    );
+                    let hash = stable_hash(identity.as_bytes());
+                    diagnostics.push(Diagnostic {
+                        id: DiagnosticId(format!(
+                            "diag_graphql_undeclared_variable_reference_{hash:016x}"
+                        )),
+                        kind: DiagnosticKind::Other(
+                            "graphql_undeclared_variable_reference".to_string(),
+                        ),
+                        severity: Severity::Medium,
+                        status: DiagnosticStatus::Open,
+                        title: "Undeclared GraphQL variable reference".to_string(),
+                        message: format!(
+                            "Variable `${var_ref}` is used in operation `{}` but not declared in the operation's variable definitions",
+                            declaration.name
+                        ),
+                        entities: Vec::new(),
+                        evidence: vec![evidence_for_file(
+                            path,
+                            extractor,
+                            Some(declaration.line),
+                            Some(declaration.line),
+                        )],
+                        ownership: ownership_for_file(path),
+                        snapshot: input.snapshot.clone(),
+                        suggested_fix: Some(format!(
+                            "Add `${var_ref}: <Type>` to the operation's variable definitions or remove the usage of `${var_ref}`"
+                        )),
+                        payload: json!({
+                            "variable_name": var_ref,
+                            "operation_name": declaration.name,
+                            "declared_variables": declared_var_names,
+                            "source_kind": "graphql_sdl_or_operation",
+                        }),
+                    });
+                }
+            }
+
+            for declared_var in &declared_var_names {
+                if !declaration
+                    .variable_references
+                    .iter()
+                    .any(|r| r == declared_var)
+                {
+                    let identity = format!(
+                        "{}\0{}\0graphql_unused_variable\0{}\0{declared_var}\0{path}",
+                        extractor, input.source.path, declaration.name
+                    );
+                    let hash = stable_hash(identity.as_bytes());
+                    diagnostics.push(Diagnostic {
+                        id: DiagnosticId(format!("diag_graphql_unused_variable_{hash:016x}")),
+                        kind: DiagnosticKind::Other("graphql_unused_variable".to_string()),
+                        severity: Severity::Low,
+                        status: DiagnosticStatus::Open,
+                        title: "Unused GraphQL variable".to_string(),
+                        message: format!(
+                            "Variable `${declared_var}` is declared in operation `{}` but never used in the operation body",
+                            declaration.name
+                        ),
+                        entities: Vec::new(),
+                        evidence: vec![evidence_for_file(
+                            path,
+                            extractor,
+                            Some(declaration.line),
+                            Some(declaration.line),
+                        )],
+                        ownership: ownership_for_file(path),
+                        snapshot: input.snapshot.clone(),
+                        suggested_fix: Some(format!(
+                            "Remove `${declared_var}` from the operation's variable definitions or use it in the operation body"
+                        )),
+                        payload: json!({
+                            "variable_name": declared_var,
+                            "operation_name": declaration.name,
+                            "declared_variables": declared_var_names,
+                            "source_kind": "graphql_sdl_or_operation",
+                        }),
+                    });
+                }
+            }
+        }
     }
 
     diagnostics
+}
+
+fn declaration_location(declaration: &GraphQlDeclaration<'_>) -> Option<&'static str> {
+    match &declaration.kind {
+        GraphQlDeclarationKind::Operation { operation_type } => match *operation_type {
+            "query" => Some("QUERY"),
+            "mutation" => Some("MUTATION"),
+            "subscription" => Some("SUBSCRIPTION"),
+            _ => None,
+        },
+        GraphQlDeclarationKind::Schema { schema_kind } => match *schema_kind {
+            "type" => Some("OBJECT"),
+            "interface" => Some("INTERFACE"),
+            "input" => Some("INPUT_OBJECT"),
+            "enum" => Some("ENUM"),
+            "scalar" => Some("SCALAR"),
+            "union" => Some("UNION"),
+            _ => None,
+        },
+        GraphQlDeclarationKind::Fragment { .. } => Some("FRAGMENT_DEFINITION"),
+        GraphQlDeclarationKind::Directive { .. } => None,
+    }
+}
+
+fn directive_allowed_at(
+    directive: &str,
+    location: &str,
+    declared_directives: &HashMap<&str, Vec<&str>>,
+) -> bool {
+    match directive {
+        "skip" | "include" => ["FIELD", "FRAGMENT_SPREAD", "INLINE_FRAGMENT"].contains(&location),
+        "deprecated" => ["FIELD_DEFINITION", "ENUM_VALUE"].contains(&location),
+        "specifiedBy" => location == "SCALAR",
+        _ => declared_directives
+            .get(directive)
+            .is_none_or(|locations| locations.contains(&location)),
+    }
+}
+
+fn declaration_to_member_directives<'a>(
+    declaration: &'a GraphQlDeclaration<'a>,
+) -> Option<&'a [MemberDirectives]> {
+    if declaration.member_directives.is_empty() {
+        return None;
+    }
+    Some(&declaration.member_directives)
 }
 
 fn start_body_capture<'a>(
@@ -973,6 +1254,7 @@ fn apply_body_capture(declaration: &mut GraphQlDeclaration<'_>, body: &BodyCaptu
         declaration.fields = body.fields.clone();
     }
     declaration.arguments = body.arguments.clone();
+    declaration.variable_references = body.variable_references.clone();
     declaration.fragment_spreads = body.fragment_spreads.clone();
     declaration.inline_type_conditions = body.inline_type_conditions.clone();
     declaration.deprecated_members = body.deprecated_members.clone();
@@ -1049,6 +1331,76 @@ fn graphql_variable_type_name(input: &str) -> Option<String> {
     } else {
         Some(output)
     }
+}
+
+fn is_valid_graphql_type_syntax(type_name: &str) -> bool {
+    if type_name.is_empty() {
+        return false;
+    }
+    let mut chars = type_name.chars().peekable();
+    let mut bracket_depth = 0;
+    let mut prev_was_bracket_close = false;
+
+    while let Some(ch) = chars.next() {
+        match ch {
+            '[' => {
+                bracket_depth += 1;
+                prev_was_bracket_close = false;
+            }
+            ']' => {
+                if bracket_depth == 0 {
+                    return false;
+                }
+                bracket_depth -= 1;
+                prev_was_bracket_close = true;
+                if chars.peek() == Some(&'!') {
+                    chars.next();
+                }
+            }
+            '!' => {
+                if prev_was_bracket_close {
+                    prev_was_bracket_close = false;
+                    continue;
+                }
+                if chars.peek().is_some() {
+                    return false;
+                }
+            }
+            _ => {
+                if bracket_depth > 0 && !prev_was_bracket_close {
+                    // Inside brackets, before base type: expect uppercase start
+                    if !ch.is_ascii_uppercase() {
+                        return false;
+                    }
+                    // Consume the rest of the type name
+                    while chars.peek().map_or(false, |c| c.is_ascii_alphanumeric() || *c == '_') {
+                        chars.next();
+                    }
+                    if chars.peek() == Some(&'!') {
+                        chars.next();
+                    }
+                    prev_was_bracket_close = false;
+                } else if bracket_depth == 0 && !prev_was_bracket_close {
+                    // Top-level type: must start with uppercase
+                    if !ch.is_ascii_uppercase() {
+                        return false;
+                    }
+                    while chars.peek().map_or(false, |c| c.is_ascii_alphanumeric() || *c == '_') {
+                        chars.next();
+                    }
+                    if chars.peek() == Some(&'!') {
+                        chars.next();
+                    }
+                    prev_was_bracket_close = false;
+                } else {
+                    return false;
+                }
+            }
+        }
+    }
+    bracket_depth == 0 && !type_name.ends_with('!')
+        || (bracket_depth == 0 && type_name.ends_with('!')
+            && !type_name.ends_with("!!"))
 }
 
 fn is_graphql_body_keyword(name: &str) -> bool {
@@ -1230,7 +1582,7 @@ fn parse_directive_header(line: &str) -> Option<(String, Vec<String>, Vec<String
     let rest = rest.trim_start();
     let rest = rest.strip_prefix('@')?.trim_start();
     let name = leading_graphql_name(rest)?;
-    let after_name = rest[name.len()..].trim_start();
+    let after_name = &rest[name.len()..];
     let arguments = graphql_argument_names(after_name);
     let (_, after_on) = after_name.split_once(" on ")?;
     let locations = after_on
@@ -1300,11 +1652,13 @@ struct BodyCapture {
     depth: i32,
     fields: Vec<String>,
     arguments: Vec<String>,
+    variable_references: Vec<String>,
     fragment_spreads: Vec<String>,
     inline_type_conditions: Vec<String>,
     deprecated_members: Vec<DeprecatedMember>,
     member_types: Vec<MemberType>,
     member_directives: Vec<MemberDirectives>,
+    is_header_line: bool,
 }
 
 impl BodyCapture {
@@ -1313,13 +1667,16 @@ impl BodyCapture {
             depth: 0,
             fields: Vec::new(),
             arguments: Vec::new(),
+            variable_references: Vec::new(),
             fragment_spreads: Vec::new(),
             inline_type_conditions: Vec::new(),
             deprecated_members: Vec::new(),
             member_types: Vec::new(),
             member_directives: Vec::new(),
+            is_header_line: true,
         };
         capture.capture_line(line);
+        capture.is_header_line = false;
         Some(capture)
     }
 
@@ -1331,6 +1688,16 @@ impl BodyCapture {
                 .any(|existing| existing == &spread)
             {
                 self.fragment_spreads.push(spread);
+            }
+        }
+        for var_ref in variable_refs_in_line(line) {
+            if !self.is_header_line
+                && !self
+                    .variable_references
+                    .iter()
+                    .any(|existing| existing == &var_ref)
+            {
+                self.variable_references.push(var_ref);
             }
         }
         for type_condition in inline_type_conditions_in_line(line) {
@@ -1426,6 +1793,20 @@ fn inline_type_conditions_in_line(line: &str) -> Vec<String> {
         .filter(|name| !name.is_empty())
         .take(64)
         .collect()
+}
+
+fn variable_refs_in_line(line: &str) -> Vec<String> {
+    line.split('$')
+        .skip(1)
+        .filter_map(|after_dollar| leading_graphql_name(after_dollar))
+        .filter(|name| !name.is_empty())
+        .take(64)
+        .fold(Vec::new(), |mut output, name| {
+            if !output.iter().any(|existing| existing == name) {
+                output.push(name.to_string());
+            }
+            output
+        })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2255,6 +2636,310 @@ query GetUser {
         assert!(
             output.diagnostics.is_empty(),
             "expected no validation diagnostics, got: {:?}",
+            output.diagnostics
+        );
+    }
+
+    #[tokio::test]
+    async fn reports_invalid_directive_location_on_operation() {
+        let output = GraphQlExtractor
+            .extract(ExtractInput {
+                repo: RepoId("repo_test".to_string()),
+                snapshot: SnapshotId("snap_test".to_string()),
+                source: SourceFile {
+                    path: "schema.graphql".to_string(),
+                    language_hint: Some("graphql".to_string()),
+                    content_hash: Some("hash".to_string()),
+                    content: Some(
+                        r#"
+directive @auth on FIELD_DEFINITION
+
+query GetUser @auth {
+  user
+}
+"#
+                        .to_string(),
+                    ),
+                },
+            })
+            .await
+            .unwrap();
+
+        let diag = output.diagnostics.iter().find(|d| {
+            d.kind == DiagnosticKind::Other("graphql_invalid_directive_location".to_string())
+        });
+        assert!(
+            diag.is_some(),
+            "expected invalid directive location diagnostic, got diagnostics: {:?}",
+            output.diagnostics
+        );
+        let diag = diag.unwrap();
+        assert_eq!(diag.severity, Severity::Medium);
+        assert!(diag.message.contains("@auth"));
+        assert!(diag.message.contains("QUERY"));
+        assert!(diag.suggested_fix.is_some());
+        assert!(!diag.evidence.is_empty());
+    }
+
+    #[tokio::test]
+    async fn allows_deprecated_on_field_definition() {
+        let output = GraphQlExtractor
+            .extract(ExtractInput {
+                repo: RepoId("repo_test".to_string()),
+                snapshot: SnapshotId("snap_test".to_string()),
+                source: SourceFile {
+                    path: "schema.graphql".to_string(),
+                    language_hint: Some("graphql".to_string()),
+                    content_hash: Some("hash".to_string()),
+                    content: Some(
+                        r#"
+type User {
+  id: ID!
+  name: String @deprecated(reason: "Use displayName")
+}
+"#
+                        .to_string(),
+                    ),
+                },
+            })
+            .await
+            .unwrap();
+
+        let diag = output.diagnostics.iter().find(|d| {
+            d.kind == DiagnosticKind::Other("graphql_invalid_directive_location".to_string())
+        });
+        assert!(
+            diag.is_none(),
+            "expected no invalid directive location diagnostic for @deprecated on FIELD_DEFINITION"
+        );
+    }
+
+    #[tokio::test]
+    async fn allows_unknown_directive_without_sdl_declaration() {
+        let output = GraphQlExtractor
+            .extract(ExtractInput {
+                repo: RepoId("repo_test".to_string()),
+                snapshot: SnapshotId("snap_test".to_string()),
+                source: SourceFile {
+                    path: "query.graphql".to_string(),
+                    language_hint: Some("graphql".to_string()),
+                    content_hash: Some("hash".to_string()),
+                    content: Some(
+                        r#"
+query GetUser @cacheControl(maxAge: 60) {
+  user
+}
+"#
+                        .to_string(),
+                    ),
+                },
+            })
+            .await
+            .unwrap();
+
+        let diag = output.diagnostics.iter().find(|d| {
+            d.kind == DiagnosticKind::Other("graphql_invalid_directive_location".to_string())
+        });
+        assert!(
+            diag.is_none(),
+            "expected no diagnostic for unknown directive @cacheControl"
+        );
+    }
+
+    #[tokio::test]
+    async fn reports_undeclared_variable_reference() {
+        let output = GraphQlExtractor
+            .extract(ExtractInput {
+                repo: RepoId("repo_test".to_string()),
+                snapshot: SnapshotId("snap_test".to_string()),
+                source: SourceFile {
+                    path: "schema.graphql".to_string(),
+                    language_hint: Some("graphql".to_string()),
+                    content_hash: Some("hash".to_string()),
+                    content: Some(
+                        r#"
+query GetUser {
+  user(id: $id) {
+    id
+    name
+  }
+}
+"#
+                        .to_string(),
+                    ),
+                },
+            })
+            .await
+            .unwrap();
+
+        let diag = output.diagnostics.iter().find(|d| {
+            d.kind == DiagnosticKind::Other("graphql_undeclared_variable_reference".to_string())
+        });
+        assert!(
+            diag.is_some(),
+            "expected undeclared variable reference diagnostic"
+        );
+        let diag = diag.unwrap();
+        assert_eq!(diag.severity, Severity::Medium);
+        assert!(diag.message.contains("$id"));
+        assert!(diag.message.contains("GetUser"));
+        assert!(diag.suggested_fix.is_some());
+        assert!(!diag.evidence.is_empty());
+    }
+
+    #[tokio::test]
+    async fn reports_unused_variable() {
+        let output = GraphQlExtractor
+            .extract(ExtractInput {
+                repo: RepoId("repo_test".to_string()),
+                snapshot: SnapshotId("snap_test".to_string()),
+                source: SourceFile {
+                    path: "schema.graphql".to_string(),
+                    language_hint: Some("graphql".to_string()),
+                    content_hash: Some("hash".to_string()),
+                    content: Some(
+                        r#"
+query GetUser($id: ID!, $name: String) {
+  user(id: $id) {
+    id
+    name
+  }
+}
+"#
+                        .to_string(),
+                    ),
+                },
+            })
+            .await
+            .unwrap();
+
+        let diag = output
+            .diagnostics
+            .iter()
+            .find(|d| d.kind == DiagnosticKind::Other("graphql_unused_variable".to_string()));
+        assert!(diag.is_some(), "expected unused variable diagnostic");
+        let diag = diag.unwrap();
+        assert_eq!(diag.severity, Severity::Low);
+        assert!(diag.message.contains("$name"));
+        assert!(diag.message.contains("GetUser"));
+        assert!(diag.suggested_fix.is_some());
+        assert!(!diag.evidence.is_empty());
+    }
+
+    #[tokio::test]
+    async fn allows_valid_variable_usage() {
+        let output = GraphQlExtractor
+            .extract(ExtractInput {
+                repo: RepoId("repo_test".to_string()),
+                snapshot: SnapshotId("snap_test".to_string()),
+                source: SourceFile {
+                    path: "schema.graphql".to_string(),
+                    language_hint: Some("graphql".to_string()),
+                    content_hash: Some("hash".to_string()),
+                    content: Some(
+                        r#"
+query GetUser($id: ID!) {
+  user(id: $id) {
+    id
+    name
+  }
+}
+"#
+                        .to_string(),
+                    ),
+                },
+            })
+            .await
+            .unwrap();
+
+        let undeclared = output.diagnostics.iter().find(|d| {
+            d.kind == DiagnosticKind::Other("graphql_undeclared_variable_reference".to_string())
+        });
+        assert!(
+            undeclared.is_none(),
+            "expected no undeclared variable reference diagnostic"
+        );
+        let unused = output
+            .diagnostics
+            .iter()
+            .find(|d| d.kind == DiagnosticKind::Other("graphql_unused_variable".to_string()));
+        assert!(unused.is_none(), "expected no unused variable diagnostic");
+    }
+
+    #[tokio::test]
+    async fn reports_invalid_variable_type_syntax() {
+        let output = GraphQlExtractor
+            .extract(ExtractInput {
+                repo: RepoId("repo_test".to_string()),
+                snapshot: SnapshotId("snap_test".to_string()),
+                source: SourceFile {
+                    path: "schema.graphql".to_string(),
+                    language_hint: Some("graphql".to_string()),
+                    content_hash: Some("hash".to_string()),
+                    content: Some(
+                        r#"
+query GetUser($id: id!) {
+  user(id: $id) {
+    id
+  }
+}
+"#
+                        .to_string(),
+                    ),
+                },
+            })
+            .await
+            .unwrap();
+
+        let diag = output.diagnostics.iter().find(|d| {
+            d.kind == DiagnosticKind::Other("graphql_invalid_variable_type".to_string())
+        });
+        assert!(
+            diag.is_some(),
+            "expected invalid variable type diagnostic, got: {:?}",
+            output.diagnostics
+        );
+        let diag = diag.unwrap();
+        assert_eq!(diag.severity, Severity::Medium);
+        assert!(diag.message.contains("$id"));
+        assert!(diag.message.contains("id!"));
+        assert!(diag.suggested_fix.is_some());
+        assert!(!diag.evidence.is_empty());
+    }
+
+    #[tokio::test]
+    async fn allows_valid_variable_type_syntax() {
+        let output = GraphQlExtractor
+            .extract(ExtractInput {
+                repo: RepoId("repo_test".to_string()),
+                snapshot: SnapshotId("snap_test".to_string()),
+                source: SourceFile {
+                    path: "schema.graphql".to_string(),
+                    language_hint: Some("graphql".to_string()),
+                    content_hash: Some("hash".to_string()),
+                    content: Some(
+                        r#"
+query GetUser($id: ID!, $name: String, $tags: [String!]!, $count: Int) {
+  user(id: $id, name: $name) {
+    id
+    name
+    tags
+  }
+}
+"#
+                        .to_string(),
+                    ),
+                },
+            })
+            .await
+            .unwrap();
+
+        let diag = output.diagnostics.iter().find(|d| {
+            d.kind == DiagnosticKind::Other("graphql_invalid_variable_type".to_string())
+        });
+        assert!(
+            diag.is_none(),
+            "expected no invalid variable type diagnostic, got: {:?}",
             output.diagnostics
         );
     }

@@ -50,6 +50,13 @@ The extractor validates same-file GraphQL declarations and emits additional diag
   that name is declared in the same file.
 - **Deprecated field usage** (`graphql_deprecated_field_used`): reported at `Severity::Low` when an
   operation selects a field that is marked `@deprecated` in a schema type declared in the same file.
+- **Invalid directive location** (`graphql_invalid_directive_location`): reported at `Severity::Medium`
+  when a directive is used at a location not matching its SDL declaration (e.g., `@auth` declared on
+  `FIELD_DEFINITION` used on a `QUERY` operation).
+- **Undeclared variable reference** (`graphql_undeclared_variable_reference`): reported at `Severity::Medium`
+  when a variable is used in an operation body but not declared in the operation's variable definitions.
+- **Unused variable** (`graphql_unused_variable`): reported at `Severity::Low` when a variable is
+  declared in an operation's variable definitions but never used in the operation body.
 
 All validation diagnostics include a `suggested_fix` with actionable remediation guidance.
 
@@ -77,8 +84,8 @@ boundaries. SDL `@deprecated` directives and introspection
 
 Limitations:
 
-- GraphQL syntax validation, directive semantics, argument/variable usage validation beyond captured names and types,
-  and stale-operation checks are deferred.
+- GraphQL syntax validation, directive semantics, and stale-operation checks are deferred.
+- Variable type validation (checking declared types against known scalars and schema types) is deferred.
 - Cross-file fragment-spread and type-condition validation requires linker-level resolution and is deferred.
 - Resolver linking is handled by the API linker through `operation_name` matching against Rust functions.
 - Embedded GraphQL in JavaScript/TypeScript sources is deferred to a later JS/TS-aware slice.

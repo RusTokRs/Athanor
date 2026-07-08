@@ -2593,6 +2593,17 @@ Remaining:
   fixture corpus
 - add directive semantics and argument/variable usage validation beyond captured names and types
 
+Implemented variable validation:
+
+- adds `graphql_undeclared_variable_reference` diagnostic for variables used in operation bodies
+  but not declared in the operation's variable definitions
+- adds `graphql_unused_variable` diagnostic for variables declared in operation definitions but
+  never used in the operation body
+- captures `$variable` references from operation body lines through `variable_refs_in_line`
+- tracks variable references separately from variable declarations in `GraphQlDeclaration`
+- avoids false-positive unused-variable diagnostics by skipping variable reference capture from
+  operation header lines where variables are declared
+
 Scope:
 
 - add a community-facing GraphQL contract adapter alongside the existing OpenAPI adapter, covering SDL, introspection JSON, `.graphql`/`.gql` operations, embedded frontend operations where practical, types, fields, arguments, directives, deprecations, and validation diagnostics
