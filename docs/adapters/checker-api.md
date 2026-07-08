@@ -25,6 +25,11 @@ parse source files itself.
 It also validates extracted OpenAPI `ApiExample` values against their declared schemas and emits
 `api_example_invalid` diagnostics.
 
+When both OpenAPI and GraphQL endpoints are present, the checker detects response field drift
+between REST and GraphQL operations that share a normalized name (e.g., `getUser` REST endpoint
+and `GetUser` GraphQL query). It emits `api_openapi_graphql_drift` diagnostics with evidence
+from both endpoints and the specific fields missing in each protocol.
+
 Documentation is satisfied by `documents_api`, `documents_operation`, or a verified generic
 `documents` relation such as an exact Markdown frontmatter declaration.
 

@@ -97,12 +97,12 @@ Ownership should list every source file that can invalidate the emitted object. 
 | `athanor-adapter-rustok-page-builder` | `Extractor`, `Linker`, `Checker` | Opt-in RusTok Page Builder provider/consumer/FSD code-audit adapter that emits Page Builder provider, consumer, contract, capability, fallback, wave-evidence, adapter-seam, content-surface, and FSD-surface entities plus Page Builder-only diagnostics. |
 | `athanor-adapter-rustok-fba` | `Extractor`, `Linker`, `Checker` | Opt-in RusTok FBA code-audit adapter that emits FBA module/contract/port/operation/profile/dependency entities, FBA relations, and FBA-only diagnostics. |
 | `athanor-adapter-rustok-ffa` | `Extractor`, `Linker`, `Checker` | Opt-in RusTok FFA code-audit adapter that emits FFA surface/layer entities, surface/layer/file relations, and FFA-only diagnostics. |
-| `athanor-linker-api` | `Linker` | Link OpenAPI and GraphQL operations to Rust functions, Markdown documentation, component schemas, and examples. |
+| `athanor-linker-api` | `Linker` | Link OpenAPI and GraphQL operations to Rust functions, Markdown documentation, component schemas, examples, and cross-file fragment spreads/type conditions. |
 | `athanor-linker-js-ts` | `Linker` | Resolve exact relative JavaScript/TypeScript module imports into evidence-backed canonical relations. |
 | `athanor-linker-markdown` | `Linker` | Link Markdown containment and exact frontmatter entity/concept references. |
 | `athanor-linker-rust` | `Linker` | Link Rust module containment, imports, static function call graph, and test cases. |
 | `athanor-checker-markdown` | `Checker` | Diagnose Markdown structure, unresolved frontmatter references, and duplicate document identities. |
-| `athanor-checker-api` | `Checker` | Diagnose missing API implementation/documentation links, unresolved local schema references, invalid examples, undocumented environment variables, undocumented runtime configuration keys, undocumented script commands, undocumented deployment resources, runbooks not tied to operational knowledge, runbooks without operation steps, and runbook steps that do not cover declared targets. |
+| `athanor-checker-api` | `Checker` | Diagnose missing API implementation/documentation links, unresolved local schema references, invalid examples, OpenAPI/GraphQL response field drift, undocumented environment variables, undocumented runtime configuration keys, undocumented script commands, undocumented deployment resources, runbooks not tied to operational knowledge, runbooks without operation steps, and runbook steps that do not cover declared targets. |
 | `athanor-projector-wiki` | `Projector` | Project the latest canonical snapshot into a neutral Markdown wiki. |
 | `athanor-projector-html` | `Projector` | Project the latest canonical snapshot into a self-contained HTML report. |
 

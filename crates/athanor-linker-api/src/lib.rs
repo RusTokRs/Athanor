@@ -45,7 +45,14 @@ impl Linker for ApiKnowledgeLinker {
         let mut relations = Vec::new();
         let mut relation_ids = HashSet::new();
 
-        for endpoint in endpoints {
+        let fragments = input
+            .entities
+            .iter()
+            .filter(|entity| entity.kind == EntityKind::Other("graphql_fragment".to_string()))
+            .collect::<Vec<_>>();
+        let schemas_by_name = schemas_by_name(&schemas);
+
+        for endpoint in &endpoints {
             for example in examples_by_endpoint
                 .get(endpoint.stable_key.0.as_str())
                 .into_iter()
@@ -158,6 +165,125 @@ impl Linker for ApiKnowledgeLinker {
             }
         }
 
+        for endpoint in endpoints {
+            if let Some(fragment_spreads) = endpoint
+                .payload
+                .get("fragment_spreads")
+                .and_then(serde_json::Value::as_array)
+            {
+                for spread_value in fragment_spreads {
+                    let Some(spread_name) = spread_value.as_str() else {
+                        continue;
+                    };
+                    if let Some(fragment) = fragments.iter().find(|f| f.name == spread_name)
+                        && either_affected(endpoint, fragment, &affected)
+                    {
+                        push_unique(
+                            &mut relations,
+                            &mut relation_ids,
+                            relation(
+                                &input.snapshot,
+                                endpoint,
+                                fragment,
+                                RelationKind::Other("graphql_uses_fragment".to_string()),
+                                self.name(),
+                                "graphql_fragment_spread_resolution",
+                                spread_name,
+                                1.0,
+                            ),
+                        );
+                    }
+                }
+            }
+
+            if let Some(inline_type_conditions) = endpoint
+                .payload
+                .get("inline_type_conditions")
+                .and_then(serde_json::Value::as_array)
+            {
+                for tc_value in inline_type_conditions {
+                    let Some(type_name) = tc_value.as_str() else {
+                        continue;
+                    };
+                    if let Some(schema) = schemas_by_name.get(type_name)
+                        && either_affected(endpoint, schema, &affected)
+                    {
+                        push_unique(
+                            &mut relations,
+                            &mut relation_ids,
+                            relation(
+                                &input.snapshot,
+                                endpoint,
+                                schema,
+                                RelationKind::Other("graphql_inline_type_condition".to_string()),
+                                self.name(),
+                                "graphql_inline_type_condition_resolution",
+                                type_name,
+                                1.0,
+                            ),
+                        );
+                    }
+                }
+            }
+        }
+
+        for fragment in &fragments {
+            if let Some(type_condition) = fragment
+                .payload
+                .get("type_condition")
+                .and_then(serde_json::Value::as_str)
+                && let Some(schema) = schemas_by_name.get(type_condition)
+                && either_affected(fragment, schema, &affected)
+            {
+                push_unique(
+                    &mut relations,
+                    &mut relation_ids,
+                    relation(
+                        &input.snapshot,
+                        fragment,
+                        schema,
+                        RelationKind::Other("graphql_fragment_type_condition".to_string()),
+                        self.name(),
+                        "graphql_fragment_type_condition_resolution",
+                        type_condition,
+                        1.0,
+                    ),
+                );
+            }
+
+            if let Some(fragment_spreads) = fragment
+                .payload
+                .get("fragment_spreads")
+                .and_then(serde_json::Value::as_array)
+            {
+                for spread_value in fragment_spreads {
+                    let Some(spread_name) = spread_value.as_str() else {
+                        continue;
+                    };
+                    if let Some(inner_fragment) = fragments.iter().find(|f| f.name == spread_name)
+                        && either_affected(fragment, inner_fragment, &affected)
+                    {
+                        push_unique(
+                            &mut relations,
+                            &mut relation_ids,
+                            relation(
+                                &input.snapshot,
+                                fragment,
+                                inner_fragment,
+                                RelationKind::Other(
+                                    "graphql_fragment_spread_resolution".to_string(),
+                                ),
+                                self.name(),
+                                "graphql_fragment_spread_resolution",
+                                spread_name,
+                                1.0,
+                            ),
+                        );
+                    }
+                }
+            }
+        }
+
         Ok(relations)
     }
 }
@@ -219,6 +345,14 @@ fn schemas_by_source_and_name<'a>(
         }
     }
     by_source_and_name
+}
+
+fn schemas_by_name<'a>(schemas: &[&'a Entity]) -> HashMap<&'a str, &'a Entity> {
+    let mut by_name = HashMap::new();
+    for schema in schemas {
+        by_name.insert(schema.name.as_str(), *schema);
+    }
+    by_name
 }
 
 fn functions_by_normalized_name<'a>(functions: &[&'a Entity]) -> HashMap<String, Vec<&'a Entity>> {
@@ -814,6 +948,218 @@ mod tests {
         assert_eq!(
             implemented.payload["reason"],
             json!("operation_id_matches_rust_function")
+        );
+    }
+
+    #[tokio::test]
+    async fn links_graphql_operation_to_cross_file_fragment() {
+        let endpoint = entity(
+            "ent_endpoint",
+            "api://GRAPHQL_QUERY:GetUser",
+            EntityKind::ApiEndpoint,
+            "QUERY GetUser",
+            "queries.graphql",
+            json!({
+                "schema": "athanor.graphql_operation.v1",
+                "protocol": "graphql",
+                "operation_type": "query",
+                "operation_name": "GetUser",
+                "fragment_spreads": ["UserFields"],
+            }),
+        );
+        let fragment = entity(
+            "ent_fragment",
+            "api-fragment://graphql:types.graphql#UserFields",
+            EntityKind::Other("graphql_fragment".to_string()),
+            "UserFields",
+            "types.graphql",
+            json!({
+                "type_condition": "User",
+                "fragment_spreads": [],
+            }),
+        );
+        let schema = entity(
+            "ent_schema",
+            "api-schema://graphql:types.graphql#User",
+            EntityKind::ApiSchema,
+            "User",
+            "types.graphql",
+            json!({}),
+        );
+        let entities = vec![endpoint.clone(), fragment.clone(), schema.clone()];
+
+        let relations = ApiKnowledgeLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: entities.clone().into(),
+                facts: Vec::new().into(),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let uses_fragment = relations
+            .iter()
+            .find(|r| r.kind == RelationKind::Other("graphql_uses_fragment".to_string()))
+            .expect("expected graphql_uses_fragment relation");
+        assert_eq!(uses_fragment.from, endpoint.id);
+        assert_eq!(uses_fragment.to, fragment.id);
+        assert_eq!(uses_fragment.confidence, 1.0);
+        assert_eq!(
+            uses_fragment.payload["reason"],
+            json!("graphql_fragment_spread_resolution")
+        );
+
+        let fragment_type = relations
+            .iter()
+            .find(|r| r.kind == RelationKind::Other("graphql_fragment_type_condition".to_string()))
+            .expect("expected graphql_fragment_type_condition relation");
+        assert_eq!(fragment_type.from, fragment.id);
+        assert_eq!(fragment_type.to, schema.id);
+    }
+
+    #[tokio::test]
+    async fn links_graphql_inline_type_condition_to_schema() {
+        let endpoint = entity(
+            "ent_endpoint",
+            "api://GRAPHQL_QUERY:GetUser",
+            EntityKind::ApiEndpoint,
+            "QUERY GetUser",
+            "queries.graphql",
+            json!({
+                "schema": "athanor.graphql_operation.v1",
+                "protocol": "graphql",
+                "operation_type": "query",
+                "operation_name": "GetUser",
+                "inline_type_conditions": ["Admin"],
+            }),
+        );
+        let schema = entity(
+            "ent_schema",
+            "api-schema://graphql:schema.graphql#Admin",
+            EntityKind::ApiSchema,
+            "Admin",
+            "schema.graphql",
+            json!({}),
+        );
+        let entities = vec![endpoint.clone(), schema.clone()];
+
+        let relations = ApiKnowledgeLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: entities.clone().into(),
+                facts: Vec::new().into(),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let type_condition = relations
+            .iter()
+            .find(|r| r.kind == RelationKind::Other("graphql_inline_type_condition".to_string()))
+            .expect("expected graphql_inline_type_condition relation");
+        assert_eq!(type_condition.from, endpoint.id);
+        assert_eq!(type_condition.to, schema.id);
+        assert_eq!(type_condition.confidence, 1.0);
+    }
+
+    #[tokio::test]
+    async fn links_graphql_fragment_spreads_within_fragments() {
+        let outer_fragment = entity(
+            "ent_outer",
+            "api-fragment://graphql:types.graphql#FullUser",
+            EntityKind::Other("graphql_fragment".to_string()),
+            "FullUser",
+            "types.graphql",
+            json!({
+                "type_condition": "User",
+                "fragment_spreads": ["UserFields"],
+            }),
+        );
+        let inner_fragment = entity(
+            "ent_inner",
+            "api-fragment://graphql:types.graphql#UserFields",
+            EntityKind::Other("graphql_fragment".to_string()),
+            "UserFields",
+            "types.graphql",
+            json!({
+                "type_condition": "User",
+                "fragment_spreads": [],
+            }),
+        );
+        let schema = entity(
+            "ent_schema",
+            "api-schema://graphql:types.graphql#User",
+            EntityKind::ApiSchema,
+            "User",
+            "types.graphql",
+            json!({}),
+        );
+        let entities = vec![
+            outer_fragment.clone(),
+            inner_fragment.clone(),
+            schema.clone(),
+        ];
+
+        let relations = ApiKnowledgeLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: entities.clone().into(),
+                facts: Vec::new().into(),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let fragment_spread = relations
+            .iter()
+            .find(|r| {
+                r.kind == RelationKind::Other("graphql_fragment_spread_resolution".to_string())
+            })
+            .expect("expected fragment-to-fragment spread resolution");
+        assert_eq!(fragment_spread.from, outer_fragment.id);
+        assert_eq!(fragment_spread.to, inner_fragment.id);
+
+        let type_conditions: Vec<_> = relations
+            .iter()
+            .filter(|r| {
+                r.kind == RelationKind::Other("graphql_fragment_type_condition".to_string())
+            })
+            .collect();
+        assert_eq!(type_conditions.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn does_not_link_nonexistent_fragment_spread() {
+        let endpoint = entity(
+            "ent_endpoint",
+            "api://GRAPHQL_QUERY:GetUser",
+            EntityKind::ApiEndpoint,
+            "QUERY GetUser",
+            "queries.graphql",
+            json!({
+                "schema": "athanor.graphql_operation.v1",
+                "protocol": "graphql",
+                "operation_type": "query",
+                "operation_name": "GetUser",
+                "fragment_spreads": ["NonexistentFragment"],
+            }),
+        );
+        let entities = vec![endpoint];
+
+        let relations = ApiKnowledgeLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: entities.clone().into(),
+                facts: Vec::new().into(),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        assert!(
+            relations.is_empty(),
+            "no relations should be created for unresolved fragment spreads"
         );
     }
 

@@ -2537,6 +2537,7 @@ Implemented first slice in:
 - `crates/athanor-extractor-graphql`
 - `crates/athanor-checker-api`
 - `crates/athanor-runtime-defaults`
+- `crates/athanor-linker-api`
 - `docs/adapters/checker-api.md`
 - `docs/adapters/extractor-graphql.md`
 - `docs/architecture/adapters.md`
@@ -2578,13 +2579,19 @@ Current implementation:
   GraphQL and OpenAPI contract operations; missing implementation/resolver and documentation
   diagnostics now include the inferred protocol in payloads while continuing to use canonical
   entities, relations, evidence, and ownership
+- adds cross-file fragment-spread resolution in `athanor-linker-api` so GraphQL operations,
+  fragments, and schema types are linked through `graphql_uses_fragment`,
+  `graphql_fragment_type_condition`, `graphql_inline_type_condition`, and
+  `graphql_fragment_spread_resolution` relations with verified confidence and evidence
+- adds OpenAPI/GraphQL drift detection in `athanor-checker-api` that compares REST and GraphQL
+  operations with matching normalized names, reports `api_openapi_graphql_drift` diagnostics
+  when response fields differ, and includes evidence from both endpoints
 
 Remaining:
 
 - replace or supplement the dependency-free recognizer with a formal GraphQL parser contract and
   fixture corpus
-- add directive semantics, argument/variable usage validation beyond captured names and types,
-  cross-file fragment-spread resolution, and OpenAPI/GraphQL drift checks
+- add directive semantics and argument/variable usage validation beyond captured names and types
 
 Scope:
 

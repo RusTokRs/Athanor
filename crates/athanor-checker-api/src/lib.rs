@@ -57,7 +57,7 @@ impl Checker for ApiConsistencyChecker {
         });
         let mut diagnostics = Vec::new();
 
-        for endpoint in endpoints {
+        for endpoint in &endpoints {
             let implemented = input.relations.iter().any(|relation| {
                 relation.kind == RelationKind::ImplementedBy && relation.from == endpoint.id
             });
@@ -173,6 +173,13 @@ impl Checker for ApiConsistencyChecker {
                 &input.snapshot,
             ));
         }
+
+        diagnostics.extend(detect_openapi_graphql_drift(
+            &endpoints,
+            &schemas,
+            &input.snapshot,
+            self.name(),
+        ));
 
         Ok(diagnostics)
     }
@@ -319,6 +326,240 @@ fn invalid_example_diagnostic(
             "errors": errors,
         }),
     }
+}
+
+fn detect_openapi_graphql_drift(
+    endpoints: &[&Entity],
+    schemas: &[&Entity],
+    snapshot: &SnapshotId,
+    checker: &str,
+) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+
+    let rest_endpoints: Vec<&Entity> = endpoints
+        .iter()
+        .filter(|ep| {
+            ep.payload
+                .get("protocol")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|p| p != "graphql")
+        })
+        .copied()
+        .collect();
+
+    let graphql_endpoints: Vec<&Entity> = endpoints
+        .iter()
+        .filter(|ep| {
+            ep.payload
+                .get("protocol")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|p| p == "graphql")
+        })
+        .copied()
+        .collect();
+
+    if rest_endpoints.is_empty() || graphql_endpoints.is_empty() {
+        return diagnostics;
+    }
+
+    let schemas_by_name: HashMap<&str, &Entity> =
+        schemas.iter().map(|s| (s.name.as_str(), *s)).collect();
+
+    for rest_ep in &rest_endpoints {
+        let rest_name = normalize_endpoint_name(rest_ep);
+        if rest_name.is_empty() {
+            continue;
+        }
+        for graphql_ep in &graphql_endpoints {
+            let graphql_name = normalize_endpoint_name(graphql_ep);
+            if graphql_name.is_empty() || rest_name != graphql_name {
+                continue;
+            }
+            let rest_fields = endpoint_response_field_names(rest_ep, &schemas_by_name);
+            let graphql_fields = endpoint_response_field_names(graphql_ep, &schemas_by_name);
+            if rest_fields.is_empty() || graphql_fields.is_empty() {
+                continue;
+            }
+            let missing_in_graphql: Vec<&str> = rest_fields
+                .iter()
+                .filter(|f| !graphql_fields.contains(f))
+                .copied()
+                .collect();
+            let missing_in_rest: Vec<&str> = graphql_fields
+                .iter()
+                .filter(|f| !rest_fields.contains(f))
+                .copied()
+                .collect();
+            if missing_in_graphql.is_empty() && missing_in_rest.is_empty() {
+                continue;
+            }
+            let id_material = format!(
+                "api_openapi_graphql_drift\0{}\0{}",
+                rest_ep.stable_key.0, graphql_ep.stable_key.0
+            );
+            let mut evidence = vec![Evidence {
+                source_file: rest_ep.source.as_ref().map(|source| source.path.clone()),
+                line_start: rest_ep.source.as_ref().and_then(|s| s.line_start),
+                line_end: rest_ep.source.as_ref().and_then(|s| s.line_end),
+                extractor: Some(checker.to_string()),
+                commit_hash: None,
+                confidence: 0.8,
+                status: EvidenceStatus::Conflicting,
+            }];
+            if let Some(source) = &graphql_ep.source {
+                evidence.push(Evidence {
+                    source_file: Some(source.path.clone()),
+                    line_start: source.line_start,
+                    line_end: source.line_end,
+                    extractor: Some(checker.to_string()),
+                    commit_hash: None,
+                    confidence: 0.8,
+                    status: EvidenceStatus::Conflicting,
+                });
+            }
+            let mut ownership = rest_ep.ownership.clone();
+            for owner in &graphql_ep.ownership {
+                if !ownership
+                    .iter()
+                    .any(|existing| existing.source_file == owner.source_file)
+                {
+                    ownership.push(owner.clone());
+                }
+            }
+            diagnostics.push(Diagnostic {
+                id: DiagnosticId(format!(
+                    "diag_api_{:016x}",
+                    stable_hash(id_material.as_bytes())
+                )),
+                kind: DiagnosticKind::Other("api_openapi_graphql_drift".to_string()),
+                severity: Severity::Medium,
+                status: DiagnosticStatus::Open,
+                title: "OpenAPI and GraphQL response field drift".to_string(),
+                message: format!(
+                    "REST endpoint `{}` and GraphQL operation `{}` share a normalized name but have different response fields",
+                    rest_ep.stable_key.0, graphql_ep.stable_key.0
+                ),
+                entities: vec![rest_ep.id.clone(), graphql_ep.id.clone()],
+                evidence,
+                ownership,
+                snapshot: snapshot.clone(),
+                suggested_fix: Some(format!(
+                    "Reconcile response fields between `{}` and `{}`",
+                    rest_ep.stable_key.0, graphql_ep.stable_key.0
+                )),
+                payload: json!({
+                    "rest_endpoint": rest_ep.stable_key.0,
+                    "graphql_endpoint": graphql_ep.stable_key.0,
+                    "rest_protocol": rest_ep.payload.get("protocol"),
+                    "graphql_operation_type": graphql_ep.payload.get("operation_type"),
+                    "missing_in_graphql": missing_in_graphql,
+                    "missing_in_rest": missing_in_rest,
+                }),
+            });
+        }
+    }
+
+    diagnostics
+}
+
+fn normalize_endpoint_name(endpoint: &Entity) -> String {
+    if let Some(operation_id) = endpoint
+        .payload
+        .get("operation_id")
+        .and_then(serde_json::Value::as_str)
+    {
+        return normalize(operation_id);
+    }
+    if let Some(operation_name) = endpoint
+        .payload
+        .get("operation_name")
+        .and_then(serde_json::Value::as_str)
+    {
+        return normalize(operation_name);
+    }
+    if let Some(path) = endpoint
+        .payload
+        .get("path")
+        .and_then(serde_json::Value::as_str)
+    {
+        let last_segment = path
+            .split('/')
+            .rev()
+            .find(|s| !s.is_empty() && !s.starts_with('{'));
+        if let Some(segment) = last_segment {
+            return normalize(segment);
+        }
+    }
+    normalize(&endpoint.name)
+}
+
+fn endpoint_response_field_names<'a>(
+    endpoint: &'a Entity,
+    schemas_by_name: &HashMap<&'a str, &'a Entity>,
+) -> Vec<&'a str> {
+    let mut fields = Vec::new();
+    if let Some(response_schemas) = endpoint
+        .payload
+        .get("response_schemas")
+        .and_then(serde_json::Value::as_array)
+    {
+        for schema_use in response_schemas {
+            if let Some(reference) = schema_use
+                .get("reference")
+                .and_then(serde_json::Value::as_str)
+                && let Some(name) = reference.strip_prefix("#/components/schemas/")
+                && let Some(schema) = schemas_by_name.get(name)
+            {
+                if let Some(member_types) = schema
+                    .payload
+                    .get("member_types")
+                    .and_then(serde_json::Value::as_array)
+                {
+                    for member in member_types {
+                        if let Some(field_name) =
+                            member.get("name").and_then(serde_json::Value::as_str)
+                        {
+                            fields.push(field_name);
+                        }
+                    }
+                }
+                if let Some(properties) = schema
+                    .payload
+                    .get("schema")
+                    .and_then(|s| s.get("properties"))
+                    .and_then(serde_json::Value::as_object)
+                {
+                    for field_name in properties.keys() {
+                        if !fields.contains(&field_name.as_str()) {
+                            fields.push(field_name);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if let Some(member_types) = endpoint
+        .payload
+        .get("member_types")
+        .and_then(serde_json::Value::as_array)
+    {
+        for member in member_types {
+            if let Some(field_name) = member.get("name").and_then(serde_json::Value::as_str)
+                && !fields.contains(&field_name)
+            {
+                fields.push(field_name);
+            }
+        }
+    }
+    fields
+}
+
+fn normalize(value: &str) -> String {
+    value
+        .chars()
+        .flat_map(char::to_lowercase)
+        .filter(|character| character.is_alphanumeric())
+        .collect()
 }
 
 #[derive(Debug, Clone, Default)]
@@ -2109,6 +2350,220 @@ mod tests {
         assert_eq!(invalid_diagnostics.len(), 1);
         assert_eq!(invalid_diagnostics[0].entities, vec![invalid.id]);
         assert!(!invalid_diagnostics[0].evidence.is_empty());
+    }
+
+    #[tokio::test]
+    async fn detects_openapi_graphql_drift_when_fields_differ() {
+        let schema = api_schema(
+            "User",
+            json!({
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "name": {"type": "string"},
+                    "email": {"type": "string"}
+                }
+            }),
+        );
+        let rest_endpoint = {
+            let mut ep = entity(
+                "ent_rest_get_user",
+                "api://GET:/users/{id}",
+                EntityKind::ApiEndpoint,
+                "openapi.yaml",
+            );
+            ep.name = "get_user".to_string();
+            ep.payload = json!({
+                "protocol": "openapi",
+                "operation_id": "getUser",
+                "method": "GET",
+                "path": "/users/{id}",
+                "response_schemas": [{
+                    "status_code": "200",
+                    "media_type": "application/json",
+                    "reference": "#/components/schemas/User"
+                }]
+            });
+            ep
+        };
+        let graphql_endpoint = {
+            let mut ep = entity(
+                "ent_gql_get_user",
+                "api://GRAPHQL_QUERY:GetUser",
+                EntityKind::ApiEndpoint,
+                "schema.graphql",
+            );
+            ep.name = "QUERY GetUser".to_string();
+            ep.payload = json!({
+                "protocol": "graphql",
+                "operation_type": "query",
+                "operation_name": "GetUser",
+                "member_types": [
+                    {"name": "id", "type": "ID!"},
+                    {"name": "name", "type": "String!"}
+                ]
+            });
+            ep
+        };
+
+        let diagnostics = ApiConsistencyChecker
+            .check(input(
+                vec![
+                    schema.clone(),
+                    rest_endpoint.clone(),
+                    graphql_endpoint.clone(),
+                ],
+                Vec::new(),
+                vec![schema, rest_endpoint, graphql_endpoint],
+                Vec::new(),
+            ))
+            .await
+            .unwrap();
+
+        let drift = diagnostics
+            .iter()
+            .filter(|d| d.kind == DiagnosticKind::Other("api_openapi_graphql_drift".to_string()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            drift.len(),
+            1,
+            "expected one drift diagnostic, got: {:?}",
+            drift
+        );
+        assert!(drift[0].message.contains("different response fields"));
+        assert!(
+            drift[0].payload["missing_in_graphql"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("email"))
+        );
+        assert!(drift[0].entities.len() == 2);
+        assert!(!drift[0].evidence.is_empty());
+    }
+
+    #[tokio::test]
+    async fn no_drift_when_rest_and_graphql_have_same_fields() {
+        let schema = api_schema(
+            "User",
+            json!({
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "name": {"type": "string"}
+                }
+            }),
+        );
+        let rest_endpoint = {
+            let mut ep = entity(
+                "ent_rest_get_user",
+                "api://GET:/users/{id}",
+                EntityKind::ApiEndpoint,
+                "openapi.yaml",
+            );
+            ep.name = "get_user".to_string();
+            ep.payload = json!({
+                "protocol": "openapi",
+                "operation_id": "getUser",
+                "method": "GET",
+                "path": "/users/{id}",
+                "response_schemas": [{
+                    "status_code": "200",
+                    "media_type": "application/json",
+                    "reference": "#/components/schemas/User"
+                }]
+            });
+            ep
+        };
+        let graphql_endpoint = {
+            let mut ep = entity(
+                "ent_gql_get_user",
+                "api://GRAPHQL_QUERY:GetUser",
+                EntityKind::ApiEndpoint,
+                "schema.graphql",
+            );
+            ep.name = "QUERY GetUser".to_string();
+            ep.payload = json!({
+                "protocol": "graphql",
+                "operation_type": "query",
+                "operation_name": "GetUser",
+                "member_types": [
+                    {"name": "id", "type": "ID!"},
+                    {"name": "name", "type": "String!"}
+                ]
+            });
+            ep
+        };
+
+        let diagnostics = ApiConsistencyChecker
+            .check(input(
+                vec![
+                    schema.clone(),
+                    rest_endpoint.clone(),
+                    graphql_endpoint.clone(),
+                ],
+                Vec::new(),
+                vec![schema, rest_endpoint, graphql_endpoint],
+                Vec::new(),
+            ))
+            .await
+            .unwrap();
+
+        let drift = diagnostics
+            .iter()
+            .filter(|d| d.kind == DiagnosticKind::Other("api_openapi_graphql_drift".to_string()))
+            .collect::<Vec<_>>();
+        assert!(drift.is_empty(), "expected no drift when fields match");
+    }
+
+    #[tokio::test]
+    async fn no_drift_when_only_one_protocol_present() {
+        let schema = api_schema(
+            "User",
+            json!({
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "name": {"type": "string"}
+                }
+            }),
+        );
+        let rest_endpoint = {
+            let mut ep = entity(
+                "ent_rest_get_user",
+                "api://GET:/users/{id}",
+                EntityKind::ApiEndpoint,
+                "openapi.yaml",
+            );
+            ep.name = "get_user".to_string();
+            ep.payload = json!({
+                "protocol": "openapi",
+                "operation_id": "getUser",
+                "method": "GET",
+                "path": "/users/{id}",
+                "response_schemas": [{
+                    "status_code": "200",
+                    "media_type": "application/json",
+                    "reference": "#/components/schemas/User"
+                }]
+            });
+            ep
+        };
+
+        let diagnostics = ApiConsistencyChecker
+            .check(input(
+                vec![schema.clone(), rest_endpoint.clone()],
+                Vec::new(),
+                vec![schema, rest_endpoint],
+                Vec::new(),
+            ))
+            .await
+            .unwrap();
+
+        let drift = diagnostics
+            .iter()
+            .filter(|d| d.kind == DiagnosticKind::Other("api_openapi_graphql_drift".to_string()))
+            .collect::<Vec<_>>();
+        assert!(drift.is_empty(), "expected no drift with single protocol");
     }
 
     fn api_schema(name: &str, schema: serde_json::Value) -> Entity {
