@@ -347,6 +347,7 @@ struct MemberArgumentDefinitions {
 struct MemberDirectives {
     name: String,
     directives: Vec<String>,
+    directive_args: Vec<Vec<String>>,
 }
 
 fn is_graphql_introspection_path(path: &str) -> bool {
@@ -840,6 +841,20 @@ fn validate_graphql_declarations(
     let schema_type_names: std::collections::HashSet<&str> =
         declared_schema_types.iter().copied().collect();
 
+    let directive_arg_defs: HashMap<&str, Vec<&str>> = declarations
+        .iter()
+        .filter_map(|decl| match &decl.kind {
+            GraphQlDeclarationKind::Directive { .. } => Some((
+                decl.name.as_str(),
+                decl.argument_definitions
+                    .iter()
+                    .map(|a| a.name.as_str())
+                    .collect(),
+            )),
+            _ => None,
+        })
+        .collect();
+
     let deprecated_fields: Vec<(&str, &str)> = declarations
         .iter()
         .filter(|decl| matches!(decl.kind, GraphQlDeclarationKind::Schema { .. }))
@@ -1005,7 +1020,7 @@ fn validate_graphql_declarations(
 
             if let Some(member_directives) = declaration_to_member_directives(declaration) {
                 for member in member_directives {
-                    for directive in &member.directives {
+                    for (di, directive) in member.directives.iter().enumerate() {
                         if !directive_allowed_at(
                             directive,
                             "FIELD_DEFINITION",
@@ -1042,6 +1057,58 @@ fn validate_graphql_declarations(
                                     "source_kind": "graphql_sdl_or_operation",
                                 }),
                             });
+                        }
+
+                        if let Some(defined_arg_names) = directive_arg_defs.get(directive.as_str())
+                            && let Some(applied_arg_names) = member.directive_args.get(di)
+                        {
+                            for arg_name in applied_arg_names {
+                                if !defined_arg_names.contains(&arg_name.as_str()) {
+                                    let identity = format!(
+                                        "{}\0{}\0graphql_invalid_directive_argument\0{}@{}:{}\0{path}",
+                                        extractor,
+                                        input.source.path,
+                                        declaration.name,
+                                        directive,
+                                        arg_name
+                                    );
+                                    let hash = stable_hash(identity.as_bytes());
+                                    diagnostics.push(Diagnostic {
+                                        id: DiagnosticId(format!(
+                                            "diag_graphql_invalid_directive_argument_{hash:016x}"
+                                        )),
+                                        kind: DiagnosticKind::Other(
+                                            "graphql_invalid_directive_argument".to_string(),
+                                        ),
+                                        severity: Severity::Medium,
+                                        status: DiagnosticStatus::Open,
+                                        title: "GraphQL directive has unknown argument".to_string(),
+                                        message: format!(
+                                            "Directive `@{directive}` on `{}` of `{}` has argument `{arg_name}` which is not defined in the directive declaration",
+                                            member.name, declaration.name
+                                        ),
+                                        entities: Vec::new(),
+                                        evidence: vec![evidence_for_file(
+                                            path,
+                                            extractor,
+                                            Some(declaration.line),
+                                            Some(declaration.line),
+                                        )],
+                                        ownership: ownership_for_file(path),
+                                        snapshot: input.snapshot.clone(),
+                                        suggested_fix: Some(format!(
+                                            "Remove argument `{arg_name}` from `@{directive}` or add it to the directive's declaration"
+                                        )),
+                                        payload: json!({
+                                            "directive_name": directive,
+                                            "argument_name": arg_name,
+                                            "declaration_name": declaration.name,
+                                            "member_name": member.name,
+                                            "source_kind": "graphql_sdl_or_operation",
+                                        }),
+                                    });
+                                }
+                            }
                         }
                     }
                 }
@@ -1614,6 +1681,42 @@ fn graphql_directive_names(line: &str) -> Vec<String> {
         })
 }
 
+fn graphql_directive_applications(line: &str) -> Vec<(String, Vec<String>)> {
+    line.split('@')
+        .skip(1)
+        .filter_map(|after_at| {
+            let trimmed = after_at.trim_start();
+            let name = leading_graphql_name(trimmed)?;
+            let rest = &trimmed[name.len()..];
+            let args = if let Some(after_open) = rest.trim_start().strip_prefix('(') {
+                if let Some((inside, _)) = after_open.split_once(')') {
+                    inside
+                        .split(',')
+                        .filter_map(|arg| {
+                            let arg = arg.trim();
+                            if arg.is_empty() {
+                                return None;
+                            }
+                            let name = arg.split_once(':').map_or(arg, |(n, _)| n);
+                            let name = name.trim();
+                            if name.is_empty() || name.starts_with('$') {
+                                None
+                            } else {
+                                Some(name.to_string())
+                            }
+                        })
+                        .collect()
+                } else {
+                    Vec::new()
+                }
+            } else {
+                Vec::new()
+            };
+            Some((name.to_string(), args))
+        })
+        .collect()
+}
+
 fn parse_schema_header(line: &str) -> Option<(&'static str, &str)> {
     let line = line.strip_prefix("extend ").unwrap_or(line);
     if keyword_rest(line, "schema").is_some() {
@@ -1818,9 +1921,20 @@ impl BodyCapture {
                         .iter()
                         .any(|member| member.name == field)
                 {
+                    let apps = graphql_directive_applications(line);
+                    let directive_args: Vec<Vec<String>> = directives
+                        .iter()
+                        .map(|dn| {
+                            apps.iter()
+                                .find(|(app_name, _)| app_name == dn)
+                                .map(|(_, args)| args.clone())
+                                .unwrap_or_default()
+                        })
+                        .collect();
                     self.member_directives.push(MemberDirectives {
                         name: field.to_string(),
                         directives,
+                        directive_args,
                     });
                 }
                 if let Some(reason) = parse_deprecation_reason(line)
@@ -2055,6 +2169,7 @@ fn member_directives_payload(members: Vec<MemberDirectives>) -> Vec<Value> {
             json!({
                 "name": member.name,
                 "directives": member.directives,
+                "directive_args": member.directive_args,
             })
         })
         .collect()
@@ -2266,8 +2381,8 @@ query GetUser($id: ID!) @auth {
                 && entity.payload["directives"] == json!(["key"])
                 && entity.payload["member_directives"]
                     == json!([
-                        { "name": "friends", "directives": ["cacheControl"] },
-                        { "name": "oldName", "directives": ["deprecated"] }
+                        { "name": "friends", "directives": ["cacheControl"], "directive_args": [["maxAge"]] },
+                        { "name": "oldName", "directives": ["deprecated"], "directive_args": [["reason"]] }
                     ])
                 && entity.payload["deprecated_members"]
                     == json!([{ "name": "oldName", "reason": "Use name" }])
@@ -3193,5 +3308,121 @@ query GetItems($ids: [UnknownType!]!) {
         );
         let diag = diag.unwrap();
         assert!(diag.message.contains("UnknownType"));
+    }
+
+    #[tokio::test]
+    async fn reports_invalid_directive_argument() {
+        let output = GraphQlExtractor
+            .extract(ExtractInput {
+                repo: RepoId("repo_test".to_string()),
+                snapshot: SnapshotId("snap_test".to_string()),
+                source: SourceFile {
+                    path: "schema.graphql".to_string(),
+                    language_hint: Some("graphql".to_string()),
+                    content_hash: Some("hash".to_string()),
+                    content: Some(
+                        r#"
+directive @auth(role: String!) on FIELD_DEFINITION
+
+type Query {
+  user: String @auth(role: "admin", unknown: "value")
+}
+"#
+                        .to_string(),
+                    ),
+                },
+            })
+            .await
+            .unwrap();
+
+        let diag = output.diagnostics.iter().find(|d| {
+            d.kind == DiagnosticKind::Other("graphql_invalid_directive_argument".to_string())
+        });
+        assert!(
+            diag.is_some(),
+            "expected invalid directive argument diagnostic, got: {:?}",
+            output.diagnostics
+        );
+        let diag = diag.unwrap();
+        assert_eq!(diag.severity, Severity::Medium);
+        assert!(diag.message.contains("@auth"));
+        assert!(diag.message.contains("unknown"));
+        assert!(diag.suggested_fix.is_some());
+        assert!(!diag.evidence.is_empty());
+    }
+
+    #[tokio::test]
+    async fn allows_valid_directive_arguments() {
+        let output = GraphQlExtractor
+            .extract(ExtractInput {
+                repo: RepoId("repo_test".to_string()),
+                snapshot: SnapshotId("snap_test".to_string()),
+                source: SourceFile {
+                    path: "schema.graphql".to_string(),
+                    language_hint: Some("graphql".to_string()),
+                    content_hash: Some("hash".to_string()),
+                    content: Some(
+                        r#"
+directive @auth(role: String!) on FIELD_DEFINITION
+
+type Query {
+  user: String @auth(role: "admin")
+}
+"#
+                        .to_string(),
+                    ),
+                },
+            })
+            .await
+            .unwrap();
+
+        let diag = output.diagnostics.iter().find(|d| {
+            d.kind == DiagnosticKind::Other("graphql_invalid_directive_argument".to_string())
+        });
+        assert!(
+            diag.is_none(),
+            "expected no invalid directive argument diagnostic, got: {:?}",
+            output.diagnostics
+        );
+    }
+
+    #[tokio::test]
+    async fn reports_invalid_directive_argument_on_multiple_directives() {
+        let output = GraphQlExtractor
+            .extract(ExtractInput {
+                repo: RepoId("repo_test".to_string()),
+                snapshot: SnapshotId("snap_test".to_string()),
+                source: SourceFile {
+                    path: "schema.graphql".to_string(),
+                    language_hint: Some("graphql".to_string()),
+                    content_hash: Some("hash".to_string()),
+                    content: Some(
+                        r#"
+directive @auth(role: String!) on FIELD_DEFINITION
+directive @cacheControl(maxAge: Int) on FIELD_DEFINITION
+
+type Query {
+  user: String @auth(role: "admin") @cacheControl(maxAge: 60, badArg: true)
+}
+"#
+                        .to_string(),
+                    ),
+                },
+            })
+            .await
+            .unwrap();
+
+        let auth_diag = output.diagnostics.iter().filter(|d| {
+            d.kind == DiagnosticKind::Other("graphql_invalid_directive_argument".to_string())
+        });
+        let auth_diags: Vec<_> = auth_diag.collect();
+        assert_eq!(
+            auth_diags.len(),
+            1,
+            "expected one invalid argument diagnostic for badArg, got: {:?}",
+            output.diagnostics
+        );
+        assert!(auth_diags[0].message.contains("badArg"));
+        assert!(auth_diags[0].message.contains("@cacheControl"));
     }
 }

@@ -60,6 +60,9 @@ The extractor validates same-file GraphQL declarations and emits additional diag
 - **Variable type not found** (`graphql_variable_type_not_found`): reported at `Severity::Medium`
   when a variable definition references a type that is not a declared schema type or built-in scalar
   (`Int`, `Float`, `String`, `Boolean`, `ID`).
+- **Invalid directive argument** (`graphql_invalid_directive_argument`): reported at `Severity::Medium`
+  when a directive usage on a schema field/member passes an argument that is not defined in the
+  directive's SDL declaration (e.g., `@auth(unknownArg: 1)` when `@auth` only declares `role`).
 
 All validation diagnostics include a `suggested_fix` with actionable remediation guidance.
 
@@ -78,7 +81,7 @@ back to the canonical file entity.
 The first implementation slice uses a small adapter-local recognizer for top-level declarations,
 bounded operation variable names and variable type definitions, fragment type conditions, fragment-spread names, inline-fragment
 type conditions, bounded operation/field argument names, directive names, directive-definition
-locations, directive-definition argument names, root schema operation names, and bounded field/member names, plus `serde_json`
+locations, directive-definition argument names (used for usage validation), root schema operation names, and bounded field/member names, plus `serde_json`
 and field/member type names, plus `serde_json` handling for standard introspection root operation
 type, `types`, and `directives` shapes. It is side-effect free,
 performs no network or command execution, and does not expose parser-library types across adapter
@@ -88,7 +91,6 @@ boundaries. SDL `@deprecated` directives and introspection
 Limitations:
 
 - GraphQL syntax validation, directive semantics, and stale-operation checks are deferred.
-- Variable type validation (checking declared types against known scalars and schema types) is deferred.
 - Cross-file fragment-spread and type-condition validation requires linker-level resolution and is deferred.
 - Resolver linking is handled by the API linker through `operation_name` matching against Rust functions.
 - Embedded GraphQL in JavaScript/TypeScript sources is deferred to a later JS/TS-aware slice.
