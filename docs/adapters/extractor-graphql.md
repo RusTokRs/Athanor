@@ -57,6 +57,9 @@ The extractor validates same-file GraphQL declarations and emits additional diag
   when a variable is used in an operation body but not declared in the operation's variable definitions.
 - **Unused variable** (`graphql_unused_variable`): reported at `Severity::Low` when a variable is
   declared in an operation's variable definitions but never used in the operation body.
+- **Variable type not found** (`graphql_variable_type_not_found`): reported at `Severity::Medium`
+  when a variable definition references a type that is not a declared schema type or built-in scalar
+  (`Int`, `Float`, `String`, `Boolean`, `ID`).
 
 All validation diagnostics include a `suggested_fix` with actionable remediation guidance.
 

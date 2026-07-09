@@ -837,6 +837,9 @@ fn validate_graphql_declarations(
         })
         .collect();
 
+    let schema_type_names: std::collections::HashSet<&str> =
+        declared_schema_types.iter().copied().collect();
+
     let deprecated_fields: Vec<(&str, &str)> = declarations
         .iter()
         .filter(|decl| matches!(decl.kind, GraphQlDeclarationKind::Schema { .. }))
@@ -1039,6 +1042,8 @@ fn validate_graphql_declarations(
                                     "source_kind": "graphql_sdl_or_operation",
                                 }),
                             });
+                        }
+                    }
                 }
             }
         }
@@ -1082,8 +1087,6 @@ fn validate_graphql_declarations(
                         }),
                     });
                 }
-            }
-        }
             }
         }
 
@@ -1174,6 +1177,50 @@ fn validate_graphql_declarations(
                             "variable_name": declared_var,
                             "operation_name": declaration.name,
                             "declared_variables": declared_var_names,
+                            "source_kind": "graphql_sdl_or_operation",
+                        }),
+                    });
+                }
+            }
+
+            for var_def in &declaration.variable_definitions {
+                if !var_def.type_name.is_empty()
+                    && !graphql_type_exists(&var_def.type_name, &schema_type_names)
+                {
+                    let identity = format!(
+                        "{}\0{}\0graphql_variable_type_not_found\0{}\0{}\0{path}",
+                        extractor, input.source.path, declaration.name, var_def.type_name
+                    );
+                    let hash = stable_hash(identity.as_bytes());
+                    diagnostics.push(Diagnostic {
+                        id: DiagnosticId(format!(
+                            "diag_graphql_variable_type_not_found_{hash:016x}"
+                        )),
+                        kind: DiagnosticKind::Other("graphql_variable_type_not_found".to_string()),
+                        severity: Severity::Medium,
+                        status: DiagnosticStatus::Open,
+                        title: "GraphQL variable references undeclared type".to_string(),
+                        message: format!(
+                            "Variable `${}` in operation `{}` has type `{}` which is not a declared schema type or built-in scalar",
+                            var_def.name, declaration.name, var_def.type_name
+                        ),
+                        entities: Vec::new(),
+                        evidence: vec![evidence_for_file(
+                            path,
+                            extractor,
+                            Some(declaration.line),
+                            Some(declaration.line),
+                        )],
+                        ownership: ownership_for_file(path),
+                        snapshot: input.snapshot.clone(),
+                        suggested_fix: Some(format!(
+                            "Declare type `{}` in the schema or use a built-in scalar (Int, Float, String, Boolean, ID)",
+                            extract_base_type_name(&var_def.type_name)
+                        )),
+                        payload: json!({
+                            "variable_name": var_def.name,
+                            "type_name": var_def.type_name,
+                            "operation_name": declaration.name,
                             "source_kind": "graphql_sdl_or_operation",
                         }),
                     });
@@ -1373,7 +1420,10 @@ fn is_valid_graphql_type_syntax(type_name: &str) -> bool {
                         return false;
                     }
                     // Consume the rest of the type name
-                    while chars.peek().map_or(false, |c| c.is_ascii_alphanumeric() || *c == '_') {
+                    while chars
+                        .peek()
+                        .is_some_and(|c| c.is_ascii_alphanumeric() || *c == '_')
+                    {
                         chars.next();
                     }
                     if chars.peek() == Some(&'!') {
@@ -1385,7 +1435,10 @@ fn is_valid_graphql_type_syntax(type_name: &str) -> bool {
                     if !ch.is_ascii_uppercase() {
                         return false;
                     }
-                    while chars.peek().map_or(false, |c| c.is_ascii_alphanumeric() || *c == '_') {
+                    while chars
+                        .peek()
+                        .is_some_and(|c| c.is_ascii_alphanumeric() || *c == '_')
+                    {
                         chars.next();
                     }
                     if chars.peek() == Some(&'!') {
@@ -1399,8 +1452,38 @@ fn is_valid_graphql_type_syntax(type_name: &str) -> bool {
         }
     }
     bracket_depth == 0 && !type_name.ends_with('!')
-        || (bracket_depth == 0 && type_name.ends_with('!')
-            && !type_name.ends_with("!!"))
+        || (bracket_depth == 0 && type_name.ends_with('!') && !type_name.ends_with("!!"))
+}
+
+fn builtin_scalar_names() -> &'static [&'static str] {
+    &["Int", "Float", "String", "Boolean", "ID"]
+}
+
+fn extract_base_type_name(type_syntax: &str) -> &str {
+    let mut name = type_syntax;
+    while let Some(rest) = name.strip_prefix('[') {
+        name = rest;
+    }
+    let mut end = name.len();
+    while end > 0 && (name.as_bytes()[end - 1] == b']' || name.as_bytes()[end - 1] == b'!') {
+        end -= 1;
+    }
+    &name[..end]
+}
+
+fn graphql_type_exists(
+    type_syntax: &str,
+    declared_types: &std::collections::HashSet<&str>,
+) -> bool {
+    let base = extract_base_type_name(type_syntax);
+    if base.is_empty() {
+        return false;
+    }
+    let first_char = base.as_bytes()[0];
+    if !first_char.is_ascii_uppercase() {
+        return false;
+    }
+    builtin_scalar_names().contains(&base) || declared_types.contains(base)
 }
 
 fn is_graphql_body_keyword(name: &str) -> bool {
@@ -2891,9 +2974,10 @@ query GetUser($id: id!) {
             .await
             .unwrap();
 
-        let diag = output.diagnostics.iter().find(|d| {
-            d.kind == DiagnosticKind::Other("graphql_invalid_variable_type".to_string())
-        });
+        let diag = output
+            .diagnostics
+            .iter()
+            .find(|d| d.kind == DiagnosticKind::Other("graphql_invalid_variable_type".to_string()));
         assert!(
             diag.is_some(),
             "expected invalid variable type diagnostic, got: {:?}",
@@ -2934,13 +3018,180 @@ query GetUser($id: ID!, $name: String, $tags: [String!]!, $count: Int) {
             .await
             .unwrap();
 
-        let diag = output.diagnostics.iter().find(|d| {
-            d.kind == DiagnosticKind::Other("graphql_invalid_variable_type".to_string())
-        });
+        let diag = output
+            .diagnostics
+            .iter()
+            .find(|d| d.kind == DiagnosticKind::Other("graphql_invalid_variable_type".to_string()));
         assert!(
             diag.is_none(),
             "expected no invalid variable type diagnostic, got: {:?}",
             output.diagnostics
         );
+    }
+
+    #[tokio::test]
+    async fn reports_variable_type_not_found() {
+        let output = GraphQlExtractor
+            .extract(ExtractInput {
+                repo: RepoId("repo_test".to_string()),
+                snapshot: SnapshotId("snap_test".to_string()),
+                source: SourceFile {
+                    path: "schema.graphql".to_string(),
+                    language_hint: Some("graphql".to_string()),
+                    content_hash: Some("hash".to_string()),
+                    content: Some(
+                        r#"
+type User {
+  id: ID!
+  name: String!
+}
+
+query GetUser($id: Nonexistent!) {
+  user(id: $id) {
+    id
+    name
+  }
+}
+"#
+                        .to_string(),
+                    ),
+                },
+            })
+            .await
+            .unwrap();
+
+        let diag = output.diagnostics.iter().find(|d| {
+            d.kind == DiagnosticKind::Other("graphql_variable_type_not_found".to_string())
+        });
+        assert!(
+            diag.is_some(),
+            "expected variable type not found diagnostic, got: {:?}",
+            output.diagnostics
+        );
+        let diag = diag.unwrap();
+        assert_eq!(diag.severity, Severity::Medium);
+        assert!(diag.message.contains("$id"));
+        assert!(diag.message.contains("Nonexistent!"));
+        assert!(diag.suggested_fix.is_some());
+        assert!(!diag.evidence.is_empty());
+    }
+
+    #[tokio::test]
+    async fn allows_variable_type_builtin_scalar() {
+        let output = GraphQlExtractor
+            .extract(ExtractInput {
+                repo: RepoId("repo_test".to_string()),
+                snapshot: SnapshotId("snap_test".to_string()),
+                source: SourceFile {
+                    path: "schema.graphql".to_string(),
+                    language_hint: Some("graphql".to_string()),
+                    content_hash: Some("hash".to_string()),
+                    content: Some(
+                        r#"
+query GetUser($id: ID!, $name: String, $count: Int, $flag: Boolean, $score: Float) {
+  user(id: $id) {
+    id
+  }
+}
+"#
+                        .to_string(),
+                    ),
+                },
+            })
+            .await
+            .unwrap();
+
+        let diag = output.diagnostics.iter().find(|d| {
+            d.kind == DiagnosticKind::Other("graphql_variable_type_not_found".to_string())
+        });
+        assert!(
+            diag.is_none(),
+            "expected no variable type not found diagnostic, got: {:?}",
+            output.diagnostics
+        );
+    }
+
+    #[tokio::test]
+    async fn allows_variable_type_declared_schema_type() {
+        let output = GraphQlExtractor
+            .extract(ExtractInput {
+                repo: RepoId("repo_test".to_string()),
+                snapshot: SnapshotId("snap_test".to_string()),
+                source: SourceFile {
+                    path: "schema.graphql".to_string(),
+                    language_hint: Some("graphql".to_string()),
+                    content_hash: Some("hash".to_string()),
+                    content: Some(
+                        r#"
+type User {
+  id: ID!
+  name: String!
+}
+
+type Post {
+  id: ID!
+  title: String!
+  author: User!
+}
+
+query GetUser($id: ID!, $postFilter: Post) {
+  user(id: $id) {
+    id
+    name
+  }
+}
+"#
+                        .to_string(),
+                    ),
+                },
+            })
+            .await
+            .unwrap();
+
+        let diag = output.diagnostics.iter().find(|d| {
+            d.kind == DiagnosticKind::Other("graphql_variable_type_not_found".to_string())
+        });
+        assert!(
+            diag.is_none(),
+            "expected no variable type not found diagnostic, got: {:?}",
+            output.diagnostics
+        );
+    }
+
+    #[tokio::test]
+    async fn reports_variable_type_not_found_for_list_type() {
+        let output = GraphQlExtractor
+            .extract(ExtractInput {
+                repo: RepoId("repo_test".to_string()),
+                snapshot: SnapshotId("snap_test".to_string()),
+                source: SourceFile {
+                    path: "schema.graphql".to_string(),
+                    language_hint: Some("graphql".to_string()),
+                    content_hash: Some("hash".to_string()),
+                    content: Some(
+                        r#"
+query GetItems($ids: [UnknownType!]!) {
+  items(ids: $ids) {
+    id
+  }
+}
+"#
+                        .to_string(),
+                    ),
+                },
+            })
+            .await
+            .unwrap();
+
+        let diag = output.diagnostics.iter().find(|d| {
+            d.kind == DiagnosticKind::Other("graphql_variable_type_not_found".to_string())
+        });
+        assert!(
+            diag.is_some(),
+            "expected variable type not found diagnostic for list type, got: {:?}",
+            output.diagnostics
+        );
+        let diag = diag.unwrap();
+        assert!(diag.message.contains("UnknownType"));
     }
 }

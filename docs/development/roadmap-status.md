@@ -2583,6 +2583,10 @@ Current implementation:
   fragments, and schema types are linked through `graphql_uses_fragment`,
   `graphql_fragment_type_condition`, `graphql_inline_type_condition`, and
   `graphql_fragment_spread_resolution` relations with verified confidence and evidence
+- adds `graphql_operation_queries_type` relation linking GraphQL operations to schema types
+  returned by their root selections via `member_types` field-to-return-type resolution through
+  the root Query/Mutation/Subscription type, enabling change-map to track schema type
+  dependencies for operations
 - adds OpenAPI/GraphQL drift detection in `athanor-checker-api` that compares REST and GraphQL
   operations with matching normalized names, reports `api_openapi_graphql_drift` diagnostics
   when response fields differ, and includes evidence from both endpoints
@@ -2591,7 +2595,7 @@ Remaining:
 
 - replace or supplement the dependency-free recognizer with a formal GraphQL parser contract and
   fixture corpus
-- add directive semantics and argument/variable usage validation beyond captured names and types
+- add directive argument validation beyond captured directive names
 
 Implemented variable validation:
 
@@ -2603,6 +2607,12 @@ Implemented variable validation:
 - tracks variable references separately from variable declarations in `GraphQlDeclaration`
 - avoids false-positive unused-variable diagnostics by skipping variable reference capture from
   operation header lines where variables are declared
+- adds `graphql_variable_type_not_found` diagnostic for variable definitions whose type does not
+  reference a declared schema type or built-in scalar (`Int`, `Float`, `String`, `Boolean`, `ID`)
+- validates variable types against collected schema type names and built-in scalars using
+  `graphql_type_exists()` with `extract_base_type_name()` for list and non-null wrapper parsing
+- extracts base type names from GraphQL type syntax (e.g., `[User!]!` -> `User`) for
+  cross-reference validation
 
 Scope:
 

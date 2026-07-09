@@ -7,7 +7,7 @@ use athanor_domain::{
     RelationKind, RelationStatus, SnapshotId,
 };
 use athanor_extractor_basic::stable_hash;
-use serde_json::json;
+use serde_json::{Value, json};
 
 #[derive(Debug, Clone, Default)]
 pub struct ApiKnowledgeLinker;
@@ -225,6 +225,71 @@ impl Linker for ApiKnowledgeLinker {
                     }
                 }
             }
+
+            if let (Some(operation_type), Some(selection_roots)) = (
+                endpoint
+                    .payload
+                    .get("operation_type")
+                    .and_then(Value::as_str),
+                endpoint
+                    .payload
+                    .get("selection_roots")
+                    .and_then(Value::as_array),
+            ) {
+                let root_type_name = match operation_type {
+                    "query" => "Query",
+                    "mutation" => "Mutation",
+                    "subscription" => "Subscription",
+                    _ => "",
+                };
+                if let Some(root_schema) = schemas_by_name.get(root_type_name)
+                    && let Some(member_types) = root_schema
+                        .payload
+                        .get("member_types")
+                        .and_then(Value::as_array)
+                {
+                    for sel_value in selection_roots {
+                        let Some(sel_name) = sel_value.as_str() else {
+                            continue;
+                        };
+                        for mt in member_types {
+                            let Some(mt_name) = mt.get("name").and_then(Value::as_str) else {
+                                continue;
+                            };
+                            if mt_name != sel_name {
+                                continue;
+                            }
+                            let Some(type_syntax) = mt.get("type").and_then(Value::as_str) else {
+                                continue;
+                            };
+                            let base_name = extract_base_type_name_linker(type_syntax);
+                            if base_name.is_empty() {
+                                continue;
+                            }
+                            if let Some(target_schema) = schemas_by_name.get(base_name)
+                                && either_affected(endpoint, target_schema, &affected)
+                            {
+                                push_unique(
+                                    &mut relations,
+                                    &mut relation_ids,
+                                    relation(
+                                        &input.snapshot,
+                                        endpoint,
+                                        target_schema,
+                                        RelationKind::Other(
+                                            "graphql_operation_queries_type".to_string(),
+                                        ),
+                                        self.name(),
+                                        "graphql_operation_queries_type_resolution",
+                                        type_syntax,
+                                        1.0,
+                                    ),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         for fragment in &fragments {
@@ -353,6 +418,18 @@ fn schemas_by_name<'a>(schemas: &[&'a Entity]) -> HashMap<&'a str, &'a Entity> {
         by_name.insert(schema.name.as_str(), *schema);
     }
     by_name
+}
+
+fn extract_base_type_name_linker(type_syntax: &str) -> &str {
+    let mut name = type_syntax;
+    while let Some(rest) = name.strip_prefix('[') {
+        name = rest;
+    }
+    let mut end = name.len();
+    while end > 0 && (name.as_bytes()[end - 1] == b']' || name.as_bytes()[end - 1] == b'!') {
+        end -= 1;
+    }
+    &name[..end]
 }
 
 fn functions_by_normalized_name<'a>(functions: &[&'a Entity]) -> HashMap<String, Vec<&'a Entity>> {
@@ -1160,6 +1237,142 @@ mod tests {
         assert!(
             relations.is_empty(),
             "no relations should be created for unresolved fragment spreads"
+        );
+    }
+
+    #[tokio::test]
+    async fn links_graphql_operation_to_returned_schema_type() {
+        let query_schema = entity(
+            "ent_schema_query",
+            "api-schema://graphql:schema.graphql#Query",
+            EntityKind::ApiSchema,
+            "Query",
+            "schema.graphql",
+            json!({
+                "schema": "athanor.graphql_schema.v1",
+                "protocol": "graphql",
+                "schema_kind": "type",
+                "fields": ["user", "posts"],
+                "member_types": [
+                    {"name": "user", "type": "User!"},
+                    {"name": "posts", "type": "[Post!]!"}
+                ],
+            }),
+        );
+        let user_schema = entity(
+            "ent_schema_user",
+            "api-schema://graphql:schema.graphql#User",
+            EntityKind::ApiSchema,
+            "User",
+            "schema.graphql",
+            json!({
+                "schema": "athanor.graphql_schema.v1",
+                "protocol": "graphql",
+                "schema_kind": "type",
+                "fields": ["id", "name"],
+                "member_types": [
+                    {"name": "id", "type": "ID!"},
+                    {"name": "name", "type": "String!"}
+                ],
+            }),
+        );
+        let post_schema = entity(
+            "ent_schema_post",
+            "api-schema://graphql:schema.graphql#Post",
+            EntityKind::ApiSchema,
+            "Post",
+            "schema.graphql",
+            json!({
+                "schema": "athanor.graphql_schema.v1",
+                "protocol": "graphql",
+                "schema_kind": "type",
+                "fields": ["id", "title"],
+                "member_types": [
+                    {"name": "id", "type": "ID!"},
+                    {"name": "title", "type": "String!"}
+                ],
+            }),
+        );
+        let operation = entity(
+            "ent_operation",
+            "api://GRAPHQL_QUERY:GetUser",
+            EntityKind::ApiEndpoint,
+            "QUERY GetUser",
+            "queries.graphql",
+            json!({
+                "schema": "athanor.graphql_operation.v1",
+                "protocol": "graphql",
+                "operation_type": "query",
+                "operation_name": "GetUser",
+                "selection_roots": ["user"],
+                "fragment_spreads": [],
+                "inline_type_conditions": [],
+            }),
+        );
+
+        let entities = vec![query_schema, user_schema, post_schema, operation];
+
+        let relations = ApiKnowledgeLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: entities.clone().into(),
+                facts: Vec::new().into(),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let user_rel = relations
+            .iter()
+            .find(|r| {
+                r.kind == RelationKind::Other("graphql_operation_queries_type".to_string())
+                    && r.to == EntityId("ent_schema_user".to_string())
+            })
+            .expect(
+                "expected graphql_operation_queries_type relation from operation to User schema",
+            );
+        assert_eq!(user_rel.from, EntityId("ent_operation".to_string()));
+        assert_eq!(user_rel.to, EntityId("ent_schema_user".to_string()));
+        assert_eq!(user_rel.confidence, 1.0);
+    }
+
+    #[tokio::test]
+    async fn does_not_link_operation_without_matching_root_type() {
+        let operation = entity(
+            "ent_operation",
+            "api://GRAPHQL_QUERY:GetUser",
+            EntityKind::ApiEndpoint,
+            "QUERY GetUser",
+            "queries.graphql",
+            json!({
+                "schema": "athanor.graphql_operation.v1",
+                "protocol": "graphql",
+                "operation_type": "query",
+                "operation_name": "GetUser",
+                "selection_roots": ["user"],
+                "fragment_spreads": [],
+                "inline_type_conditions": [],
+            }),
+        );
+        let entities = vec![operation];
+
+        let relations = ApiKnowledgeLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: entities.clone().into(),
+                facts: Vec::new().into(),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let query_type_rels: Vec<_> = relations
+            .iter()
+            .filter(|r| r.kind == RelationKind::Other("graphql_operation_queries_type".to_string()))
+            .collect();
+        assert!(
+            query_type_rels.is_empty(),
+            "no relations should be created when root Query type is missing"
         );
     }
 
