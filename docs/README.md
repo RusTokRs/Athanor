@@ -35,6 +35,7 @@ Use this file to find the right document before changing code, adapters, plugins
 - [Continuous integration](development/ci.md): GitHub Actions matrix, commands, and security defaults.
 - [Production operation](development/production.md): authenticated daemon v2, per-user services, runtime permissions, release verification, and external-adapter policy.
 - [Library adoption plan](development/library-adoption-plan.md): approved dependencies, adapter boundaries, risks, and acceptance criteria.
+- [Evidence-backed documentation generation plan](development/evidence-backed-documentation-generation-plan.md): planned graph-grounded architecture documentation, guides, diagrams, optional LLM composition, and validation.
 - [Documentation completeness policy](development/docs-completeness-policy.md): `athanor.toml` policy fields and the `ath docs check` CI gate.
 - [RusTok FFA/FBA adapter improvement plan](development/rustok-ffa-fba-adapter-improvement-plan.md): project-specific iteration plan for improving RusTok adapter and graph visibility without mixing it into the global roadmap.
 - [Dart/Flutter adapter plan](development/dart-flutter-adapter-plan.md): Athanor-side plan for consuming the separate `D:\DartScope` community Rust library through an adapter wrapper.

@@ -199,6 +199,7 @@ Projects:
 | Rustok persistence | SeaORM/Postgres | Phase 10 adapter only. Never make Postgres mandatory for standalone use. |
 | Semantic embeddings/vector index | To be selected | Do not select before Phase 9 retrieval benchmarks define dimensions, offline requirements, hardware targets, and replacement contracts. |
 | SCIP/LSIF import | To be selected | Do not select before Phase 12 importer contracts and fixture corpus exist. |
+| AI documentation generation | Individual libraries to be selected | Do not adopt a whole wiki-generator application. First implement Athanor-owned evidence/context, citation, validation, and publication contracts; then evaluate each provider, template, or diagram library behind a replaceable adapter. |
 
 ## Athanor-Owned Implementations
 

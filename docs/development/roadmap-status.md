@@ -762,6 +762,33 @@ Acceptance:
 - every incompleteness claim has source evidence or a documented adapter-level capability declaration
 - coverage reports remain bounded, deterministic, and suitable for CLI, daemon, and future MCP use
 
+### Evidence-Backed Documentation Generation
+
+Status: planned.
+
+Priority: P2, after the current OpenAPI/GraphQL contract-consistency and graph-completeness work
+has produced sufficiently reliable architecture inputs.
+
+Scope:
+
+- add deterministic and optional LLM-assisted documentation generation above canonical snapshots;
+- generate architecture overviews, C4-style diagrams, module/API/operations guides, and onboarding
+  material from bounded evidence-linked contexts;
+- validate citations, diagram semantics and syntax, links, omitted limits, and publication before
+  switching the immutable generated pointer;
+- preserve existing explicit patch/review semantics for editable documentation;
+- keep LLM providers, templates, Mermaid tooling, and external knowledge integrations behind
+  replaceable adapter boundaries.
+
+Non-goals:
+
+- do not make LLM output canonical truth;
+- do not allow a model to crawl raw repository files or generated read models during composition;
+- do not import `sopaco/deepwiki-rs` or its regex language processors as an Athanor dependency.
+
+Delivery order and acceptance criteria are recorded in
+`docs/development/evidence-backed-documentation-generation-plan.md`.
+
 ### Release Readiness Gate
 
 Status: planned.
