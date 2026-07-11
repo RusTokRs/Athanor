@@ -25,6 +25,7 @@ tracing-subscriber.workspace = true
 
 [features]
 default = []
+store-surreal = ["athanor-runtime-defaults/store-surreal"]
 js-ts-precision = [
     "athanor-app/js-ts-precision",
     "athanor-runtime-defaults/js-ts-precision",

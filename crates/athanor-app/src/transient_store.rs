@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use athanor_core::{
     CoreError, CoreResult, DiagnosticQuery, EntityQuery, KnowledgeStore, RelationQuery,
+    SnapshotSelector,
 };
 use athanor_domain::{
     Diagnostic, Entity, Fact, Relation, RepoId, SnapshotBase, SnapshotId, StableKey,
@@ -87,12 +88,17 @@ impl KnowledgeStore for TransientKnowledgeStore {
         Ok(())
     }
 
-    async fn query_entities(&self, query: EntityQuery) -> CoreResult<Vec<Entity>> {
+    async fn query_entities(
+        &self,
+        snapshot: SnapshotSelector,
+        query: EntityQuery,
+    ) -> CoreResult<Vec<Entity>> {
         let state = self.lock_state()?;
+        let snapshot = state.committed_snapshot(&snapshot)?;
         let mut results = state
-            .snapshots
-            .values()
-            .flat_map(|snapshot| snapshot.entities.iter())
+            .snapshot_data(snapshot.as_ref())
+            .map_or(&[][..], |snapshot| snapshot.entities.as_slice())
+            .iter()
             .filter(|entity| matches_stable_key(&query.stable_key, &entity.stable_key))
             .filter(|entity| {
                 query
@@ -117,12 +123,24 @@ impl KnowledgeStore for TransientKnowledgeStore {
         Ok(results)
     }
 
-    async fn query_relations(&self, query: RelationQuery) -> CoreResult<Vec<Relation>> {
+    async fn query_relations(
+        &self,
+        snapshot: SnapshotSelector,
+        query: RelationQuery,
+    ) -> CoreResult<Vec<Relation>> {
         let state = self.lock_state()?;
+        let snapshot = state.committed_snapshot(&snapshot)?;
         let mut results = state
-            .snapshots
-            .values()
-            .flat_map(|snapshot| snapshot.relations.iter())
+            .snapshot_data(snapshot.as_ref())
+            .map_or(&[][..], |snapshot| snapshot.relations.as_slice())
+            .iter()
+            .filter(|relation| {
+                query
+                    .from_entity
+                    .as_ref()
+                    .is_none_or(|from| &relation.from == from)
+            })
+            .filter(|relation| query.to_entity.as_ref().is_none_or(|to| &relation.to == to))
             .filter(|relation| {
                 query
                     .kind
@@ -136,12 +154,23 @@ impl KnowledgeStore for TransientKnowledgeStore {
         Ok(results)
     }
 
-    async fn query_diagnostics(&self, query: DiagnosticQuery) -> CoreResult<Vec<Diagnostic>> {
+    async fn query_diagnostics(
+        &self,
+        snapshot: SnapshotSelector,
+        query: DiagnosticQuery,
+    ) -> CoreResult<Vec<Diagnostic>> {
         let state = self.lock_state()?;
+        let snapshot = state.committed_snapshot(&snapshot)?;
         let mut results = state
-            .snapshots
-            .values()
-            .flat_map(|snapshot| snapshot.diagnostics.iter())
+            .snapshot_data(snapshot.as_ref())
+            .map_or(&[][..], |snapshot| snapshot.diagnostics.as_slice())
+            .iter()
+            .filter(|diagnostic| {
+                query
+                    .entity
+                    .as_ref()
+                    .is_none_or(|entity| diagnostic.entities.contains(entity))
+            })
             .filter(|diagnostic| {
                 query.severity.as_ref().is_none_or(|severity| {
                     format!("{:?}", diagnostic.severity).eq_ignore_ascii_case(severity)
@@ -179,6 +208,31 @@ impl State {
         self.snapshots
             .get_mut(snapshot)
             .ok_or_else(|| CoreError::NotFound(format!("snapshot {}", snapshot.0)))
+    }
+
+    fn committed_snapshot(&self, selector: &SnapshotSelector) -> CoreResult<Option<SnapshotId>> {
+        match selector {
+            SnapshotSelector::Exact(snapshot) => {
+                let data = self
+                    .snapshots
+                    .get(snapshot)
+                    .ok_or_else(|| CoreError::NotFound(format!("snapshot {}", snapshot.0)))?;
+                if !data.committed {
+                    return Err(CoreError::SnapshotNotCommitted(snapshot.0.clone()));
+                }
+                Ok(Some(snapshot.clone()))
+            }
+            SnapshotSelector::LatestCommitted => Ok(self
+                .snapshots
+                .iter()
+                .filter(|(_, data)| data.committed)
+                .map(|(snapshot, _)| snapshot.clone())
+                .max_by(|left, right| left.0.cmp(&right.0))),
+        }
+    }
+
+    fn snapshot_data(&self, snapshot: Option<&SnapshotId>) -> Option<&SnapshotData> {
+        snapshot.and_then(|snapshot| self.snapshots.get(snapshot))
     }
 }
 

@@ -114,6 +114,39 @@ flowchart TD
 
 ## Pipeline Assembly
 
+## Snapshot Query Semantics
+
+Low-level `KnowledgeStore` queries always receive a `SnapshotSelector`. `LatestCommitted` resolves
+only to a committed snapshot; `Exact` rejects a known but uncommitted snapshot. Relation and
+diagnostic filters use canonical `EntityId` values, not stable keys. Application callers resolve a
+`StableKey` through the separate `EntityResolver` port before issuing an ID-based query. This keeps
+storage foreign keys canonical and gives every backend the same snapshot visibility contract.
+The reusable `athanor-store-conformance` crate verifies this contract for the in-memory and JSONL
+stores; SurrealDB execution remains an environment-backed integration check.
+
+The JSONL canonical store writes an immutable snapshot to a unique sibling staging directory and
+renames it into `snapshots/<snapshot-id>` only after every JSONL file and manifest is complete. It
+then publishes the latest pointer through a staged replacement. Coordinating that canonical
+publication with the separate index-state and read-model publications remains a planned app-layer
+transaction boundary.
+
+JSONL uses a project-local OS writer lock plus a persisted snapshot sequence while allocating and
+committing snapshot IDs, so independent local processes cannot reuse a snapshot directory name.
+At snapshot allocation it also removes only Athanor-owned stale staging names while holding that
+lock; unrelated files are never selected for recovery.
+
+SurrealDB is opt-in: the default `ath` and `athd` builds use JSONL and do not compile the SurrealDB
+adapter. Enable it explicitly with `--features store-surreal` when a project config selects a
+`surreal-*` storage mode.
+
+`ath config validate --path <root>` parses and prints the effective `athanor.toml`, rejecting
+unknown fields. `ath config doctor --path <root>` adds a bounded local compatibility report for the
+configured storage mode and external-process adapter safeguards.
+
+Trusting an external adapter records both the canonical manifest path/content hash and the SHA-256
+hashes of its enabled executable paths. A changed executable therefore requires an explicit
+`ath plugins trust <manifest>` again before the runtime accepts that plugin.
+
 `athanor-app` now exposes:
 
 - `IndexPipeline`: orchestration for source discovery, extraction, linking, checking, and store writes.

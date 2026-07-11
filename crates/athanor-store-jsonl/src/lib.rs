@@ -3,15 +3,17 @@ use std::fs::{self, File};
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
 use athanor_core::{
     CanonicalSnapshot, CanonicalSnapshotStore, CoreError, CoreResult, DiagnosticQuery, EntityQuery,
-    KnowledgeStore, RelationQuery,
+    EntityResolver, KnowledgeStore, RelationQuery, SnapshotSelector,
 };
 use athanor_domain::{
-    Diagnostic, Entity, Fact, Relation, RepoId, SnapshotBase, SnapshotId, StableKey,
+    Diagnostic, Entity, EntityId, Fact, Relation, RepoId, SnapshotBase, SnapshotId, StableKey,
 };
+use fs2::FileExt;
 use serde::Serialize;
 use serde_json::json;
 
@@ -58,8 +60,11 @@ impl JsonlKnowledgeStore {
 #[async_trait]
 impl KnowledgeStore for JsonlKnowledgeStore {
     async fn begin_snapshot(&self, _repo: RepoId, _base: SnapshotBase) -> CoreResult<SnapshotId> {
+        let _writer_lock = self.acquire_writer_lock()?;
+        self.recover_known_staging()?;
+        let next_snapshot = self.allocate_snapshot_number()?;
         let mut state = self.lock_state()?;
-        state.next_snapshot += 1;
+        state.next_snapshot = state.next_snapshot.max(next_snapshot);
 
         let snapshot = SnapshotId(format!("snap_jsonl_{:08}", state.next_snapshot));
         state
@@ -104,12 +109,17 @@ impl KnowledgeStore for JsonlKnowledgeStore {
         Ok(())
     }
 
-    async fn query_entities(&self, query: EntityQuery) -> CoreResult<Vec<Entity>> {
+    async fn query_entities(
+        &self,
+        snapshot: SnapshotSelector,
+        query: EntityQuery,
+    ) -> CoreResult<Vec<Entity>> {
         let state = self.lock_state()?;
+        let snapshot = state.committed_snapshot(&snapshot)?;
         let mut results = state
-            .snapshots
-            .values()
-            .flat_map(|snapshot| snapshot.entities.iter())
+            .snapshot_data(snapshot.as_ref())
+            .map_or(&[][..], |snapshot| snapshot.entities.as_slice())
+            .iter()
             .filter(|entity| matches_stable_key(&query.stable_key, &entity.stable_key))
             .filter(|entity| {
                 query
@@ -134,12 +144,24 @@ impl KnowledgeStore for JsonlKnowledgeStore {
         Ok(results)
     }
 
-    async fn query_relations(&self, query: RelationQuery) -> CoreResult<Vec<Relation>> {
+    async fn query_relations(
+        &self,
+        snapshot: SnapshotSelector,
+        query: RelationQuery,
+    ) -> CoreResult<Vec<Relation>> {
         let state = self.lock_state()?;
+        let snapshot = state.committed_snapshot(&snapshot)?;
         let mut results = state
-            .snapshots
-            .values()
-            .flat_map(|snapshot| snapshot.relations.iter())
+            .snapshot_data(snapshot.as_ref())
+            .map_or(&[][..], |snapshot| snapshot.relations.as_slice())
+            .iter()
+            .filter(|relation| {
+                query
+                    .from_entity
+                    .as_ref()
+                    .is_none_or(|from| &relation.from == from)
+            })
+            .filter(|relation| query.to_entity.as_ref().is_none_or(|to| &relation.to == to))
             .filter(|relation| {
                 query
                     .kind
@@ -153,12 +175,23 @@ impl KnowledgeStore for JsonlKnowledgeStore {
         Ok(results)
     }
 
-    async fn query_diagnostics(&self, query: DiagnosticQuery) -> CoreResult<Vec<Diagnostic>> {
+    async fn query_diagnostics(
+        &self,
+        snapshot: SnapshotSelector,
+        query: DiagnosticQuery,
+    ) -> CoreResult<Vec<Diagnostic>> {
         let state = self.lock_state()?;
+        let snapshot = state.committed_snapshot(&snapshot)?;
         let mut results = state
-            .snapshots
-            .values()
-            .flat_map(|snapshot| snapshot.diagnostics.iter())
+            .snapshot_data(snapshot.as_ref())
+            .map_or(&[][..], |snapshot| snapshot.diagnostics.as_slice())
+            .iter()
+            .filter(|diagnostic| {
+                query
+                    .entity
+                    .as_ref()
+                    .is_none_or(|entity| diagnostic.entities.contains(entity))
+            })
             .filter(|diagnostic| {
                 query.severity.as_ref().is_none_or(|severity| {
                     format!("{:?}", diagnostic.severity).eq_ignore_ascii_case(severity)
@@ -177,17 +210,44 @@ impl KnowledgeStore for JsonlKnowledgeStore {
     }
 
     async fn commit_snapshot(&self, snapshot: SnapshotId) -> CoreResult<()> {
+        let _writer_lock = self.acquire_writer_lock()?;
         let snapshot_data = {
-            let mut state = self.lock_state()?;
-            let snapshot_data = state.snapshot_mut(&snapshot)?;
-            snapshot_data.committed = true;
-            snapshot_data.clone()
+            let state = self.lock_state()?;
+            state.snapshot(&snapshot)?.clone()
         };
 
         write_snapshot(&self.root, &snapshot, &snapshot_data)?;
         write_latest(&self.root, &snapshot)?;
+        self.lock_state()?.snapshot_mut(&snapshot)?.committed = true;
 
         Ok(())
+    }
+}
+
+#[async_trait]
+impl EntityResolver for JsonlKnowledgeStore {
+    async fn resolve_stable_key(
+        &self,
+        snapshot: SnapshotSelector,
+        stable_key: &StableKey,
+    ) -> CoreResult<Option<EntityId>> {
+        let entities = self
+            .query_entities(
+                snapshot,
+                EntityQuery {
+                    stable_key: Some(stable_key.clone()),
+                    limit: Some(2),
+                    ..EntityQuery::default()
+                },
+            )
+            .await?;
+        if entities.len() > 1 {
+            return Err(CoreError::Conflict(format!(
+                "stable key {} resolves to multiple entities",
+                stable_key.0
+            )));
+        }
+        Ok(entities.into_iter().next().map(|entity| entity.id))
     }
 }
 
@@ -235,19 +295,125 @@ impl JsonlKnowledgeStore {
     fn snapshot_dir(&self, snapshot: &SnapshotId) -> PathBuf {
         self.root.join("snapshots").join(&snapshot.0)
     }
+
+    fn acquire_writer_lock(&self) -> CoreResult<File> {
+        fs::create_dir_all(&self.root)
+            .map_err(|err| CoreError::Adapter(format!("failed to create store dir: {err}")))?;
+        let lock_path = self.root.join(".writer.lock");
+        let lock = File::create(&lock_path)
+            .map_err(|err| CoreError::Adapter(format!("failed to open writer lock: {err}")))?;
+        lock.lock_exclusive()
+            .map_err(|err| CoreError::Adapter(format!("failed to acquire writer lock: {err}")))?;
+        Ok(lock)
+    }
+
+    fn allocate_snapshot_number(&self) -> CoreResult<u64> {
+        let sequence_path = self.root.join("snapshot-sequence.json");
+        let persisted = read_snapshot_sequence(&sequence_path)?;
+        let next = discover_next_snapshot(&self.root)
+            .max(persisted)
+            .saturating_add(1);
+        write_snapshot_sequence(&sequence_path, next)?;
+        Ok(next)
+    }
+
+    fn recover_known_staging(&self) -> CoreResult<()> {
+        let snapshots = self.root.join("snapshots");
+        if snapshots.exists() {
+            for entry in fs::read_dir(&snapshots).map_err(|err| {
+                CoreError::Adapter(format!("failed to inspect snapshot staging: {err}"))
+            })? {
+                let entry = entry.map_err(|err| {
+                    CoreError::Adapter(format!("failed to inspect snapshot staging entry: {err}"))
+                })?;
+                let name = entry.file_name();
+                let Some(name) = name.to_str() else {
+                    continue;
+                };
+                if name.starts_with(".snap_jsonl_") && name.contains(".staging-") {
+                    fs::remove_dir_all(entry.path()).map_err(|err| {
+                        CoreError::Adapter(format!(
+                            "failed to remove stale snapshot staging {}: {err}",
+                            entry.path().display()
+                        ))
+                    })?;
+                }
+            }
+        }
+
+        for prefix in [".latest.json.staging-", ".snapshot-sequence.staging-"] {
+            for entry in fs::read_dir(&self.root).map_err(|err| {
+                CoreError::Adapter(format!("failed to inspect store staging: {err}"))
+            })? {
+                let entry = entry.map_err(|err| {
+                    CoreError::Adapter(format!("failed to inspect store staging entry: {err}"))
+                })?;
+                if entry
+                    .file_name()
+                    .to_str()
+                    .is_some_and(|name| name.starts_with(prefix))
+                {
+                    fs::remove_file(entry.path()).map_err(|err| {
+                        CoreError::Adapter(format!(
+                            "failed to remove stale store staging {}: {err}",
+                            entry.path().display()
+                        ))
+                    })?;
+                }
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl State {
+    fn snapshot(&self, snapshot: &SnapshotId) -> CoreResult<&SnapshotData> {
+        self.snapshots
+            .get(snapshot)
+            .ok_or_else(|| CoreError::NotFound(format!("snapshot {}", snapshot.0)))
+    }
+
     fn snapshot_mut(&mut self, snapshot: &SnapshotId) -> CoreResult<&mut SnapshotData> {
         self.snapshots
             .get_mut(snapshot)
             .ok_or_else(|| CoreError::NotFound(format!("snapshot {}", snapshot.0)))
+    }
+
+    fn committed_snapshot(&self, selector: &SnapshotSelector) -> CoreResult<Option<SnapshotId>> {
+        match selector {
+            SnapshotSelector::Exact(snapshot) => {
+                let data = self
+                    .snapshots
+                    .get(snapshot)
+                    .ok_or_else(|| CoreError::NotFound(format!("snapshot {}", snapshot.0)))?;
+                if !data.committed {
+                    return Err(CoreError::SnapshotNotCommitted(snapshot.0.clone()));
+                }
+                Ok(Some(snapshot.clone()))
+            }
+            SnapshotSelector::LatestCommitted => Ok(self
+                .snapshots
+                .iter()
+                .filter(|(_, data)| data.committed)
+                .map(|(snapshot, _)| snapshot.clone())
+                .max_by(|left, right| left.0.cmp(&right.0))),
+        }
+    }
+
+    fn snapshot_data(&self, snapshot: Option<&SnapshotId>) -> Option<&SnapshotData> {
+        snapshot.and_then(|snapshot| self.snapshots.get(snapshot))
     }
 }
 
 #[derive(serde::Deserialize, Serialize)]
 struct LatestSnapshot {
     snapshot: String,
+}
+
+#[derive(serde::Deserialize, Serialize)]
+struct SnapshotSequence {
+    next_snapshot: u64,
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
@@ -328,15 +494,42 @@ fn collect_diagnostic_paths(diagnostic: &Diagnostic) -> Vec<String> {
 
 fn write_snapshot(root: &Path, snapshot: &SnapshotId, data: &SnapshotData) -> CoreResult<()> {
     let snapshot_dir = root.join("snapshots").join(&snapshot.0);
+    let parent = snapshot_dir.parent().ok_or_else(|| {
+        CoreError::Adapter(format!("snapshot {} has no parent directory", snapshot.0))
+    })?;
+    fs::create_dir_all(parent)
+        .map_err(|err| CoreError::Adapter(format!("failed to create store dir: {err}")))?;
 
-    if let Some(parent) = snapshot_dir.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|err| CoreError::Adapter(format!("failed to create store dir: {err}")))?;
+    if snapshot_dir.exists() {
+        return Err(CoreError::Conflict(format!(
+            "snapshot directory {} already exists",
+            snapshot_dir.display()
+        )));
     }
 
-    fs::create_dir_all(&snapshot_dir)
-        .map_err(|err| CoreError::Adapter(format!("failed to create snapshot dir: {err}")))?;
+    let staging_dir = parent.join(format!(".{}.staging-{}", snapshot.0, unique_suffix()));
+    fs::create_dir(&staging_dir).map_err(|err| {
+        CoreError::Adapter(format!(
+            "failed to create snapshot staging directory: {err}"
+        ))
+    })?;
 
+    if let Err(error) = write_snapshot_contents(&staging_dir, snapshot, data) {
+        let _ = fs::remove_dir_all(&staging_dir);
+        return Err(error);
+    }
+
+    fs::rename(&staging_dir, &snapshot_dir).map_err(|err| {
+        let _ = fs::remove_dir_all(&staging_dir);
+        CoreError::Adapter(format!("failed to publish snapshot atomically: {err}"))
+    })
+}
+
+fn write_snapshot_contents(
+    snapshot_dir: &Path,
+    snapshot: &SnapshotId,
+    data: &SnapshotData,
+) -> CoreResult<()> {
     write_jsonl(&snapshot_dir.join("entities.jsonl"), &data.entities)?;
     write_jsonl(&snapshot_dir.join("facts.jsonl"), &data.facts)?;
     write_jsonl(&snapshot_dir.join("relations.jsonl"), &data.relations)?;
@@ -422,13 +615,6 @@ fn write_snapshot(root: &Path, snapshot: &SnapshotId, data: &SnapshotData) -> Co
         "diagnostics": data.diagnostics.len(),
     });
 
-    if let Some(parent) = snapshot_dir.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|err| CoreError::Adapter(format!("failed to create store dir: {err}")))?;
-    }
-
-    fs::create_dir_all(&snapshot_dir)
-        .map_err(|err| CoreError::Adapter(format!("failed to create snapshot dir: {err}")))?;
     fs::write(
         snapshot_dir.join("manifest.json"),
         serde_json::to_string_pretty(&manifest)
@@ -442,14 +628,70 @@ fn write_snapshot(root: &Path, snapshot: &SnapshotId, data: &SnapshotData) -> Co
 fn write_latest(root: &Path, snapshot: &SnapshotId) -> CoreResult<()> {
     fs::create_dir_all(root)
         .map_err(|err| CoreError::Adapter(format!("failed to create store dir: {err}")))?;
+    let latest = root.join("latest.json");
+    let staging = root.join(format!(".latest.json.staging-{}", unique_suffix()));
     fs::write(
-        root.join("latest.json"),
+        &staging,
         serde_json::to_string_pretty(&LatestSnapshot {
             snapshot: snapshot.0.clone(),
         })
         .map_err(|err| CoreError::Adapter(format!("failed to serialize latest: {err}")))?,
     )
-    .map_err(|err| CoreError::Adapter(format!("failed to write latest snapshot: {err}")))
+    .map_err(|err| CoreError::Adapter(format!("failed to write latest snapshot: {err}")))?;
+
+    replace_file(&staging, &latest)
+}
+
+fn replace_file(staging: &Path, target: &Path) -> CoreResult<()> {
+    if !target.exists() {
+        return fs::rename(staging, target)
+            .map_err(|err| CoreError::Adapter(format!("failed to publish latest pointer: {err}")));
+    }
+
+    let backup = target.with_extension(format!("json.backup-{}", unique_suffix()));
+    fs::rename(target, &backup)
+        .map_err(|err| CoreError::Adapter(format!("failed to stage latest pointer: {err}")))?;
+    if let Err(error) = fs::rename(staging, target) {
+        let _ = fs::rename(&backup, target);
+        return Err(CoreError::Adapter(format!(
+            "failed to publish latest pointer: {error}"
+        )));
+    }
+    fs::remove_file(backup).map_err(|err| {
+        CoreError::Adapter(format!("failed to remove previous latest pointer: {err}"))
+    })
+}
+
+fn read_snapshot_sequence(path: &Path) -> CoreResult<u64> {
+    if !path.exists() {
+        return Ok(0);
+    }
+    let content = fs::read_to_string(path)
+        .map_err(|err| CoreError::Adapter(format!("failed to read snapshot sequence: {err}")))?;
+    serde_json::from_str::<SnapshotSequence>(&content)
+        .map(|sequence| sequence.next_snapshot)
+        .map_err(|err| CoreError::Adapter(format!("failed to parse snapshot sequence: {err}")))
+}
+
+fn write_snapshot_sequence(path: &Path, next_snapshot: u64) -> CoreResult<()> {
+    let parent = path.parent().ok_or_else(|| {
+        CoreError::Adapter(format!("sequence path {} has no parent", path.display()))
+    })?;
+    let staging = parent.join(format!(".snapshot-sequence.staging-{}", unique_suffix()));
+    let serialized =
+        serde_json::to_string_pretty(&SnapshotSequence { next_snapshot }).map_err(|err| {
+            CoreError::Adapter(format!("failed to serialize snapshot sequence: {err}"))
+        })?;
+    fs::write(&staging, serialized)
+        .map_err(|err| CoreError::Adapter(format!("failed to write snapshot sequence: {err}")))?;
+    replace_file(&staging, path)
+}
+
+fn unique_suffix() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos()
 }
 
 fn write_jsonl<T: Serialize>(path: &Path, items: &[T]) -> CoreResult<()> {
@@ -672,6 +914,76 @@ mod tests {
         let entry = path_index.entries.get("README.md").unwrap();
         assert_eq!(entry.entities, vec!["ent_file_readme".to_string()]);
 
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn allocates_distinct_snapshot_ids_across_store_instances() {
+        let root = std::env::temp_dir().join(format!(
+            "athanor-jsonl-store-sequence-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let first = JsonlKnowledgeStore::new(&root);
+        let second = JsonlKnowledgeStore::new(&root);
+        let base = || SnapshotBase {
+            branch: None,
+            commit: None,
+            parent_snapshot: None,
+            working_tree: true,
+        };
+
+        let first_snapshot = first
+            .begin_snapshot(RepoId("repo_test".to_string()), base())
+            .await
+            .unwrap();
+        let second_snapshot = second
+            .begin_snapshot(RepoId("repo_test".to_string()), base())
+            .await
+            .unwrap();
+
+        assert_ne!(first_snapshot, second_snapshot);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn removes_only_known_staging_artifacts_before_allocating_snapshot() {
+        let root = std::env::temp_dir().join(format!(
+            "athanor-jsonl-store-recovery-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let snapshots = root.join("snapshots");
+        fs::create_dir_all(snapshots.join(".snap_jsonl_00000099.staging-crash")).unwrap();
+        fs::write(root.join(".latest.json.staging-crash"), "stale").unwrap();
+        fs::write(root.join(".snapshot-sequence.staging-crash"), "stale").unwrap();
+        fs::write(root.join(".unrelated.staging-crash"), "keep").unwrap();
+
+        JsonlKnowledgeStore::new(&root)
+            .begin_snapshot(
+                RepoId("repo_test".to_string()),
+                SnapshotBase {
+                    branch: None,
+                    commit: None,
+                    parent_snapshot: None,
+                    working_tree: true,
+                },
+            )
+            .await
+            .unwrap();
+
+        assert!(
+            !snapshots
+                .join(".snap_jsonl_00000099.staging-crash")
+                .exists()
+        );
+        assert!(!root.join(".latest.json.staging-crash").exists());
+        assert!(!root.join(".snapshot-sequence.staging-crash").exists());
+        assert!(root.join(".unrelated.staging-crash").exists());
         fs::remove_dir_all(root).unwrap();
     }
 }

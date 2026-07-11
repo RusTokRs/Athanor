@@ -765,12 +765,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "athanor-store-conformance"
+version = "0.1.0"
+dependencies = [
+ "athanor-core",
+ "athanor-domain",
+ "serde_json",
+]
+
+[[package]]
 name = "athanor-store-jsonl"
 version = "0.1.0"
 dependencies = [
  "async-trait",
  "athanor-core",
  "athanor-domain",
+ "athanor-store-conformance",
+ "fs2",
  "serde",
  "serde_json",
  "tokio",
@@ -783,6 +794,7 @@ dependencies = [
  "async-trait",
  "athanor-core",
  "athanor-domain",
+ "athanor-store-conformance",
  "serde_json",
  "tokio",
 ]

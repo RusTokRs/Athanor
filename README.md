@@ -72,6 +72,20 @@ Index the current project:
 cargo run -p ath --quiet -- index .
 ```
 
+Validate the effective configuration or inspect local backend/adapter compatibility:
+
+```bash
+cargo run -p ath --quiet -- config validate --path .
+cargo run -p ath --quiet -- config doctor --path . --json
+```
+
+The default CLI build uses the portable JSONL store. SurrealDB is optional and must be enabled
+explicitly when a project selects a `surreal-*` storage mode:
+
+```bash
+cargo run -p ath --features store-surreal -- index .
+```
+
 Validate adapter contracts without writing snapshots, state, or read models:
 
 ```bash

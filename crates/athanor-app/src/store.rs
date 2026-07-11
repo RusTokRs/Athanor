@@ -9,13 +9,21 @@ use anyhow::{Result, bail};
 use async_trait::async_trait;
 use athanor_core::{
     CanonicalSnapshot, CanonicalSnapshotStore, CoreResult, DiagnosticQuery, EntityQuery,
-    KnowledgeStore, RelationQuery,
+    EntityResolver, KnowledgeStore, RelationQuery, SnapshotSelector,
 };
-use athanor_domain::{Diagnostic, Entity, Fact, Relation, RepoId, SnapshotBase, SnapshotId};
+use athanor_domain::{
+    Diagnostic, Entity, EntityId, Fact, Relation, RepoId, SnapshotBase, SnapshotId, StableKey,
+};
 
-pub trait AthanorStoreBackend: KnowledgeStore + CanonicalSnapshotStore + Send + Sync {}
+pub trait AthanorStoreBackend:
+    KnowledgeStore + CanonicalSnapshotStore + EntityResolver + Send + Sync
+{
+}
 
-impl<T> AthanorStoreBackend for T where T: KnowledgeStore + CanonicalSnapshotStore + Send + Sync {}
+impl<T> AthanorStoreBackend for T where
+    T: KnowledgeStore + CanonicalSnapshotStore + EntityResolver + Send + Sync
+{
+}
 
 #[derive(Clone)]
 pub struct AthanorStore {
@@ -82,16 +90,28 @@ impl KnowledgeStore for AthanorStore {
         self.inner.put_diagnostics(snapshot, diagnostics).await
     }
 
-    async fn query_entities(&self, query: EntityQuery) -> CoreResult<Vec<Entity>> {
-        self.inner.query_entities(query).await
+    async fn query_entities(
+        &self,
+        snapshot: SnapshotSelector,
+        query: EntityQuery,
+    ) -> CoreResult<Vec<Entity>> {
+        self.inner.query_entities(snapshot, query).await
     }
 
-    async fn query_relations(&self, query: RelationQuery) -> CoreResult<Vec<Relation>> {
-        self.inner.query_relations(query).await
+    async fn query_relations(
+        &self,
+        snapshot: SnapshotSelector,
+        query: RelationQuery,
+    ) -> CoreResult<Vec<Relation>> {
+        self.inner.query_relations(snapshot, query).await
     }
 
-    async fn query_diagnostics(&self, query: DiagnosticQuery) -> CoreResult<Vec<Diagnostic>> {
-        self.inner.query_diagnostics(query).await
+    async fn query_diagnostics(
+        &self,
+        snapshot: SnapshotSelector,
+        query: DiagnosticQuery,
+    ) -> CoreResult<Vec<Diagnostic>> {
+        self.inner.query_diagnostics(snapshot, query).await
     }
 
     async fn commit_snapshot(&self, snapshot: SnapshotId) -> CoreResult<()> {
@@ -107,5 +127,16 @@ impl CanonicalSnapshotStore for AthanorStore {
 
     async fn load_latest_snapshot(&self) -> CoreResult<Option<CanonicalSnapshot>> {
         self.inner.load_latest_snapshot().await
+    }
+}
+
+#[async_trait]
+impl EntityResolver for AthanorStore {
+    async fn resolve_stable_key(
+        &self,
+        snapshot: SnapshotSelector,
+        stable_key: &StableKey,
+    ) -> CoreResult<Option<EntityId>> {
+        self.inner.resolve_stable_key(snapshot, stable_key).await
     }
 }

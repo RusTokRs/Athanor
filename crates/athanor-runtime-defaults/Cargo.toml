@@ -40,7 +40,7 @@ athanor-store-surrealdb = { path = "../athanor-store-surrealdb", optional = true
 serde_json.workspace = true
 
 [features]
-default = ["store-surreal"]
+default = []
 store-surreal = ["dep:athanor-store-surrealdb"]
 js-ts-precision = [
     "athanor-app/js-ts-precision",

@@ -19,6 +19,13 @@ Use this file to find the right document before changing code, adapters, plugins
 - [Full architectural plan](../start.md): long-form product and architecture plan.
 - [Agent workflow](development/agent-workflow.md): required implementation workflow.
 - [Roadmap status](development/roadmap-status.md): what is implemented, in progress, and next.
+- [ADR template](development/adr-template.md): required structure for material architecture decisions.
+
+## Project Governance
+
+- [Contributing](../CONTRIBUTING.md): pull-request, verification, commit, and ADR expectations.
+- [Security policy](../SECURITY.md): private vulnerability disclosure process.
+- [Code of conduct](../CODE_OF_CONDUCT.md): expected collaboration behavior and reporting path.
 
 ## Architecture
 
@@ -31,6 +38,7 @@ Use this file to find the right document before changing code, adapters, plugins
 ## Development
 
 - [Agent workflow](development/agent-workflow.md): read-before-coding, planning, documentation, verification, completion notes.
+- [Athanor coding standards](development/athanor-coding-standards.md): normative design, naming, testing, safety, and review rules for human and AI contributors.
 - [Definition of done](development/definition-of-done.md): required checks and documentation expectations.
 - [Continuous integration](development/ci.md): GitHub Actions matrix, commands, and security defaults.
 - [Production operation](development/production.md): authenticated daemon v2, per-user services, runtime permissions, release verification, and external-adapter policy.

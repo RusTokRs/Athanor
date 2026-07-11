@@ -5,6 +5,63 @@
 > Основание: повторный статический аудит текущей ветки `main` репозитория `RusTokRs/Athanor`  
 > Статус: draft for implementation
 
+## Статус сверки (2026-07-11)
+
+План повторно сверяется с рабочим деревом, а не закрывается по исходному аудиту.
+
+| Пункт | Фактический статус | Основание сверки / следующий шаг |
+| --- | --- | --- |
+| 3.1 | частично выполнен | ID-based storage queries и resolver есть; SurrealDB conformance execution ещё отсутствует. |
+| 3.2 | частично выполнен | selector committed snapshot есть; требуется завершить conformance всех backend. |
+| 3.3 | частично выполнен | JSONL staging/pointer есть; нет coordinated publication canonical/read model/state. |
+| 3.4 | частично выполнен | JSONL writer lock, persistent sequence и cleanup известных staging artifacts есть; нет полного lifecycle lock и Surreal transaction. |
+| 3.5 | частично выполнен | Tokio process/I/O/timeout есть; нет request cancellation и process-tree termination. |
+| 4.1 | частично выполнен | manifest trust, allowlist и executable SHA-256 binding есть; остаются trust v2 policy и sandbox profile. |
+| 4.2 | частично выполнен | pipeline проверяет cancellation между фазами; adapter subprocess не получает cancellation token. |
+| 4.3 | частично выполнен | shared `Arc<Vec<_>>` и benchmark metrics есть; нет memory budget/per-adapter limits. |
+| 4.4 | не выполнен | add/remove всё ещё принудительно запускают full extraction. |
+| 4.5 | не выполнен | порты не имеют abort/prepare/batch transaction. |
+| 4.6 | не выполнен | `OnceLock` composition factories остаются в `athanor-app`. |
+| 4.7 | не выполнен | публичный `pub use ports::*` остаётся wildcard export. |
+| 4.8 | не выполнен | `runtime.rs`, `pipeline.rs` и daemon ещё требуют декомпозиции. |
+| 4.9 | частично выполнен | добавлены `Conflict`/`SnapshotNotCommitted`; стабильный typed public error/protocol contract не завершён. |
+| 4.10 | выполнен | default builds не включают optional SurrealDB adapter; `store-surreal` — явный opt-in feature. |
+| 5.1 | не подтверждён | branch protection и hosted checks требуют проверки/настройки GitHub. |
+| 5.2 | частично выполнен | есть coverage reports, но нет CI coverage no-regression gate. |
+| 5.3 | частично выполнен | security/release workflows есть; полный SAST/secret/SBOM gate не подтверждён. |
+| 5.4 | выполнен | strict parsing и `ath config validate`/`doctor` реализованы. |
+| 5.5 | частично выполнен | локальные governance/templates/dependabot добавлены; CI policy и release/changelog policy остаются. |
+
+- [-] 3.1: введён низкоуровневый запрос по `EntityId` и отдельный `EntityResolver`; конфликт
+  stable key возвращается типизированной ошибкой `Conflict`.
+- [-] 3.2: все методы `KnowledgeStore::query_*` требуют `SnapshotSelector`; `Exact` отклоняет
+  незакоммиченный snapshot, `LatestCommitted` видит только committed snapshot.
+- [-] 3.1–3.2: выделен общий `athanor-store-conformance` suite и он выполняется для JSONL и
+  Memory; для полного критерия всё ещё нужен интеграционный запуск того же набора с реальным
+  SurrealDB backend.
+- [-] 3.5: внешний adapter runner переведён со `std::process` и блокирующих потоков на
+  `tokio::process` и async I/O; остаются отдельный `ProcessRunner` порт, отмена по request token
+  и гарантированное завершение process tree.
+- [-] 3.3: JSONL canonical snapshot полностью записывается в уникальный staging-каталог и
+  публикуется rename; pointer публикуется отдельным staged replacement после snapshot. Общий
+  coordinator для canonical snapshot, read model и index state ещё не реализован.
+- [-] 3.4: JSONL использует OS-level writer lock при выделении и commit snapshot, а persistently
+  stored sequence устраняет коллизию ID между отдельными процессами. Нужны lock на полный
+  application publication lifecycle и транзакционная модель SurrealDB. При следующем begin JSONL
+  удаляет только известные stale staging artifacts под тем же lock.
+- [x] 5.4: `athanor.toml` отклоняет неизвестные поля на каждом поддерживаемом уровне конфигурации;
+  добавлены проверки top-level и nested полей, а также `ath config validate` и `ath config doctor`
+  для effective config и локальной проверки backend/adapter compatibility.
+- [-] 5.5: добавлены CONTRIBUTING, SECURITY, CODE_OF_CONDUCT, PR/issue templates, ADR template
+  и Dependabot. Conventional-commit enforcement и release/changelog policy в CI остаются открыты.
+
+Проверка baseline: `cargo test --workspace --quiet`, `cargo clippy --workspace --all-targets -- -D warnings`,
+`cargo run -p ath --quiet -- index .` и `cargo run -p ath --quiet -- docs check` проходят. Metadata
+GraphQL и coding standards приведены к `verified`, поскольку status policy описывает проверенность
+документа, а не завершённость соответствующей продуктовой feature.
+- [ ] 3.3–3.5 и разделы P1/P2: остаются в работе и не отмечаются как выполненные без отдельной
+  реализации и проверок.
+
 ---
 
 ## 1. Цель документа

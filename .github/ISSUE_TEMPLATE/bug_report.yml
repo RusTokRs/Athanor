@@ -1,0 +1,20 @@
+name: Bug report
+description: Report a reproducible defect in Athanor
+labels: [bug]
+body:
+  - type: textarea
+    attributes:
+      label: Reproduction
+      description: Include the smallest safe reproduction and exact command.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: Athanor version or commit
+    validations:
+      required: true

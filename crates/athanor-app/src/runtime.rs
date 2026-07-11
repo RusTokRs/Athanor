@@ -1,11 +1,9 @@
 use std::collections::BTreeSet;
 use std::fs;
-use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::OnceLock;
-use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use athanor_core::{
@@ -14,6 +12,9 @@ use athanor_core::{
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
+use tokio::process::Command;
+use tokio::time::timeout;
 use tracing::{debug, warn};
 
 use crate::IndexPipeline;
@@ -114,6 +115,15 @@ pub struct AdapterTrustListOptions {
 pub struct TrustedAdapterPlugin {
     pub manifest_path: PathBuf,
     pub content_hash: String,
+    #[serde(default)]
+    pub executable_hashes: Vec<TrustedAdapterExecutable>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct TrustedAdapterExecutable {
+    pub program: PathBuf,
+    pub content_hash: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -139,6 +149,7 @@ pub struct AdapterTrustStatus {
     pub has_external_process: bool,
     pub trusted: bool,
     pub content_hash: String,
+    pub executable_hashes: Vec<TrustedAdapterExecutable>,
 }
 
 pub struct AdapterRegistry {
@@ -725,6 +736,14 @@ fn load_adapter_trust_registry(path: &Path) -> Result<AdapterTrustRegistry> {
                 entry.manifest_path.display()
             );
         }
+        for executable in &entry.executable_hashes {
+            if !executable.program.is_absolute() || executable.content_hash.trim().is_empty() {
+                bail!(
+                    "trusted adapter manifest {} has invalid executable trust record",
+                    entry.manifest_path.display()
+                );
+            }
+        }
     }
     sort_trusted_plugins(&mut registry.trusted_plugins);
     Ok(registry)
@@ -778,6 +797,28 @@ fn write_adapter_trust_registry(path: &Path, registry: &AdapterTrustRegistry) ->
 }
 
 fn trusted_plugin_record(plugin: &DiscoveredAdapterPlugin) -> Result<TrustedAdapterPlugin> {
+    let manifest_dir = plugin.manifest_path.parent().ok_or_else(|| {
+        anyhow::anyhow!(
+            "adapter manifest has no parent: {}",
+            plugin.manifest_path.display()
+        )
+    })?;
+    let mut executable_hashes = plugin
+        .manifest
+        .adapters
+        .iter()
+        .filter(|adapter| adapter.enabled)
+        .filter_map(|adapter| adapter.command.as_ref())
+        .map(|command| {
+            let program = resolve_manifest_program(manifest_dir, &command.program)?;
+            Ok(TrustedAdapterExecutable {
+                content_hash: adapter_executable_hash(&program)?,
+                program,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    executable_hashes.sort_by(|left, right| left.program.cmp(&right.program));
+    executable_hashes.dedup_by(|left, right| left.program == right.program);
     Ok(TrustedAdapterPlugin {
         manifest_path: plugin.manifest_path.canonicalize().with_context(|| {
             format!(
@@ -786,6 +827,7 @@ fn trusted_plugin_record(plugin: &DiscoveredAdapterPlugin) -> Result<TrustedAdap
             )
         })?,
         content_hash: adapter_manifest_hash(&plugin.manifest_path)?,
+        executable_hashes,
     })
 }
 
@@ -810,6 +852,7 @@ fn adapter_trust_status(
             .any(|adapter| adapter.enabled && adapter.command.is_some()),
         trusted: is_adapter_plugin_trusted(registry, plugin)?,
         content_hash,
+        executable_hashes: trusted_plugin_record(plugin)?.executable_hashes,
     })
 }
 
@@ -819,12 +862,21 @@ fn is_adapter_plugin_trusted(
 ) -> Result<bool> {
     let trusted = trusted_plugin_record(plugin)?;
     Ok(registry.trusted_plugins.iter().any(|entry| {
-        entry.manifest_path == trusted.manifest_path && entry.content_hash == trusted.content_hash
+        entry.manifest_path == trusted.manifest_path
+            && entry.content_hash == trusted.content_hash
+            && entry.executable_hashes == trusted.executable_hashes
     }))
 }
 
 fn adapter_manifest_hash(path: &Path) -> Result<String> {
     let content = fs::read(path).with_context(|| format!("failed to read {}", path.display()))?;
+    let digest = Sha256::digest(&content);
+    Ok(hex_encode(&digest))
+}
+
+fn adapter_executable_hash(path: &Path) -> Result<String> {
+    let content = fs::read(path)
+        .with_context(|| format!("failed to read adapter executable {}", path.display()))?;
     let digest = Sha256::digest(&content);
     Ok(hex_encode(&digest))
 }
@@ -920,6 +972,7 @@ impl SourceProvider for ProcessSource {
             &self.command,
             &SourceDiscoverInput { root: &self.root },
         )
+        .await
     }
 }
 
@@ -942,7 +995,7 @@ impl Extractor for ProcessExtractor {
     }
 
     async fn extract(&self, input: ExtractInput) -> CoreResult<ExtractOutput> {
-        run_process_adapter("extractor", &self.id, &self.command, &input)
+        run_process_adapter("extractor", &self.id, &self.command, &input).await
     }
 }
 
@@ -953,7 +1006,7 @@ impl Linker for ProcessLinker {
     }
 
     async fn link(&self, input: LinkInput) -> CoreResult<Vec<athanor_domain::Relation>> {
-        run_process_adapter("linker", &self.id, &self.command, &input)
+        run_process_adapter("linker", &self.id, &self.command, &input).await
     }
 }
 
@@ -964,11 +1017,11 @@ impl Checker for ProcessChecker {
     }
 
     async fn check(&self, input: CheckInput) -> CoreResult<Vec<athanor_domain::Diagnostic>> {
-        run_process_adapter("checker", &self.id, &self.command, &input)
+        run_process_adapter("checker", &self.id, &self.command, &input).await
     }
 }
 
-fn run_process_adapter<I, O>(
+async fn run_process_adapter<I, O>(
     adapter_kind: &str,
     adapter_id: &str,
     command: &ProcessCommand,
@@ -985,6 +1038,7 @@ where
         input,
         ProcessLimits::default(),
     )
+    .await
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1014,7 +1068,7 @@ struct LimitedProcessOutput {
     stderr_truncated: bool,
 }
 
-fn run_process_adapter_with_limits<I, O>(
+async fn run_process_adapter_with_limits<I, O>(
     adapter_kind: &str,
     adapter_id: &str,
     command: &ProcessCommand,
@@ -1042,6 +1096,7 @@ where
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        .kill_on_drop(true)
         .spawn()
         .map_err(|error| {
             CoreError::Adapter(format!(
@@ -1059,10 +1114,8 @@ where
             "failed to open stderr for external {adapter_kind} {adapter_id}"
         ))
     })?;
-    let stdout_limit = limits.max_stdout_bytes;
-    let stderr_limit = limits.max_stderr_bytes;
-    let stdout_reader = thread::spawn(move || read_limited(stdout, stdout_limit));
-    let stderr_reader = thread::spawn(move || read_limited(stderr, stderr_limit));
+    let stdout_reader = tokio::spawn(read_limited(stdout, limits.max_stdout_bytes));
+    let stderr_reader = tokio::spawn(read_limited(stderr, limits.max_stderr_bytes));
 
     {
         let mut stdin = child.stdin.take().ok_or_else(|| {
@@ -1070,48 +1123,41 @@ where
                 "failed to open stdin for external {adapter_kind} {adapter_id}"
             ))
         })?;
-        stdin.write_all(&input_bytes).map_err(|error| {
+        stdin.write_all(&input_bytes).await.map_err(|error| {
             CoreError::Adapter(format!(
                 "failed to write input for external {adapter_kind} {adapter_id}: {error}"
             ))
         })?;
-        stdin.write_all(b"\n").map_err(|error| {
+        stdin.write_all(b"\n").await.map_err(|error| {
             CoreError::Adapter(format!(
                 "failed to finish input for external {adapter_kind} {adapter_id}: {error}"
             ))
         })?;
     }
 
-    let deadline = Instant::now() + limits.timeout;
-    let status = loop {
-        if let Some(status) = child.try_wait().map_err(|error| {
+    let status = match timeout(limits.timeout, child.wait()).await {
+        Ok(result) => result.map_err(|error| {
             CoreError::Adapter(format!(
                 "failed to wait for external {adapter_kind} {adapter_id}: {error}"
             ))
-        })? {
-            break status;
-        }
-
-        if Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
-            let _ = stdout_reader.join();
-            let _ = stderr_reader.join();
+        })?,
+        Err(_) => {
+            let _ = child.kill().await;
+            let _ = stdout_reader.await;
+            let _ = stderr_reader.await;
             return Err(CoreError::Adapter(format!(
                 "external {adapter_kind} {adapter_id} timed out after {} ms",
                 limits.timeout.as_millis()
             )));
         }
-
-        thread::sleep(Duration::from_millis(10));
     };
 
-    let (stdout, stdout_truncated) = stdout_reader.join().map_err(|_| {
+    let (stdout, stdout_truncated) = stdout_reader.await.map_err(|_| {
         CoreError::Adapter(format!(
             "failed to read stdout for external {adapter_kind} {adapter_id}"
         ))
     })??;
-    let (stderr, stderr_truncated) = stderr_reader.join().map_err(|_| {
+    let (stderr, stderr_truncated) = stderr_reader.await.map_err(|_| {
         CoreError::Adapter(format!(
             "failed to read stderr for external {adapter_kind} {adapter_id}"
         ))
@@ -1173,13 +1219,16 @@ where
     })
 }
 
-fn read_limited(mut reader: impl Read, max_bytes: usize) -> CoreResult<(Vec<u8>, bool)> {
+async fn read_limited(
+    mut reader: impl AsyncRead + Unpin,
+    max_bytes: usize,
+) -> CoreResult<(Vec<u8>, bool)> {
     let mut output = Vec::new();
     let mut buffer = [0_u8; 8192];
     let mut truncated = false;
 
     loop {
-        let read = reader.read(&mut buffer).map_err(|error| {
+        let read = reader.read(&mut buffer).await.map_err(|error| {
             CoreError::Adapter(format!("failed to read external process output: {error}"))
         })?;
         if read == 0 {
@@ -1657,6 +1706,52 @@ mod tests {
     }
 
     #[test]
+    fn trusted_plugin_requires_matching_executable_hash() {
+        let root = std::env::temp_dir().join(format!(
+            "athanor-runtime-process-executable-hash-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let program = root.join("adapter-program.bin");
+        fs::write(&program, b"first executable version").unwrap();
+        let manifest_path = root.join("external.json");
+        let manifest = AdapterPluginManifest {
+            schema: ADAPTER_MANIFEST_SCHEMA.to_string(),
+            name: "executable-hash".to_string(),
+            version: None,
+            adapters: vec![AdapterPluginEntry {
+                id: "external.extractor.hash".to_string(),
+                kind: AdapterPluginKind::Extractor,
+                enabled: true,
+                command: Some(AdapterProcessCommand {
+                    program: program.to_string_lossy().to_string(),
+                    args: Vec::new(),
+                }),
+                supports_extensions: Vec::new(),
+            }],
+        };
+        fs::write(
+            &manifest_path,
+            serde_json::to_string_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+        let plugin = read_adapter_plugin_manifest(manifest_path).unwrap();
+        let registry = AdapterTrustRegistry {
+            schema: ADAPTER_TRUST_SCHEMA.to_string(),
+            trusted_plugins: vec![trusted_plugin_record(&plugin).unwrap()],
+        };
+        assert!(is_adapter_plugin_trusted(&registry, &plugin).unwrap());
+
+        fs::write(&program, b"changed executable version").unwrap();
+        assert!(!is_adapter_plugin_trusted(&registry, &plugin).unwrap());
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn rejects_unknown_manifest_fields() {
         let content = serde_json::json!({
             "schema": ADAPTER_MANIFEST_SCHEMA,
@@ -1695,8 +1790,8 @@ mod tests {
         assert!(error.to_string().contains("parent directory"));
     }
 
-    #[test]
-    fn external_process_timeout_is_reported() {
+    #[tokio::test]
+    async fn external_process_timeout_is_reported() {
         let command = sleep_command();
         let error = run_process_adapter_with_limits::<_, Value>(
             "checker",
@@ -1710,13 +1805,14 @@ mod tests {
                 max_stderr_bytes: 1024,
             },
         )
+        .await
         .expect_err("sleeping process should time out");
 
         assert!(error.to_string().contains("timed out"));
     }
 
-    #[test]
-    fn external_process_oversized_stdout_is_reported() {
+    #[tokio::test]
+    async fn external_process_oversized_stdout_is_reported() {
         let command = stdout_bytes_command(2048);
         let error = run_process_adapter_with_limits::<_, Value>(
             "checker",
@@ -1730,13 +1826,14 @@ mod tests {
                 max_stderr_bytes: 1024,
             },
         )
+        .await
         .expect_err("oversized stdout should fail");
 
         assert!(error.to_string().contains("stdout exceeded"));
     }
 
-    #[test]
-    fn external_process_nonzero_exit_reports_bounded_stderr() {
+    #[tokio::test]
+    async fn external_process_nonzero_exit_reports_bounded_stderr() {
         let command = failing_command();
         let error = run_process_adapter_with_limits::<_, Value>(
             "checker",
@@ -1750,6 +1847,7 @@ mod tests {
                 max_stderr_bytes: 1024,
             },
         )
+        .await
         .expect_err("non-zero process should fail");
 
         let message = error.to_string();

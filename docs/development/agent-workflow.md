@@ -16,10 +16,11 @@ Before changing files, read:
 
 1. `AGENTS.md`
 2. `docs/README.md`
-3. `docs/development/roadmap-status.md`
-4. Relevant architecture docs under `docs/architecture/`
-5. Relevant adapter docs under `docs/adapters/`
-6. Relevant crate `README.md`
+3. `docs/development/athanor-coding-standards.md`
+4. `docs/development/roadmap-status.md`
+5. Relevant architecture docs under `docs/architecture/`
+6. Relevant adapter docs under `docs/adapters/`
+7. Relevant crate `README.md`
 
 Use `start.md` as the full architectural plan, not as the daily task checklist.
 

@@ -1,3 +1,11 @@
+---
+id: doc://docs/development/athanor-coding-standards.md
+kind: developer_guide
+language: en
+last_verified_snapshot: snap_jsonl_00000006
+source_language: en
+status: verified
+---
 # Athanor Coding Standards for Human and AI Contributors
 
 > Status: normative  

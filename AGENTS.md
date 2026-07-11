@@ -11,14 +11,16 @@ Before implementation work:
 1. Read this file.
 2. Read `docs/README.md`.
 3. Read `docs/development/agent-workflow.md`.
-4. Read `docs/development/roadmap-status.md`.
-5. If touching indexing/runtime, read `docs/architecture/pipeline.md`.
-6. If adding or changing an adapter/plugin, read `docs/architecture/adapters.md`.
-7. If editing an existing adapter crate, read that crate's `README.md`.
+4. Read `docs/development/athanor-coding-standards.md`.
+5. Read `docs/development/roadmap-status.md`.
+6. If touching indexing/runtime, read `docs/architecture/pipeline.md`.
+7. If adding or changing an adapter/plugin, read `docs/architecture/adapters.md`.
+8. If editing an existing adapter crate, read that crate's `README.md`.
 
 ## Core Rules
 
 - Prefer adapter-first design.
+- Follow `docs/development/athanor-coding-standards.md`; its normative requirements apply to every code and documentation change.
 - While Athanor is primarily being shaped for Rustok, use Rustok-first iterative development: make the smallest useful change, verify it locally, run bounded Athanor commands against the real Rustok repository when available, tune signal quality, and only then expand scope.
 - Keep `athanor-domain` and `athanor-core` free of adapter-specific details.
 - Do not duplicate stable ID generation, evidence builders, JSONL writer, path normalization, or registry logic.

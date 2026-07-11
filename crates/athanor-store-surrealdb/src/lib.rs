@@ -1,9 +1,11 @@
 use async_trait::async_trait;
 use athanor_core::{
     CanonicalSnapshot, CanonicalSnapshotStore, CoreError, CoreResult, DiagnosticQuery, EntityQuery,
-    KnowledgeStore, RelationQuery,
+    EntityResolver, KnowledgeStore, RelationQuery, SnapshotSelector,
 };
-use athanor_domain::{Diagnostic, Entity, Fact, Relation, RepoId, SnapshotBase, SnapshotId};
+use athanor_domain::{
+    Diagnostic, Entity, EntityId, Fact, Relation, RepoId, SnapshotBase, SnapshotId, StableKey,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use surrealdb::Surreal;
@@ -143,6 +145,7 @@ impl KnowledgeStore for SurrealKnowledgeStore {
             if let serde_json::Value::Object(map) = &mut val {
                 map.insert("original_id".to_string(), json!(fact.id.0));
                 map.remove("id");
+                map.insert("snapshot".to_string(), json!(snapshot.0));
             }
 
             let _: Option<DummyRecord> = self
@@ -168,6 +171,7 @@ impl KnowledgeStore for SurrealKnowledgeStore {
             if let serde_json::Value::Object(map) = &mut val {
                 map.insert("original_id".to_string(), json!(relation.id.0));
                 map.remove("id");
+                map.insert("snapshot".to_string(), json!(snapshot.0));
             }
 
             let _: Option<DummyRecord> = self
@@ -193,6 +197,7 @@ impl KnowledgeStore for SurrealKnowledgeStore {
             if let serde_json::Value::Object(map) = &mut val {
                 map.insert("original_id".to_string(), json!(diagnostic.id.0));
                 map.remove("id");
+                map.insert("snapshot".to_string(), json!(snapshot.0));
             }
 
             let _: Option<DummyRecord> = self
@@ -205,9 +210,15 @@ impl KnowledgeStore for SurrealKnowledgeStore {
         Ok(())
     }
 
-    async fn query_entities(&self, query: EntityQuery) -> CoreResult<Vec<Entity>> {
-        let mut sql = "SELECT * FROM entity WHERE 1=1".to_string();
+    async fn query_entities(
+        &self,
+        snapshot: SnapshotSelector,
+        query: EntityQuery,
+    ) -> CoreResult<Vec<Entity>> {
+        let snapshot = self.resolve_committed_snapshot(snapshot).await?;
+        let mut sql = "SELECT * FROM entity WHERE snapshot = $snapshot".to_string();
         let mut params = serde_json::Map::new();
+        params.insert("snapshot".to_string(), json!(snapshot.0));
 
         if let Some(stable_key) = &query.stable_key {
             sql.push_str(" AND stable_key = $stable_key");
@@ -245,21 +256,27 @@ impl KnowledgeStore for SurrealKnowledgeStore {
         deserialize_list(db_val)
     }
 
-    async fn query_relations(&self, query: RelationQuery) -> CoreResult<Vec<Relation>> {
-        let mut sql = "SELECT * FROM relation WHERE 1=1".to_string();
+    async fn query_relations(
+        &self,
+        snapshot: SnapshotSelector,
+        query: RelationQuery,
+    ) -> CoreResult<Vec<Relation>> {
+        let snapshot = self.resolve_committed_snapshot(snapshot).await?;
+        let mut sql = "SELECT * FROM relation WHERE snapshot = $snapshot".to_string();
         let mut params = serde_json::Map::new();
+        params.insert("snapshot".to_string(), json!(snapshot.0));
 
         if let Some(kind) = &query.kind {
             sql.push_str(" AND kind = $kind");
             params.insert("kind".to_string(), json!(kind));
         }
 
-        if let Some(from) = &query.from {
+        if let Some(from) = &query.from_entity {
             sql.push_str(" AND from = $from");
             params.insert("from".to_string(), json!(from.0));
         }
 
-        if let Some(to) = &query.to {
+        if let Some(to) = &query.to_entity {
             sql.push_str(" AND to = $to");
             params.insert("to".to_string(), json!(to.0));
         }
@@ -283,9 +300,15 @@ impl KnowledgeStore for SurrealKnowledgeStore {
         deserialize_list(db_val)
     }
 
-    async fn query_diagnostics(&self, query: DiagnosticQuery) -> CoreResult<Vec<Diagnostic>> {
-        let mut sql = "SELECT * FROM diagnostic WHERE 1=1".to_string();
+    async fn query_diagnostics(
+        &self,
+        snapshot: SnapshotSelector,
+        query: DiagnosticQuery,
+    ) -> CoreResult<Vec<Diagnostic>> {
+        let snapshot = self.resolve_committed_snapshot(snapshot).await?;
+        let mut sql = "SELECT * FROM diagnostic WHERE snapshot = $snapshot".to_string();
         let mut params = serde_json::Map::new();
+        params.insert("snapshot".to_string(), json!(snapshot.0));
 
         if let Some(severity) = &query.severity {
             sql.push_str(" AND severity = $severity");
@@ -334,6 +357,73 @@ impl KnowledgeStore for SurrealKnowledgeStore {
             })?;
 
         Ok(())
+    }
+}
+
+#[async_trait]
+impl EntityResolver for SurrealKnowledgeStore {
+    async fn resolve_stable_key(
+        &self,
+        snapshot: SnapshotSelector,
+        stable_key: &StableKey,
+    ) -> CoreResult<Option<EntityId>> {
+        let entities = self
+            .query_entities(
+                snapshot,
+                EntityQuery {
+                    stable_key: Some(stable_key.clone()),
+                    limit: Some(2),
+                    ..EntityQuery::default()
+                },
+            )
+            .await?;
+        if entities.len() > 1 {
+            return Err(CoreError::Conflict(format!(
+                "stable key {} resolves to multiple entities",
+                stable_key.0
+            )));
+        }
+        Ok(entities.into_iter().next().map(|entity| entity.id))
+    }
+}
+
+impl SurrealKnowledgeStore {
+    async fn resolve_committed_snapshot(
+        &self,
+        selector: SnapshotSelector,
+    ) -> CoreResult<SnapshotId> {
+        let snapshot = match selector {
+            SnapshotSelector::Exact(snapshot) => snapshot,
+            SnapshotSelector::LatestCommitted => {
+                let mut response = self
+                    .db
+                    .query("SELECT * FROM snapshot WHERE committed = true ORDER BY id DESC LIMIT 1")
+                    .await
+                    .map_err(|err| {
+                        CoreError::Adapter(format!("query latest snapshot failed: {err}"))
+                    })?;
+                let records: Vec<SnapshotRecord> = response.take(0).map_err(|err| {
+                    CoreError::Adapter(format!("parse latest snapshot failed: {err}"))
+                })?;
+                let record = records
+                    .into_iter()
+                    .next()
+                    .ok_or_else(|| CoreError::NotFound("no committed snapshot".to_string()))?;
+                return Ok(SnapshotId(record.id));
+            }
+        };
+
+        let record: Option<SnapshotRecord> = self
+            .db
+            .select(("snapshot", &snapshot.0))
+            .await
+            .map_err(|err| CoreError::Adapter(format!("load snapshot failed: {err}")))?;
+        let record =
+            record.ok_or_else(|| CoreError::NotFound(format!("snapshot {}", snapshot.0)))?;
+        if !record.committed {
+            return Err(CoreError::SnapshotNotCommitted(snapshot.0));
+        }
+        Ok(snapshot)
     }
 }
 

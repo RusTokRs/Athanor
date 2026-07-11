@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use athanor_domain::{
-    Diagnostic, Entity, Fact, Relation, RepoId, SnapshotBase, SnapshotId, StableKey,
+    Diagnostic, Entity, EntityId, Fact, Relation, RepoId, SnapshotBase, SnapshotId, StableKey,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -18,6 +18,17 @@ pub enum CoreError {
     InvalidInput(String),
     #[error("adapter error: {0}")]
     Adapter(String),
+    #[error("snapshot is not committed: {0}")]
+    SnapshotNotCommitted(String),
+    #[error("conflict: {0}")]
+    Conflict(String),
+}
+
+/// Selects the committed canonical snapshot visible to a query.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum SnapshotSelector {
+    Exact(SnapshotId),
+    LatestCommitted,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -30,8 +41,8 @@ pub struct EntityQuery {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RelationQuery {
-    pub from: Option<StableKey>,
-    pub to: Option<StableKey>,
+    pub from_entity: Option<EntityId>,
+    pub to_entity: Option<EntityId>,
     pub kind: Option<String>,
     pub limit: Option<usize>,
 }
@@ -40,7 +51,7 @@ pub struct RelationQuery {
 pub struct DiagnosticQuery {
     pub severity: Option<String>,
     pub status: Option<String>,
-    pub entity: Option<StableKey>,
+    pub entity: Option<EntityId>,
     pub limit: Option<usize>,
 }
 
@@ -58,9 +69,21 @@ pub trait KnowledgeStore: Send + Sync {
         diagnostics: Vec<Diagnostic>,
     ) -> CoreResult<()>;
 
-    async fn query_entities(&self, query: EntityQuery) -> CoreResult<Vec<Entity>>;
-    async fn query_relations(&self, query: RelationQuery) -> CoreResult<Vec<Relation>>;
-    async fn query_diagnostics(&self, query: DiagnosticQuery) -> CoreResult<Vec<Diagnostic>>;
+    async fn query_entities(
+        &self,
+        snapshot: SnapshotSelector,
+        query: EntityQuery,
+    ) -> CoreResult<Vec<Entity>>;
+    async fn query_relations(
+        &self,
+        snapshot: SnapshotSelector,
+        query: RelationQuery,
+    ) -> CoreResult<Vec<Relation>>;
+    async fn query_diagnostics(
+        &self,
+        snapshot: SnapshotSelector,
+        query: DiagnosticQuery,
+    ) -> CoreResult<Vec<Diagnostic>>;
 
     async fn commit_snapshot(&self, snapshot: SnapshotId) -> CoreResult<()>;
 }
@@ -103,6 +126,16 @@ pub struct ExtractOutput {
     pub facts: Vec<Fact>,
     #[serde(default)]
     pub diagnostics: Vec<Diagnostic>,
+}
+
+/// Resolves an external stable key before issuing an ID-based storage query.
+#[async_trait]
+pub trait EntityResolver: Send + Sync {
+    async fn resolve_stable_key(
+        &self,
+        snapshot: SnapshotSelector,
+        stable_key: &StableKey,
+    ) -> CoreResult<Option<EntityId>>;
 }
 
 #[async_trait]

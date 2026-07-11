@@ -6,7 +6,7 @@ use athanor_domain::Severity;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct ProjectConfig {
     pub docs: DocsConfig,
     pub api: ApiConfig,
@@ -15,14 +15,14 @@ pub struct ProjectConfig {
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct AdaptersConfig {
     pub allow_external_process: bool,
     pub external_process_allowlist: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct StorageConfig {
     pub mode: StorageMode,
     pub path: String,
@@ -46,7 +46,7 @@ pub enum StorageMode {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct DocsConfig {
     pub editable_path: String,
     pub completeness: CompletenessPolicy,
@@ -62,7 +62,7 @@ impl Default for DocsConfig {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct CompletenessPolicy {
     pub required_fields: Vec<String>,
     pub allowed_statuses: Vec<String>,
@@ -97,7 +97,7 @@ pub enum ApiSourceOfTruth {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct ApiConfig {
     pub enabled: bool,
     pub source_of_truth: ApiSourceOfTruth,
@@ -123,7 +123,7 @@ impl Default for ApiConfig {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct ApiRetentionConfig {
     pub auto_cleanup: bool,
     pub keep_snapshots: usize,
@@ -148,4 +148,23 @@ pub fn load_config(root: &Path) -> Result<ProjectConfig> {
     let content =
         fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
     toml::from_str(&content).with_context(|| format!("failed to parse {}", path.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ProjectConfig;
+
+    #[test]
+    fn rejects_unknown_top_level_field() {
+        let error = toml::from_str::<ProjectConfig>("unknown = true")
+            .expect_err("unknown configuration must fail");
+        assert!(error.to_string().contains("unknown field"));
+    }
+
+    #[test]
+    fn rejects_unknown_nested_field() {
+        let error = toml::from_str::<ProjectConfig>("[storage]\nunknown = true")
+            .expect_err("unknown nested configuration must fail");
+        assert!(error.to_string().contains("unknown field"));
+    }
 }

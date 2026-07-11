@@ -3,10 +3,11 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use athanor_core::{
-    CoreError, CoreResult, DiagnosticQuery, EntityQuery, KnowledgeStore, RelationQuery,
+    CoreError, CoreResult, DiagnosticQuery, EntityQuery, EntityResolver, KnowledgeStore,
+    RelationQuery, SnapshotSelector,
 };
 use athanor_domain::{
-    Diagnostic, Entity, Fact, Relation, RepoId, SnapshotBase, SnapshotId, StableKey,
+    Diagnostic, Entity, EntityId, Fact, Relation, RepoId, SnapshotBase, SnapshotId, StableKey,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -87,12 +88,17 @@ impl KnowledgeStore for MemoryKnowledgeStore {
         Ok(())
     }
 
-    async fn query_entities(&self, query: EntityQuery) -> CoreResult<Vec<Entity>> {
+    async fn query_entities(
+        &self,
+        snapshot: SnapshotSelector,
+        query: EntityQuery,
+    ) -> CoreResult<Vec<Entity>> {
         let state = self.lock_state()?;
+        let snapshot = state.committed_snapshot(&snapshot)?;
         let mut results = state
-            .snapshots
-            .values()
-            .flat_map(|snapshot| snapshot.entities.iter())
+            .snapshot_data(snapshot.as_ref())
+            .map_or(&[][..], |snapshot| snapshot.entities.as_slice())
+            .iter()
             .filter(|entity| matches_stable_key(&query.stable_key, &entity.stable_key))
             .filter(|entity| {
                 query
@@ -117,12 +123,24 @@ impl KnowledgeStore for MemoryKnowledgeStore {
         Ok(results)
     }
 
-    async fn query_relations(&self, query: RelationQuery) -> CoreResult<Vec<Relation>> {
+    async fn query_relations(
+        &self,
+        snapshot: SnapshotSelector,
+        query: RelationQuery,
+    ) -> CoreResult<Vec<Relation>> {
         let state = self.lock_state()?;
+        let snapshot = state.committed_snapshot(&snapshot)?;
         let mut results = state
-            .snapshots
-            .values()
-            .flat_map(|snapshot| snapshot.relations.iter())
+            .snapshot_data(snapshot.as_ref())
+            .map_or(&[][..], |snapshot| snapshot.relations.as_slice())
+            .iter()
+            .filter(|relation| {
+                query
+                    .from_entity
+                    .as_ref()
+                    .is_none_or(|from| &relation.from == from)
+            })
+            .filter(|relation| query.to_entity.as_ref().is_none_or(|to| &relation.to == to))
             .filter(|relation| {
                 query
                     .kind
@@ -136,12 +154,23 @@ impl KnowledgeStore for MemoryKnowledgeStore {
         Ok(results)
     }
 
-    async fn query_diagnostics(&self, query: DiagnosticQuery) -> CoreResult<Vec<Diagnostic>> {
+    async fn query_diagnostics(
+        &self,
+        snapshot: SnapshotSelector,
+        query: DiagnosticQuery,
+    ) -> CoreResult<Vec<Diagnostic>> {
         let state = self.lock_state()?;
+        let snapshot = state.committed_snapshot(&snapshot)?;
         let mut results = state
-            .snapshots
-            .values()
-            .flat_map(|snapshot| snapshot.diagnostics.iter())
+            .snapshot_data(snapshot.as_ref())
+            .map_or(&[][..], |snapshot| snapshot.diagnostics.as_slice())
+            .iter()
+            .filter(|diagnostic| {
+                query
+                    .entity
+                    .as_ref()
+                    .is_none_or(|entity| diagnostic.entities.contains(entity))
+            })
             .filter(|diagnostic| {
                 query.severity.as_ref().is_none_or(|severity| {
                     format!("{:?}", diagnostic.severity).eq_ignore_ascii_case(severity)
@@ -166,6 +195,33 @@ impl KnowledgeStore for MemoryKnowledgeStore {
     }
 }
 
+#[async_trait]
+impl EntityResolver for MemoryKnowledgeStore {
+    async fn resolve_stable_key(
+        &self,
+        snapshot: SnapshotSelector,
+        stable_key: &StableKey,
+    ) -> CoreResult<Option<EntityId>> {
+        let entities = self
+            .query_entities(
+                snapshot,
+                EntityQuery {
+                    stable_key: Some(stable_key.clone()),
+                    limit: Some(2),
+                    ..EntityQuery::default()
+                },
+            )
+            .await?;
+        if entities.len() > 1 {
+            return Err(CoreError::Conflict(format!(
+                "stable key {} resolves to multiple entities",
+                stable_key.0
+            )));
+        }
+        Ok(entities.into_iter().next().map(|entity| entity.id))
+    }
+}
+
 impl MemoryKnowledgeStore {
     fn lock_state(&self) -> CoreResult<std::sync::MutexGuard<'_, State>> {
         self.state
@@ -179,6 +235,31 @@ impl State {
         self.snapshots
             .get_mut(snapshot)
             .ok_or_else(|| CoreError::NotFound(format!("snapshot {}", snapshot.0)))
+    }
+
+    fn committed_snapshot(&self, selector: &SnapshotSelector) -> CoreResult<Option<SnapshotId>> {
+        match selector {
+            SnapshotSelector::Exact(snapshot) => {
+                let data = self
+                    .snapshots
+                    .get(snapshot)
+                    .ok_or_else(|| CoreError::NotFound(format!("snapshot {}", snapshot.0)))?;
+                if !data.committed {
+                    return Err(CoreError::SnapshotNotCommitted(snapshot.0.clone()));
+                }
+                Ok(Some(snapshot.clone()))
+            }
+            SnapshotSelector::LatestCommitted => Ok(self
+                .snapshots
+                .iter()
+                .filter(|(_, data)| data.committed)
+                .map(|(snapshot, _)| snapshot.clone())
+                .max_by(|left, right| left.0.cmp(&right.0))),
+        }
+    }
+
+    fn snapshot_data(&self, snapshot: Option<&SnapshotId>) -> Option<&SnapshotData> {
+        snapshot.and_then(|snapshot| self.snapshots.get(snapshot))
     }
 }
 
@@ -202,7 +283,7 @@ fn relation_kind_name(relation: &Relation) -> String {
 
 #[cfg(test)]
 mod tests {
-    use athanor_core::EntityQuery;
+    use athanor_core::{EntityQuery, SnapshotSelector};
     use athanor_domain::{EntityId, EntityKind};
     use serde_json::json;
 
@@ -244,10 +325,13 @@ mod tests {
         store.commit_snapshot(snapshot).await.unwrap();
 
         let found = store
-            .query_entities(EntityQuery {
-                stable_key: Some(StableKey("file://README.md".to_string())),
-                ..EntityQuery::default()
-            })
+            .query_entities(
+                SnapshotSelector::LatestCommitted,
+                EntityQuery {
+                    stable_key: Some(StableKey("file://README.md".to_string())),
+                    ..EntityQuery::default()
+                },
+            )
             .await
             .unwrap();
 

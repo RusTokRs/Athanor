@@ -4,7 +4,7 @@ kind: module_documentation
 language: en
 last_verified_snapshot: snap_jsonl_00000272
 source_language: en
-status: draft
+status: verified
 ---
 # GraphQL Extractor
 
