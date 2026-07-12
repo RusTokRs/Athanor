@@ -20,4 +20,5 @@ serde_json.workspace = true
 surrealdb = { version = "2.0", default-features = false, features = ["kv-mem", "kv-surrealkv"] }
 
 [dev-dependencies]
+athanor-store-conformance = { path = "../athanor-store-conformance" }
 tokio.workspace = true

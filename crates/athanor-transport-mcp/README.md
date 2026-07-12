@@ -11,4 +11,5 @@ Exposes Athanor's indexing, searching, explaining, context pack generation, code
 4. `context`: Builds a task-focused context pack from the latest snapshot.
 5. `impact`: Calculates direct and transitive blast radius of changes.
 6. `change_map`: Returns bounded evidence-backed change locations, relation chains, diagnostics, and test coverage from a task, target, or working-tree diff.
-7. `check`: Returns API or Docs diagnostic reports.
+7. `rustok_architecture_context`: Resolves bounded RusTok module ownership, public contracts, interactions, tests, diagnostics, and evidence for one implementation intent.
+8. `check`: Returns API or Docs diagnostic reports.

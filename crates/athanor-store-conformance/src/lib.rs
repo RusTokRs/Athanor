@@ -117,10 +117,23 @@ where
 
     let uncommitted = begin(store).await;
     let error = store
-        .query_entities(SnapshotSelector::Exact(uncommitted), EntityQuery::default())
+        .query_entities(
+            SnapshotSelector::Exact(uncommitted.clone()),
+            EntityQuery::default(),
+        )
         .await
         .expect_err("uncommitted snapshots must not be queryable");
     assert!(matches!(error, CoreError::SnapshotNotCommitted(_)));
+
+    store
+        .abort_snapshot(uncommitted.clone())
+        .await
+        .expect("abort uncommitted snapshot");
+    let error = store
+        .query_entities(SnapshotSelector::Exact(uncommitted), EntityQuery::default())
+        .await
+        .expect_err("aborted snapshots must not be queryable");
+    assert!(matches!(error, CoreError::NotFound(_)));
 }
 
 async fn begin<S: KnowledgeStore>(store: &S) -> SnapshotId {

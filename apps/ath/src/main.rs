@@ -22,21 +22,25 @@ use athanor_app::{
     ProjectRegistryOptions, ProjectRegistryReport, ProjectUnregisterOptions, RepairApplyOptions,
     RepairApplyReport, RepairCleanupOptions, RepairCleanupReport, RepairInspectOptions,
     RepairInspectReport, RepairRecoverCanonicalOptions, RepairRecoverCanonicalReport,
-    RepairRegenerateOptions, RepairRegenerateReport, RepositoryOverview, RustokFbaAudit,
-    RustokFbaAuditOptions, RustokFbaGraph, RustokFfaAudit, RustokFfaAuditOptions, RustokFfaGraph,
-    RustokPageBuilderAudit, RustokPageBuilderAuditOptions, RustokPageBuilderGraph, WikiOptions,
-    apply_repair, benchmark_index, capabilities_project, change_map_project, check_affected,
-    check_docs, check_operations_docs, check_project, cleanup_api_contracts, cleanup_repair,
-    context_project, coverage_project, default_adapter_trust_path, default_project_registry_path,
-    diff_api_contracts, docs_apply_patch, docs_drift, docs_propose_fix, explain_project,
-    generate_project, graph_fba_dependencies, graph_fba_module, graph_fba_port,
+    RepairRegenerateOptions, RepairRegenerateReport, RepositoryOverview, RustokArchitectureContext,
+    RustokArchitectureContextOptions, RustokFbaAudit, RustokFbaAuditOptions, RustokFbaGraph,
+    RustokFfaAudit, RustokFfaAuditOptions, RustokFfaGraph, RustokPageBuilderAudit,
+    RustokPageBuilderAuditOptions, RustokPageBuilderGraph, WikiOptions, apply_repair,
+    benchmark_index, capabilities_project_with_composition, change_map_project_with_composition,
+    check_affected_with_composition, check_docs, check_operations_docs_with_composition,
+    check_project_with_composition, cleanup_api_contracts, cleanup_repair,
+    context_project_with_composition, coverage_project_with_composition,
+    default_adapter_trust_path, default_project_registry_path, diff_api_contracts,
+    docs_apply_patch, docs_drift, docs_propose_fix, explain_project_with_composition,
+    generate_project_with_composition, graph_fba_dependencies, graph_fba_module, graph_fba_port,
     graph_fba_violations, graph_ffa_surface, graph_ffa_violations, graph_page_builder_consumer,
-    graph_page_builder_provider, graph_page_builder_violations, impact_project, index_project,
-    init_project, inspect_repair, list_adapter_plugin_trust, list_registered_projects,
-    overview_project, project_html_report, project_wiki, recover_canonical_repair,
-    regenerate_repair, register_project, resolve_registered_project, rustok_fba_audit,
-    rustok_ffa_audit, rustok_page_builder_audit, snapshot_api_contract, trust_adapter_plugin,
-    unregister_project, untrust_adapter_plugin, validate_changed,
+    graph_page_builder_provider, graph_page_builder_violations, impact_project_with_composition,
+    index_project_with_composition, init_project, inspect_repair, list_adapter_plugin_trust,
+    list_registered_projects, overview_project_with_composition, project_html_report, project_wiki,
+    recover_canonical_repair, regenerate_repair, register_project, resolve_registered_project,
+    rustok_architecture_context, rustok_fba_audit, rustok_ffa_audit, rustok_page_builder_audit,
+    snapshot_api_contract, trust_adapter_plugin, unregister_project, untrust_adapter_plugin,
+    validate_changed,
 };
 use athanor_domain::ContextLevel;
 use clap::{Parser, Subcommand, ValueEnum};
@@ -886,12 +890,16 @@ fn main() -> Result<()> {
 
 #[tokio::main]
 async fn run_cli() -> Result<()> {
-    athanor_runtime_defaults::install();
+    #[allow(deprecated)]
+    {
+        athanor_runtime_defaults::install();
+    }
+    let composition = athanor_runtime_defaults::production();
     init_tracing();
-    if handle_manual_coverage_command().await? {
+    if handle_manual_coverage_command(&composition).await? {
         return Ok(());
     }
-    if handle_manual_capabilities_command().await? {
+    if handle_manual_capabilities_command(&composition).await? {
         return Ok(());
     }
     if handle_manual_rustok_arch_command().await? {
@@ -915,12 +923,15 @@ async fn run_cli() -> Result<()> {
             validate_only,
             json,
         }) => {
-            let report = index_project(IndexOptions {
-                root: path,
-                validation_report,
-                validation_result,
-                validate_only,
-            })
+            let report = index_project_with_composition(
+                IndexOptions {
+                    root: path,
+                    validation_report,
+                    validation_result,
+                    validate_only,
+                },
+                &composition,
+            )
             .await?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&report)?);
@@ -954,12 +965,15 @@ async fn run_cli() -> Result<()> {
             if !changed {
                 anyhow::bail!("update requires --changed");
             }
-            let report = index_project(IndexOptions {
-                root: path,
-                validation_report: None,
-                validation_result: None,
-                validate_only: false,
-            })
+            let report = index_project_with_composition(
+                IndexOptions {
+                    root: path,
+                    validation_report: None,
+                    validation_result: None,
+                    validate_only: false,
+                },
+                &composition,
+            )
             .await?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&report)?);
@@ -1001,19 +1015,22 @@ async fn run_cli() -> Result<()> {
             max_depth,
             diff,
         }) => {
-            let pack = context_project(ContextOptions {
-                root: path,
-                task: task.unwrap_or_default(),
-                diff,
-                level: level.into(),
-                limits: ContextLimitOverrides {
-                    max_tokens,
-                    max_files,
-                    max_entities,
-                    max_diagnostics,
-                    max_depth,
+            let pack = context_project_with_composition(
+                ContextOptions {
+                    root: path,
+                    task: task.unwrap_or_default(),
+                    diff,
+                    level: level.into(),
+                    limits: ContextLimitOverrides {
+                        max_tokens,
+                        max_files,
+                        max_entities,
+                        max_diagnostics,
+                        max_depth,
+                    },
                 },
-            })
+                &composition,
+            )
             .await?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&pack)?);
@@ -1035,10 +1052,13 @@ async fn run_cli() -> Result<()> {
             path,
             json,
         }) => {
-            let explanation = explain_project(ExplainOptions {
-                root: path,
-                stable_key,
-            })
+            let explanation = explain_project_with_composition(
+                ExplainOptions {
+                    root: path,
+                    stable_key,
+                },
+                &composition,
+            )
             .await?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&explanation)?);
@@ -1047,7 +1067,11 @@ async fn run_cli() -> Result<()> {
             }
         }
         Some(Command::Overview { path, json, top }) => {
-            let overview = overview_project(OverviewOptions { root: path, top }).await?;
+            let overview = overview_project_with_composition(
+                OverviewOptions { root: path, top },
+                &composition,
+            )
+            .await?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&overview)?);
             } else {
@@ -1061,12 +1085,15 @@ async fn run_cli() -> Result<()> {
             diff,
             max_depth,
         }) => {
-            let analysis = impact_project(ImpactOptions {
-                root: path,
-                target,
-                diff,
-                max_depth,
-            })
+            let analysis = impact_project_with_composition(
+                ImpactOptions {
+                    root: path,
+                    target,
+                    diff,
+                    max_depth,
+                },
+                &composition,
+            )
             .await?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&analysis)?);
@@ -1085,16 +1112,19 @@ async fn run_cli() -> Result<()> {
             max_depth,
             json,
         }) => {
-            let report = change_map_project(ChangeMapOptions {
-                root: path,
-                task,
-                target,
-                diff,
-                max_entities,
-                max_files,
-                max_diagnostics,
-                max_depth,
-            })
+            let report = change_map_project_with_composition(
+                ChangeMapOptions {
+                    root: path,
+                    task,
+                    target,
+                    diff,
+                    max_entities,
+                    max_files,
+                    max_diagnostics,
+                    max_depth,
+                },
+                &composition,
+            )
             .await?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&report)?);
@@ -1112,7 +1142,11 @@ async fn run_cli() -> Result<()> {
                 if strict {
                     anyhow::bail!("--strict is currently supported only for `ath check api`");
                 }
-                let report = check_affected(AffectedCheckOptions { root: path }).await?;
+                let report = check_affected_with_composition(
+                    AffectedCheckOptions { root: path },
+                    &composition,
+                )
+                .await?;
                 if json {
                     println!("{}", serde_json::to_string_pretty(&report)?);
                 } else {
@@ -1131,10 +1165,13 @@ async fn run_cli() -> Result<()> {
                 .expect("non-affected diagnostic scope expected");
             let config = athanor_app::config::load_config(&path)?;
             let is_strict = strict || (scope == DiagnosticScope::Api && config.api.strict);
-            let report = check_project(DiagnosticCheckOptions {
-                root: path.clone(),
-                scope,
-            })
+            let report = check_project_with_composition(
+                DiagnosticCheckOptions {
+                    root: path.clone(),
+                    scope,
+                },
+                &composition,
+            )
             .await?;
             if is_strict {
                 if scope != DiagnosticScope::Api {
@@ -1264,7 +1301,11 @@ async fn run_cli() -> Result<()> {
                     command: DocsOperationsCommand::Check { path, json },
                 },
         }) => {
-            let report = check_operations_docs(OperationsDocsCheckOptions { root: path }).await?;
+            let report = check_operations_docs_with_composition(
+                OperationsDocsCheckOptions { root: path },
+                &composition,
+            )
+            .await?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
@@ -1407,10 +1448,13 @@ async fn run_cli() -> Result<()> {
             println!("wrote HTML report to {}", report.output_dir.display());
         }
         Some(Command::Generate { path }) => {
-            let report = generate_project(GenerationOptions {
-                root: path,
-                force: false,
-            })
+            let report = generate_project_with_composition(
+                GenerationOptions {
+                    root: path,
+                    force: false,
+                },
+                &composition,
+            )
             .await?;
             if report.status == athanor_app::GenerationStatus::UpToDate {
                 println!(
@@ -1837,7 +1881,9 @@ struct CoverageFlags {
     json: bool,
 }
 
-async fn handle_manual_coverage_command() -> Result<bool> {
+async fn handle_manual_coverage_command(
+    composition: &athanor_app::RuntimeComposition,
+) -> Result<bool> {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     let [first, rest @ ..] = args.as_slice() else {
         return Ok(false);
@@ -1850,12 +1896,15 @@ async fn handle_manual_coverage_command() -> Result<bool> {
         return Ok(true);
     }
     let flags = parse_coverage_flags(rest)?;
-    let report = coverage_project(CoverageOptions {
-        root: flags.path,
-        adapter: flags.adapter,
-        file: flags.file,
-        limit: flags.limit,
-    })
+    let report = coverage_project_with_composition(
+        CoverageOptions {
+            root: flags.path,
+            adapter: flags.adapter,
+            file: flags.file,
+            limit: flags.limit,
+        },
+        composition,
+    )
     .await?;
     if flags.json {
         println!("{}", serde_json::to_string_pretty(&report)?);
@@ -1947,7 +1996,9 @@ struct CapabilitiesFlags {
     json: bool,
 }
 
-async fn handle_manual_capabilities_command() -> Result<bool> {
+async fn handle_manual_capabilities_command(
+    composition: &athanor_app::RuntimeComposition,
+) -> Result<bool> {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     let [first, rest @ ..] = args.as_slice() else {
         return Ok(false);
@@ -1960,11 +2011,14 @@ async fn handle_manual_capabilities_command() -> Result<bool> {
         return Ok(true);
     }
     let flags = parse_capabilities_flags(rest)?;
-    let report = capabilities_project(CapabilitiesOptions {
-        root: flags.path,
-        limit: flags.limit,
-        confidence_threshold: flags.confidence_threshold,
-    })
+    let report = capabilities_project_with_composition(
+        CapabilitiesOptions {
+            root: flags.path,
+            limit: flags.limit,
+            confidence_threshold: flags.confidence_threshold,
+        },
+        composition,
+    )
     .await?;
     if flags.json {
         println!("{}", serde_json::to_string_pretty(&report)?);
@@ -2046,6 +2100,24 @@ fn parse_capabilities_flags(args: &[String]) -> Result<CapabilitiesFlags> {
 async fn handle_manual_rustok_arch_command() -> Result<bool> {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     match args.as_slice() {
+        [first, second, third, intent, rest @ ..]
+            if first == "rustok" && second == "architecture" && third == "context" =>
+        {
+            let flags = parse_rustok_architecture_context_flags(rest)?;
+            let mut options =
+                RustokArchitectureContextOptions::bounded(flags.path, intent.clone(), flags.module);
+            options.max_modules = flags.max_modules;
+            options.max_contracts = flags.max_contracts;
+            options.max_interactions = flags.max_interactions;
+            options.max_evidence = flags.max_evidence;
+            let report = rustok_architecture_context(options).await?;
+            if flags.json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                print_rustok_architecture_context(&report);
+            }
+            Ok(true)
+        }
         [first, second, third, rest @ ..]
             if first == "rustok" && second == "ffa" && third == "audit" =>
         {
@@ -2253,6 +2325,96 @@ async fn handle_manual_rustok_arch_command() -> Result<bool> {
         }
         _ => Ok(false),
     }
+}
+
+#[derive(Debug, Clone)]
+struct RustokArchitectureContextFlags {
+    path: PathBuf,
+    module: Option<String>,
+    max_modules: usize,
+    max_contracts: usize,
+    max_interactions: usize,
+    max_evidence: usize,
+    json: bool,
+}
+
+fn parse_rustok_architecture_context_flags(
+    args: &[String],
+) -> Result<RustokArchitectureContextFlags> {
+    let mut flags = RustokArchitectureContextFlags {
+        path: PathBuf::from("."),
+        module: None,
+        max_modules: 6,
+        max_contracts: 16,
+        max_interactions: 16,
+        max_evidence: 20,
+        json: false,
+    };
+    let mut index = 0;
+    while index < args.len() {
+        let (target, label) = match args[index].as_str() {
+            "--json" => {
+                flags.json = true;
+                index += 1;
+                continue;
+            }
+            "--path" => (&mut flags.path, "--path"),
+            "--module" => {
+                index += 1;
+                flags.module = Some(
+                    args.get(index)
+                        .ok_or_else(|| anyhow::anyhow!("--module requires a value"))?
+                        .clone(),
+                );
+                index += 1;
+                continue;
+            }
+            "--max-modules" => {
+                index += 1;
+                flags.max_modules = parse_positive_limit(args.get(index), "--max-modules")?;
+                index += 1;
+                continue;
+            }
+            "--max-contracts" => {
+                index += 1;
+                flags.max_contracts = parse_positive_limit(args.get(index), "--max-contracts")?;
+                index += 1;
+                continue;
+            }
+            "--max-interactions" => {
+                index += 1;
+                flags.max_interactions =
+                    parse_positive_limit(args.get(index), "--max-interactions")?;
+                index += 1;
+                continue;
+            }
+            "--max-evidence" => {
+                index += 1;
+                flags.max_evidence = parse_positive_limit(args.get(index), "--max-evidence")?;
+                index += 1;
+                continue;
+            }
+            value => anyhow::bail!("unknown Rustok architecture context flag `{value}`"),
+        };
+        index += 1;
+        *target = PathBuf::from(
+            args.get(index)
+                .ok_or_else(|| anyhow::anyhow!("{label} requires a value"))?,
+        );
+        index += 1;
+    }
+    Ok(flags)
+}
+
+fn parse_positive_limit(value: Option<&String>, label: &str) -> Result<usize> {
+    let value = value.ok_or_else(|| anyhow::anyhow!("{label} requires a value"))?;
+    let parsed = value
+        .parse::<usize>()
+        .with_context(|| format!("{label} must be a positive integer"))?;
+    if parsed == 0 {
+        anyhow::bail!("{label} must be greater than zero");
+    }
+    Ok(parsed)
 }
 
 #[derive(Debug, Clone)]
@@ -3033,6 +3195,50 @@ fn print_rustok_ffa_audit(report: &RustokFfaAudit) {
             surface.files.len(),
             diagnostics
         );
+    }
+}
+
+fn print_rustok_architecture_context(report: &RustokArchitectureContext) {
+    println!(
+        "RusTok architecture context (snapshot: {}, resolution: {}, primary module: {})",
+        report.snapshot,
+        report.resolution.status,
+        report
+            .resolution
+            .primary_module
+            .as_deref()
+            .unwrap_or("unresolved")
+    );
+    println!("  {}", report.resolution.summary);
+    if !report.modules.is_empty() {
+        println!("  modules:");
+        for module in &report.modules {
+            println!(
+                "    - {} score={} reasons={}",
+                module.slug,
+                module.score,
+                module.reasons.join(", ")
+            );
+        }
+    }
+    if !report.contracts.is_empty() {
+        println!("  public contracts:");
+        for contract in &report.contracts {
+            println!("    - {}", contract.stable_key);
+        }
+    }
+    if !report.interactions.is_empty() {
+        println!("  interactions:");
+        for interaction in &report.interactions {
+            println!(
+                "    - {} -> {} profile={}",
+                interaction.consumer, interaction.provider, interaction.profile
+            );
+        }
+    }
+    println!("  guidance:");
+    for guidance in &report.guidance {
+        println!("    - {guidance}");
     }
 }
 

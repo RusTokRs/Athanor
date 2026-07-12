@@ -6,6 +6,7 @@ use athanor_core::CanonicalSnapshot;
 use athanor_domain::{Diagnostic, Fact};
 use serde::Serialize;
 
+use crate::RuntimeComposition;
 use crate::config::load_config;
 use crate::index_state::{IndexState, IndexStateStore};
 use crate::project_path::normalize_canonical_path;
@@ -138,6 +139,21 @@ impl Default for AdapterAccumulator {
 }
 
 pub async fn capabilities_project(options: CapabilitiesOptions) -> Result<CapabilitiesReport> {
+    capabilities_project_inner(options, None).await
+}
+
+/// Builds an analysis-completeness report with explicitly supplied runtime dependencies.
+pub async fn capabilities_project_with_composition(
+    options: CapabilitiesOptions,
+    composition: &RuntimeComposition,
+) -> Result<CapabilitiesReport> {
+    capabilities_project_inner(options, Some(composition)).await
+}
+
+async fn capabilities_project_inner(
+    options: CapabilitiesOptions,
+    composition: Option<&RuntimeComposition>,
+) -> Result<CapabilitiesReport> {
     let root = normalize_canonical_path(
         options
             .root
@@ -145,7 +161,10 @@ pub async fn capabilities_project(options: CapabilitiesOptions) -> Result<Capabi
             .with_context(|| format!("failed to canonicalize {}", options.root.display()))?,
     );
     let config = load_config(&root)?;
-    let store = init_store(&root, &config).await?;
+    let store = match composition {
+        Some(composition) => composition.init_store(&root, &config).await?,
+        None => init_store(&root, &config).await?,
+    };
     let snapshot = store
         .load_latest_snapshot()
         .await

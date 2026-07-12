@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use athanor_core::{CoreError, CoreResult, ExtractInput, ExtractOutput, Extractor, SourceFile};
+use athanor_core::{
+    CoreError, CoreResult, ExtractInput, ExtractOutput, Extractor, InvalidationPolicy, SourceFile,
+};
 use athanor_domain::{
     Entity, EntityId, EntityKind, Fact, FactId, FactKind, LanguageCode, SourceLocation, StableKey,
 };
@@ -19,6 +21,10 @@ pub struct RustExtractor;
 impl Extractor for RustExtractor {
     fn name(&self) -> &'static str {
         "rust"
+    }
+
+    fn invalidation_policy(&self) -> InvalidationPolicy {
+        InvalidationPolicy::FILE_LOCAL
     }
 
     fn supports(&self, source: &SourceFile) -> bool {

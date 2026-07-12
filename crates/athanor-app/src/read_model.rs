@@ -31,6 +31,47 @@ pub struct JsonlReadModelReport {
     pub diagnostics: usize,
 }
 
+/// A published read-model replacement whose previous generation remains recoverable until
+/// [`Self::finalize`] is called.
+#[derive(Debug)]
+pub struct PreparedJsonlReadModel {
+    report: JsonlReadModelReport,
+    output_dir: PathBuf,
+    backup: Option<PathBuf>,
+}
+
+impl PreparedJsonlReadModel {
+    pub fn report(&self) -> &JsonlReadModelReport {
+        &self.report
+    }
+
+    pub fn finalize(mut self) -> Result<JsonlReadModelReport> {
+        if let Some(backup) = self.backup.take() {
+            fs::remove_dir_all(&backup).with_context(|| {
+                format!("failed to remove read model backup {}", backup.display())
+            })?;
+        }
+        Ok(self.report)
+    }
+
+    pub fn rollback(mut self) -> Result<()> {
+        if self.output_dir.exists() {
+            fs::remove_dir_all(&self.output_dir).with_context(|| {
+                format!(
+                    "failed to remove unpublished read model {}",
+                    self.output_dir.display()
+                )
+            })?;
+        }
+        if let Some(backup) = self.backup.take() {
+            fs::rename(&backup, &self.output_dir).with_context(|| {
+                format!("failed to restore read model backup {}", backup.display())
+            })?;
+        }
+        Ok(())
+    }
+}
+
 impl JsonlReadModelWriter {
     pub fn new(output_dir: impl Into<PathBuf>) -> Self {
         Self {
@@ -39,14 +80,18 @@ impl JsonlReadModelWriter {
     }
 
     pub fn write(&self, output: &IndexPipelineOutput) -> Result<JsonlReadModelReport> {
-        write_jsonl(&self.output_dir.join("entities.jsonl"), &output.entities)?;
-        write_jsonl(&self.output_dir.join("facts.jsonl"), &output.facts)?;
-        write_jsonl(&self.output_dir.join("relations.jsonl"), &output.relations)?;
-        write_jsonl(
-            &self.output_dir.join("diagnostics.jsonl"),
-            &output.diagnostics,
-        )?;
+        self.prepare(output)?.finalize()
+    }
 
+    pub fn prepare(&self, output: &IndexPipelineOutput) -> Result<PreparedJsonlReadModel> {
+        self.prepare_with_publication_id(output, &publication_nonce())
+    }
+
+    pub fn prepare_with_publication_id(
+        &self,
+        output: &IndexPipelineOutput,
+        publication_id: &str,
+    ) -> Result<PreparedJsonlReadModel> {
         let report = JsonlReadModelReport {
             output_dir: self.output_dir.clone(),
             snapshot: output.snapshot.0.clone(),
@@ -60,9 +105,14 @@ impl JsonlReadModelWriter {
             diagnostics: output.diagnostics.len(),
         };
 
-        write_manifest(&self.output_dir.join("manifest.json"), &report)?;
-
-        Ok(report)
+        let manifest_report = report.clone();
+        self.publish(report, publication_id, move |staging| {
+            write_jsonl(&staging.join("entities.jsonl"), &output.entities)?;
+            write_jsonl(&staging.join("facts.jsonl"), &output.facts)?;
+            write_jsonl(&staging.join("relations.jsonl"), &output.relations)?;
+            write_jsonl(&staging.join("diagnostics.jsonl"), &output.diagnostics)?;
+            write_manifest(&staging.join("manifest.json"), &manifest_report)
+        })
     }
 
     pub fn write_canonical_snapshot(
@@ -82,11 +132,6 @@ impl JsonlReadModelWriter {
         relations.sort_by(|left, right| left.id.0.cmp(&right.id.0));
         diagnostics.sort_by(|left, right| left.id.0.cmp(&right.id.0));
 
-        write_jsonl(&self.output_dir.join("entities.jsonl"), &entities)?;
-        write_jsonl(&self.output_dir.join("facts.jsonl"), &facts)?;
-        write_jsonl(&self.output_dir.join("relations.jsonl"), &relations)?;
-        write_jsonl(&self.output_dir.join("diagnostics.jsonl"), &diagnostics)?;
-
         let files_indexed = entities
             .iter()
             .filter(|entity| entity.kind == EntityKind::File)
@@ -103,10 +148,93 @@ impl JsonlReadModelWriter {
             relations: relations.len(),
             diagnostics: diagnostics.len(),
         };
-        write_manifest(&self.output_dir.join("manifest.json"), &report)?;
-
-        Ok(report)
+        let manifest_report = report.clone();
+        self.publish(report, &publication_nonce(), move |staging| {
+            write_jsonl(&staging.join("entities.jsonl"), &entities)?;
+            write_jsonl(&staging.join("facts.jsonl"), &facts)?;
+            write_jsonl(&staging.join("relations.jsonl"), &relations)?;
+            write_jsonl(&staging.join("diagnostics.jsonl"), &diagnostics)?;
+            write_manifest(&staging.join("manifest.json"), &manifest_report)
+        })?
+        .finalize()
     }
+
+    /// Builds every read-model file in a sibling staging directory before replacing the current
+    /// directory. Readers therefore see either the prior complete model or the new complete one.
+    fn publish(
+        &self,
+        report: JsonlReadModelReport,
+        publication_id: &str,
+        write: impl FnOnce(&Path) -> Result<()>,
+    ) -> Result<PreparedJsonlReadModel> {
+        let parent = self.output_dir.parent().ok_or_else(|| {
+            anyhow::anyhow!(
+                "read model output has no parent: {}",
+                self.output_dir.display()
+            )
+        })?;
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+        let name = self
+            .output_dir
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| {
+                anyhow::anyhow!("invalid read model path: {}", self.output_dir.display())
+            })?;
+        let staging = parent.join(format!(".{name}.staging-{publication_id}"));
+        let backup = parent.join(format!(".{name}.backup-{publication_id}"));
+
+        if let Err(error) = write(&staging) {
+            let _ = fs::remove_dir_all(&staging);
+            return Err(error).context("failed to stage JSONL read model");
+        }
+        // The manifest is written last and is the staged completeness marker.
+        if !staging.join("manifest.json").is_file() {
+            let _ = fs::remove_dir_all(&staging);
+            anyhow::bail!(
+                "staged JSONL read model for {} has no manifest",
+                report.snapshot
+            );
+        }
+
+        if self.output_dir.exists() {
+            fs::rename(&self.output_dir, &backup).with_context(|| {
+                format!(
+                    "failed to stage previous read model {}",
+                    self.output_dir.display()
+                )
+            })?;
+        }
+        if let Err(error) = fs::rename(&staging, &self.output_dir) {
+            if backup.exists() {
+                let _ = fs::rename(&backup, &self.output_dir);
+            }
+            let _ = fs::remove_dir_all(&staging);
+            return Err(error).with_context(|| {
+                format!(
+                    "failed to publish JSONL read model {}",
+                    self.output_dir.display()
+                )
+            });
+        }
+        Ok(PreparedJsonlReadModel {
+            report,
+            output_dir: self.output_dir.clone(),
+            backup: backup.exists().then_some(backup),
+        })
+    }
+}
+
+fn publication_nonce() -> String {
+    format!(
+        "{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+    )
 }
 
 fn write_jsonl<T: Serialize>(path: &Path, items: &[T]) -> Result<()> {
@@ -241,6 +369,77 @@ mod tests {
             fs::read_to_string(output_dir.join("entities.jsonl"))
                 .unwrap()
                 .contains("file://README.md")
+        );
+        fs::remove_dir_all(output_dir).unwrap();
+    }
+
+    #[test]
+    fn replaces_the_entire_previous_read_model_generation() {
+        let output_dir = std::env::temp_dir().join(format!(
+            "athanor-jsonl-read-model-replace-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&output_dir).unwrap();
+        fs::write(output_dir.join("obsolete.jsonl"), "obsolete\n").unwrap();
+        let output = IndexPipelineOutput {
+            snapshot: SnapshotId("snap_replace".to_string()),
+            files: Vec::new(),
+            entities: Vec::new(),
+            facts: Vec::new(),
+            relations: Vec::new(),
+            diagnostics: Vec::new(),
+            affected_files: crate::AffectedFileSet::default(),
+            metrics: crate::IndexPipelineMetrics::default(),
+        };
+
+        JsonlReadModelWriter::new(&output_dir)
+            .write(&output)
+            .unwrap();
+
+        assert!(!output_dir.join("obsolete.jsonl").exists());
+        assert!(output_dir.join("manifest.json").is_file());
+        fs::remove_dir_all(output_dir).unwrap();
+    }
+
+    #[test]
+    fn prepared_publication_rolls_back_to_the_previous_generation() {
+        let output_dir = std::env::temp_dir().join(format!(
+            "athanor-jsonl-read-model-rollback-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&output_dir).unwrap();
+        fs::write(
+            output_dir.join("manifest.json"),
+            r#"{"snapshot":"snap_old"}"#,
+        )
+        .unwrap();
+        let output = IndexPipelineOutput {
+            snapshot: SnapshotId("snap_new".to_string()),
+            files: Vec::new(),
+            entities: Vec::new(),
+            facts: Vec::new(),
+            relations: Vec::new(),
+            diagnostics: Vec::new(),
+            affected_files: crate::AffectedFileSet::default(),
+            metrics: crate::IndexPipelineMetrics::default(),
+        };
+
+        JsonlReadModelWriter::new(&output_dir)
+            .prepare(&output)
+            .unwrap()
+            .rollback()
+            .unwrap();
+
+        assert!(
+            fs::read_to_string(output_dir.join("manifest.json"))
+                .unwrap()
+                .contains("snap_old")
         );
         fs::remove_dir_all(output_dir).unwrap();
     }

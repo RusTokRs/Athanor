@@ -222,6 +222,34 @@ impl KnowledgeStore for JsonlKnowledgeStore {
 
         Ok(())
     }
+
+    async fn abort_snapshot(&self, snapshot: SnapshotId) -> CoreResult<()> {
+        let _writer_lock = self.acquire_writer_lock()?;
+        {
+            let mut state = self.lock_state()?;
+            let data = state
+                .snapshots
+                .get(&snapshot)
+                .ok_or_else(|| CoreError::NotFound(format!("snapshot {}", snapshot.0)))?;
+            if data.committed {
+                return Err(CoreError::Conflict(format!(
+                    "cannot abort committed snapshot {}",
+                    snapshot.0
+                )));
+            }
+            state.snapshots.remove(&snapshot);
+        }
+        let snapshot_dir = self.snapshot_dir(&snapshot);
+        if snapshot_dir.exists() {
+            fs::remove_dir_all(&snapshot_dir).map_err(|err| {
+                CoreError::Adapter(format!(
+                    "failed to remove aborted snapshot {}: {err}",
+                    snapshot_dir.display()
+                ))
+            })?;
+        }
+        Ok(())
+    }
 }
 
 #[async_trait]

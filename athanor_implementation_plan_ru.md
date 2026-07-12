@@ -11,24 +11,24 @@
 
 | Пункт | Фактический статус | Основание сверки / следующий шаг |
 | --- | --- | --- |
-| 3.1 | частично выполнен | ID-based storage queries и resolver есть; SurrealDB conformance execution ещё отсутствует. |
-| 3.2 | частично выполнен | selector committed snapshot есть; требуется завершить conformance всех backend. |
-| 3.3 | частично выполнен | JSONL staging/pointer есть; нет coordinated publication canonical/read model/state. |
-| 3.4 | частично выполнен | JSONL writer lock, persistent sequence и cleanup известных staging artifacts есть; нет полного lifecycle lock и Surreal transaction. |
-| 3.5 | частично выполнен | Tokio process/I/O/timeout есть; нет request cancellation и process-tree termination. |
+| 3.1 | частично выполнен | ID-based storage queries и resolver есть; shared conformance test добавлен в SurrealDB `mem://` suite, execution ещё ожидает завершения тяжёлой SurrealDB build. |
+| 3.2 | частично выполнен | selector committed snapshot есть; Surreal canonical public load now rejects uncommitted snapshots, JSONL exposes only published snapshot directories. Требуется завершить conformance всех backend. |
+| 3.3 | частично выполнен | index pipeline prepares canonical snapshot, read model/state retain prior backups until canonical commit, canonical latest commits last with rollback, and `index-publication.json` recovers interrupted publication under the project lock; shared generation pointer/fully backend-transactional prepare are still absent. |
+| 3.4 | частично выполнен | JSONL writer lock/persistent sequence и application-wide `index-publication.lock` для full index lifecycle есть; нет Surreal transaction и atomic coordinated final pointers. |
+| 3.5 | частично выполнен | Tokio process runner supports bounded streams, timeout, explicit manifest-directory `current_dir`, typed cancellation, and cancellable indexing propagates token into process source/extractor/linker/checker phases. On Windows timeout/cancel invokes `taskkill /T /F` before direct-child fallback. `athanor-core` exposes transport-neutral ProcessRunner request/output contract and `TokioProcessRunner` implements it; Job Objects and Unix process groups remain. |
 | 4.1 | частично выполнен | manifest trust, allowlist и executable SHA-256 binding есть; остаются trust v2 policy и sandbox profile. |
-| 4.2 | частично выполнен | pipeline проверяет cancellation между фазами; adapter subprocess не получает cancellation token. |
-| 4.3 | частично выполнен | shared `Arc<Vec<_>>` и benchmark metrics есть; нет memory budget/per-adapter limits. |
-| 4.4 | не выполнен | add/remove всё ещё принудительно запускают full extraction. |
-| 4.5 | не выполнен | порты не имеют abort/prepare/batch transaction. |
-| 4.6 | не выполнен | `OnceLock` composition factories остаются в `athanor-app`. |
-| 4.7 | не выполнен | публичный `pub use ports::*` остаётся wildcard export. |
-| 4.8 | не выполнен | `runtime.rs`, `pipeline.rs` и daemon ещё требуют декомпозиции. |
-| 4.9 | частично выполнен | добавлены `Conflict`/`SnapshotNotCommitted`; стабильный typed public error/protocol contract не завершён. |
+| 4.2 | частично выполнен | cancellable pipeline scopes `CancellationToken` around source discovery, extraction, linking, and checking, so external adapter subprocesses receive it through Tokio task-local context. A typed cross-adapter `OperationContext`, deadlines for all adapters, store/projector propagation, and contract matrix remain. |
+| 4.3 | частично выполнен | shared `Arc<Vec<_>>`, benchmark metrics, byte budget semaphore и configurable global/per-adapter extraction limits есть; full pipeline memory budget and limits outside extraction remain. |
+| 4.4 | частично выполнен | planner теперь избегает full extraction для add/remove и global-refreshes only derived linker/checker outputs by evidence producer; `DependencyClosure` transitive walks existing canonical relations from changed extracted entities and seeds surviving direct neighbors of removed entities from the previous snapshot. Built-in extractors remain FileLocal, unknown adapters conservatively global; full regression matrix remains. |
+| 4.5 | частично выполнен | `abort_snapshot` есть во всех storage adapters, pipeline вызывает rollback при write/commit failure; prepare/batch transaction остаются. |
+| 4.6 | частично выполнен | Добавлена явная immutable `RuntimeComposition`; composition-aware APIs покрывают index/update/generate, context, explain, overview, impact, coverage, capabilities, change-map, check, wiki, HTML report, generation и search без global factory lookup. `athd serve` передаёт composition в daemon state и использует её в index/generate/wiki/HTML/snapshot/search/context/change-map jobs; compatibility `OnceLock` остаётся для legacy library entrypoints. Внешний `TokioProcessRunner` пока не является composition dependency: текущий core port намеренно не принимает application cancellation, поэтому для DI требуется отдельный cancellation-aware application port. |
+| 4.7 | частично выполнен | core ports экспортируются явным списком; `athanor-app` теперь имеет namespaces `indexing`/`publication`/`query`/`projects`, но legacy root wildcard surface остаётся для compatibility. |
+| 4.8 | частично выполнен | explicit composition вынесена в `composition.rs`, async `TokioProcessRunner` — в `runtime/process_runner.rs`, invalidation — в отдельный module, daemon query `BoundedCache` — в `daemon_runtime.rs`; `runtime.rs`, `pipeline.rs` и daemon protocol orchestration всё ещё требуют основной декомпозиции. |
+| 4.9 | частично выполнен | core имеет stable `CoreErrorCode`, retryability и typed conflict/snapshot/busy/cancel/deadline categories; public daemon/MCP protocol v3 не завершён. |
 | 4.10 | выполнен | default builds не включают optional SurrealDB adapter; `store-surreal` — явный opt-in feature. |
 | 5.1 | не подтверждён | branch protection и hosted checks требуют проверки/настройки GitHub. |
 | 5.2 | частично выполнен | есть coverage reports, но нет CI coverage no-regression gate. |
-| 5.3 | частично выполнен | security/release workflows есть; полный SAST/secret/SBOM gate не подтверждён. |
+| 5.3 | частично выполнен | security/release workflows и проверенный `-Dunsafe_code` policy gate есть; полный SAST/secret/SBOM gate не подтверждён. |
 | 5.4 | выполнен | strict parsing и `ath config validate`/`doctor` реализованы. |
 | 5.5 | частично выполнен | локальные governance/templates/dependabot добавлены; CI policy и release/changelog policy остаются. |
 
@@ -36,27 +36,53 @@
   stable key возвращается типизированной ошибкой `Conflict`.
 - [-] 3.2: все методы `KnowledgeStore::query_*` требуют `SnapshotSelector`; `Exact` отклоняет
   незакоммиченный snapshot, `LatestCommitted` видит только committed snapshot.
+- [-] 3.2: `CanonicalSnapshotStore::load_snapshot` SurrealDB теперь также отклоняет uncommitted
+  snapshot, как query layer; остаётся полный conformance запуск с реальным backend.
 - [-] 3.1–3.2: выделен общий `athanor-store-conformance` suite и он выполняется для JSONL и
-  Memory; для полного критерия всё ещё нужен интеграционный запуск того же набора с реальным
-  SurrealDB backend.
+  Memory; dev-only `mem://` test добавлен также в SurrealDB crate (без включения backend в
+  default CLI feature graph). Для полного критерия execution этого набора и transaction/concurrency
+  semantics реального backend всё ещё требуют подтверждения.
 - [-] 3.5: внешний adapter runner переведён со `std::process` и блокирующих потоков на
-  `tokio::process` и async I/O; остаются отдельный `ProcessRunner` порт, отмена по request token
-  и гарантированное завершение process tree.
+  `tokio::process` и async I/O; command запускается с явно заданным canonical manifest-directory
+  `current_dir`. Runner умеет optional `CancellationToken` и переводит cancel в typed
+  `CoreError::Cancelled` после tree-aware termination. Cancellable pipeline scopes token in Tokio
+  task-local context вокруг source, extractor, linker и checker calls, поэтому all external adapter
+  phases получают cancellation without changing core adapter input structs. На Windows cancellation
+  и timeout сначала вызывают `taskkill /T /F`, затем direct-child fallback; остаются public
+  ProcessRunner port, Job Objects и guaranteed Unix process-tree termination.
 - [-] 3.3: JSONL canonical snapshot полностью записывается в уникальный staging-каталог и
   публикуется rename; pointer публикуется отдельным staged replacement после snapshot. Общий
-  coordinator для canonical snapshot, read model и index state ещё не реализован.
+  coordinator для canonical snapshot, read model и index state ещё не реализован. `JsonlReadModelWriter`
+  публикует полный набор файлов заменой staged directory, а `IndexStateStore` пишет staged JSON;
+  оба восстанавливают прежний artefact при ошибке final rename.
+- [-] 3.3: normal index path использует deferred canonical commit: pipeline сохраняет snapshot
+  uncommitted, затем application готовит read model и index state с retained previous backups,
+  а `commit_snapshot` (и canonical latest) выполняет последним. При error этого commit новые
+  artefacts откатываются до backup, а snapshot abort-ится. Durable journal
+  `.athanor/state/index-publication.json` records the publication id before replacements; next
+  `ath index` finalizes its backups if canonical commit succeeded or restores/aborts otherwise.
+  Для полного критерия всё ещё нужны fully backend-transactional `prepare` handles и единый
+  current pointer.
 - [-] 3.4: JSONL использует OS-level writer lock при выделении и commit snapshot, а persistently
   stored sequence устраняет коллизию ID между отдельными процессами. Нужны lock на полный
-  application publication lifecycle и транзакционная модель SurrealDB. При следующем begin JSONL
-  удаляет только известные stale staging artifacts под тем же lock.
+  application publication lifecycle и транзакционная модель SurrealDB. `ath index` теперь держит
+  OS-level `index-publication.lock` от state classification до publication read model/state; при
+  следующем begin JSONL удаляет только известные stale staging artifacts под своим lock.
+- [-] 4.6: `RuntimeComposition` явно несёт adapter registry, builtin resolver, store/search
+  factories и projectors; новые пути `ath index`/`ath update`/`ath context`/`ath explain`/
+  `ath overview`/`ath impact`/`ath coverage`/`ath capabilities`/`ath change-map`/`ath check` и
+  `athd serve` не используют process-global factories. Daemon сохраняет composition в state и
+  передаёт её фоновой index/generate/wiki/HTML работе и snapshot/search/context/change-map query
+  flows. Legacy library entrypoints пока используют deprecated compatibility installation, поэтому
+  полное удаление `OnceLock` требует перевода daemon и остальных application services.
 - [x] 5.4: `athanor.toml` отклоняет неизвестные поля на каждом поддерживаемом уровне конфигурации;
   добавлены проверки top-level и nested полей, а также `ath config validate` и `ath config doctor`
   для effective config и локальной проверки backend/adapter compatibility.
 - [-] 5.5: добавлены CONTRIBUTING, SECURITY, CODE_OF_CONDUCT, PR/issue templates, ADR template
   и Dependabot. Conventional-commit enforcement и release/changelog policy в CI остаются открыты.
 
-Проверка baseline: `cargo test --workspace --quiet`, `cargo clippy --workspace --all-targets -- -D warnings`,
-`cargo run -p ath --quiet -- index .` и `cargo run -p ath --quiet -- docs check` проходят. Metadata
+Проверка baseline до последних незапущенных изменений: `cargo test --workspace --quiet`, `cargo clippy --workspace --all-targets -- -D warnings`,
+`cargo run -p ath --quiet -- index .` и `cargo run -p ath --quiet -- docs check` проходили. Metadata
 GraphQL и coding standards приведены к `verified`, поскольку status policy описывает проверенность
 документа, а не завершённость соответствующей продуктовой feature.
 - [ ] 3.3–3.5 и разделы P1/P2: остаются в работе и не отмечаются как выполненные без отдельной

@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use async_trait::async_trait;
-use athanor_core::{CoreResult, LinkInput, Linker};
+use athanor_core::{CoreResult, InvalidationPolicy, InvalidationScope, LinkInput, Linker};
 use athanor_domain::{
     Entity, EntityKind, Evidence, EvidenceStatus, Ownership, Relation, RelationId, RelationKind,
     RelationStatus, SnapshotId,
@@ -18,6 +18,14 @@ pub struct JsTsImportLinker;
 impl Linker for JsTsImportLinker {
     fn name(&self) -> &str {
         "js-ts-imports"
+    }
+
+    fn invalidation_policy(&self) -> InvalidationPolicy {
+        InvalidationPolicy {
+            on_change: InvalidationScope::DependencyClosure,
+            on_add: InvalidationScope::DependencyClosure,
+            on_remove: InvalidationScope::DependencyClosure,
+        }
     }
 
     async fn link(&self, input: LinkInput) -> CoreResult<Vec<Relation>> {

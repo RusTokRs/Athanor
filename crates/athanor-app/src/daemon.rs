@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::fmt;
 use std::fs::{self};
 use std::io::ErrorKind;
@@ -31,15 +31,23 @@ use tokio::sync::{Semaphore, mpsc};
 use athanor_core::{CanonicalSnapshot, CanonicalSnapshotStore, SearchIndex};
 use athanor_domain::ContextLevel;
 
+use crate::daemon_runtime::BoundedCache;
 use crate::explain::explain_snapshot;
-use crate::search::{get_or_build_search_index_sync, search_snapshot_with_index};
+use crate::search::{
+    get_or_build_search_index_sync, get_or_build_search_index_with_factory,
+    search_snapshot_with_index,
+};
 use crate::{
     CancellationToken, ChangeMapOptions, ContextLimitOverrides, ContextLimits, ContextOptions,
     DaemonRuntimeLock, DaemonRuntimePaths, GenerationOptions, HtmlReportOptions, IndexOptions,
-    RepositoryOverview, RuntimeFileGuard, WikiOptions, build_repository_overview,
-    change_map_project, constant_time_token_eq, context_project, create_daemon_token,
-    generate_context_pack, generate_project_cancellable, index_project_cancellable,
-    project_html_report_cancellable, project_wiki_cancellable, read_daemon_token,
+    RepositoryOverview, RuntimeComposition, RuntimeFileGuard, WikiOptions,
+    build_repository_overview, change_map_project, change_map_project_with_composition,
+    constant_time_token_eq, context_project, context_project_with_composition, create_daemon_token,
+    generate_context_pack, generate_project_cancellable,
+    generate_project_cancellable_with_composition, index_project_cancellable,
+    index_project_cancellable_with_composition, project_html_report_cancellable,
+    project_html_report_cancellable_with_composition, project_wiki_cancellable,
+    project_wiki_cancellable_with_composition, read_daemon_token,
 };
 use crate::{config::load_config, store::init_store};
 
@@ -253,8 +261,8 @@ pub struct DaemonJobsReport {
     pub jobs: Vec<DaemonJob>,
 }
 
-#[derive(Debug)]
 struct DaemonState {
+    composition: Option<RuntimeComposition>,
     endpoint: DaemonEndpoint,
     auth_token: String,
     insecure_allow_v1: bool,
@@ -298,50 +306,6 @@ struct ContextCacheKey {
     limits: ContextLimits,
 }
 
-#[derive(Debug)]
-struct BoundedCache<K, V> {
-    capacity: usize,
-    entries: VecDeque<(K, V)>,
-}
-
-impl<K: PartialEq, V: Clone> BoundedCache<K, V> {
-    fn new(capacity: usize) -> Self {
-        Self {
-            capacity,
-            entries: VecDeque::new(),
-        }
-    }
-
-    fn get(&mut self, key: &K) -> Option<V> {
-        let index = self
-            .entries
-            .iter()
-            .position(|(candidate, _)| candidate == key)?;
-        let entry = self.entries.remove(index)?;
-        let value = entry.1.clone();
-        self.entries.push_back(entry);
-        Some(value)
-    }
-
-    fn insert(&mut self, key: K, value: V) {
-        if let Some(index) = self
-            .entries
-            .iter()
-            .position(|(candidate, _)| candidate == &key)
-        {
-            self.entries.remove(index);
-        }
-        self.entries.push_back((key, value));
-        while self.entries.len() > self.capacity {
-            self.entries.pop_front();
-        }
-    }
-
-    fn clear(&mut self) {
-        self.entries.clear();
-    }
-}
-
 enum DaemonConnection {
     Tcp(TcpStream),
     #[cfg(unix)]
@@ -356,6 +320,24 @@ struct AcceptedDaemonConnection {
 }
 
 pub async fn serve_daemon(options: DaemonServeOptions) -> Result<()> {
+    serve_daemon_inner(options, None).await
+}
+
+/// Serves a daemon with explicitly supplied application dependencies.
+///
+/// This is the preferred entry point for new daemon hosts. The compatibility entry point keeps
+/// using installed factories until every legacy daemon job has migrated.
+pub async fn serve_daemon_with_composition(
+    options: DaemonServeOptions,
+    composition: RuntimeComposition,
+) -> Result<()> {
+    serve_daemon_inner(options, Some(composition)).await
+}
+
+async fn serve_daemon_inner(
+    options: DaemonServeOptions,
+    composition: Option<RuntimeComposition>,
+) -> Result<()> {
     if options.max_concurrent_requests == 0 || options.max_concurrent_requests > 128 {
         bail!("daemon max_concurrent_requests must be between 1 and 128");
     }
@@ -436,6 +418,7 @@ pub async fn serve_daemon(options: DaemonServeOptions) -> Result<()> {
     };
     write_endpoint(&runtime.endpoint, &endpoint)?;
     let state = Arc::new(DaemonState {
+        composition,
         auth_token,
         insecure_allow_v1: options.insecure_allow_v1,
         lifecycle: Mutex::new(DaemonLifecycleState::Running),
@@ -1001,6 +984,7 @@ async fn execute_request(
                     let job_id_for_task = job_id.clone();
                     let root = state.endpoint.root.clone();
                     let cancellation_for_task = cancellation.clone();
+                    let composition = daemon_composition(&state);
                     if let Err(error) = std::thread::Builder::new()
                         .name(format!("athd-generate-{job_id_for_task}"))
                         .spawn(move || {
@@ -1012,10 +996,26 @@ async fn execute_request(
                                 .build()
                                 .map_err(anyhow::Error::from)
                                 .and_then(|runtime| {
-                                    runtime.block_on(generate_project_cancellable(
-                                        GenerationOptions { root, force: false },
-                                        cancellation_for_task.clone(),
-                                    ))
+                                    runtime.block_on(async move {
+                                        let options = GenerationOptions { root, force: false };
+                                        match composition {
+                                            Some(composition) => {
+                                                generate_project_cancellable_with_composition(
+                                                    options,
+                                                    cancellation_for_task,
+                                                    &composition,
+                                                )
+                                                .await
+                                            }
+                                            None => {
+                                                generate_project_cancellable(
+                                                    options,
+                                                    cancellation_for_task,
+                                                )
+                                                .await
+                                            }
+                                        }
+                                    })
                                 });
                             match result {
                                 Ok(report) => {
@@ -1101,6 +1101,7 @@ async fn execute_request(
                     let job_id_for_task = job_id.clone();
                     let root = state.endpoint.root.clone();
                     let cancellation_for_task = cancellation.clone();
+                    let composition = daemon_composition(&state);
                     if let Err(error) = std::thread::Builder::new()
                         .name(format!("athd-wiki-{job_id_for_task}"))
                         .spawn(move || {
@@ -1112,10 +1113,26 @@ async fn execute_request(
                                 .build()
                                 .map_err(anyhow::Error::from)
                                 .and_then(|runtime| {
-                                    runtime.block_on(project_wiki_cancellable(
-                                        WikiOptions { root, output: None },
-                                        cancellation_for_task.clone(),
-                                    ))
+                                    runtime.block_on(async move {
+                                        let options = WikiOptions { root, output: None };
+                                        match composition {
+                                            Some(composition) => {
+                                                project_wiki_cancellable_with_composition(
+                                                    options,
+                                                    cancellation_for_task,
+                                                    &composition,
+                                                )
+                                                .await
+                                            }
+                                            None => {
+                                                project_wiki_cancellable(
+                                                    options,
+                                                    cancellation_for_task,
+                                                )
+                                                .await
+                                            }
+                                        }
+                                    })
                                 });
                             match result {
                                 Ok(report) => {
@@ -1199,6 +1216,7 @@ async fn execute_request(
                     let job_id_for_task = job_id.clone();
                     let root = state.endpoint.root.clone();
                     let cancellation_for_task = cancellation.clone();
+                    let composition = daemon_composition(&state);
                     if let Err(error) = std::thread::Builder::new()
                         .name(format!("athd-html-report-{job_id_for_task}"))
                         .spawn(move || {
@@ -1210,10 +1228,26 @@ async fn execute_request(
                                 .build()
                                 .map_err(anyhow::Error::from)
                                 .and_then(|runtime| {
-                                    runtime.block_on(project_html_report_cancellable(
-                                        HtmlReportOptions { root, output: None },
-                                        cancellation_for_task.clone(),
-                                    ))
+                                    runtime.block_on(async move {
+                                        let options = HtmlReportOptions { root, output: None };
+                                        match composition {
+                                            Some(composition) => {
+                                                project_html_report_cancellable_with_composition(
+                                                    options,
+                                                    cancellation_for_task,
+                                                    &composition,
+                                                )
+                                                .await
+                                            }
+                                            None => {
+                                                project_html_report_cancellable(
+                                                    options,
+                                                    cancellation_for_task,
+                                                )
+                                                .await
+                                            }
+                                        }
+                                    })
                                 });
                             match result {
                                 Ok(report) => {
@@ -1504,14 +1538,19 @@ async fn execute_request(
                 }
             };
             let context_result = if diff {
-                context_project(ContextOptions {
+                let options = ContextOptions {
                     root: state.endpoint.root.clone(),
                     task,
                     diff,
                     level,
                     limits,
-                })
-                .await
+                };
+                match daemon_composition(&state) {
+                    Some(composition) => {
+                        context_project_with_composition(options, &composition).await
+                    }
+                    None => context_project(options).await,
+                }
             } else {
                 daemon_context_from_cache(&state, &task, level, &limits).await
             };
@@ -1574,7 +1613,7 @@ async fn execute_request(
                     );
                 }
             };
-            match change_map_project(ChangeMapOptions {
+            let options = ChangeMapOptions {
                 root: state.endpoint.root.clone(),
                 task,
                 target,
@@ -1583,9 +1622,14 @@ async fn execute_request(
                 max_files,
                 max_diagnostics,
                 max_depth,
-            })
-            .await
-            {
+            };
+            let report = match daemon_composition(&state) {
+                Some(composition) => {
+                    change_map_project_with_composition(options, &composition).await
+                }
+                None => change_map_project(options).await,
+            };
+            match report {
                 Ok(report) => {
                     let _ =
                         finish_daemon_job(&state, &job_id, DaemonJobStatus::Succeeded, None, None);
@@ -1776,7 +1820,10 @@ async fn latest_snapshot_for_daemon(state: &Arc<DaemonState>) -> Result<Canonica
 
     let root = &state.endpoint.root;
     let config = load_config(root)?;
-    let store = init_store(root, &config).await?;
+    let store = match daemon_composition(state) {
+        Some(composition) => composition.init_store(root, &config).await?,
+        None => init_store(root, &config).await?,
+    };
     let snapshot = store
         .load_latest_snapshot()
         .await
@@ -1793,6 +1840,10 @@ async fn latest_snapshot_for_daemon(state: &Arc<DaemonState>) -> Result<Canonica
         .map_err(|_| anyhow::anyhow!("daemon snapshot cache lock is poisoned"))? =
         Some(snapshot.clone());
     Ok(snapshot)
+}
+
+fn daemon_composition(state: &DaemonState) -> Option<RuntimeComposition> {
+    state.composition.clone()
 }
 
 async fn daemon_context_from_cache(
@@ -1930,7 +1981,15 @@ fn search_index_for_daemon(
         .endpoint
         .root
         .join(".athanor/generated/current/search");
-    let index = get_or_build_search_index_sync(snapshot, &snapshot_id, &index_dir)?;
+    let index = match daemon_composition(state) {
+        Some(composition) => get_or_build_search_index_with_factory(
+            snapshot,
+            &snapshot_id,
+            &index_dir,
+            |directory, documents| composition.build_search_index(directory, documents),
+        )?,
+        None => get_or_build_search_index_sync(snapshot, &snapshot_id, &index_dir)?,
+    };
     *cache = Some(CachedSearchIndex {
         snapshot_id,
         index: Arc::clone(&index),
@@ -2000,8 +2059,8 @@ fn cache_status(state: &DaemonState) -> Value {
     serde_json::json!({
         "snapshot_loaded": state.latest_snapshot_cache.lock().is_ok_and(|cache| cache.is_some()),
         "search_index_loaded": state.search_index_cache.lock().is_ok_and(|cache| cache.is_some()),
-        "overview_entries": state.overview_cache.lock().map_or(0, |cache| cache.entries.len()),
-        "context_entries": state.context_cache.lock().map_or(0, |cache| cache.entries.len()),
+        "overview_entries": state.overview_cache.lock().map_or(0, |cache| cache.len()),
+        "context_entries": state.context_cache.lock().map_or(0, |cache| cache.len()),
     })
 }
 
@@ -2056,6 +2115,7 @@ fn start_index_job(state: &Arc<DaemonState>, description: String) -> Result<Daem
     let job_id_for_task = job_id.clone();
     let root = state.endpoint.root.clone();
     let cancellation_for_task = cancellation.clone();
+    let composition = daemon_composition(state);
     if let Err(error) = std::thread::Builder::new()
         .name(format!("athd-index-{job_id_for_task}"))
         .spawn(move || {
@@ -2067,15 +2127,25 @@ fn start_index_job(state: &Arc<DaemonState>, description: String) -> Result<Daem
                 .build()
                 .map_err(anyhow::Error::from)
                 .and_then(|runtime| {
-                    runtime.block_on(index_project_cancellable(
-                        IndexOptions {
+                    runtime.block_on(async move {
+                        let options = IndexOptions {
                             root,
                             validation_report: None,
                             validation_result: None,
                             validate_only: false,
-                        },
-                        cancellation_for_task.clone(),
-                    ))
+                        };
+                        match composition {
+                            Some(composition) => {
+                                index_project_cancellable_with_composition(
+                                    options,
+                                    cancellation_for_task,
+                                    &composition,
+                                )
+                                .await
+                            }
+                            None => index_project_cancellable(options, cancellation_for_task).await,
+                        }
+                    })
                 });
             match result {
                 Ok(report) => {
@@ -2775,6 +2845,7 @@ mod tests {
             max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
         };
         let state = Arc::new(DaemonState {
+            composition: None,
             auth_token,
             insecure_allow_v1: false,
             lifecycle: Mutex::new(DaemonLifecycleState::Running),
@@ -2866,23 +2937,26 @@ mod tests {
         let root = temp_root("local-socket");
         let serve_root = root.clone();
         let serve_task = tokio::spawn(async move {
-            serve_daemon(DaemonServeOptions {
-                project_id: "alpha".to_string(),
-                root: serve_root.clone(),
-                registry_path: serve_root.join("projects.json"),
-                listen: "127.0.0.1:0".parse().unwrap(),
-                transport: DaemonTransport::LocalSocket,
-                max_concurrent_requests: 4,
-                max_job_history: 100,
-                watch: false,
-                watch_poll: false,
-                debounce_ms: 1000,
-                max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
-                max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
-                insecure_allow_v1: false,
-                runtime_dir: Some(serve_root.join(".athanor/daemon")),
-                shutdown_timeout: Duration::from_secs(5),
-            })
+            serve_daemon_with_composition(
+                DaemonServeOptions {
+                    project_id: "alpha".to_string(),
+                    root: serve_root.clone(),
+                    registry_path: serve_root.join("projects.json"),
+                    listen: "127.0.0.1:0".parse().unwrap(),
+                    transport: DaemonTransport::LocalSocket,
+                    max_concurrent_requests: 4,
+                    max_job_history: 100,
+                    watch: false,
+                    watch_poll: false,
+                    debounce_ms: 1000,
+                    max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
+                    max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
+                    insecure_allow_v1: false,
+                    runtime_dir: Some(serve_root.join(".athanor/daemon")),
+                    shutdown_timeout: Duration::from_secs(5),
+                },
+                crate::test_runtime::composition(),
+            )
             .await
         });
 
@@ -2941,6 +3015,7 @@ mod tests {
             max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
         };
         let state = DaemonState {
+            composition: None,
             auth_token: "test-token".to_string(),
             insecure_allow_v1: false,
             lifecycle: Mutex::new(DaemonLifecycleState::Running),
@@ -3012,6 +3087,7 @@ mod tests {
             max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
         };
         let state = DaemonState {
+            composition: None,
             auth_token: "test-token".to_string(),
             insecure_allow_v1: false,
             lifecycle: Mutex::new(DaemonLifecycleState::Running),
@@ -3816,6 +3892,7 @@ mod tests {
             diagnostics: Vec::new(),
         };
         let state = Arc::new(DaemonState {
+            composition: None,
             auth_token: "test-token".to_string(),
             insecure_allow_v1: false,
             lifecycle: Mutex::new(DaemonLifecycleState::Running),
@@ -3884,6 +3961,7 @@ mod tests {
             diagnostics: Vec::new(),
         };
         let state = Arc::new(DaemonState {
+            composition: None,
             auth_token: "test-token".to_string(),
             insecure_allow_v1: false,
             lifecycle: Mutex::new(DaemonLifecycleState::Running),
@@ -3974,6 +4052,7 @@ mod tests {
             diagnostics: Vec::new(),
         };
         let state = Arc::new(DaemonState {
+            composition: None,
             auth_token: "test-token".to_string(),
             insecure_allow_v1: false,
             lifecycle: Mutex::new(DaemonLifecycleState::Running),
@@ -4030,30 +4109,16 @@ mod tests {
         .await
         .unwrap();
 
-        assert_eq!(state.overview_cache.lock().unwrap().entries.len(), 1);
-        assert_eq!(state.context_cache.lock().unwrap().entries.len(), 1);
+        assert_eq!(state.overview_cache.lock().unwrap().len(), 1);
+        assert_eq!(state.context_cache.lock().unwrap().len(), 1);
         assert!(state.search_index_cache.lock().unwrap().is_some());
 
         invalidate_daemon_caches(&state);
 
         assert!(state.latest_snapshot_cache.lock().unwrap().is_none());
         assert!(state.search_index_cache.lock().unwrap().is_none());
-        assert!(state.overview_cache.lock().unwrap().entries.is_empty());
-        assert!(state.context_cache.lock().unwrap().entries.is_empty());
-    }
-
-    #[test]
-    fn bounded_cache_evicts_the_least_recently_used_entry() {
-        let mut cache = BoundedCache::new(2);
-        cache.insert("first", 1);
-        cache.insert("second", 2);
-        assert_eq!(cache.get(&"first"), Some(1));
-
-        cache.insert("third", 3);
-
-        assert_eq!(cache.get(&"second"), None);
-        assert_eq!(cache.get(&"first"), Some(1));
-        assert_eq!(cache.get(&"third"), Some(3));
+        assert_eq!(state.overview_cache.lock().unwrap().len(), 0);
+        assert_eq!(state.context_cache.lock().unwrap().len(), 0);
     }
 
     #[test]
@@ -4082,6 +4147,7 @@ mod tests {
             max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
         };
         let state = DaemonState {
+            composition: None,
             auth_token: "test-token".to_string(),
             insecure_allow_v1: false,
             lifecycle: Mutex::new(DaemonLifecycleState::Running),
@@ -4235,6 +4301,7 @@ mod tests {
         };
         let running_cancellation = CancellationToken::new();
         let state = DaemonState {
+            composition: None,
             auth_token: "test-token".to_string(),
             insecure_allow_v1: false,
             lifecycle: Mutex::new(DaemonLifecycleState::Running),
@@ -4658,6 +4725,7 @@ mod tests {
             max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
         };
         let state = DaemonState {
+            composition: None,
             auth_token: "test-token".to_string(),
             insecure_allow_v1: false,
             lifecycle: Mutex::new(DaemonLifecycleState::Running),
@@ -4728,6 +4796,7 @@ mod tests {
             max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
         };
         let state = DaemonState {
+            composition: None,
             auth_token: "test-token".to_string(),
             insecure_allow_v1: false,
             lifecycle: Mutex::new(DaemonLifecycleState::Running),
@@ -5104,6 +5173,7 @@ mod tests {
 
     fn test_daemon_state(root: &Path, insecure_allow_v1: bool) -> DaemonState {
         DaemonState {
+            composition: None,
             auth_token: "a".repeat(crate::DAEMON_TOKEN_BYTES * 2),
             insecure_allow_v1,
             lifecycle: Mutex::new(DaemonLifecycleState::Running),

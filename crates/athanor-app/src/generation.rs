@@ -10,13 +10,13 @@ use athanor_projector_support::{NewDirectoryPublication, replace_output_file, wr
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::CancellationToken;
 use crate::JsonlReadModelWriter;
 use crate::project_path::normalize_canonical_path;
 use crate::projection::{
     HTML_REPORT_PROJECTION_SCHEMA, WIKI_PROJECTION_SCHEMA, project_html_payload,
     project_wiki_payload,
 };
+use crate::{CancellationToken, RuntimeComposition};
 
 pub const GENERATED_GENERATION_SCHEMA: &str = "athanor.generated_generation.v1";
 pub const GENERATED_CURRENT_SCHEMA: &str = "athanor.generated_current.v1";
@@ -92,19 +92,37 @@ struct GenerationOutputs {
 }
 
 pub async fn generate_project(options: GenerationOptions) -> Result<GenerationReport> {
-    generate_project_inner(options, None).await
+    generate_project_inner(options, None, None).await
+}
+
+/// Generates coordinated read models with explicitly supplied runtime dependencies.
+pub async fn generate_project_with_composition(
+    options: GenerationOptions,
+    composition: &RuntimeComposition,
+) -> Result<GenerationReport> {
+    generate_project_inner(options, None, Some(composition.clone())).await
 }
 
 pub async fn generate_project_cancellable(
     options: GenerationOptions,
     cancellation: CancellationToken,
 ) -> Result<GenerationReport> {
-    generate_project_inner(options, Some(cancellation)).await
+    generate_project_inner(options, Some(cancellation), None).await
+}
+
+/// Generates coordinated read models with explicitly supplied runtime dependencies.
+pub async fn generate_project_cancellable_with_composition(
+    options: GenerationOptions,
+    cancellation: CancellationToken,
+    composition: &RuntimeComposition,
+) -> Result<GenerationReport> {
+    generate_project_inner(options, Some(cancellation), Some(composition.clone())).await
 }
 
 async fn generate_project_inner(
     options: GenerationOptions,
     cancellation: Option<CancellationToken>,
+    composition: Option<RuntimeComposition>,
 ) -> Result<GenerationReport> {
     let total_started = Instant::now();
     check_cancelled(&cancellation)?;
@@ -121,7 +139,10 @@ async fn generate_project_inner(
     let current_pointer = generated_root.join("current.json");
     let snapshot_load_started = Instant::now();
     let config = load_config(&root)?;
-    let store = init_store(&root, &config).await?;
+    let store = match &composition {
+        Some(composition) => composition.init_store(&root, &config).await?,
+        None => init_store(&root, &config).await?,
+    };
     let snapshot = store
         .load_latest_snapshot()
         .await
@@ -184,12 +205,19 @@ async fn generate_project_inner(
     let wiki_target = staging.join("wiki");
     let wiki_snapshot = snapshot_id.0.clone();
     let wiki_cancellation = cancellation.clone();
+    let wiki_composition = composition.clone();
     let wiki = tokio::task::spawn_blocking(move || {
-        project_wiki_payload(&wiki_target, &wiki_snapshot, wiki_payload, &|| {
+        let cancelled = || {
             wiki_cancellation
                 .as_ref()
                 .is_some_and(CancellationToken::is_cancelled)
-        })
+        };
+        match wiki_composition {
+            Some(composition) => {
+                composition.project_wiki(&wiki_target, &wiki_snapshot, wiki_payload, &cancelled)
+            }
+            None => project_wiki_payload(&wiki_target, &wiki_snapshot, wiki_payload, &cancelled),
+        }
         .map(|_| elapsed_ms(wiki_started))
     });
 
@@ -204,12 +232,19 @@ async fn generate_project_inner(
     let html_target = staging.join("html");
     let html_snapshot = snapshot_id.0.clone();
     let html_cancellation = cancellation.clone();
+    let html_composition = composition.clone();
     let html = tokio::task::spawn_blocking(move || {
-        project_html_payload(&html_target, &html_snapshot, html_payload, &|| {
+        let cancelled = || {
             html_cancellation
                 .as_ref()
                 .is_some_and(CancellationToken::is_cancelled)
-        })
+        };
+        match html_composition {
+            Some(composition) => {
+                composition.project_html(&html_target, &html_snapshot, html_payload, &cancelled)
+            }
+            None => project_html_payload(&html_target, &html_snapshot, html_payload, &cancelled),
+        }
         .map(|_| elapsed_ms(html_started))
     });
 

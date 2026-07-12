@@ -193,6 +193,22 @@ impl KnowledgeStore for TransientKnowledgeStore {
         state.snapshot_mut(&snapshot)?.committed = true;
         Ok(())
     }
+
+    async fn abort_snapshot(&self, snapshot: SnapshotId) -> CoreResult<()> {
+        let mut state = self.lock_state()?;
+        let data = state
+            .snapshots
+            .get(&snapshot)
+            .ok_or_else(|| CoreError::NotFound(format!("snapshot {}", snapshot.0)))?;
+        if data.committed {
+            return Err(CoreError::Conflict(format!(
+                "cannot abort committed snapshot {}",
+                snapshot.0
+            )));
+        }
+        state.snapshots.remove(&snapshot);
+        Ok(())
+    }
 }
 
 impl TransientKnowledgeStore {

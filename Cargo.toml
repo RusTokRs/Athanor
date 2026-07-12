@@ -59,7 +59,7 @@ serde_yaml_ng = "0.10"
 proc-macro2 = { version = "1.0", features = ["span-locations"] }
 pulldown-cmark = { version = "0.13", default-features = false }
 oas3 = { version = "0.22", features = ["yaml-spec"] }
-oxc_allocator = "0.138.0"
+oxc_allocator = "0.139.0"
 oxc_ast = "0.138.0"
 oxc_ast_visit = "0.138.0"
 oxc_parser = "0.138.0"
@@ -76,7 +76,7 @@ tree-sitter-typescript = "0.23.2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
 fs2 = "0.4"
-getrandom = "0.3"
+getrandom = "0.4"
 
 [profile.release]
 lto = true

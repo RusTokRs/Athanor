@@ -6,6 +6,7 @@ use athanor_core::CanonicalSnapshot;
 use athanor_domain::{Diagnostic, Entity, Fact};
 use serde::Serialize;
 
+use crate::RuntimeComposition;
 use crate::config::load_config;
 use crate::index_state::{IndexState, IndexStateStore};
 use crate::project_path::normalize_canonical_path;
@@ -123,6 +124,21 @@ struct DiagnosticAccumulator {
 }
 
 pub async fn coverage_project(options: CoverageOptions) -> Result<CoverageReport> {
+    coverage_project_inner(options, None).await
+}
+
+/// Builds a coverage report with explicitly supplied runtime dependencies.
+pub async fn coverage_project_with_composition(
+    options: CoverageOptions,
+    composition: &RuntimeComposition,
+) -> Result<CoverageReport> {
+    coverage_project_inner(options, Some(composition)).await
+}
+
+async fn coverage_project_inner(
+    options: CoverageOptions,
+    composition: Option<&RuntimeComposition>,
+) -> Result<CoverageReport> {
     let root = normalize_canonical_path(
         options
             .root
@@ -130,7 +146,10 @@ pub async fn coverage_project(options: CoverageOptions) -> Result<CoverageReport
             .with_context(|| format!("failed to canonicalize {}", options.root.display()))?,
     );
     let config = load_config(&root)?;
-    let store = init_store(&root, &config).await?;
+    let store = match composition {
+        Some(composition) => composition.init_store(&root, &config).await?,
+        None => init_store(&root, &config).await?,
+    };
     let snapshot = store
         .load_latest_snapshot()
         .await

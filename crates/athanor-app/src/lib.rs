@@ -7,6 +7,7 @@ pub mod cancellation;
 pub mod capabilities;
 pub mod change_map;
 pub mod check;
+pub mod composition;
 pub mod config;
 pub mod context;
 pub mod coverage;
@@ -21,6 +22,7 @@ pub mod impact;
 pub mod index;
 pub mod index_state;
 pub mod init;
+pub mod invalidation;
 mod local_source;
 pub mod overview;
 pub mod pipeline;
@@ -31,6 +33,7 @@ pub mod read_model;
 pub mod repair;
 pub mod report;
 pub mod runtime;
+pub mod rustok_architecture;
 pub mod search;
 pub mod store;
 #[cfg(test)]
@@ -39,6 +42,39 @@ mod transient_store;
 pub mod validate_changed;
 pub mod wiki;
 
+/// Stable indexing-facing application API.
+pub mod indexing {
+    pub use crate::index::{
+        IndexOptions, IndexReport, IndexReportMetrics, index_project, index_project_cancellable,
+        index_project_cancellable_with_composition, index_project_with_composition,
+    };
+    pub use crate::invalidation::*;
+    pub use crate::pipeline::{IndexPipeline, IndexPipelineMetrics, IndexPipelineOutput};
+}
+
+/// Publication artefacts and lifecycle APIs.
+pub mod publication {
+    pub use crate::index_state::{IndexState, IndexStateStore, PreparedIndexState};
+    pub use crate::read_model::{
+        JsonlReadModelReport, JsonlReadModelWriter, PreparedJsonlReadModel,
+    };
+}
+
+/// Read-only canonical knowledge query use cases.
+pub mod query {
+    pub use crate::context::*;
+    pub use crate::explain::*;
+    pub use crate::graph::*;
+    pub use crate::impact::*;
+    pub use crate::overview::*;
+    pub use crate::search::*;
+}
+
+/// Project registration and repository identity APIs.
+pub mod projects {
+    pub use crate::project_registry::*;
+}
+
 pub use api::*;
 pub use api_registry::*;
 pub use bench::*;
@@ -46,6 +82,7 @@ pub use cancellation::*;
 pub use capabilities::*;
 pub use change_map::*;
 pub use check::*;
+pub use composition::*;
 pub use config::*;
 pub use context::*;
 pub use coverage::*;
@@ -59,6 +96,7 @@ pub use impact::*;
 pub use index::*;
 pub use index_state::*;
 pub use init::*;
+pub use invalidation::*;
 pub use overview::*;
 pub use pipeline::*;
 pub use project_registry::*;
@@ -67,6 +105,7 @@ pub use read_model::*;
 pub use repair::*;
 pub use report::*;
 pub use runtime::*;
+pub use rustok_architecture::*;
 pub use search::*;
 pub use store::*;
 pub use validate_changed::*;

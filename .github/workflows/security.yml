@@ -21,3 +21,5 @@ jobs:
         uses: rustsec/audit-check@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Enforce unsafe-code policy
+        run: cargo check --workspace --config 'build.rustflags=["-Dunsafe_code"]'

@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -6,6 +7,57 @@ use anyhow::{Context, Result, bail};
 use fs2::FileExt;
 
 pub const DAEMON_TOKEN_BYTES: usize = 32;
+
+/// Small deterministic LRU-like cache for daemon read-only query paths.
+///
+/// Synchronization belongs to the daemon state that owns the cache.
+#[derive(Debug)]
+pub(crate) struct BoundedCache<K, V> {
+    capacity: usize,
+    entries: VecDeque<(K, V)>,
+}
+
+impl<K: PartialEq, V: Clone> BoundedCache<K, V> {
+    pub(crate) fn new(capacity: usize) -> Self {
+        Self {
+            capacity,
+            entries: VecDeque::new(),
+        }
+    }
+
+    pub(crate) fn get(&mut self, key: &K) -> Option<V> {
+        let index = self
+            .entries
+            .iter()
+            .position(|(candidate, _)| candidate == key)?;
+        let entry = self.entries.remove(index)?;
+        let value = entry.1.clone();
+        self.entries.push_back(entry);
+        Some(value)
+    }
+
+    pub(crate) fn insert(&mut self, key: K, value: V) {
+        if let Some(index) = self
+            .entries
+            .iter()
+            .position(|(candidate, _)| candidate == &key)
+        {
+            self.entries.remove(index);
+        }
+        self.entries.push_back((key, value));
+        while self.entries.len() > self.capacity {
+            self.entries.pop_front();
+        }
+    }
+
+    pub(crate) fn clear(&mut self) {
+        self.entries.clear();
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.entries.len()
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DaemonRuntimePaths {
@@ -228,8 +280,15 @@ fn restrict_file(_path: &Path) -> Result<()> {
 fn restrict_windows_acl(path: &Path, inherit_children: bool) -> Result<()> {
     use std::process::{Command, Stdio};
 
-    let user = std::env::var("USERNAME")
-        .context("USERNAME is required to restrict daemon runtime permissions")?;
+    let user = Command::new("whoami")
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .map(|identity| identity.trim().to_string())
+        .filter(|identity| !identity.is_empty())
+        .or_else(|| std::env::var("USERNAME").ok())
+        .context("cannot determine current Windows identity for daemon runtime permissions")?;
     let path = path.to_string_lossy().into_owned();
     let grant = if inherit_children {
         format!("{user}:(OI)(CI)(F)")
@@ -261,6 +320,20 @@ fn encode_hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bounded_cache_evicts_the_least_recently_used_entry() {
+        let mut cache = BoundedCache::new(2);
+        cache.insert("first", 1);
+        cache.insert("second", 2);
+        assert_eq!(cache.get(&"first"), Some(1));
+
+        cache.insert("third", 3);
+
+        assert_eq!(cache.get(&"second"), None);
+        assert_eq!(cache.get(&"first"), Some(1));
+        assert_eq!(cache.get(&"third"), Some(3));
+    }
 
     #[test]
     fn creates_reads_and_compares_tokens() {

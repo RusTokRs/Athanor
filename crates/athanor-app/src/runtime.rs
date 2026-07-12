@@ -1,23 +1,37 @@
 use std::collections::BTreeSet;
 use std::fs;
+use std::future::Future;
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use std::sync::OnceLock;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
+#[cfg(test)]
+use athanor_core::ProcessRunner;
 use athanor_core::{
     CheckInput, Checker, CoreError, CoreResult, ExtractInput, ExtractOutput, Extractor,
-    KnowledgeStore, LinkInput, Linker, SourceFile, SourceProvider,
+    KnowledgeStore, LinkInput, Linker, ProcessLimits as CoreProcessLimits, ProcessRequest,
+    SourceFile, SourceProvider,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
-use tokio::process::Command;
-use tokio::time::timeout;
 use tracing::{debug, warn};
 
-use crate::IndexPipeline;
+use crate::{CancellationToken, IndexPipeline, RuntimeComposition};
+
+mod process_runner;
+pub use process_runner::TokioProcessRunner;
+
+tokio::task_local! {
+    static PROCESS_CANCELLATION: Option<CancellationToken>;
+}
+
+pub(crate) async fn with_process_cancellation<T>(
+    cancellation: Option<CancellationToken>,
+    future: impl Future<Output = T>,
+) -> T {
+    PROCESS_CANCELLATION.scope(cancellation, future).await
+}
 
 pub const ADAPTER_MANIFEST_SCHEMA: &str = "athanor.adapter_manifest";
 pub const ADAPTER_TRUST_SCHEMA: &str = "athanor.adapter_trust.v1";
@@ -26,8 +40,8 @@ type SourceFactory = Box<dyn Fn(&Path) -> Box<dyn SourceProvider> + Send + Sync>
 type ExtractorFactory = Box<dyn Fn() -> Box<dyn Extractor> + Send + Sync>;
 type LinkerFactory = Box<dyn Fn() -> Box<dyn Linker> + Send + Sync>;
 type CheckerFactory = Box<dyn Fn() -> Box<dyn Checker> + Send + Sync>;
-type AdapterRegistryFactory = fn() -> AdapterRegistry;
-type BuiltinAdapterResolver =
+pub type AdapterRegistryFactory = fn() -> AdapterRegistry;
+pub type BuiltinAdapterResolver =
     fn(AdapterRegistry, AdapterPluginKind, &str) -> Option<AdapterRegistry>;
 
 static DEFAULT_ADAPTER_REGISTRY_FACTORY: OnceLock<AdapterRegistryFactory> = OnceLock::new();
@@ -180,15 +194,24 @@ impl AdapterRegistry {
     }
 
     pub fn with_plugin_manifest_at(
+        self,
+        manifest: &AdapterPluginManifest,
+        manifest_dir: &Path,
+    ) -> Result<Self> {
+        self.with_plugin_manifest_at_using(manifest, manifest_dir, None)
+    }
+
+    fn with_plugin_manifest_at_using(
         mut self,
         manifest: &AdapterPluginManifest,
         manifest_dir: &Path,
+        builtin_resolver: Option<BuiltinAdapterResolver>,
     ) -> Result<Self> {
         validate_adapter_plugin_manifest(manifest)?;
 
         for adapter in manifest.adapters.iter().filter(|adapter| adapter.enabled) {
             self = self
-                .with_adapter_entry(adapter, manifest_dir)
+                .with_adapter_entry_using(adapter, manifest_dir, builtin_resolver)
                 .with_context(|| {
                     format!(
                         "failed to register adapter {} from plugin {}",
@@ -200,12 +223,18 @@ impl AdapterRegistry {
         Ok(self)
     }
 
-    fn with_adapter_entry(self, adapter: &AdapterPluginEntry, manifest_dir: &Path) -> Result<Self> {
+    fn with_adapter_entry_using(
+        self,
+        adapter: &AdapterPluginEntry,
+        manifest_dir: &Path,
+        builtin_resolver: Option<BuiltinAdapterResolver>,
+    ) -> Result<Self> {
         #[cfg(test)]
         crate::ensure_test_runtime();
 
         if adapter.command.is_none()
-            && let Some(resolver) = BUILTIN_ADAPTER_RESOLVER.get()
+            && let Some(resolver) =
+                builtin_resolver.or_else(|| BUILTIN_ADAPTER_RESOLVER.get().copied())
         {
             if let Some(registry) = resolver(self, adapter.kind, adapter.id.as_str()) {
                 return Ok(registry);
@@ -437,6 +466,7 @@ pub struct RuntimeBuilder {
     allow_external_process: bool,
     allowed_external_process_programs: Vec<PathBuf>,
     adapter_trust_path: Option<PathBuf>,
+    builtin_adapter_resolver: Option<BuiltinAdapterResolver>,
 }
 
 impl RuntimeBuilder {
@@ -447,11 +477,31 @@ impl RuntimeBuilder {
             allow_external_process: false,
             allowed_external_process_programs: Vec::new(),
             adapter_trust_path: None,
+            builtin_adapter_resolver: None,
+        }
+    }
+
+    /// Starts a builder from an explicit application composition.
+    ///
+    /// Unlike [`Self::new`], this does not consult process-global adapter factories.
+    pub fn from_composition(root: impl Into<PathBuf>, composition: &RuntimeComposition) -> Self {
+        Self {
+            root: root.into(),
+            registry: composition.adapter_registry(),
+            allow_external_process: false,
+            allowed_external_process_programs: Vec::new(),
+            adapter_trust_path: None,
+            builtin_adapter_resolver: Some(composition.builtin_adapter_resolver()),
         }
     }
 
     pub fn with_registry(mut self, registry: AdapterRegistry) -> Self {
         self.registry = registry;
+        self
+    }
+
+    pub fn with_builtin_adapter_resolver(mut self, resolver: BuiltinAdapterResolver) -> Self {
+        self.builtin_adapter_resolver = Some(resolver);
         self
     }
 
@@ -537,9 +587,11 @@ impl RuntimeBuilder {
                 );
             }
             let manifest_dir = plugin.manifest_path.parent().unwrap_or(&self.root);
-            self.registry = self
-                .registry
-                .with_plugin_manifest_at(&plugin.manifest, manifest_dir)?;
+            self.registry = self.registry.with_plugin_manifest_at_using(
+                &plugin.manifest,
+                manifest_dir,
+                self.builtin_adapter_resolver,
+            )?;
         }
 
         Ok(self)
@@ -919,15 +971,23 @@ fn enabled_by_default() -> bool {
 struct ProcessCommand {
     program: PathBuf,
     args: Vec<String>,
+    working_dir: PathBuf,
 }
 
 impl ProcessCommand {
     fn from_manifest(manifest_dir: &Path, command: &AdapterProcessCommand) -> Result<Self> {
         let program = resolve_manifest_program(manifest_dir, &command.program)?;
+        let working_dir = manifest_dir.canonicalize().with_context(|| {
+            format!(
+                "failed to canonicalize adapter manifest directory {}",
+                manifest_dir.display()
+            )
+        })?;
 
         Ok(Self {
             program,
             args: command.args.clone(),
+            working_dir,
         })
     }
 }
@@ -1031,12 +1091,14 @@ where
     I: Serialize,
     O: for<'de> Deserialize<'de>,
 {
+    let cancellation = PROCESS_CANCELLATION.try_with(Clone::clone).ok().flatten();
     run_process_adapter_with_limits(
         adapter_kind,
         adapter_id,
         command,
         input,
         ProcessLimits::default(),
+        cancellation.as_ref(),
     )
     .await
 }
@@ -1060,116 +1122,65 @@ impl Default for ProcessLimits {
     }
 }
 
-struct LimitedProcessOutput {
-    status: std::process::ExitStatus,
-    stdout: Vec<u8>,
-    stderr: Vec<u8>,
-    stdout_truncated: bool,
-    stderr_truncated: bool,
-}
-
 async fn run_process_adapter_with_limits<I, O>(
     adapter_kind: &str,
     adapter_id: &str,
     command: &ProcessCommand,
     input: &I,
     limits: ProcessLimits,
+    cancellation: Option<&CancellationToken>,
 ) -> CoreResult<O>
 where
     I: Serialize,
     O: for<'de> Deserialize<'de>,
 {
-    let input_bytes = serde_json::to_vec(input).map_err(|error| {
+    run_process_adapter_with_limits_and_cancellation(
+        adapter_kind,
+        adapter_id,
+        command,
+        input,
+        limits,
+        cancellation,
+    )
+    .await
+}
+
+async fn run_process_adapter_with_limits_and_cancellation<I, O>(
+    adapter_kind: &str,
+    adapter_id: &str,
+    command: &ProcessCommand,
+    input: &I,
+    limits: ProcessLimits,
+    cancellation: Option<&CancellationToken>,
+) -> CoreResult<O>
+where
+    I: Serialize,
+    O: for<'de> Deserialize<'de>,
+{
+    let mut input = serde_json::to_vec(input).map_err(|error| {
         CoreError::Adapter(format!(
             "failed to serialize input for external {adapter_kind} {adapter_id}: {error}"
         ))
     })?;
-    if input_bytes.len() > limits.max_stdin_bytes {
-        return Err(CoreError::Adapter(format!(
-            "input for external {adapter_kind} {adapter_id} exceeded {} bytes",
-            limits.max_stdin_bytes
-        )));
-    }
-
-    let mut child = Command::new(&command.program)
-        .args(&command.args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()
-        .map_err(|error| {
-            CoreError::Adapter(format!(
-                "failed to spawn external {adapter_kind} {adapter_id}: {error}"
-            ))
-        })?;
-
-    let stdout = child.stdout.take().ok_or_else(|| {
-        CoreError::Adapter(format!(
-            "failed to open stdout for external {adapter_kind} {adapter_id}"
-        ))
-    })?;
-    let stderr = child.stderr.take().ok_or_else(|| {
-        CoreError::Adapter(format!(
-            "failed to open stderr for external {adapter_kind} {adapter_id}"
-        ))
-    })?;
-    let stdout_reader = tokio::spawn(read_limited(stdout, limits.max_stdout_bytes));
-    let stderr_reader = tokio::spawn(read_limited(stderr, limits.max_stderr_bytes));
-
-    {
-        let mut stdin = child.stdin.take().ok_or_else(|| {
-            CoreError::Adapter(format!(
-                "failed to open stdin for external {adapter_kind} {adapter_id}"
-            ))
-        })?;
-        stdin.write_all(&input_bytes).await.map_err(|error| {
-            CoreError::Adapter(format!(
-                "failed to write input for external {adapter_kind} {adapter_id}: {error}"
-            ))
-        })?;
-        stdin.write_all(b"\n").await.map_err(|error| {
-            CoreError::Adapter(format!(
-                "failed to finish input for external {adapter_kind} {adapter_id}: {error}"
-            ))
-        })?;
-    }
-
-    let status = match timeout(limits.timeout, child.wait()).await {
-        Ok(result) => result.map_err(|error| {
-            CoreError::Adapter(format!(
-                "failed to wait for external {adapter_kind} {adapter_id}: {error}"
-            ))
-        })?,
-        Err(_) => {
-            let _ = child.kill().await;
-            let _ = stdout_reader.await;
-            let _ = stderr_reader.await;
-            return Err(CoreError::Adapter(format!(
-                "external {adapter_kind} {adapter_id} timed out after {} ms",
-                limits.timeout.as_millis()
-            )));
-        }
-    };
-
-    let (stdout, stdout_truncated) = stdout_reader.await.map_err(|_| {
-        CoreError::Adapter(format!(
-            "failed to read stdout for external {adapter_kind} {adapter_id}"
-        ))
-    })??;
-    let (stderr, stderr_truncated) = stderr_reader.await.map_err(|_| {
-        CoreError::Adapter(format!(
-            "failed to read stderr for external {adapter_kind} {adapter_id}"
-        ))
-    })??;
-
-    let output = LimitedProcessOutput {
-        status,
-        stdout,
-        stderr,
-        stdout_truncated,
-        stderr_truncated,
-    };
+    input.push(b'\n');
+    let output = TokioProcessRunner
+        .run_cancellable(
+            ProcessRequest {
+                label: format!("external {adapter_kind} {adapter_id}"),
+                program: command.program.clone(),
+                args: command.args.clone(),
+                working_dir: command.working_dir.clone(),
+                stdin: input,
+                limits: CoreProcessLimits {
+                    timeout_ms: limits.timeout.as_millis() as u64,
+                    max_stdin_bytes: limits.max_stdin_bytes,
+                    max_stdout_bytes: limits.max_stdout_bytes,
+                    max_stderr_bytes: limits.max_stderr_bytes,
+                },
+            },
+            cancellation,
+        )
+        .await?;
     let stdout = process_output_excerpt(&output.stdout);
     let stderr = process_output_excerpt(&output.stderr);
 
@@ -1191,10 +1202,14 @@ where
         );
     }
 
-    if !output.status.success() {
+    if !output.success {
         return Err(CoreError::Adapter(format!(
             "external {adapter_kind} {adapter_id} exited with {}; stderr: {}",
-            output.status, stderr
+            output.exit_code.map_or_else(
+                || "unknown status".to_string(),
+                |code| format!("exit code: {code}")
+            ),
+            stderr
         )));
     }
 
@@ -1217,35 +1232,6 @@ where
             "failed to parse output from external {adapter_kind} {adapter_id}: {error}"
         ))
     })
-}
-
-async fn read_limited(
-    mut reader: impl AsyncRead + Unpin,
-    max_bytes: usize,
-) -> CoreResult<(Vec<u8>, bool)> {
-    let mut output = Vec::new();
-    let mut buffer = [0_u8; 8192];
-    let mut truncated = false;
-
-    loop {
-        let read = reader.read(&mut buffer).await.map_err(|error| {
-            CoreError::Adapter(format!("failed to read external process output: {error}"))
-        })?;
-        if read == 0 {
-            break;
-        }
-
-        let remaining = max_bytes.saturating_sub(output.len());
-        if read > remaining {
-            output.extend_from_slice(&buffer[..remaining]);
-            truncated = true;
-            break;
-        }
-
-        output.extend_from_slice(&buffer[..read]);
-    }
-
-    Ok((output, truncated))
 }
 
 fn process_output_excerpt(bytes: &[u8]) -> String {
@@ -1779,6 +1765,23 @@ mod tests {
     }
 
     #[test]
+    fn process_command_uses_canonical_manifest_directory_as_working_directory() {
+        let manifest_dir = std::env::current_dir().unwrap();
+        #[cfg(windows)]
+        let program = powershell_path();
+        #[cfg(not(windows))]
+        let program = sh_path();
+        let command = AdapterProcessCommand {
+            program: program.display().to_string(),
+            args: Vec::new(),
+        };
+
+        let process = ProcessCommand::from_manifest(&manifest_dir, &command).unwrap();
+
+        assert_eq!(process.working_dir, manifest_dir.canonicalize().unwrap());
+    }
+
+    #[test]
     fn rejects_parent_directory_process_commands() {
         let command = AdapterProcessCommand {
             program: "../adapter".to_string(),
@@ -1804,11 +1807,41 @@ mod tests {
                 max_stdout_bytes: 1024,
                 max_stderr_bytes: 1024,
             },
+            None,
         )
         .await
         .expect_err("sleeping process should time out");
 
         assert!(error.to_string().contains("timed out"));
+    }
+
+    #[tokio::test]
+    async fn external_process_cancellation_is_reported() {
+        let command = sleep_command();
+        let cancellation = CancellationToken::new();
+        let cancellation_for_task = cancellation.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(25)).await;
+            cancellation_for_task.cancel();
+        });
+
+        let error = run_process_adapter_with_limits_and_cancellation::<_, Value>(
+            "checker",
+            "external.checker.sleep",
+            &command,
+            &serde_json::json!({}),
+            ProcessLimits {
+                timeout: Duration::from_secs(5),
+                max_stdin_bytes: 1024,
+                max_stdout_bytes: 1024,
+                max_stderr_bytes: 1024,
+            },
+            Some(&cancellation),
+        )
+        .await
+        .expect_err("cancellation should stop the external process");
+
+        assert!(matches!(error, CoreError::Cancelled(_)));
     }
 
     #[tokio::test]
@@ -1825,11 +1858,39 @@ mod tests {
                 max_stdout_bytes: 32,
                 max_stderr_bytes: 1024,
             },
+            None,
         )
         .await
         .expect_err("oversized stdout should fail");
 
         assert!(error.to_string().contains("stdout exceeded"));
+    }
+
+    #[tokio::test]
+    async fn tokio_process_runner_implements_public_core_port() {
+        let command = stdout_bytes_command(3);
+        let output = ProcessRunner::run(
+            &TokioProcessRunner,
+            ProcessRequest {
+                label: "test raw process".to_string(),
+                program: command.program,
+                args: command.args,
+                working_dir: command.working_dir,
+                stdin: Vec::new(),
+                limits: CoreProcessLimits {
+                    timeout_ms: 10_000,
+                    max_stdin_bytes: 64,
+                    max_stdout_bytes: 64,
+                    max_stderr_bytes: 64,
+                },
+            },
+        )
+        .await
+        .expect("raw process should run");
+
+        assert!(output.success);
+        assert_eq!(output.stdout.len(), 3);
+        assert!(!output.stdout_truncated);
     }
 
     #[tokio::test]
@@ -1846,6 +1907,7 @@ mod tests {
                 max_stdout_bytes: 1024,
                 max_stderr_bytes: 1024,
             },
+            None,
         )
         .await
         .expect_err("non-zero process should fail");
@@ -2107,6 +2169,7 @@ mod tests {
                 "-Command".to_string(),
                 "$input | Out-Null; Start-Sleep -Seconds 5".to_string(),
             ],
+            working_dir: test_working_dir(),
         }
     }
 
@@ -2115,6 +2178,7 @@ mod tests {
         ProcessCommand {
             program: sh_path(),
             args: vec!["-c".to_string(), "cat >/dev/null; sleep 5".to_string()],
+            working_dir: test_working_dir(),
         }
     }
 
@@ -2127,6 +2191,7 @@ mod tests {
                 "-Command".to_string(),
                 format!("$input | Out-Null; [Console]::Out.Write(('x' * {bytes}))"),
             ],
+            working_dir: test_working_dir(),
         }
     }
 
@@ -2138,6 +2203,7 @@ mod tests {
                 "-c".to_string(),
                 format!("cat >/dev/null; yes x | tr -d '\\n' | head -c {bytes}"),
             ],
+            working_dir: test_working_dir(),
         }
     }
 
@@ -2151,6 +2217,7 @@ mod tests {
                 "$input | Out-Null; [Console]::Error.Write('intentional failure'); exit 7"
                     .to_string(),
             ],
+            working_dir: test_working_dir(),
         }
     }
 
@@ -2162,6 +2229,7 @@ mod tests {
                 "-c".to_string(),
                 "cat >/dev/null; printf '%s' 'intentional failure' >&2; exit 7".to_string(),
             ],
+            working_dir: test_working_dir(),
         }
     }
 
@@ -2185,5 +2253,9 @@ mod tests {
             }
         }
         panic!("sh executable not found");
+    }
+
+    fn test_working_dir() -> PathBuf {
+        std::env::current_dir().expect("test process has a current directory")
     }
 }

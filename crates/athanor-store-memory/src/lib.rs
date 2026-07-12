@@ -193,6 +193,22 @@ impl KnowledgeStore for MemoryKnowledgeStore {
         state.snapshot_mut(&snapshot)?.committed = true;
         Ok(())
     }
+
+    async fn abort_snapshot(&self, snapshot: SnapshotId) -> CoreResult<()> {
+        let mut state = self.lock_state()?;
+        let data = state
+            .snapshots
+            .get(&snapshot)
+            .ok_or_else(|| CoreError::NotFound(format!("snapshot {}", snapshot.0)))?;
+        if data.committed {
+            return Err(CoreError::Conflict(format!(
+                "cannot abort committed snapshot {}",
+                snapshot.0
+            )));
+        }
+        state.snapshots.remove(&snapshot);
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -336,5 +352,29 @@ mod tests {
             .unwrap();
 
         assert_eq!(found, vec![entity]);
+    }
+
+    #[tokio::test]
+    async fn abort_discards_uncommitted_snapshot() {
+        let store = MemoryKnowledgeStore::new();
+        let snapshot = store
+            .begin_snapshot(
+                RepoId("repo_test".to_string()),
+                SnapshotBase {
+                    branch: None,
+                    commit: None,
+                    parent_snapshot: None,
+                    working_tree: true,
+                },
+            )
+            .await
+            .unwrap();
+        store.abort_snapshot(snapshot.clone()).await.unwrap();
+
+        let error = store
+            .query_entities(SnapshotSelector::Exact(snapshot), EntityQuery::default())
+            .await
+            .expect_err("aborted snapshot must not remain queryable");
+        assert!(matches!(error, CoreError::NotFound(_)));
     }
 }

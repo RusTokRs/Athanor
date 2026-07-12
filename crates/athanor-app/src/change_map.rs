@@ -11,6 +11,7 @@ use athanor_domain::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::RuntimeComposition;
 use crate::config::load_config;
 use crate::impact::FlowDirection;
 use crate::index_state::IndexStateStore;
@@ -167,6 +168,21 @@ struct PathLink {
 }
 
 pub async fn change_map_project(options: ChangeMapOptions) -> Result<ChangeMapReport> {
+    change_map_project_inner(options, None).await
+}
+
+/// Builds a bounded change map with explicitly supplied runtime dependencies.
+pub async fn change_map_project_with_composition(
+    options: ChangeMapOptions,
+    composition: &RuntimeComposition,
+) -> Result<ChangeMapReport> {
+    change_map_project_inner(options, Some(composition)).await
+}
+
+async fn change_map_project_inner(
+    options: ChangeMapOptions,
+    composition: Option<&RuntimeComposition>,
+) -> Result<ChangeMapReport> {
     validate_options(&options)?;
     let root = normalize_canonical_path(
         options
@@ -175,7 +191,10 @@ pub async fn change_map_project(options: ChangeMapOptions) -> Result<ChangeMapRe
             .with_context(|| format!("failed to canonicalize {}", options.root.display()))?,
     );
     let config = load_config(&root)?;
-    let store = init_store(&root, &config).await?;
+    let store = match composition {
+        Some(composition) => composition.init_store(&root, &config).await?,
+        None => init_store(&root, &config).await?,
+    };
     let snapshot = store
         .load_latest_snapshot()
         .await

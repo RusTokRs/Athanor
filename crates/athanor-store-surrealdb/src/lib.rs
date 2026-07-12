@@ -65,6 +65,19 @@ impl SurrealKnowledgeStore {
     }
 }
 
+#[cfg(test)]
+mod conformance_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn conforms_to_shared_query_contract() {
+        let store = SurrealKnowledgeStore::connect("mem://")
+            .await
+            .expect("connect in-memory SurrealDB");
+        athanor_store_conformance::verify_query_contract(&store).await;
+    }
+}
+
 #[async_trait]
 impl KnowledgeStore for SurrealKnowledgeStore {
     async fn begin_snapshot(&self, repo: RepoId, base: SnapshotBase) -> CoreResult<SnapshotId> {
@@ -358,6 +371,43 @@ impl KnowledgeStore for SurrealKnowledgeStore {
 
         Ok(())
     }
+
+    async fn abort_snapshot(&self, snapshot: SnapshotId) -> CoreResult<()> {
+        let record: Option<SnapshotRecord> = self
+            .db
+            .select(("snapshot", &snapshot.0))
+            .await
+            .map_err(|err| CoreError::Adapter(format!("load snapshot failed: {err}")))?;
+        let record =
+            record.ok_or_else(|| CoreError::NotFound(format!("snapshot {}", snapshot.0)))?;
+        if record.committed {
+            return Err(CoreError::Conflict(format!(
+                "cannot abort committed snapshot {}",
+                snapshot.0
+            )));
+        }
+
+        let mut params = serde_json::Map::new();
+        params.insert("snapshot".to_string(), json!(snapshot.0));
+        self.db
+            .query(
+                "DELETE entity WHERE snapshot = $snapshot; \
+                 DELETE fact WHERE snapshot = $snapshot; \
+                 DELETE relation WHERE snapshot = $snapshot; \
+                 DELETE diagnostic WHERE snapshot = $snapshot;",
+            )
+            .bind(params)
+            .await
+            .map_err(|err| {
+                CoreError::Adapter(format!("delete aborted snapshot data failed: {err}"))
+            })?;
+        let _: Option<DummyRecord> = self
+            .db
+            .delete(("snapshot", &snapshot.0))
+            .await
+            .map_err(|err| CoreError::Adapter(format!("delete aborted snapshot failed: {err}")))?;
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -436,8 +486,11 @@ impl CanonicalSnapshotStore for SurrealKnowledgeStore {
             .await
             .map_err(|err| CoreError::Adapter(format!("failed to load snapshot record: {err}")))?;
 
-        if snapshot_rec.is_none() {
+        let Some(snapshot_rec) = snapshot_rec else {
             return Ok(None);
+        };
+        if !snapshot_rec.committed {
+            return Err(CoreError::SnapshotNotCommitted(snapshot.0.clone()));
         }
 
         let mut entities_res = self

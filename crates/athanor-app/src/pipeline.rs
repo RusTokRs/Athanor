@@ -9,16 +9,21 @@ use athanor_core::{
     KnowledgeStore, LinkInput, Linker, SourceFile, SourceProvider,
 };
 use athanor_domain::{
-    Diagnostic, DiagnosticKind, Entity, Fact, Relation, RepoId, SnapshotBase, SnapshotId,
+    Diagnostic, DiagnosticKind, Entity, Evidence, Fact, Relation, RepoId, SnapshotBase, SnapshotId,
 };
 use serde::Serialize;
 use serde_json::Value;
+use tokio::sync::Semaphore;
 use tracing::{Instrument, debug, debug_span, error, info};
 
-use crate::{AffectedFileSet, CancellationToken, IndexState};
+use crate::{
+    AdapterInvalidationDeclaration, AffectedFileSet, CancellationToken, IndexState,
+    dependency_closure, plan_invalidation,
+};
 use futures::stream::{self, StreamExt};
 
-const EXTRACTION_CONCURRENCY_LIMIT: usize = 16;
+const DEFAULT_EXTRACTION_CONCURRENCY_LIMIT: usize = 16;
+const DEFAULT_MAX_EXTRACTION_BYTES_IN_FLIGHT: usize = 64 * 1024 * 1024;
 pub const INDEX_METRICS_SCHEMA: &str = "athanor.index_metrics.v1";
 
 pub struct IndexPipeline {
@@ -27,6 +32,9 @@ pub struct IndexPipeline {
     extractors: Vec<Box<dyn Extractor>>,
     linkers: Vec<Box<dyn Linker>>,
     checkers: Vec<Box<dyn Checker>>,
+    extraction_concurrency: usize,
+    max_extraction_bytes_in_flight: usize,
+    extraction_concurrency_by_adapter: BTreeMap<String, usize>,
 }
 
 #[derive(Debug, Clone)]
@@ -62,9 +70,14 @@ pub struct IndexPipelineMetrics {
     pub storage_ms: u64,
     pub files_discovered: usize,
     pub files_to_extract: usize,
+    pub extraction_concurrency: usize,
+    pub max_extraction_bytes_in_flight: usize,
+    pub extraction_concurrency_by_adapter: BTreeMap<String, usize>,
     pub changed_files: usize,
     pub unchanged_files: usize,
     pub removed_files: usize,
+    pub invalidation_scope: Option<String>,
+    pub invalidation_global_adapters: Vec<String>,
     pub entities: usize,
     pub facts: usize,
     pub relations: usize,
@@ -196,6 +209,9 @@ impl IndexPipeline {
             extractors: Vec::new(),
             linkers: Vec::new(),
             checkers: Vec::new(),
+            extraction_concurrency: DEFAULT_EXTRACTION_CONCURRENCY_LIMIT,
+            max_extraction_bytes_in_flight: DEFAULT_MAX_EXTRACTION_BYTES_IN_FLIGHT,
+            extraction_concurrency_by_adapter: BTreeMap::new(),
         }
     }
 
@@ -239,6 +255,56 @@ impl IndexPipeline {
         self
     }
 
+    /// Sets the maximum number of extractor/source-file tasks in flight.
+    pub fn extraction_concurrency(mut self, limit: usize) -> Self {
+        self.extraction_concurrency = limit.max(1);
+        self
+    }
+
+    /// Sets the total source-content byte budget held by concurrent extractors.
+    pub fn max_extraction_bytes_in_flight(mut self, bytes: usize) -> Self {
+        self.max_extraction_bytes_in_flight = bytes.max(1);
+        self
+    }
+
+    /// Sets optional extractor-specific task limits keyed by adapter name.
+    pub fn extraction_concurrency_by_adapter(
+        mut self,
+        limits: impl IntoIterator<Item = (String, usize)>,
+    ) -> Self {
+        self.extraction_concurrency_by_adapter = limits
+            .into_iter()
+            .filter_map(|(adapter, limit)| (limit > 0).then_some((adapter, limit)))
+            .collect();
+        self
+    }
+
+    fn invalidation_declarations(&self) -> Vec<AdapterInvalidationDeclaration> {
+        self.extractors
+            .iter()
+            .map(|adapter| AdapterInvalidationDeclaration {
+                adapter: format!("extractor:{}", adapter.name()),
+                policy: adapter.invalidation_policy(),
+            })
+            .chain(
+                self.linkers
+                    .iter()
+                    .map(|adapter| AdapterInvalidationDeclaration {
+                        adapter: format!("linker:{}", adapter.name()),
+                        policy: adapter.invalidation_policy(),
+                    }),
+            )
+            .chain(
+                self.checkers
+                    .iter()
+                    .map(|adapter| AdapterInvalidationDeclaration {
+                        adapter: format!("checker:{}", adapter.name()),
+                        policy: adapter.invalidation_policy(),
+                    }),
+            )
+            .collect()
+    }
+
     pub async fn run(self, repo: RepoId, base: SnapshotBase) -> Result<IndexPipelineOutput> {
         self.run_with_incremental(repo, base, IncrementalIndexContext::default())
             .await
@@ -250,7 +316,19 @@ impl IndexPipeline {
         base: SnapshotBase,
         incremental: IncrementalIndexContext,
     ) -> Result<IndexPipelineOutput> {
-        self.run_with_incremental_inner(repo, base, incremental, None)
+        self.run_with_incremental_inner(repo, base, incremental, None, true)
+            .await
+    }
+
+    /// Writes canonical objects but leaves the snapshot uncommitted for an application-level
+    /// publication coordinator. The caller must commit or abort `output.snapshot`.
+    pub async fn run_with_incremental_deferred(
+        self,
+        repo: RepoId,
+        base: SnapshotBase,
+        incremental: IncrementalIndexContext,
+    ) -> Result<IndexPipelineOutput> {
+        self.run_with_incremental_inner(repo, base, incremental, None, false)
             .await
     }
 
@@ -261,7 +339,19 @@ impl IndexPipeline {
         incremental: IncrementalIndexContext,
         cancellation: CancellationToken,
     ) -> Result<IndexPipelineOutput> {
-        self.run_with_incremental_inner(repo, base, incremental, Some(cancellation))
+        self.run_with_incremental_inner(repo, base, incremental, Some(cancellation), true)
+            .await
+    }
+
+    /// Cancellable deferred-publication variant of [`Self::run_with_incremental_deferred`].
+    pub async fn run_with_incremental_cancellable_deferred(
+        self,
+        repo: RepoId,
+        base: SnapshotBase,
+        incremental: IncrementalIndexContext,
+        cancellation: CancellationToken,
+    ) -> Result<IndexPipelineOutput> {
+        self.run_with_incremental_inner(repo, base, incremental, Some(cancellation), false)
             .await
     }
 
@@ -274,11 +364,14 @@ impl IndexPipeline {
         let pipeline_started = Instant::now();
         let mut metrics = IndexPipelineMetrics {
             schema: INDEX_METRICS_SCHEMA,
+            extraction_concurrency: self.extraction_concurrency,
+            max_extraction_bytes_in_flight: self.max_extraction_bytes_in_flight,
+            extraction_concurrency_by_adapter: self.extraction_concurrency_by_adapter.clone(),
             ..IndexPipelineMetrics::default()
         };
 
         let source_started = Instant::now();
-        let (files, source_metrics) = self.discover_sources().await?;
+        let (files, source_metrics) = self.discover_sources(None).await?;
         metrics.source_discovery_ms = elapsed_ms(source_started.elapsed());
         metrics.files_discovered = files.len();
         metrics.files_to_extract = files.len();
@@ -297,7 +390,7 @@ impl IndexPipeline {
 
         let extraction_started = Instant::now();
         let (entities, facts, diagnostics, extraction_metrics) =
-            self.extract(&repo, &snapshot, &files).await?;
+            self.extract(&repo, &snapshot, &files, None).await?;
         metrics.extraction_ms = elapsed_ms(extraction_started.elapsed());
         metrics.adapters.extend(extraction_metrics);
 
@@ -325,10 +418,13 @@ impl IndexPipeline {
         base: SnapshotBase,
         incremental: IncrementalIndexContext,
         cancellation: Option<CancellationToken>,
+        commit_snapshot: bool,
     ) -> Result<IndexPipelineOutput> {
         let pipeline_started = Instant::now();
         let mut metrics = IndexPipelineMetrics {
             schema: INDEX_METRICS_SCHEMA,
+            extraction_concurrency: self.extraction_concurrency,
+            max_extraction_bytes_in_flight: self.max_extraction_bytes_in_flight,
             ..IndexPipelineMetrics::default()
         };
         check_cancelled(&cancellation)?;
@@ -336,7 +432,7 @@ impl IndexPipeline {
 
         info!("starting source discovery");
         let source_started = Instant::now();
-        let (files, source_metrics) = self.discover_sources().await?;
+        let (files, source_metrics) = self.discover_sources(cancellation.clone()).await?;
         metrics.source_discovery_ms = elapsed_ms(source_started.elapsed());
         metrics.files_discovered = files.len();
         metrics.adapters.extend(source_metrics);
@@ -349,16 +445,36 @@ impl IndexPipeline {
             .changed
             .iter()
             .any(|path| !incremental.previous_state.files.contains_key(path));
-        if has_added_files || !affected_files.removed.is_empty() {
-            debug!(
-                added_files = has_added_files,
-                removed_files = affected_files.removed.len(),
-                "forcing full extraction because file additions or removals can affect absence diagnostics"
-            );
-            affected_files.changed = files.iter().map(|file| file.path.clone()).collect();
-            affected_files.unchanged.clear();
-        }
-
+        let invalidation_plan = plan_invalidation(
+            self.invalidation_declarations(),
+            has_added_files,
+            !affected_files.removed.is_empty(),
+        );
+        debug!(
+            scope = ?invalidation_plan.scope,
+            global_adapters = ?invalidation_plan.global_adapters,
+            "planned adapter invalidation"
+        );
+        metrics.invalidation_scope = Some(
+            match invalidation_plan.scope {
+                crate::PlannedInvalidationScope::FileLocal => "file_local",
+                crate::PlannedInvalidationScope::DependencyClosure => "dependency_closure",
+                crate::PlannedInvalidationScope::Global => "global",
+            }
+            .to_string(),
+        );
+        metrics.invalidation_global_adapters = invalidation_plan.global_adapters.clone();
+        let removed_dependency_neighbor_ids = if matches!(
+            invalidation_plan.scope,
+            crate::PlannedInvalidationScope::DependencyClosure
+        ) {
+            removed_dependency_neighbor_ids(
+                incremental.previous_snapshot.as_ref(),
+                &affected_files.removed,
+            )
+        } else {
+            HashSet::new()
+        };
         if !previous_snapshot_available {
             debug!("forcing full extraction because no previous canonical snapshot is available");
             affected_files.changed = files.iter().map(|file| file.path.clone()).collect();
@@ -432,8 +548,9 @@ impl IndexPipeline {
             "starting extraction"
         );
         let extraction_started = Instant::now();
-        let (extracted_entities, extracted_facts, extracted_diagnostics, extraction_metrics) =
-            self.extract(&repo, &snapshot, &files_to_extract).await?;
+        let (extracted_entities, extracted_facts, extracted_diagnostics, extraction_metrics) = self
+            .extract(&repo, &snapshot, &files_to_extract, cancellation.clone())
+            .await?;
         metrics.extraction_ms = elapsed_ms(extraction_started.elapsed());
         metrics.adapters.extend(extraction_metrics);
         check_cancelled(&cancellation)?;
@@ -443,7 +560,7 @@ impl IndexPipeline {
             diagnostics = extracted_diagnostics.len(),
             "completed extraction"
         );
-        let affected_extracted =
+        let mut affected_extracted =
             AffectedSubset::from_extracted(extracted_entities.clone(), extracted_facts.clone());
         let merge_started = Instant::now();
         let (mut entities, mut facts, mut prior_relations, mut prior_diagnostics) =
@@ -467,6 +584,45 @@ impl IndexPipeline {
         let canonicalize_extracted_started = Instant::now();
         let entities = Arc::new(canonicalize_entities(entities));
         let facts = Arc::new(canonicalize_facts(facts));
+        if !removed_dependency_neighbor_ids.is_empty() {
+            affected_extracted.entities.extend(
+                entities
+                    .iter()
+                    .filter(|entity| removed_dependency_neighbor_ids.contains(&entity.id))
+                    .cloned(),
+            );
+        }
+        let refresh_derived_globally = matches!(
+            invalidation_plan.scope,
+            crate::PlannedInvalidationScope::Global
+        );
+        if refresh_derived_globally {
+            let linker_names = self
+                .linkers
+                .iter()
+                .map(|linker| linker.name())
+                .collect::<BTreeSet<_>>();
+            let checker_names = self
+                .checkers
+                .iter()
+                .map(|checker| checker.name())
+                .collect::<BTreeSet<_>>();
+            prior_relations.retain(|relation| !has_producer(&relation.evidence, &linker_names));
+            prior_diagnostics
+                .retain(|diagnostic| !has_producer(&diagnostic.evidence, &checker_names));
+        }
+        let affected_for_derived = match invalidation_plan.scope {
+            crate::PlannedInvalidationScope::Global => {
+                AffectedSubset::from_extracted(entities.as_ref().clone(), facts.as_ref().clone())
+            }
+            crate::PlannedInvalidationScope::DependencyClosure => dependency_closure(
+                &affected_extracted,
+                entities.as_ref(),
+                facts.as_ref(),
+                &prior_relations,
+            ),
+            crate::PlannedInvalidationScope::FileLocal => affected_extracted.clone(),
+        };
         metrics.canonicalize_ms += elapsed_ms(canonicalize_extracted_started.elapsed());
         debug!(
             entities = entities.len(),
@@ -481,7 +637,8 @@ impl IndexPipeline {
                 &snapshot,
                 entities.clone(),
                 facts.clone(),
-                &affected_extracted,
+                &affected_for_derived,
+                cancellation.clone(),
             )
             .await?;
         metrics.linking_ms = elapsed_ms(linking_started.elapsed());
@@ -490,7 +647,9 @@ impl IndexPipeline {
         info!(relations = relations.len(), "completed linking");
         let mut all_relations_for_check = prior_relations.clone();
         all_relations_for_check.extend(relations.clone());
-        let affected_checked = affected_extracted.with_relations(relations.clone());
+        let mut affected_relations = affected_for_derived.relations.clone();
+        affected_relations.extend(relations.clone());
+        let affected_checked = affected_for_derived.with_relations(affected_relations);
         let all_relations_for_check = Arc::new(all_relations_for_check);
         info!("starting checking");
         let checking_started = Instant::now();
@@ -501,6 +660,7 @@ impl IndexPipeline {
                 facts.clone(),
                 all_relations_for_check,
                 &affected_checked,
+                cancellation.clone(),
             )
             .await?;
         metrics.checking_ms = elapsed_ms(checking_started.elapsed());
@@ -528,30 +688,49 @@ impl IndexPipeline {
         metrics.diagnostics = prior_diagnostics.len();
 
         let storage_started = Instant::now();
-        self.store
-            .put_entities(snapshot.clone(), entities.clone())
-            .await
-            .context("failed to store entities")?;
-        self.store
-            .put_facts(snapshot.clone(), facts.clone())
-            .await
-            .context("failed to store facts")?;
-        self.store
-            .put_relations(snapshot.clone(), prior_relations.clone())
-            .await
-            .context("failed to store relations")?;
-        self.store
-            .put_diagnostics(snapshot.clone(), prior_diagnostics.clone())
-            .await
-            .context("failed to store diagnostics")?;
-        self.store
-            .commit_snapshot(snapshot.clone())
-            .await
-            .context("failed to commit snapshot")?;
+        let storage_result: Result<()> = async {
+            self.store
+                .put_entities(snapshot.clone(), entities.clone())
+                .await
+                .context("failed to store entities")?;
+            self.store
+                .put_facts(snapshot.clone(), facts.clone())
+                .await
+                .context("failed to store facts")?;
+            self.store
+                .put_relations(snapshot.clone(), prior_relations.clone())
+                .await
+                .context("failed to store relations")?;
+            self.store
+                .put_diagnostics(snapshot.clone(), prior_diagnostics.clone())
+                .await
+                .context("failed to store diagnostics")?;
+            if commit_snapshot {
+                self.store
+                    .commit_snapshot(snapshot.clone())
+                    .await
+                    .context("failed to commit snapshot")?;
+            }
+            Ok(())
+        }
+        .await;
+        if let Err(error) = storage_result {
+            if let Err(rollback_error) = self.store.abort_snapshot(snapshot.clone()).await {
+                return Err(error.context(format!(
+                    "failed to abort incomplete snapshot {}: {rollback_error}",
+                    snapshot.0
+                )));
+            }
+            return Err(error);
+        }
         metrics.storage_ms = elapsed_ms(storage_started.elapsed());
         metrics.total_ms = elapsed_ms(pipeline_started.elapsed());
         metrics.adapters = aggregate_adapter_metrics(metrics.adapters);
-        info!(?snapshot, "committed index snapshot");
+        if commit_snapshot {
+            info!(?snapshot, "committed index snapshot");
+        } else {
+            info!(?snapshot, "prepared uncommitted index snapshot");
+        }
 
         Ok(IndexPipelineOutput {
             snapshot,
@@ -565,7 +744,10 @@ impl IndexPipeline {
         })
     }
 
-    async fn discover_sources(&self) -> Result<(Vec<SourceFile>, Vec<AdapterRunMetrics>)> {
+    async fn discover_sources(
+        &self,
+        cancellation: Option<CancellationToken>,
+    ) -> Result<(Vec<SourceFile>, Vec<AdapterRunMetrics>)> {
         let mut files = Vec::new();
         let mut metrics = Vec::new();
 
@@ -573,11 +755,11 @@ impl IndexPipeline {
             let source_name = source.name();
             let span = debug_span!("discover_source", source = source_name);
             let started = Instant::now();
-            let discovered = source
-                .discover()
-                .instrument(span)
-                .await
-                .with_context(|| format!("source {} failed", source_name))?;
+            let discovered =
+                crate::runtime::with_process_cancellation(cancellation.clone(), source.discover())
+                    .instrument(span)
+                    .await
+                    .with_context(|| format!("source {} failed", source_name))?;
             let duration_ms = elapsed_ms(started.elapsed());
             debug!(
                 source = source_name,
@@ -603,6 +785,7 @@ impl IndexPipeline {
         repo: &RepoId,
         snapshot: &SnapshotId,
         files: &[SourceFile],
+        cancellation: Option<CancellationToken>,
     ) -> Result<(
         Vec<Entity>,
         Vec<Fact>,
@@ -618,60 +801,100 @@ impl IndexPipeline {
                     .map(move |extractor| (extractor.as_ref(), source.clone()))
             })
             .collect::<Vec<_>>();
+        let byte_budget = Arc::new(Semaphore::new(
+            self.max_extraction_bytes_in_flight.min(u32::MAX as usize),
+        ));
+        let adapter_budgets = Arc::new(
+            self.extractors
+                .iter()
+                .filter_map(|extractor| {
+                    self.extraction_concurrency_by_adapter
+                        .get(extractor.name())
+                        .map(|limit| {
+                            (
+                                extractor.name().to_string(),
+                                Arc::new(Semaphore::new(*limit)),
+                            )
+                        })
+                })
+                .collect::<BTreeMap<_, _>>(),
+        );
         info!(
             task_count = tasks.len(),
-            concurrency = EXTRACTION_CONCURRENCY_LIMIT,
+            concurrency = self.extraction_concurrency,
+            max_bytes_in_flight = self.max_extraction_bytes_in_flight,
             "queued extraction tasks"
         );
 
         let mut outputs = stream::iter(tasks)
-            .map(|(extractor, source)| async move {
-                let extractor_name = extractor.name();
-                let started = Instant::now();
-                let span = debug_span!(
-                    "extract_source",
-                    extractor = extractor_name,
-                    file = %source.path
-                );
-                let input = ExtractInput {
-                    repo: repo.clone(),
-                    snapshot: snapshot.clone(),
-                    source,
-                };
-                let output = async {
-                    extractor
-                        .extract(input)
+            .map(|(extractor, source)| {
+                let byte_budget = Arc::clone(&byte_budget);
+                let adapter_budgets = Arc::clone(&adapter_budgets);
+                let cancellation = cancellation.clone();
+                async move {
+                    let source_bytes = source.content.as_ref().map_or(0, String::len).max(1);
+                    let permits = source_bytes
+                        .min(self.max_extraction_bytes_in_flight)
+                        .min(u32::MAX as usize) as u32;
+                    let _byte_budget_permit = byte_budget
+                        .acquire_many_owned(permits)
                         .await
-                        .with_context(|| format!("extractor {} failed", extractor_name))
-                }
-                .instrument(span)
-                .await?;
-                let duration_ms = elapsed_ms(started.elapsed());
+                        .map_err(|_| anyhow::anyhow!("extraction byte budget was closed"))?;
+                    let extractor_name = extractor.name();
+                    let _adapter_budget_permit = match adapter_budgets.get(extractor_name) {
+                        Some(budget) => {
+                            Some(Arc::clone(budget).acquire_owned().await.map_err(|_| {
+                                anyhow::anyhow!("adapter extraction budget was closed")
+                            })?)
+                        }
+                        None => None,
+                    };
+                    let started = Instant::now();
+                    let span = debug_span!(
+                        "extract_source",
+                        extractor = extractor_name,
+                        file = %source.path
+                    );
+                    let input = ExtractInput {
+                        repo: repo.clone(),
+                        snapshot: snapshot.clone(),
+                        source,
+                    };
+                    let output = crate::runtime::with_process_cancellation(cancellation, async {
+                        extractor
+                            .extract(input)
+                            .await
+                            .with_context(|| format!("extractor {} failed", extractor_name))
+                    })
+                    .instrument(span)
+                    .await?;
+                    let duration_ms = elapsed_ms(started.elapsed());
 
-                validate_entities(extractor_name, &output.entities)?;
-                validate_facts(extractor_name, &output.facts)?;
-                validate_diagnostics(extractor_name, &output.diagnostics)?;
-                debug!(
-                    extractor = extractor_name,
-                    entities = output.entities.len(),
-                    facts = output.facts.len(),
-                    diagnostics = output.diagnostics.len(),
-                    "extractor emitted canonical objects"
-                );
-                let metrics = AdapterRunMetrics {
-                    phase: "extractor",
-                    adapter: extractor_name.to_string(),
-                    runs: 1,
-                    duration_ms,
-                    input_files: 1,
-                    output_entities: output.entities.len(),
-                    output_facts: output.facts.len(),
-                    output_diagnostics: output.diagnostics.len(),
-                    ..AdapterRunMetrics::default()
-                };
-                Ok::<_, anyhow::Error>(ExtractorTaskOutput { output, metrics })
+                    validate_entities(extractor_name, &output.entities)?;
+                    validate_facts(extractor_name, &output.facts)?;
+                    validate_diagnostics(extractor_name, &output.diagnostics)?;
+                    debug!(
+                        extractor = extractor_name,
+                        entities = output.entities.len(),
+                        facts = output.facts.len(),
+                        diagnostics = output.diagnostics.len(),
+                        "extractor emitted canonical objects"
+                    );
+                    let metrics = AdapterRunMetrics {
+                        phase: "extractor",
+                        adapter: extractor_name.to_string(),
+                        runs: 1,
+                        duration_ms,
+                        input_files: 1,
+                        output_entities: output.entities.len(),
+                        output_facts: output.facts.len(),
+                        output_diagnostics: output.diagnostics.len(),
+                        ..AdapterRunMetrics::default()
+                    };
+                    Ok::<_, anyhow::Error>(ExtractorTaskOutput { output, metrics })
+                }
             })
-            .buffer_unordered(EXTRACTION_CONCURRENCY_LIMIT);
+            .buffer_unordered(self.extraction_concurrency);
 
         let mut entities = Vec::new();
         let mut facts = Vec::new();
@@ -707,6 +930,7 @@ impl IndexPipeline {
         entities: Arc<Vec<Entity>>,
         facts: Arc<Vec<Fact>>,
         affected: &AffectedSubset,
+        cancellation: Option<CancellationToken>,
     ) -> Result<(Vec<Relation>, Vec<AdapterRunMetrics>)> {
         let mut relations = Vec::new();
         let mut metrics = Vec::new();
@@ -724,17 +948,19 @@ impl IndexPipeline {
                 "running linker"
             );
             let started = Instant::now();
-            let output = linker
-                .link(LinkInput {
+            let output = crate::runtime::with_process_cancellation(
+                cancellation.clone(),
+                linker.link(LinkInput {
                     snapshot: snapshot.clone(),
                     entities: entities.clone(),
                     facts: facts.clone(),
                     affected: affected.clone(),
-                })
-                .instrument(span)
-                .await
-                .inspect_err(|error| error!(linker = linker.name(), %error, "linker failed"))
-                .with_context(|| format!("linker {} failed", linker_name))?;
+                }),
+            )
+            .instrument(span)
+            .await
+            .inspect_err(|error| error!(linker = linker.name(), %error, "linker failed"))
+            .with_context(|| format!("linker {} failed", linker_name))?;
             let duration_ms = elapsed_ms(started.elapsed());
 
             validate_relations(linker_name, &output)?;
@@ -766,6 +992,7 @@ impl IndexPipeline {
         facts: Arc<Vec<Fact>>,
         relations: Arc<Vec<Relation>>,
         affected: &AffectedSubset,
+        cancellation: Option<CancellationToken>,
     ) -> Result<(Vec<Diagnostic>, Vec<AdapterRunMetrics>)> {
         let mut diagnostics = Vec::new();
         let mut metrics = Vec::new();
@@ -784,18 +1011,20 @@ impl IndexPipeline {
                 "running checker"
             );
             let started = Instant::now();
-            let output = checker
-                .check(CheckInput {
+            let output = crate::runtime::with_process_cancellation(
+                cancellation.clone(),
+                checker.check(CheckInput {
                     snapshot: snapshot.clone(),
                     entities: entities.clone(),
                     facts: facts.clone(),
                     relations: relations.clone(),
                     affected: affected.clone(),
-                })
-                .instrument(span)
-                .await
-                .inspect_err(|error| error!(checker = checker.name(), %error, "checker failed"))
-                .with_context(|| format!("checker {} failed", checker_name))?;
+                }),
+            )
+            .instrument(span)
+            .await
+            .inspect_err(|error| error!(checker = checker.name(), %error, "checker failed"))
+            .with_context(|| format!("checker {} failed", checker_name))?;
             let duration_ms = elapsed_ms(started.elapsed());
 
             validate_diagnostics(checker_name, &output)?;
@@ -879,6 +1108,14 @@ fn add_optional_bytes(left: Option<u64>, right: Option<u64>) -> Option<u64> {
 
 fn unwrap_or_clone_arc_vec<T: Clone>(items: Arc<Vec<T>>) -> Vec<T> {
     Arc::try_unwrap(items).unwrap_or_else(|items| (*items).clone())
+}
+
+fn has_producer(evidence: &[Evidence], producers: &BTreeSet<&str>) -> bool {
+    evidence.iter().any(|item| {
+        item.extractor
+            .as_deref()
+            .is_some_and(|producer| producers.contains(producer))
+    })
 }
 
 fn check_cancelled(cancellation: &Option<CancellationToken>) -> Result<()> {
@@ -1055,6 +1292,34 @@ fn carried_forward_read_model(
     (entities, facts, relations, diagnostics)
 }
 
+fn removed_dependency_neighbor_ids(
+    previous: Option<&CanonicalSnapshot>,
+    removed_paths: &BTreeSet<String>,
+) -> HashSet<athanor_domain::EntityId> {
+    let Some(previous) = previous else {
+        return HashSet::new();
+    };
+    let removed_entity_ids = previous
+        .entities
+        .iter()
+        .filter(|entity| entity_owned_by_any_path(entity, removed_paths))
+        .map(|entity| entity.id.clone())
+        .collect::<HashSet<_>>();
+    previous
+        .relations
+        .iter()
+        .filter_map(|relation| {
+            if removed_entity_ids.contains(&relation.from) {
+                Some(relation.to.clone())
+            } else if removed_entity_ids.contains(&relation.to) {
+                Some(relation.from.clone())
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
 fn canonicalize_entities(entities: Vec<Entity>) -> Vec<Entity> {
     let mut by_id = BTreeMap::new();
     for entity in entities {
@@ -1221,6 +1486,7 @@ mod tests {
     use std::sync::Mutex;
 
     use super::*;
+    use crate::index_state::FileState;
     use crate::transient_store::TransientKnowledgeStore;
 
     #[test]
@@ -1255,6 +1521,26 @@ mod tests {
         );
 
         assert!(relations.is_empty());
+    }
+
+    #[test]
+    fn finds_surviving_neighbors_of_removed_entities_for_dependency_closure() {
+        let removed = entity("ent_removed", "src/removed.rs");
+        let survivor = entity("ent_survivor", "src/survivor.rs");
+        let neighbors = removed_dependency_neighbor_ids(
+            Some(&CanonicalSnapshot {
+                entities: vec![removed.clone(), survivor.clone()],
+                relations: vec![relation(
+                    "rel_removed_survivor",
+                    "ent_removed",
+                    "ent_survivor",
+                )],
+                ..CanonicalSnapshot::default()
+            }),
+            &BTreeSet::from(["src/removed.rs".to_string()]),
+        );
+
+        assert_eq!(neighbors, HashSet::from([survivor.id]));
     }
 
     #[test]
@@ -1334,6 +1620,59 @@ mod tests {
         let pointers = tracker.lock().unwrap();
         assert_eq!(pointers.linker_entities, pointers.checker_entities);
         assert_eq!(pointers.linker_facts, pointers.checker_facts);
+    }
+
+    #[tokio::test]
+    async fn dependency_closure_reaches_connected_carried_entities() {
+        let affected_entities = Arc::new(Mutex::new(Vec::new()));
+        let carried_neighbor = entity("ent_neighbor", "docs/neighbor.md");
+        let previous = CanonicalSnapshot {
+            snapshot: Some(SnapshotId("snap_previous".to_string())),
+            entities: vec![
+                entity("ent_left", "docs/shared.md"),
+                carried_neighbor.clone(),
+            ],
+            relations: vec![relation("rel_previous", "ent_left", "ent_neighbor")],
+            ..CanonicalSnapshot::default()
+        };
+        let pipeline = IndexPipeline::new(TransientKnowledgeStore::new())
+            .source(TestSource)
+            .extractor(TestExtractor)
+            .linker(DependencyCapturingLinker {
+                affected_entities: affected_entities.clone(),
+            });
+
+        pipeline
+            .run_with_incremental(
+                RepoId("repo_dependency_closure".to_string()),
+                SnapshotBase {
+                    branch: None,
+                    commit: None,
+                    parent_snapshot: None,
+                    working_tree: true,
+                },
+                IncrementalIndexContext {
+                    previous_state: IndexState {
+                        schema: "test".to_string(),
+                        snapshot: Some("snap_previous".to_string()),
+                        files: BTreeMap::from([(
+                            "docs/shared.md".to_string(),
+                            FileState {
+                                content_hash: Some("old".to_string()),
+                                language_hint: Some("markdown".to_string()),
+                            },
+                        )]),
+                    },
+                    previous_snapshot: Some(previous),
+                },
+            )
+            .await
+            .expect("incremental pipeline should run");
+
+        assert_eq!(
+            *affected_entities.lock().unwrap(),
+            vec!["ent_left".to_string(), "ent_neighbor".to_string()]
+        );
     }
 
     #[test]
@@ -1553,6 +1892,37 @@ mod tests {
                 "shared context was checked",
                 &input.snapshot.0,
             )])
+        }
+    }
+
+    struct DependencyCapturingLinker {
+        affected_entities: Arc<Mutex<Vec<String>>>,
+    }
+
+    #[async_trait]
+    impl Linker for DependencyCapturingLinker {
+        fn name(&self) -> &str {
+            "dependency-capturing-linker"
+        }
+
+        fn invalidation_policy(&self) -> athanor_core::InvalidationPolicy {
+            athanor_core::InvalidationPolicy {
+                on_change: athanor_core::InvalidationScope::DependencyClosure,
+                on_add: athanor_core::InvalidationScope::DependencyClosure,
+                on_remove: athanor_core::InvalidationScope::DependencyClosure,
+            }
+        }
+
+        async fn link(&self, input: LinkInput) -> CoreResult<Vec<Relation>> {
+            let mut ids = input
+                .affected
+                .entities
+                .iter()
+                .map(|entity| entity.id.0.clone())
+                .collect::<Vec<_>>();
+            ids.sort();
+            *self.affected_entities.lock().unwrap() = ids;
+            Ok(Vec::new())
         }
     }
 }

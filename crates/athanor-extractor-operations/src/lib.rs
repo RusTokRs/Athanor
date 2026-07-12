@@ -1,7 +1,9 @@
 use std::collections::BTreeMap;
 
 use async_trait::async_trait;
-use athanor_core::{CoreResult, ExtractInput, ExtractOutput, Extractor, SourceFile};
+use athanor_core::{
+    CoreResult, ExtractInput, ExtractOutput, Extractor, InvalidationPolicy, SourceFile,
+};
 use athanor_domain::{
     Entity, EntityId, EntityKind, Fact, FactId, FactKind, LanguageCode, SourceLocation, StableKey,
 };
@@ -15,6 +17,10 @@ pub struct OperationsExtractor;
 impl Extractor for OperationsExtractor {
     fn name(&self) -> &str {
         "operations"
+    }
+
+    fn invalidation_policy(&self) -> InvalidationPolicy {
+        InvalidationPolicy::FILE_LOCAL
     }
 
     fn supports(&self, source: &SourceFile) -> bool {

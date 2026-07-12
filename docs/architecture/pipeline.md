@@ -72,8 +72,8 @@ flowchart TD
 16. `RuntimeBuilder` discovers adapter plugin manifests from `.athanor/adapters/*.json` and `.athanor/plugins/*/athanor-adapter.json`, then applies enabled adapter entries that match known app-layer factory ids.
 17. `RuntimeBuilder` builds the configured `IndexPipeline` from an `AdapterRegistry`.
 18. `IndexStateStore` classifies discovered files as changed, unchanged, or removed by comparing them with the previous state.
-19. File additions or removals trigger a safe full rebuild so absence diagnostics cannot remain stale.
-20. `IndexPipeline` extracts changed files only when a previous canonical snapshot is available from `CanonicalSnapshotStore`; extractor/source-file tasks run concurrently with a fixed limit of 16 in-flight tasks.
+19. `IndexPipeline` derives invalidation from explicit adapter policies. Built-in extractors are file-local; unknown adapters remain conservative. `DependencyClosure` expands changed extracted entities transitively through existing canonical relations for linker/checker affected input. Global policies refresh derived linker/checker output without forcing a full source extraction.
+20. `IndexPipeline` extracts changed files only when a previous canonical snapshot is available from `CanonicalSnapshotStore`; extractor/source-file tasks run concurrently with the configured `[pipeline].extraction_concurrency` limit (16 by default).
 21. `IndexPipeline` skips canonical snapshot creation when a previous snapshot is available and
     source discovery finds no changed or removed files; otherwise it carries unchanged canonical
     objects forward from the previous canonical snapshot, rewrites carried snapshot ids to the new
@@ -85,9 +85,11 @@ flowchart TD
 24. In `--validate-only` mode, the CLI writes a structured validation result artifact for successful runs, then stops without persisting a canonical snapshot, read model, or index state.
 25. `IndexPipeline` records bounded indexing metrics for phase timings, aggregated adapter timings and object counts, affected-file counts, canonical object counts, and validation issue counts. `ath index --json` and other JSON-facing callers return the report without requiring generated JSONL reads.
 26. `ath bench --size <small|medium|large>` creates synthetic Markdown, Rust, and OpenAPI fixtures, runs the normal index path, and emits `athanor.index_benchmark.v1` with the same bounded index metrics so performance regressions can be measured without reading generated JSONL artifacts.
-27. Otherwise, `IndexPipeline` stores the merged canonical objects for the current run through `KnowledgeStore`.
-28. `JsonlReadModelWriter` exports JSONL read models to `.athanor/generated/current/jsonl`.
-29. `IndexStateStore` persists file hash state to `.athanor/state/index-state.json` for the next run.
+27. Otherwise, `IndexPipeline` stores the merged canonical objects for the current run through `KnowledgeStore` as an uncommitted snapshot. The index application prepares read-model/state replacements while retaining their prior backups, commits canonical visibility last, and restores those backups if canonical commit fails.
+28. `JsonlReadModelWriter` stages a complete JSONL read model and replaces `.athanor/generated/current/jsonl` only after its manifest is ready.
+29. `IndexStateStore` stages and replaces file hash state at `.athanor/state/index-state.json` for the next run.
+30. `ath index` holds `.athanor/state/index-publication.lock` for its complete lifecycle, preventing concurrent index processes from interleaving state and read-model publication.
+31. Before replacement it persists `.athanor/state/index-publication.json`. On the next index call under the same lock, the journal either finalizes retained backups after a completed canonical commit or restores previous artefacts and aborts the unfinished snapshot.
 30. On demand, `ath coverage` reads the latest durable canonical snapshot plus persisted index state and emits bounded `athanor.coverage.v1` file, adapter, and diagnostic-kind coverage rows without running indexing or reading generated JSONL artifacts.
 31. On demand, `ath wiki` loads the latest durable canonical snapshot and performs a staged replacement of the neutral Markdown wiki read model.
 32. On demand, `ath report html` loads the same snapshot and performs a staged replacement of a self-contained HTML report.
@@ -98,6 +100,7 @@ flowchart TD
 37. On demand, `ath check runbooks` reports runbooks that do not reference known operational targets or have no extracted operation steps.
 38. On demand, `ath validate-changed` runs a fast extractor-only preflight for explicit `--file` selections, changed Git paths, or index-state changed paths outside Git repositories, without running linkers, checkers, storage, state updates, or read-model writes.
 39. On demand, `ath update --changed` runs the same incremental indexing path through an explicit update command, writes a new durable snapshot, refreshes JSONL read models, and updates persisted file change state.
+40. The `ath index`, `ath update`, `ath generate`, `ath context`, `ath explain`, `ath overview`, `ath impact`, `ath coverage`, `ath capabilities`, `ath change-map`, and `ath check` entry points construct an explicit `RuntimeComposition` and pass it to their application services. `athd serve` does the same and retains that composition in daemon state for index, generate, wiki, HTML report, snapshot, search, context, and change-map jobs. Composition-aware wiki, HTML report, generation, and search APIs also accept the same dependency object, so their store/projector/search dependencies do not require process-global factory installation. Legacy library entry points remain for embedders while migration completes.
 40. On demand, `ath check affected` compares current source discovery with persisted index state and reports latest-snapshot diagnostics plus stale local artifact status for changed workflows without writing a new snapshot.
 41. On demand, `ath context --diff` builds a bounded context pack rooted in entities owned by changed or removed files without writing a new snapshot.
 41. On demand, `ath repair inspect` validates local canonical and generated pointers, manifests, and orphaned immutable artifacts without modifying files.
@@ -111,6 +114,7 @@ flowchart TD
 49. On demand, `ath docs propose-fix` writes a reviewable JSON patch proposal for editable documentation frontmatter policy and drift findings.
 50. On demand, `ath docs apply-patch <id-or-path>` explicitly applies one generated documentation patch proposal after verifying it still targets the latest canonical snapshot.
 51. On demand, `ath api snapshot` publishes the latest API contract immutably, `ath api diff` compares contract snapshots, and `ath api cleanup` removes old API contract artifacts through explicit retention. When `[api.retention].auto_cleanup` or a one-off `--cleanup` flag is enabled, successful snapshot and diff commands run the same retention cleanup after publication.
+52. On demand, `ath rustok architecture context <intent>` assembles a bounded ownership, public-contract, consumer/provider, test, diagnostic, and evidence context from the latest canonical snapshot. The MCP `rustok_architecture_context` tool invokes the same app-layer use case.
 
 ## Pipeline Assembly
 
@@ -147,13 +151,72 @@ Trusting an external adapter records both the canonical manifest path/content ha
 hashes of its enabled executable paths. A changed executable therefore requires an explicit
 `ath plugins trust <manifest>` again before the runtime accepts that plugin.
 
+Core failures expose a stable `CoreErrorCode` plus retryability. In particular, external adapter
+timeouts are reported as `deadline_exceeded`, while the daemon/MCP public error-schema migration
+remains separate protocol work.
+
+External process adapter commands run through Tokio async I/O with bounded stdin/stdout/stderr,
+timeout handling, and an explicit canonical manifest-directory working directory; they do not
+inherit the caller's implicit working directory. The internal runner accepts an optional
+`CancellationToken`, returns `cancelled`, and the cancellable pipeline scopes it around source,
+extractor, linker, and checker calls. On Windows timeout and cancellation invoke
+`taskkill /T /F` before the direct-child fallback, terminating descendants launched by common
+adapter wrappers. Job Object containment and Unix process-group termination remain future
+hardening work. `athanor-core` exposes the transport-neutral `ProcessRunner` request/output
+contract with explicit executable, directory, stdin, and byte/time limits. `TokioProcessRunner`
+implements that port from the focused `runtime/process_runner.rs` module, and the external adapter
+executor uses its cancellable application-level extension so cancellation remains outside the core
+contract. Consequently the runner is not yet injected through `RuntimeComposition`: doing so
+requires a separate application-level cancellation-aware runner port rather than weakening the
+core contract.
+
+If canonical storage fails before a snapshot commits, `IndexPipeline` calls the `KnowledgeStore`
+`abort_snapshot` lifecycle operation. JSONL and memory stores discard the uncommitted snapshot;
+the SurrealDB adapter removes rows for its uncommitted snapshot. Prepared/batched publication is a
+future extension of this lifecycle.
+
+Extractors, linkers, and checkers now expose conservative invalidation declarations. Adapters that
+do not opt in default to `AlwaysGlobal`; the file-inventory and Markdown extractors explicitly
+declare `FileLocal`. For global derived refreshes, the pipeline replaces only relations and
+diagnostics whose evidence identifies a registered linker or checker, retaining extractor and
+unknown external outputs. For `DependencyClosure`, it walks canonical relations in both directions
+from changed extracted entities and supplies the connected entities, facts, and existing relations
+as the affected subset. For a removed file, the planner seeds its surviving direct neighbors from
+the previous snapshot before walking the current graph. The full canonical graph remains available
+in adapter input; adapters without a dependency policy remain conservative and global.
+The bounded index metrics report records the planned scope and global adapter names for each run.
+`IndexPipeline::extraction_concurrency(n)` sets the maximum number of source-file extraction tasks
+in flight (default: 16), and the chosen value is recorded in index metrics.
+For CLI and daemon indexing, configure it in `athanor.toml`:
+
+```toml
+[pipeline]
+extraction_concurrency = 8
+max_extraction_bytes_in_flight = 67108864
+
+[pipeline.extraction_concurrency_by_adapter]
+"builtin.extractor.markdown" = 2
+```
+
+Both values must be at least `1`. The byte budget is held across concurrently running extraction
+tasks (a single source larger than the budget occupies the full budget), preventing many large
+source contents from being processed at once.
+`extraction_concurrency_by_adapter` is optional; it prevents one named extractor from consuming
+all shared extraction slots.
+
 `athanor-app` now exposes:
 
 - `IndexPipeline`: orchestration for source discovery, extraction, linking, checking, and store writes.
 - `benchmark_index`: synthetic small, medium, and large benchmark fixtures for the normal index path.
 - `AdapterRegistry`: ordered factories for source, extractor, linker, and checker adapters.
 - `RuntimeBuilder`: app-layer runtime assembly for a project root, registry, and discovered adapter plugin manifests.
-- `athanor-runtime-defaults`: the production composition root installed by `ath` and `athd`.
+
+New integrations should prefer explicit namespaces: `athanor_app::indexing` for index requests
+and pipeline types, `athanor_app::publication` for read-model/state lifecycle, `athanor_app::query`
+for read-only use cases, and `athanor_app::projects` for repository registration. The existing root
+exports remain a compatibility surface while callers migrate; `runtime` and `daemon` remain their
+own top-level namespaces.
+- `athanor-runtime-defaults`: the production composition root constructed by `ath` and `athd`.
   `athanor-app` uses a focused test-only composition with real JSONL, Tantivy, projector, and
   fixture-relevant source/extractor/linker/checker adapters so package tests exercise the same
   boundaries without depending on binary startup or adding adapter dependencies to production app
@@ -177,10 +240,11 @@ hashes of its enabled executable paths. A changed executable therefore requires 
 - `rustok_ffa_audit`, `graph_ffa_surface`, and `graph_ffa_violations`: bounded RusTok FFA read models from canonical FFA entities, relations, and diagnostics, with observed/actionable/scaffold/host-wiring audit scope and explicit core/transport/UI structural completion reported separately.
 - `rustok_fba_audit`, `graph_fba_module`, `graph_fba_port`, `graph_fba_dependencies`, and `graph_fba_violations`: bounded RusTok FBA read models from canonical FBA entities, relations, and diagnostics, with registry-backed/dependency-only and migration-status counts plus applicable evidence-derived contract requirements kept explicit.
 - `rustok_page_builder_audit`, `graph_page_builder_provider`, `graph_page_builder_consumer`, and `graph_page_builder_violations`: bounded RusTok Page Builder read models from canonical Page Builder entities, relations, and diagnostics.
+- `rustok_architecture_context`: compact RusTok agent orientation over generic canonical knowledge and opt-in FFA/FBA facts, with explicit ambiguity, bounded evidence, and omitted counts.
 - `list_registered_projects`, `register_project`, `resolve_registered_project`, and
   `unregister_project`: explicit user-level repository identity management for future daemon and
   MCP routing.
-- `serve_daemon` and `request_daemon`: local daemon lifecycle and newline-delimited JSON command
+- `serve_daemon_with_composition` and `request_daemon`: local daemon lifecycle and newline-delimited JSON command
   protocol for one explicitly resolved project id.
 - `check_project`: scoped API, documentation, environment, script, deployment, and runbook diagnostic reporting from the latest canonical snapshot.
 - `validate_changed`: extractor-only changed-file preflight from Git status or persisted index state.

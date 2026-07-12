@@ -8,6 +8,7 @@ use athanor_core::{CanonicalSnapshot, CanonicalSnapshotStore};
 use athanor_domain::{Diagnostic, Entity, EntityId, Relation, RelationKind};
 use serde::{Deserialize, Serialize};
 
+use crate::RuntimeComposition;
 use crate::index_state::IndexStateStore;
 use crate::local_source::discover_source_files;
 use crate::project_path::normalize_canonical_path;
@@ -68,6 +69,21 @@ pub struct ImpactOptions {
 }
 
 pub async fn impact_project(options: ImpactOptions) -> Result<ImpactAnalysis> {
+    impact_project_inner(options, None).await
+}
+
+/// Analyses impact with explicitly supplied runtime dependencies.
+pub async fn impact_project_with_composition(
+    options: ImpactOptions,
+    composition: &RuntimeComposition,
+) -> Result<ImpactAnalysis> {
+    impact_project_inner(options, Some(composition)).await
+}
+
+async fn impact_project_inner(
+    options: ImpactOptions,
+    composition: Option<&RuntimeComposition>,
+) -> Result<ImpactAnalysis> {
     let root = normalize_canonical_path(
         options
             .root
@@ -76,7 +92,10 @@ pub async fn impact_project(options: ImpactOptions) -> Result<ImpactAnalysis> {
     );
 
     let config = load_config(&root)?;
-    let store = init_store(&root, &config).await?;
+    let store = match composition {
+        Some(composition) => composition.init_store(&root, &config).await?,
+        None => init_store(&root, &config).await?,
+    };
     let snapshot = store
         .load_latest_snapshot()
         .await
