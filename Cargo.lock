@@ -555,12 +555,12 @@ dependencies = [
  "athanor-core",
  "athanor-domain",
  "athanor-extractor-basic",
- "oxc_allocator 0.138.0",
- "oxc_ast",
+ "oxc_allocator 0.139.0",
+ "oxc_ast 0.138.0",
  "oxc_ast_visit",
  "oxc_parser",
  "oxc_span 0.139.0",
- "oxc_syntax",
+ "oxc_syntax 0.138.0",
  "serde_json",
  "tokio",
  "tree-sitter",
@@ -3319,12 +3319,30 @@ dependencies = [
  "oxc_allocator 0.138.0",
  "oxc_ast_macros 0.138.0",
  "oxc_data_structures 0.138.0",
- "oxc_diagnostics",
+ "oxc_diagnostics 0.138.0",
  "oxc_estree 0.138.0",
- "oxc_regular_expression",
+ "oxc_regular_expression 0.138.0",
  "oxc_span 0.138.0",
  "oxc_str 0.138.0",
- "oxc_syntax",
+ "oxc_syntax 0.138.0",
+]
+
+[[package]]
+name = "oxc_ast"
+version = "0.139.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "888b93d95de1a7fbc4ce37daa121b2c794ee353e9ef8ea785edbb6ee88537b82"
+dependencies = [
+ "bitflags",
+ "oxc_allocator 0.139.0",
+ "oxc_ast_macros 0.139.0",
+ "oxc_data_structures 0.139.0",
+ "oxc_diagnostics 0.139.0",
+ "oxc_estree 0.139.0",
+ "oxc_regular_expression 0.139.0",
+ "oxc_span 0.139.0",
+ "oxc_str 0.139.0",
+ "oxc_syntax 0.139.0",
 ]
 
 [[package]]
@@ -3353,14 +3371,14 @@ dependencies = [
 
 [[package]]
 name = "oxc_ast_visit"
-version = "0.138.0"
+version = "0.139.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5f22557685c3d7e0a7e2fb3038072774a54bb4ac29f934719f628c364d808c15"
+checksum = "9a863e2696881b3ab85d606069b1b1e83c6f46f5d1c594c26baf7b01a57263af"
 dependencies = [
- "oxc_allocator 0.138.0",
- "oxc_ast",
- "oxc_span 0.138.0",
- "oxc_syntax",
+ "oxc_allocator 0.139.0",
+ "oxc_ast 0.139.0",
+ "oxc_span 0.139.0",
+ "oxc_syntax 0.139.0",
 ]
 
 [[package]]
@@ -3387,6 +3405,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxc_diagnostics"
+version = "0.139.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "202673d37469fa3d0259ffa238d03bd11278b07e0db2a6ea57b583bad116307b"
+dependencies = [
+ "cow-utils",
+ "oxc-miette",
+ "percent-encoding",
+]
+
+[[package]]
 name = "oxc_ecmascript"
 version = "0.138.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3396,10 +3425,10 @@ dependencies = [
  "num-bigint",
  "num-traits",
  "oxc_allocator 0.138.0",
- "oxc_ast",
- "oxc_regular_expression",
+ "oxc_ast 0.138.0",
+ "oxc_regular_expression 0.138.0",
  "oxc_span 0.138.0",
- "oxc_syntax",
+ "oxc_syntax 0.138.0",
 ]
 
 [[package]]
@@ -3436,14 +3465,14 @@ dependencies = [
  "num-bigint",
  "num-traits",
  "oxc_allocator 0.138.0",
- "oxc_ast",
+ "oxc_ast 0.138.0",
  "oxc_data_structures 0.138.0",
- "oxc_diagnostics",
+ "oxc_diagnostics 0.138.0",
  "oxc_ecmascript",
- "oxc_regular_expression",
+ "oxc_regular_expression 0.138.0",
  "oxc_span 0.138.0",
  "oxc_str 0.138.0",
- "oxc_syntax",
+ "oxc_syntax 0.138.0",
  "rustc-hash",
  "seq-macro",
 ]
@@ -3457,9 +3486,26 @@ dependencies = [
  "bitflags",
  "oxc_allocator 0.138.0",
  "oxc_ast_macros 0.138.0",
- "oxc_diagnostics",
+ "oxc_diagnostics 0.138.0",
  "oxc_span 0.138.0",
  "oxc_str 0.138.0",
+ "phf 0.14.0",
+ "rustc-hash",
+ "unicode-id-start",
+]
+
+[[package]]
+name = "oxc_regular_expression"
+version = "0.139.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "afefc289c56e23d536c2c16ed181b7c0782b91fa6d012ac521397d86a323d9dc"
+dependencies = [
+ "bitflags",
+ "oxc_allocator 0.139.0",
+ "oxc_ast_macros 0.139.0",
+ "oxc_diagnostics 0.139.0",
+ "oxc_span 0.139.0",
+ "oxc_str 0.139.0",
  "phf 0.14.0",
  "rustc-hash",
  "unicode-id-start",
@@ -3533,6 +3579,25 @@ dependencies = [
  "oxc_index",
  "oxc_span 0.138.0",
  "oxc_str 0.138.0",
+ "phf 0.14.0",
+ "unicode-id-start",
+]
+
+[[package]]
+name = "oxc_syntax"
+version = "0.139.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "68f93e93a185fc017078daebd6180f9a128b1222ca15a7d8ddd6078339b13c61"
+dependencies = [
+ "bitflags",
+ "cow-utils",
+ "nonmax",
+ "oxc_allocator 0.139.0",
+ "oxc_ast_macros 0.139.0",
+ "oxc_estree 0.139.0",
+ "oxc_index",
+ "oxc_span 0.139.0",
+ "oxc_str 0.139.0",
  "phf 0.14.0",
  "unicode-id-start",
 ]
