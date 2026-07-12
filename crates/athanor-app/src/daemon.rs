@@ -4122,20 +4122,6 @@ mod tests {
     }
 
     #[test]
-    fn bounded_cache_evicts_the_least_recently_used_entry() {
-        let mut cache = BoundedCache::new(2);
-        cache.insert("first", 1);
-        cache.insert("second", 2);
-        assert_eq!(cache.get(&"first"), Some(1));
-
-        cache.insert("third", 3);
-
-        assert_eq!(cache.get(&"second"), None);
-        assert_eq!(cache.get(&"first"), Some(1));
-        assert_eq!(cache.get(&"third"), Some(3));
-    }
-
-    #[test]
     fn detects_active_job_by_kind() {
         let endpoint = DaemonEndpoint {
             schema: DAEMON_ENDPOINT_SCHEMA.to_string(),

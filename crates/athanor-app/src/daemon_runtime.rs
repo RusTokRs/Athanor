@@ -322,6 +322,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn bounded_cache_evicts_the_least_recently_used_entry() {
+        let mut cache = BoundedCache::new(2);
+        cache.insert("first", 1);
+        cache.insert("second", 2);
+        assert_eq!(cache.get(&"first"), Some(1));
+
+        cache.insert("third", 3);
+
+        assert_eq!(cache.get(&"second"), None);
+        assert_eq!(cache.get(&"first"), Some(1));
+        assert_eq!(cache.get(&"third"), Some(3));
+    }
+
+    #[test]
     fn creates_reads_and_compares_tokens() {
         let root =
             std::env::temp_dir().join(format!("athanor-runtime-token-{}", std::process::id()));

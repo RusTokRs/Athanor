@@ -164,8 +164,11 @@ extractor, linker, and checker calls. On Windows timeout and cancellation invoke
 adapter wrappers. Job Object containment and Unix process-group termination remain future
 hardening work. `athanor-core` exposes the transport-neutral `ProcessRunner` request/output
 contract with explicit executable, directory, stdin, and byte/time limits. `TokioProcessRunner`
-implements that port, and the external adapter executor uses its cancellable application-level
-extension so cancellation remains outside the core contract.
+implements that port from the focused `runtime/process_runner.rs` module, and the external adapter
+executor uses its cancellable application-level extension so cancellation remains outside the core
+contract. Consequently the runner is not yet injected through `RuntimeComposition`: doing so
+requires a separate application-level cancellation-aware runner port rather than weakening the
+core contract.
 
 If canonical storage fails before a snapshot commits, `IndexPipeline` calls the `KnowledgeStore`
 `abort_snapshot` lifecycle operation. JSONL and memory stores discard the uncommitted snapshot;
