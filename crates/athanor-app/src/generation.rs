@@ -95,6 +95,14 @@ pub async fn generate_project(options: GenerationOptions) -> Result<GenerationRe
     generate_project_inner(options, None, None).await
 }
 
+/// Generates coordinated read models with explicitly supplied runtime dependencies.
+pub async fn generate_project_with_composition(
+    options: GenerationOptions,
+    composition: &RuntimeComposition,
+) -> Result<GenerationReport> {
+    generate_project_inner(options, None, Some(composition.clone())).await
+}
+
 pub async fn generate_project_cancellable(
     options: GenerationOptions,
     cancellation: CancellationToken,

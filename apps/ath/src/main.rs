@@ -32,7 +32,7 @@ use athanor_app::{
     context_project_with_composition, coverage_project_with_composition,
     default_adapter_trust_path, default_project_registry_path, diff_api_contracts,
     docs_apply_patch, docs_drift, docs_propose_fix, explain_project_with_composition,
-    generate_project, graph_fba_dependencies, graph_fba_module, graph_fba_port,
+    generate_project_with_composition, graph_fba_dependencies, graph_fba_module, graph_fba_port,
     graph_fba_violations, graph_ffa_surface, graph_ffa_violations, graph_page_builder_consumer,
     graph_page_builder_provider, graph_page_builder_violations, impact_project_with_composition,
     index_project_with_composition, init_project, inspect_repair, list_adapter_plugin_trust,
@@ -1448,10 +1448,13 @@ async fn run_cli() -> Result<()> {
             println!("wrote HTML report to {}", report.output_dir.display());
         }
         Some(Command::Generate { path }) => {
-            let report = generate_project(GenerationOptions {
-                root: path,
-                force: false,
-            })
+            let report = generate_project_with_composition(
+                GenerationOptions {
+                    root: path,
+                    force: false,
+                },
+                &composition,
+            )
             .await?;
             if report.status == athanor_app::GenerationStatus::UpToDate {
                 println!(

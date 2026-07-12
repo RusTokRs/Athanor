@@ -1486,6 +1486,7 @@ mod tests {
     use std::sync::Mutex;
 
     use super::*;
+    use crate::index_state::FileState;
     use crate::transient_store::TransientKnowledgeStore;
 
     #[test]
@@ -1619,6 +1620,59 @@ mod tests {
         let pointers = tracker.lock().unwrap();
         assert_eq!(pointers.linker_entities, pointers.checker_entities);
         assert_eq!(pointers.linker_facts, pointers.checker_facts);
+    }
+
+    #[tokio::test]
+    async fn dependency_closure_reaches_connected_carried_entities() {
+        let affected_entities = Arc::new(Mutex::new(Vec::new()));
+        let carried_neighbor = entity("ent_neighbor", "docs/neighbor.md");
+        let previous = CanonicalSnapshot {
+            snapshot: Some(SnapshotId("snap_previous".to_string())),
+            entities: vec![
+                entity("ent_left", "docs/shared.md"),
+                carried_neighbor.clone(),
+            ],
+            relations: vec![relation("rel_previous", "ent_left", "ent_neighbor")],
+            ..CanonicalSnapshot::default()
+        };
+        let pipeline = IndexPipeline::new(TransientKnowledgeStore::new())
+            .source(TestSource)
+            .extractor(TestExtractor)
+            .linker(DependencyCapturingLinker {
+                affected_entities: affected_entities.clone(),
+            });
+
+        pipeline
+            .run_with_incremental(
+                RepoId("repo_dependency_closure".to_string()),
+                SnapshotBase {
+                    branch: None,
+                    commit: None,
+                    parent_snapshot: None,
+                    working_tree: true,
+                },
+                IncrementalIndexContext {
+                    previous_state: IndexState {
+                        schema: "test".to_string(),
+                        snapshot: Some("snap_previous".to_string()),
+                        files: BTreeMap::from([(
+                            "docs/shared.md".to_string(),
+                            FileState {
+                                content_hash: Some("old".to_string()),
+                                language_hint: Some("markdown".to_string()),
+                            },
+                        )]),
+                    },
+                    previous_snapshot: Some(previous),
+                },
+            )
+            .await
+            .expect("incremental pipeline should run");
+
+        assert_eq!(
+            *affected_entities.lock().unwrap(),
+            vec!["ent_left".to_string(), "ent_neighbor".to_string()]
+        );
     }
 
     #[test]
@@ -1838,6 +1892,37 @@ mod tests {
                 "shared context was checked",
                 &input.snapshot.0,
             )])
+        }
+    }
+
+    struct DependencyCapturingLinker {
+        affected_entities: Arc<Mutex<Vec<String>>>,
+    }
+
+    #[async_trait]
+    impl Linker for DependencyCapturingLinker {
+        fn name(&self) -> &str {
+            "dependency-capturing-linker"
+        }
+
+        fn invalidation_policy(&self) -> athanor_core::InvalidationPolicy {
+            athanor_core::InvalidationPolicy {
+                on_change: athanor_core::InvalidationScope::DependencyClosure,
+                on_add: athanor_core::InvalidationScope::DependencyClosure,
+                on_remove: athanor_core::InvalidationScope::DependencyClosure,
+            }
+        }
+
+        async fn link(&self, input: LinkInput) -> CoreResult<Vec<Relation>> {
+            let mut ids = input
+                .affected
+                .entities
+                .iter()
+                .map(|entity| entity.id.0.clone())
+                .collect::<Vec<_>>();
+            ids.sort();
+            *self.affected_entities.lock().unwrap() = ids;
+            Ok(Vec::new())
         }
     }
 }

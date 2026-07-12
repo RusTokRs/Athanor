@@ -100,7 +100,7 @@ flowchart TD
 37. On demand, `ath check runbooks` reports runbooks that do not reference known operational targets or have no extracted operation steps.
 38. On demand, `ath validate-changed` runs a fast extractor-only preflight for explicit `--file` selections, changed Git paths, or index-state changed paths outside Git repositories, without running linkers, checkers, storage, state updates, or read-model writes.
 39. On demand, `ath update --changed` runs the same incremental indexing path through an explicit update command, writes a new durable snapshot, refreshes JSONL read models, and updates persisted file change state.
-40. The `ath index`, `ath update`, `ath context`, `ath explain`, `ath overview`, `ath impact`, `ath coverage`, `ath capabilities`, `ath change-map`, and `ath check` entry points construct an explicit `RuntimeComposition` and pass it to their application services. `athd serve` does the same and retains that composition in daemon state for index, generate, wiki, HTML report, snapshot, search, context, and change-map jobs. Composition-aware wiki, HTML report, generation, and search APIs also accept the same dependency object, so their store/projector/search dependencies do not require process-global factory installation. Legacy library entry points remain for embedders while migration completes.
+40. The `ath index`, `ath update`, `ath generate`, `ath context`, `ath explain`, `ath overview`, `ath impact`, `ath coverage`, `ath capabilities`, `ath change-map`, and `ath check` entry points construct an explicit `RuntimeComposition` and pass it to their application services. `athd serve` does the same and retains that composition in daemon state for index, generate, wiki, HTML report, snapshot, search, context, and change-map jobs. Composition-aware wiki, HTML report, generation, and search APIs also accept the same dependency object, so their store/projector/search dependencies do not require process-global factory installation. Legacy library entry points remain for embedders while migration completes.
 40. On demand, `ath check affected` compares current source discovery with persisted index state and reports latest-snapshot diagnostics plus stale local artifact status for changed workflows without writing a new snapshot.
 41. On demand, `ath context --diff` builds a bounded context pack rooted in entities owned by changed or removed files without writing a new snapshot.
 41. On demand, `ath repair inspect` validates local canonical and generated pointers, manifests, and orphaned immutable artifacts without modifying files.
@@ -161,8 +161,11 @@ inherit the caller's implicit working directory. The internal runner accepts an 
 `CancellationToken`, returns `cancelled`, and the cancellable pipeline scopes it around source,
 extractor, linker, and checker calls. On Windows timeout and cancellation invoke
 `taskkill /T /F` before the direct-child fallback, terminating descendants launched by common
-adapter wrappers. Job Object containment, Unix process-group termination, and a public
-`ProcessRunner` port remain future hardening work.
+adapter wrappers. Job Object containment and Unix process-group termination remain future
+hardening work. `athanor-core` exposes the transport-neutral `ProcessRunner` request/output
+contract with explicit executable, directory, stdin, and byte/time limits. `TokioProcessRunner`
+implements that port, and the external adapter executor uses its cancellable application-level
+extension so cancellation remains outside the core contract.
 
 If canonical storage fails before a snapshot commits, `IndexPipeline` calls the `KnowledgeStore`
 `abort_snapshot` lifecycle operation. JSONL and memory stores discard the uncommitted snapshot;

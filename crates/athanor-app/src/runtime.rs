@@ -9,7 +9,8 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use athanor_core::{
     CheckInput, Checker, CoreError, CoreResult, ExtractInput, ExtractOutput, Extractor,
-    KnowledgeStore, LinkInput, Linker, SourceFile, SourceProvider,
+    KnowledgeStore, LinkInput, Linker, ProcessLimits as CoreProcessLimits, ProcessOutput,
+    ProcessRequest, ProcessRunner, SourceFile, SourceProvider,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -1119,12 +1120,26 @@ impl Default for ProcessLimits {
     }
 }
 
-struct LimitedProcessOutput {
-    status: std::process::ExitStatus,
-    stdout: Vec<u8>,
-    stderr: Vec<u8>,
-    stdout_truncated: bool,
-    stderr_truncated: bool,
+/// Tokio implementation of the transport-neutral [`ProcessRunner`] port.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct TokioProcessRunner;
+
+impl TokioProcessRunner {
+    /// Runs a process while honoring application-level cancellation.
+    pub async fn run_cancellable(
+        &self,
+        request: ProcessRequest,
+        cancellation: Option<&CancellationToken>,
+    ) -> CoreResult<ProcessOutput> {
+        execute_process(request, cancellation).await
+    }
+}
+
+#[async_trait::async_trait]
+impl ProcessRunner for TokioProcessRunner {
+    async fn run(&self, request: ProcessRequest) -> CoreResult<ProcessOutput> {
+        self.run_cancellable(request, None).await
+    }
 }
 
 async fn run_process_adapter_with_limits<I, O>(
@@ -1162,107 +1177,30 @@ where
     I: Serialize,
     O: for<'de> Deserialize<'de>,
 {
-    let input_bytes = serde_json::to_vec(input).map_err(|error| {
+    let mut input = serde_json::to_vec(input).map_err(|error| {
         CoreError::Adapter(format!(
             "failed to serialize input for external {adapter_kind} {adapter_id}: {error}"
         ))
     })?;
-    if input_bytes.len() > limits.max_stdin_bytes {
-        return Err(CoreError::Adapter(format!(
-            "input for external {adapter_kind} {adapter_id} exceeded {} bytes",
-            limits.max_stdin_bytes
-        )));
-    }
-
-    let mut child = Command::new(&command.program)
-        .args(&command.args)
-        .current_dir(&command.working_dir)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()
-        .map_err(|error| {
-            CoreError::Adapter(format!(
-                "failed to spawn external {adapter_kind} {adapter_id}: {error}"
-            ))
-        })?;
-
-    let stdout = child.stdout.take().ok_or_else(|| {
-        CoreError::Adapter(format!(
-            "failed to open stdout for external {adapter_kind} {adapter_id}"
-        ))
-    })?;
-    let stderr = child.stderr.take().ok_or_else(|| {
-        CoreError::Adapter(format!(
-            "failed to open stderr for external {adapter_kind} {adapter_id}"
-        ))
-    })?;
-    let stdout_reader = tokio::spawn(read_limited(stdout, limits.max_stdout_bytes));
-    let stderr_reader = tokio::spawn(read_limited(stderr, limits.max_stderr_bytes));
-
-    {
-        let mut stdin = child.stdin.take().ok_or_else(|| {
-            CoreError::Adapter(format!(
-                "failed to open stdin for external {adapter_kind} {adapter_id}"
-            ))
-        })?;
-        stdin.write_all(&input_bytes).await.map_err(|error| {
-            CoreError::Adapter(format!(
-                "failed to write input for external {adapter_kind} {adapter_id}: {error}"
-            ))
-        })?;
-        stdin.write_all(b"\n").await.map_err(|error| {
-            CoreError::Adapter(format!(
-                "failed to finish input for external {adapter_kind} {adapter_id}: {error}"
-            ))
-        })?;
-    }
-
-    let deadline = tokio::time::Instant::now() + limits.timeout;
-    let status = tokio::select! {
-            result = child.wait() => result.map_err(|error| {
-                CoreError::Adapter(format!(
-                    "failed to wait for external {adapter_kind} {adapter_id}: {error}"
-                ))
-            })?,
-            _ = tokio::time::sleep_until(deadline) => {
-                terminate_external_process_tree(&mut child).await;
-                let _ = stdout_reader.await;
-                let _ = stderr_reader.await;
-                return Err(CoreError::DeadlineExceeded(format!(
-                    "external {adapter_kind} {adapter_id} timed out after {} ms",
-                    limits.timeout.as_millis()
-                )));
-            }
-            _ = wait_for_cancellation(cancellation), if cancellation.is_some() => {
-                terminate_external_process_tree(&mut child).await;
-                let _ = stdout_reader.await;
-                let _ = stderr_reader.await;
-                return Err(CoreError::Cancelled(format!(
-                    "external {adapter_kind} {adapter_id} was cancelled"
-                )));
-            }
-    };
-
-    let (stdout, stdout_truncated) = stdout_reader.await.map_err(|_| {
-        CoreError::Adapter(format!(
-            "failed to read stdout for external {adapter_kind} {adapter_id}"
-        ))
-    })??;
-    let (stderr, stderr_truncated) = stderr_reader.await.map_err(|_| {
-        CoreError::Adapter(format!(
-            "failed to read stderr for external {adapter_kind} {adapter_id}"
-        ))
-    })??;
-
-    let output = LimitedProcessOutput {
-        status,
-        stdout,
-        stderr,
-        stdout_truncated,
-        stderr_truncated,
-    };
+    input.push(b'\n');
+    let output = TokioProcessRunner
+        .run_cancellable(
+            ProcessRequest {
+                label: format!("external {adapter_kind} {adapter_id}"),
+                program: command.program.clone(),
+                args: command.args.clone(),
+                working_dir: command.working_dir.clone(),
+                stdin: input,
+                limits: CoreProcessLimits {
+                    timeout_ms: limits.timeout.as_millis() as u64,
+                    max_stdin_bytes: limits.max_stdin_bytes,
+                    max_stdout_bytes: limits.max_stdout_bytes,
+                    max_stderr_bytes: limits.max_stderr_bytes,
+                },
+            },
+            cancellation,
+        )
+        .await?;
     let stdout = process_output_excerpt(&output.stdout);
     let stderr = process_output_excerpt(&output.stderr);
 
@@ -1284,10 +1222,14 @@ where
         );
     }
 
-    if !output.status.success() {
+    if !output.success {
         return Err(CoreError::Adapter(format!(
             "external {adapter_kind} {adapter_id} exited with {}; stderr: {}",
-            output.status, stderr
+            output.exit_code.map_or_else(
+                || "unknown status".to_string(),
+                |code| format!("exit code: {code}")
+            ),
+            stderr
         )));
     }
 
@@ -1309,6 +1251,80 @@ where
         CoreError::Adapter(format!(
             "failed to parse output from external {adapter_kind} {adapter_id}: {error}"
         ))
+    })
+}
+
+async fn execute_process(
+    request: ProcessRequest,
+    cancellation: Option<&CancellationToken>,
+) -> CoreResult<ProcessOutput> {
+    if request.stdin.len() > request.limits.max_stdin_bytes {
+        return Err(CoreError::Adapter(format!(
+            "input for {} exceeded {} bytes",
+            request.label, request.limits.max_stdin_bytes
+        )));
+    }
+
+    let mut child = Command::new(&request.program)
+        .args(&request.args)
+        .current_dir(&request.working_dir)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .map_err(|error| {
+            CoreError::Adapter(format!("failed to spawn {}: {error}", request.label))
+        })?;
+    let stdout = child.stdout.take().ok_or_else(|| {
+        CoreError::Adapter(format!("failed to open stdout for {}", request.label))
+    })?;
+    let stderr = child.stderr.take().ok_or_else(|| {
+        CoreError::Adapter(format!("failed to open stderr for {}", request.label))
+    })?;
+    let stdout_reader = tokio::spawn(read_limited(stdout, request.limits.max_stdout_bytes));
+    let stderr_reader = tokio::spawn(read_limited(stderr, request.limits.max_stderr_bytes));
+    {
+        let mut stdin = child.stdin.take().ok_or_else(|| {
+            CoreError::Adapter(format!("failed to open stdin for {}", request.label))
+        })?;
+        stdin.write_all(&request.stdin).await.map_err(|error| {
+            CoreError::Adapter(format!(
+                "failed to write input for {}: {error}",
+                request.label
+            ))
+        })?;
+    }
+
+    let deadline = tokio::time::Instant::now() + Duration::from_millis(request.limits.timeout_ms);
+    let status = tokio::select! {
+        result = child.wait() => result.map_err(|error| CoreError::Adapter(format!("failed to wait for {}: {error}", request.label)))?,
+        _ = tokio::time::sleep_until(deadline) => {
+            terminate_external_process_tree(&mut child).await;
+            let _ = stdout_reader.await;
+            let _ = stderr_reader.await;
+            return Err(CoreError::DeadlineExceeded(format!("{} timed out after {} ms", request.label, request.limits.timeout_ms)));
+        }
+        _ = wait_for_cancellation(cancellation), if cancellation.is_some() => {
+            terminate_external_process_tree(&mut child).await;
+            let _ = stdout_reader.await;
+            let _ = stderr_reader.await;
+            return Err(CoreError::Cancelled(format!("{} was cancelled", request.label)));
+        }
+    };
+    let (stdout, stdout_truncated) = stdout_reader.await.map_err(|_| {
+        CoreError::Adapter(format!("failed to read stdout for {}", request.label))
+    })??;
+    let (stderr, stderr_truncated) = stderr_reader.await.map_err(|_| {
+        CoreError::Adapter(format!("failed to read stderr for {}", request.label))
+    })??;
+    Ok(ProcessOutput {
+        success: status.success(),
+        exit_code: status.code(),
+        stdout,
+        stderr,
+        stdout_truncated,
+        stderr_truncated,
     })
 }
 
@@ -2000,6 +2016,33 @@ mod tests {
         .expect_err("oversized stdout should fail");
 
         assert!(error.to_string().contains("stdout exceeded"));
+    }
+
+    #[tokio::test]
+    async fn tokio_process_runner_implements_public_core_port() {
+        let command = stdout_bytes_command(3);
+        let output = ProcessRunner::run(
+            &TokioProcessRunner,
+            ProcessRequest {
+                label: "test raw process".to_string(),
+                program: command.program,
+                args: command.args,
+                working_dir: command.working_dir,
+                stdin: Vec::new(),
+                limits: CoreProcessLimits {
+                    timeout_ms: 10_000,
+                    max_stdin_bytes: 64,
+                    max_stdout_bytes: 64,
+                    max_stderr_bytes: 64,
+                },
+            },
+        )
+        .await
+        .expect("raw process should run");
+
+        assert!(output.success);
+        assert_eq!(output.stdout.len(), 3);
+        assert!(!output.stdout_truncated);
     }
 
     #[tokio::test]

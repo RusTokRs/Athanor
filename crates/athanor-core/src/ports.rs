@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -87,6 +88,56 @@ pub struct InvalidationPolicy {
     pub on_change: InvalidationScope,
     pub on_add: InvalidationScope,
     pub on_remove: InvalidationScope,
+}
+
+/// A bounded request to execute one explicitly resolved external process.
+///
+/// The caller must supply an absolute executable and working directory. Implementations must not
+/// search `PATH` or implicitly inherit a working directory.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcessRequest {
+    /// Human-readable adapter/process identity used only in bounded diagnostic messages.
+    pub label: String,
+    pub program: PathBuf,
+    pub args: Vec<String>,
+    pub working_dir: PathBuf,
+    pub stdin: Vec<u8>,
+    pub limits: ProcessLimits,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcessLimits {
+    pub timeout_ms: u64,
+    pub max_stdin_bytes: usize,
+    pub max_stdout_bytes: usize,
+    pub max_stderr_bytes: usize,
+}
+
+impl Default for ProcessLimits {
+    fn default() -> Self {
+        Self {
+            timeout_ms: 30_000,
+            max_stdin_bytes: 8 * 1024 * 1024,
+            max_stdout_bytes: 8 * 1024 * 1024,
+            max_stderr_bytes: 1024 * 1024,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcessOutput {
+    pub success: bool,
+    pub exit_code: Option<i32>,
+    pub stdout: Vec<u8>,
+    pub stderr: Vec<u8>,
+    pub stdout_truncated: bool,
+    pub stderr_truncated: bool,
+}
+
+/// Executes explicitly requested external processes under bounded I/O and time limits.
+#[async_trait]
+pub trait ProcessRunner: Send + Sync {
+    async fn run(&self, request: ProcessRequest) -> CoreResult<ProcessOutput>;
 }
 
 impl InvalidationPolicy {

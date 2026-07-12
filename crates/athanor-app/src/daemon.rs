@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::fmt;
 use std::fs::{self};
 use std::io::ErrorKind;
@@ -31,6 +31,7 @@ use tokio::sync::{Semaphore, mpsc};
 use athanor_core::{CanonicalSnapshot, CanonicalSnapshotStore, SearchIndex};
 use athanor_domain::ContextLevel;
 
+use crate::daemon_runtime::BoundedCache;
 use crate::explain::explain_snapshot;
 use crate::search::{
     get_or_build_search_index_sync, get_or_build_search_index_with_factory,
@@ -303,50 +304,6 @@ struct ContextCacheKey {
     task: String,
     level: String,
     limits: ContextLimits,
-}
-
-#[derive(Debug)]
-struct BoundedCache<K, V> {
-    capacity: usize,
-    entries: VecDeque<(K, V)>,
-}
-
-impl<K: PartialEq, V: Clone> BoundedCache<K, V> {
-    fn new(capacity: usize) -> Self {
-        Self {
-            capacity,
-            entries: VecDeque::new(),
-        }
-    }
-
-    fn get(&mut self, key: &K) -> Option<V> {
-        let index = self
-            .entries
-            .iter()
-            .position(|(candidate, _)| candidate == key)?;
-        let entry = self.entries.remove(index)?;
-        let value = entry.1.clone();
-        self.entries.push_back(entry);
-        Some(value)
-    }
-
-    fn insert(&mut self, key: K, value: V) {
-        if let Some(index) = self
-            .entries
-            .iter()
-            .position(|(candidate, _)| candidate == &key)
-        {
-            self.entries.remove(index);
-        }
-        self.entries.push_back((key, value));
-        while self.entries.len() > self.capacity {
-            self.entries.pop_front();
-        }
-    }
-
-    fn clear(&mut self) {
-        self.entries.clear();
-    }
 }
 
 enum DaemonConnection {
@@ -2102,8 +2059,8 @@ fn cache_status(state: &DaemonState) -> Value {
     serde_json::json!({
         "snapshot_loaded": state.latest_snapshot_cache.lock().is_ok_and(|cache| cache.is_some()),
         "search_index_loaded": state.search_index_cache.lock().is_ok_and(|cache| cache.is_some()),
-        "overview_entries": state.overview_cache.lock().map_or(0, |cache| cache.entries.len()),
-        "context_entries": state.context_cache.lock().map_or(0, |cache| cache.entries.len()),
+        "overview_entries": state.overview_cache.lock().map_or(0, |cache| cache.len()),
+        "context_entries": state.context_cache.lock().map_or(0, |cache| cache.len()),
     })
 }
 
@@ -4152,16 +4109,16 @@ mod tests {
         .await
         .unwrap();
 
-        assert_eq!(state.overview_cache.lock().unwrap().entries.len(), 1);
-        assert_eq!(state.context_cache.lock().unwrap().entries.len(), 1);
+        assert_eq!(state.overview_cache.lock().unwrap().len(), 1);
+        assert_eq!(state.context_cache.lock().unwrap().len(), 1);
         assert!(state.search_index_cache.lock().unwrap().is_some());
 
         invalidate_daemon_caches(&state);
 
         assert!(state.latest_snapshot_cache.lock().unwrap().is_none());
         assert!(state.search_index_cache.lock().unwrap().is_none());
-        assert!(state.overview_cache.lock().unwrap().entries.is_empty());
-        assert!(state.context_cache.lock().unwrap().entries.is_empty());
+        assert_eq!(state.overview_cache.lock().unwrap().len(), 0);
+        assert_eq!(state.context_cache.lock().unwrap().len(), 0);
     }
 
     #[test]

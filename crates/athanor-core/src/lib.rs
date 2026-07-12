@@ -10,7 +10,8 @@ pub use ports::{
     CanonicalSnapshotStore, CheckInput, Checker, CoreError, CoreErrorCode, CoreResult,
     DiagnosticQuery, EmbeddingInput, EmbeddingProvider, EntityQuery, EntityResolver, ExtractInput,
     ExtractOutput, Extractor, InvalidationPolicy, InvalidationScope, KnowledgeStore, LinkInput,
-    Linker, ProjectInput, Projector, RelationQuery, SearchDocument, SearchIndex, SearchQuery,
-    SearchResult, SnapshotSelector, SourceFile, SourceProvider, Transport, VectorIndex, VectorItem,
-    VectorQuery, VectorSearchResult,
+    Linker, ProcessLimits, ProcessOutput, ProcessRequest, ProcessRunner, ProjectInput, Projector,
+    RelationQuery, SearchDocument, SearchIndex, SearchQuery, SearchResult, SnapshotSelector,
+    SourceFile, SourceProvider, Transport, VectorIndex, VectorItem, VectorQuery,
+    VectorSearchResult,
 };
