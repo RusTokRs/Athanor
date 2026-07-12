@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::PathBuf;
 
+use crate::RuntimeComposition;
 use crate::config::load_config;
 use crate::project_path::normalize_canonical_path;
 use crate::store::init_store;
@@ -117,6 +118,21 @@ pub struct DiagnosticOverview {
 }
 
 pub async fn overview_project(options: OverviewOptions) -> Result<RepositoryOverview> {
+    overview_project_inner(options, None).await
+}
+
+/// Builds an overview with explicitly supplied runtime dependencies.
+pub async fn overview_project_with_composition(
+    options: OverviewOptions,
+    composition: &RuntimeComposition,
+) -> Result<RepositoryOverview> {
+    overview_project_inner(options, Some(composition)).await
+}
+
+async fn overview_project_inner(
+    options: OverviewOptions,
+    composition: Option<&RuntimeComposition>,
+) -> Result<RepositoryOverview> {
     let root = normalize_canonical_path(
         options
             .root
@@ -124,7 +140,10 @@ pub async fn overview_project(options: OverviewOptions) -> Result<RepositoryOver
             .with_context(|| format!("failed to canonicalize {}", options.root.display()))?,
     );
     let config = load_config(&root)?;
-    let store = init_store(&root, &config).await?;
+    let store = match composition {
+        Some(composition) => composition.init_store(&root, &config).await?,
+        None => init_store(&root, &config).await?,
+    };
     let snapshot = store
         .load_latest_snapshot()
         .await

@@ -110,9 +110,25 @@ pub struct OperationsDocsCheckReport {
     pub runbooks: DiagnosticCheckReport,
 }
 
+use crate::RuntimeComposition;
 use crate::config::{ApiConfig, ApiSourceOfTruth, load_config};
 
 pub async fn check_project(options: DiagnosticCheckOptions) -> Result<DiagnosticCheckReport> {
+    check_project_inner(options, None).await
+}
+
+/// Runs diagnostic checks with explicitly supplied runtime dependencies.
+pub async fn check_project_with_composition(
+    options: DiagnosticCheckOptions,
+    composition: &RuntimeComposition,
+) -> Result<DiagnosticCheckReport> {
+    check_project_inner(options, Some(composition)).await
+}
+
+async fn check_project_inner(
+    options: DiagnosticCheckOptions,
+    composition: Option<&RuntimeComposition>,
+) -> Result<DiagnosticCheckReport> {
     let root = normalize_canonical_path(
         options
             .root
@@ -120,7 +136,10 @@ pub async fn check_project(options: DiagnosticCheckOptions) -> Result<Diagnostic
             .with_context(|| format!("failed to canonicalize {}", options.root.display()))?,
     );
     let config = load_config(&root)?;
-    let store = init_store(&root, &config).await?;
+    let store = match composition {
+        Some(composition) => composition.init_store(&root, &config).await?,
+        None => init_store(&root, &config).await?,
+    };
     let snapshot = store
         .load_latest_snapshot()
         .await
@@ -145,6 +164,21 @@ pub async fn check_project(options: DiagnosticCheckOptions) -> Result<Diagnostic
 }
 
 pub async fn check_affected(options: AffectedCheckOptions) -> Result<AffectedCheckReport> {
+    check_affected_inner(options, None).await
+}
+
+/// Runs the affected-file diagnostic check with explicitly supplied runtime dependencies.
+pub async fn check_affected_with_composition(
+    options: AffectedCheckOptions,
+    composition: &RuntimeComposition,
+) -> Result<AffectedCheckReport> {
+    check_affected_inner(options, Some(composition)).await
+}
+
+async fn check_affected_inner(
+    options: AffectedCheckOptions,
+    composition: Option<&RuntimeComposition>,
+) -> Result<AffectedCheckReport> {
     let root = normalize_canonical_path(
         options
             .root
@@ -152,7 +186,10 @@ pub async fn check_affected(options: AffectedCheckOptions) -> Result<AffectedChe
             .with_context(|| format!("failed to canonicalize {}", options.root.display()))?,
     );
     let config = load_config(&root)?;
-    let store = init_store(&root, &config).await?;
+    let store = match composition {
+        Some(composition) => composition.init_store(&root, &config).await?,
+        None => init_store(&root, &config).await?,
+    };
     let snapshot = store
         .load_latest_snapshot()
         .await
@@ -217,6 +254,21 @@ pub async fn check_affected(options: AffectedCheckOptions) -> Result<AffectedChe
 pub async fn check_operations_docs(
     options: OperationsDocsCheckOptions,
 ) -> Result<OperationsDocsCheckReport> {
+    check_operations_docs_inner(options, None).await
+}
+
+/// Checks operations documentation with explicitly supplied runtime dependencies.
+pub async fn check_operations_docs_with_composition(
+    options: OperationsDocsCheckOptions,
+    composition: &RuntimeComposition,
+) -> Result<OperationsDocsCheckReport> {
+    check_operations_docs_inner(options, Some(composition)).await
+}
+
+async fn check_operations_docs_inner(
+    options: OperationsDocsCheckOptions,
+    composition: Option<&RuntimeComposition>,
+) -> Result<OperationsDocsCheckReport> {
     let root = normalize_canonical_path(
         options
             .root
@@ -224,7 +276,10 @@ pub async fn check_operations_docs(
             .with_context(|| format!("failed to canonicalize {}", options.root.display()))?,
     );
     let config = load_config(&root)?;
-    let store = init_store(&root, &config).await?;
+    let store = match composition {
+        Some(composition) => composition.init_store(&root, &config).await?,
+        None => init_store(&root, &config).await?,
+    };
     let snapshot = store
         .load_latest_snapshot()
         .await

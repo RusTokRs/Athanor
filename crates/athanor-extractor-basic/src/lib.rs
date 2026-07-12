@@ -1,5 +1,7 @@
 use async_trait::async_trait;
-use athanor_core::{CoreResult, ExtractInput, ExtractOutput, Extractor, SourceFile};
+use athanor_core::{
+    CoreResult, ExtractInput, ExtractOutput, Extractor, InvalidationPolicy, SourceFile,
+};
 use athanor_domain::{
     Entity, EntityId, EntityKind, Evidence, EvidenceStatus, Fact, FactId, FactKind, LanguageCode,
     Ownership, SourceLocation, StableKey,
@@ -13,6 +15,10 @@ pub struct FileExtractor;
 impl Extractor for FileExtractor {
     fn name(&self) -> &'static str {
         "file"
+    }
+
+    fn invalidation_policy(&self) -> InvalidationPolicy {
+        InvalidationPolicy::FILE_LOCAL
     }
 
     fn supports(&self, _source: &SourceFile) -> bool {

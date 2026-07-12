@@ -10,9 +10,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
+use crate::RuntimeComposition;
 use crate::project_path::normalize_canonical_path;
 
-type SearchIndexFactory = fn(&Path, Option<Vec<SearchDocument>>) -> Result<Arc<dyn SearchIndex>>;
+pub type SearchIndexFactory =
+    fn(&Path, Option<Vec<SearchDocument>>) -> Result<Arc<dyn SearchIndex>>;
 
 static SEARCH_INDEX_FACTORY: OnceLock<SearchIndexFactory> = OnceLock::new();
 
@@ -64,6 +66,20 @@ struct IndexMeta {
 }
 
 pub async fn search_project(options: SearchOptions) -> Result<SearchReport> {
+    search_project_inner(options, None).await
+}
+
+pub async fn search_project_with_composition(
+    options: SearchOptions,
+    composition: &RuntimeComposition,
+) -> Result<SearchReport> {
+    search_project_inner(options, Some(composition)).await
+}
+
+async fn search_project_inner(
+    options: SearchOptions,
+    composition: Option<&RuntimeComposition>,
+) -> Result<SearchReport> {
     if options.query.trim().is_empty() {
         bail!("search query must not be empty");
     }
@@ -79,14 +95,49 @@ pub async fn search_project(options: SearchOptions) -> Result<SearchReport> {
     );
 
     let config = load_config(&root)?;
-    let store = init_store(&root, &config).await?;
+    let store = match composition {
+        Some(composition) => composition.init_store(&root, &config).await?,
+        None => init_store(&root, &config).await?,
+    };
     let snapshot = store
         .load_latest_snapshot()
         .await
         .context("failed to load latest canonical snapshot")?
         .ok_or_else(|| anyhow::anyhow!("no canonical snapshot found; run `ath index` first"))?;
 
-    search_snapshot(&root, &snapshot, options.query, options.limit).await
+    match composition {
+        Some(composition) => {
+            search_snapshot_with_composition(
+                &root,
+                &snapshot,
+                options.query,
+                options.limit,
+                composition,
+            )
+            .await
+        }
+        None => search_snapshot(&root, &snapshot, options.query, options.limit).await,
+    }
+}
+
+pub async fn search_snapshot_with_composition(
+    root: &Path,
+    snapshot: &CanonicalSnapshot,
+    query: String,
+    limit: usize,
+    composition: &RuntimeComposition,
+) -> Result<SearchReport> {
+    let snapshot_id = snapshot
+        .snapshot
+        .as_ref()
+        .map(|s| s.0.clone())
+        .ok_or_else(|| anyhow::anyhow!("latest canonical snapshot has no snapshot id"))?;
+    let index_dir = root.join(".athanor/generated/current/search");
+    let index =
+        get_or_build_search_index_with_factory(snapshot, &snapshot_id, &index_dir, |dir, docs| {
+            composition.build_search_index(dir, docs)
+        })?;
+    search_snapshot_with_index(root, snapshot, query, limit, index.as_ref()).await
 }
 
 pub async fn search_snapshot(
@@ -202,6 +253,15 @@ pub fn get_or_build_search_index_sync(
     let Some(factory) = SEARCH_INDEX_FACTORY.get() else {
         bail!("no Athanor search index factory is installed");
     };
+    get_or_build_search_index_with_factory(snapshot, snapshot_id, index_dir, factory)
+}
+
+pub(crate) fn get_or_build_search_index_with_factory(
+    snapshot: &CanonicalSnapshot,
+    snapshot_id: &str,
+    index_dir: &Path,
+    factory: impl Fn(&Path, Option<Vec<SearchDocument>>) -> Result<Arc<dyn SearchIndex>>,
+) -> Result<Arc<dyn SearchIndex>> {
     let meta_path = index_dir.join("index_meta.json");
     let needs_rebuild = if index_dir.exists() && meta_path.exists() {
         if let Ok(meta_str) = fs::read_to_string(&meta_path) {

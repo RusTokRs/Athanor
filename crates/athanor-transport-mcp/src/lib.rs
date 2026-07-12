@@ -270,6 +270,28 @@ fn get_tools_list() -> Value {
                 }
             },
             {
+                "name": "rustok_architecture_context",
+                "description": "Resolve a compact RusTok module ownership, public-contract, interaction, test, diagnostic, and evidence context for an implementation intent.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "intent": {
+                            "type": "string",
+                            "description": "Implementation intent or architecture question."
+                        },
+                        "module": {
+                            "type": "string",
+                            "description": "Optional explicit RusTok module anchor."
+                        },
+                        "max_modules": { "type": "integer", "description": "Default 6." },
+                        "max_contracts": { "type": "integer", "description": "Default 16." },
+                        "max_interactions": { "type": "integer", "description": "Default 16." },
+                        "max_evidence": { "type": "integer", "description": "Default 20." }
+                    },
+                    "required": ["intent"]
+                }
+            },
+            {
                 "name": "check",
                 "description": "Show open diagnostics from the latest canonical snapshot.",
                 "inputSchema": {
@@ -439,6 +461,26 @@ async fn call_tool(root: &std::path::Path, name: &str, args: Value) -> Result<St
             .await?;
             Ok(serde_json::to_string_pretty(&report)?)
         }
+        "rustok_architecture_context" => {
+            let intent = args
+                .get("intent")
+                .and_then(|value| value.as_str())
+                .context("missing intent")?
+                .to_string();
+            let mut options = athanor_app::RustokArchitectureContextOptions::bounded(
+                root.to_path_buf(),
+                intent,
+                args.get("module")
+                    .and_then(|value| value.as_str())
+                    .map(str::to_string),
+            );
+            options.max_modules = usize_arg(&args, "max_modules", 6);
+            options.max_contracts = usize_arg(&args, "max_contracts", 16);
+            options.max_interactions = usize_arg(&args, "max_interactions", 16);
+            options.max_evidence = usize_arg(&args, "max_evidence", 20);
+            let report = athanor_app::rustok_architecture_context(options).await?;
+            Ok(serde_json::to_string_pretty(&report)?)
+        }
         "check" => {
             let scope_str = args
                 .get("scope")
@@ -462,6 +504,13 @@ async fn call_tool(root: &std::path::Path, name: &str, args: Value) -> Result<St
         }
         other => bail!("Unknown tool name: {}", other),
     }
+}
+
+fn usize_arg(args: &Value, name: &str, default: usize) -> usize {
+    args.get(name)
+        .and_then(|value| value.as_u64())
+        .map(|value| value as usize)
+        .unwrap_or(default)
 }
 
 #[cfg(test)]
@@ -521,6 +570,7 @@ mod tests {
         assert!(tool_names.contains(&"context"));
         assert!(tool_names.contains(&"impact"));
         assert!(tool_names.contains(&"change_map"));
+        assert!(tool_names.contains(&"rustok_architecture_context"));
         assert!(tool_names.contains(&"check"));
         assert!(tool_names.contains(&"index"));
     }

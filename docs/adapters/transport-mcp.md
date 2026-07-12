@@ -77,6 +77,8 @@ A pre-configured `.codex.json` file is also provided in the workspace root:
 | `search` | Performs Tantivy BM25 search over workspace knowledge. | `query: string`, `limit?: integer` |
 | `context` | Generates a task-focused context pack from the latest snapshot. | `task: string`, `level?: string`, limits... |
 | `impact` | Calculates the direct/transitive blast radius of changes. | `target?: string`, `diff?: boolean`, `max_depth?: integer` |
+| `change_map` | Returns bounded evidence-backed change locations and relation chains. | `task?: string`, `target?: string`, `diff?: boolean`, limits... |
+| `rustok_architecture_context` | Resolves compact RusTok ownership, contracts, interactions, tests, diagnostics, and evidence for an intent. | `intent: string`, `module?: string`, limits... |
 | `check` | Returns scoped diagnostic reports. | `scope: "api" | "docs" | "env" | "scripts" | "deployment" | "runbooks"` |
 
 ## Logging

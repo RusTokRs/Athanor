@@ -6,9 +6,9 @@ use anyhow::{Context, Result, bail};
 use athanor_core::CanonicalSnapshotStore;
 use serde_json::json;
 
-use crate::CancellationToken;
 use crate::project_path::normalize_canonical_path;
 use crate::projection::{WIKI_PROJECTION_SCHEMA, project_wiki_payload};
+use crate::{CancellationToken, RuntimeComposition};
 
 #[derive(Debug, Clone)]
 pub struct WikiOptions {
@@ -28,19 +28,36 @@ pub struct WikiReport {
 }
 
 pub async fn project_wiki(options: WikiOptions) -> Result<WikiReport> {
-    project_wiki_inner(options, None).await
+    project_wiki_inner(options, None, None).await
+}
+
+pub async fn project_wiki_with_composition(
+    options: WikiOptions,
+    composition: &RuntimeComposition,
+) -> Result<WikiReport> {
+    project_wiki_inner(options, None, Some(composition)).await
 }
 
 pub async fn project_wiki_cancellable(
     options: WikiOptions,
     cancellation: CancellationToken,
 ) -> Result<WikiReport> {
-    project_wiki_inner(options, Some(cancellation)).await
+    project_wiki_inner(options, Some(cancellation), None).await
+}
+
+/// Projects the wiki with explicit dependencies and cooperative cancellation.
+pub async fn project_wiki_cancellable_with_composition(
+    options: WikiOptions,
+    cancellation: CancellationToken,
+    composition: &RuntimeComposition,
+) -> Result<WikiReport> {
+    project_wiki_inner(options, Some(cancellation), Some(composition)).await
 }
 
 async fn project_wiki_inner(
     options: WikiOptions,
     cancellation: Option<CancellationToken>,
+    composition: Option<&RuntimeComposition>,
 ) -> Result<WikiReport> {
     check_cancelled(&cancellation)?;
     let root = normalize_canonical_path(
@@ -60,7 +77,10 @@ async fn project_wiki_inner(
         })
         .unwrap_or_else(|| root.join(".athanor/generated/current/wiki"));
     let config = load_config(&root)?;
-    let store = init_store(&root, &config).await?;
+    let store = match composition {
+        Some(composition) => composition.init_store(&root, &config).await?,
+        None => init_store(&root, &config).await?,
+    };
     let snapshot = store
         .load_latest_snapshot()
         .await
@@ -95,11 +115,17 @@ async fn project_wiki_inner(
         "diagnostics": snapshot.diagnostics,
     });
 
-    project_wiki_payload(&output_dir, &snapshot_id.0, payload, &|| {
+    let is_cancelled = || {
         cancellation
             .as_ref()
             .is_some_and(CancellationToken::is_cancelled)
-    })
+    };
+    match composition {
+        Some(composition) => {
+            composition.project_wiki(&output_dir, &snapshot_id.0, payload, &is_cancelled)
+        }
+        None => project_wiki_payload(&output_dir, &snapshot_id.0, payload, &is_cancelled),
+    }
     .context("failed to project Markdown wiki")?;
 
     Ok(report)

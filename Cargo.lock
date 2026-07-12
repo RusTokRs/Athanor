@@ -806,6 +806,7 @@ dependencies = [
  "async-trait",
  "athanor-core",
  "athanor-domain",
+ "athanor-store-conformance",
  "serde",
  "serde_json",
  "surrealdb",

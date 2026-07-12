@@ -3,7 +3,9 @@ use std::borrow::Cow;
 use std::collections::BTreeMap;
 
 use async_trait::async_trait;
-use athanor_core::{CoreResult, ExtractInput, ExtractOutput, Extractor, SourceFile};
+use athanor_core::{
+    CoreResult, ExtractInput, ExtractOutput, Extractor, InvalidationPolicy, SourceFile,
+};
 use athanor_domain::{
     Diagnostic, DiagnosticId, DiagnosticKind, DiagnosticStatus, Entity, EntityId, EntityKind, Fact,
     FactId, FactKind, LanguageCode, Severity, SnapshotId, SourceLocation, StableKey,
@@ -19,6 +21,10 @@ pub struct JsTsExtractor;
 impl Extractor for JsTsExtractor {
     fn name(&self) -> &'static str {
         "js-ts"
+    }
+
+    fn invalidation_policy(&self) -> InvalidationPolicy {
+        InvalidationPolicy::FILE_LOCAL
     }
 
     fn supports(&self, source: &SourceFile) -> bool {

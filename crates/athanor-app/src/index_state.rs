@@ -97,6 +97,41 @@ pub struct IndexStateStore {
     path: PathBuf,
 }
 
+/// A published index-state replacement retaining its prior file until finalization.
+#[derive(Debug)]
+pub struct PreparedIndexState {
+    path: PathBuf,
+    backup: Option<PathBuf>,
+}
+
+impl PreparedIndexState {
+    pub fn finalize(mut self) -> Result<()> {
+        if let Some(backup) = self.backup.take() {
+            fs::remove_file(&backup).with_context(|| {
+                format!("failed to remove index state backup {}", backup.display())
+            })?;
+        }
+        Ok(())
+    }
+
+    pub fn rollback(mut self) -> Result<()> {
+        if self.path.exists() {
+            fs::remove_file(&self.path).with_context(|| {
+                format!(
+                    "failed to remove unpublished index state {}",
+                    self.path.display()
+                )
+            })?;
+        }
+        if let Some(backup) = self.backup.take() {
+            fs::rename(&backup, &self.path).with_context(|| {
+                format!("failed to restore index state backup {}", backup.display())
+            })?;
+        }
+        Ok(())
+    }
+}
+
 impl IndexStateStore {
     pub fn new(path: impl Into<PathBuf>) -> Self {
         Self { path: path.into() }
@@ -120,13 +155,19 @@ impl IndexStateStore {
     }
 
     pub fn save(&self, state: &IndexState) -> Result<()> {
-        if let Some(parent) = self.path.parent() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("failed to create {}", parent.display()))?;
-        }
+        self.prepare(state)?.finalize()
+    }
 
-        fs::write(&self.path, serde_json::to_string_pretty(state)?)
-            .with_context(|| format!("failed to write {}", self.path.display()))
+    pub fn prepare(&self, state: &IndexState) -> Result<PreparedIndexState> {
+        self.prepare_with_publication_id(state, &publication_nonce())
+    }
+
+    pub fn prepare_with_publication_id(
+        &self,
+        state: &IndexState,
+        publication_id: &str,
+    ) -> Result<PreparedIndexState> {
+        write_staged_json(&self.path, state, publication_id)
     }
 
     pub fn path(&self) -> &Path {
@@ -134,6 +175,7 @@ impl IndexStateStore {
     }
 }
 
+#[allow(clippy::items_after_test_module)]
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -204,4 +246,89 @@ mod tests {
         assert_eq!(state, IndexState::empty());
         fs::remove_dir_all(root).unwrap();
     }
+
+    #[test]
+    fn prepared_state_rolls_back_to_the_previous_state() {
+        let root = std::env::temp_dir().join(format!(
+            "athanor-index-state-rollback-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("index-state.json");
+        let store = IndexStateStore::new(&path);
+        store
+            .save(&IndexState {
+                schema: INDEX_STATE_SCHEMA.to_string(),
+                snapshot: Some("snap_old".to_string()),
+                files: BTreeMap::new(),
+            })
+            .unwrap();
+        store
+            .prepare(&IndexState {
+                schema: INDEX_STATE_SCHEMA.to_string(),
+                snapshot: Some("snap_new".to_string()),
+                files: BTreeMap::new(),
+            })
+            .unwrap()
+            .rollback()
+            .unwrap();
+
+        assert_eq!(store.load().unwrap().snapshot.as_deref(), Some("snap_old"));
+        fs::remove_dir_all(root).unwrap();
+    }
+}
+
+/// Publishes a complete state document only after its staged replacement is ready.
+///
+/// The backup keeps the prior valid state recoverable if the final rename fails on platforms
+/// where replacing an existing path is not supported by a single rename.
+fn write_staged_json(
+    path: &Path,
+    state: &IndexState,
+    publication_id: &str,
+) -> Result<PreparedIndexState> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("index state path has no parent: {}", path.display()))?;
+    fs::create_dir_all(parent).with_context(|| format!("failed to create {}", parent.display()))?;
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| anyhow::anyhow!("invalid index state path: {}", path.display()))?;
+    let staging = parent.join(format!(".{name}.staging-{publication_id}"));
+    let backup = parent.join(format!(".{name}.backup-{publication_id}"));
+    let content = serde_json::to_string_pretty(state)?;
+    fs::write(&staging, format!("{content}\n"))
+        .with_context(|| format!("failed to write staged index state {}", staging.display()))?;
+
+    if path.exists() {
+        fs::rename(path, &backup)
+            .with_context(|| format!("failed to stage previous index state {}", path.display()))?;
+    }
+    if let Err(error) = fs::rename(&staging, path) {
+        if backup.exists() {
+            let _ = fs::rename(&backup, path);
+        }
+        let _ = fs::remove_file(&staging);
+        return Err(error)
+            .with_context(|| format!("failed to publish index state {}", path.display()));
+    }
+    Ok(PreparedIndexState {
+        path: path.to_path_buf(),
+        backup: backup.exists().then_some(backup),
+    })
+}
+
+fn publication_nonce() -> String {
+    format!(
+        "{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+    )
 }

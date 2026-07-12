@@ -128,6 +128,17 @@ Status: verified.
 
 Extracts Page Builder provider registry, adapter seam, wave evidence, consumer manifest, content-format, and FSD surface markers. Agent-facing read models via `ath rustok page-builder audit`, `ath graph page-builder provider|consumer|violations`, `ath check rustok-page-builder`. Documented in `docs/adapters/rustok-page-builder.md`.
 
+### RusTok Architecture Context
+
+Status: verified.
+
+Adds the bounded `athanor.rustok_architecture_context.v1` read model over generic canonical knowledge
+and opt-in RusTok FFA/FBA facts. The CLI command `ath rustok architecture context <intent>` and MCP
+tool `rustok_architecture_context` share one app-layer use case. Reports explicit ownership
+resolution, public contracts, declared consumer/provider interactions, tests, diagnostics, source
+evidence, guidance, and omitted counts without requiring agents to inspect raw graph artifacts.
+Documented in `docs/adapters/rustok-architecture-context.md`.
+
 ### External Process Extractors, Linkers, And Checkers
 
 Status: verified.

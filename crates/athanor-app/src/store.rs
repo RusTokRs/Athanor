@@ -38,10 +38,11 @@ impl AthanorStore {
     }
 }
 
-type StoreFactory = for<'a> fn(
-    &'a Path,
-    &'a ProjectConfig,
-) -> Pin<Box<dyn Future<Output = Result<AthanorStore>> + Send + 'a>>;
+pub type StoreFactory =
+    for<'a> fn(
+        &'a Path,
+        &'a ProjectConfig,
+    ) -> Pin<Box<dyn Future<Output = Result<AthanorStore>> + Send + 'a>>;
 
 static STORE_FACTORY: OnceLock<StoreFactory> = OnceLock::new();
 
@@ -116,6 +117,10 @@ impl KnowledgeStore for AthanorStore {
 
     async fn commit_snapshot(&self, snapshot: SnapshotId) -> CoreResult<()> {
         self.inner.commit_snapshot(snapshot).await
+    }
+
+    async fn abort_snapshot(&self, snapshot: SnapshotId) -> CoreResult<()> {
+        self.inner.abort_snapshot(snapshot).await
     }
 }
 

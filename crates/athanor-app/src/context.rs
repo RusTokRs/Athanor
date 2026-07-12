@@ -11,6 +11,7 @@ use athanor_domain::{ContextLevel, ContextPack, ContextPackId, Entity};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+use crate::RuntimeComposition;
 use crate::hash::stable_hash;
 use crate::local_source::discover_source_files;
 use crate::project_path::normalize_canonical_path;
@@ -88,6 +89,21 @@ pub struct ContextOptions {
 }
 
 pub async fn context_project(options: ContextOptions) -> Result<ContextPack> {
+    context_project_inner(options, None).await
+}
+
+/// Builds an agent context pack with explicitly supplied runtime dependencies.
+pub async fn context_project_with_composition(
+    options: ContextOptions,
+    composition: &RuntimeComposition,
+) -> Result<ContextPack> {
+    context_project_inner(options, Some(composition)).await
+}
+
+async fn context_project_inner(
+    options: ContextOptions,
+    composition: Option<&RuntimeComposition>,
+) -> Result<ContextPack> {
     if options.task.trim().is_empty() && !options.diff {
         bail!("context task must not be empty");
     }
@@ -99,7 +115,10 @@ pub async fn context_project(options: ContextOptions) -> Result<ContextPack> {
             .with_context(|| format!("failed to canonicalize {}", options.root.display()))?,
     );
     let config = load_config(&root)?;
-    let store = init_store(&root, &config).await?;
+    let store = match composition {
+        Some(composition) => composition.init_store(&root, &config).await?,
+        None => init_store(&root, &config).await?,
+    };
     let snapshot = store
         .load_latest_snapshot()
         .await

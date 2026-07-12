@@ -18,13 +18,24 @@ use athanor_linker_rust::RustLinker;
 use athanor_source_fs::LocalFileSystemSource;
 
 use crate::{
-    AdapterPluginKind, AdapterRegistry, AthanorStore, ProjectConfig, StorageMode,
-    install_builtin_adapter_resolver, install_default_adapter_registry,
+    AdapterPluginKind, AdapterRegistry, AthanorStore, ProjectConfig, RuntimeComposition,
+    StorageMode, install_builtin_adapter_resolver, install_default_adapter_registry,
     install_html_projector_factory, install_search_index_factory, install_store_factory,
     install_wiki_projector_factory,
 };
 
 static INSTALL: Once = Once::new();
+
+pub(crate) fn composition() -> RuntimeComposition {
+    RuntimeComposition::new(
+        default_adapter_registry,
+        resolve_builtin_adapter,
+        default_store,
+        default_search_index,
+        default_wiki_projector,
+        default_html_projector,
+    )
+}
 
 pub(crate) fn install() {
     INSTALL.call_once(|| {

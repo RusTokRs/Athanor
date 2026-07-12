@@ -228,8 +228,15 @@ fn restrict_file(_path: &Path) -> Result<()> {
 fn restrict_windows_acl(path: &Path, inherit_children: bool) -> Result<()> {
     use std::process::{Command, Stdio};
 
-    let user = std::env::var("USERNAME")
-        .context("USERNAME is required to restrict daemon runtime permissions")?;
+    let user = Command::new("whoami")
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .map(|identity| identity.trim().to_string())
+        .filter(|identity| !identity.is_empty())
+        .or_else(|| std::env::var("USERNAME").ok())
+        .context("cannot determine current Windows identity for daemon runtime permissions")?;
     let path = path.to_string_lossy().into_owned();
     let grant = if inherit_children {
         format!("{user}:(OI)(CI)(F)")

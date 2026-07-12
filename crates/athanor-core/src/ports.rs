@@ -10,6 +10,20 @@ use thiserror::Error;
 
 pub type CoreResult<T> = Result<T, CoreError>;
 
+/// Stable machine-readable categories for errors crossing application boundaries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CoreErrorCode {
+    NotFound,
+    InvalidInput,
+    AdapterExecution,
+    SnapshotNotCommitted,
+    Conflict,
+    Busy,
+    Cancelled,
+    DeadlineExceeded,
+}
+
 #[derive(Debug, Error)]
 pub enum CoreError {
     #[error("not found: {0}")]
@@ -22,6 +36,31 @@ pub enum CoreError {
     SnapshotNotCommitted(String),
     #[error("conflict: {0}")]
     Conflict(String),
+    #[error("busy: {0}")]
+    Busy(String),
+    #[error("cancelled: {0}")]
+    Cancelled(String),
+    #[error("deadline exceeded: {0}")]
+    DeadlineExceeded(String),
+}
+
+impl CoreError {
+    pub fn code(&self) -> CoreErrorCode {
+        match self {
+            Self::NotFound(_) => CoreErrorCode::NotFound,
+            Self::InvalidInput(_) => CoreErrorCode::InvalidInput,
+            Self::Adapter(_) => CoreErrorCode::AdapterExecution,
+            Self::SnapshotNotCommitted(_) => CoreErrorCode::SnapshotNotCommitted,
+            Self::Conflict(_) => CoreErrorCode::Conflict,
+            Self::Busy(_) => CoreErrorCode::Busy,
+            Self::Cancelled(_) => CoreErrorCode::Cancelled,
+            Self::DeadlineExceeded(_) => CoreErrorCode::DeadlineExceeded,
+        }
+    }
+
+    pub fn is_retryable(&self) -> bool {
+        matches!(self, Self::Busy(_) | Self::DeadlineExceeded(_))
+    }
 }
 
 /// Selects the committed canonical snapshot visible to a query.
@@ -29,6 +68,39 @@ pub enum CoreError {
 pub enum SnapshotSelector {
     Exact(SnapshotId),
     LatestCommitted,
+}
+
+/// Declares how an adapter must be rerun after a source-file change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InvalidationScope {
+    FileLocal,
+    DependencyClosure,
+    GlobalOnAdd,
+    GlobalOnRemove,
+    AlwaysGlobal,
+}
+
+/// Conservative invalidation declaration for one adapter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InvalidationPolicy {
+    pub on_change: InvalidationScope,
+    pub on_add: InvalidationScope,
+    pub on_remove: InvalidationScope,
+}
+
+impl InvalidationPolicy {
+    pub const ALWAYS_GLOBAL: Self = Self {
+        on_change: InvalidationScope::AlwaysGlobal,
+        on_add: InvalidationScope::AlwaysGlobal,
+        on_remove: InvalidationScope::AlwaysGlobal,
+    };
+
+    pub const FILE_LOCAL: Self = Self {
+        on_change: InvalidationScope::FileLocal,
+        on_add: InvalidationScope::FileLocal,
+        on_remove: InvalidationScope::FileLocal,
+    };
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -86,6 +158,7 @@ pub trait KnowledgeStore: Send + Sync {
     ) -> CoreResult<Vec<Diagnostic>>;
 
     async fn commit_snapshot(&self, snapshot: SnapshotId) -> CoreResult<()>;
+    async fn abort_snapshot(&self, snapshot: SnapshotId) -> CoreResult<()>;
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -147,6 +220,9 @@ pub trait SourceProvider: Send + Sync {
 #[async_trait]
 pub trait Extractor: Send + Sync {
     fn name(&self) -> &str;
+    fn invalidation_policy(&self) -> InvalidationPolicy {
+        InvalidationPolicy::ALWAYS_GLOBAL
+    }
     fn supports(&self, source: &SourceFile) -> bool;
     async fn extract(&self, input: ExtractInput) -> CoreResult<ExtractOutput>;
 }
@@ -184,6 +260,9 @@ pub struct LinkInput {
 #[async_trait]
 pub trait Linker: Send + Sync {
     fn name(&self) -> &str;
+    fn invalidation_policy(&self) -> InvalidationPolicy {
+        InvalidationPolicy::ALWAYS_GLOBAL
+    }
     async fn link(&self, input: LinkInput) -> CoreResult<Vec<Relation>>;
 }
 
@@ -199,6 +278,9 @@ pub struct CheckInput {
 #[async_trait]
 pub trait Checker: Send + Sync {
     fn name(&self) -> &str;
+    fn invalidation_policy(&self) -> InvalidationPolicy {
+        InvalidationPolicy::ALWAYS_GLOBAL
+    }
     async fn check(&self, input: CheckInput) -> CoreResult<Vec<Diagnostic>>;
 }
 
@@ -299,4 +381,28 @@ pub trait AgentInterface: Send + Sync {
 pub trait Transport: Send + Sync {
     fn name(&self) -> &str;
     async fn serve(&self) -> CoreResult<()>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CoreError, CoreErrorCode};
+
+    #[test]
+    fn exposes_stable_error_codes_and_retryability() {
+        let invalid = CoreError::InvalidInput("bad query".to_string());
+        assert_eq!(invalid.code(), CoreErrorCode::InvalidInput);
+        assert!(!invalid.is_retryable());
+
+        let adapter = CoreError::Adapter("process error".to_string());
+        assert_eq!(adapter.code(), CoreErrorCode::AdapterExecution);
+        assert!(!adapter.is_retryable());
+
+        let busy = CoreError::Busy("index is running".to_string());
+        assert_eq!(busy.code(), CoreErrorCode::Busy);
+        assert!(busy.is_retryable());
+
+        let conflict = CoreError::Conflict("duplicate key".to_string());
+        assert_eq!(conflict.code(), CoreErrorCode::Conflict);
+        assert!(!conflict.is_retryable());
+    }
 }

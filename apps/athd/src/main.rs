@@ -10,7 +10,7 @@ use anyhow::{Result, bail};
 use athanor_app::{
     ContextLimitOverrides, DaemonClientOptions, DaemonCommand, DaemonRequest, DaemonRuntimePaths,
     DaemonServeOptions, DaemonTransport, ProjectRegistryOptions, default_project_registry_path,
-    request_daemon, resolve_registered_project, serve_daemon,
+    request_daemon, resolve_registered_project, serve_daemon_with_composition,
 };
 use athanor_domain::ContextLevel;
 use clap::{Parser, Subcommand, ValueEnum};
@@ -367,7 +367,7 @@ enum ServiceCommand {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    athanor_runtime_defaults::install();
+    let composition = athanor_runtime_defaults::production();
     let cli = Cli::parse();
     init_tracing(command_log_file(&cli.command))?;
     match cli.command {
@@ -430,23 +430,26 @@ async fn main() -> Result<()> {
                 },
                 &project_id,
             )?;
-            serve_daemon(DaemonServeOptions {
-                project_id,
-                root: resolution.project.root,
-                registry_path,
-                listen,
-                transport: transport.into(),
-                max_concurrent_requests,
-                max_job_history,
-                max_request_bytes,
-                max_response_bytes,
-                watch,
-                watch_poll,
-                debounce_ms,
-                insecure_allow_v1,
-                runtime_dir: None,
-                shutdown_timeout: Duration::from_secs(shutdown_timeout_seconds),
-            })
+            serve_daemon_with_composition(
+                DaemonServeOptions {
+                    project_id,
+                    root: resolution.project.root,
+                    registry_path,
+                    listen,
+                    transport: transport.into(),
+                    max_concurrent_requests,
+                    max_job_history,
+                    max_request_bytes,
+                    max_response_bytes,
+                    watch,
+                    watch_poll,
+                    debounce_ms,
+                    insecure_allow_v1,
+                    runtime_dir: None,
+                    shutdown_timeout: Duration::from_secs(shutdown_timeout_seconds),
+                },
+                composition,
+            )
             .await
         }
         Command::Status {

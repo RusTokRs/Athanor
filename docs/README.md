@@ -25,6 +25,7 @@ Use this file to find the right document before changing code, adapters, plugins
 
 - [Contributing](../CONTRIBUTING.md): pull-request, verification, commit, and ADR expectations.
 - [Security policy](../SECURITY.md): private vulnerability disclosure process.
+- [Unsafe-code policy](../UNSAFE.md): prohibition and ADR requirements for any future exception.
 - [Code of conduct](../CODE_OF_CONDUCT.md): expected collaboration behavior and reporting path.
 
 ## Architecture
@@ -34,6 +35,7 @@ Use this file to find the right document before changing code, adapters, plugins
 - [RusTok Page Builder adapter](adapters/rustok-page-builder.md): opt-in Page Builder provider/consumer/FSD code-audit adapter and bounded graph commands for RusTok.
 - [RusTok FBA adapter](adapters/rustok-fba.md): opt-in FBA code-audit adapter and bounded graph commands for RusTok.
 - [RusTok FFA adapter](adapters/rustok-ffa.md): opt-in FFA code-audit adapter and bounded graph commands for RusTok.
+- [RusTok architecture context](adapters/rustok-architecture-context.md): bounded agent-facing ownership, contract, interaction, test, diagnostic, and evidence context assembled from the canonical graph.
 
 ## Development
 
@@ -133,6 +135,7 @@ High-level adapter docs:
 - [RusTok Page Builder adapter](adapters/rustok-page-builder.md)
 - [RusTok FBA adapter](adapters/rustok-fba.md)
 - [RusTok FFA adapter](adapters/rustok-ffa.md)
+- [RusTok architecture context](adapters/rustok-architecture-context.md)
 - [API knowledge linker](adapters/linker-api.md)
 - [Markdown linker](adapters/linker-markdown.md)
 - [JavaScript/TypeScript import linker](adapters/linker-js-ts.md)

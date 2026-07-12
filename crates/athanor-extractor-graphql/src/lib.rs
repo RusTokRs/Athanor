@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use athanor_core::{CoreResult, ExtractInput, ExtractOutput, Extractor, SourceFile};
+use athanor_core::{
+    CoreResult, ExtractInput, ExtractOutput, Extractor, InvalidationPolicy, SourceFile,
+};
 use athanor_domain::{
     Diagnostic, DiagnosticId, DiagnosticKind, DiagnosticStatus, Entity, EntityId, EntityKind, Fact,
     FactId, FactKind, LanguageCode, Severity, SourceLocation, StableKey,
@@ -16,6 +18,10 @@ pub struct GraphQlExtractor;
 impl Extractor for GraphQlExtractor {
     fn name(&self) -> &'static str {
         "graphql"
+    }
+
+    fn invalidation_policy(&self) -> InvalidationPolicy {
+        InvalidationPolicy::FILE_LOCAL
     }
 
     fn supports(&self, source: &SourceFile) -> bool {
