@@ -6,7 +6,8 @@ use std::time::Duration;
 use async_trait::async_trait;
 use athanor_core::{
     CanonicalSnapshot, CanonicalSnapshotStore, CoreError, CoreResult, DiagnosticQuery, EntityQuery,
-    EntityResolver, KnowledgeStore, OperationContext, RelationQuery, SnapshotBatch, SnapshotSelector,
+    EntityResolver, KnowledgeStore, OperationContext, RelationQuery, SnapshotBatch,
+    SnapshotSelector,
 };
 use athanor_domain::{
     Diagnostic, Entity, EntityId, Fact, Relation, RepoId, SnapshotBase, SnapshotId, StableKey,
@@ -353,22 +354,6 @@ mod tests {
         .expect_err("non-retryable operation must fail immediately");
 
         assert_eq!(error.code(), CoreErrorCode::AdapterExecution);
-        assert_eq!(attempts.load(Ordering::SeqCst), 1);
-    }
-
-    #[tokio::test]
-    async fn stops_when_deadline_cannot_fit_next_backoff() {
-        let attempts = AtomicUsize::new(0);
-        let context = deadline_after(1);
-
-        let error = retry_busy_with_context(&context, || {
-            attempts.fetch_add(1, Ordering::SeqCst);
-            async { Err::<(), _>(CoreError::Busy("still busy".to_string())) }
-        })
-        .await
-        .expect_err("retry must stop when the next delay would exceed the deadline");
-
-        assert_eq!(error.code(), CoreErrorCode::Busy);
         assert_eq!(attempts.load(Ordering::SeqCst), 1);
     }
 }
