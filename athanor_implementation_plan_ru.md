@@ -4,7 +4,7 @@
 > Назначение: рабочий implementation plan для последовательного улучшения Athanor  
 > Репозиторий: `RusTokRs/Athanor`  
 > Базовая ветка: `main`  
-> Точка сверки: `7c71e9b216a280647e0bcddf25bbdbe41a26a323`  
+> Точка сверки: `0af9a93fc610305cc63e53824eb7e939b1b0e788`  
 > Дата актуализации: 2026-07-13  
 > Статус: active implementation plan
 
@@ -37,13 +37,14 @@
 - Linux/Windows/macOS default quality matrix;
 - Linux feature matrix: default, `store-surreal`, `js-ts-precision`, `--all-features`;
 - measurement-only source coverage job с pinned `cargo-llvm-cov 0.8.7`;
-- PR dependency review и Rust CodeQL configuration;
+- PR dependency review и Rust CodeQL v4 configuration;
 - Gitleaks full-history scan и Zizmor workflow audit;
 - immutable SHA pinning всех текущих GitHub Actions references;
 - signed platform archives, archive SHA-256 и provenance attestations;
 - per-binary `SHA256SUMS` и fail-closed Linux/Windows installers;
 - CycloneDX 1.5 workspace SBOM, checksum, Sigstore bundles и provenance;
-- release verification job, блокирующий публикацию до проверки checksum/signature/provenance/SBOM presence.
+- release verification job, блокирующий публикацию до проверки checksum/signature/provenance/SBOM presence;
+- least-privilege release permissions: signing/attestation только build/SBOM jobs, publish permission только publish job.
 
 Базовые команды:
 
@@ -76,7 +77,7 @@ cargo run -p ath --quiet --locked -- docs check
 | 4.10 Default build | `[x]` | SurrealDB excluded by default and covered by feature matrix | Maintain boundary |
 | 5.1 Hosted CI governance | `[-]` | workflows and feature matrix exist | Hosted evidence, branch protection, required checks |
 | 5.2 Coverage measurement | `[-]` | LCOV/JSON/HTML artifact job | Review real baseline before any gate |
-| 5.3 AppSec automation | `[-]` | dependency review, Rust CodeQL, Gitleaks, Zizmor, immutable pins, signed SBOM, release verify job | Hosted evidence, blocking Zizmor, push protection и required checks |
+| 5.3 AppSec automation | `[-]` | dependency review, Rust CodeQL v4, Gitleaks, Zizmor, immutable pins, signed SBOM, release verify job | Hosted evidence, blocking Zizmor, push protection и required checks |
 | 5.4 Strict config | `[x]` | strict parsing and validate/doctor | Maintain contract tests |
 | 5.5 Governance | `[-]` | templates, policies, Dependabot | Commit lint, release policy, issue traceability |
 
@@ -125,7 +126,7 @@ cargo run -p ath --quiet --locked -- docs check
 #### PR и source security
 
 - [x] Dependency review для pull request с блокировкой новых уязвимостей уровня `moderate` и выше.
-- [x] Official CodeQL для Rust с `security-extended`, locked all-features build и SARIF/code-scanning upload.
+- [x] Current CodeQL v4 для Rust с `security-extended`, locked all-features build и SARIF/code-scanning upload.
 - [x] Gitleaks full-history scan на push, PR, weekly schedule и manual dispatch.
 - [x] Учтено, что публичный репозиторий также получает GitHub secret scanning; platform push protection остаётся отдельной настройкой.
 - [ ] Подтвердить успешные hosted jobs dependency-review, CodeQL и Gitleaks.
@@ -138,6 +139,7 @@ cargo run -p ath --quiet --locked -- docs check
 - [x] Все текущие `uses:` в CI, AppSec, production, audit и release workflows pinned на immutable commit SHA.
 - [x] Сохранить human-readable version comments рядом с SHA.
 - [x] Dependabot для `github-actions` остаётся включён для reviewed updates pins.
+- [x] Release permissions разделены по jobs; publish/write scope отсутствует у build, SBOM и verify.
 - [ ] Проверить первый hosted Zizmor report, оформить только обоснованные исключения и удалить `--no-exit-codes`.
 
 #### SBOM и release verification
@@ -160,6 +162,8 @@ cargo run -p ath --quiet --locked -- docs check
 - `252ddab202ef14e35f022a1792eb05aeb98efe33` — immutable pins в nightly audit;
 - `6f63149b41419001b1c9fb5b849f493e41fc8e0c` — immutable pins в release workflow;
 - `0ebb96c8c53105e2aece26ce3867f4c04ad6f98c` — signed CycloneDX SBOM и release verification;
+- `0409468654d35aae57a8a56ef5d0365b485e3d64` — current CodeQL v4 immutable action;
+- `0af9a93fc610305cc63e53824eb7e939b1b0e788` — least-privilege release job permissions;
 - `c3c48a7e195e7f590a3372b36435cee6670d65ed` — AppSec CI documentation;
 - `7c71e9b216a280647e0bcddf25bbdbe41a26a323` — production/release verification documentation.
 
@@ -332,10 +336,11 @@ cargo run -p ath --quiet --locked -- docs check
 
 - Добавлен AppSec workflow для dependency review, Rust CodeQL, Gitleaks и Zizmor.
 - Dependency review настроен на новые уязвимости уровня `moderate` и выше.
-- CodeQL выполняет locked all-features Rust build с `security-extended` queries.
+- CodeQL обновлён до current v4 и выполняет locked all-features Rust build с `security-extended` queries.
 - Gitleaks сканирует полную историю; GitHub public secret scanning учтён, push protection требует platform confirmation.
 - Zizmor добавлен в report-only режиме для первого hosted rollout; blocking включается после review findings.
 - Все текущие GitHub Actions references переведены на immutable commit SHA.
+- Release permissions сужены по jobs: OIDC/attestation доступны только signing jobs, publish/write — только publish.
 - Release workflow генерирует CycloneDX 1.5 workspace SBOM через pinned `cargo-cyclonedx 0.5.9`.
 - SBOM archive и checksum подписываются, SBOM получает GitHub provenance attestation.
 - Новый verify job проверяет platform archives и SBOM до публикации release.
