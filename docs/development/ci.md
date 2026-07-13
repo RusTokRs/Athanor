@@ -32,6 +32,12 @@ cargo run -p ath --quiet --locked -- index .
 cargo run -p ath --quiet --locked -- docs check
 ```
 
+The Linux and Windows entries also exercise the packaged installer integrity contract. Each smoke test
+creates two disposable binaries and a valid `SHA256SUMS`, verifies a successful installation, then
+modifies one binary and requires the installer to fail before writing a second installation directory.
+The Linux script is also syntax-checked and exercised locally with the same positive/tamper sequence
+when release tooling changes.
+
 ### Optional Feature Matrix
 
 The CI workflow also runs an Ubuntu feature compatibility matrix with `fail-fast: false`.
@@ -70,7 +76,7 @@ cargo llvm-cov report --json --summary-only --output-path coverage/summary.json
 cargo llvm-cov report --html --output-dir coverage/html
 ```
 
-The job uploads `coverage/lcov.info`, `coverage/summary.json`, and the HTML report as the `rust-source-coverage` artifact for 14 days. This first measurement intentionally does not enforce a percentage floor: the measured hosted result must be reviewed and committed as the baseline before a no-regression threshold is enabled.
+The job uploads `coverage/lcov.info`, `coverage/summary.json`, and the HTML report as the `rust-source-coverage` artifact for 14 days. Coverage remains an observation job until a successful hosted artifact establishes a real baseline and branch protection makes a blocking threshold enforceable. A percentage floor must not be guessed from repository size or test count.
 
 ## Nightly Security Audit Workflow
 
