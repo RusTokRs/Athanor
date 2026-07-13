@@ -3,8 +3,10 @@
 //! Implementations live in adapter crates. This crate owns only contracts and
 //! request/response shapes used by the application layer.
 
+pub mod cancellation;
 pub mod ports;
 
+pub use cancellation::{CancellationHandle, OperationContextCancellation};
 pub use ports::{
     AffectedSubset, AgentInterface, AgentRequest, AgentResponse, CanonicalSnapshot,
     CanonicalSnapshotStore, CheckInput, Checker, CoreError, CoreErrorCode, CoreResult,
