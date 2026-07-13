@@ -1,174 +1,62 @@
+//! Public SurrealDB store boundary with stable retry classification.
+
 use async_trait::async_trait;
 use athanor_core::{
     CanonicalSnapshot, CanonicalSnapshotStore, CoreError, CoreResult, DiagnosticQuery, EntityQuery,
-    EntityResolver, KnowledgeStore, RelationQuery, SnapshotSelector,
+    EntityResolver, KnowledgeStore, RelationQuery, SnapshotBatch, SnapshotSelector,
 };
 use athanor_domain::{
     Diagnostic, Entity, EntityId, Fact, Relation, RepoId, SnapshotBase, SnapshotId, StableKey,
 };
-use serde::{Deserialize, Serialize};
-use serde_json::json;
-use surrealdb::Surreal;
-use surrealdb::engine::any::Any;
 
+#[path = "transactional.rs"]
+mod backend;
+
+/// SurrealDB store facade that translates confirmed transient backend failures into `CoreError::Busy`.
 #[derive(Debug, Clone)]
 pub struct SurrealKnowledgeStore {
-    db: Surreal<Any>,
+    inner: backend::SurrealKnowledgeStore,
 }
-
-use serde::de;
-use surrealdb::sql::Thing;
-
-#[derive(Debug, Serialize, Deserialize)]
-struct SnapshotRecord {
-    #[serde(deserialize_with = "deserialize_id")]
-    id: String,
-    repo: String,
-    base_branch: Option<String>,
-    base_commit: Option<String>,
-    base_parent_snapshot: Option<String>,
-    base_working_tree: bool,
-    committed: bool,
-}
-
-fn deserialize_id<'de, D>(deserializer: D) -> Result<String, D::Error>
-where
-    D: de::Deserializer<'de>,
-{
-    let thing = Thing::deserialize(deserializer)?;
-    match thing.id {
-        surrealdb::sql::Id::String(s) => Ok(s),
-        other => Ok(other.to_string()),
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct CounterRecord {
-    count: u64,
-}
-
-#[derive(Debug, Deserialize)]
-struct DummyRecord {}
 
 impl SurrealKnowledgeStore {
-    pub async fn connect(uri: &str) -> Result<Self, CoreError> {
-        let db = surrealdb::engine::any::connect(uri)
-            .await
-            .map_err(|err| CoreError::Adapter(format!("failed to connect to surrealdb: {err}")))?;
-
-        db.use_ns("athanor")
-            .use_db("knowledge")
-            .await
-            .map_err(|err| CoreError::Adapter(format!("failed to use NS/DB: {err}")))?;
-
-        Ok(Self { db })
+    pub async fn connect(uri: &str) -> CoreResult<Self> {
+        classify_backend_result(backend::SurrealKnowledgeStore::connect(uri).await)
+            .map(|inner| Self { inner })
     }
 }
 
-#[cfg(test)]
-mod conformance_tests {
-    use super::*;
+fn classify_backend_result<T>(result: CoreResult<T>) -> CoreResult<T> {
+    result.map_err(classify_backend_error)
+}
 
-    #[tokio::test]
-    async fn conforms_to_shared_query_contract() {
-        let store = SurrealKnowledgeStore::connect("mem://")
-            .await
-            .expect("connect in-memory SurrealDB");
-        athanor_store_conformance::verify_query_contract(&store).await;
+fn classify_backend_error(error: CoreError) -> CoreError {
+    match error {
+        CoreError::Adapter(message) if is_retryable_surreal_message(&message) => {
+            CoreError::Busy(message)
+        }
+        other => other,
     }
+}
+
+fn is_retryable_surreal_message(message: &str) -> bool {
+    let message = message.to_ascii_lowercase();
+    message.contains("already locked by another process")
+        || message.contains("transaction write conflict")
+        || message.contains("transaction retry required")
 }
 
 #[async_trait]
 impl KnowledgeStore for SurrealKnowledgeStore {
     async fn begin_snapshot(&self, repo: RepoId, base: SnapshotBase) -> CoreResult<SnapshotId> {
-        let counter_id = ("meta", "snapshot_counter");
-        let counter: Option<CounterRecord> = self.db.select(counter_id).await.map_err(|err| {
-            CoreError::Adapter(format!("failed to fetch snapshot counter: {err}"))
-        })?;
-
-        let count = match counter {
-            Some(mut c) => {
-                c.count += 1;
-                let next_count = c.count;
-                let _: Option<CounterRecord> =
-                    self.db.update(counter_id).content(c).await.map_err(|err| {
-                        CoreError::Adapter(format!("failed to update snapshot counter: {err}"))
-                    })?;
-                next_count
-            }
-            None => {
-                let c = CounterRecord { count: 1 };
-                let _: Option<CounterRecord> =
-                    self.db.create(counter_id).content(c).await.map_err(|err| {
-                        CoreError::Adapter(format!("failed to create snapshot counter: {err}"))
-                    })?;
-                1
-            }
-        };
-
-        let snapshot_id = format!("snap_surreal_{:08}", count);
-        let record = SnapshotRecord {
-            id: snapshot_id.clone(),
-            repo: repo.0,
-            base_branch: base.branch,
-            base_commit: base.commit,
-            base_parent_snapshot: base.parent_snapshot.map(|s| s.0),
-            base_working_tree: base.working_tree,
-            committed: false,
-        };
-
-        let _: Option<SnapshotRecord> = self
-            .db
-            .create(("snapshot", &snapshot_id))
-            .content(record)
-            .await
-            .map_err(|err| {
-                CoreError::Adapter(format!("failed to create snapshot record: {err}"))
-            })?;
-
-        Ok(SnapshotId(snapshot_id))
+        classify_backend_result(self.inner.begin_snapshot(repo, base).await)
     }
 
     async fn put_entities(&self, snapshot: SnapshotId, entities: Vec<Entity>) -> CoreResult<()> {
-        for entity in entities {
-            let record_id = format!("{}_{}", snapshot.0, entity.id.0);
-            let mut val = serde_json::to_value(&entity)
-                .map_err(|err| CoreError::Adapter(format!("failed to serialize entity: {err}")))?;
-            if let serde_json::Value::Object(map) = &mut val {
-                map.insert("original_id".to_string(), json!(entity.id.0));
-                map.remove("id");
-                map.insert("snapshot".to_string(), json!(snapshot.0));
-            }
-
-            let _: Option<DummyRecord> = self
-                .db
-                .upsert(("entity", &record_id))
-                .content(val)
-                .await
-                .map_err(|err| CoreError::Adapter(format!("failed to insert entity: {err}")))?;
-        }
-        Ok(())
+        classify_backend_result(self.inner.put_entities(snapshot, entities).await)
     }
 
     async fn put_facts(&self, snapshot: SnapshotId, facts: Vec<Fact>) -> CoreResult<()> {
-        for fact in facts {
-            let record_id = format!("{}_{}", snapshot.0, fact.id.0);
-            let mut val = serde_json::to_value(&fact)
-                .map_err(|err| CoreError::Adapter(format!("failed to serialize fact: {err}")))?;
-            if let serde_json::Value::Object(map) = &mut val {
-                map.insert("original_id".to_string(), json!(fact.id.0));
-                map.remove("id");
-                map.insert("snapshot".to_string(), json!(snapshot.0));
-            }
-
-            let _: Option<DummyRecord> = self
-                .db
-                .upsert(("fact", &record_id))
-                .content(val)
-                .await
-                .map_err(|err| CoreError::Adapter(format!("failed to insert fact: {err}")))?;
-        }
-        Ok(())
+        classify_backend_result(self.inner.put_facts(snapshot, facts).await)
     }
 
     async fn put_relations(
@@ -176,25 +64,7 @@ impl KnowledgeStore for SurrealKnowledgeStore {
         snapshot: SnapshotId,
         relations: Vec<Relation>,
     ) -> CoreResult<()> {
-        for relation in relations {
-            let record_id = format!("{}_{}", snapshot.0, relation.id.0);
-            let mut val = serde_json::to_value(&relation).map_err(|err| {
-                CoreError::Adapter(format!("failed to serialize relation: {err}"))
-            })?;
-            if let serde_json::Value::Object(map) = &mut val {
-                map.insert("original_id".to_string(), json!(relation.id.0));
-                map.remove("id");
-                map.insert("snapshot".to_string(), json!(snapshot.0));
-            }
-
-            let _: Option<DummyRecord> = self
-                .db
-                .upsert(("relation", &record_id))
-                .content(val)
-                .await
-                .map_err(|err| CoreError::Adapter(format!("failed to insert relation: {err}")))?;
-        }
-        Ok(())
+        classify_backend_result(self.inner.put_relations(snapshot, relations).await)
     }
 
     async fn put_diagnostics(
@@ -202,25 +72,15 @@ impl KnowledgeStore for SurrealKnowledgeStore {
         snapshot: SnapshotId,
         diagnostics: Vec<Diagnostic>,
     ) -> CoreResult<()> {
-        for diagnostic in diagnostics {
-            let record_id = format!("{}_{}", snapshot.0, diagnostic.id.0);
-            let mut val = serde_json::to_value(&diagnostic).map_err(|err| {
-                CoreError::Adapter(format!("failed to serialize diagnostic: {err}"))
-            })?;
-            if let serde_json::Value::Object(map) = &mut val {
-                map.insert("original_id".to_string(), json!(diagnostic.id.0));
-                map.remove("id");
-                map.insert("snapshot".to_string(), json!(snapshot.0));
-            }
+        classify_backend_result(self.inner.put_diagnostics(snapshot, diagnostics).await)
+    }
 
-            let _: Option<DummyRecord> = self
-                .db
-                .upsert(("diagnostic", &record_id))
-                .content(val)
-                .await
-                .map_err(|err| CoreError::Adapter(format!("failed to insert diagnostic: {err}")))?;
-        }
-        Ok(())
+    async fn put_snapshot(&self, snapshot: SnapshotId, batch: SnapshotBatch) -> CoreResult<()> {
+        classify_backend_result(self.inner.put_snapshot(snapshot, batch).await)
+    }
+
+    async fn prepare_snapshot(&self, snapshot: SnapshotId) -> CoreResult<()> {
+        classify_backend_result(self.inner.prepare_snapshot(snapshot).await)
     }
 
     async fn query_entities(
@@ -228,45 +88,7 @@ impl KnowledgeStore for SurrealKnowledgeStore {
         snapshot: SnapshotSelector,
         query: EntityQuery,
     ) -> CoreResult<Vec<Entity>> {
-        let snapshot = self.resolve_committed_snapshot(snapshot).await?;
-        let mut sql = "SELECT * FROM entity WHERE snapshot = $snapshot".to_string();
-        let mut params = serde_json::Map::new();
-        params.insert("snapshot".to_string(), json!(snapshot.0));
-
-        if let Some(stable_key) = &query.stable_key {
-            sql.push_str(" AND stable_key = $stable_key");
-            params.insert("stable_key".to_string(), json!(stable_key.0));
-        }
-
-        if let Some(kind) = &query.kind {
-            sql.push_str(" AND kind = $kind");
-            params.insert("kind".to_string(), json!(kind));
-        }
-
-        if let Some(text) = &query.text {
-            sql.push_str(
-                " AND (name CONTAINS $text OR title CONTAINS $text OR aliases CONTAINS $text)",
-            );
-            params.insert("text".to_string(), json!(text));
-        }
-
-        if let Some(limit) = query.limit {
-            sql.push_str(" LIMIT $limit");
-            params.insert("limit".to_string(), json!(limit));
-        }
-
-        let mut response = self
-            .db
-            .query(sql)
-            .bind(params)
-            .await
-            .map_err(|err| CoreError::Adapter(format!("query entities failed: {err}")))?;
-
-        let db_val: surrealdb::Value = response
-            .take(0)
-            .map_err(|err| CoreError::Adapter(format!("failed to parse query entities: {err}")))?;
-
-        deserialize_list(db_val)
+        classify_backend_result(self.inner.query_entities(snapshot, query).await)
     }
 
     async fn query_relations(
@@ -274,43 +96,7 @@ impl KnowledgeStore for SurrealKnowledgeStore {
         snapshot: SnapshotSelector,
         query: RelationQuery,
     ) -> CoreResult<Vec<Relation>> {
-        let snapshot = self.resolve_committed_snapshot(snapshot).await?;
-        let mut sql = "SELECT * FROM relation WHERE snapshot = $snapshot".to_string();
-        let mut params = serde_json::Map::new();
-        params.insert("snapshot".to_string(), json!(snapshot.0));
-
-        if let Some(kind) = &query.kind {
-            sql.push_str(" AND kind = $kind");
-            params.insert("kind".to_string(), json!(kind));
-        }
-
-        if let Some(from) = &query.from_entity {
-            sql.push_str(" AND from = $from");
-            params.insert("from".to_string(), json!(from.0));
-        }
-
-        if let Some(to) = &query.to_entity {
-            sql.push_str(" AND to = $to");
-            params.insert("to".to_string(), json!(to.0));
-        }
-
-        if let Some(limit) = query.limit {
-            sql.push_str(" LIMIT $limit");
-            params.insert("limit".to_string(), json!(limit));
-        }
-
-        let mut response = self
-            .db
-            .query(sql)
-            .bind(params)
-            .await
-            .map_err(|err| CoreError::Adapter(format!("query relations failed: {err}")))?;
-
-        let db_val: surrealdb::Value = response
-            .take(0)
-            .map_err(|err| CoreError::Adapter(format!("failed to parse query relations: {err}")))?;
-
-        deserialize_list(db_val)
+        classify_backend_result(self.inner.query_relations(snapshot, query).await)
     }
 
     async fn query_diagnostics(
@@ -318,95 +104,15 @@ impl KnowledgeStore for SurrealKnowledgeStore {
         snapshot: SnapshotSelector,
         query: DiagnosticQuery,
     ) -> CoreResult<Vec<Diagnostic>> {
-        let snapshot = self.resolve_committed_snapshot(snapshot).await?;
-        let mut sql = "SELECT * FROM diagnostic WHERE snapshot = $snapshot".to_string();
-        let mut params = serde_json::Map::new();
-        params.insert("snapshot".to_string(), json!(snapshot.0));
-
-        if let Some(severity) = &query.severity {
-            sql.push_str(" AND severity = $severity");
-            params.insert("severity".to_string(), json!(severity));
-        }
-
-        if let Some(status) = &query.status {
-            sql.push_str(" AND status = $status");
-            params.insert("status".to_string(), json!(status));
-        }
-
-        if let Some(entity) = &query.entity {
-            sql.push_str(" AND $entity IN entities");
-            params.insert("entity".to_string(), json!(entity.0));
-        }
-
-        if let Some(limit) = query.limit {
-            sql.push_str(" LIMIT $limit");
-            params.insert("limit".to_string(), json!(limit));
-        }
-
-        let mut response = self
-            .db
-            .query(sql)
-            .bind(params)
-            .await
-            .map_err(|err| CoreError::Adapter(format!("query diagnostics failed: {err}")))?;
-
-        let db_val: surrealdb::Value = response.take(0).map_err(|err| {
-            CoreError::Adapter(format!("failed to parse query diagnostics: {err}"))
-        })?;
-
-        deserialize_list(db_val)
+        classify_backend_result(self.inner.query_diagnostics(snapshot, query).await)
     }
 
     async fn commit_snapshot(&self, snapshot: SnapshotId) -> CoreResult<()> {
-        let sql = format!("UPDATE ONLY snapshot:{} SET committed = true", snapshot.0);
-        let _: Option<DummyRecord> = self
-            .db
-            .query(sql)
-            .await
-            .map_err(|err| CoreError::Adapter(format!("failed to commit snapshot: {err}")))?
-            .take(0)
-            .map_err(|err| {
-                CoreError::Adapter(format!("failed to parse committed snapshot: {err}"))
-            })?;
-
-        Ok(())
+        classify_backend_result(self.inner.commit_snapshot(snapshot).await)
     }
 
     async fn abort_snapshot(&self, snapshot: SnapshotId) -> CoreResult<()> {
-        let record: Option<SnapshotRecord> = self
-            .db
-            .select(("snapshot", &snapshot.0))
-            .await
-            .map_err(|err| CoreError::Adapter(format!("load snapshot failed: {err}")))?;
-        let record =
-            record.ok_or_else(|| CoreError::NotFound(format!("snapshot {}", snapshot.0)))?;
-        if record.committed {
-            return Err(CoreError::Conflict(format!(
-                "cannot abort committed snapshot {}",
-                snapshot.0
-            )));
-        }
-
-        let mut params = serde_json::Map::new();
-        params.insert("snapshot".to_string(), json!(snapshot.0));
-        self.db
-            .query(
-                "DELETE entity WHERE snapshot = $snapshot; \
-                 DELETE fact WHERE snapshot = $snapshot; \
-                 DELETE relation WHERE snapshot = $snapshot; \
-                 DELETE diagnostic WHERE snapshot = $snapshot;",
-            )
-            .bind(params)
-            .await
-            .map_err(|err| {
-                CoreError::Adapter(format!("delete aborted snapshot data failed: {err}"))
-            })?;
-        let _: Option<DummyRecord> = self
-            .db
-            .delete(("snapshot", &snapshot.0))
-            .await
-            .map_err(|err| CoreError::Adapter(format!("delete aborted snapshot failed: {err}")))?;
-        Ok(())
+        classify_backend_result(self.inner.abort_snapshot(snapshot).await)
     }
 }
 
@@ -417,322 +123,57 @@ impl EntityResolver for SurrealKnowledgeStore {
         snapshot: SnapshotSelector,
         stable_key: &StableKey,
     ) -> CoreResult<Option<EntityId>> {
-        let entities = self
-            .query_entities(
-                snapshot,
-                EntityQuery {
-                    stable_key: Some(stable_key.clone()),
-                    limit: Some(2),
-                    ..EntityQuery::default()
-                },
-            )
-            .await?;
-        if entities.len() > 1 {
-            return Err(CoreError::Conflict(format!(
-                "stable key {} resolves to multiple entities",
-                stable_key.0
-            )));
-        }
-        Ok(entities.into_iter().next().map(|entity| entity.id))
-    }
-}
-
-impl SurrealKnowledgeStore {
-    async fn resolve_committed_snapshot(
-        &self,
-        selector: SnapshotSelector,
-    ) -> CoreResult<SnapshotId> {
-        let snapshot = match selector {
-            SnapshotSelector::Exact(snapshot) => snapshot,
-            SnapshotSelector::LatestCommitted => {
-                let mut response = self
-                    .db
-                    .query("SELECT * FROM snapshot WHERE committed = true ORDER BY id DESC LIMIT 1")
-                    .await
-                    .map_err(|err| {
-                        CoreError::Adapter(format!("query latest snapshot failed: {err}"))
-                    })?;
-                let records: Vec<SnapshotRecord> = response.take(0).map_err(|err| {
-                    CoreError::Adapter(format!("parse latest snapshot failed: {err}"))
-                })?;
-                let record = records
-                    .into_iter()
-                    .next()
-                    .ok_or_else(|| CoreError::NotFound("no committed snapshot".to_string()))?;
-                return Ok(SnapshotId(record.id));
-            }
-        };
-
-        let record: Option<SnapshotRecord> = self
-            .db
-            .select(("snapshot", &snapshot.0))
-            .await
-            .map_err(|err| CoreError::Adapter(format!("load snapshot failed: {err}")))?;
-        let record =
-            record.ok_or_else(|| CoreError::NotFound(format!("snapshot {}", snapshot.0)))?;
-        if !record.committed {
-            return Err(CoreError::SnapshotNotCommitted(snapshot.0));
-        }
-        Ok(snapshot)
+        classify_backend_result(self.inner.resolve_stable_key(snapshot, stable_key).await)
     }
 }
 
 #[async_trait]
 impl CanonicalSnapshotStore for SurrealKnowledgeStore {
     async fn load_snapshot(&self, snapshot: &SnapshotId) -> CoreResult<Option<CanonicalSnapshot>> {
-        let snapshot_rec: Option<SnapshotRecord> = self
-            .db
-            .select(("snapshot", &snapshot.0))
-            .await
-            .map_err(|err| CoreError::Adapter(format!("failed to load snapshot record: {err}")))?;
-
-        let Some(snapshot_rec) = snapshot_rec else {
-            return Ok(None);
-        };
-        if !snapshot_rec.committed {
-            return Err(CoreError::SnapshotNotCommitted(snapshot.0.clone()));
-        }
-
-        let mut entities_res = self
-            .db
-            .query("SELECT * FROM entity WHERE snapshot = $snapshot")
-            .bind(("snapshot", snapshot.0.clone()))
-            .await
-            .map_err(|err| {
-                CoreError::Adapter(format!("failed to load snapshot entities: {err}"))
-            })?;
-        let entities_db_val: surrealdb::Value = entities_res.take(0).map_err(|err| {
-            CoreError::Adapter(format!("failed to parse snapshot entities: {err}"))
-        })?;
-        let entities = deserialize_list(entities_db_val)?;
-
-        let mut facts_res = self
-            .db
-            .query("SELECT * FROM fact WHERE snapshot = $snapshot")
-            .bind(("snapshot", snapshot.0.clone()))
-            .await
-            .map_err(|err| CoreError::Adapter(format!("failed to load snapshot facts: {err}")))?;
-        let facts_db_val: surrealdb::Value = facts_res
-            .take(0)
-            .map_err(|err| CoreError::Adapter(format!("failed to parse snapshot facts: {err}")))?;
-        let facts = deserialize_list(facts_db_val)?;
-
-        let mut relations_res = self
-            .db
-            .query("SELECT * FROM relation WHERE snapshot = $snapshot")
-            .bind(("snapshot", snapshot.0.clone()))
-            .await
-            .map_err(|err| {
-                CoreError::Adapter(format!("failed to load snapshot relations: {err}"))
-            })?;
-        let relations_db_val: surrealdb::Value = relations_res.take(0).map_err(|err| {
-            CoreError::Adapter(format!("failed to parse snapshot relations: {err}"))
-        })?;
-        let relations = deserialize_list(relations_db_val)?;
-
-        let mut diagnostics_res = self
-            .db
-            .query("SELECT * FROM diagnostic WHERE snapshot = $snapshot")
-            .bind(("snapshot", snapshot.0.clone()))
-            .await
-            .map_err(|err| {
-                CoreError::Adapter(format!("failed to load snapshot diagnostics: {err}"))
-            })?;
-        let diagnostics_db_val: surrealdb::Value = diagnostics_res.take(0).map_err(|err| {
-            CoreError::Adapter(format!("failed to parse snapshot diagnostics: {err}"))
-        })?;
-        let diagnostics = deserialize_list(diagnostics_db_val)?;
-
-        Ok(Some(CanonicalSnapshot {
-            snapshot: Some(snapshot.clone()),
-            entities,
-            facts,
-            relations,
-            diagnostics,
-        }))
+        classify_backend_result(self.inner.load_snapshot(snapshot).await)
     }
 
     async fn load_latest_snapshot(&self) -> CoreResult<Option<CanonicalSnapshot>> {
-        let mut response = self
-            .db
-            .query("SELECT * FROM snapshot WHERE committed = true ORDER BY id DESC LIMIT 1")
-            .await
-            .map_err(|err| {
-                CoreError::Adapter(format!("failed to query latest committed snapshot: {err}"))
-            })?;
-
-        let snapshots: Vec<SnapshotRecord> = response.take(0).map_err(|err| {
-            CoreError::Adapter(format!("failed to parse latest snapshot query: {err}"))
-        })?;
-
-        if let Some(latest) = snapshots.first() {
-            self.load_snapshot(&SnapshotId(latest.id.clone())).await
-        } else {
-            Ok(None)
-        }
-    }
-}
-
-#[allow(clippy::collapsible_if)]
-fn restore_original_id(val: &mut serde_json::Value) {
-    if let serde_json::Value::Object(map) = val {
-        if let Some(orig_id) = map.remove("original_id") {
-            map.insert("id".to_string(), orig_id);
-        }
-    }
-}
-
-fn ast_to_flat_json(val: serde_json::Value) -> serde_json::Value {
-    match val {
-        serde_json::Value::Object(mut map) => {
-            if map.len() == 1 {
-                let key = map.keys().next().unwrap().clone();
-                match key.as_str() {
-                    "None" | "Null" => serde_json::Value::Null,
-                    "Bool" | "Strand" | "Uuid" | "Datetime" | "Duration" | "Number" | "Int"
-                    | "Float" | "Decimal" | "String" => {
-                        let inner = map.remove(&key).unwrap();
-                        ast_to_flat_json(inner)
-                    }
-                    "Array" => {
-                        let inner = map.remove("Array").unwrap();
-                        match inner {
-                            serde_json::Value::Array(arr) => serde_json::Value::Array(
-                                arr.into_iter().map(ast_to_flat_json).collect(),
-                            ),
-                            other => ast_to_flat_json(other),
-                        }
-                    }
-                    "Object" => {
-                        let inner = map.remove("Object").unwrap();
-                        match inner {
-                            serde_json::Value::Object(inner_map) => serde_json::Value::Object(
-                                inner_map
-                                    .into_iter()
-                                    .map(|(k, v)| (k, ast_to_flat_json(v)))
-                                    .collect(),
-                            ),
-                            other => ast_to_flat_json(other),
-                        }
-                    }
-                    "Thing" => {
-                        if let Some(serde_json::Value::Object(mut thing_map)) = map.remove("Thing")
-                        {
-                            if let Some(id_val) = thing_map.remove("id") {
-                                ast_to_flat_json(id_val)
-                            } else {
-                                serde_json::Value::Object(
-                                    thing_map
-                                        .into_iter()
-                                        .map(|(k, v)| (k, ast_to_flat_json(v)))
-                                        .collect(),
-                                )
-                            }
-                        } else {
-                            serde_json::Value::Object(map)
-                        }
-                    }
-                    _ => serde_json::Value::Object(
-                        map.into_iter()
-                            .map(|(k, v)| (k, ast_to_flat_json(v)))
-                            .collect(),
-                    ),
-                }
-            } else {
-                serde_json::Value::Object(
-                    map.into_iter()
-                        .map(|(k, v)| (k, ast_to_flat_json(v)))
-                        .collect(),
-                )
-            }
-        }
-        serde_json::Value::Array(arr) => {
-            serde_json::Value::Array(arr.into_iter().map(ast_to_flat_json).collect())
-        }
-        other => other,
-    }
-}
-
-fn deserialize_list<T>(val: surrealdb::Value) -> Result<Vec<T>, CoreError>
-where
-    T: for<'de> Deserialize<'de>,
-{
-    let json_val = serde_json::to_value(&val).map_err(|err| {
-        CoreError::Adapter(format!("failed to convert surrealdb value to json: {err}"))
-    })?;
-
-    let flat_val = ast_to_flat_json(json_val);
-
-    if let serde_json::Value::Array(arr) = flat_val {
-        let mut results = Vec::with_capacity(arr.len());
-        for mut item in arr {
-            restore_original_id(&mut item);
-            let object: T = serde_json::from_value(item).map_err(|err| {
-                CoreError::Adapter(format!("failed to deserialize object: {err}"))
-            })?;
-            results.push(object);
-        }
-        Ok(results)
-    } else {
-        Err(CoreError::Adapter(format!(
-            "expected array result, got JSON: {:?}",
-            val
-        )))
+        classify_backend_result(self.inner.load_latest_snapshot().await)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use athanor_core::KnowledgeStore;
-    use athanor_domain::{EntityId, EntityKind, SourceLocation, StableKey};
+    use athanor_core::CoreErrorCode;
 
-    async fn temp_store() -> SurrealKnowledgeStore {
-        SurrealKnowledgeStore::connect("mem://").await.unwrap()
+    use super::*;
+
+    #[test]
+    fn classifies_persistent_lock_contention_as_retryable_busy() {
+        let error = classify_backend_error(CoreError::Adapter(
+            "failed to connect to surrealdb: Database at /tmp/test/LOCK is already locked by another process"
+                .to_string(),
+        ));
+
+        assert_eq!(error.code(), CoreErrorCode::Busy);
+        assert!(error.is_retryable());
     }
 
-    #[tokio::test]
-    async fn persists_and_loads_latest_snapshot() {
-        let store = temp_store().await;
-        let snapshot = store
-            .begin_snapshot(
-                RepoId("repo_test".to_string()),
-                SnapshotBase {
-                    branch: None,
-                    commit: None,
-                    parent_snapshot: None,
-                    working_tree: true,
-                },
-            )
-            .await
-            .unwrap();
+    #[test]
+    fn classifies_transaction_conflicts_as_retryable_busy() {
+        for message in [
+            "Transaction write conflict",
+            "Transaction retry required: snapshot is older than the commit oracle's GC window",
+        ] {
+            let error = classify_backend_error(CoreError::Adapter(message.to_string()));
+            assert_eq!(error.code(), CoreErrorCode::Busy);
+            assert!(error.is_retryable());
+        }
+    }
 
-        let entity = Entity {
-            id: EntityId("ent_file_readme".to_string()),
-            stable_key: StableKey("file://README.md".to_string()),
-            kind: EntityKind::File,
-            name: "README.md".to_string(),
-            title: None,
-            source: Some(SourceLocation {
-                path: "README.md".to_string(),
-                line_start: None,
-                line_end: None,
-            }),
-            language: None,
-            aliases: Vec::new(),
-            ownership: Vec::new(),
-            payload: json!({}),
-        };
+    #[test]
+    fn leaves_data_and_statement_failures_non_retryable() {
+        let error = classify_backend_error(CoreError::Adapter(
+            "snapshot batch transaction rolled back: duplicate record id".to_string(),
+        ));
 
-        store
-            .put_entities(snapshot.clone(), vec![entity.clone()])
-            .await
-            .unwrap();
-        store.commit_snapshot(snapshot.clone()).await.unwrap();
-
-        let reloaded = store.load_latest_snapshot().await.unwrap().unwrap();
-
-        assert_eq!(reloaded.snapshot, Some(snapshot));
-        assert_eq!(reloaded.entities, vec![entity]);
+        assert_eq!(error.code(), CoreErrorCode::AdapterExecution);
+        assert!(!error.is_retryable());
     }
 }
