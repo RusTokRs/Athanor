@@ -44,5 +44,5 @@ fn unique_store_path() -> PathBuf {
 }
 
 fn surrealkv_uri(path: &Path) -> String {
-    format!("surrealkv:{}", path.display())
+    format!("surrealkv://{}", path.to_string_lossy())
 }
