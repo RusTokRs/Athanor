@@ -38,6 +38,7 @@ jobs:
           mkdir -p dist/athanor
           cp target/${{ matrix.target }}/release/ath target/${{ matrix.target }}/release/athd README.md LICENSE install.sh dist/athanor/
           chmod +x dist/athanor/ath dist/athanor/athd dist/athanor/install.sh
+          (cd dist/athanor && sha256sum ath athd > SHA256SUMS)
           tar -C dist -czf dist/${{ matrix.archive }} athanor
       - name: Package Windows archive
         if: runner.os == 'Windows'
@@ -45,6 +46,11 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force dist/athanor | Out-Null
           Copy-Item target/${{ matrix.target }}/release/ath.exe,target/${{ matrix.target }}/release/athd.exe,README.md,LICENSE,install.ps1 dist/athanor/
+          $manifest = foreach ($file in @("ath.exe", "athd.exe")) {
+            $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path "dist/athanor" $file)).Hash.ToLowerInvariant()
+            "$hash  $file"
+          }
+          $manifest | Set-Content -LiteralPath dist/athanor/SHA256SUMS -Encoding ascii
           Compress-Archive -Path dist/athanor/* -DestinationPath dist/${{ matrix.archive }}
       - name: Write checksum
         shell: bash
