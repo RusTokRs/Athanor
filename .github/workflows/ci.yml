@@ -31,3 +31,68 @@ jobs:
     name: Rust 1.95 / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    env:
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: 1
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.100.0
+        with:
+          components: clippy, rustfmt
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@v2
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Run workspace tests
+        run: cargo test --workspace --quiet --locked
+      - name: Run Clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Run indexing smoke test
+        run: cargo run -p ath --quiet --locked -- index .
+      - name: Check editable documentation
+        run: cargo run -p ath --quiet --locked -- docs check
+
+  feature-matrix:
+    name: Feature matrix / ${{ matrix.features }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        features:
+          - default
+          - store-surreal
+          - js-ts-precision
+          - all-features
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.100.0
+        with:
+          components: clippy
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@v2
+      - name: Check feature graph
+        shell: bash
+        run: |
+          case "${{ matrix.features }}" in
+            default) FEATURES="" ;;
+            all-features) FEATURES="--all-features" ;;
+            *) FEATURES="--features ${{ matrix.features }}" ;;
+          esac
+          cargo check --workspace ${FEATURES} --locked
+          cargo test --workspace --quiet ${FEATURES} --locked
+          cargo clippy --workspace --all-targets ${FEATURES} --locked -- -D warnings
