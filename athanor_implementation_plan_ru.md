@@ -4,7 +4,7 @@
 > Назначение: рабочий implementation plan для последовательного улучшения Athanor  
 > Репозиторий: `RusTokRs/Athanor`  
 > Базовая ветка: `main`  
-> Точка сверки: `17264662e98e2b7fe3f13208c99360d40c4e628f`  
+> Точка сверки: `7c71e9b216a280647e0bcddf25bbdbe41a26a323`  
 > Дата актуализации: 2026-07-13  
 > Статус: active implementation plan
 
@@ -12,7 +12,7 @@
 
 Статусы:
 
-- `[x]` — реализовано и подтверждено воспроизводимой проверкой;
+- `[x]` — реализовано и подтверждено воспроизводимой локальной проверкой либо доступным hosted evidence;
 - `[-]` — реализация частичная либо ожидает hosted evidence/enforcement;
 - `[ ]` — не начато;
 - `[!]` — блокирует релиз или следующий обязательный этап.
@@ -23,8 +23,9 @@
 2. Не назначать числовые thresholds без фактического измерения.
 3. Не переводить hosted/platform пункт в `[x]`, пока нет доступного run/status evidence.
 4. Изменения release, CI и security одновременно отражать в соответствующей документации и этом плане.
-5. Пока разрешены прямые коммиты в `main`, сохранять Conventional Commits и воспроизводимые локальные проверки. После branch protection перейти на PR.
+5. Пока разрешены прямые коммиты в `main`, сохранять Conventional Commits и воспроизводимые проверки. После branch protection перейти на PR.
 6. Отсутствие push-triggered workflow run в ответе GitHub-коннектора не является ни успехом, ни ошибкой.
+7. Security gate не считается blocking, пока он работает в report-only режиме или не включён в required checks.
 
 ## 1. Текущий baseline
 
@@ -36,9 +37,13 @@
 - Linux/Windows/macOS default quality matrix;
 - Linux feature matrix: default, `store-surreal`, `js-ts-precision`, `--all-features`;
 - measurement-only source coverage job с pinned `cargo-llvm-cov 0.8.7`;
-- signed archives, archive SHA-256 и provenance attestations;
-- per-binary `SHA256SUMS` внутри release archives;
-- fail-closed Linux/Windows installers, проверяющие `ath` и `athd` до копирования.
+- PR dependency review и Rust CodeQL configuration;
+- Gitleaks full-history scan и Zizmor workflow audit;
+- immutable SHA pinning всех текущих GitHub Actions references;
+- signed platform archives, archive SHA-256 и provenance attestations;
+- per-binary `SHA256SUMS` и fail-closed Linux/Windows installers;
+- CycloneDX 1.5 workspace SBOM, checksum, Sigstore bundles и provenance;
+- release verification job, блокирующий публикацию до проверки checksum/signature/provenance/SBOM presence.
 
 Базовые команды:
 
@@ -71,7 +76,7 @@ cargo run -p ath --quiet --locked -- docs check
 | 4.10 Default build | `[x]` | SurrealDB excluded by default and covered by feature matrix | Maintain boundary |
 | 5.1 Hosted CI governance | `[-]` | workflows and feature matrix exist | Hosted evidence, branch protection, required checks |
 | 5.2 Coverage measurement | `[-]` | LCOV/JSON/HTML artifact job | Review real baseline before any gate |
-| 5.3 AppSec automation | `[-]` | cargo-deny, nightly audit, unsafe policy, signing/provenance | PR dependency review, SAST, secrets, workflow lint, SBOM |
+| 5.3 AppSec automation | `[-]` | dependency review, Rust CodeQL, Gitleaks, Zizmor, immutable pins, signed SBOM, release verify job | Hosted evidence, blocking Zizmor, push protection и required checks |
 | 5.4 Strict config | `[x]` | strict parsing and validate/doctor | Maintain contract tests |
 | 5.5 Governance | `[-]` | templates, policies, Dependabot | Commit lint, release policy, issue traceability |
 
@@ -99,7 +104,7 @@ cargo run -p ath --quiet --locked -- docs check
 
 Решение от 2026-07-13:
 
-- coverage artifact оставляется как наблюдаемая инженерная метрика;
+- coverage artifact остаётся наблюдаемой инженерной метрикой;
 - percentage floor не назначается без первого успешного hosted `summary.json`;
 - strict no-regression не является текущим release blocker, пока нет branch protection/PR flow;
 - после крупных рефакторингов baseline должен быть измерен повторно, а решение о gate принято по фактической стабильности и стоимости CI.
@@ -115,18 +120,50 @@ cargo run -p ath --quiet --locked -- docs check
 
 ### P0.3. PR-level AppSec и software supply chain
 
-**Статус:** `[ ]` — следующий активный пакет.
+**Статус:** `[-]` — основной технический срез реализован; hosted evidence и окончательное enforcement ещё не подтверждены.
 
-- [ ] Dependency review для pull request.
-- [ ] CodeQL или поддерживаемый Rust SAST с SARIF.
-- [ ] Secret scanning workflow.
-- [ ] `zizmor`/`actionlint` для workflow.
-- [ ] Third-party actions по immutable SHA.
-- [ ] CycloneDX или SPDX SBOM для release artifacts.
-- [ ] Attestation/signing SBOM.
-- [ ] Release verification job для checksum, signature/provenance и SBOM.
+#### PR и source security
 
-**Definition of Done:** новые уязвимые зависимости, секреты, критические SAST findings и небезопасные workflow changes блокируют merge/release.
+- [x] Dependency review для pull request с блокировкой новых уязвимостей уровня `moderate` и выше.
+- [x] Official CodeQL для Rust с `security-extended`, locked all-features build и SARIF/code-scanning upload.
+- [x] Gitleaks full-history scan на push, PR, weekly schedule и manual dispatch.
+- [x] Учтено, что публичный репозиторий также получает GitHub secret scanning; platform push protection остаётся отдельной настройкой.
+- [ ] Подтвердить успешные hosted jobs dependency-review, CodeQL и Gitleaks.
+- [ ] Подтвердить и включить GitHub push protection, если настройка доступна репозиторию.
+
+#### Workflow security
+
+- [x] Добавить pinned `zizmor 1.26.1` в offline strict-collection режиме.
+- [-] Высокие/high-confidence findings публикуются как annotations; первый rollout намеренно использует `--no-exit-codes`.
+- [x] Все текущие `uses:` в CI, AppSec, production, audit и release workflows pinned на immutable commit SHA.
+- [x] Сохранить human-readable version comments рядом с SHA.
+- [x] Dependabot для `github-actions` остаётся включён для reviewed updates pins.
+- [ ] Проверить первый hosted Zizmor report, оформить только обоснованные исключения и удалить `--no-exit-codes`.
+
+#### SBOM и release verification
+
+- [x] Генерировать CycloneDX 1.5 JSON из locked all-features workspace для всех targets через pinned `cargo-cyclonedx 0.5.9`.
+- [x] Упаковывать per-crate BOMs в `athanor-workspace-cyclonedx.tar.gz`.
+- [x] Создавать SHA-256 для SBOM archive.
+- [x] Подписывать SBOM archive и checksum через Sigstore.
+- [x] Создавать GitHub provenance attestation для SBOM archive.
+- [x] Добавить отдельный `verify` job для Linux archive, Windows archive и SBOM archive.
+- [x] Проверять наличие assets, SHA-256, artifact/checksum Sigstore bundles и GitHub attestations до publish.
+- [x] Сделать `publish` зависимым от успешного `verify`.
+- [ ] Подтвердить весь build→sbom→verify→publish pipeline на следующем version tag.
+
+#### Реализация
+
+- `8dee7f7796e8c88f32d2cb6fabc73b303205e92e` — AppSec workflow;
+- `b837dbf72e1843445281354175cb9fe714eb5099` — immutable pins в CI;
+- `014ce95bb45bbcd321a25b222cce5ee902157770` — immutable pins в production gate;
+- `252ddab202ef14e35f022a1792eb05aeb98efe33` — immutable pins в nightly audit;
+- `6f63149b41419001b1c9fb5b849f493e41fc8e0c` — immutable pins в release workflow;
+- `0ebb96c8c53105e2aece26ce3867f4c04ad6f98c` — signed CycloneDX SBOM и release verification;
+- `c3c48a7e195e7f590a3372b36435cee6670d65ed` — AppSec CI documentation;
+- `7c71e9b216a280647e0bcddf25bbdbe41a26a323` — production/release verification documentation.
+
+**Definition of Done:** новые уязвимые зависимости, секреты, критические SAST findings и небезопасные workflow changes блокируют merge; release не публикуется без проверенного SBOM, checksums, signatures и provenance.
 
 ### P0.4. Store conformance и transactional publication
 
@@ -186,8 +223,8 @@ cargo run -p ath --quiet --locked -- docs check
 
 - `8c3a81b91d015dbbf54b0a37c69ed1d8ab6802d5` — Linux installer verification;
 - `5a3056d23cee127e668672ca5eb91c457f594d90` — Windows installer verification;
-- `c46ea1cfd53b7c458b7fb93df41f5c220ec42da4` — per-binary manifests in release archives;
-- `709731d8827e59c27a4e08468ce26db62235d20c` — Linux/Windows installer smoke tests;
+- `c46ea1cfd53b7c458b7fb93df41f5c220ec42da4` — per-binary manifests;
+- `709731d8827e59c27a4e08468ce26db62235d20c` — installer smoke tests;
 - `8ec61590ce8c31ee7e00035dc0f42c8bf8590ca1` — production verification documentation;
 - `17264662e98e2b7fe3f13208c99360d40c4e628f` — CI contract documentation.
 
@@ -216,7 +253,8 @@ cargo run -p ath --quiet --locked -- docs check
 - [ ] Disable force push/deletion.
 - [ ] После bootstrap gates запретить direct push.
 - [ ] Required: quality, feature matrix, AppSec, docs; coverage только если принято отдельное решение о blocking gate.
-- [ ] Stale review dismissal и up-to-date policy.
+- [ ] Включить stale review dismissal и up-to-date policy.
+- [ ] Включить secret push protection и проверить repository security settings.
 
 ### P2.2. Traceability
 
@@ -239,6 +277,7 @@ cargo run -p ath --quiet --locked -- docs check
 - [x] Feature matrix commands.
 - [x] Coverage measurement commands.
 - [x] Installer/release verification documentation.
+- [x] AppSec и local Zizmor commands.
 - [ ] Common CI failures.
 - [ ] `justfile`, `xtask` или единый verification entrypoint.
 
@@ -246,8 +285,8 @@ cargo run -p ath --quiet --locked -- docs check
 
 1. P0.1 feature matrix — ожидает hosted enforcement.
 2. P1.4 installer verification — реализован, ожидает hosted/tag evidence.
-3. P0.3 PR-level AppSec — текущий активный пакет.
-4. P0.4 store conformance/publication.
+3. P0.3 AppSec/SBOM — основной код реализован, ожидает hosted evidence и blocking enforcement.
+4. P0.4 store conformance/publication — следующий активный инженерный пакет.
 5. P1.1 sandbox hardening.
 6. P1.5 protocol E2E.
 7. Coverage gate decision перед крупными CLI/runtime рефакторингами; не назначать threshold автоматически.
@@ -257,15 +296,19 @@ cargo run -p ath --quiet --locked -- docs check
 
 ## 7. Текущий рабочий пакет
 
-**Активный пункт:** `P0.3 PR-level AppSec и software supply chain`.
+**Активное подтверждение/enforcement:** `P0.3 PR-level AppSec и software supply chain`.
 
-Первый безопасный срез:
+Остаётся:
 
-1. добавить PR dependency review;
-2. добавить workflow lint (`zizmor` или `actionlint`);
-3. не включать SAST/secret/SBOM actions без проверки permissions, supported Rust behavior и immutable pinning;
-4. обновить security documentation и этот план;
-5. оставить direct-main bootstrap только до появления стабильных required checks.
+1. получить hosted AppSec run и проверить dependency-review, CodeQL, Gitleaks и Zizmor;
+2. разобрать high/high Zizmor findings и удалить `--no-exit-codes`, если нет необоснованного шума;
+3. подтвердить release build→sbom→verify→publish на следующем version tag;
+4. после branch protection сделать стабильные AppSec jobs required checks;
+5. не считать отсутствие push-run в ответе коннектора доказательством успеха.
+
+**Следующий кодовый пакет:** `P0.4 Store conformance и transactional publication`.
+
+Первый срез P0.4 должен добавить shared backend conformance harness для Memory/JSONL и подготовить opt-in real SurrealDB CI path без изменения production semantics.
 
 ## 8. Definition of Done проекта
 
@@ -278,22 +321,34 @@ cargo run -p ath --quiet --locked -- docs check
 - AppSec/dependency/supply-chain gates блокируют реальные regressions.
 - Coverage используется как измеренная метрика; blocking gate включается только при доказанной пользе.
 - Installers fail-closed проверяют packaged binaries.
+- Release assets включают проверенный подписанный SBOM и provenance.
 - CLI/runtime не остаются god modules.
 - Typed errors/deadlines/cancellation эквивалентны во всех transports.
 - Roadmap, plan, issues и release notes соответствуют коду.
 
 ## 9. Журнал актуализаций
 
+### 2026-07-13 — AppSec, immutable actions и signed SBOM
+
+- Добавлен AppSec workflow для dependency review, Rust CodeQL, Gitleaks и Zizmor.
+- Dependency review настроен на новые уязвимости уровня `moderate` и выше.
+- CodeQL выполняет locked all-features Rust build с `security-extended` queries.
+- Gitleaks сканирует полную историю; GitHub public secret scanning учтён, push protection требует platform confirmation.
+- Zizmor добавлен в report-only режиме для первого hosted rollout; blocking включается после review findings.
+- Все текущие GitHub Actions references переведены на immutable commit SHA.
+- Release workflow генерирует CycloneDX 1.5 workspace SBOM через pinned `cargo-cyclonedx 0.5.9`.
+- SBOM archive и checksum подписываются, SBOM получает GitHub provenance attestation.
+- Новый verify job проверяет platform archives и SBOM до публикации release.
+- P0.3 оставлен `[-]` до hosted evidence, blocking Zizmor и required-check enforcement.
+- Следующим кодовым пакетом назначен P0.4 store conformance/publication.
+
 ### 2026-07-13 — installer integrity и пересмотр coverage gate
 
-- Подтверждено, что жёсткий coverage threshold без hosted baseline и branch protection сейчас не нужен.
-- Coverage сохранён как measurement artifact; решение о blocking gate отложено до фактических данных.
-- Release archives теперь включают per-binary `SHA256SUMS`.
+- Жёсткий coverage threshold без hosted baseline и branch protection признан преждевременным.
+- Coverage сохранён как measurement artifact.
+- Release archives получили per-binary `SHA256SUMS`.
 - Linux и Windows installers проверяют binaries до копирования и fail closed.
 - Добавлены positive/tamper smoke tests для обеих платформ.
-- Linux сценарий воспроизведён локально; hosted Windows/Linux evidence остаётся открытым.
-- Документированы archive checksum, Sigstore bundle, provenance и installer verification.
-- Активным пакетом назначен P0.3 AppSec.
 
 ### 2026-07-13 — feature matrix и начало coverage measurement
 
