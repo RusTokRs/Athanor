@@ -14,6 +14,10 @@ rust-version.workspace = true
 [lib]
 path = "src/lib.rs"
 
+[features]
+default = []
+remote = ["surrealdb/protocol-ws"]
+
 [dependencies]
 async-trait.workspace = true
 athanor-core = { path = "../athanor-core" }
