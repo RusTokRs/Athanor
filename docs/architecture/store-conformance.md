@@ -80,15 +80,26 @@ Configured remote checks cover:
 These checks prove shared-server visibility and independent-client allocation behavior once the
 hosted job succeeds. They do not deterministically force a server transaction conflict.
 
-## Deadline-bounded retry policy
+## Deadline- and cancellation-bounded retry policy
 
 Only context-aware write and publication methods retry `CoreError::Busy`. The schedule is bounded to
-four delays: 10, 25, 50, and 100 milliseconds. Before every attempt the operation deadline is checked.
-If the remaining budget cannot fit the next delay, the current `Busy` error is returned without
-sleeping past the deadline. Non-retryable errors fail on the first attempt.
+four delays: 10, 25, 50, and 100 milliseconds. Before every attempt the operation deadline and
+cancellation state are checked. If the remaining budget cannot fit the next delay, the current `Busy`
+error is returned without sleeping past the deadline. Non-retryable errors fail on the first attempt.
 
-Plain methods without `OperationContext` do not retry. Cancellation-aware retry is still open because
-the current transport-neutral `OperationContext` carries a deadline but no cancellation primitive.
+`athanor-core` exposes a cloneable `CancellationHandle` through
+`OperationContextCancellation::cancellation_handle()`. The process-local cancellation state is keyed
+by the stable operation id and held through weak registry entries. It is deliberately excluded from
+`OperationContext` serialization, so daemon/MCP/CLI wire formats remain operation-id and deadline
+only. Dropping all handles releases the state; reusing an operation id later starts with a fresh token.
+
+SurrealDB backoff polls `OperationContext::check_active()` at intervals no larger than five
+milliseconds. Cancellation therefore stops before the next backend attempt and interrupts a pending
+backoff with bounded latency. It does not abort a backend request that is already executing.
+
+Plain methods without `OperationContext` do not retry. The existing application-level daemon
+`CancellationToken` is still a separate primitive and is not yet bound automatically to the core
+handle, so daemon cancellation propagation into storage retry remains an explicit open E2E step.
 
 ## Prepare semantics
 
@@ -105,7 +116,8 @@ This slice does not make the whole lifecycle one transaction:
 - the atomic batch transaction does not include the later commit marker;
 - abort removes canonical rows transactionally, then deletes snapshot metadata in a separate request;
 - a real remote write conflict has not yet been reproduced and observed through the public facade;
-- retry cancellation is not available through the current `OperationContext`;
+- daemon cancellation is not yet bridged to the core cancellation handle;
+- an already executing backend request is not force-aborted by the retry wrapper;
 - canonical data, generated state, and read models still do not switch through one generation pointer.
 
 P0.4 remains incomplete until hosted remote evidence, an observed remote conflict, commit-marker
