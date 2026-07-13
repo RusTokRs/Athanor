@@ -73,11 +73,21 @@ cargo test -p athanor-store-surrealdb --locked
 
 The reusable suite checks committed snapshot selection, stable-key and ID-based queries, prepared-snapshot invisibility, commit/abort behavior, and preservation of `LatestCommitted` after an abort. The batch fixture includes entities, facts, relations, and diagnostics. The current public store query contract independently verifies entity, relation, and diagnostic visibility; fact visibility remains part of the future canonical-snapshot/transaction contract because `KnowledgeStore` has no fact query method.
 
-The embedded SurrealDB package also exercises sixteen concurrent snapshot allocations through cloned store handles. This proves only the process-local write gate. It does not prove cross-process exclusion, a native multi-statement backend transaction, or persistent-server conflict semantics.
+The SurrealDB package additionally verifies:
+
+- a complete `SnapshotBatch` is submitted through one `BEGIN`/bulk-`INSERT`/`COMMIT` transaction;
+- response-level statement errors are checked and reported;
+- a duplicate-ID failure rolls back completely, proven by a successful clean retry with the same ID;
+- prepared snapshots reject late writes;
+- 32 concurrent allocations using separate process-local writer gates produce unique snapshot IDs.
+
+The allocation test proves backend atomicity over one shared embedded client without relying on the wrapper mutex. It still does not prove independent-process exclusion, separate persistent-server connection conflicts, or one transaction spanning batch data and the later commit marker.
 
 Troubleshooting:
 
-- a duplicate snapshot ID indicates a broken writer-coordination boundary;
+- a duplicate snapshot ID indicates a broken atomic counter boundary;
+- a clean retry failing after the intentional duplicate-ID batch suggests partial transaction leakage;
+- a write accepted after `prepare_snapshot` violates snapshot immutability;
 - a prepared snapshot visible to a query violates snapshot isolation;
 - an aborted snapshot selected by `LatestCommitted` violates publication semantics;
 - an embedded SurrealDB pass must not be used as evidence for external-server or multi-process behavior.
