@@ -4,9 +4,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use athanor_core::{
-    CanonicalSnapshotStore, KnowledgeStore, OperationContext, SnapshotBatch,
-};
+use athanor_core::{CanonicalSnapshotStore, KnowledgeStore, OperationContext, SnapshotBatch};
 use athanor_domain::{
     Entity, EntityId, EntityKind, Fact, FactId, FactKind, RepoId, SnapshotBase, StableKey,
 };
@@ -15,6 +13,7 @@ use serde_json::json;
 use tokio::task::JoinSet;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires ATHANOR_SURREAL_REMOTE_URI and a dedicated SurrealDB server"]
 async fn independent_remote_connections_allocate_unique_snapshot_ids() {
     let uri = remote_uri();
     let writers = [
@@ -55,6 +54,7 @@ async fn independent_remote_connections_allocate_unique_snapshot_ids() {
 }
 
 #[tokio::test]
+#[ignore = "requires ATHANOR_SURREAL_REMOTE_URI and a dedicated SurrealDB server"]
 async fn committed_batch_is_visible_from_an_independent_remote_connection() {
     let uri = remote_uri();
     let writer = SurrealKnowledgeStore::connect(&uri)
