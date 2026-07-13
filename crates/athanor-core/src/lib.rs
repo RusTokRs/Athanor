@@ -12,6 +12,6 @@ pub use ports::{
     ExtractOutput, Extractor, InvalidationPolicy, InvalidationScope, KnowledgeStore, LinkInput,
     Linker, OperationContext, ProcessLimits, ProcessOutput, ProcessRequest, ProcessRunner,
     ProjectInput, Projector, RelationQuery, SearchDocument, SearchIndex, SearchQuery, SearchResult,
-    SnapshotSelector, SourceFile, SourceProvider, Transport, VectorIndex, VectorItem, VectorQuery,
-    VectorSearchResult,
+    SnapshotBatch, SnapshotSelector, SourceFile, SourceProvider, Transport, VectorIndex,
+    VectorItem, VectorQuery, VectorSearchResult,
 };

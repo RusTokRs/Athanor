@@ -1,6 +1,8 @@
 use anyhow::Result;
 
+use crate::CancellationToken;
 use crate::daemon::{DaemonJob, DaemonJobKind, DaemonJobStatus, DaemonState};
+use crate::daemon_job_state::finish;
 use crate::daemon_jobs_support::{prune, unix_time_ms};
 
 pub(super) fn start(
@@ -34,4 +36,29 @@ pub(super) fn start(
     });
     prune(&mut jobs, state.max_job_history);
     Ok(job_id)
+}
+
+pub(crate) fn start_cancellable(
+    state: &DaemonState,
+    kind: DaemonJobKind,
+    description: String,
+) -> Result<(String, CancellationToken)> {
+    let job_id = start(state, kind, description)?;
+    let cancellation = CancellationToken::new();
+    let mut tokens = match state.cancellation_tokens.lock() {
+        Ok(tokens) => tokens,
+        Err(_) => {
+            let message = "daemon cancellation registry lock is poisoned".to_string();
+            let _ = finish(
+                state,
+                &job_id,
+                DaemonJobStatus::Failed,
+                None,
+                Some(message.clone()),
+            );
+            anyhow::bail!(message);
+        }
+    };
+    tokens.insert(job_id.clone(), cancellation.clone());
+    Ok((job_id, cancellation))
 }

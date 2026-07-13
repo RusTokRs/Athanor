@@ -1,7 +1,7 @@
 use anyhow::Result;
 use serde_json::Value;
 
-use crate::daemon::{DaemonJobStatus, DaemonState};
+use crate::daemon::{DaemonJobKind, DaemonJobStatus, DaemonState};
 use crate::daemon_jobs_support::{prune, unix_time_ms};
 
 pub(super) fn mark_running(state: &DaemonState, job_id: &str) -> Result<bool> {
@@ -26,7 +26,56 @@ pub(super) fn mark_running(state: &DaemonState, job_id: &str) -> Result<bool> {
     }
 }
 
-pub(super) fn finish(
+pub(crate) fn begin_or_finish_failed(state: &DaemonState, job_id: &str) -> bool {
+    match mark_running(state, job_id) {
+        Ok(started) => started,
+        Err(error) => {
+            let _ = finish(
+                state,
+                job_id,
+                DaemonJobStatus::Failed,
+                None,
+                Some(error.to_string()),
+            );
+            false
+        }
+    }
+}
+
+pub(crate) fn finish_cancellable_error(
+    state: &DaemonState,
+    job_id: &str,
+    error: anyhow::Error,
+) -> Result<()> {
+    let cancelled = error
+        .chain()
+        .any(|cause| cause.to_string().contains("operation cancelled"));
+    let (status, message) = if cancelled {
+        (
+            DaemonJobStatus::Cancelled,
+            "operation cancelled".to_string(),
+        )
+    } else {
+        (DaemonJobStatus::Failed, error.to_string())
+    };
+    finish(state, job_id, status, None, Some(message))
+}
+
+pub(crate) fn has_active(state: &DaemonState, kind: DaemonJobKind) -> Result<bool> {
+    let jobs = state
+        .jobs
+        .lock()
+        .map_err(|_| anyhow::anyhow!("daemon job registry lock is poisoned"))?;
+    Ok(jobs.iter().any(|job| {
+        job.kind == kind
+            && matches!(
+                job.status,
+                DaemonJobStatus::Queued | DaemonJobStatus::Running | DaemonJobStatus::Cancelling
+            )
+    }))
+}
+
+pub(crate) fn finish(
     state: &DaemonState,
     job_id: &str,
     status: DaemonJobStatus,
@@ -48,6 +97,6 @@ pub(super) fn finish(
     job.error = error;
     prune(&mut jobs, state.max_job_history);
     drop(jobs);
-    crate::daemon::remove_cancellation_token(state, job_id)?;
+    crate::daemon_job_cancellation::remove(state, job_id)?;
     Ok(())
 }

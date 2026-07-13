@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use athanor_core::{
     CoreError, CoreResult, DiagnosticQuery, EntityQuery, KnowledgeStore, RelationQuery,
-    SnapshotSelector,
+    SnapshotBatch, SnapshotSelector,
 };
 use athanor_domain::{
     Diagnostic, Entity, Fact, Relation, RepoId, SnapshotBase, SnapshotId, StableKey,
@@ -85,6 +85,29 @@ impl KnowledgeStore for TransientKnowledgeStore {
             .snapshot_mut(&snapshot)?
             .diagnostics
             .extend(diagnostics);
+        Ok(())
+    }
+
+    async fn put_snapshot(&self, snapshot: SnapshotId, batch: SnapshotBatch) -> CoreResult<()> {
+        let mut state = self.lock_state()?;
+        let snapshot = state.snapshot_mut(&snapshot)?;
+        snapshot.entities.extend(batch.entities);
+        snapshot.facts.extend(batch.facts);
+        snapshot.relations.extend(batch.relations);
+        snapshot.diagnostics.extend(batch.diagnostics);
+        Ok(())
+    }
+
+    async fn prepare_snapshot(&self, snapshot: SnapshotId) -> CoreResult<()> {
+        let state = self.lock_state()?;
+        let snapshot = state
+            .snapshot_data(Some(&snapshot))
+            .ok_or_else(|| CoreError::NotFound(format!("snapshot {}", snapshot.0)))?;
+        if snapshot.committed {
+            return Err(CoreError::Conflict(
+                "cannot prepare a committed snapshot".to_string(),
+            ));
+        }
         Ok(())
     }
 

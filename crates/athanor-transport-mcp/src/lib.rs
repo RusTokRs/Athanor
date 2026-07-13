@@ -1,8 +1,10 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
+use athanor_core::{CoreError, CoreErrorCode};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::io::{self, AsyncBufReadExt, BufReader};
 
 #[allow(dead_code)]
@@ -97,14 +99,53 @@ async fn handle_line(root: &std::path::Path, line: &str) -> Result<Option<String
                 jsonrpc: "2.0".to_string(),
                 id,
                 result: None,
-                error: Some(JsonRpcError {
-                    code: -32603,
-                    message: err.to_string(),
-                    data: None,
-                }),
+                error: Some(json_rpc_error_from_anyhow(&err)),
             };
             Ok(Some(serde_json::to_string(&resp)?))
         }
+    }
+}
+
+fn json_rpc_error_from_anyhow(error: &anyhow::Error) -> JsonRpcError {
+    let core_error = error
+        .chain()
+        .find_map(|cause| cause.downcast_ref::<CoreError>());
+    let (stable_code, retryable) = match core_error {
+        Some(error) => (core_error_code_name(error.code()), error.is_retryable()),
+        None if error.to_string().contains("deadline") => ("deadline_exceeded", true),
+        None if error.to_string().contains("unknown MCP tool")
+            || error.to_string().contains("must be") =>
+        {
+            ("invalid_input", false)
+        }
+        None => ("internal", false),
+    };
+    let message = if stable_code == "internal" {
+        "internal MCP tool error".to_string()
+    } else {
+        error.to_string()
+    };
+    JsonRpcError {
+        code: -32603,
+        message,
+        data: Some(serde_json::json!({
+            "code": stable_code,
+            "retryable": retryable,
+        })),
+    }
+}
+
+fn core_error_code_name(code: CoreErrorCode) -> &'static str {
+    match code {
+        CoreErrorCode::NotFound => "not_found",
+        CoreErrorCode::InvalidInput => "invalid_input",
+        CoreErrorCode::AdapterProtocol => "adapter_protocol",
+        CoreErrorCode::AdapterExecution => "adapter_execution",
+        CoreErrorCode::SnapshotNotCommitted => "snapshot_not_committed",
+        CoreErrorCode::Conflict => "conflict",
+        CoreErrorCode::Busy => "busy",
+        CoreErrorCode::Cancelled => "cancelled",
+        CoreErrorCode::DeadlineExceeded => "deadline_exceeded",
     }
 }
 
@@ -161,7 +202,7 @@ async fn handle_request(root: &std::path::Path, req: JsonRpcRequest) -> Result<V
 }
 
 fn get_tools_list() -> Value {
-    serde_json::json!({
+    let mut response = serde_json::json!({
         "tools": [
             {
                 "name": "index",
@@ -307,10 +348,57 @@ fn get_tools_list() -> Value {
                 }
             }
         ]
-    })
+    });
+    if let Some(tools) = response.get_mut("tools").and_then(Value::as_array_mut) {
+        for tool in tools {
+            if let Some(properties) = tool
+                .get_mut("inputSchema")
+                .and_then(|schema| schema.get_mut("properties"))
+                .and_then(Value::as_object_mut)
+            {
+                properties.insert(
+                    "deadline_unix_ms".to_string(),
+                    serde_json::json!({
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "Optional future Unix timestamp in milliseconds; Athanor stops awaiting this tool when it expires."
+                    }),
+                );
+            }
+        }
+    }
+    response
 }
 
 async fn call_tool(root: &std::path::Path, name: &str, args: Value) -> Result<String> {
+    let deadline_unix_ms = args
+        .get("deadline_unix_ms")
+        .map(|value| {
+            value
+                .as_u64()
+                .context("MCP tool deadline_unix_ms must be an unsigned integer")
+        })
+        .transpose()?;
+    let Some(deadline_unix_ms) = deadline_unix_ms else {
+        return call_tool_inner(root, name, args).await;
+    };
+    let now_unix_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .context("system clock is before the Unix epoch")?
+        .as_millis()
+        .min(u128::from(u64::MAX)) as u64;
+    if deadline_unix_ms <= now_unix_ms {
+        bail!("MCP tool deadline_unix_ms must be in the future");
+    }
+    tokio::time::timeout(
+        Duration::from_millis(deadline_unix_ms.saturating_sub(now_unix_ms)),
+        call_tool_inner(root, name, args),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("MCP tool deadline exceeded"))?
+}
+
+async fn call_tool_inner(root: &std::path::Path, name: &str, args: Value) -> Result<String> {
     match name {
         "index" => {
             let validate_only = args
@@ -573,6 +661,61 @@ mod tests {
         assert!(tool_names.contains(&"rustok_architecture_context"));
         assert!(tool_names.contains(&"check"));
         assert!(tool_names.contains(&"index"));
+        assert!(tools.iter().all(|tool| {
+            tool["inputSchema"]["properties"]
+                .get("deadline_unix_ms")
+                .is_some()
+        }));
+    }
+
+    #[tokio::test]
+    async fn expired_mcp_tool_deadline_is_rejected_before_execution() {
+        let error = call_tool(
+            std::path::Path::new("."),
+            "search",
+            json!({"query": "login", "deadline_unix_ms": 0}),
+        )
+        .await
+        .expect_err("expired deadline must fail before the tool starts");
+
+        assert!(error.to_string().contains("must be in the future"));
+    }
+
+    #[tokio::test]
+    async fn malformed_mcp_tool_deadline_is_rejected_before_execution() {
+        let error = call_tool(
+            std::path::Path::new("."),
+            "search",
+            json!({"query": "login", "deadline_unix_ms": "tomorrow"}),
+        )
+        .await
+        .expect_err("non-integer deadline must fail before the tool starts");
+
+        assert!(error.to_string().contains("must be an unsigned integer"));
+    }
+
+    #[test]
+    fn exposes_stable_core_error_details_in_json_rpc_data() {
+        let error = anyhow::Error::new(CoreError::Busy("index is running".to_string()));
+        let rpc = json_rpc_error_from_anyhow(&error);
+
+        assert_eq!(rpc.code, -32603);
+        assert_eq!(
+            rpc.data.unwrap(),
+            json!({"code": "busy", "retryable": true})
+        );
+    }
+
+    #[test]
+    fn does_not_expose_internal_error_text() {
+        let error = anyhow::anyhow!("failed to read C:/private/token");
+        let rpc = json_rpc_error_from_anyhow(&error);
+
+        assert_eq!(rpc.message, "internal MCP tool error");
+        assert_eq!(
+            rpc.data.unwrap(),
+            json!({"code": "internal", "retryable": false})
+        );
     }
 
     #[tokio::test]

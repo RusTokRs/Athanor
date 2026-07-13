@@ -70,6 +70,16 @@ A pre-configured `.codex.json` file is also provided in the workspace root:
 
 ## Exposed MCP Tools
 
+Every tool accepts an optional `deadline_unix_ms` field: a future Unix timestamp in milliseconds.
+The transport stops awaiting the tool when the deadline expires and returns a deadline error. Omitting
+the field preserves existing unbounded MCP requests.
+
+Tool failures retain JSON-RPC's numeric `-32603` server-error code for compatibility and now include
+stable machine-readable details in `error.data`: `{ "code": "…", "retryable": boolean }`.
+Known Athanor core failures map to their canonical categories (for example `busy`,
+`snapshot_not_committed`, and `adapter_protocol`). Unexpected internal failures use
+`internal` and a generic message rather than exposing internal paths or stderr excerpts.
+
 | Tool Name | Description | Arguments |
 | --- | --- | --- |
 | `index` | Runs full index pipeline. | `validate_only?: boolean` |

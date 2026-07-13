@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use athanor_core::{
     CoreError, CoreResult, DiagnosticQuery, EntityQuery, EntityResolver, KnowledgeStore,
-    RelationQuery, SnapshotSelector,
+    RelationQuery, SnapshotBatch, SnapshotSelector,
 };
 use athanor_domain::{
     Diagnostic, Entity, EntityId, Fact, Relation, RepoId, SnapshotBase, SnapshotId, StableKey,
@@ -85,6 +85,29 @@ impl KnowledgeStore for MemoryKnowledgeStore {
             .snapshot_mut(&snapshot)?
             .diagnostics
             .extend(diagnostics);
+        Ok(())
+    }
+
+    async fn put_snapshot(&self, snapshot: SnapshotId, batch: SnapshotBatch) -> CoreResult<()> {
+        let mut state = self.lock_state()?;
+        let snapshot = state.snapshot_mut(&snapshot)?;
+        snapshot.entities.extend(batch.entities);
+        snapshot.facts.extend(batch.facts);
+        snapshot.relations.extend(batch.relations);
+        snapshot.diagnostics.extend(batch.diagnostics);
+        Ok(())
+    }
+
+    async fn prepare_snapshot(&self, snapshot: SnapshotId) -> CoreResult<()> {
+        let state = self.lock_state()?;
+        let snapshot = state
+            .snapshot_data(&snapshot)
+            .ok_or_else(|| CoreError::NotFound(format!("snapshot {}", snapshot.0)))?;
+        if snapshot.committed {
+            return Err(CoreError::Conflict(
+                "cannot prepare a committed snapshot".to_string(),
+            ));
+        }
         Ok(())
     }
 
@@ -299,7 +322,7 @@ fn relation_kind_name(relation: &Relation) -> String {
 
 #[cfg(test)]
 mod tests {
-    use athanor_core::{EntityQuery, SnapshotSelector};
+    use athanor_core::{EntityQuery, SnapshotBatch, SnapshotSelector};
     use athanor_domain::{EntityId, EntityKind};
     use serde_json::json;
 
@@ -351,6 +374,59 @@ mod tests {
             .await
             .unwrap();
 
+        assert_eq!(found, vec![entity]);
+    }
+
+    #[tokio::test]
+    async fn stores_a_snapshot_batch_through_the_compatibility_path() {
+        let store = MemoryKnowledgeStore::new();
+        let snapshot = store
+            .begin_snapshot(
+                RepoId("repo_test".to_string()),
+                SnapshotBase {
+                    branch: None,
+                    commit: None,
+                    parent_snapshot: None,
+                    working_tree: true,
+                },
+            )
+            .await
+            .unwrap();
+        let entity = Entity {
+            id: EntityId("ent_batch_readme".to_string()),
+            stable_key: StableKey("file://BATCH.md".to_string()),
+            kind: EntityKind::File,
+            name: "BATCH.md".to_string(),
+            title: None,
+            source: None,
+            language: None,
+            aliases: Vec::new(),
+            ownership: Vec::new(),
+            payload: json!({}),
+        };
+
+        store
+            .put_snapshot(
+                snapshot.clone(),
+                SnapshotBatch {
+                    entities: vec![entity.clone()],
+                    ..SnapshotBatch::default()
+                },
+            )
+            .await
+            .unwrap();
+        store.commit_snapshot(snapshot).await.unwrap();
+
+        let found = store
+            .query_entities(
+                SnapshotSelector::LatestCommitted,
+                EntityQuery {
+                    stable_key: Some(entity.stable_key.clone()),
+                    ..EntityQuery::default()
+                },
+            )
+            .await
+            .unwrap();
         assert_eq!(found, vec![entity]);
     }
 

@@ -21,7 +21,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::{Semaphore, mpsc};
 
-use athanor_core::{CanonicalSnapshot, CanonicalSnapshotStore, OperationContext, SearchIndex};
+use athanor_core::{CanonicalSnapshot, OperationContext, SearchIndex};
 use athanor_domain::ContextLevel;
 
 use crate::daemon_client::request as request_daemon_transport;
@@ -34,9 +34,7 @@ use crate::daemon_endpoint::{read as read_endpoint, write as write_endpoint};
 use crate::daemon_job_cancellation::cancel as cancel_daemon_job;
 use crate::daemon_job_registry::{get as get_daemon_job, list as list_daemon_jobs};
 use crate::daemon_job_scheduler::start as start_daemon_job;
-use crate::daemon_job_state::{
-    finish as finish_daemon_job, mark_running as mark_daemon_job_running,
-};
+use crate::daemon_job_state::finish as finish_daemon_job;
 #[cfg(test)]
 use crate::daemon_jobs_support::prune as prune_daemon_jobs;
 use crate::daemon_jobs_support::{is_valid_job_id, unix_time_ms};
@@ -44,6 +42,7 @@ use crate::daemon_lifecycle::{
     active_job_count, cancel_active_jobs, current as lifecycle, drain_active_jobs,
     set as set_lifecycle,
 };
+use crate::daemon_operation::context as daemon_operation_context;
 use crate::daemon_protocol::{
     error_response_from_anyhow, error_response_with_code, success_response, validate_limit,
     validate_request, validate_request_shape,
@@ -53,27 +52,12 @@ use crate::daemon_runtime::BoundedCache;
 #[cfg(test)]
 use crate::daemon_watcher::{collect_project_source_events, is_project_source_event};
 use crate::daemon_watcher::{start_file_watcher, start_watcher_index_job};
-use crate::explain::explain_snapshot;
-use crate::search::{
-    get_or_build_search_index_sync, get_or_build_search_index_with_factory,
-    search_snapshot_with_index,
-};
 use crate::{
     CancellationToken, ChangeMapOptions, ContextLimitOverrides, ContextLimits, ContextOptions,
-    DaemonRuntimeLock, DaemonRuntimePaths, GenerationOptions, HtmlReportOptions, IndexOptions,
-    RepositoryOverview, RuntimeComposition, RuntimeFileGuard, WikiOptions,
-    build_repository_overview, change_map_project, change_map_project_with_composition,
-    context_project, context_project_with_composition, create_daemon_token, generate_context_pack,
-    generate_project_cancellable_with_composition_and_operation_context,
-    generate_project_cancellable_with_operation_context,
-    index_project_cancellable_with_composition_and_operation_context,
-    index_project_cancellable_with_operation_context,
-    project_html_report_cancellable_with_composition_and_operation_context,
-    project_html_report_cancellable_with_operation_context,
-    project_wiki_cancellable_with_composition_and_operation_context,
-    project_wiki_cancellable_with_operation_context, read_daemon_token,
+    DaemonRuntimeLock, DaemonRuntimePaths, RepositoryOverview, RuntimeComposition,
+    RuntimeFileGuard, change_map_project, change_map_project_with_composition, context_project,
+    context_project_with_composition, create_daemon_token, read_daemon_token,
 };
-use crate::{config::load_config, store::init_store};
 
 pub const DAEMON_ENDPOINT_SCHEMA: &str = "athanor.daemon_endpoint.v3";
 pub const DAEMON_REQUEST_SCHEMA: &str = "athanor.daemon_request.v3";
@@ -350,7 +334,7 @@ pub(crate) struct DaemonState {
     pub(crate) auth_token: String,
     pub(crate) insecure_allow_v1: bool,
     pub(crate) lifecycle: Mutex<DaemonLifecycleState>,
-    last_successful_index: Mutex<Option<String>>,
+    pub(crate) last_successful_index: Mutex<Option<String>>,
     pub(crate) jobs: Mutex<Vec<DaemonJob>>,
     pub(crate) next_job_sequence: Mutex<u64>,
     pub(crate) max_job_history: usize,
@@ -888,13 +872,8 @@ pub(crate) async fn execute_request(
             }
         },
         DaemonCommand::Index { deadline_unix_ms } => {
-            let operation = deadline_unix_ms.map_or_else(
-                || OperationContext::new(format!("daemon.index.{}", request.request_id)),
-                |deadline| {
-                    OperationContext::new(format!("daemon.index.{}", request.request_id))
-                        .with_deadline_unix_ms(deadline)
-                },
-            );
+            let operation =
+                daemon_operation_context("index", &request.request_id, deadline_unix_ms);
             match start_index_job_with_operation_context(
                 &state,
                 "index project".to_string(),
@@ -933,111 +912,19 @@ pub(crate) async fn execute_request(
                     false,
                 );
             }
-            match start_cancellable_daemon_job(
+            match crate::daemon_write_jobs::start_generate(
                 &state,
-                DaemonJobKind::Generate,
-                "generate read models".to_string(),
+                &request.request_id,
+                deadline_unix_ms,
             ) {
-                Ok((job_id, cancellation)) => {
-                    let job = get_daemon_job(&state, &job_id).ok();
-                    let job_state = Arc::clone(&state);
-                    let job_id_for_task = job_id.clone();
-                    let root = state.endpoint.root.clone();
-                    let cancellation_for_task = cancellation.clone();
-                    let composition = crate::daemon_queries::composition(&state);
-                    let operation = deadline_unix_ms.map_or_else(
-                        || OperationContext::new(format!("daemon.generate.{}", request.request_id)),
-                        |deadline| {
-                            OperationContext::new(format!("daemon.generate.{}", request.request_id))
-                                .with_deadline_unix_ms(deadline)
-                        },
-                    );
-                    if let Err(error) = std::thread::Builder::new()
-                        .name(format!("athd-generate-{job_id_for_task}"))
-                        .spawn(move || {
-                            if !begin_daemon_job_or_finish_failed(&job_state, &job_id_for_task) {
-                                return;
-                            }
-                            let result = tokio::runtime::Builder::new_current_thread()
-                                .enable_all()
-                                .build()
-                                .map_err(anyhow::Error::from)
-                                .and_then(|runtime| {
-                                    runtime.block_on(async move {
-                                        let options = GenerationOptions { root, force: false };
-                                        match composition {
-                                            Some(composition) => {
-                                                generate_project_cancellable_with_composition_and_operation_context(
-                                                    options,
-                                                    cancellation_for_task,
-                                                    &composition,
-                                                    operation,
-                                                )
-                                                .await
-                                            }
-                                            None => {
-                                                generate_project_cancellable_with_operation_context(
-                                                    options,
-                                                    cancellation_for_task,
-                                                    operation,
-                                                )
-                                                .await
-                                            }
-                                        }
-                                    })
-                                });
-                            match result {
-                                Ok(report) => {
-                                    tracing::info!(
-                                        job_id = %job_id_for_task,
-                                        generation = %report.generation,
-                                        snapshot = %report.snapshot,
-                                        "daemon generate job completed"
-                                    );
-                                    let _ = finish_daemon_job(
-                                        &job_state,
-                                        &job_id_for_task,
-                                        DaemonJobStatus::Succeeded,
-                                        Some(serde_json::json!({
-                                            "generation": report.generation,
-                                            "generation_dir": report.generation_dir,
-                                            "current_pointer": report.current_pointer,
-                                            "snapshot": report.snapshot,
-                                            "entities": report.entities,
-                                            "facts": report.facts,
-                                            "relations": report.relations,
-                                            "diagnostics": report.diagnostics,
-                                        })),
-                                        None,
-                                    );
-                                }
-                                Err(error) => {
-                                    let _ = finish_cancellable_daemon_job_error(
-                                        &job_state,
-                                        &job_id_for_task,
-                                        error,
-                                    );
-                                }
-                            }
-                        })
-                    {
-                        let _ = finish_daemon_job(
-                            &state,
-                            &job_id,
-                            DaemonJobStatus::Failed,
-                            None,
-                            Some(error.to_string()),
-                        );
-                    }
-                    (
-                        success_response(
-                            &request.request_id,
-                            &state.endpoint.project_id,
-                            serde_json::to_value(job).unwrap_or(Value::Null),
-                        ),
-                        false,
-                    )
-                }
+                Ok(job) => (
+                    success_response(
+                        &request.request_id,
+                        &state.endpoint.project_id,
+                        serde_json::to_value(job).unwrap_or(Value::Null),
+                    ),
+                    false,
+                ),
                 Err(error) => (
                     error_response_from_anyhow(
                         &request.request_id,
@@ -1061,109 +948,19 @@ pub(crate) async fn execute_request(
                     false,
                 );
             }
-            match start_cancellable_daemon_job(
+            match crate::daemon_write_jobs::start_wiki(
                 &state,
-                DaemonJobKind::Wiki,
-                "project wiki".to_string(),
+                &request.request_id,
+                deadline_unix_ms,
             ) {
-                Ok((job_id, cancellation)) => {
-                    let job = get_daemon_job(&state, &job_id).ok();
-                    let job_state = Arc::clone(&state);
-                    let job_id_for_task = job_id.clone();
-                    let root = state.endpoint.root.clone();
-                    let cancellation_for_task = cancellation.clone();
-                    let composition = crate::daemon_queries::composition(&state);
-                    let operation = deadline_unix_ms.map_or_else(
-                        || OperationContext::new(format!("daemon.wiki.{}", request.request_id)),
-                        |deadline| {
-                            OperationContext::new(format!("daemon.wiki.{}", request.request_id))
-                                .with_deadline_unix_ms(deadline)
-                        },
-                    );
-                    if let Err(error) = std::thread::Builder::new()
-                        .name(format!("athd-wiki-{job_id_for_task}"))
-                        .spawn(move || {
-                            if !begin_daemon_job_or_finish_failed(&job_state, &job_id_for_task) {
-                                return;
-                            }
-                            let result = tokio::runtime::Builder::new_current_thread()
-                                .enable_all()
-                                .build()
-                                .map_err(anyhow::Error::from)
-                                .and_then(|runtime| {
-                                    runtime.block_on(async move {
-                                        let options = WikiOptions { root, output: None };
-                                        match composition {
-                                            Some(composition) => {
-                                                project_wiki_cancellable_with_composition_and_operation_context(
-                                                    options,
-                                                    cancellation_for_task,
-                                                    &composition,
-                                                    operation,
-                                                )
-                                                .await
-                                            }
-                                            None => {
-                                                project_wiki_cancellable_with_operation_context(
-                                                    options,
-                                                    cancellation_for_task,
-                                                    operation,
-                                                )
-                                                .await
-                                            }
-                                        }
-                                    })
-                                });
-                            match result {
-                                Ok(report) => {
-                                    tracing::info!(
-                                        job_id = %job_id_for_task,
-                                        snapshot = %report.snapshot,
-                                        output = %report.output_dir.display(),
-                                        "daemon wiki job completed"
-                                    );
-                                    let _ = finish_daemon_job(
-                                        &job_state,
-                                        &job_id_for_task,
-                                        DaemonJobStatus::Succeeded,
-                                        Some(serde_json::json!({
-                                            "snapshot": report.snapshot,
-                                            "output_dir": report.output_dir,
-                                            "entities": report.entities,
-                                            "facts": report.facts,
-                                            "relations": report.relations,
-                                            "open_diagnostics": report.open_diagnostics,
-                                        })),
-                                        None,
-                                    );
-                                }
-                                Err(error) => {
-                                    let _ = finish_cancellable_daemon_job_error(
-                                        &job_state,
-                                        &job_id_for_task,
-                                        error,
-                                    );
-                                }
-                            }
-                        })
-                    {
-                        let _ = finish_daemon_job(
-                            &state,
-                            &job_id,
-                            DaemonJobStatus::Failed,
-                            None,
-                            Some(error.to_string()),
-                        );
-                    }
-                    (
-                        success_response(
-                            &request.request_id,
-                            &state.endpoint.project_id,
-                            serde_json::to_value(job).unwrap_or(Value::Null),
-                        ),
-                        false,
-                    )
-                }
+                Ok(job) => (
+                    success_response(
+                        &request.request_id,
+                        &state.endpoint.project_id,
+                        serde_json::to_value(job).unwrap_or(Value::Null),
+                    ),
+                    false,
+                ),
                 Err(error) => (
                     error_response_from_anyhow(
                         &request.request_id,
@@ -1187,117 +984,19 @@ pub(crate) async fn execute_request(
                     false,
                 );
             }
-            match start_cancellable_daemon_job(
+            match crate::daemon_write_jobs::start_html_report(
                 &state,
-                DaemonJobKind::HtmlReport,
-                "HTML report".to_string(),
+                &request.request_id,
+                deadline_unix_ms,
             ) {
-                Ok((job_id, cancellation)) => {
-                    let job = get_daemon_job(&state, &job_id).ok();
-                    let job_state = Arc::clone(&state);
-                    let job_id_for_task = job_id.clone();
-                    let root = state.endpoint.root.clone();
-                    let cancellation_for_task = cancellation.clone();
-                    let composition = crate::daemon_queries::composition(&state);
-                    let operation = deadline_unix_ms.map_or_else(
-                        || {
-                            OperationContext::new(format!(
-                                "daemon.html_report.{}",
-                                request.request_id
-                            ))
-                        },
-                        |deadline| {
-                            OperationContext::new(format!(
-                                "daemon.html_report.{}",
-                                request.request_id
-                            ))
-                            .with_deadline_unix_ms(deadline)
-                        },
-                    );
-                    if let Err(error) = std::thread::Builder::new()
-                        .name(format!("athd-html-report-{job_id_for_task}"))
-                        .spawn(move || {
-                            if !begin_daemon_job_or_finish_failed(&job_state, &job_id_for_task) {
-                                return;
-                            }
-                            let result = tokio::runtime::Builder::new_current_thread()
-                                .enable_all()
-                                .build()
-                                .map_err(anyhow::Error::from)
-                                .and_then(|runtime| {
-                                    runtime.block_on(async move {
-                                        let options = HtmlReportOptions { root, output: None };
-                                        match composition {
-                                            Some(composition) => {
-                                                project_html_report_cancellable_with_composition_and_operation_context(
-                                                    options,
-                                                    cancellation_for_task,
-                                                    &composition,
-                                                    operation,
-                                                )
-                                                .await
-                                            }
-                                            None => {
-                                                project_html_report_cancellable_with_operation_context(
-                                                    options,
-                                                    cancellation_for_task,
-                                                    operation,
-                                                )
-                                                .await
-                                            }
-                                        }
-                                    })
-                                });
-                            match result {
-                                Ok(report) => {
-                                    tracing::info!(
-                                        job_id = %job_id_for_task,
-                                        snapshot = %report.snapshot,
-                                        output = %report.output_dir.display(),
-                                        "daemon HTML report job completed"
-                                    );
-                                    let _ = finish_daemon_job(
-                                        &job_state,
-                                        &job_id_for_task,
-                                        DaemonJobStatus::Succeeded,
-                                        Some(serde_json::json!({
-                                            "snapshot": report.snapshot,
-                                            "output_dir": report.output_dir,
-                                            "entities": report.entities,
-                                            "facts": report.facts,
-                                            "relations": report.relations,
-                                            "open_diagnostics": report.open_diagnostics,
-                                        })),
-                                        None,
-                                    );
-                                }
-                                Err(error) => {
-                                    let _ = finish_cancellable_daemon_job_error(
-                                        &job_state,
-                                        &job_id_for_task,
-                                        error,
-                                    );
-                                }
-                            }
-                        })
-                    {
-                        let _ = finish_daemon_job(
-                            &state,
-                            &job_id,
-                            DaemonJobStatus::Failed,
-                            None,
-                            Some(error.to_string()),
-                        );
-                    }
-                    (
-                        success_response(
-                            &request.request_id,
-                            &state.endpoint.project_id,
-                            serde_json::to_value(job).unwrap_or(Value::Null),
-                        ),
-                        false,
-                    )
-                }
+                Ok(job) => (
+                    success_response(
+                        &request.request_id,
+                        &state.endpoint.project_id,
+                        serde_json::to_value(job).unwrap_or(Value::Null),
+                    ),
+                    false,
+                ),
                 Err(error) => (
                     error_response_from_anyhow(
                         &request.request_id,
@@ -1755,6 +1454,7 @@ async fn daemon_search_from_cache(
     crate::daemon_queries::search(state, query, limit).await
 }
 
+#[cfg(test)]
 fn invalidate_daemon_caches(state: &DaemonState) {
     crate::daemon_queries::invalidate(state);
 }
@@ -1776,196 +1476,39 @@ pub(crate) fn start_index_job_with_operation_context(
     description: String,
     operation: OperationContext,
 ) -> Result<DaemonJob> {
-    if has_active_job(state, DaemonJobKind::Index)? {
-        bail!("index job is already queued or running");
-    }
-    let (job_id, cancellation) =
-        start_cancellable_daemon_job(state, DaemonJobKind::Index, description)?;
-    let mut job = get_daemon_job(state, &job_id)?;
-    let job_state = Arc::clone(state);
-    let job_id_for_task = job_id.clone();
-    let root = state.endpoint.root.clone();
-    let cancellation_for_task = cancellation.clone();
-    let composition = crate::daemon_queries::composition(state);
-    if let Err(error) = std::thread::Builder::new()
-        .name(format!("athd-index-{job_id_for_task}"))
-        .spawn(move || {
-            if !begin_daemon_job_or_finish_failed(&job_state, &job_id_for_task) {
-                return;
-            }
-            let result = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .map_err(anyhow::Error::from)
-                .and_then(|runtime| {
-                    runtime.block_on(async move {
-                        let options = IndexOptions {
-                            root,
-                            validation_report: None,
-                            validation_result: None,
-                            validate_only: false,
-                        };
-                        match composition {
-                            Some(composition) => {
-                                index_project_cancellable_with_composition_and_operation_context(
-                                    options,
-                                    cancellation_for_task,
-                                    &composition,
-                                    operation,
-                                )
-                                .await
-                            }
-                            None => {
-                                index_project_cancellable_with_operation_context(
-                                    options,
-                                    cancellation_for_task,
-                                    operation,
-                                )
-                                .await
-                            }
-                        }
-                    })
-                });
-            match result {
-                Ok(report) => {
-                    invalidate_daemon_caches(&job_state);
-                    if let Ok(mut snapshot) = job_state.last_successful_index.lock() {
-                        *snapshot = Some(report.snapshot.clone());
-                    }
-                    tracing::info!(
-                        job_id = %job_id_for_task,
-                        snapshot = %report.snapshot,
-                        files_indexed = report.files_indexed,
-                        "daemon index job completed"
-                    );
-                    let _ = finish_daemon_job(
-                        &job_state,
-                        &job_id_for_task,
-                        DaemonJobStatus::Succeeded,
-                        Some(serde_json::json!({
-                            "snapshot": report.snapshot,
-                            "files_indexed": report.files_indexed,
-                            "changed_files": report.changed_files,
-                            "unchanged_files": report.unchanged_files,
-                            "removed_files": report.removed_files,
-                            "output_dir": report.output_dir,
-                            "metrics": report.metrics,
-                        })),
-                        None,
-                    );
-                }
-                Err(error) => {
-                    let _ =
-                        finish_cancellable_daemon_job_error(&job_state, &job_id_for_task, error);
-                }
-            }
-        })
-    {
-        let error_message = error.to_string();
-        let _ = finish_daemon_job(
-            state,
-            &job_id,
-            DaemonJobStatus::Failed,
-            None,
-            Some(error_message.clone()),
-        );
-        job = get_daemon_job(state, &job_id)?;
-    }
-    Ok(job)
+    crate::daemon_write_jobs::start_index(state, description, operation)
 }
 
 pub(crate) fn has_active_job(state: &DaemonState, kind: DaemonJobKind) -> Result<bool> {
-    let jobs = state
-        .jobs
-        .lock()
-        .map_err(|_| anyhow::anyhow!("daemon job registry lock is poisoned"))?;
-    Ok(jobs.iter().any(|job| {
-        job.kind == kind
-            && matches!(
-                job.status,
-                DaemonJobStatus::Queued | DaemonJobStatus::Running | DaemonJobStatus::Cancelling
-            )
-    }))
+    crate::daemon_job_state::has_active(state, kind)
 }
 
+#[cfg(test)]
 fn start_cancellable_daemon_job(
     state: &DaemonState,
     kind: DaemonJobKind,
     description: String,
 ) -> Result<(String, CancellationToken)> {
-    let job_id = start_daemon_job(state, kind, description)?;
-    let cancellation = CancellationToken::new();
-    let mut tokens = match state.cancellation_tokens.lock() {
-        Ok(tokens) => tokens,
-        Err(_) => {
-            let message = "daemon cancellation registry lock is poisoned".to_string();
-            let _ = finish_daemon_job(
-                state,
-                &job_id,
-                DaemonJobStatus::Failed,
-                None,
-                Some(message.clone()),
-            );
-            bail!(message);
-        }
-    };
-    tokens.insert(job_id.clone(), cancellation.clone());
-    Ok((job_id, cancellation))
+    crate::daemon_job_scheduler::start_cancellable(state, kind, description)
 }
 
-pub(crate) fn cancellation_token(
-    state: &DaemonState,
-    job_id: &str,
-) -> Result<Option<CancellationToken>> {
-    let tokens = state
-        .cancellation_tokens
-        .lock()
-        .map_err(|_| anyhow::anyhow!("daemon cancellation registry lock is poisoned"))?;
-    Ok(tokens.get(job_id).cloned())
+#[cfg(test)]
+fn mark_daemon_job_running(state: &DaemonState, job_id: &str) -> Result<bool> {
+    crate::daemon_job_state::mark_running(state, job_id)
 }
 
-pub(crate) fn remove_cancellation_token(state: &DaemonState, job_id: &str) -> Result<()> {
-    let mut tokens = state
-        .cancellation_tokens
-        .lock()
-        .map_err(|_| anyhow::anyhow!("daemon cancellation registry lock is poisoned"))?;
-    tokens.remove(job_id);
-    Ok(())
-}
-
+#[cfg(test)]
 fn begin_daemon_job_or_finish_failed(state: &DaemonState, job_id: &str) -> bool {
-    match mark_daemon_job_running(state, job_id) {
-        Ok(started) => started,
-        Err(error) => {
-            let _ = finish_daemon_job(
-                state,
-                job_id,
-                DaemonJobStatus::Failed,
-                None,
-                Some(error.to_string()),
-            );
-            false
-        }
-    }
+    crate::daemon_job_state::begin_or_finish_failed(state, job_id)
 }
 
+#[cfg(test)]
 fn finish_cancellable_daemon_job_error(
     state: &DaemonState,
     job_id: &str,
     error: anyhow::Error,
 ) -> Result<()> {
-    let cancelled = error
-        .chain()
-        .any(|cause| cause.to_string().contains("operation cancelled"));
-    let (status, message) = if cancelled {
-        (
-            DaemonJobStatus::Cancelled,
-            "operation cancelled".to_string(),
-        )
-    } else {
-        (DaemonJobStatus::Failed, error.to_string())
-    };
-    finish_daemon_job(state, job_id, status, None, Some(message))
+    crate::daemon_job_state::finish_cancellable_error(state, job_id, error)
 }
 
 fn default_max_request_bytes() -> u64 {
@@ -2932,7 +2475,11 @@ mod tests {
         assert_eq!(job.status, DaemonJobStatus::Cancelled);
         assert_eq!(job.error.as_deref(), Some("job cancelled before start"));
         assert!(job.finished_at_unix_ms.is_some());
-        assert!(cancellation_token(&state, &job_id).unwrap().is_none());
+        assert!(
+            crate::daemon_job_cancellation::get(&state, &job_id)
+                .unwrap()
+                .is_none()
+        );
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -3797,7 +3344,7 @@ mod tests {
         )
         .unwrap();
         assert!(
-            cancellation_token(&state, "job_00000002")
+            crate::daemon_job_cancellation::get(&state, "job_00000002")
                 .unwrap()
                 .is_none()
         );
@@ -3830,7 +3377,11 @@ mod tests {
             assert_eq!(finished.status, DaemonJobStatus::Cancelled);
             assert_eq!(finished.error.as_deref(), Some("operation cancelled"));
             assert!(finished.finished_at_unix_ms.is_some());
-            assert!(cancellation_token(&state, &job_id).unwrap().is_none());
+            assert!(
+                crate::daemon_job_cancellation::get(&state, &job_id)
+                    .unwrap()
+                    .is_none()
+            );
         }
 
         assert!(!has_active_job(&state, DaemonJobKind::Index).unwrap());
@@ -3882,7 +3433,11 @@ mod tests {
         let finished = finished.expect("index job did not finish after cancellation");
         assert_eq!(finished.status, DaemonJobStatus::Cancelled);
         assert_eq!(finished.error.as_deref(), Some("operation cancelled"));
-        assert!(cancellation_token(&state, &started.id).unwrap().is_none());
+        assert!(
+            crate::daemon_job_cancellation::get(&state, &started.id)
+                .unwrap()
+                .is_none()
+        );
         assert!(!root.join(".athanor/state/index-state.json").exists());
         assert!(!root.join(".athanor/generated/current/jsonl").exists());
         assert!(

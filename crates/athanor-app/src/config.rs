@@ -37,6 +37,8 @@ pub enum ExternalProcessSandboxProfile {
 pub struct PipelineConfig {
     pub extraction_concurrency: usize,
     pub max_extraction_bytes_in_flight: usize,
+    pub max_snapshot_batch_objects: usize,
+    pub max_snapshot_batch_bytes: usize,
     pub extraction_concurrency_by_adapter: BTreeMap<String, usize>,
 }
 
@@ -45,6 +47,8 @@ impl Default for PipelineConfig {
         Self {
             extraction_concurrency: 16,
             max_extraction_bytes_in_flight: 64 * 1024 * 1024,
+            max_snapshot_batch_objects: 1_000_000,
+            max_snapshot_batch_bytes: 512 * 1024 * 1024,
             extraction_concurrency_by_adapter: BTreeMap::new(),
         }
     }
@@ -57,6 +61,12 @@ impl ProjectConfig {
         }
         if self.pipeline.max_extraction_bytes_in_flight == 0 {
             anyhow::bail!("[pipeline].max_extraction_bytes_in_flight must be at least 1");
+        }
+        if self.pipeline.max_snapshot_batch_objects == 0 {
+            anyhow::bail!("[pipeline].max_snapshot_batch_objects must be at least 1");
+        }
+        if self.pipeline.max_snapshot_batch_bytes == 0 {
+            anyhow::bail!("[pipeline].max_snapshot_batch_bytes must be at least 1");
         }
         if let Some((adapter, _)) = self
             .pipeline
@@ -225,11 +235,13 @@ mod tests {
     #[test]
     fn parses_pipeline_extraction_concurrency() {
         let config = toml::from_str::<ProjectConfig>(
-            "[pipeline]\nextraction_concurrency = 4\nmax_extraction_bytes_in_flight = 1048576",
+            "[pipeline]\nextraction_concurrency = 4\nmax_extraction_bytes_in_flight = 1048576\nmax_snapshot_batch_objects = 42\nmax_snapshot_batch_bytes = 2097152",
         )
         .expect("pipeline configuration should parse");
         assert_eq!(config.pipeline.extraction_concurrency, 4);
         assert_eq!(config.pipeline.max_extraction_bytes_in_flight, 1_048_576);
+        assert_eq!(config.pipeline.max_snapshot_batch_objects, 42);
+        assert_eq!(config.pipeline.max_snapshot_batch_bytes, 2_097_152);
     }
 
     #[test]
@@ -265,6 +277,17 @@ mod tests {
             toml::from_str::<ProjectConfig>("[pipeline]\nmax_extraction_bytes_in_flight = 0")
                 .expect("configuration syntax should parse");
         assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn rejects_zero_snapshot_batch_limits() {
+        let objects = toml::from_str::<ProjectConfig>("[pipeline]\nmax_snapshot_batch_objects = 0")
+            .expect("configuration syntax should parse");
+        assert!(objects.validate().is_err());
+
+        let bytes = toml::from_str::<ProjectConfig>("[pipeline]\nmax_snapshot_batch_bytes = 0")
+            .expect("configuration syntax should parse");
+        assert!(bytes.validate().is_err());
     }
 
     #[test]

@@ -9,7 +9,7 @@ use anyhow::{Result, bail};
 use async_trait::async_trait;
 use athanor_core::{
     CanonicalSnapshot, CanonicalSnapshotStore, CoreResult, DiagnosticQuery, EntityQuery,
-    EntityResolver, KnowledgeStore, RelationQuery, SnapshotSelector,
+    EntityResolver, KnowledgeStore, RelationQuery, SnapshotBatch, SnapshotSelector,
 };
 use athanor_domain::{
     Diagnostic, Entity, EntityId, Fact, Relation, RepoId, SnapshotBase, SnapshotId, StableKey,
@@ -89,6 +89,14 @@ impl KnowledgeStore for AthanorStore {
         diagnostics: Vec<Diagnostic>,
     ) -> CoreResult<()> {
         self.inner.put_diagnostics(snapshot, diagnostics).await
+    }
+
+    async fn put_snapshot(&self, snapshot: SnapshotId, batch: SnapshotBatch) -> CoreResult<()> {
+        self.inner.put_snapshot(snapshot, batch).await
+    }
+
+    async fn prepare_snapshot(&self, snapshot: SnapshotId) -> CoreResult<()> {
+        self.inner.prepare_snapshot(snapshot).await
     }
 
     async fn query_entities(

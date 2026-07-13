@@ -197,10 +197,16 @@ validation live in `runtime/plugin_discovery.rs`, while trust path resolution, r
 content hashing, and trust-record/status calculation live in focused `runtime/plugin_trust_*.rs`
 modules. The public runtime functions retain the compatibility API used by the CLI and embedders.
 
-If canonical storage fails before a snapshot commits, `IndexPipeline` calls the `KnowledgeStore`
-`abort_snapshot` lifecycle operation. JSONL and memory stores discard the uncommitted snapshot;
-the SurrealDB adapter removes rows for its uncommitted snapshot. Prepared/batched publication is a
-future extension of this lifecycle.
+`IndexPipeline` submits entities, facts, relations, and diagnostics to `KnowledgeStore` as one
+`SnapshotBatch` at the storage boundary. Memory, transient, and JSONL stores apply that batch
+under one snapshot-state lock; the `AthanorStore` wrapper preserves this native path. The
+compatibility implementation remains sequential for other stores and uses `abort_snapshot` after
+a write failure; the SurrealDB adapter removes its uncommitted rows. `IndexPipeline` then calls
+`prepare_snapshot` before either immediate commit or deferred read-model/state publication. JSONL
+materializes a hidden prepared directory, and commit atomically promotes it before updating the
+latest pointer. The portable transaction-handle protocol across all backends remains future work.
+Configured object/byte limits are enforced before the storage call; a separate aggregate pipeline
+memory budget remains future work.
 
 Extractors, linkers, and checkers now expose conservative invalidation declarations. Adapters that
 do not opt in default to `AlwaysGlobal`; the file-inventory and Markdown extractors explicitly
@@ -220,16 +226,20 @@ For CLI and daemon indexing, configure it in `athanor.toml`:
 [pipeline]
 extraction_concurrency = 8
 max_extraction_bytes_in_flight = 67108864
+max_snapshot_batch_objects = 1000000
+max_snapshot_batch_bytes = 536870912
 
 [pipeline.extraction_concurrency_by_adapter]
 "builtin.extractor.markdown" = 2
 ```
 
-Both values must be at least `1`. The byte budget is held across concurrently running extraction
+All numeric limits must be at least `1`. The extraction byte budget is held across concurrently running extraction
 tasks (a single source larger than the budget occupies the full budget), preventing many large
 source contents from being processed at once.
 `extraction_concurrency_by_adapter` is optional; it prevents one named extractor from consuming
-all shared extraction slots.
+all shared extraction slots. Before canonical storage, `max_snapshot_batch_objects` and
+`max_snapshot_batch_bytes` bound the complete serialized canonical batch; the defaults are one
+million objects and 512 MiB.
 
 `athanor-app` now exposes:
 
@@ -276,11 +286,15 @@ own top-level namespaces.
 - `daemon_protocol`: response construction, response-size fallback serialization, protocol-byte-limit
   validation, request-shape/deadline validation, and authentication-policy validation; server
   connection and job orchestration remain in `daemon`.
+- `daemon_operation`: one transport-neutral factory for write-job operation ids and optional
+  deadlines, shared by index, generation, wiki, and HTML report commands.
 - `daemon_client`: bounded client transport selection and request/response exchange for TCP, Unix
   sockets, and Windows named pipes; endpoint discovery and request authentication remain in
   `daemon`.
 - `daemon_connection`: bounded server-side connection I/O, request-schema response selection, and
   authenticated busy rejection; command execution remains in `daemon`.
+- `daemon_queries`: canonical snapshot loading, snapshot-keyed search handles, bounded overview and
+  context caches, and cached overview/explain/search/context query execution.
 - `daemon_endpoint`: durable endpoint read/validation and staged endpoint publication; transport
   lifecycle and runtime-path ownership remain in `daemon` and `daemon_runtime`.
 - `daemon_watcher`: recommended/polling watcher construction, debounce filtering, `.athanor`
@@ -291,12 +305,16 @@ own top-level namespaces.
   cancellation transitions remain in `daemon`.
 - `daemon_lifecycle`: lifecycle state reads/transitions, active-job counting, shutdown cancellation,
   and bounded active-job draining; job scheduling remains in `daemon`.
-- `daemon_job_cancellation`: cancellation-token lookup and queued/running job cancellation
-  transitions; token registration and job scheduling remain in `daemon`.
-- `daemon_job_scheduler`: monotonic job-id allocation and queued job creation; cancellable token
-  registration and background execution remain in `daemon`.
-- `daemon_job_state`: queued-to-running and terminal job state transitions, including retention
-  pruning and cancellation-token removal; failure orchestration remains in `daemon`.
+- `daemon_job_cancellation`: cancellation-token lookup/removal and queued/running job-cancellation
+  transitions; background execution remains in `daemon`.
+- `daemon_job_scheduler`: monotonic job-id allocation, queued job creation, and cancellable-token
+  registration; background execution remains in `daemon`.
+- `daemon_job_state`: active-job classification plus queued-to-running and terminal job state
+  transitions, including retention pruning and cancellation-token removal; failure orchestration
+  remains in `daemon`.
+- `daemon_write_jobs`: detached execution and terminal reporting for cancellable index, generation,
+  wiki, and HTML-report jobs; the protocol dispatcher retains request validation and response
+  shaping.
 - `daemon_recovery`: stale index/read-model staging-artifact inspection and cleanup before daemon
   service work begins.
 - `check_project`: scoped API, documentation, environment, script, deployment, and runbook diagnostic reporting from the latest canonical snapshot.
@@ -1017,7 +1035,7 @@ canonical validation boundaries without widening the public application API.
 - validating newly emitted entities/facts/relations/diagnostics before storage
 - aggregating adapter validation failures by adapter, object type, object id, and missing metadata field
 - stopping before durable writes when the CLI requested validation-only mode
-- storing entities/facts/relations/diagnostics
+- storing one canonical snapshot batch (entities/facts/relations/diagnostics)
 - committing the snapshot
 
 `JsonlReadModelWriter` is responsible for generated read models:

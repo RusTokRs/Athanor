@@ -266,4 +266,64 @@ mod tests {
         assert_eq!(details.code, DaemonErrorCode::AdapterProtocol);
         assert!(!details.retryable);
     }
+
+    #[test]
+    fn every_core_error_category_maps_to_a_stable_daemon_error() {
+        let cases = [
+            (
+                CoreError::NotFound("entity".to_string()),
+                DaemonErrorCode::NotFound,
+                false,
+            ),
+            (
+                CoreError::InvalidInput("query".to_string()),
+                DaemonErrorCode::InvalidInput,
+                false,
+            ),
+            (
+                CoreError::AdapterProtocol("JSON".to_string()),
+                DaemonErrorCode::AdapterProtocol,
+                false,
+            ),
+            (
+                CoreError::Adapter("exit status".to_string()),
+                DaemonErrorCode::AdapterExecution,
+                false,
+            ),
+            (
+                CoreError::SnapshotNotCommitted("snap".to_string()),
+                DaemonErrorCode::SnapshotNotCommitted,
+                false,
+            ),
+            (
+                CoreError::Conflict("stable key".to_string()),
+                DaemonErrorCode::Conflict,
+                false,
+            ),
+            (
+                CoreError::Busy("index".to_string()),
+                DaemonErrorCode::Busy,
+                true,
+            ),
+            (
+                CoreError::Cancelled("request".to_string()),
+                DaemonErrorCode::Cancelled,
+                false,
+            ),
+            (
+                CoreError::DeadlineExceeded("request".to_string()),
+                DaemonErrorCode::DeadlineExceeded,
+                true,
+            ),
+        ];
+
+        for (core_error, expected_code, expected_retryable) in cases {
+            let error = Error::new(core_error);
+            let response = error_response_from_anyhow("request-1", "project-1", &error);
+            let details = response.error_details.expect("structured error details");
+
+            assert_eq!(details.code, expected_code);
+            assert_eq!(details.retryable, expected_retryable);
+        }
+    }
 }

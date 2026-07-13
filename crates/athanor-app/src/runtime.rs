@@ -1,24 +1,21 @@
 use std::collections::BTreeSet;
 use std::future::Future;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
 
 use anyhow::{Context, Result, bail};
 #[cfg(test)]
+use athanor_core::CoreResult;
+#[cfg(test)]
 use athanor_core::ProcessRunner;
-use athanor_core::{
-    CheckInput, Checker, CoreResult, ExtractInput, ExtractOutput, Extractor, KnowledgeStore,
-    LinkInput, Linker, SourceFile, SourceProvider,
-};
+use athanor_core::{Checker, Extractor, KnowledgeStore, Linker, SourceProvider};
 #[cfg(test)]
 use athanor_core::{CoreError, ProcessLimits as CoreProcessLimits, ProcessRequest};
 use serde::{Deserialize, Serialize};
-#[cfg(test)]
-use tracing::debug;
 use tracing::warn;
 
 use crate::{CancellationToken, IndexPipeline, RuntimeComposition};
 
+mod legacy_registry;
 mod plugin_discovery;
 mod plugin_hash;
 mod plugin_trust_path;
@@ -29,9 +26,9 @@ mod process_adapter;
 mod process_adapter_support;
 mod process_runner;
 #[cfg(test)]
-use process_adapter_support::process_output_excerpt;
+use process_adapter_support::ProcessLimits;
 use process_adapter_support::{
-    ProcessCommand, ProcessLimits, normalize_extension, resolve_external_process_allowlist,
+    ProcessCommand, normalize_extension, resolve_external_process_allowlist,
     resolve_manifest_program,
 };
 pub use process_runner::TokioProcessRunner;
@@ -58,25 +55,16 @@ pub type AdapterRegistryFactory = fn() -> AdapterRegistry;
 pub type BuiltinAdapterResolver =
     fn(AdapterRegistry, AdapterPluginKind, &str) -> Option<AdapterRegistry>;
 
-static DEFAULT_ADAPTER_REGISTRY_FACTORY: OnceLock<AdapterRegistryFactory> = OnceLock::new();
-static BUILTIN_ADAPTER_RESOLVER: OnceLock<BuiltinAdapterResolver> = OnceLock::new();
-
 pub fn install_default_adapter_registry(factory: AdapterRegistryFactory) {
-    let _ = DEFAULT_ADAPTER_REGISTRY_FACTORY.set(factory);
+    legacy_registry::install_default_adapter_registry(factory);
 }
 
 pub fn install_builtin_adapter_resolver(resolver: BuiltinAdapterResolver) {
-    let _ = BUILTIN_ADAPTER_RESOLVER.set(resolver);
+    legacy_registry::install_builtin_adapter_resolver(resolver);
 }
 
 pub fn default_adapter_registry() -> AdapterRegistry {
-    #[cfg(test)]
-    crate::ensure_test_runtime();
-
-    DEFAULT_ADAPTER_REGISTRY_FACTORY
-        .get()
-        .map(|factory| factory())
-        .unwrap_or_else(AdapterRegistry::empty)
+    legacy_registry::default_adapter_registry()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -256,7 +244,7 @@ impl AdapterRegistry {
 
         if adapter.command.is_none()
             && let Some(resolver) =
-                builtin_resolver.or_else(|| BUILTIN_ADAPTER_RESOLVER.get().copied())
+                builtin_resolver.or_else(legacy_registry::builtin_adapter_resolver)
         {
             if let Some(registry) = resolver(self, adapter.kind, adapter.id.as_str()) {
                 return Ok(registry);
@@ -310,11 +298,7 @@ impl AdapterRegistry {
         let id = adapter.id.clone();
 
         Ok(self.register_source_id(&adapter.id, move |root| {
-            Box::new(ProcessSource {
-                id: id.clone(),
-                command: command.clone(),
-                root: root.to_path_buf(),
-            })
+            process_adapter::source(id.clone(), command.clone(), root.to_path_buf())
         }))
     }
 
@@ -340,11 +324,7 @@ impl AdapterRegistry {
             .collect::<BTreeSet<_>>();
 
         Ok(self.register_extractor_id(&adapter.id, move || {
-            Box::new(ProcessExtractor {
-                id: id.clone(),
-                command: command.clone(),
-                supports_extensions: supports_extensions.clone(),
-            })
+            process_adapter::extractor(id.clone(), command.clone(), supports_extensions.clone())
         }))
     }
 
@@ -365,10 +345,7 @@ impl AdapterRegistry {
         let id = adapter.id.clone();
 
         Ok(self.register_linker_id(&adapter.id, move || {
-            Box::new(ProcessLinker {
-                id: id.clone(),
-                command: command.clone(),
-            })
+            process_adapter::linker(id.clone(), command.clone())
         }))
     }
 
@@ -389,10 +366,7 @@ impl AdapterRegistry {
         let id = adapter.id.clone();
 
         Ok(self.register_checker_id(&adapter.id, move || {
-            Box::new(ProcessChecker {
-                id: id.clone(),
-                command: command.clone(),
-            })
+            process_adapter::checker(id.clone(), command.clone())
         }))
     }
 
@@ -773,117 +747,7 @@ fn enabled_by_default() -> bool {
     true
 }
 
-struct ProcessExtractor {
-    id: String,
-    command: ProcessCommand,
-    supports_extensions: BTreeSet<String>,
-}
-
-struct ProcessSource {
-    id: String,
-    command: ProcessCommand,
-    root: PathBuf,
-}
-
-#[derive(Serialize)]
-struct SourceDiscoverInput<'a> {
-    root: &'a Path,
-}
-
-struct ProcessLinker {
-    id: String,
-    command: ProcessCommand,
-}
-
-struct ProcessChecker {
-    id: String,
-    command: ProcessCommand,
-}
-
-#[async_trait::async_trait]
-impl SourceProvider for ProcessSource {
-    fn name(&self) -> &str {
-        &self.id
-    }
-
-    async fn discover(&self) -> CoreResult<Vec<SourceFile>> {
-        run_process_adapter(
-            "source",
-            &self.id,
-            &self.command,
-            &SourceDiscoverInput { root: &self.root },
-        )
-        .await
-    }
-}
-
-#[async_trait::async_trait]
-impl Extractor for ProcessExtractor {
-    fn name(&self) -> &str {
-        &self.id
-    }
-
-    fn supports(&self, source: &SourceFile) -> bool {
-        if self.supports_extensions.is_empty() {
-            return true;
-        }
-
-        Path::new(&source.path)
-            .extension()
-            .and_then(|extension| extension.to_str())
-            .map(normalize_extension)
-            .is_some_and(|extension| self.supports_extensions.contains(&extension))
-    }
-
-    async fn extract(&self, input: ExtractInput) -> CoreResult<ExtractOutput> {
-        run_process_adapter("extractor", &self.id, &self.command, &input).await
-    }
-}
-
-#[async_trait::async_trait]
-impl Linker for ProcessLinker {
-    fn name(&self) -> &str {
-        &self.id
-    }
-
-    async fn link(&self, input: LinkInput) -> CoreResult<Vec<athanor_domain::Relation>> {
-        run_process_adapter("linker", &self.id, &self.command, &input).await
-    }
-}
-
-#[async_trait::async_trait]
-impl Checker for ProcessChecker {
-    fn name(&self) -> &str {
-        &self.id
-    }
-
-    async fn check(&self, input: CheckInput) -> CoreResult<Vec<athanor_domain::Diagnostic>> {
-        run_process_adapter("checker", &self.id, &self.command, &input).await
-    }
-}
-
-async fn run_process_adapter<I, O>(
-    adapter_kind: &str,
-    adapter_id: &str,
-    command: &ProcessCommand,
-    input: &I,
-) -> CoreResult<O>
-where
-    I: Serialize,
-    O: for<'de> Deserialize<'de>,
-{
-    let cancellation = PROCESS_CANCELLATION.try_with(Clone::clone).ok().flatten();
-    run_process_adapter_with_limits(
-        adapter_kind,
-        adapter_id,
-        command,
-        input,
-        ProcessLimits::default(),
-        cancellation.as_ref(),
-    )
-    .await
-}
-
+#[cfg(test)]
 async fn run_process_adapter_with_limits<I, O>(
     adapter_kind: &str,
     adapter_id: &str,
@@ -920,82 +784,15 @@ where
     I: Serialize,
     O: for<'de> Deserialize<'de>,
 {
-    let mut input = serde_json::to_vec(input).map_err(|error| {
-        CoreError::Adapter(format!(
-            "failed to serialize input for external {adapter_kind} {adapter_id}: {error}"
-        ))
-    })?;
-    input.push(b'\n');
-    let output = TokioProcessRunner
-        .run_cancellable(
-            ProcessRequest {
-                label: format!("external {adapter_kind} {adapter_id}"),
-                program: command.program.clone(),
-                args: command.args.clone(),
-                working_dir: command.working_dir.clone(),
-                stdin: input,
-                limits: CoreProcessLimits {
-                    timeout_ms: limits.timeout.as_millis() as u64,
-                    max_stdin_bytes: limits.max_stdin_bytes,
-                    max_stdout_bytes: limits.max_stdout_bytes,
-                    max_stderr_bytes: limits.max_stderr_bytes,
-                },
-                clear_environment: command.clear_environment,
-            },
-            cancellation,
-        )
-        .await?;
-    let stdout = process_output_excerpt(&output.stdout);
-    let stderr = process_output_excerpt(&output.stderr);
-
-    if !stdout.is_empty() {
-        debug!(
-            adapter_kind,
-            adapter_id,
-            stdout = %stdout,
-            "external process adapter stdout"
-        );
-    }
-
-    if !stderr.is_empty() {
-        warn!(
-            adapter_kind,
-            adapter_id,
-            stderr = %stderr,
-            "external process adapter stderr"
-        );
-    }
-
-    if !output.success {
-        return Err(CoreError::Adapter(format!(
-            "external {adapter_kind} {adapter_id} exited with {}; stderr: {}",
-            output.exit_code.map_or_else(
-                || "unknown status".to_string(),
-                |code| format!("exit code: {code}")
-            ),
-            stderr
-        )));
-    }
-
-    if output.stdout_truncated {
-        return Err(CoreError::Adapter(format!(
-            "external {adapter_kind} {adapter_id} stdout exceeded {} bytes",
-            limits.max_stdout_bytes
-        )));
-    }
-
-    if output.stderr_truncated {
-        return Err(CoreError::Adapter(format!(
-            "external {adapter_kind} {adapter_id} stderr exceeded {} bytes",
-            limits.max_stderr_bytes
-        )));
-    }
-
-    serde_json::from_slice(&output.stdout).map_err(|error| {
-        CoreError::Adapter(format!(
-            "failed to parse output from external {adapter_kind} {adapter_id}: {error}"
-        ))
-    })
+    process_adapter::run_with_limits(
+        adapter_kind,
+        adapter_id,
+        command,
+        input,
+        limits,
+        cancellation,
+    )
+    .await
 }
 
 #[cfg(test)]

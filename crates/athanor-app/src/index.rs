@@ -184,6 +184,8 @@ async fn index_project_inner(
             .build_index_pipeline(TransientKnowledgeStore::new())
             .extraction_concurrency(config.pipeline.extraction_concurrency)
             .max_extraction_bytes_in_flight(config.pipeline.max_extraction_bytes_in_flight)
+            .max_snapshot_batch_objects(config.pipeline.max_snapshot_batch_objects)
+            .max_snapshot_batch_bytes(config.pipeline.max_snapshot_batch_bytes)
             .extraction_concurrency_by_adapter(
                 config.pipeline.extraction_concurrency_by_adapter.clone(),
             );
@@ -242,6 +244,8 @@ async fn index_project_inner(
             .build_index_pipeline(canonical_store.clone())
             .extraction_concurrency(config.pipeline.extraction_concurrency)
             .max_extraction_bytes_in_flight(config.pipeline.max_extraction_bytes_in_flight)
+            .max_snapshot_batch_objects(config.pipeline.max_snapshot_batch_objects)
+            .max_snapshot_batch_bytes(config.pipeline.max_snapshot_batch_bytes)
             .extraction_concurrency_by_adapter(
                 config.pipeline.extraction_concurrency_by_adapter.clone(),
             );

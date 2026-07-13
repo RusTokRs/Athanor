@@ -15,6 +15,7 @@ rust-version.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true
 athanor-app = { path = "../athanor-app" }
+athanor-core = { path = "../athanor-core" }
 athanor-domain = { path = "../athanor-domain" }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true

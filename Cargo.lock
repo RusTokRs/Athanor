@@ -820,6 +820,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "athanor-app",
+ "athanor-core",
  "athanor-domain",
  "serde",
  "serde_json",

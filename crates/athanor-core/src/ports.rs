@@ -241,6 +241,27 @@ pub struct DiagnosticQuery {
     pub limit: Option<usize>,
 }
 
+/// Canonical objects written together into one uncommitted snapshot.
+///
+/// `KnowledgeStore::put_snapshot` provides one storage boundary to the application. Its default
+/// implementation retains compatibility with stores that only implement the individual
+/// `put_*` methods. Stores with native batch or transaction support should override it so the
+/// batch is written atomically according to their backend guarantees.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SnapshotBatch {
+    pub entities: Vec<Entity>,
+    pub facts: Vec<Fact>,
+    pub relations: Vec<Relation>,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+impl SnapshotBatch {
+    /// Returns the number of canonical objects contained in this batch.
+    pub fn object_count(&self) -> usize {
+        self.entities.len() + self.facts.len() + self.relations.len() + self.diagnostics.len()
+    }
+}
+
 #[async_trait]
 pub trait KnowledgeStore: Send + Sync {
     async fn begin_snapshot(&self, repo: RepoId, base: SnapshotBase) -> CoreResult<SnapshotId>;
@@ -298,6 +319,46 @@ pub trait KnowledgeStore: Send + Sync {
     ) -> CoreResult<()> {
         context.check_deadline()?;
         self.put_diagnostics(snapshot, diagnostics).await
+    }
+
+    /// Writes all canonical object kinds for an uncommitted snapshot.
+    ///
+    /// The compatibility implementation is deliberately sequential. Callers must still abort
+    /// the snapshot after an error. A store that supports a native batch transaction can override
+    /// this method to make the complete batch atomic before `commit_snapshot` publishes it.
+    async fn put_snapshot(&self, snapshot: SnapshotId, batch: SnapshotBatch) -> CoreResult<()> {
+        self.put_entities(snapshot.clone(), batch.entities).await?;
+        self.put_facts(snapshot.clone(), batch.facts).await?;
+        self.put_relations(snapshot.clone(), batch.relations)
+            .await?;
+        self.put_diagnostics(snapshot, batch.diagnostics).await
+    }
+
+    async fn put_snapshot_with_context(
+        &self,
+        snapshot: SnapshotId,
+        batch: SnapshotBatch,
+        context: &OperationContext,
+    ) -> CoreResult<()> {
+        context.check_deadline()?;
+        self.put_snapshot(snapshot, batch).await
+    }
+
+    /// Makes an uncommitted snapshot ready for publication without exposing it to readers.
+    ///
+    /// Stores with durable staging should override this method. The compatibility path keeps the
+    /// snapshot uncommitted and relies on `abort_snapshot` if a later publication step fails.
+    async fn prepare_snapshot(&self, _snapshot: SnapshotId) -> CoreResult<()> {
+        Ok(())
+    }
+
+    async fn prepare_snapshot_with_context(
+        &self,
+        snapshot: SnapshotId,
+        context: &OperationContext,
+    ) -> CoreResult<()> {
+        context.check_deadline()?;
+        self.prepare_snapshot(snapshot).await
     }
 
     async fn query_entities(

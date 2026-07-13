@@ -6,7 +6,7 @@ use std::time::Instant;
 use anyhow::{Context, Result};
 use athanor_core::{
     AffectedSubset, CanonicalSnapshot, Checker, Extractor, KnowledgeStore, Linker,
-    OperationContext, SourceFile, SourceProvider,
+    OperationContext, SnapshotBatch, SourceFile, SourceProvider,
 };
 #[cfg(test)]
 use athanor_core::{CheckInput, ExtractInput, LinkInput};
@@ -34,6 +34,8 @@ use crate::{
 
 const DEFAULT_EXTRACTION_CONCURRENCY_LIMIT: usize = 16;
 const DEFAULT_MAX_EXTRACTION_BYTES_IN_FLIGHT: usize = 64 * 1024 * 1024;
+const DEFAULT_MAX_SNAPSHOT_BATCH_OBJECTS: usize = 1_000_000;
+const DEFAULT_MAX_SNAPSHOT_BATCH_BYTES: usize = 512 * 1024 * 1024;
 pub const INDEX_METRICS_SCHEMA: &str = "athanor.index_metrics.v1";
 
 pub struct IndexPipeline {
@@ -44,6 +46,8 @@ pub struct IndexPipeline {
     checkers: Vec<Box<dyn Checker>>,
     extraction_concurrency: usize,
     max_extraction_bytes_in_flight: usize,
+    max_snapshot_batch_objects: usize,
+    max_snapshot_batch_bytes: usize,
     extraction_concurrency_by_adapter: BTreeMap<String, usize>,
 }
 
@@ -82,6 +86,8 @@ pub struct IndexPipelineMetrics {
     pub files_to_extract: usize,
     pub extraction_concurrency: usize,
     pub max_extraction_bytes_in_flight: usize,
+    pub max_snapshot_batch_objects: usize,
+    pub max_snapshot_batch_bytes: usize,
     pub extraction_concurrency_by_adapter: BTreeMap<String, usize>,
     pub changed_files: usize,
     pub unchanged_files: usize,
@@ -221,6 +227,8 @@ impl IndexPipeline {
             checkers: Vec::new(),
             extraction_concurrency: DEFAULT_EXTRACTION_CONCURRENCY_LIMIT,
             max_extraction_bytes_in_flight: DEFAULT_MAX_EXTRACTION_BYTES_IN_FLIGHT,
+            max_snapshot_batch_objects: DEFAULT_MAX_SNAPSHOT_BATCH_OBJECTS,
+            max_snapshot_batch_bytes: DEFAULT_MAX_SNAPSHOT_BATCH_BYTES,
             extraction_concurrency_by_adapter: BTreeMap::new(),
         }
     }
@@ -274,6 +282,18 @@ impl IndexPipeline {
     /// Sets the total source-content byte budget held by concurrent extractors.
     pub fn max_extraction_bytes_in_flight(mut self, bytes: usize) -> Self {
         self.max_extraction_bytes_in_flight = bytes.max(1);
+        self
+    }
+
+    /// Sets maximum canonical objects accepted in one storage batch.
+    pub fn max_snapshot_batch_objects(mut self, objects: usize) -> Self {
+        self.max_snapshot_batch_objects = objects.max(1);
+        self
+    }
+
+    /// Sets maximum serialized bytes accepted in one storage batch.
+    pub fn max_snapshot_batch_bytes(mut self, bytes: usize) -> Self {
+        self.max_snapshot_batch_bytes = bytes.max(1);
         self
     }
 
@@ -463,6 +483,8 @@ impl IndexPipeline {
             schema: INDEX_METRICS_SCHEMA,
             extraction_concurrency: self.extraction_concurrency,
             max_extraction_bytes_in_flight: self.max_extraction_bytes_in_flight,
+            max_snapshot_batch_objects: self.max_snapshot_batch_objects,
+            max_snapshot_batch_bytes: self.max_snapshot_batch_bytes,
             extraction_concurrency_by_adapter: self.extraction_concurrency_by_adapter.clone(),
             ..IndexPipelineMetrics::default()
         };
@@ -527,6 +549,8 @@ impl IndexPipeline {
             schema: INDEX_METRICS_SCHEMA,
             extraction_concurrency: self.extraction_concurrency,
             max_extraction_bytes_in_flight: self.max_extraction_bytes_in_flight,
+            max_snapshot_batch_objects: self.max_snapshot_batch_objects,
+            max_snapshot_batch_bytes: self.max_snapshot_batch_bytes,
             ..IndexPipelineMetrics::default()
         };
         check_cancelled(&cancellation)?;
@@ -802,49 +826,36 @@ impl IndexPipeline {
         metrics.relations = prior_relations.len();
         metrics.diagnostics = prior_diagnostics.len();
 
+        let batch = SnapshotBatch {
+            entities: entities.clone(),
+            facts: facts.clone(),
+            relations: prior_relations.clone(),
+            diagnostics: prior_diagnostics.clone(),
+        };
+        validate_snapshot_batch(
+            &batch,
+            self.max_snapshot_batch_objects,
+            self.max_snapshot_batch_bytes,
+        )?;
+
         let storage_started = Instant::now();
         let storage_result: Result<()> = async {
             within_operation_deadline(
                 &operation,
-                "store.put_entities",
-                self.store.put_entities_with_context(
-                    snapshot.clone(),
-                    entities.clone(),
-                    &operation,
-                ),
-            )
-            .await
-            .context("failed to store entities")?;
-            within_operation_deadline(
-                &operation,
-                "store.put_facts",
+                "store.put_snapshot",
                 self.store
-                    .put_facts_with_context(snapshot.clone(), facts.clone(), &operation),
+                    .put_snapshot_with_context(snapshot.clone(), batch, &operation),
             )
             .await
-            .context("failed to store facts")?;
+            .context("failed to store canonical snapshot batch")?;
             within_operation_deadline(
                 &operation,
-                "store.put_relations",
-                self.store.put_relations_with_context(
-                    snapshot.clone(),
-                    prior_relations.clone(),
-                    &operation,
-                ),
+                "store.prepare_snapshot",
+                self.store
+                    .prepare_snapshot_with_context(snapshot.clone(), &operation),
             )
             .await
-            .context("failed to store relations")?;
-            within_operation_deadline(
-                &operation,
-                "store.put_diagnostics",
-                self.store.put_diagnostics_with_context(
-                    snapshot.clone(),
-                    prior_diagnostics.clone(),
-                    &operation,
-                ),
-            )
-            .await
-            .context("failed to store diagnostics")?;
+            .context("failed to prepare canonical snapshot")?;
             if commit_snapshot {
                 within_operation_deadline(
                     &operation,
@@ -1171,6 +1182,28 @@ fn removed_dependency_neighbor_ids(
         .collect()
 }
 
+fn validate_snapshot_batch(
+    batch: &SnapshotBatch,
+    max_objects: usize,
+    max_bytes: usize,
+) -> Result<()> {
+    let objects = batch.object_count();
+    if objects > max_objects {
+        anyhow::bail!(
+            "canonical snapshot batch has {objects} objects, exceeding configured limit {max_objects}"
+        );
+    }
+    let bytes = serde_json::to_vec(batch)
+        .context("failed to measure canonical snapshot batch size")?
+        .len();
+    if bytes > max_bytes {
+        anyhow::bail!(
+            "canonical snapshot batch has {bytes} serialized bytes, exceeding configured limit {max_bytes}"
+        );
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use async_trait::async_trait;
@@ -1186,6 +1219,22 @@ mod tests {
     use super::*;
     use crate::index_state::FileState;
     use crate::transient_store::TransientKnowledgeStore;
+
+    #[test]
+    fn rejects_snapshot_batches_above_object_or_byte_limits() {
+        let batch = SnapshotBatch {
+            entities: vec![entity("ent_limited", "docs/limited.md")],
+            ..SnapshotBatch::default()
+        };
+
+        let object_error = validate_snapshot_batch(&batch, 0, usize::MAX)
+            .expect_err("one object must exceed a zero object limit");
+        assert!(object_error.to_string().contains("objects"));
+
+        let byte_error = validate_snapshot_batch(&batch, usize::MAX, 1)
+            .expect_err("serialized batch must exceed a one-byte limit");
+        assert!(byte_error.to_string().contains("serialized bytes"));
+    }
 
     #[test]
     fn prunes_relation_when_any_owned_source_changes() {

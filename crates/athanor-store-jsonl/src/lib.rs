@@ -8,7 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use async_trait::async_trait;
 use athanor_core::{
     CanonicalSnapshot, CanonicalSnapshotStore, CoreError, CoreResult, DiagnosticQuery, EntityQuery,
-    EntityResolver, KnowledgeStore, RelationQuery, SnapshotSelector,
+    EntityResolver, KnowledgeStore, RelationQuery, SnapshotBatch, SnapshotSelector,
 };
 use athanor_domain::{
     Diagnostic, Entity, EntityId, Fact, Relation, RepoId, SnapshotBase, SnapshotId, StableKey,
@@ -32,6 +32,7 @@ struct State {
 #[derive(Debug, Default, Clone)]
 struct SnapshotData {
     committed: bool,
+    prepared: bool,
     entities: Vec<Entity>,
     facts: Vec<Fact>,
     relations: Vec<Relation>,
@@ -106,6 +107,16 @@ impl KnowledgeStore for JsonlKnowledgeStore {
             .snapshot_mut(&snapshot)?
             .diagnostics
             .extend(diagnostics);
+        Ok(())
+    }
+
+    async fn put_snapshot(&self, snapshot: SnapshotId, batch: SnapshotBatch) -> CoreResult<()> {
+        let mut state = self.lock_state()?;
+        let snapshot = state.snapshot_mut(&snapshot)?;
+        snapshot.entities.extend(batch.entities);
+        snapshot.facts.extend(batch.facts);
+        snapshot.relations.extend(batch.relations);
+        snapshot.diagnostics.extend(batch.diagnostics);
         Ok(())
     }
 
@@ -209,6 +220,27 @@ impl KnowledgeStore for JsonlKnowledgeStore {
         Ok(results)
     }
 
+    async fn prepare_snapshot(&self, snapshot: SnapshotId) -> CoreResult<()> {
+        let _writer_lock = self.acquire_writer_lock()?;
+        let data = {
+            let state = self.lock_state()?;
+            let data = state.snapshot(&snapshot)?;
+            if data.committed {
+                return Err(CoreError::Conflict(format!(
+                    "cannot prepare committed snapshot {}",
+                    snapshot.0
+                )));
+            }
+            if data.prepared {
+                return Ok(());
+            }
+            data.clone()
+        };
+        write_prepared_snapshot(&self.root, &snapshot, &data)?;
+        self.lock_state()?.snapshot_mut(&snapshot)?.prepared = true;
+        Ok(())
+    }
+
     async fn commit_snapshot(&self, snapshot: SnapshotId) -> CoreResult<()> {
         let _writer_lock = self.acquire_writer_lock()?;
         let snapshot_data = {
@@ -216,7 +248,11 @@ impl KnowledgeStore for JsonlKnowledgeStore {
             state.snapshot(&snapshot)?.clone()
         };
 
-        write_snapshot(&self.root, &snapshot, &snapshot_data)?;
+        if snapshot_data.prepared {
+            publish_prepared_snapshot(&self.root, &snapshot)?;
+        } else {
+            write_snapshot(&self.root, &snapshot, &snapshot_data)?;
+        }
         write_latest(&self.root, &snapshot)?;
         self.lock_state()?.snapshot_mut(&snapshot)?.committed = true;
 
@@ -245,6 +281,15 @@ impl KnowledgeStore for JsonlKnowledgeStore {
                 CoreError::Adapter(format!(
                     "failed to remove aborted snapshot {}: {err}",
                     snapshot_dir.display()
+                ))
+            })?;
+        }
+        let prepared_dir = self.prepared_snapshot_dir(&snapshot);
+        if prepared_dir.exists() {
+            fs::remove_dir_all(&prepared_dir).map_err(|err| {
+                CoreError::Adapter(format!(
+                    "failed to remove aborted prepared snapshot {}: {err}",
+                    prepared_dir.display()
                 ))
             })?;
         }
@@ -324,6 +369,12 @@ impl JsonlKnowledgeStore {
         self.root.join("snapshots").join(&snapshot.0)
     }
 
+    fn prepared_snapshot_dir(&self, snapshot: &SnapshotId) -> PathBuf {
+        self.root
+            .join("snapshots")
+            .join(format!(".{}.prepared", snapshot.0))
+    }
+
     fn acquire_writer_lock(&self) -> CoreResult<File> {
         fs::create_dir_all(&self.root)
             .map_err(|err| CoreError::Adapter(format!("failed to create store dir: {err}")))?;
@@ -348,6 +399,13 @@ impl JsonlKnowledgeStore {
     fn recover_known_staging(&self) -> CoreResult<()> {
         let snapshots = self.root.join("snapshots");
         if snapshots.exists() {
+            let active_prepared = self
+                .lock_state()?
+                .snapshots
+                .iter()
+                .filter(|(_, data)| data.prepared && !data.committed)
+                .map(|(snapshot, _)| format!(".{}.prepared", snapshot.0))
+                .collect::<HashSet<_>>();
             for entry in fs::read_dir(&snapshots).map_err(|err| {
                 CoreError::Adapter(format!("failed to inspect snapshot staging: {err}"))
             })? {
@@ -358,7 +416,11 @@ impl JsonlKnowledgeStore {
                 let Some(name) = name.to_str() else {
                     continue;
                 };
-                if name.starts_with(".snap_jsonl_") && name.contains(".staging-") {
+                if name.starts_with(".snap_jsonl_")
+                    && (name.contains(".staging-")
+                        || name.contains(".prepare-staging-")
+                        || (name.ends_with(".prepared") && !active_prepared.contains(name)))
+                {
                     fs::remove_dir_all(entry.path()).map_err(|err| {
                         CoreError::Adapter(format!(
                             "failed to remove stale snapshot staging {}: {err}",
@@ -550,6 +612,71 @@ fn write_snapshot(root: &Path, snapshot: &SnapshotId, data: &SnapshotData) -> Co
     fs::rename(&staging_dir, &snapshot_dir).map_err(|err| {
         let _ = fs::remove_dir_all(&staging_dir);
         CoreError::Adapter(format!("failed to publish snapshot atomically: {err}"))
+    })
+}
+
+fn write_prepared_snapshot(
+    root: &Path,
+    snapshot: &SnapshotId,
+    data: &SnapshotData,
+) -> CoreResult<()> {
+    let prepared_dir = root
+        .join("snapshots")
+        .join(format!(".{}.prepared", snapshot.0));
+    let parent = prepared_dir.parent().ok_or_else(|| {
+        CoreError::Adapter(format!(
+            "prepared snapshot {} has no parent directory",
+            snapshot.0
+        ))
+    })?;
+    fs::create_dir_all(parent)
+        .map_err(|err| CoreError::Adapter(format!("failed to create store dir: {err}")))?;
+    if prepared_dir.exists() {
+        return Err(CoreError::Conflict(format!(
+            "prepared snapshot directory {} already exists",
+            prepared_dir.display()
+        )));
+    }
+    let staging_dir = parent.join(format!(
+        ".{}.prepare-staging-{}",
+        snapshot.0,
+        unique_suffix()
+    ));
+    fs::create_dir(&staging_dir).map_err(|err| {
+        CoreError::Adapter(format!(
+            "failed to create prepared snapshot staging directory: {err}"
+        ))
+    })?;
+    if let Err(error) = write_snapshot_contents(&staging_dir, snapshot, data) {
+        let _ = fs::remove_dir_all(&staging_dir);
+        return Err(error);
+    }
+    fs::rename(&staging_dir, &prepared_dir).map_err(|err| {
+        let _ = fs::remove_dir_all(&staging_dir);
+        CoreError::Adapter(format!("failed to finalize prepared snapshot: {err}"))
+    })
+}
+
+fn publish_prepared_snapshot(root: &Path, snapshot: &SnapshotId) -> CoreResult<()> {
+    let snapshots = root.join("snapshots");
+    let prepared_dir = snapshots.join(format!(".{}.prepared", snapshot.0));
+    let snapshot_dir = snapshots.join(&snapshot.0);
+    if !prepared_dir.exists() {
+        return Err(CoreError::SnapshotNotCommitted(format!(
+            "prepared snapshot {} is missing",
+            snapshot.0
+        )));
+    }
+    if snapshot_dir.exists() {
+        return Err(CoreError::Conflict(format!(
+            "snapshot directory {} already exists",
+            snapshot_dir.display()
+        )));
+    }
+    fs::rename(&prepared_dir, &snapshot_dir).map_err(|err| {
+        CoreError::Adapter(format!(
+            "failed to publish prepared snapshot atomically: {err}"
+        ))
     })
 }
 
@@ -875,6 +1002,146 @@ mod tests {
         assert_eq!(reloaded.snapshot, Some(snapshot));
         assert_eq!(reloaded.entities, vec![entity]);
 
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn prepares_snapshot_without_exposing_it_until_commit() {
+        let root = std::env::temp_dir().join(format!(
+            "athanor-jsonl-store-prepare-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let store = JsonlKnowledgeStore::new(&root);
+        let snapshot = store
+            .begin_snapshot(
+                RepoId("repo_test".to_string()),
+                SnapshotBase {
+                    branch: None,
+                    commit: None,
+                    parent_snapshot: None,
+                    working_tree: true,
+                },
+            )
+            .await
+            .unwrap();
+
+        store.prepare_snapshot(snapshot.clone()).await.unwrap();
+        assert!(store.prepared_snapshot_dir(&snapshot).exists());
+        assert!(!store.snapshot_dir(&snapshot).exists());
+        assert!(store.load_latest_snapshot().await.unwrap().is_none());
+
+        let later_snapshot = store
+            .begin_snapshot(
+                RepoId("repo_test".to_string()),
+                SnapshotBase {
+                    branch: None,
+                    commit: None,
+                    parent_snapshot: None,
+                    working_tree: true,
+                },
+            )
+            .await
+            .unwrap();
+        assert!(
+            store.prepared_snapshot_dir(&snapshot).exists(),
+            "starting a later snapshot must preserve an active prepared snapshot"
+        );
+        store.abort_snapshot(later_snapshot).await.unwrap();
+
+        store.commit_snapshot(snapshot.clone()).await.unwrap();
+        assert!(!store.prepared_snapshot_dir(&snapshot).exists());
+        assert!(store.snapshot_dir(&snapshot).exists());
+        assert_eq!(
+            store
+                .load_latest_snapshot()
+                .await
+                .unwrap()
+                .unwrap()
+                .snapshot,
+            Some(snapshot)
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn abort_removes_a_prepared_snapshot_directory() {
+        let root = std::env::temp_dir().join(format!(
+            "athanor-jsonl-store-prepared-abort-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let store = JsonlKnowledgeStore::new(&root);
+        let snapshot = store
+            .begin_snapshot(
+                RepoId("repo_test".to_string()),
+                SnapshotBase {
+                    branch: None,
+                    commit: None,
+                    parent_snapshot: None,
+                    working_tree: true,
+                },
+            )
+            .await
+            .unwrap();
+
+        store.prepare_snapshot(snapshot.clone()).await.unwrap();
+        assert!(store.prepared_snapshot_dir(&snapshot).exists());
+        store.abort_snapshot(snapshot.clone()).await.unwrap();
+
+        assert!(!store.prepared_snapshot_dir(&snapshot).exists());
+        assert!(!store.snapshot_dir(&snapshot).exists());
+        assert!(store.load_latest_snapshot().await.unwrap().is_none());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn new_store_recovers_orphaned_prepared_snapshot_directory() {
+        let root = std::env::temp_dir().join(format!(
+            "athanor-jsonl-store-prepared-recovery-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let snapshot = {
+            let store = JsonlKnowledgeStore::new(&root);
+            let snapshot = store
+                .begin_snapshot(
+                    RepoId("repo_test".to_string()),
+                    SnapshotBase {
+                        branch: None,
+                        commit: None,
+                        parent_snapshot: None,
+                        working_tree: true,
+                    },
+                )
+                .await
+                .unwrap();
+            store.prepare_snapshot(snapshot.clone()).await.unwrap();
+            assert!(store.prepared_snapshot_dir(&snapshot).exists());
+            snapshot
+        };
+
+        let recovered = JsonlKnowledgeStore::new(&root);
+        recovered
+            .begin_snapshot(
+                RepoId("repo_test".to_string()),
+                SnapshotBase {
+                    branch: None,
+                    commit: None,
+                    parent_snapshot: None,
+                    working_tree: true,
+                },
+            )
+            .await
+            .unwrap();
+        assert!(!recovered.prepared_snapshot_dir(&snapshot).exists());
         fs::remove_dir_all(root).unwrap();
     }
 

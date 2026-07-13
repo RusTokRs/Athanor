@@ -1,17 +1,18 @@
 use anyhow::{Result, bail};
 
+use crate::CancellationToken;
 use crate::daemon::{DaemonJob, DaemonJobStatus, DaemonState};
-use crate::daemon_job_registry::get;
+use crate::daemon_job_registry::get as get_job;
 use crate::daemon_jobs_support::{is_valid_job_id, unix_time_ms};
 
 pub(super) fn cancel(state: &DaemonState, job_id: &str) -> Result<DaemonJob> {
     if !is_valid_job_id(job_id) {
         bail!("daemon job id must use the form job_00000001");
     }
-    let current = get(state, job_id)?;
+    let current = get_job(state, job_id)?;
     match current.status {
         DaemonJobStatus::Queued => {
-            if let Some(cancellation) = crate::daemon::cancellation_token(state, job_id)? {
+            if let Some(cancellation) = get(state, job_id)? {
                 cancellation.cancel();
             }
             let mut jobs = state
@@ -37,15 +38,14 @@ pub(super) fn cancel(state: &DaemonState, job_id: &str) -> Result<DaemonJob> {
             let cancelled = job.clone();
             drop(jobs);
             if cancelled.status == DaemonJobStatus::Cancelled {
-                crate::daemon::remove_cancellation_token(state, job_id)?;
+                remove(state, job_id)?;
             }
             Ok(cancelled)
         }
         DaemonJobStatus::Running => {
-            let cancellation =
-                crate::daemon::cancellation_token(state, job_id)?.ok_or_else(|| {
-                    anyhow::anyhow!("daemon job `{job_id}` is running and is not cancellable")
-                })?;
+            let cancellation = get(state, job_id)?.ok_or_else(|| {
+                anyhow::anyhow!("daemon job `{job_id}` is running and is not cancellable")
+            })?;
             cancellation.cancel();
             let mut jobs = state
                 .jobs
@@ -66,4 +66,21 @@ pub(super) fn cancel(state: &DaemonState, job_id: &str) -> Result<DaemonJob> {
         | DaemonJobStatus::Failed
         | DaemonJobStatus::Cancelled => Ok(current),
     }
+}
+
+pub(crate) fn get(state: &DaemonState, job_id: &str) -> Result<Option<CancellationToken>> {
+    let tokens = state
+        .cancellation_tokens
+        .lock()
+        .map_err(|_| anyhow::anyhow!("daemon cancellation registry lock is poisoned"))?;
+    Ok(tokens.get(job_id).cloned())
+}
+
+pub(crate) fn remove(state: &DaemonState, job_id: &str) -> Result<()> {
+    let mut tokens = state
+        .cancellation_tokens
+        .lock()
+        .map_err(|_| anyhow::anyhow!("daemon cancellation registry lock is poisoned"))?;
+    tokens.remove(job_id);
+    Ok(())
 }
