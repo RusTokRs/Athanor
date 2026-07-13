@@ -40,9 +40,13 @@ use crate::daemon_job_state::{
 #[cfg(test)]
 use crate::daemon_jobs_support::prune as prune_daemon_jobs;
 use crate::daemon_jobs_support::{is_valid_job_id, unix_time_ms};
-use crate::daemon_lifecycle::{active_job_count, current as lifecycle, set as set_lifecycle};
+use crate::daemon_lifecycle::{
+    active_job_count, cancel_active_jobs, current as lifecycle, drain_active_jobs,
+    set as set_lifecycle,
+};
 use crate::daemon_protocol::{
     error_response_from_anyhow, error_response_with_code, success_response, validate_limit,
+    validate_request, validate_request_shape,
 };
 use crate::daemon_recovery::cleanup_known_staging_artifacts;
 use crate::daemon_runtime::BoundedCache;
@@ -59,8 +63,8 @@ use crate::{
     DaemonRuntimeLock, DaemonRuntimePaths, GenerationOptions, HtmlReportOptions, IndexOptions,
     RepositoryOverview, RuntimeComposition, RuntimeFileGuard, WikiOptions,
     build_repository_overview, change_map_project, change_map_project_with_composition,
-    constant_time_token_eq, context_project, context_project_with_composition, create_daemon_token,
-    generate_context_pack, generate_project_cancellable_with_composition_and_operation_context,
+    context_project, context_project_with_composition, create_daemon_token, generate_context_pack,
+    generate_project_cancellable_with_composition_and_operation_context,
     generate_project_cancellable_with_operation_context,
     index_project_cancellable_with_composition_and_operation_context,
     index_project_cancellable_with_operation_context,
@@ -341,25 +345,25 @@ pub struct DaemonJobsReport {
 }
 
 pub(crate) struct DaemonState {
-    composition: Option<RuntimeComposition>,
+    pub(crate) composition: Option<RuntimeComposition>,
     pub(crate) endpoint: DaemonEndpoint,
-    auth_token: String,
-    insecure_allow_v1: bool,
+    pub(crate) auth_token: String,
+    pub(crate) insecure_allow_v1: bool,
     pub(crate) lifecycle: Mutex<DaemonLifecycleState>,
     last_successful_index: Mutex<Option<String>>,
     pub(crate) jobs: Mutex<Vec<DaemonJob>>,
     pub(crate) next_job_sequence: Mutex<u64>,
     pub(crate) max_job_history: usize,
-    latest_snapshot_cache: Mutex<Option<CanonicalSnapshot>>,
-    search_index_cache: Mutex<Option<CachedSearchIndex>>,
-    overview_cache: Mutex<BoundedCache<OverviewCacheKey, RepositoryOverview>>,
-    context_cache: Mutex<BoundedCache<ContextCacheKey, athanor_domain::ContextPack>>,
+    pub(crate) latest_snapshot_cache: Mutex<Option<CanonicalSnapshot>>,
+    pub(crate) search_index_cache: Mutex<Option<CachedSearchIndex>>,
+    pub(crate) overview_cache: Mutex<BoundedCache<OverviewCacheKey, RepositoryOverview>>,
+    pub(crate) context_cache: Mutex<BoundedCache<ContextCacheKey, athanor_domain::ContextPack>>,
     pub(crate) cancellation_tokens: Mutex<HashMap<String, CancellationToken>>,
 }
 
-struct CachedSearchIndex {
-    snapshot_id: String,
-    index: Arc<dyn SearchIndex>,
+pub(crate) struct CachedSearchIndex {
+    pub(crate) snapshot_id: String,
+    pub(crate) index: Arc<dyn SearchIndex>,
 }
 
 impl fmt::Debug for CachedSearchIndex {
@@ -372,17 +376,17 @@ impl fmt::Debug for CachedSearchIndex {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct OverviewCacheKey {
-    snapshot_id: String,
-    top: usize,
+pub(crate) struct OverviewCacheKey {
+    pub(crate) snapshot_id: String,
+    pub(crate) top: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct ContextCacheKey {
-    snapshot_id: String,
-    task: String,
-    level: String,
-    limits: ContextLimits,
+pub(crate) struct ContextCacheKey {
+    pub(crate) snapshot_id: String,
+    pub(crate) task: String,
+    pub(crate) level: String,
+    pub(crate) limits: ContextLimits,
 }
 
 enum DaemonConnection {
@@ -940,7 +944,7 @@ pub(crate) async fn execute_request(
                     let job_id_for_task = job_id.clone();
                     let root = state.endpoint.root.clone();
                     let cancellation_for_task = cancellation.clone();
-                    let composition = daemon_composition(&state);
+                    let composition = crate::daemon_queries::composition(&state);
                     let operation = deadline_unix_ms.map_or_else(
                         || OperationContext::new(format!("daemon.generate.{}", request.request_id)),
                         |deadline| {
@@ -1068,7 +1072,7 @@ pub(crate) async fn execute_request(
                     let job_id_for_task = job_id.clone();
                     let root = state.endpoint.root.clone();
                     let cancellation_for_task = cancellation.clone();
-                    let composition = daemon_composition(&state);
+                    let composition = crate::daemon_queries::composition(&state);
                     let operation = deadline_unix_ms.map_or_else(
                         || OperationContext::new(format!("daemon.wiki.{}", request.request_id)),
                         |deadline| {
@@ -1194,7 +1198,7 @@ pub(crate) async fn execute_request(
                     let job_id_for_task = job_id.clone();
                     let root = state.endpoint.root.clone();
                     let cancellation_for_task = cancellation.clone();
-                    let composition = daemon_composition(&state);
+                    let composition = crate::daemon_queries::composition(&state);
                     let operation = deadline_unix_ms.map_or_else(
                         || {
                             OperationContext::new(format!(
@@ -1567,7 +1571,7 @@ pub(crate) async fn execute_request(
                     level,
                     limits,
                 };
-                match daemon_composition(&state) {
+                match crate::daemon_queries::composition(&state) {
                     Some(composition) => {
                         within_daemon_deadline(
                             deadline_unix_ms,
@@ -1654,7 +1658,7 @@ pub(crate) async fn execute_request(
                 max_diagnostics,
                 max_depth,
             };
-            let report = match daemon_composition(&state) {
+            let report = match crate::daemon_queries::composition(&state) {
                 Some(composition) => {
                     within_daemon_deadline(
                         deadline_unix_ms,
@@ -1706,50 +1710,6 @@ pub(crate) async fn execute_request(
     }
 }
 
-fn validate_request_shape(request: &DaemonRequest) -> Result<()> {
-    if request.schema != DAEMON_REQUEST_SCHEMA
-        && request.schema != DAEMON_REQUEST_SCHEMA_V2
-        && request.schema != DAEMON_REQUEST_SCHEMA_V3
-        && request.schema != DAEMON_REQUEST_SCHEMA_V1
-    {
-        bail!("unsupported daemon request schema `{}`", request.schema);
-    }
-    if request.request_id.is_empty() || request.request_id.len() > 128 {
-        bail!("daemon request_id must contain 1-128 characters");
-    }
-    if request.project_id.is_empty() {
-        bail!("daemon project_id must not be empty");
-    }
-    let deadline = match &request.command {
-        DaemonCommand::Index { deadline_unix_ms }
-        | DaemonCommand::Generate { deadline_unix_ms }
-        | DaemonCommand::Wiki { deadline_unix_ms }
-        | DaemonCommand::HtmlReport { deadline_unix_ms }
-        | DaemonCommand::Overview {
-            deadline_unix_ms, ..
-        }
-        | DaemonCommand::Explain {
-            deadline_unix_ms, ..
-        }
-        | DaemonCommand::Search {
-            deadline_unix_ms, ..
-        }
-        | DaemonCommand::Context {
-            deadline_unix_ms, ..
-        }
-        | DaemonCommand::ChangeMap {
-            deadline_unix_ms, ..
-        } => *deadline_unix_ms,
-        _ => None,
-    };
-    if let Some(deadline) = deadline {
-        if deadline <= unix_time_ms()? as u64 {
-            bail!("daemon command deadline_unix_ms must be in the future");
-        }
-    }
-    Ok(())
-}
-
 async fn within_daemon_deadline<T>(
     deadline_unix_ms: Option<u64>,
     operation: impl Future<Output = Result<T>>,
@@ -1764,157 +1724,27 @@ async fn within_daemon_deadline<T>(
         .map_err(|_| anyhow::anyhow!("daemon command deadline exceeded"))?
 }
 
-pub(crate) fn validate_request(state: &DaemonState, request: &DaemonRequest) -> Result<()> {
-    validate_request_shape(request)?;
-    if request.schema == DAEMON_REQUEST_SCHEMA_V1 {
-        if !state.insecure_allow_v1 {
-            bail!("daemon protocol v1 is disabled");
-        }
-        if state.endpoint.transport != DaemonTransport::Tcp
-            || !state.endpoint.address.ip().is_loopback()
-        {
-            bail!("daemon protocol v1 is allowed only over loopback TCP");
-        }
-        return Ok(());
-    }
-    let supplied = request
-        .auth_token
-        .as_deref()
-        .ok_or_else(|| anyhow::anyhow!("daemon authentication failed"))?;
-    if !constant_time_token_eq(supplied, &state.auth_token) {
-        bail!("daemon authentication failed");
-    }
-    Ok(())
-}
-
-async fn latest_snapshot_for_daemon(state: &Arc<DaemonState>) -> Result<CanonicalSnapshot> {
-    if let Some(snapshot) = state
-        .latest_snapshot_cache
-        .lock()
-        .map_err(|_| anyhow::anyhow!("daemon snapshot cache lock is poisoned"))?
-        .clone()
-    {
-        return Ok(snapshot);
-    }
-
-    let root = &state.endpoint.root;
-    let config = load_config(root)?;
-    let store = match daemon_composition(state) {
-        Some(composition) => composition.init_store(root, &config).await?,
-        None => init_store(root, &config).await?,
-    };
-    let snapshot = store
-        .load_latest_snapshot()
-        .await
-        .context("failed to load latest canonical snapshot")?
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "no canonical snapshot found; run `ath index {}` first",
-                root.display()
-            )
-        })?;
-    *state
-        .latest_snapshot_cache
-        .lock()
-        .map_err(|_| anyhow::anyhow!("daemon snapshot cache lock is poisoned"))? =
-        Some(snapshot.clone());
-    Ok(snapshot)
-}
-
-fn daemon_composition(state: &DaemonState) -> Option<RuntimeComposition> {
-    state.composition.clone()
-}
-
 async fn daemon_context_from_cache(
     state: &Arc<DaemonState>,
     task: &str,
     level: ContextLevel,
     overrides: &ContextLimitOverrides,
 ) -> Result<athanor_domain::ContextPack> {
-    let mut limits = ContextLimits::for_level(level);
-    overrides.apply(&mut limits);
-    if limits.max_tokens == 0 || limits.max_files == 0 || limits.max_entities == 0 {
-        bail!("context token, file, and entity limits must be greater than zero");
-    }
-    let snapshot = latest_snapshot_for_daemon(state).await?;
-    let snapshot_id = snapshot
-        .snapshot
-        .as_ref()
-        .map(|snapshot| snapshot.0.clone())
-        .unwrap_or_else(|| "unknown".to_string());
-    let cache_key = ContextCacheKey {
-        snapshot_id,
-        task: task.to_string(),
-        level: format!("{level:?}"),
-        limits,
-    };
-    if let Some(pack) = state
-        .context_cache
-        .lock()
-        .map_err(|_| anyhow::anyhow!("daemon context cache lock is poisoned"))?
-        .get(&cache_key)
-    {
-        return Ok(pack);
-    }
-    let direct_matches = if let Ok(index) = search_index_for_daemon(state, &snapshot) {
-        if let Ok(search_results) = index
-            .search(athanor_core::SearchQuery {
-                query: task.to_string(),
-                limit: limits.max_entities,
-            })
-            .await
-        {
-            Some(
-                search_results
-                    .into_iter()
-                    .map(|result| athanor_domain::EntityId(result.id))
-                    .collect::<Vec<_>>(),
-            )
-        } else {
-            None
-        }
-    } else {
-        None
-    };
-    let pack = generate_context_pack(&snapshot, task, level, limits, direct_matches);
-    state
-        .context_cache
-        .lock()
-        .map_err(|_| anyhow::anyhow!("daemon context cache lock is poisoned"))?
-        .insert(cache_key, pack.clone());
-    Ok(pack)
+    crate::daemon_queries::context(state, task, level, overrides).await
 }
 
 async fn daemon_overview_from_cache(
     state: &Arc<DaemonState>,
     top: usize,
 ) -> Result<RepositoryOverview> {
-    let snapshot = latest_snapshot_for_daemon(state).await?;
-    let snapshot_id = snapshot_id(&snapshot)?;
-    let cache_key = OverviewCacheKey { snapshot_id, top };
-    if let Some(overview) = state
-        .overview_cache
-        .lock()
-        .map_err(|_| anyhow::anyhow!("daemon overview cache lock is poisoned"))?
-        .get(&cache_key)
-    {
-        return Ok(overview);
-    }
-    let overview = build_repository_overview(&snapshot, top);
-    state
-        .overview_cache
-        .lock()
-        .map_err(|_| anyhow::anyhow!("daemon overview cache lock is poisoned"))?
-        .insert(cache_key, overview.clone());
-    Ok(overview)
+    crate::daemon_queries::overview(state, top).await
 }
 
 async fn daemon_explain_from_cache(
     state: &Arc<DaemonState>,
     stable_key: &str,
 ) -> Result<crate::explain::EntityExplanation> {
-    let snapshot = latest_snapshot_for_daemon(state).await?;
-    explain_snapshot(&snapshot, stable_key)
+    crate::daemon_queries::explain(state, stable_key).await
 }
 
 async fn daemon_search_from_cache(
@@ -1922,134 +1752,15 @@ async fn daemon_search_from_cache(
     query: String,
     limit: usize,
 ) -> Result<crate::search::SearchReport> {
-    let snapshot = latest_snapshot_for_daemon(state).await?;
-    let index = search_index_for_daemon(state, &snapshot)?;
-    search_snapshot_with_index(
-        &state.endpoint.root,
-        &snapshot,
-        query,
-        limit,
-        index.as_ref(),
-    )
-    .await
-}
-
-fn snapshot_id(snapshot: &CanonicalSnapshot) -> Result<String> {
-    snapshot
-        .snapshot
-        .as_ref()
-        .map(|snapshot| snapshot.0.clone())
-        .ok_or_else(|| anyhow::anyhow!("latest canonical snapshot has no snapshot id"))
-}
-
-fn search_index_for_daemon(
-    state: &DaemonState,
-    snapshot: &CanonicalSnapshot,
-) -> Result<Arc<dyn SearchIndex>> {
-    let snapshot_id = snapshot_id(snapshot)?;
-    let mut cache = state
-        .search_index_cache
-        .lock()
-        .map_err(|_| anyhow::anyhow!("daemon search index cache lock is poisoned"))?;
-    if let Some(cached) = cache.as_ref()
-        && cached.snapshot_id == snapshot_id
-    {
-        return Ok(Arc::clone(&cached.index));
-    }
-    let index_dir = state
-        .endpoint
-        .root
-        .join(".athanor/generated/current/search");
-    let index = match daemon_composition(state) {
-        Some(composition) => get_or_build_search_index_with_factory(
-            snapshot,
-            &snapshot_id,
-            &index_dir,
-            |directory, documents| composition.build_search_index(directory, documents),
-        )?,
-        None => get_or_build_search_index_sync(snapshot, &snapshot_id, &index_dir)?,
-    };
-    *cache = Some(CachedSearchIndex {
-        snapshot_id,
-        index: Arc::clone(&index),
-    });
-    Ok(index)
+    crate::daemon_queries::search(state, query, limit).await
 }
 
 fn invalidate_daemon_caches(state: &DaemonState) {
-    match state.latest_snapshot_cache.lock() {
-        Ok(mut cache) => {
-            *cache = None;
-        }
-        Err(_) => {
-            tracing::warn!("daemon snapshot cache lock is poisoned");
-        }
-    }
-    match state.search_index_cache.lock() {
-        Ok(mut cache) => {
-            *cache = None;
-        }
-        Err(_) => {
-            tracing::warn!("daemon search index cache lock is poisoned");
-        }
-    }
-    match state.overview_cache.lock() {
-        Ok(mut cache) => cache.clear(),
-        Err(_) => tracing::warn!("daemon overview cache lock is poisoned"),
-    }
-    match state.context_cache.lock() {
-        Ok(mut cache) => cache.clear(),
-        Err(_) => tracing::warn!("daemon context cache lock is poisoned"),
-    }
+    crate::daemon_queries::invalidate(state);
 }
 
 fn cache_status(state: &DaemonState) -> Value {
-    serde_json::json!({
-        "snapshot_loaded": state.latest_snapshot_cache.lock().is_ok_and(|cache| cache.is_some()),
-        "search_index_loaded": state.search_index_cache.lock().is_ok_and(|cache| cache.is_some()),
-        "overview_entries": state.overview_cache.lock().map_or(0, |cache| cache.len()),
-        "context_entries": state.context_cache.lock().map_or(0, |cache| cache.len()),
-    })
-}
-
-fn cancel_active_jobs(state: &DaemonState) {
-    let job_ids = match state.jobs.lock() {
-        Ok(jobs) => jobs
-            .iter()
-            .filter(|job| {
-                matches!(
-                    job.status,
-                    DaemonJobStatus::Queued
-                        | DaemonJobStatus::Running
-                        | DaemonJobStatus::Cancelling
-                )
-            })
-            .map(|job| job.id.clone())
-            .collect::<Vec<_>>(),
-        Err(_) => {
-            tracing::warn!("daemon job registry lock is poisoned during shutdown");
-            return;
-        }
-    };
-    for job_id in job_ids {
-        if let Err(error) = cancel_daemon_job(state, &job_id) {
-            tracing::warn!(job_id, error = %error, "failed to cancel daemon job during shutdown");
-        }
-    }
-}
-
-async fn drain_active_jobs(state: &DaemonState, timeout: Duration) -> Result<()> {
-    let deadline = tokio::time::Instant::now() + timeout;
-    loop {
-        let active = active_job_count(state)?;
-        if active == 0 {
-            return Ok(());
-        }
-        if tokio::time::Instant::now() >= deadline {
-            bail!("timed out draining {active} active daemon jobs");
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
+    crate::daemon_queries::cache_status(state)
 }
 
 pub(crate) fn start_index_job(state: &Arc<DaemonState>, description: String) -> Result<DaemonJob> {
@@ -2075,7 +1786,7 @@ pub(crate) fn start_index_job_with_operation_context(
     let job_id_for_task = job_id.clone();
     let root = state.endpoint.root.clone();
     let cancellation_for_task = cancellation.clone();
-    let composition = daemon_composition(state);
+    let composition = crate::daemon_queries::composition(state);
     if let Err(error) = std::thread::Builder::new()
         .name(format!("athd-index-{job_id_for_task}"))
         .spawn(move || {

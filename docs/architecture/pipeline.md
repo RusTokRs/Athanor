@@ -273,8 +273,9 @@ own top-level namespaces.
   MCP routing.
 - `serve_daemon_with_composition` and `request_daemon`: local daemon lifecycle and newline-delimited JSON command
   protocol for one explicitly resolved project id.
-- `daemon_protocol`: response construction, response-size fallback serialization, and shared
-  protocol-byte-limit validation; server connection and job orchestration remain in `daemon`.
+- `daemon_protocol`: response construction, response-size fallback serialization, protocol-byte-limit
+  validation, request-shape/deadline validation, and authentication-policy validation; server
+  connection and job orchestration remain in `daemon`.
 - `daemon_client`: bounded client transport selection and request/response exchange for TCP, Unix
   sockets, and Windows named pipes; endpoint discovery and request authentication remain in
   `daemon`.
@@ -288,8 +289,8 @@ own top-level namespaces.
   retention pruning; scheduling and synchronized job-state transitions remain in `daemon`.
 - `daemon_job_registry`: deterministic bounded job listing and exact job lookup; mutation and
   cancellation transitions remain in `daemon`.
-- `daemon_lifecycle`: lifecycle state reads/transitions and active-job counting; shutdown and job
-  scheduling remain in `daemon`.
+- `daemon_lifecycle`: lifecycle state reads/transitions, active-job counting, shutdown cancellation,
+  and bounded active-job draining; job scheduling remains in `daemon`.
 - `daemon_job_cancellation`: cancellation-token lookup and queued/running job cancellation
   transitions; token registration and job scheduling remain in `daemon`.
 - `daemon_job_scheduler`: monotonic job-id allocation and queued job creation; cancellable token

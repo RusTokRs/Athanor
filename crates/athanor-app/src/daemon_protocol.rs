@@ -2,10 +2,14 @@ use anyhow::{Error, Result, bail};
 use athanor_core::{CoreError, CoreErrorCode};
 use serde_json::Value;
 
+use crate::constant_time_token_eq;
 use crate::daemon::{
-    DAEMON_RESPONSE_SCHEMA, DaemonError, DaemonErrorCode, DaemonResponse, MAX_PROTOCOL_BYTES,
+    DAEMON_REQUEST_SCHEMA, DAEMON_REQUEST_SCHEMA_V1, DAEMON_REQUEST_SCHEMA_V2,
+    DAEMON_REQUEST_SCHEMA_V3, DAEMON_RESPONSE_SCHEMA, DaemonCommand, DaemonError, DaemonErrorCode,
+    DaemonRequest, DaemonResponse, DaemonState, DaemonTransport, MAX_PROTOCOL_BYTES,
     MIN_PROTOCOL_BYTES,
 };
+use crate::daemon_jobs_support::unix_time_ms;
 
 pub(super) fn success_response(
     request_id: &str,
@@ -140,6 +144,73 @@ pub(super) fn serialize_response(
 pub(super) fn validate_limit(name: &str, value: u64) -> Result<()> {
     if !(MIN_PROTOCOL_BYTES..=MAX_PROTOCOL_BYTES).contains(&value) {
         bail!("{name} must be between {MIN_PROTOCOL_BYTES} and {MAX_PROTOCOL_BYTES}");
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_request_shape(request: &DaemonRequest) -> Result<()> {
+    if request.schema != DAEMON_REQUEST_SCHEMA
+        && request.schema != DAEMON_REQUEST_SCHEMA_V2
+        && request.schema != DAEMON_REQUEST_SCHEMA_V3
+        && request.schema != DAEMON_REQUEST_SCHEMA_V1
+    {
+        bail!("unsupported daemon request schema `{}`", request.schema);
+    }
+    if request.request_id.is_empty() || request.request_id.len() > 128 {
+        bail!("daemon request_id must contain 1-128 characters");
+    }
+    if request.project_id.is_empty() {
+        bail!("daemon project_id must not be empty");
+    }
+    let deadline = match &request.command {
+        DaemonCommand::Index { deadline_unix_ms }
+        | DaemonCommand::Generate { deadline_unix_ms }
+        | DaemonCommand::Wiki { deadline_unix_ms }
+        | DaemonCommand::HtmlReport { deadline_unix_ms }
+        | DaemonCommand::Overview {
+            deadline_unix_ms, ..
+        }
+        | DaemonCommand::Explain {
+            deadline_unix_ms, ..
+        }
+        | DaemonCommand::Search {
+            deadline_unix_ms, ..
+        }
+        | DaemonCommand::Context {
+            deadline_unix_ms, ..
+        }
+        | DaemonCommand::ChangeMap {
+            deadline_unix_ms, ..
+        } => *deadline_unix_ms,
+        _ => None,
+    };
+    if let Some(deadline) = deadline {
+        if deadline <= unix_time_ms()? as u64 {
+            bail!("daemon command deadline_unix_ms must be in the future");
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_request(state: &DaemonState, request: &DaemonRequest) -> Result<()> {
+    validate_request_shape(request)?;
+    if request.schema == DAEMON_REQUEST_SCHEMA_V1 {
+        if !state.insecure_allow_v1 {
+            bail!("daemon protocol v1 is disabled");
+        }
+        if state.endpoint.transport != DaemonTransport::Tcp
+            || !state.endpoint.address.ip().is_loopback()
+        {
+            bail!("daemon protocol v1 is allowed only over loopback TCP");
+        }
+        return Ok(());
+    }
+    let supplied = request
+        .auth_token
+        .as_deref()
+        .ok_or_else(|| anyhow::anyhow!("daemon authentication failed"))?;
+    if !constant_time_token_eq(supplied, &state.auth_token) {
+        bail!("daemon authentication failed");
     }
     Ok(())
 }

@@ -6,9 +6,9 @@ use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWrite
 
 use crate::daemon::{
     DAEMON_REQUEST_SCHEMA_V2, DAEMON_RESPONSE_SCHEMA_V2, DAEMON_RESPONSE_SCHEMA_V3,
-    DaemonErrorCode, DaemonRequest, DaemonState, execute_request, validate_request,
+    DaemonErrorCode, DaemonRequest, DaemonState, execute_request,
 };
-use crate::daemon_protocol::{error_response_with_code, serialize_response};
+use crate::daemon_protocol::{error_response_with_code, serialize_response, validate_request};
 
 /// Handles one authenticated daemon connection, including bounded request and response I/O.
 pub(super) async fn handle<S>(mut stream: S, state: Arc<DaemonState>) -> Result<bool>

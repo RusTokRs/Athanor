@@ -1970,7 +1970,6 @@ mod tests {
             expected_content_hash: None,
             expected_content_size_bytes: None,
             clear_environment: false,
-            clear_environment: false,
         }
     }
 
