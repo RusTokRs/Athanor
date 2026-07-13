@@ -52,14 +52,43 @@ owns the directory and a second independent connection to the same `surrealkv://
 closed.
 
 The public store facade translates the confirmed lock message into `CoreError::Busy`. The same
-retryable category is used for the confirmed SurrealKV messages `Transaction write conflict` and
-`Transaction retry required`. `CoreError::Busy` is transport-neutral and reports `is_retryable() ==
-true`. Data validation, duplicate-record, serialization, and other statement failures remain
-`CoreError::Adapter` and are not retryable.
+retryable category is used for the confirmed SurrealKV messages `Transaction write conflict`,
+`Transaction retry required`, and `Transaction conflict:`. `CoreError::Busy` is transport-neutral and
+reports `is_retryable() == true`. Data validation, duplicate-record, serialization, and other
+statement failures remain `CoreError::Adapter` and are not retryable.
 
 A persistent-path regression opens one connection, attempts a second independent connection to the
 same directory, and requires `Busy`. This proves exclusive embedded ownership and error
 classification. It does not prove concurrent remote-server transaction behavior.
+
+## Remote server conformance
+
+Remote support is opt-in through the crate feature `remote`, which enables the SurrealDB WebSocket
+protocol without changing the default embedded dependency graph. The dedicated CI job starts the
+matching `surrealdb/surrealdb:v2.6.5` server in an ephemeral Docker container and passes
+`ws://127.0.0.1:8000` through `ATHANOR_SURREAL_REMOTE_URI`.
+
+Remote integration tests are marked ignored by default. This keeps workspace `--all-features` tests
+self-contained while allowing the dedicated job to execute them explicitly with `--ignored`.
+Configured remote checks cover:
+
+- 32 concurrent snapshot allocations split across two independent SDK connections;
+- uniqueness of every allocated snapshot ID;
+- publication by one connection and canonical loading by another;
+- cross-connection visibility of both entity and fact records after commit.
+
+These checks prove shared-server visibility and independent-client allocation behavior once the
+hosted job succeeds. They do not deterministically force a server transaction conflict.
+
+## Deadline-bounded retry policy
+
+Only context-aware write and publication methods retry `CoreError::Busy`. The schedule is bounded to
+four delays: 10, 25, 50, and 100 milliseconds. Before every attempt the operation deadline is checked.
+If the remaining budget cannot fit the next delay, the current `Busy` error is returned without
+sleeping past the deadline. Non-retryable errors fail on the first attempt.
+
+Plain methods without `OperationContext` do not retry. Cancellation-aware retry is still open because
+the current transport-neutral `OperationContext` carries a deadline but no cancellation primitive.
 
 ## Prepare semantics
 
@@ -75,9 +104,9 @@ This slice does not make the whole lifecycle one transaction:
   a harmless sequence gap;
 - the atomic batch transaction does not include the later commit marker;
 - abort removes canonical rows transactionally, then deletes snapshot metadata in a separate request;
-- embedded SurrealKV intentionally prevents a second owner, while two independent connections to a
-  remote persistent SurrealDB server are not covered yet;
+- a real remote write conflict has not yet been reproduced and observed through the public facade;
+- retry cancellation is not available through the current `OperationContext`;
 - canonical data, generated state, and read models still do not switch through one generation pointer.
 
-P0.4 remains incomplete until remote independent-writer conflicts, commit-marker publication, fault
-injection, and generation-level recovery are covered by tests.
+P0.4 remains incomplete until hosted remote evidence, an observed remote conflict, commit-marker
+publication, fault injection, and generation-level recovery are covered by tests.
