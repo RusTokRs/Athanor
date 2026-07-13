@@ -140,19 +140,38 @@ athanor-x86_64-pc-windows-msvc.zip
 athanor-x86_64-unknown-linux-gnu.tar.gz
 ```
 
-Each archive contains `ath`, `athd`, README, license, and the platform install script. Release assets
-include SHA-256 files, Sigstore bundles, and GitHub build provenance attestations.
+Each archive contains `ath`, `athd`, README, license, the platform install script, and a per-binary
+`SHA256SUMS` manifest. Release assets include archive SHA-256 files, Sigstore bundles, and GitHub
+build provenance attestations.
 
-Before deployment, verify the checksum and Sigstore bundle, install the binaries, register a project,
-and run the authenticated `start -> ping -> index -> context -> stop` smoke sequence.
+Before extraction or deployment, verify the downloaded archive itself. For example on Linux:
+
+```bash
+archive=athanor-x86_64-unknown-linux-gnu.tar.gz
+tag=vX.Y.Z
+sha256sum -c "$archive.sha256"
+cosign verify-blob \
+  --bundle "$archive.sigstore.json" \
+  --certificate-identity "https://github.com/RusTokRs/Athanor/.github/workflows/release.yml@refs/tags/$tag" \
+  --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+  "$archive"
+gh attestation verify "$archive" --repo RusTokRs/Athanor
+```
+
+After extraction, run the bundled `install.sh` or `install.ps1` from any working directory. The
+installer resolves files relative to its own location, requires `SHA256SUMS`, verifies both packaged
+binaries, and fails before creating or modifying the installation directory when a binary is missing
+or its checksum does not match. After installation, register a project and run the authenticated
+`start -> ping -> index -> context -> stop` smoke sequence.
 
 Release workflow:
 
 - `.github/workflows/release.yml` runs on version tags and builds both supported release targets.
 - The `build` job checks out source, installs the pinned Rust toolchain for each matrix target,
-  restores the Rust build cache, builds locked release binaries, packages platform archives, writes
-  SHA-256 checksums, installs Cosign, signs archives and checksums, emits build provenance
-  attestations, and uploads target artifacts.
+  restores the Rust build cache, builds locked release binaries, writes the per-binary `SHA256SUMS`
+  manifest inside each archive, packages platform archives, writes archive SHA-256 checksums,
+  installs Cosign, signs archives and checksums, emits build provenance attestations, and uploads
+  target artifacts.
 - The `publish` job downloads all build artifacts and publishes the GitHub release with generated
   release notes.
 
