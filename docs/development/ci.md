@@ -79,9 +79,12 @@ The SurrealDB package additionally verifies:
 - response-level statement errors are checked and reported;
 - a duplicate-ID failure rolls back completely, proven by a successful clean retry with the same ID;
 - prepared snapshots reject late writes;
-- 32 concurrent allocations using separate process-local writer gates produce unique snapshot IDs.
+- 32 concurrent allocations using separate process-local writer gates produce unique snapshot IDs;
+- two independent `connect()` calls to one persistent `surrealkv://` directory enforce exclusive ownership;
+- the rejected second connection is classified as `CoreError::Busy` and is retryable;
+- confirmed transaction-conflict messages are retryable, while data and statement failures remain non-retryable.
 
-The allocation test proves backend atomicity over one shared embedded client without relying on the wrapper mutex. It still does not prove independent-process exclusion, separate persistent-server connection conflicts, or one transaction spanning batch data and the later commit marker.
+The allocation test proves backend atomicity over one shared embedded client without relying on the wrapper mutex. The persistent-path test proves that embedded SurrealKV fails closed when a second owner attempts to open the same directory. Embedded storage is therefore a single-owner process model, not a multi-writer database. Concurrent remote-server connections and one transaction spanning batch data and the later commit marker remain unproven.
 
 Troubleshooting:
 
@@ -90,7 +93,9 @@ Troubleshooting:
 - a write accepted after `prepare_snapshot` violates snapshot immutability;
 - a prepared snapshot visible to a query violates snapshot isolation;
 - an aborted snapshot selected by `LatestCommitted` violates publication semantics;
-- an embedded SurrealDB pass must not be used as evidence for external-server or multi-process behavior.
+- a second persistent embedded connection succeeding indicates that exclusive ownership is broken;
+- lock contention returned as `AdapterExecution` instead of `Busy` indicates a retry-classification regression;
+- an embedded SurrealDB pass must not be used as evidence for remote-server multi-writer behavior.
 
 ## Rust Source Coverage
 
