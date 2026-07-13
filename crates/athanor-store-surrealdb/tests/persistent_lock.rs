@@ -19,7 +19,7 @@ async fn persistent_surrealkv_rejects_second_connection_as_retryable_busy() {
 
     assert_eq!(error.code(), CoreErrorCode::Busy);
     assert!(error.is_retryable());
-    assert!(matches!(error, CoreError::Busy(_)));
+    assert!(matches!(&error, CoreError::Busy(_)));
     assert!(
         error
             .to_string()
