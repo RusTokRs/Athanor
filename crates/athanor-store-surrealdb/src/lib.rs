@@ -6,8 +6,8 @@ use std::time::Duration;
 use async_trait::async_trait;
 use athanor_core::{
     CanonicalSnapshot, CanonicalSnapshotStore, CoreError, CoreResult, DiagnosticQuery, EntityQuery,
-    EntityResolver, KnowledgeStore, OperationContext, RelationQuery, SnapshotBatch,
-    SnapshotSelector,
+    EntityResolver, KnowledgeStore, OperationContext, OperationContextCancellation, RelationQuery,
+    SnapshotBatch, SnapshotSelector,
 };
 use athanor_domain::{
     Diagnostic, Entity, EntityId, Fact, Relation, RepoId, SnapshotBase, SnapshotId, StableKey,
@@ -17,6 +17,7 @@ use athanor_domain::{
 mod backend;
 
 const BUSY_RETRY_DELAYS_MS: [u64; 4] = [10, 25, 50, 100];
+const CANCELLATION_POLL_MS: u64 = 5;
 
 /// SurrealDB store facade that translates confirmed transient backend failures into `CoreError::Busy`.
 #[derive(Debug, Clone)]
@@ -52,6 +53,20 @@ fn is_retryable_surreal_message(message: &str) -> bool {
         || message.contains("transaction conflict:")
 }
 
+async fn sleep_with_context(context: &OperationContext, delay: Duration) -> CoreResult<()> {
+    let poll = Duration::from_millis(CANCELLATION_POLL_MS);
+    let mut remaining_delay = delay;
+
+    while !remaining_delay.is_zero() {
+        context.check_active()?;
+        let step = remaining_delay.min(poll);
+        tokio::time::sleep(step).await;
+        remaining_delay = remaining_delay.saturating_sub(step);
+    }
+
+    context.check_active()
+}
+
 async fn retry_busy_with_context<T, F, Fut>(
     context: &OperationContext,
     mut operation: F,
@@ -63,15 +78,16 @@ where
     let mut retry_index = 0usize;
 
     loop {
-        context.check_deadline()?;
+        context.check_active()?;
         match operation().await {
             Ok(value) => return Ok(value),
             Err(error @ CoreError::Busy(_)) if retry_index < BUSY_RETRY_DELAYS_MS.len() => {
+                context.check_active()?;
                 let delay = Duration::from_millis(BUSY_RETRY_DELAYS_MS[retry_index]);
                 if context.remaining().is_some_and(|remaining| remaining <= delay) {
                     return Err(error);
                 }
-                tokio::time::sleep(delay).await;
+                sleep_with_context(context, delay).await?;
                 retry_index += 1;
             }
             Err(error) => return Err(error),
@@ -278,11 +294,15 @@ mod tests {
     use super::*;
 
     fn deadline_after(milliseconds: u64) -> OperationContext {
+        deadline_after_named("surreal-retry-test", milliseconds)
+    }
+
+    fn deadline_after_named(operation: &str, milliseconds: u64) -> OperationContext {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("current time after Unix epoch")
             .as_millis() as u64;
-        OperationContext::new("surreal-retry-test").with_deadline_unix_ms(now + milliseconds)
+        OperationContext::new(operation).with_deadline_unix_ms(now + milliseconds)
     }
 
     #[test]
@@ -354,6 +374,26 @@ mod tests {
         .expect_err("non-retryable operation must fail immediately");
 
         assert_eq!(error.code(), CoreErrorCode::AdapterExecution);
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn cancellation_stops_retry_before_backoff() {
+        let attempts = AtomicUsize::new(0);
+        let context = deadline_after_named("surreal-retry-cancelled", 2_000);
+        let cancellation = context
+            .cancellation_handle()
+            .expect("create cancellation handle");
+
+        let error = retry_busy_with_context(&context, || {
+            attempts.fetch_add(1, Ordering::SeqCst);
+            cancellation.cancel();
+            async { Err::<(), _>(CoreError::Busy("transient conflict".to_string())) }
+        })
+        .await
+        .expect_err("cancelled retry must stop before sleeping");
+
+        assert_eq!(error.code(), CoreErrorCode::Cancelled);
         assert_eq!(attempts.load(Ordering::SeqCst), 1);
     }
 }
