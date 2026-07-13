@@ -112,11 +112,22 @@ The configured contract uses two independent SDK connections. It requires 32 con
 
 This job proves remote shared-server visibility only after a successful hosted run. It does not yet deterministically reproduce a transaction write conflict.
 
-### Retry Contract
+### Retry and Cancellation Contract
 
-Context-aware SurrealDB write and publication methods retry only `CoreError::Busy`. Backoff is bounded to 10, 25, 50, and 100 milliseconds. Every attempt checks `OperationContext` first; when the remaining deadline cannot fit the next delay, the current `Busy` error is returned without sleeping past the budget.
+Context-aware SurrealDB write and publication methods retry only `CoreError::Busy`. Backoff is bounded to 10, 25, 50, and 100 milliseconds. Every attempt checks both deadline and process-local cancellation state; when the remaining deadline cannot fit the next delay, the current `Busy` error is returned without sleeping past the budget.
 
-Plain methods do not retry. Data, duplicate-ID, serialization, and other statement failures fail immediately. Cancellation-aware retry remains open because `OperationContext` currently contains a deadline but no cancellation token.
+`OperationContextCancellation::cancellation_handle()` returns a cloneable handle for a stable operation id. Cancellation state is not serialized, and all live handles for the same operation id share one process-local atomic flag. The core unit tests verify clone propagation, stable `Cancelled` error mapping, unchanged JSON wire shape, and rejection of anonymous cancellation handles.
+
+During retry backoff, cancellation is polled at intervals no larger than five milliseconds. A cancellation request therefore prevents the next retry and interrupts the wait with bounded latency. It does not force-abort a backend request that has already entered the SurrealDB SDK.
+
+Relevant local checks:
+
+```bash
+cargo test -p athanor-core cancellation --locked
+cargo test -p athanor-store-surrealdb cancellation_stops_retry_before_backoff --locked
+```
+
+Plain methods do not retry. Data, duplicate-ID, serialization, and other statement failures fail immediately. The application daemon still has its own `CancellationToken`; automatic daemon-token to core-handle propagation remains a separate E2E task.
 
 Troubleshooting:
 
@@ -127,6 +138,8 @@ Troubleshooting:
 - an aborted snapshot selected by `LatestCommitted` violates publication semantics;
 - a second persistent embedded connection succeeding indicates that exclusive ownership is broken;
 - lock contention returned as `AdapterExecution` instead of `Busy` indicates a retry-classification regression;
+- a cancelled retry issuing a second backend attempt indicates that `check_active()` was bypassed;
+- cancellation state appearing in serialized `OperationContext` is a wire-compatibility regression;
 - remote tests running during a normal `--all-features` job indicate that their `#[ignore]` boundary was removed;
 - a remote job failure before tests should be diagnosed from the Docker health check and captured server logs;
 - an embedded or remote visibility pass must not be used as evidence that a real write conflict was reproduced.
