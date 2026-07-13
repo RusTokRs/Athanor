@@ -78,10 +78,30 @@ cargo llvm-cov report --html --output-dir coverage/html
 
 The job uploads `coverage/lcov.info`, `coverage/summary.json`, and the HTML report as the `rust-source-coverage` artifact for 14 days. Coverage remains an observation job until a successful hosted artifact establishes a real baseline and branch protection makes a blocking threshold enforceable. A percentage floor must not be guessed from repository size or test count.
 
+## AppSec Workflow
+
+`.github/workflows/appsec.yml` runs on pushes to `main`, pull requests, a weekly schedule, and manual dispatches.
+
+It contains four independent checks:
+
+1. **Dependency review** runs only for pull requests and rejects newly introduced dependencies with known vulnerabilities of moderate severity or higher. Snapshot warnings are retried because the dependency graph can be updated asynchronously.
+2. **CodeQL / Rust** initializes the official CodeQL Rust extractor, builds the locked workspace with all features, runs the `security-extended` query suite, and uploads results to code scanning.
+3. **Secret scan** checks the complete Git history with Gitleaks. GitHub also provides automatic secret scanning for this public repository; repository push-protection remains a platform setting that must be confirmed separately.
+4. **Workflow security audit** installs pinned `zizmor 1.26.1` and audits workflows, local actions, and Dependabot configuration in offline, strict-collection mode. The initial rollout emits high-severity/high-confidence annotations without failing the workflow. After the first hosted report is reviewed and any justified exceptions are documented, `--no-exit-codes` must be removed to make the audit blocking.
+
+Local workflow audit:
+
+```bash
+cargo install zizmor --version 1.26.1 --locked
+zizmor --offline --strict-collection --min-severity high --min-confidence high .
+```
+
+All `uses:` references in the current CI, production, audit, release, and AppSec workflows are pinned to immutable commit SHAs. Human-readable version comments are retained next to the SHA, and the `github-actions` Dependabot ecosystem remains enabled so those pins can receive reviewed updates.
+
 ## Nightly Security Audit Workflow
 
-A separate nightly `Security Audit` workflow runs every day at midnight and scans the locked dependency tree for newly discovered vulnerabilities.
+A separate nightly `Security Audit` workflow runs every day at midnight and scans the locked dependency tree for newly discovered vulnerabilities. It also enforces the workspace `unsafe_code` denial policy.
 
 ## Principles & Permissions
 
-The workflow has read-only repository permissions, disables persisted checkout credentials, cancels superseded runs for the same ref, and keeps matrix failures visible.
+Read-oriented workflows use repository `contents: read`, disable persisted checkout credentials, and cancel superseded runs where appropriate. CodeQL receives `security-events: write` only in its own job. Release-only signing and publishing permissions remain confined to the tag-triggered release workflow.
