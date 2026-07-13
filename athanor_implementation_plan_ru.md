@@ -4,7 +4,7 @@
 > Назначение: рабочий implementation plan для последовательного улучшения Athanor  
 > Репозиторий: `RusTokRs/Athanor`  
 > Базовая ветка: `main`  
-> Точка сверки: `5c74aea6caa9acb90cab8f355cce121ed8e8c32d`  
+> Точка сверки: `08bacdf75952156e77bb6803ec99475718ae12fc`  
 > Дата актуализации: 2026-07-13  
 > Статус: active implementation plan
 
@@ -29,6 +29,7 @@
 8. Одна backend transaction для `SnapshotBatch` не считается атомарной publication всей generation, пока commit marker и read models переключаются отдельно.
 9. Не отмечать object-kind visibility подтверждённой, если public contract не позволяет прочитать этот kind независимо.
 10. Embedded exclusive ownership и remote multi-writer semantics считать разными контрактами и тестировать отдельно.
+11. Server-dependent tests не должны неявно запускаться в self-contained `--all-features` graph.
 
 ## 1. Текущий baseline
 
@@ -38,13 +39,16 @@
 - JSONL default backend и opt-in SurrealDB;
 - snapshot-aware query/publication contracts;
 - shared query и snapshot-lifecycle conformance для Memory, JSONL и embedded SurrealDB;
-- отдельная `Store Conformance` matrix для трёх backend;
+- отдельная `Store Conformance` matrix для embedded backend и dedicated remote job;
 - process-local async write gate для клонированных SurrealDB store handles;
 - atomic SurrealDB counter increment и numeric snapshot sequence;
 - native SurrealQL transaction для полного `SnapshotBatch` с statement-error checking и rollback test;
 - отдельный `prepared` state и запрет late writes после prepare;
 - persistent SurrealKV exclusive-owner regression с двумя независимыми `connect()`;
 - stable retry mapping: lock contention и подтверждённые transaction conflicts → `Busy`, data/statement failures → non-retryable `AdapterExecution`;
+- deadline-bounded retry schedule 10/25/50/100 ms для context-aware SurrealDB writes/publication;
+- opt-in `remote` WebSocket feature и ignored-by-default two-connection tests;
+- Docker job с SurrealDB `2.6.5`, remote allocation и cross-connection canonical visibility;
 - Linux/Windows/macOS default quality matrix и Linux optional-feature matrix;
 - measurement-only source coverage job;
 - AppSec workflow: dependency review, CodeQL v4, Gitleaks и Zizmor;
@@ -61,6 +65,8 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test -p athanor-store-memory --locked
 cargo test -p athanor-store-jsonl --locked
 cargo test -p athanor-store-surrealdb --locked
+ATHANOR_SURREAL_REMOTE_URI=ws://127.0.0.1:8000 \
+  cargo test -p athanor-store-surrealdb --features remote --test remote --locked -- --ignored
 cargo run -p ath --quiet --locked -- index .
 cargo run -p ath --quiet --locked -- docs check
 ```
@@ -69,21 +75,21 @@ cargo run -p ath --quiet --locked -- docs check
 
 | Пункт | Статус | Что подтверждено | Что остаётся |
 | --- | --- | --- | --- |
-| 3.1 Query contract по `EntityId` | `[-]` | ID-based queries, `EntityResolver`, shared Memory/JSONL/embedded-Surreal conformance | Hosted evidence и внешний persistent SurrealDB server path |
+| 3.1 Query contract по `EntityId` | `[-]` | ID-based queries, `EntityResolver`, shared embedded conformance, remote contract configured | Hosted remote evidence и persistent server path |
 | 3.2 Snapshot isolation | `[-]` | exact/latest selectors, committed-only reads, prepared immutability, shared lifecycle | Полная transport matrix и generation-level visibility |
 | 3.3 Atomic publication | `[-]` | JSONL staging/recovery; SurrealDB atomic batch rollback | Commit marker, read models и единый generation pointer |
-| 3.4 Concurrent writers | `[-]` | JSONL lock/sequence; Surreal atomic counter; embedded exclusive ownership; retryable Busy mapping | Remote persistent multi-writer conflicts и retry/backoff policy |
+| 3.4 Concurrent writers | `[-]` | JSONL lock/sequence; Surreal atomic counter; embedded exclusive ownership; bounded Busy retry; remote two-client test configured | Hosted remote evidence, observed write conflict и cancellation |
 | 3.5 Async process runner | `[-]` | Tokio, bounded streams, cancellation, Unix process groups | Windows Job Objects |
 | 4.1 Adapter trust/sandbox | `[-]` | digest binding, path checks, clean environment support | Resource/network/filesystem isolation |
-| 4.2 Operation context | `[-]` | deadlines/cancellation in main paths | Полная E2E matrix |
+| 4.2 Operation context | `[-]` | deadlines in main paths; deadline-bounded SurrealDB retry | Полная E2E matrix и cancellation primitive для store retry |
 | 4.3 Pipeline memory | `[-]` | extraction concurrency and byte limits | Aggregate phase budget |
 | 4.4 Incremental invalidation | `[-]` | file-local planning/dependency closure | add/remove/rename/cross-file matrix |
-| 4.5 Storage transaction boundary | `[-]` | `SnapshotBatch`, shared lifecycle, JSONL prepare, native Surreal batch transaction | Fact read contract, portable prepared handle, full lifecycle transaction |
+| 4.5 Storage transaction boundary | `[-]` | `SnapshotBatch`, shared lifecycle, JSONL prepare, native Surreal batch transaction, remote cross-connection canonical check configured | Backend-neutral Fact contract, portable prepared handle, full lifecycle transaction |
 | 4.6 Runtime composition | `[-]` | `RuntimeComposition` in main paths | Remove global registry, inject process runner |
 | 4.7 Public API boundaries | `[-]` | focused namespaces/exports | Retire wildcard compatibility surface |
 | 4.8 Module decomposition | `[-]` | partial pipeline/plugin/daemon split | CLI/runtime god modules |
-| 4.9 Typed errors/protocol | `[-]` | stable codes, daemon v3, MCP error data, Surreal Busy mapping | Full transport compatibility and remote-conflict retryability matrix |
-| 4.10 Default build | `[x]` | SurrealDB excluded by default and covered by feature matrix | Maintain boundary |
+| 4.9 Typed errors/protocol | `[-]` | stable codes, daemon v3, MCP error data, Surreal Busy mapping/backoff | Full transport compatibility, cancellation и observed remote-conflict matrix |
+| 4.10 Default build | `[x]` | SurrealDB excluded by default; remote protocol opt-in; server tests ignored by default | Maintain boundary |
 | 5.1 Hosted CI governance | `[-]` | workflows and matrices exist | Hosted evidence, branch protection, required checks |
 | 5.2 Coverage measurement | `[-]` | LCOV/JSON/HTML artifact job | Review real baseline before any gate |
 | 5.3 AppSec automation | `[-]` | dependency review, CodeQL v4, Gitleaks, Zizmor, immutable pins, signed SBOM | Hosted evidence, blocking Zizmor, push protection |
@@ -98,11 +104,12 @@ cargo run -p ath --quiet --locked -- docs check
 
 - [x] default/no-default, `store-surreal`, `js-ts-precision`, `--all-features`.
 - [x] Для каждого slice: check/test/Clippy с `--locked`.
+- [x] Remote server tests ignored by default и не ломают self-contained `--all-features`.
 - [x] Документация в `docs/development/ci.md`.
 - [ ] Подтвердить hosted run всех slices.
 - [ ] Сделать feature matrix required check после branch protection.
 
-Реализация: `d4b437b00fad2b5c2b078f9fb1c684d666e6122f`, `53a68dbba978c6ad6b172faf476df118ba679b9c`.
+Реализация: `d4b437b00fad2b5c2b078f9fb1c684d666e6122f`, `53a68dbba978c6ad6b172faf476df118ba679b9c`, `29ea91a4d46684971de88baa2a0018ccaefdbc57`, `027d6c0baa8cfa807ebc7a062e6c3036a0683ecb`.
 
 ### P0.2. Coverage measurement; blocking gate отложен
 
@@ -134,7 +141,7 @@ cargo run -p ath --quiet --locked -- docs check
 
 ### P0.4. Store conformance и transactional publication
 
-**Статус:** `[-]` — третий SurrealDB conflict/retry slice реализован; hosted evidence, remote multi-writer semantics и generation publication остаются.
+**Статус:** `[-]` — четвёртый remote/retry slice реализован; hosted evidence, наблюдаемый remote conflict и generation publication остаются.
 
 #### Shared backend contract
 
@@ -145,8 +152,10 @@ cargo run -p ath --quiet --locked -- docs check
 - [x] Проверять, что aborted snapshot удаляется и не меняет `LatestCommitted`.
 - [x] Запускать query и lifecycle suites для Memory, JSONL и real embedded SurrealDB.
 - [x] Добавить dedicated `Store Conformance` workflow matrix.
+- [x] Добавить isolated remote job с SurrealDB `2.6.5` и WebSocket client feature.
+- [-] Remote tests проверяют entity+fact через `CanonicalSnapshotStore`, но hosted run ещё не подтверждён.
 - [x] Документировать локальные команды, доказанные гарантии и ограничения в `docs/development/ci.md`.
-- [ ] Подтвердить успешный hosted matrix run.
+- [ ] Подтвердить успешные hosted embedded и remote jobs.
 
 #### SurrealDB writer safety
 
@@ -158,11 +167,14 @@ cargo run -p ath --quiet --locked -- docs check
 - [x] Зафиксировать embedded SurrealKV как single-owner process model.
 - [x] Добавить persistent-path regression: первый `connect()` успешен, второй к тому же каталогу fail-closed.
 - [x] Классифицировать embedded lock contention как `CoreError::Busy` с `is_retryable() == true`.
-- [x] Классифицировать подтверждённые сообщения `Transaction write conflict` и `Transaction retry required` как retryable `Busy`.
+- [x] Классифицировать подтверждённые сообщения `Transaction write conflict`, `Transaction retry required` и `Transaction conflict:` как retryable `Busy`.
 - [x] Оставить duplicate/data/serialization/прочие statement failures non-retryable `AdapterExecution`.
-- [-] Embedded test доказывает exclusive ownership, а не concurrent multi-writer behavior.
-- [ ] Добавить два независимых подключения к remote persistent SurrealDB server и воспроизвести реальный write conflict.
-- [ ] Зафиксировать bounded retry/backoff/deadline policy для remote conflict.
+- [x] Ввести bounded retry schedule 10/25/50/100 ms только для context-aware write/publication methods.
+- [x] Проверять deadline перед попыткой и не спать, если следующий backoff не помещается в оставшийся budget.
+- [x] Не retry-ить plain methods и non-retryable errors.
+- [-] Добавить два независимых remote SDK connections и 32 concurrent allocations: код и CI job готовы, hosted evidence отсутствует.
+- [ ] Детерминированно воспроизвести реальный remote write conflict и подтвердить public `Busy` mapping.
+- [ ] Добавить cancellation-aware retry после расширения `OperationContext`.
 
 #### Native SurrealDB batch transaction
 
@@ -178,7 +190,7 @@ cargo run -p ath --quiet --locked -- docs check
 
 #### Transactional publication
 
-- [ ] Добавить backend-neutral способ независимо проверить Facts после commit либо включить их в canonical snapshot conformance.
+- [-] Remote `CanonicalSnapshotStore` test независимо читает entity и fact после commit; общий backend-neutral Fact conformance ещё отсутствует.
 - [ ] Ввести portable prepared transaction handle вместо неявного lifecycle по `SnapshotId`.
 - [ ] Объединить batch data и commit marker в один проверяемый publication protocol.
 - [ ] Ввести единый immutable generation id для canonical/state/read models.
@@ -212,7 +224,18 @@ cargo run -p ath --quiet --locked -- docs check
 - `47a6504b32a4bc8750062874cf6b65d9891e8213` — embedded ownership/retry architecture;
 - `5c74aea6caa9acb90cab8f355cce121ed8e8c32d` — CI contract и troubleshooting.
 
-**Definition of Done:** Memory, JSONL и persistent SurrealDB имеют эквивалентный observable lifecycle; все canonical object kinds независимо проверяемы; embedded ownership fail-closed; remote independent writers не теряют updates; partial writes не публикуются; после crash видна только предыдущая или новая целая generation.
+Четвёртый срез:
+
+- `7f86d8e180c036c6a4962512636bbff849094925` — opt-in remote WebSocket feature;
+- `8a05d3ae1155d12800dcd191b4e7589dd87b260c` — deadline-bounded Busy retry;
+- `d3f3c421b00b7b4df8b32708b1afb5968802f105` — remote two-connection allocation/publication tests;
+- `7c95fcb8049641f984d2200118edc6521bf04ffb` — Docker-backed remote CI job;
+- `29ea91a4d46684971de88baa2a0018ccaefdbc57`, `027d6c0baa8cfa807ebc7a062e6c3036a0683ecb` — isolation from normal all-features and explicit `--ignored` execution;
+- `c866b0e17f3930ce9b8279f856032dceb1d638c8` — removal of timing-sensitive retry assertion;
+- `eb327e1296fa5c05b0f2ad562f17b066858e8ab1` — remote/retry architecture boundaries;
+- `08bacdf75952156e77bb6803ec99475718ae12fc` — remote CI commands and troubleshooting.
+
+**Definition of Done:** Memory, JSONL и persistent SurrealDB имеют эквивалентный observable lifecycle; все canonical object kinds независимо проверяемы; embedded ownership fail-closed; remote independent writers не теряют updates; retry bounded deadline/cancellation; partial writes не публикуются; после crash видна только предыдущая или новая целая generation.
 
 ## 4. P1 — безопасность исполнения и архитектурная сопровождаемость
 
@@ -249,6 +272,8 @@ cargo run -p ath --quiet --locked -- docs check
 ### P1.5. Operation context и protocol E2E matrix
 
 - [ ] Deadline propagation CLI→app, daemon→app, MCP→app.
+- [-] SurrealDB context-aware writes имеют deadline-bounded Busy retry.
+- [ ] Добавить transport-neutral cancellation primitive в `OperationContext`.
 - [ ] Stable code/retryable mapping и daemon v2/v3 compatibility.
 - [ ] Cancellation queued/running writes and reads.
 - [ ] Cooperative or isolated synchronous projectors.
@@ -283,36 +308,35 @@ cargo run -p ath --quiet --locked -- docs check
 ### P2.4. Локальная воспроизводимость
 
 - [x] Feature matrix, coverage measurement, installer/release и AppSec commands.
-- [x] Store conformance commands и troubleshooting в `docs/development/ci.md`.
+- [x] Embedded и remote store conformance commands/troubleshooting в `docs/development/ci.md`.
 - [ ] Common CI failures для остальных workflows.
 - [ ] `justfile`, `xtask` или единый verification entrypoint.
 
 ## 6. Порядок реализации
 
-1. P0.4 — подтвердить hosted conformance и исправить возможные compile/format/API findings.
-2. P0.4 — добавить remote persistent two-connection conflict test и bounded retry policy.
-3. P0.4 — объединить batch data с commit-marker publication protocol.
-4. P0.4 — добавить независимую Fact verification и portable prepared handle.
-5. P0.3 — hosted AppSec evidence и blocking Zizmor.
-6. P0.1/P1.4 — hosted matrix, installer и release tag evidence.
-7. P0.4 — единая generation publication и fault injection.
-8. P1.1/P1.5 sandbox и protocol E2E.
-9. Coverage decision, P1.2/P1.3 decomposition и P1.6 budgets.
+1. P0.4 — получить hosted embedded/remote conformance и исправить реальные compile/format/API findings.
+2. P0.4 — детерминированно воспроизвести remote transaction conflict и проверить public `Busy` mapping/backoff.
+3. P1.5/P0.4 — добавить cancellation primitive и остановку retry между попытками.
+4. P0.4 — объединить batch data с commit-marker publication protocol.
+5. P0.4 — добавить общий backend-neutral Fact conformance и portable prepared handle.
+6. P0.3 — hosted AppSec evidence и blocking Zizmor.
+7. P0.1/P1.4 — hosted matrix, installer и release tag evidence.
+8. P0.4 — единая generation publication и fault injection.
+9. P1.1 sandbox, coverage decision, decomposition и performance budgets.
 10. P2 governance/DX.
 
 ## 7. Текущий рабочий пакет
 
 **Активный пункт:** `P0.4 Store conformance и transactional publication`.
 
-Третий срез внесён в код, но без hosted run не считается полностью подтверждённым. Следующий срез:
+Четвёртый срез внесён в код, но без hosted run не считается полностью подтверждённым. Следующий срез:
 
-1. получить hosted result `cargo test -p athanor-store-surrealdb --locked` и проверить fmt/Clippy;
-2. исправить реальные compile/API findings без ослабления rollback и retry contracts;
-3. создать opt-in test path к remote persistent SurrealDB server с двумя независимыми connections;
-4. воспроизвести реальный transaction conflict и сверить фактическое сообщение с `Busy` mapping;
-5. добавить bounded retry/backoff с обязательным deadline/cancellation boundary;
-6. после этого спроектировать включение commit marker в publication transaction/protocol;
-7. не переходить к generation pointer, пока remote-writer и commit-marker semantics не закреплены тестами.
+1. получить hosted results для embedded matrix и `surrealdb-remote` job;
+2. проверить `cargo fmt`, package tests, all-features и Clippy;
+3. исправить реальные compile/API/Docker findings без ослабления transaction/retry contracts;
+4. после успешного remote visibility test создать детерминированный conflict scenario;
+5. сверить фактическую ошибку сервера с `CoreError::Busy` и bounded backoff;
+6. не переходить к commit-marker/generation redesign, пока remote job не даёт воспроизводимый зелёный evidence.
 
 ## 8. Definition of Done проекта
 
@@ -321,6 +345,7 @@ cargo run -p ath --quiet --locked -- docs check
 - Publication crash-safe и atomic на generation boundary.
 - Embedded persistent ownership fail-closed и диагностируется как retryable Busy.
 - Remote concurrent writers безопасны между независимыми процессами/connections.
+- Busy retries ограничены attempts, deadline и cancellation.
 - Все canonical object kinds доступны проверяемому backend-neutral contract.
 - External adapters bounded, cancellable и не оставляют orphan processes.
 - Optional feature graphs и AppSec gates блокируют regressions.
@@ -332,6 +357,19 @@ cargo run -p ath --quiet --locked -- docs check
 
 ## 9. Журнал актуализаций
 
+### 2026-07-13 — четвёртый P0.4 remote/retry slice
+
+- Добавлен opt-in crate feature `remote` с SurrealDB WebSocket protocol.
+- Server-dependent remote tests помечены `ignored` и не запускаются в обычном `--all-features`.
+- Dedicated CI job поднимает `surrealdb/surrealdb:v2.6.5`, ждёт `/health` и явно запускает ignored tests.
+- Два независимых SDK connections выполняют 32 concurrent allocations с проверкой уникальности IDs.
+- Writer публикует entity+fact batch; independent reader загружает canonical snapshot после commit.
+- Context-aware writes/publication retry-ят только `Busy` с backoff 10/25/50/100 ms.
+- Deadline проверяется перед попыткой; retry не спит за пределами оставшегося budget.
+- Plain methods и non-retryable errors не retry-ятся.
+- Удалён timing-sensitive тест с deadline 1 ms.
+- P0.4 остаётся `[-]` до hosted evidence, observed remote conflict и cancellation-aware retry.
+
 ### 2026-07-13 — третий P0.4 embedded conflict/retry slice
 
 - Active crate root переведён на public facade над transactional backend.
@@ -340,8 +378,7 @@ cargo run -p ath --quiet --locked -- docs check
 - Data, duplicate-record, serialization и прочие statement failures остаются non-retryable.
 - Добавлен persistent `surrealkv://` regression с двумя независимыми `connect()` к одному каталогу.
 - Второе подключение обязано fail-closed с `CoreErrorCode::Busy` и `is_retryable() == true`.
-- Embedded SurrealKV зафиксирован как single-owner process model; remote multi-writer test остаётся отдельной задачей.
-- P0.4 остаётся `[-]` до hosted evidence, remote conflict test и generation publication.
+- Embedded SurrealKV зафиксирован как single-owner process model.
 
 ### 2026-07-13 — второй P0.4 SurrealDB transaction slice
 
