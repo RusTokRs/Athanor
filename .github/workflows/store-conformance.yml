@@ -45,3 +45,51 @@ jobs:
           key: store-conformance-${{ matrix.backend }}
       - name: Run backend contract suite
         run: cargo test -p "${{ matrix.package }}" --locked
+
+  surrealdb-remote:
+    name: Store contract / surrealdb-remote
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Install Rust 1.95
+        shell: bash
+        run: |
+          rustup toolchain install 1.95.0 --profile minimal
+          rustup default 1.95.0
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
+        with:
+          key: store-conformance-surrealdb-remote
+      - name: Start SurrealDB 2.6.5 test server
+        shell: bash
+        run: |
+          docker run --detach --rm \
+            --name athanor-surrealdb \
+            --publish 8000:8000 \
+            surrealdb/surrealdb:v2.6.5 \
+            start --log warn --unauthenticated --bind 0.0.0.0:8000 memory
+      - name: Wait for SurrealDB health endpoint
+        shell: bash
+        run: |
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent --show-error http://127.0.0.1:8000/health >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs athanor-surrealdb
+          exit 1
+      - name: Run remote two-connection contract
+        env:
+          ATHANOR_SURREAL_REMOTE_URI: ws://127.0.0.1:8000
+        run: cargo test -p athanor-store-surrealdb --features remote --test remote --locked
+      - name: Show SurrealDB logs
+        if: always()
+        run: docker logs athanor-surrealdb || true
+      - name: Stop SurrealDB test server
+        if: always()
+        run: docker rm --force athanor-surrealdb || true
