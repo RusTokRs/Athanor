@@ -8,7 +8,7 @@ status: verified
 ---
 # Continuous Integration
 
-Athanor uses GitHub Actions for continuous quality, compatibility, and security checks.
+Athanor uses GitHub Actions for continuous quality, compatibility, security, and source-coverage checks.
 
 ## Quality & Compatibility Pipeline
 
@@ -51,7 +51,26 @@ cargo test --workspace --quiet <features> --locked
 cargo clippy --workspace --all-targets <features> --locked -- -D warnings
 ```
 
-This gate exists to prevent optional Cargo feature regressions from reaching the main branch.
+The default workspace features are empty, so the default slice is also the supported `--no-default-features` boundary. A separate spelling is not run because it would duplicate the same Cargo graph.
+
+This gate exists to prevent optional Cargo feature regressions from reaching the main branch. The matrix remains in the pull-request workflow unless hosted duration demonstrates that the `store-surreal` or aggregate slice must move to a scheduled full-feature run.
+
+### Rust Source Coverage
+
+The Linux coverage job installs `cargo-llvm-cov` at the pinned version `0.8.7` and runs the workspace tests with the locked dependency graph.
+
+Local equivalent:
+
+```bash
+rustup component add llvm-tools-preview
+cargo install cargo-llvm-cov --version 0.8.7 --locked
+mkdir -p coverage
+cargo llvm-cov --workspace --locked --lcov --output-path coverage/lcov.info
+cargo llvm-cov report --json --summary-only --output-path coverage/summary.json
+cargo llvm-cov report --html --output-dir coverage/html
+```
+
+The job uploads `coverage/lcov.info`, `coverage/summary.json`, and the HTML report as the `rust-source-coverage` artifact for 14 days. This first measurement intentionally does not enforce a percentage floor: the measured hosted result must be reviewed and committed as the baseline before a no-regression threshold is enabled.
 
 ## Nightly Security Audit Workflow
 
