@@ -86,7 +86,7 @@ jobs:
       - name: Run remote two-connection contract
         env:
           ATHANOR_SURREAL_REMOTE_URI: ws://127.0.0.1:8000
-        run: cargo test -p athanor-store-surrealdb --features remote --test remote --locked
+        run: cargo test -p athanor-store-surrealdb --features remote --test remote --locked -- --ignored
       - name: Show SurrealDB logs
         if: always()
         run: docker logs athanor-surrealdb || true
