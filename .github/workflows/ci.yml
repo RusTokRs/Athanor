@@ -55,6 +55,59 @@ jobs:
         run: cargo test --workspace --quiet --locked
       - name: Run Clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Test Linux installer checksum verification
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test_dir="$(mktemp -d)"
+          trap 'rm -rf "$test_dir"' EXIT
+          cp install.sh "$test_dir/"
+          printf 'ath-test\n' > "$test_dir/ath"
+          printf 'athd-test\n' > "$test_dir/athd"
+          (cd "$test_dir" && sha256sum ath athd > SHA256SUMS)
+          ATHANOR_INSTALL_DIR="$test_dir/install" "$test_dir/install.sh"
+          cmp "$test_dir/ath" "$test_dir/install/ath"
+          cmp "$test_dir/athd" "$test_dir/install/athd"
+          printf 'tampered\n' >> "$test_dir/ath"
+          if ATHANOR_INSTALL_DIR="$test_dir/rejected" "$test_dir/install.sh"; then
+            echo "tampered Linux binary was accepted" >&2
+            exit 1
+          fi
+      - name: Test Windows installer checksum verification
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $testDir = Join-Path $env:RUNNER_TEMP "athanor-installer-test"
+          Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $testDir
+          New-Item -ItemType Directory -Force $testDir | Out-Null
+          Copy-Item install.ps1 $testDir
+          Set-Content -LiteralPath (Join-Path $testDir "ath.exe") -Value "ath-test" -Encoding ascii
+          Set-Content -LiteralPath (Join-Path $testDir "athd.exe") -Value "athd-test" -Encoding ascii
+          $manifest = foreach ($file in @("ath.exe", "athd.exe")) {
+            $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $testDir $file)).Hash.ToLowerInvariant()
+            "$hash  $file"
+          }
+          $manifest | Set-Content -LiteralPath (Join-Path $testDir "SHA256SUMS") -Encoding ascii
+          & (Join-Path $testDir "install.ps1") -InstallDir (Join-Path $testDir "install")
+          foreach ($file in @("ath.exe", "athd.exe")) {
+            $sourceHash = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $testDir $file)).Hash
+            $installedHash = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path (Join-Path $testDir "install") $file)).Hash
+            if ($sourceHash -ne $installedHash) {
+              throw "installed file differs: $file"
+            }
+          }
+          Add-Content -LiteralPath (Join-Path $testDir "ath.exe") -Value "tampered" -Encoding ascii
+          $rejected = $false
+          try {
+            & (Join-Path $testDir "install.ps1") -InstallDir (Join-Path $testDir "rejected")
+          } catch {
+            $rejected = $true
+          }
+          if (-not $rejected) {
+            throw "tampered Windows binary was accepted"
+          }
       - name: Run indexing smoke test
         run: cargo run -p ath --quiet --locked -- index .
       - name: Check editable documentation
