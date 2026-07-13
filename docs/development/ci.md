@@ -59,6 +59,8 @@ cargo clippy --workspace --all-targets <features> --locked -- -D warnings
 
 The default workspace features are empty, so the default slice is also the supported `--no-default-features` boundary. A separate spelling is not run because it would duplicate the same Cargo graph.
 
+The SurrealDB crate feature `remote` enables only the WebSocket client protocol. Its server-dependent integration tests are explicitly ignored during normal workspace and `--all-features` runs, so the aggregate feature graph remains self-contained.
+
 This gate exists to prevent optional Cargo feature regressions from reaching the main branch. The matrix remains in the pull-request workflow unless hosted duration demonstrates that the `store-surreal` or aggregate slice must move to a scheduled full-feature run.
 
 ## Store Conformance Workflow
@@ -71,9 +73,9 @@ cargo test -p athanor-store-jsonl --locked
 cargo test -p athanor-store-surrealdb --locked
 ```
 
-The reusable suite checks committed snapshot selection, stable-key and ID-based queries, prepared-snapshot invisibility, commit/abort behavior, and preservation of `LatestCommitted` after an abort. The batch fixture includes entities, facts, relations, and diagnostics. The current public store query contract independently verifies entity, relation, and diagnostic visibility; fact visibility remains part of the future canonical-snapshot/transaction contract because `KnowledgeStore` has no fact query method.
+The reusable suite checks committed snapshot selection, stable-key and ID-based queries, prepared-snapshot invisibility, commit/abort behavior, and preservation of `LatestCommitted` after an abort. The batch fixture includes entities, facts, relations, and diagnostics. The current public store query contract independently verifies entity, relation, and diagnostic visibility; fact visibility remains part of the canonical-snapshot contract because `KnowledgeStore` has no fact query method.
 
-The SurrealDB package additionally verifies:
+The embedded SurrealDB package additionally verifies:
 
 - a complete `SnapshotBatch` is submitted through one `BEGIN`/bulk-`INSERT`/`COMMIT` transaction;
 - response-level statement errors are checked and reported;
@@ -84,7 +86,37 @@ The SurrealDB package additionally verifies:
 - the rejected second connection is classified as `CoreError::Busy` and is retryable;
 - confirmed transaction-conflict messages are retryable, while data and statement failures remain non-retryable.
 
-The allocation test proves backend atomicity over one shared embedded client without relying on the wrapper mutex. The persistent-path test proves that embedded SurrealKV fails closed when a second owner attempts to open the same directory. Embedded storage is therefore a single-owner process model, not a multi-writer database. Concurrent remote-server connections and one transaction spanning batch data and the later commit marker remain unproven.
+The allocation test proves backend atomicity over one shared embedded client without relying on the wrapper mutex. The persistent-path test proves that embedded SurrealKV fails closed when a second owner attempts to open the same directory. Embedded storage is therefore a single-owner process model, not a multi-writer database.
+
+### Remote SurrealDB Job
+
+The `surrealdb-remote` job starts the exact server line used by the locked SDK:
+
+```bash
+docker run --detach --rm \
+  --name athanor-surrealdb \
+  --publish 8000:8000 \
+  surrealdb/surrealdb:v2.6.5 \
+  start --log warn --unauthenticated --bind 0.0.0.0:8000 memory
+```
+
+After the `/health` endpoint responds, CI runs the ignored remote tests explicitly:
+
+```bash
+ATHANOR_SURREAL_REMOTE_URI=ws://127.0.0.1:8000 \
+  cargo test -p athanor-store-surrealdb \
+  --features remote --test remote --locked -- --ignored
+```
+
+The configured contract uses two independent SDK connections. It requires 32 concurrent allocations to produce unique snapshot IDs, then writes and commits a batch through one connection and loads its entity and fact records through the other. Server logs are printed and the container is removed even when the test fails.
+
+This job proves remote shared-server visibility only after a successful hosted run. It does not yet deterministically reproduce a transaction write conflict.
+
+### Retry Contract
+
+Context-aware SurrealDB write and publication methods retry only `CoreError::Busy`. Backoff is bounded to 10, 25, 50, and 100 milliseconds. Every attempt checks `OperationContext` first; when the remaining deadline cannot fit the next delay, the current `Busy` error is returned without sleeping past the budget.
+
+Plain methods do not retry. Data, duplicate-ID, serialization, and other statement failures fail immediately. Cancellation-aware retry remains open because `OperationContext` currently contains a deadline but no cancellation token.
 
 Troubleshooting:
 
@@ -95,7 +127,9 @@ Troubleshooting:
 - an aborted snapshot selected by `LatestCommitted` violates publication semantics;
 - a second persistent embedded connection succeeding indicates that exclusive ownership is broken;
 - lock contention returned as `AdapterExecution` instead of `Busy` indicates a retry-classification regression;
-- an embedded SurrealDB pass must not be used as evidence for remote-server multi-writer behavior.
+- remote tests running during a normal `--all-features` job indicate that their `#[ignore]` boundary was removed;
+- a remote job failure before tests should be diagnosed from the Docker health check and captured server logs;
+- an embedded or remote visibility pass must not be used as evidence that a real write conflict was reproduced.
 
 ## Rust Source Coverage
 
