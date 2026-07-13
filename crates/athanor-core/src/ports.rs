@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
 use athanor_domain::{
@@ -11,12 +12,67 @@ use thiserror::Error;
 
 pub type CoreResult<T> = Result<T, CoreError>;
 
+/// Transport-neutral operation metadata propagated across adapter boundaries.
+///
+/// Application layers may attach a stable operation id for logs and a wall-clock deadline. The
+/// context deliberately does not contain application cancellation primitives, so adapters and
+/// stores remain reusable outside a particular runtime.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OperationContext {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operation_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deadline_unix_ms: Option<u64>,
+}
+
+impl OperationContext {
+    pub fn new(operation_id: impl Into<String>) -> Self {
+        Self {
+            operation_id: Some(operation_id.into()),
+            deadline_unix_ms: None,
+        }
+    }
+
+    pub fn with_deadline_unix_ms(mut self, deadline_unix_ms: u64) -> Self {
+        self.deadline_unix_ms = Some(deadline_unix_ms);
+        self
+    }
+
+    pub fn remaining(&self) -> Option<Duration> {
+        self.deadline_unix_ms
+            .map(|deadline| Duration::from_millis(deadline.saturating_sub(current_unix_ms())))
+    }
+
+    pub fn check_deadline(&self) -> CoreResult<()> {
+        if self
+            .deadline_unix_ms
+            .is_some_and(|deadline| current_unix_ms() >= deadline)
+        {
+            let operation = self.operation_id.as_deref().unwrap_or("operation");
+            return Err(CoreError::DeadlineExceeded(format!(
+                "{operation} exceeded its configured deadline"
+            )));
+        }
+        Ok(())
+    }
+}
+
+fn current_unix_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .min(u128::from(u64::MAX)) as u64
+}
+
 /// Stable machine-readable categories for errors crossing application boundaries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CoreErrorCode {
     NotFound,
     InvalidInput,
+    AdapterProtocol,
     AdapterExecution,
     SnapshotNotCommitted,
     Conflict,
@@ -33,6 +89,8 @@ pub enum CoreError {
     InvalidInput(String),
     #[error("adapter error: {0}")]
     Adapter(String),
+    #[error("adapter protocol error: {0}")]
+    AdapterProtocol(String),
     #[error("snapshot is not committed: {0}")]
     SnapshotNotCommitted(String),
     #[error("conflict: {0}")]
@@ -50,6 +108,7 @@ impl CoreError {
         match self {
             Self::NotFound(_) => CoreErrorCode::NotFound,
             Self::InvalidInput(_) => CoreErrorCode::InvalidInput,
+            Self::AdapterProtocol(_) => CoreErrorCode::AdapterProtocol,
             Self::Adapter(_) => CoreErrorCode::AdapterExecution,
             Self::SnapshotNotCommitted(_) => CoreErrorCode::SnapshotNotCommitted,
             Self::Conflict(_) => CoreErrorCode::Conflict,
@@ -101,6 +160,10 @@ pub struct ProcessRequest {
     pub program: PathBuf,
     pub args: Vec<String>,
     pub working_dir: PathBuf,
+    /// Removes inherited environment variables before spawning when explicitly requested by the
+    /// application sandbox policy. The executable and working directory remain explicit.
+    #[serde(default)]
+    pub clear_environment: bool,
     pub stdin: Vec<u8>,
     pub limits: ProcessLimits,
 }
@@ -181,16 +244,61 @@ pub struct DiagnosticQuery {
 #[async_trait]
 pub trait KnowledgeStore: Send + Sync {
     async fn begin_snapshot(&self, repo: RepoId, base: SnapshotBase) -> CoreResult<SnapshotId>;
+    async fn begin_snapshot_with_context(
+        &self,
+        repo: RepoId,
+        base: SnapshotBase,
+        context: &OperationContext,
+    ) -> CoreResult<SnapshotId> {
+        context.check_deadline()?;
+        self.begin_snapshot(repo, base).await
+    }
 
     async fn put_entities(&self, snapshot: SnapshotId, entities: Vec<Entity>) -> CoreResult<()>;
+    async fn put_entities_with_context(
+        &self,
+        snapshot: SnapshotId,
+        entities: Vec<Entity>,
+        context: &OperationContext,
+    ) -> CoreResult<()> {
+        context.check_deadline()?;
+        self.put_entities(snapshot, entities).await
+    }
     async fn put_facts(&self, snapshot: SnapshotId, facts: Vec<Fact>) -> CoreResult<()>;
+    async fn put_facts_with_context(
+        &self,
+        snapshot: SnapshotId,
+        facts: Vec<Fact>,
+        context: &OperationContext,
+    ) -> CoreResult<()> {
+        context.check_deadline()?;
+        self.put_facts(snapshot, facts).await
+    }
     async fn put_relations(&self, snapshot: SnapshotId, relations: Vec<Relation>)
     -> CoreResult<()>;
+    async fn put_relations_with_context(
+        &self,
+        snapshot: SnapshotId,
+        relations: Vec<Relation>,
+        context: &OperationContext,
+    ) -> CoreResult<()> {
+        context.check_deadline()?;
+        self.put_relations(snapshot, relations).await
+    }
     async fn put_diagnostics(
         &self,
         snapshot: SnapshotId,
         diagnostics: Vec<Diagnostic>,
     ) -> CoreResult<()>;
+    async fn put_diagnostics_with_context(
+        &self,
+        snapshot: SnapshotId,
+        diagnostics: Vec<Diagnostic>,
+        context: &OperationContext,
+    ) -> CoreResult<()> {
+        context.check_deadline()?;
+        self.put_diagnostics(snapshot, diagnostics).await
+    }
 
     async fn query_entities(
         &self,
@@ -209,7 +317,23 @@ pub trait KnowledgeStore: Send + Sync {
     ) -> CoreResult<Vec<Diagnostic>>;
 
     async fn commit_snapshot(&self, snapshot: SnapshotId) -> CoreResult<()>;
+    async fn commit_snapshot_with_context(
+        &self,
+        snapshot: SnapshotId,
+        context: &OperationContext,
+    ) -> CoreResult<()> {
+        context.check_deadline()?;
+        self.commit_snapshot(snapshot).await
+    }
     async fn abort_snapshot(&self, snapshot: SnapshotId) -> CoreResult<()>;
+    async fn abort_snapshot_with_context(
+        &self,
+        snapshot: SnapshotId,
+        context: &OperationContext,
+    ) -> CoreResult<()> {
+        context.check_deadline()?;
+        self.abort_snapshot(snapshot).await
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -266,6 +390,13 @@ pub trait EntityResolver: Send + Sync {
 pub trait SourceProvider: Send + Sync {
     fn name(&self) -> &str;
     async fn discover(&self) -> CoreResult<Vec<SourceFile>>;
+    async fn discover_with_context(
+        &self,
+        context: &OperationContext,
+    ) -> CoreResult<Vec<SourceFile>> {
+        context.check_deadline()?;
+        self.discover().await
+    }
 }
 
 #[async_trait]
@@ -276,6 +407,14 @@ pub trait Extractor: Send + Sync {
     }
     fn supports(&self, source: &SourceFile) -> bool;
     async fn extract(&self, input: ExtractInput) -> CoreResult<ExtractOutput>;
+    async fn extract_with_context(
+        &self,
+        input: ExtractInput,
+        context: &OperationContext,
+    ) -> CoreResult<ExtractOutput> {
+        context.check_deadline()?;
+        self.extract(input).await
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -315,6 +454,14 @@ pub trait Linker: Send + Sync {
         InvalidationPolicy::ALWAYS_GLOBAL
     }
     async fn link(&self, input: LinkInput) -> CoreResult<Vec<Relation>>;
+    async fn link_with_context(
+        &self,
+        input: LinkInput,
+        context: &OperationContext,
+    ) -> CoreResult<Vec<Relation>> {
+        context.check_deadline()?;
+        self.link(input).await
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -333,6 +480,14 @@ pub trait Checker: Send + Sync {
         InvalidationPolicy::ALWAYS_GLOBAL
     }
     async fn check(&self, input: CheckInput) -> CoreResult<Vec<Diagnostic>>;
+    async fn check_with_context(
+        &self,
+        input: CheckInput,
+        context: &OperationContext,
+    ) -> CoreResult<Vec<Diagnostic>> {
+        context.check_deadline()?;
+        self.check(input).await
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -346,6 +501,14 @@ pub struct ProjectInput {
 pub trait Projector: Send + Sync {
     fn name(&self) -> &str;
     async fn project(&self, input: ProjectInput) -> CoreResult<()>;
+    async fn project_with_context(
+        &self,
+        input: ProjectInput,
+        context: &OperationContext,
+    ) -> CoreResult<()> {
+        context.check_deadline()?;
+        self.project(input).await
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -436,7 +599,7 @@ pub trait Transport: Send + Sync {
 
 #[cfg(test)]
 mod tests {
-    use super::{CoreError, CoreErrorCode};
+    use super::{CoreError, CoreErrorCode, OperationContext};
 
     #[test]
     fn exposes_stable_error_codes_and_retryability() {
@@ -448,6 +611,10 @@ mod tests {
         assert_eq!(adapter.code(), CoreErrorCode::AdapterExecution);
         assert!(!adapter.is_retryable());
 
+        let adapter_protocol = CoreError::AdapterProtocol("invalid JSON".to_string());
+        assert_eq!(adapter_protocol.code(), CoreErrorCode::AdapterProtocol);
+        assert!(!adapter_protocol.is_retryable());
+
         let busy = CoreError::Busy("index is running".to_string());
         assert_eq!(busy.code(), CoreErrorCode::Busy);
         assert!(busy.is_retryable());
@@ -455,5 +622,17 @@ mod tests {
         let conflict = CoreError::Conflict("duplicate key".to_string());
         assert_eq!(conflict.code(), CoreErrorCode::Conflict);
         assert!(!conflict.is_retryable());
+    }
+
+    #[test]
+    fn operation_context_rejects_elapsed_deadline() {
+        let context = OperationContext::new("index-42").with_deadline_unix_ms(0);
+        let error = context
+            .check_deadline()
+            .expect_err("zero deadline must be elapsed");
+
+        assert!(matches!(error, CoreError::DeadlineExceeded(_)));
+        assert!(error.to_string().contains("index-42"));
+        assert_eq!(context.remaining(), Some(std::time::Duration::ZERO));
     }
 }

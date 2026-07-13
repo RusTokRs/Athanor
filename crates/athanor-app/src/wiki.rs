@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use crate::config::load_config;
 use crate::store::init_store;
 use anyhow::{Context, Result, bail};
-use athanor_core::CanonicalSnapshotStore;
+use athanor_core::{CanonicalSnapshotStore, OperationContext};
 use serde_json::json;
 
 use crate::project_path::normalize_canonical_path;
@@ -28,21 +28,41 @@ pub struct WikiReport {
 }
 
 pub async fn project_wiki(options: WikiOptions) -> Result<WikiReport> {
-    project_wiki_inner(options, None, None).await
+    project_wiki_inner(options, None, None, OperationContext::new("wiki")).await
+}
+
+/// Projects the wiki with transport-neutral operation metadata.
+pub async fn project_wiki_with_operation_context(
+    options: WikiOptions,
+    operation: OperationContext,
+) -> Result<WikiReport> {
+    project_wiki_inner(options, None, None, operation).await
 }
 
 pub async fn project_wiki_with_composition(
     options: WikiOptions,
     composition: &RuntimeComposition,
 ) -> Result<WikiReport> {
-    project_wiki_inner(options, None, Some(composition)).await
+    project_wiki_inner(
+        options,
+        None,
+        Some(composition),
+        OperationContext::new("wiki"),
+    )
+    .await
 }
 
 pub async fn project_wiki_cancellable(
     options: WikiOptions,
     cancellation: CancellationToken,
 ) -> Result<WikiReport> {
-    project_wiki_inner(options, Some(cancellation), None).await
+    project_wiki_inner(
+        options,
+        Some(cancellation),
+        None,
+        OperationContext::new("wiki"),
+    )
+    .await
 }
 
 /// Projects the wiki with explicit dependencies and cooperative cancellation.
@@ -51,15 +71,42 @@ pub async fn project_wiki_cancellable_with_composition(
     cancellation: CancellationToken,
     composition: &RuntimeComposition,
 ) -> Result<WikiReport> {
-    project_wiki_inner(options, Some(cancellation), Some(composition)).await
+    project_wiki_inner(
+        options,
+        Some(cancellation),
+        Some(composition),
+        OperationContext::new("wiki"),
+    )
+    .await
+}
+
+/// Cancellable composition-aware wiki projection with explicit operation metadata.
+pub async fn project_wiki_cancellable_with_composition_and_operation_context(
+    options: WikiOptions,
+    cancellation: CancellationToken,
+    composition: &RuntimeComposition,
+    operation: OperationContext,
+) -> Result<WikiReport> {
+    project_wiki_inner(options, Some(cancellation), Some(composition), operation).await
+}
+
+/// Cancellable wiki projection with explicit operation metadata.
+pub async fn project_wiki_cancellable_with_operation_context(
+    options: WikiOptions,
+    cancellation: CancellationToken,
+    operation: OperationContext,
+) -> Result<WikiReport> {
+    project_wiki_inner(options, Some(cancellation), None, operation).await
 }
 
 async fn project_wiki_inner(
     options: WikiOptions,
     cancellation: Option<CancellationToken>,
     composition: Option<&RuntimeComposition>,
+    operation: OperationContext,
 ) -> Result<WikiReport> {
     check_cancelled(&cancellation)?;
+    operation.check_deadline()?;
     let root = normalize_canonical_path(
         options
             .root
@@ -89,6 +136,7 @@ async fn project_wiki_inner(
         bail!("no canonical snapshot found; run `ath index` first");
     };
     check_cancelled(&cancellation)?;
+    operation.check_deadline()?;
     let snapshot_id = snapshot
         .snapshot
         .clone()
@@ -119,14 +167,16 @@ async fn project_wiki_inner(
         cancellation
             .as_ref()
             .is_some_and(CancellationToken::is_cancelled)
+            || operation.check_deadline().is_err()
     };
-    match composition {
+    let projection = match composition {
         Some(composition) => {
             composition.project_wiki(&output_dir, &snapshot_id.0, payload, &is_cancelled)
         }
         None => project_wiki_payload(&output_dir, &snapshot_id.0, payload, &is_cancelled),
-    }
-    .context("failed to project Markdown wiki")?;
+    };
+    operation.check_deadline()?;
+    projection.context("failed to project Markdown wiki")?;
 
     Ok(report)
 }

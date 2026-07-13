@@ -21,6 +21,15 @@ pub struct ProjectConfig {
 pub struct AdaptersConfig {
     pub allow_external_process: bool,
     pub external_process_allowlist: Vec<String>,
+    pub external_process_sandbox: ExternalProcessSandboxProfile,
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ExternalProcessSandboxProfile {
+    #[default]
+    Disabled,
+    CleanEnvironment,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -197,7 +206,7 @@ pub fn load_config(root: &Path) -> Result<ProjectConfig> {
 
 #[cfg(test)]
 mod tests {
-    use super::ProjectConfig;
+    use super::{ExternalProcessSandboxProfile, ProjectConfig};
 
     #[test]
     fn rejects_unknown_top_level_field() {
@@ -221,6 +230,26 @@ mod tests {
         .expect("pipeline configuration should parse");
         assert_eq!(config.pipeline.extraction_concurrency, 4);
         assert_eq!(config.pipeline.max_extraction_bytes_in_flight, 1_048_576);
+    }
+
+    #[test]
+    fn parses_opt_in_clean_environment_process_profile() {
+        let config = toml::from_str::<ProjectConfig>(
+            "[adapters]\nexternal_process_sandbox = \"clean_environment\"",
+        )
+        .expect("sandbox configuration should parse");
+        assert_eq!(
+            config.adapters.external_process_sandbox,
+            ExternalProcessSandboxProfile::CleanEnvironment
+        );
+    }
+
+    #[test]
+    fn defaults_external_process_sandbox_to_disabled() {
+        assert_eq!(
+            ProjectConfig::default().adapters.external_process_sandbox,
+            ExternalProcessSandboxProfile::Disabled
+        );
     }
 
     #[test]

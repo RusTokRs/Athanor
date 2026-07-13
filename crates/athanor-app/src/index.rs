@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use athanor_core::{CanonicalSnapshotStore, KnowledgeStore};
+use athanor_core::{CanonicalSnapshotStore, KnowledgeStore, OperationContext};
 use athanor_domain::{RepoId, SnapshotBase};
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};
@@ -69,7 +69,15 @@ struct ValidationResultFile<'a> {
 }
 
 pub async fn index_project(options: IndexOptions) -> Result<IndexReport> {
-    index_project_inner(options, None, None).await
+    index_project_inner(options, None, None, None).await
+}
+
+/// Indexes with explicit transport-neutral operation metadata propagated to all pipeline ports.
+pub async fn index_project_with_operation_context(
+    options: IndexOptions,
+    operation: OperationContext,
+) -> Result<IndexReport> {
+    index_project_inner(options, None, None, Some(operation)).await
 }
 
 /// Indexes with dependencies supplied by an explicit application composition.
@@ -77,14 +85,23 @@ pub async fn index_project_with_composition(
     options: IndexOptions,
     composition: &RuntimeComposition,
 ) -> Result<IndexReport> {
-    index_project_inner(options, None, Some(composition)).await
+    index_project_inner(options, None, Some(composition), None).await
 }
 
 pub async fn index_project_cancellable(
     options: IndexOptions,
     cancellation: CancellationToken,
 ) -> Result<IndexReport> {
-    index_project_inner(options, Some(cancellation), None).await
+    index_project_inner(options, Some(cancellation), None, None).await
+}
+
+/// Cancellable indexing with explicit transport-neutral operation metadata.
+pub async fn index_project_cancellable_with_operation_context(
+    options: IndexOptions,
+    cancellation: CancellationToken,
+    operation: OperationContext,
+) -> Result<IndexReport> {
+    index_project_inner(options, Some(cancellation), None, Some(operation)).await
 }
 
 /// Cancellable variant of [`index_project_with_composition`].
@@ -93,14 +110,32 @@ pub async fn index_project_cancellable_with_composition(
     cancellation: CancellationToken,
     composition: &RuntimeComposition,
 ) -> Result<IndexReport> {
-    index_project_inner(options, Some(cancellation), Some(composition)).await
+    index_project_inner(options, Some(cancellation), Some(composition), None).await
+}
+
+/// Cancellable composition-aware indexing with explicit operation metadata.
+pub async fn index_project_cancellable_with_composition_and_operation_context(
+    options: IndexOptions,
+    cancellation: CancellationToken,
+    composition: &RuntimeComposition,
+    operation: OperationContext,
+) -> Result<IndexReport> {
+    index_project_inner(
+        options,
+        Some(cancellation),
+        Some(composition),
+        Some(operation),
+    )
+    .await
 }
 
 async fn index_project_inner(
     options: IndexOptions,
     cancellation: Option<CancellationToken>,
     composition: Option<&RuntimeComposition>,
+    operation: Option<OperationContext>,
 ) -> Result<IndexReport> {
+    let operation = operation.unwrap_or_else(|| OperationContext::new("index"));
     let index_started = Instant::now();
     let root = normalize_canonical_path(
         options
@@ -133,6 +168,10 @@ async fn index_project_inner(
     let output_result = if options.validate_only {
         let pipeline = runtime_builder(&root, composition)
             .allow_external_process(config.adapters.allow_external_process)
+            .clear_external_process_environment(matches!(
+                config.adapters.external_process_sandbox,
+                crate::config::ExternalProcessSandboxProfile::CleanEnvironment
+            ))
             .allowed_external_process_programs(
                 config
                     .adapters
@@ -150,7 +189,7 @@ async fn index_project_inner(
             );
         if let Some(cancellation) = cancellation.clone() {
             pipeline
-                .run_with_incremental_cancellable(
+                .run_with_incremental_cancellable_operation_context(
                     RepoId(repo_id_for_root(&root)),
                     SnapshotBase {
                         branch: None,
@@ -162,12 +201,13 @@ async fn index_project_inner(
                         previous_state: previous_state.clone(),
                         previous_snapshot,
                     },
+                    operation.clone(),
                     cancellation,
                 )
                 .await
         } else {
             pipeline
-                .run_with_incremental(
+                .run_with_incremental_operation_context(
                     RepoId(repo_id_for_root(&root)),
                     SnapshotBase {
                         branch: None,
@@ -179,12 +219,17 @@ async fn index_project_inner(
                         previous_state: previous_state.clone(),
                         previous_snapshot,
                     },
+                    operation.clone(),
                 )
                 .await
         }
     } else {
         let pipeline = runtime_builder(&root, composition)
             .allow_external_process(config.adapters.allow_external_process)
+            .clear_external_process_environment(matches!(
+                config.adapters.external_process_sandbox,
+                crate::config::ExternalProcessSandboxProfile::CleanEnvironment
+            ))
             .allowed_external_process_programs(
                 config
                     .adapters
@@ -202,7 +247,7 @@ async fn index_project_inner(
             );
         if let Some(cancellation) = cancellation.clone() {
             pipeline
-                .run_with_incremental_cancellable_deferred(
+                .run_with_incremental_cancellable_deferred_operation_context(
                     RepoId(repo_id_for_root(&root)),
                     SnapshotBase {
                         branch: None,
@@ -214,12 +259,13 @@ async fn index_project_inner(
                         previous_state: previous_state.clone(),
                         previous_snapshot,
                     },
+                    operation.clone(),
                     cancellation,
                 )
                 .await
         } else {
             pipeline
-                .run_with_incremental_deferred(
+                .run_with_incremental_deferred_operation_context(
                     RepoId(repo_id_for_root(&root)),
                     SnapshotBase {
                         branch: None,
@@ -231,6 +277,7 @@ async fn index_project_inner(
                         previous_state: previous_state.clone(),
                         previous_snapshot,
                     },
+                    operation,
                 )
                 .await
         }

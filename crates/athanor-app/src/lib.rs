@@ -12,7 +12,19 @@ pub mod config;
 pub mod context;
 pub mod coverage;
 pub mod daemon;
+mod daemon_client;
+mod daemon_connection;
+mod daemon_endpoint;
+mod daemon_job_cancellation;
+mod daemon_job_registry;
+mod daemon_job_scheduler;
+mod daemon_job_state;
+mod daemon_jobs_support;
+mod daemon_lifecycle;
+mod daemon_protocol;
+mod daemon_recovery;
 pub mod daemon_runtime;
+mod daemon_watcher;
 pub mod docs;
 pub mod explain;
 pub mod generation;
@@ -26,6 +38,14 @@ pub mod invalidation;
 mod local_source;
 pub mod overview;
 pub mod pipeline;
+mod pipeline_check;
+mod pipeline_extract;
+mod pipeline_link;
+mod pipeline_merge;
+mod pipeline_metrics;
+mod pipeline_ownership;
+mod pipeline_source;
+mod pipeline_support;
 mod project_path;
 pub mod project_registry;
 mod projection;
@@ -46,7 +66,10 @@ pub mod wiki;
 pub mod indexing {
     pub use crate::index::{
         IndexOptions, IndexReport, IndexReportMetrics, index_project, index_project_cancellable,
-        index_project_cancellable_with_composition, index_project_with_composition,
+        index_project_cancellable_with_composition,
+        index_project_cancellable_with_composition_and_operation_context,
+        index_project_cancellable_with_operation_context, index_project_with_composition,
+        index_project_with_operation_context,
     };
     pub use crate::invalidation::*;
     pub use crate::pipeline::{IndexPipeline, IndexPipelineMetrics, IndexPipelineOutput};

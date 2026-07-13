@@ -214,6 +214,9 @@ enum Command {
         project_id: String,
         #[arg(long)]
         registry: Option<PathBuf>,
+        /// Reject or stop indexing after this Unix timestamp in milliseconds.
+        #[arg(long)]
+        deadline_unix_ms: Option<u64>,
         #[arg(long)]
         json: bool,
     },
@@ -222,6 +225,9 @@ enum Command {
         project_id: String,
         #[arg(long)]
         registry: Option<PathBuf>,
+        /// Reject or stop generation after this Unix timestamp in milliseconds.
+        #[arg(long)]
+        deadline_unix_ms: Option<u64>,
         #[arg(long)]
         json: bool,
     },
@@ -230,6 +236,9 @@ enum Command {
         project_id: String,
         #[arg(long)]
         registry: Option<PathBuf>,
+        /// Reject or stop projection after this Unix timestamp in milliseconds.
+        #[arg(long)]
+        deadline_unix_ms: Option<u64>,
         #[arg(long)]
         json: bool,
     },
@@ -238,6 +247,9 @@ enum Command {
         project_id: String,
         #[arg(long)]
         registry: Option<PathBuf>,
+        /// Reject or stop projection after this Unix timestamp in milliseconds.
+        #[arg(long)]
+        deadline_unix_ms: Option<u64>,
         #[arg(long)]
         json: bool,
     },
@@ -248,6 +260,9 @@ enum Command {
         registry: Option<PathBuf>,
         #[arg(long, default_value_t = 10)]
         top: usize,
+        /// Reject the request after this Unix timestamp in milliseconds.
+        #[arg(long)]
+        deadline_unix_ms: Option<u64>,
         #[arg(long)]
         json: bool,
     },
@@ -258,6 +273,9 @@ enum Command {
         stable_key: String,
         #[arg(long)]
         registry: Option<PathBuf>,
+        /// Reject the request after this Unix timestamp in milliseconds.
+        #[arg(long)]
+        deadline_unix_ms: Option<u64>,
         #[arg(long)]
         json: bool,
     },
@@ -271,6 +289,9 @@ enum Command {
         /// Maximum number of search results to return.
         #[arg(long, default_value_t = 10)]
         limit: usize,
+        /// Reject the request after this Unix timestamp in milliseconds.
+        #[arg(long)]
+        deadline_unix_ms: Option<u64>,
         #[arg(long)]
         json: bool,
     },
@@ -302,6 +323,9 @@ enum Command {
         /// Maximum relation traversal depth.
         #[arg(long)]
         max_depth: Option<usize>,
+        /// Reject the request after this Unix timestamp in milliseconds.
+        #[arg(long)]
+        deadline_unix_ms: Option<u64>,
         #[arg(long)]
         json: bool,
     },
@@ -324,6 +348,9 @@ enum Command {
         max_diagnostics: usize,
         #[arg(long, default_value_t = 3)]
         max_depth: usize,
+        /// Reject the request after this Unix timestamp in milliseconds.
+        #[arg(long)]
+        deadline_unix_ms: Option<u64>,
         #[arg(long)]
         json: bool,
     },
@@ -521,51 +548,93 @@ async fn main() -> Result<()> {
         Command::Index {
             project_id,
             registry,
+            deadline_unix_ms,
             json,
         } => print_response(
-            request(&project_id, registry, DaemonCommand::Index).await?,
+            request(
+                &project_id,
+                registry,
+                DaemonCommand::Index { deadline_unix_ms },
+            )
+            .await?,
             json,
         ),
         Command::Generate {
             project_id,
             registry,
+            deadline_unix_ms,
             json,
         } => print_response(
-            request(&project_id, registry, DaemonCommand::Generate).await?,
+            request(
+                &project_id,
+                registry,
+                DaemonCommand::Generate { deadline_unix_ms },
+            )
+            .await?,
             json,
         ),
         Command::Wiki {
             project_id,
             registry,
+            deadline_unix_ms,
             json,
         } => print_response(
-            request(&project_id, registry, DaemonCommand::Wiki).await?,
+            request(
+                &project_id,
+                registry,
+                DaemonCommand::Wiki { deadline_unix_ms },
+            )
+            .await?,
             json,
         ),
         Command::ReportHtml {
             project_id,
             registry,
+            deadline_unix_ms,
             json,
         } => print_response(
-            request(&project_id, registry, DaemonCommand::HtmlReport).await?,
+            request(
+                &project_id,
+                registry,
+                DaemonCommand::HtmlReport { deadline_unix_ms },
+            )
+            .await?,
             json,
         ),
         Command::Overview {
             project_id,
             registry,
             top,
+            deadline_unix_ms,
             json,
         } => print_response(
-            request(&project_id, registry, DaemonCommand::Overview { top }).await?,
+            request(
+                &project_id,
+                registry,
+                DaemonCommand::Overview {
+                    top,
+                    deadline_unix_ms,
+                },
+            )
+            .await?,
             json,
         ),
         Command::Explain {
             project_id,
             stable_key,
             registry,
+            deadline_unix_ms,
             json,
         } => print_response(
-            request(&project_id, registry, DaemonCommand::Explain { stable_key }).await?,
+            request(
+                &project_id,
+                registry,
+                DaemonCommand::Explain {
+                    stable_key,
+                    deadline_unix_ms,
+                },
+            )
+            .await?,
             json,
         ),
         Command::Search {
@@ -573,12 +642,17 @@ async fn main() -> Result<()> {
             query,
             registry,
             limit,
+            deadline_unix_ms,
             json,
         } => print_response(
             request(
                 &project_id,
                 registry,
-                DaemonCommand::Search { query, limit },
+                DaemonCommand::Search {
+                    query,
+                    limit,
+                    deadline_unix_ms,
+                },
             )
             .await?,
             json,
@@ -594,6 +668,7 @@ async fn main() -> Result<()> {
             max_entities,
             max_diagnostics,
             max_depth,
+            deadline_unix_ms,
             json,
         } => print_response(
             request(
@@ -610,6 +685,7 @@ async fn main() -> Result<()> {
                         max_diagnostics,
                         max_depth,
                     },
+                    deadline_unix_ms,
                 },
             )
             .await?,
@@ -625,6 +701,7 @@ async fn main() -> Result<()> {
             max_files,
             max_diagnostics,
             max_depth,
+            deadline_unix_ms,
             json,
         } => print_response(
             request(
@@ -638,6 +715,7 @@ async fn main() -> Result<()> {
                     max_files,
                     max_diagnostics,
                     max_depth,
+                    deadline_unix_ms,
                 },
             )
             .await?,

@@ -145,15 +145,22 @@ adapter. Enable it explicitly with `--features store-surreal` when a project con
 
 `ath config validate --path <root>` parses and prints the effective `athanor.toml`, rejecting
 unknown fields. `ath config doctor --path <root>` adds a bounded local compatibility report for the
-configured storage mode and external-process adapter safeguards.
+configured storage mode, external-process adapter safeguards, and the selected external-process
+sandbox profile. The `clean_environment` profile clears inherited environment variables; it is not
+OS-level filesystem, network, or CPU isolation.
 
 Trusting an external adapter records both the canonical manifest path/content hash and the SHA-256
-hashes of its enabled executable paths. A changed executable therefore requires an explicit
-`ath plugins trust <manifest>` again before the runtime accepts that plugin.
+hashes and byte sizes of its enabled executable paths. A changed executable or size therefore
+requires an explicit `ath plugins trust <manifest>` again before the runtime accepts that plugin.
+Trust registry schema `athanor.adapter_trust.v2` intentionally requires re-trusting prior v1
+records so size binding cannot be silently omitted. Each assembled external `ProcessCommand`
+captures that digest and size again and rechecks both immediately before every process launch,
+refusing an executable changed after runtime assembly.
 
-Core failures expose a stable `CoreErrorCode` plus retryability. In particular, external adapter
-timeouts are reported as `deadline_exceeded`, while the daemon/MCP public error-schema migration
-remains separate protocol work.
+Core failures expose a stable `CoreErrorCode` plus retryability. In particular, malformed external
+adapter JSON responses are `adapter_protocol`, execution failures are `adapter_execution`, and
+timeouts are `deadline_exceeded`; the daemon maps these codes into structured error details while
+the MCP public error-schema migration remains separate protocol work.
 
 External process adapter commands run through Tokio async I/O with bounded stdin/stdout/stderr,
 timeout handling, and an explicit canonical manifest-directory working directory; they do not
@@ -161,14 +168,34 @@ inherit the caller's implicit working directory. The internal runner accepts an 
 `CancellationToken`, returns `cancelled`, and the cancellable pipeline scopes it around source,
 extractor, linker, and checker calls. On Windows timeout and cancellation invoke
 `taskkill /T /F` before the direct-child fallback, terminating descendants launched by common
-adapter wrappers. Job Object containment and Unix process-group termination remain future
+adapter wrappers. On Unix every adapter receives a dedicated process group; cancellation and
+timeout signal that group before the direct-child fallback. Job Object containment remains future
 hardening work. `athanor-core` exposes the transport-neutral `ProcessRunner` request/output
 contract with explicit executable, directory, stdin, and byte/time limits. `TokioProcessRunner`
 implements that port from the focused `runtime/process_runner.rs` module, and the external adapter
 executor uses its cancellable application-level extension so cancellation remains outside the core
-contract. Consequently the runner is not yet injected through `RuntimeComposition`: doing so
+contract. Process-adapter command resolution, output excerpts, extension normalization, and
+allowlist resolution are kept separately in `runtime/process_adapter_support.rs`; bounded JSON
+request execution and response validation live in `runtime/process_adapter.rs`. Consequently the runner is not yet injected through `RuntimeComposition`: doing so
 requires a separate application-level cancellation-aware runner port rather than weakening the
 core contract.
+
+`athanor-core::OperationContext` carries an optional operation id and wall-clock deadline without
+depending on application cancellation types. `IndexPipeline` passes one shared context to source,
+extractor, linker, and checker ports through their context-aware compatibility methods; existing
+adapters retain their legacy methods until they need operation-specific behavior. Deadline checks
+and Tokio timeout enforcement occur at pipeline adapter boundaries and canonical store begin/write/
+commit calls. Rollback remains outside the deadline so an expired operation can still clean up its
+uncommitted snapshot. Wiki and HTML projection services accept the same context in their
+cancellable APIs and incorporate deadline expiry into their existing cooperative cancellation
+callbacks; interrupting an arbitrary synchronous projector factory remains follow-up work.
+`index_project_with_operation_context` and its cancellable counterpart expose this propagation to
+application hosts without changing the existing `IndexOptions` configuration contract.
+
+Adapter-plugin concerns are also separated below the runtime boundary: manifest discovery and
+validation live in `runtime/plugin_discovery.rs`, while trust path resolution, registry I/O,
+content hashing, and trust-record/status calculation live in focused `runtime/plugin_trust_*.rs`
+modules. The public runtime functions retain the compatibility API used by the CLI and embedders.
 
 If canonical storage fails before a snapshot commits, `IndexPipeline` calls the `KnowledgeStore`
 `abort_snapshot` lifecycle operation. JSONL and memory stores discard the uncommitted snapshot;
@@ -246,6 +273,31 @@ own top-level namespaces.
   MCP routing.
 - `serve_daemon_with_composition` and `request_daemon`: local daemon lifecycle and newline-delimited JSON command
   protocol for one explicitly resolved project id.
+- `daemon_protocol`: response construction, response-size fallback serialization, and shared
+  protocol-byte-limit validation; server connection and job orchestration remain in `daemon`.
+- `daemon_client`: bounded client transport selection and request/response exchange for TCP, Unix
+  sockets, and Windows named pipes; endpoint discovery and request authentication remain in
+  `daemon`.
+- `daemon_connection`: bounded server-side connection I/O, request-schema response selection, and
+  authenticated busy rejection; command execution remains in `daemon`.
+- `daemon_endpoint`: durable endpoint read/validation and staged endpoint publication; transport
+  lifecycle and runtime-path ownership remain in `daemon` and `daemon_runtime`.
+- `daemon_watcher`: recommended/polling watcher construction, debounce filtering, `.athanor`
+  exclusion, and watcher-triggered index-job admission.
+- `daemon_jobs_support`: job-id validation, Unix-millisecond timestamps, and deterministic
+  retention pruning; scheduling and synchronized job-state transitions remain in `daemon`.
+- `daemon_job_registry`: deterministic bounded job listing and exact job lookup; mutation and
+  cancellation transitions remain in `daemon`.
+- `daemon_lifecycle`: lifecycle state reads/transitions and active-job counting; shutdown and job
+  scheduling remain in `daemon`.
+- `daemon_job_cancellation`: cancellation-token lookup and queued/running job cancellation
+  transitions; token registration and job scheduling remain in `daemon`.
+- `daemon_job_scheduler`: monotonic job-id allocation and queued job creation; cancellable token
+  registration and background execution remain in `daemon`.
+- `daemon_job_state`: queued-to-running and terminal job state transitions, including retention
+  pruning and cancellation-token removal; failure orchestration remains in `daemon`.
+- `daemon_recovery`: stale index/read-model staging-artifact inspection and cleanup before daemon
+  service work begins.
 - `check_project`: scoped API, documentation, environment, script, deployment, and runbook diagnostic reporting from the latest canonical snapshot.
 - `validate_changed`: extractor-only changed-file preflight from Git status or persisted index state.
 - `check_affected`: read-only changed-file diagnostic reporting from latest canonical snapshot plus persisted index state.
@@ -564,10 +616,15 @@ athd jobs <project-id> --limit 20
 athd job <project-id> job_00000001
 athd cancel <project-id> job_00000001
 athd index <project-id>
+athd index <project-id> --deadline-unix-ms <unix-ms>
 athd generate <project-id>
+athd generate <project-id> --deadline-unix-ms <unix-ms>
+athd wiki <project-id> --deadline-unix-ms <unix-ms>
+athd report-html <project-id> --deadline-unix-ms <unix-ms>
 athd wiki <project-id>
 athd report-html <project-id>
 athd overview <project-id> --top 10
+athd overview <project-id> --top 10 --deadline-unix-ms <unix-ms>
 athd explain <project-id> "api://POST:/login"
 athd search <project-id> "login" --limit 10
 athd context <project-id> "task" --level summary --budget 2000
@@ -583,7 +640,13 @@ the protected per-user runtime directory, and returns only after a bounded authe
 round trip confirms readiness.
 Repeated start requests are idempotent when the registered project daemon is already healthy.
 `athd serve` remains the foreground/debug form. `athd ping` performs the explicit protocol health
-round trip and returns the normal structured status response.
+round trip and returns the normal structured status response. Responses retain the legacy optional
+v2 `error` string and additionally expose optional `error_details` with a stable code,
+retryability flag, message, and an intentionally empty public details map. This is a compatibility
+bridge toward the planned typed-error protocol migration.
+New daemon endpoints publish protocol/schema v3. Endpoint loading, request validation, and
+response serialization retain v2 compatibility: the daemon accepts `athanor.daemon_request.v2`
+and `.v3`, and mirrors the request generation as `athanor.daemon_response.v2` or `.v3`.
 
 The daemon writes runtime metadata outside the repository:
 
@@ -597,7 +660,7 @@ Windows: %LOCALAPPDATA%\Athanor\runtime\<project-id>\
   daemon.log
 ```
 
-`endpoint.json` uses schema `athanor.daemon_endpoint.v2` and records the protocol and Athanor
+`endpoint.json` uses schema `athanor.daemon_endpoint.v3` and records the protocol and Athanor
 versions, runtime id, token path, project id, canonical root, registry path, transport, TCP address
 or local socket metadata, process id, start time, concurrent request limit, job-history retention
 limit, protocol byte limits, and watcher settings. It never contains the token value. The lock uses
@@ -615,8 +678,9 @@ default; `--insecure-allow-v1` enables temporary migration compatibility over lo
 
 The default protocol is loopback TCP with one JSON request per connection, terminated by a newline.
 `--transport local-socket` switches the same newline-delimited JSON protocol to a Unix domain socket
-on Unix or a named pipe on Windows. Non-loopback TCP binds are rejected. Requests use schema
-`athanor.daemon_request.v2`; responses use `athanor.daemon_response.v2`.
+on Unix or a named pipe on Windows. Non-loopback TCP binds are rejected. New requests use schema
+`athanor.daemon_request.v3`; responses use `athanor.daemon_response.v3`. The client and server
+retain v2 endpoint/request/response compatibility during migration.
 Request and response messages default to a 1 MiB limit and can be raised or lowered at serve time
 with `--max-request-bytes` and `--max-response-bytes`. Oversized requests are rejected, oversized
 computed responses are replaced with a structured daemon error response, and clients reject oversized
@@ -631,7 +695,9 @@ requests that do not match the endpoint's project identity. The implemented comm
 - `job`: returns one exact daemon job by id.
 - `cancel`: cancels queued daemon jobs immediately and requests cooperative cancellation for running
   index, generation, wiki, and HTML report jobs.
-- `index`: starts one background indexing job for the project and immediately returns its job record.
+- `index`, `generate`, `wiki`, and `html_report`: start one background writable job and immediately return its
+  job record. Their optional `deadline_unix_ms` request field is propagated to the corresponding
+  operation context; it must be in the future. Omitting it preserves legacy unbounded requests.
 - `generate`: starts one background coordinated read-model generation job and immediately returns
   its job record.
 - `wiki`: starts one background Markdown wiki projection job and immediately returns its job record.
@@ -650,7 +716,10 @@ requests that do not match the endpoint's project identity. The implemented comm
 - `shutdown`: rejects new work, requests cooperative cancellation, drains active jobs for the
   configured timeout, and removes endpoint/token metadata.
 
-Daemon status, overview, explain, search, context, and change-map requests are read-only. Daemon context requests
+Daemon status, overview, explain, search, context, and change-map requests are read-only. The five
+bounded read-only query commands (`overview`, `explain`, `search`, `context`, and `change-map`) also
+accept an optional future `deadline_unix_ms`; the daemon bounds their asynchronous request work and
+returns `deadline_exceeded` when it expires. Omitting the field preserves legacy requests. Daemon context requests
 expose the normal level and explicit limit overrides, including diff-based changed-file context; they
 do not mutate snapshots or index state. The job registry records daemon lifecycle jobs, completed or
 failed read-only `overview`/`explain`/`search`/`context`/`change-map` request jobs, background indexing jobs, and
@@ -925,6 +994,13 @@ checkers:
 - logging external process adapter stdout and stderr through tracing
 
 `IndexPipeline` is responsible for orchestration:
+
+The orchestration façade remains in `pipeline.rs`, while phase-specific implementation is kept
+internal to `pipeline_source.rs`, `pipeline_extract.rs`, `pipeline_link.rs`, and
+`pipeline_check.rs`. Shared normalization, timing, ownership/invalidation predicates, and small
+pipeline utilities live in `pipeline_merge.rs`, `pipeline_metrics.rs`, `pipeline_ownership.rs`,
+and `pipeline_support.rs` respectively. These modules preserve the same ordered pipeline and
+canonical validation boundaries without widening the public application API.
 
 - discovering sources
 - classifying affected files from persisted state

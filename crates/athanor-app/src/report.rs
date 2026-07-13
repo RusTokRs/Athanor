@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use crate::config::load_config;
 use crate::store::init_store;
 use anyhow::{Context, Result, bail};
-use athanor_core::CanonicalSnapshotStore;
+use athanor_core::{CanonicalSnapshotStore, OperationContext};
 use serde_json::json;
 
 use crate::project_path::normalize_canonical_path;
@@ -28,21 +28,41 @@ pub struct HtmlReport {
 }
 
 pub async fn project_html_report(options: HtmlReportOptions) -> Result<HtmlReport> {
-    project_html_report_inner(options, None, None).await
+    project_html_report_inner(options, None, None, OperationContext::new("html_report")).await
+}
+
+/// Projects the HTML report with transport-neutral operation metadata.
+pub async fn project_html_report_with_operation_context(
+    options: HtmlReportOptions,
+    operation: OperationContext,
+) -> Result<HtmlReport> {
+    project_html_report_inner(options, None, None, operation).await
 }
 
 pub async fn project_html_report_with_composition(
     options: HtmlReportOptions,
     composition: &RuntimeComposition,
 ) -> Result<HtmlReport> {
-    project_html_report_inner(options, None, Some(composition)).await
+    project_html_report_inner(
+        options,
+        None,
+        Some(composition),
+        OperationContext::new("html_report"),
+    )
+    .await
 }
 
 pub async fn project_html_report_cancellable(
     options: HtmlReportOptions,
     cancellation: CancellationToken,
 ) -> Result<HtmlReport> {
-    project_html_report_inner(options, Some(cancellation), None).await
+    project_html_report_inner(
+        options,
+        Some(cancellation),
+        None,
+        OperationContext::new("html_report"),
+    )
+    .await
 }
 
 /// Projects the HTML report with explicit dependencies and cooperative cancellation.
@@ -51,15 +71,42 @@ pub async fn project_html_report_cancellable_with_composition(
     cancellation: CancellationToken,
     composition: &RuntimeComposition,
 ) -> Result<HtmlReport> {
-    project_html_report_inner(options, Some(cancellation), Some(composition)).await
+    project_html_report_inner(
+        options,
+        Some(cancellation),
+        Some(composition),
+        OperationContext::new("html_report"),
+    )
+    .await
+}
+
+/// Cancellable composition-aware HTML projection with explicit operation metadata.
+pub async fn project_html_report_cancellable_with_composition_and_operation_context(
+    options: HtmlReportOptions,
+    cancellation: CancellationToken,
+    composition: &RuntimeComposition,
+    operation: OperationContext,
+) -> Result<HtmlReport> {
+    project_html_report_inner(options, Some(cancellation), Some(composition), operation).await
+}
+
+/// Cancellable HTML projection with explicit operation metadata.
+pub async fn project_html_report_cancellable_with_operation_context(
+    options: HtmlReportOptions,
+    cancellation: CancellationToken,
+    operation: OperationContext,
+) -> Result<HtmlReport> {
+    project_html_report_inner(options, Some(cancellation), None, operation).await
 }
 
 async fn project_html_report_inner(
     options: HtmlReportOptions,
     cancellation: Option<CancellationToken>,
     composition: Option<&RuntimeComposition>,
+    operation: OperationContext,
 ) -> Result<HtmlReport> {
     check_cancelled(&cancellation)?;
+    operation.check_deadline()?;
     let root = normalize_canonical_path(
         options
             .root
@@ -89,6 +136,7 @@ async fn project_html_report_inner(
         bail!("no canonical snapshot found; run `ath index` first");
     };
     check_cancelled(&cancellation)?;
+    operation.check_deadline()?;
     let snapshot_id = snapshot
         .snapshot
         .clone()
@@ -119,14 +167,16 @@ async fn project_html_report_inner(
         cancellation
             .as_ref()
             .is_some_and(CancellationToken::is_cancelled)
+            || operation.check_deadline().is_err()
     };
-    match composition {
+    let projection = match composition {
         Some(composition) => {
             composition.project_html(&output_dir, &snapshot_id.0, payload, &is_cancelled)
         }
         None => project_html_payload(&output_dir, &snapshot_id.0, payload, &is_cancelled),
-    }
-    .context("failed to project HTML report")?;
+    };
+    operation.check_deadline()?;
+    projection.context("failed to project HTML report")?;
 
     Ok(report)
 }

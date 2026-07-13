@@ -64,6 +64,10 @@ pub async fn validate_changed(
     let config = load_config(&root)?;
     let pipeline = RuntimeBuilder::new(&root)
         .allow_external_process(config.adapters.allow_external_process)
+        .clear_external_process_environment(matches!(
+            config.adapters.external_process_sandbox,
+            crate::config::ExternalProcessSandboxProfile::CleanEnvironment
+        ))
         .allowed_external_process_programs(
             config
                 .adapters

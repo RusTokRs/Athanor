@@ -265,6 +265,7 @@ External process adapters are disabled by default in production:
 [adapters]
 allow_external_process = false
 external_process_allowlist = []
+external_process_sandbox = "disabled"
 ```
 
 Any enabled manifest entry with a `command` is rejected before registration unless the project
@@ -287,3 +288,8 @@ ath plugins untrust .athanor/plugins/example/athanor-adapter.json
 ```
 
 The project opt-in and user-level trust record do not provide process sandboxing.
+
+`external_process_sandbox = "clean_environment"` is an opt-in partial sandbox profile. It clears
+the inherited environment before an external adapter is launched, reducing accidental exposure of
+host secrets. It deliberately does not claim network, filesystem, CPU, or OS-account isolation;
+those require platform-specific sandbox support.

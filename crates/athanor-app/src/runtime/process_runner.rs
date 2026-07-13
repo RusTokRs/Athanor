@@ -1,3 +1,5 @@
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
 use std::process::Stdio;
 use std::time::Duration;
 
@@ -40,17 +42,23 @@ async fn execute_process(
         )));
     }
 
-    let mut child = Command::new(&request.program)
+    let mut command = Command::new(&request.program);
+    command
         .args(&request.args)
         .current_dir(&request.working_dir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()
-        .map_err(|error| {
-            CoreError::Adapter(format!("failed to spawn {}: {error}", request.label))
-        })?;
+        .kill_on_drop(true);
+    if request.clear_environment {
+        command.env_clear();
+    }
+    #[cfg(unix)]
+    command.as_std_mut().process_group(0);
+
+    let mut child = command.spawn().map_err(|error| {
+        CoreError::Adapter(format!("failed to spawn {}: {error}", request.label))
+    })?;
     let stdout = child.stdout.take().ok_or_else(|| {
         CoreError::Adapter(format!("failed to open stdout for {}", request.label))
     })?;
@@ -63,12 +71,16 @@ async fn execute_process(
         let mut stdin = child.stdin.take().ok_or_else(|| {
             CoreError::Adapter(format!("failed to open stdin for {}", request.label))
         })?;
-        stdin.write_all(&request.stdin).await.map_err(|error| {
-            CoreError::Adapter(format!(
-                "failed to write input for {}: {error}",
-                request.label
-            ))
-        })?;
+        if let Err(error) = stdin.write_all(&request.stdin).await {
+            // A short-lived adapter may deliberately exit before consuming stdin. Preserve its
+            // exit status and stderr instead of replacing them with a BrokenPipe write error.
+            if error.kind() != std::io::ErrorKind::BrokenPipe {
+                return Err(CoreError::Adapter(format!(
+                    "failed to write input for {}: {error}",
+                    request.label
+                )));
+            }
+        }
     }
 
     let deadline = tokio::time::Instant::now() + Duration::from_millis(request.limits.timeout_ms);
@@ -106,9 +118,25 @@ async fn execute_process(
 /// Stops an external adapter and, where the platform exposes a native tree command, its descendants.
 ///
 /// `Child::kill` is retained as a fallback because a descendant may have already exited or the
-/// platform helper may be unavailable. Windows `taskkill /T` reaches child processes spawned by
-/// batch files and adapter launchers; Job Object containment remains a future hardening step.
+/// platform helper may be unavailable. Unix children run in their own process group and receive a
+/// group signal. Windows `taskkill /T` reaches child processes spawned by batch files and adapter
+/// launchers; Job Object containment remains a future hardening step.
 async fn terminate_external_process_tree(child: &mut tokio::process::Child) {
+    #[cfg(unix)]
+    if let Some(pid) = child.id() {
+        let process_group = format!("-{pid}");
+        let _ = Command::new("kill")
+            .args(["-TERM", "--", process_group.as_str()])
+            .kill_on_drop(true)
+            .output()
+            .await;
+        let _ = Command::new("kill")
+            .args(["-KILL", "--", process_group.as_str()])
+            .kill_on_drop(true)
+            .output()
+            .await;
+    }
+
     #[cfg(windows)]
     if let Some(pid) = child.id() {
         let pid = pid.to_string();

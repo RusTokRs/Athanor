@@ -1243,6 +1243,12 @@ async fn run_cli() -> Result<()> {
             command: ConfigCommand::Doctor { path, json },
         }) => {
             let config = athanor_app::config::load_config(&path)?;
+            let external_process_sandbox = match config.adapters.external_process_sandbox {
+                athanor_app::config::ExternalProcessSandboxProfile::Disabled => "disabled",
+                athanor_app::config::ExternalProcessSandboxProfile::CleanEnvironment => {
+                    "clean_environment"
+                }
+            };
             let report = serde_json::json!({
                 "schema": "athanor.config_doctor.v1",
                 "root": path,
@@ -1255,6 +1261,10 @@ async fn run_cli() -> Result<()> {
                     "name": "external_process_adapters",
                     "status": "configured",
                     "detail": "external process adapters require explicit enablement, trust, and allowlisting"
+                }, {
+                    "name": "external_process_sandbox",
+                    "status": external_process_sandbox,
+                    "detail": "clean_environment clears inherited environment variables only; it is not OS-level filesystem, network, or CPU isolation"
                 }]
             });
             if json {
@@ -1263,6 +1273,7 @@ async fn run_cli() -> Result<()> {
                 println!("configuration doctor: {}", path.display());
                 println!("  storage backend: available");
                 println!("  external process adapters: configured");
+                println!("  external process sandbox: {external_process_sandbox}");
             }
         }
         Some(Command::Docs {

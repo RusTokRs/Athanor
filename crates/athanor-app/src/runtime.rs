@@ -1,25 +1,39 @@
 use std::collections::BTreeSet;
-use std::fs;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
-use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 #[cfg(test)]
 use athanor_core::ProcessRunner;
 use athanor_core::{
-    CheckInput, Checker, CoreError, CoreResult, ExtractInput, ExtractOutput, Extractor,
-    KnowledgeStore, LinkInput, Linker, ProcessLimits as CoreProcessLimits, ProcessRequest,
-    SourceFile, SourceProvider,
+    CheckInput, Checker, CoreResult, ExtractInput, ExtractOutput, Extractor, KnowledgeStore,
+    LinkInput, Linker, SourceFile, SourceProvider,
 };
+#[cfg(test)]
+use athanor_core::{CoreError, ProcessLimits as CoreProcessLimits, ProcessRequest};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
-use tracing::{debug, warn};
+#[cfg(test)]
+use tracing::debug;
+use tracing::warn;
 
 use crate::{CancellationToken, IndexPipeline, RuntimeComposition};
 
+mod plugin_discovery;
+mod plugin_hash;
+mod plugin_trust_path;
+mod plugin_trust_record;
+mod plugin_trust_registry;
+mod plugin_trust_status;
+mod process_adapter;
+mod process_adapter_support;
 mod process_runner;
+#[cfg(test)]
+use process_adapter_support::process_output_excerpt;
+use process_adapter_support::{
+    ProcessCommand, ProcessLimits, normalize_extension, resolve_external_process_allowlist,
+    resolve_manifest_program,
+};
 pub use process_runner::TokioProcessRunner;
 
 tokio::task_local! {
@@ -34,7 +48,7 @@ pub(crate) async fn with_process_cancellation<T>(
 }
 
 pub const ADAPTER_MANIFEST_SCHEMA: &str = "athanor.adapter_manifest";
-pub const ADAPTER_TRUST_SCHEMA: &str = "athanor.adapter_trust.v1";
+pub const ADAPTER_TRUST_SCHEMA: &str = "athanor.adapter_trust.v2";
 
 type SourceFactory = Box<dyn Fn(&Path) -> Box<dyn SourceProvider> + Send + Sync>;
 type ExtractorFactory = Box<dyn Fn() -> Box<dyn Extractor> + Send + Sync>;
@@ -138,6 +152,7 @@ pub struct TrustedAdapterPlugin {
 pub struct TrustedAdapterExecutable {
     pub program: PathBuf,
     pub content_hash: String,
+    pub content_size_bytes: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -198,7 +213,7 @@ impl AdapterRegistry {
         manifest: &AdapterPluginManifest,
         manifest_dir: &Path,
     ) -> Result<Self> {
-        self.with_plugin_manifest_at_using(manifest, manifest_dir, None)
+        self.with_plugin_manifest_at_using(manifest, manifest_dir, None, false)
     }
 
     fn with_plugin_manifest_at_using(
@@ -206,12 +221,18 @@ impl AdapterRegistry {
         manifest: &AdapterPluginManifest,
         manifest_dir: &Path,
         builtin_resolver: Option<BuiltinAdapterResolver>,
+        clear_external_process_environment: bool,
     ) -> Result<Self> {
-        validate_adapter_plugin_manifest(manifest)?;
+        plugin_discovery::validate(manifest)?;
 
         for adapter in manifest.adapters.iter().filter(|adapter| adapter.enabled) {
             self = self
-                .with_adapter_entry_using(adapter, manifest_dir, builtin_resolver)
+                .with_adapter_entry_using(
+                    adapter,
+                    manifest_dir,
+                    builtin_resolver,
+                    clear_external_process_environment,
+                )
                 .with_context(|| {
                     format!(
                         "failed to register adapter {} from plugin {}",
@@ -228,6 +249,7 @@ impl AdapterRegistry {
         adapter: &AdapterPluginEntry,
         manifest_dir: &Path,
         builtin_resolver: Option<BuiltinAdapterResolver>,
+        clear_external_process_environment: bool,
     ) -> Result<Self> {
         #[cfg(test)]
         crate::ensure_test_runtime();
@@ -248,10 +270,26 @@ impl AdapterRegistry {
         }
 
         match adapter.kind {
-            AdapterPluginKind::Source => self.external_process_source(adapter, manifest_dir),
-            AdapterPluginKind::Extractor => self.external_process_extractor(adapter, manifest_dir),
-            AdapterPluginKind::Linker => self.external_process_linker(adapter, manifest_dir),
-            AdapterPluginKind::Checker => self.external_process_checker(adapter, manifest_dir),
+            AdapterPluginKind::Source => self.external_process_source(
+                adapter,
+                manifest_dir,
+                clear_external_process_environment,
+            ),
+            AdapterPluginKind::Extractor => self.external_process_extractor(
+                adapter,
+                manifest_dir,
+                clear_external_process_environment,
+            ),
+            AdapterPluginKind::Linker => self.external_process_linker(
+                adapter,
+                manifest_dir,
+                clear_external_process_environment,
+            ),
+            AdapterPluginKind::Checker => self.external_process_checker(
+                adapter,
+                manifest_dir,
+                clear_external_process_environment,
+            ),
         }
     }
 
@@ -259,6 +297,7 @@ impl AdapterRegistry {
         self,
         adapter: &AdapterPluginEntry,
         manifest_dir: &Path,
+        clear_environment: bool,
     ) -> Result<Self> {
         let Some(command) = &adapter.command else {
             bail!(
@@ -266,7 +305,8 @@ impl AdapterRegistry {
                 adapter.id
             );
         };
-        let command = ProcessCommand::from_manifest(manifest_dir, command)?;
+        let command =
+            ProcessCommand::from_manifest_with_sandbox(manifest_dir, command, clear_environment)?;
         let id = adapter.id.clone();
 
         Ok(self.register_source_id(&adapter.id, move |root| {
@@ -282,6 +322,7 @@ impl AdapterRegistry {
         self,
         adapter: &AdapterPluginEntry,
         manifest_dir: &Path,
+        clear_environment: bool,
     ) -> Result<Self> {
         let Some(command) = &adapter.command else {
             bail!(
@@ -289,7 +330,8 @@ impl AdapterRegistry {
                 adapter.id
             );
         };
-        let command = ProcessCommand::from_manifest(manifest_dir, command)?;
+        let command =
+            ProcessCommand::from_manifest_with_sandbox(manifest_dir, command, clear_environment)?;
         let id = adapter.id.clone();
         let supports_extensions = adapter
             .supports_extensions
@@ -310,6 +352,7 @@ impl AdapterRegistry {
         self,
         adapter: &AdapterPluginEntry,
         manifest_dir: &Path,
+        clear_environment: bool,
     ) -> Result<Self> {
         let Some(command) = &adapter.command else {
             bail!(
@@ -317,7 +360,8 @@ impl AdapterRegistry {
                 adapter.id
             );
         };
-        let command = ProcessCommand::from_manifest(manifest_dir, command)?;
+        let command =
+            ProcessCommand::from_manifest_with_sandbox(manifest_dir, command, clear_environment)?;
         let id = adapter.id.clone();
 
         Ok(self.register_linker_id(&adapter.id, move || {
@@ -332,6 +376,7 @@ impl AdapterRegistry {
         self,
         adapter: &AdapterPluginEntry,
         manifest_dir: &Path,
+        clear_environment: bool,
     ) -> Result<Self> {
         let Some(command) = &adapter.command else {
             bail!(
@@ -339,7 +384,8 @@ impl AdapterRegistry {
                 adapter.id
             );
         };
-        let command = ProcessCommand::from_manifest(manifest_dir, command)?;
+        let command =
+            ProcessCommand::from_manifest_with_sandbox(manifest_dir, command, clear_environment)?;
         let id = adapter.id.clone();
 
         Ok(self.register_checker_id(&adapter.id, move || {
@@ -464,6 +510,7 @@ pub struct RuntimeBuilder {
     root: PathBuf,
     registry: AdapterRegistry,
     allow_external_process: bool,
+    clear_external_process_environment: bool,
     allowed_external_process_programs: Vec<PathBuf>,
     adapter_trust_path: Option<PathBuf>,
     builtin_adapter_resolver: Option<BuiltinAdapterResolver>,
@@ -475,6 +522,7 @@ impl RuntimeBuilder {
             root: root.into(),
             registry: AdapterRegistry::built_in(),
             allow_external_process: false,
+            clear_external_process_environment: false,
             allowed_external_process_programs: Vec::new(),
             adapter_trust_path: None,
             builtin_adapter_resolver: None,
@@ -489,6 +537,7 @@ impl RuntimeBuilder {
             root: root.into(),
             registry: composition.adapter_registry(),
             allow_external_process: false,
+            clear_external_process_environment: false,
             allowed_external_process_programs: Vec::new(),
             adapter_trust_path: None,
             builtin_adapter_resolver: Some(composition.builtin_adapter_resolver()),
@@ -507,6 +556,12 @@ impl RuntimeBuilder {
 
     pub fn allow_external_process(mut self, allowed: bool) -> Self {
         self.allow_external_process = allowed;
+        self
+    }
+
+    /// Enables the opt-in clean-environment external process sandbox profile.
+    pub fn clear_external_process_environment(mut self, enabled: bool) -> Self {
+        self.clear_external_process_environment = enabled;
         self
     }
 
@@ -566,12 +621,12 @@ impl RuntimeBuilder {
                         Some(path) => path.clone(),
                         None => default_adapter_trust_path()?,
                     };
-                    trust_registry = Some(load_adapter_trust_registry(&trust_path)?);
+                    trust_registry = Some(plugin_trust_registry::load(&trust_path)?);
                 }
                 let registry = trust_registry
                     .as_ref()
                     .expect("adapter trust registry was loaded for external adapters");
-                if !is_adapter_plugin_trusted(registry, &plugin)? {
+                if !plugin_trust_status::is_trusted(registry, &plugin, trusted_plugin_record)? {
                     bail!(
                         "external process adapter plugin `{}` is not trusted; run `ath plugins trust {}` to trust this manifest version",
                         plugin.manifest.name,
@@ -591,6 +646,7 @@ impl RuntimeBuilder {
                 &plugin.manifest,
                 manifest_dir,
                 self.builtin_adapter_resolver,
+                self.clear_external_process_environment,
             )?;
         }
 
@@ -617,61 +673,11 @@ impl RuntimeBuilder {
 }
 
 pub fn discover_adapter_plugins(root: impl AsRef<Path>) -> Result<Vec<DiscoveredAdapterPlugin>> {
-    let root = root.as_ref();
-    let mut manifest_paths = Vec::new();
-    let adapters_dir = root.join(".athanor/adapters");
-    let plugins_dir = root.join(".athanor/plugins");
-
-    if adapters_dir.is_dir() {
-        for entry in fs::read_dir(&adapters_dir)
-            .with_context(|| format!("failed to read {}", adapters_dir.display()))?
-        {
-            let path = entry?.path();
-
-            if path
-                .extension()
-                .is_some_and(|extension| extension == "json")
-            {
-                manifest_paths.push(path);
-            }
-        }
-    }
-
-    if plugins_dir.is_dir() {
-        for entry in fs::read_dir(&plugins_dir)
-            .with_context(|| format!("failed to read {}", plugins_dir.display()))?
-        {
-            let path = entry?.path().join("athanor-adapter.json");
-
-            if path.is_file() {
-                manifest_paths.push(path);
-            }
-        }
-    }
-
-    manifest_paths.sort();
-    manifest_paths
-        .into_iter()
-        .map(read_adapter_plugin_manifest)
-        .collect()
+    plugin_discovery::discover(root)
 }
 
 pub fn default_adapter_trust_path() -> Result<PathBuf> {
-    if let Some(path) = std::env::var_os("ATHANOR_ADAPTER_TRUST") {
-        if path.is_empty() {
-            bail!("ATHANOR_ADAPTER_TRUST must not be empty");
-        }
-        return Ok(PathBuf::from(path));
-    }
-
-    let home = std::env::var_os("USERPROFILE")
-        .or_else(|| std::env::var_os("HOME"))
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "cannot determine user home directory; set ATHANOR_ADAPTER_TRUST explicitly"
-            )
-        })?;
-    Ok(PathBuf::from(home).join(".athanor/adapter-trust.json"))
+    plugin_trust_path::default_path()
 }
 
 pub fn list_adapter_plugin_trust(options: AdapterTrustListOptions) -> Result<AdapterTrustReport> {
@@ -681,10 +687,10 @@ pub fn list_adapter_plugin_trust(options: AdapterTrustListOptions) -> Result<Ada
             options.root.display()
         )
     })?;
-    let registry = load_adapter_trust_registry(&options.trust_path)?;
+    let registry = plugin_trust_registry::load(&options.trust_path)?;
     let mut plugins = discover_adapter_plugins(root)?
         .into_iter()
-        .map(|plugin| adapter_trust_status(&registry, &plugin))
+        .map(|plugin| plugin_trust_status::status(&registry, &plugin, trusted_plugin_record))
         .collect::<Result<Vec<_>>>()?;
     plugins.sort_by(|left, right| left.manifest_path.cmp(&right.manifest_path));
 
@@ -696,8 +702,8 @@ pub fn list_adapter_plugin_trust(options: AdapterTrustListOptions) -> Result<Ada
 }
 
 pub fn trust_adapter_plugin(options: AdapterTrustOptions) -> Result<AdapterTrustReport> {
-    let plugin = read_adapter_plugin_manifest(options.manifest_path)?;
-    let mut registry = load_adapter_trust_registry(&options.trust_path)?;
+    let plugin = plugin_discovery::read_manifest(options.manifest_path)?;
+    let mut registry = plugin_trust_registry::load(&options.trust_path)?;
     let trusted = trusted_plugin_record(&plugin)?;
 
     registry
@@ -705,18 +711,22 @@ pub fn trust_adapter_plugin(options: AdapterTrustOptions) -> Result<AdapterTrust
         .retain(|entry| entry.manifest_path != trusted.manifest_path);
     registry.trusted_plugins.push(trusted);
     sort_trusted_plugins(&mut registry.trusted_plugins);
-    write_adapter_trust_registry(&options.trust_path, &registry)?;
+    plugin_trust_registry::write(&options.trust_path, &registry)?;
 
     Ok(AdapterTrustReport {
         schema: ADAPTER_TRUST_SCHEMA.to_string(),
         trust_path: options.trust_path,
-        plugins: vec![adapter_trust_status(&registry, &plugin)?],
+        plugins: vec![plugin_trust_status::status(
+            &registry,
+            &plugin,
+            trusted_plugin_record,
+        )?],
     })
 }
 
 pub fn untrust_adapter_plugin(options: AdapterTrustOptions) -> Result<AdapterTrustReport> {
-    let plugin = read_adapter_plugin_manifest(options.manifest_path)?;
-    let mut registry = load_adapter_trust_registry(&options.trust_path)?;
+    let plugin = plugin_discovery::read_manifest(options.manifest_path)?;
+    let mut registry = plugin_trust_registry::load(&options.trust_path)?;
     let manifest_path = plugin.manifest_path.canonicalize().with_context(|| {
         format!(
             "failed to canonicalize adapter manifest {}",
@@ -733,263 +743,34 @@ pub fn untrust_adapter_plugin(options: AdapterTrustOptions) -> Result<AdapterTru
             manifest_path.display()
         );
     }
-    write_adapter_trust_registry(&options.trust_path, &registry)?;
+    plugin_trust_registry::write(&options.trust_path, &registry)?;
 
     Ok(AdapterTrustReport {
         schema: ADAPTER_TRUST_SCHEMA.to_string(),
         trust_path: options.trust_path,
-        plugins: vec![adapter_trust_status(&registry, &plugin)?],
+        plugins: vec![plugin_trust_status::status(
+            &registry,
+            &plugin,
+            trusted_plugin_record,
+        )?],
     })
 }
 
-fn read_adapter_plugin_manifest(path: PathBuf) -> Result<DiscoveredAdapterPlugin> {
-    let content =
-        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
-    let manifest: AdapterPluginManifest = serde_json::from_str(&content)
-        .with_context(|| format!("failed to parse {}", path.display()))?;
-    validate_adapter_plugin_manifest(&manifest)
-        .with_context(|| format!("invalid adapter plugin manifest {}", path.display()))?;
-
-    Ok(DiscoveredAdapterPlugin {
-        manifest_path: path,
-        manifest,
-    })
-}
-
-fn load_adapter_trust_registry(path: &Path) -> Result<AdapterTrustRegistry> {
-    if !path.exists() {
-        return Ok(AdapterTrustRegistry {
-            schema: ADAPTER_TRUST_SCHEMA.to_string(),
-            trusted_plugins: Vec::new(),
-        });
-    }
-
-    let content =
-        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
-    let mut registry: AdapterTrustRegistry = serde_json::from_str(&content)
-        .with_context(|| format!("failed to parse {}", path.display()))?;
-    if registry.schema != ADAPTER_TRUST_SCHEMA {
-        bail!(
-            "unsupported adapter trust schema `{}` in {}",
-            registry.schema,
-            path.display()
-        );
-    }
-    for entry in &registry.trusted_plugins {
-        if !entry.manifest_path.is_absolute() {
-            bail!(
-                "trusted adapter manifest path is not absolute: {}",
-                entry.manifest_path.display()
-            );
-        }
-        if entry.content_hash.trim().is_empty() {
-            bail!(
-                "trusted adapter manifest {} has empty content hash",
-                entry.manifest_path.display()
-            );
-        }
-        for executable in &entry.executable_hashes {
-            if !executable.program.is_absolute() || executable.content_hash.trim().is_empty() {
-                bail!(
-                    "trusted adapter manifest {} has invalid executable trust record",
-                    entry.manifest_path.display()
-                );
-            }
-        }
-    }
-    sort_trusted_plugins(&mut registry.trusted_plugins);
-    Ok(registry)
-}
-
-fn write_adapter_trust_registry(path: &Path, registry: &AdapterTrustRegistry) -> Result<()> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| anyhow::anyhow!("adapter trust path has no parent: {}", path.display()))?;
-    fs::create_dir_all(parent).with_context(|| {
-        format!(
-            "failed to create adapter trust directory {}",
-            parent.display()
-        )
-    })?;
-    let file_name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .ok_or_else(|| anyhow::anyhow!("invalid adapter trust path: {}", path.display()))?;
-    let staging = parent.join(format!(".{file_name}.tmp-{}", std::process::id()));
-    let backup = parent.join(format!(".{file_name}.backup-{}", std::process::id()));
-    if staging.exists() {
-        fs::remove_file(&staging)
-            .with_context(|| format!("failed to remove stale staging {}", staging.display()))?;
-    }
-    if backup.exists() {
-        fs::remove_file(&backup)
-            .with_context(|| format!("failed to remove stale backup {}", backup.display()))?;
-    }
-    let content = serde_json::to_string_pretty(registry)?;
-    fs::write(&staging, format!("{content}\n"))
-        .with_context(|| format!("failed to write staged adapter trust {}", staging.display()))?;
-    if path.exists() {
-        fs::rename(path, &backup).with_context(|| {
-            format!("failed to stage previous adapter trust {}", path.display())
-        })?;
-    }
-    if let Err(error) = fs::rename(&staging, path) {
-        if backup.exists() {
-            let _ = fs::rename(&backup, path);
-        }
-        let _ = fs::remove_file(&staging);
-        return Err(error)
-            .with_context(|| format!("failed to publish adapter trust {}", path.display()));
-    }
-    if backup.exists() {
-        fs::remove_file(&backup)
-            .with_context(|| format!("failed to remove backup {}", backup.display()))?;
-    }
-    Ok(())
+#[cfg(test)]
+pub(super) fn read_adapter_plugin_manifest(path: PathBuf) -> Result<DiscoveredAdapterPlugin> {
+    plugin_discovery::read_manifest(path)
 }
 
 fn trusted_plugin_record(plugin: &DiscoveredAdapterPlugin) -> Result<TrustedAdapterPlugin> {
-    let manifest_dir = plugin.manifest_path.parent().ok_or_else(|| {
-        anyhow::anyhow!(
-            "adapter manifest has no parent: {}",
-            plugin.manifest_path.display()
-        )
-    })?;
-    let mut executable_hashes = plugin
-        .manifest
-        .adapters
-        .iter()
-        .filter(|adapter| adapter.enabled)
-        .filter_map(|adapter| adapter.command.as_ref())
-        .map(|command| {
-            let program = resolve_manifest_program(manifest_dir, &command.program)?;
-            Ok(TrustedAdapterExecutable {
-                content_hash: adapter_executable_hash(&program)?,
-                program,
-            })
-        })
-        .collect::<Result<Vec<_>>>()?;
-    executable_hashes.sort_by(|left, right| left.program.cmp(&right.program));
-    executable_hashes.dedup_by(|left, right| left.program == right.program);
-    Ok(TrustedAdapterPlugin {
-        manifest_path: plugin.manifest_path.canonicalize().with_context(|| {
-            format!(
-                "failed to canonicalize adapter manifest {}",
-                plugin.manifest_path.display()
-            )
-        })?,
-        content_hash: adapter_manifest_hash(&plugin.manifest_path)?,
-        executable_hashes,
-    })
-}
-
-fn adapter_trust_status(
-    registry: &AdapterTrustRegistry,
-    plugin: &DiscoveredAdapterPlugin,
-) -> Result<AdapterTrustStatus> {
-    let content_hash = adapter_manifest_hash(&plugin.manifest_path)?;
-    Ok(AdapterTrustStatus {
-        manifest_path: plugin.manifest_path.canonicalize().with_context(|| {
-            format!(
-                "failed to canonicalize adapter manifest {}",
-                plugin.manifest_path.display()
-            )
-        })?,
-        name: plugin.manifest.name.clone(),
-        version: plugin.manifest.version.clone(),
-        has_external_process: plugin
-            .manifest
-            .adapters
-            .iter()
-            .any(|adapter| adapter.enabled && adapter.command.is_some()),
-        trusted: is_adapter_plugin_trusted(registry, plugin)?,
-        content_hash,
-        executable_hashes: trusted_plugin_record(plugin)?.executable_hashes,
-    })
-}
-
-fn is_adapter_plugin_trusted(
-    registry: &AdapterTrustRegistry,
-    plugin: &DiscoveredAdapterPlugin,
-) -> Result<bool> {
-    let trusted = trusted_plugin_record(plugin)?;
-    Ok(registry.trusted_plugins.iter().any(|entry| {
-        entry.manifest_path == trusted.manifest_path
-            && entry.content_hash == trusted.content_hash
-            && entry.executable_hashes == trusted.executable_hashes
-    }))
-}
-
-fn adapter_manifest_hash(path: &Path) -> Result<String> {
-    let content = fs::read(path).with_context(|| format!("failed to read {}", path.display()))?;
-    let digest = Sha256::digest(&content);
-    Ok(hex_encode(&digest))
-}
-
-fn adapter_executable_hash(path: &Path) -> Result<String> {
-    let content = fs::read(path)
-        .with_context(|| format!("failed to read adapter executable {}", path.display()))?;
-    let digest = Sha256::digest(&content);
-    Ok(hex_encode(&digest))
-}
-
-fn hex_encode(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        out.push(HEX[(byte >> 4) as usize] as char);
-        out.push(HEX[(byte & 0x0f) as usize] as char);
-    }
-    out
+    plugin_trust_record::build(plugin, resolve_manifest_program)
 }
 
 fn sort_trusted_plugins(plugins: &mut [TrustedAdapterPlugin]) {
     plugins.sort_by(|left, right| left.manifest_path.cmp(&right.manifest_path));
 }
 
-fn validate_adapter_plugin_manifest(manifest: &AdapterPluginManifest) -> Result<()> {
-    if manifest.schema != ADAPTER_MANIFEST_SCHEMA {
-        bail!(
-            "unsupported adapter plugin manifest schema {}; expected {}",
-            manifest.schema,
-            ADAPTER_MANIFEST_SCHEMA
-        );
-    }
-
-    if manifest.name.trim().is_empty() {
-        bail!("adapter plugin manifest name must not be empty");
-    }
-
-    Ok(())
-}
-
 fn enabled_by_default() -> bool {
     true
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ProcessCommand {
-    program: PathBuf,
-    args: Vec<String>,
-    working_dir: PathBuf,
-}
-
-impl ProcessCommand {
-    fn from_manifest(manifest_dir: &Path, command: &AdapterProcessCommand) -> Result<Self> {
-        let program = resolve_manifest_program(manifest_dir, &command.program)?;
-        let working_dir = manifest_dir.canonicalize().with_context(|| {
-            format!(
-                "failed to canonicalize adapter manifest directory {}",
-                manifest_dir.display()
-            )
-        })?;
-
-        Ok(Self {
-            program,
-            args: command.args.clone(),
-            working_dir,
-        })
-    }
 }
 
 struct ProcessExtractor {
@@ -1103,25 +884,6 @@ where
     .await
 }
 
-#[derive(Debug, Clone, Copy)]
-struct ProcessLimits {
-    timeout: Duration,
-    max_stdin_bytes: usize,
-    max_stdout_bytes: usize,
-    max_stderr_bytes: usize,
-}
-
-impl Default for ProcessLimits {
-    fn default() -> Self {
-        Self {
-            timeout: Duration::from_secs(30),
-            max_stdin_bytes: 8 * 1024 * 1024,
-            max_stdout_bytes: 8 * 1024 * 1024,
-            max_stderr_bytes: 1024 * 1024,
-        }
-    }
-}
-
 async fn run_process_adapter_with_limits<I, O>(
     adapter_kind: &str,
     adapter_id: &str,
@@ -1134,7 +896,7 @@ where
     I: Serialize,
     O: for<'de> Deserialize<'de>,
 {
-    run_process_adapter_with_limits_and_cancellation(
+    process_adapter::run_with_limits(
         adapter_kind,
         adapter_id,
         command,
@@ -1145,6 +907,7 @@ where
     .await
 }
 
+#[cfg(test)]
 async fn run_process_adapter_with_limits_and_cancellation<I, O>(
     adapter_kind: &str,
     adapter_id: &str,
@@ -1177,6 +940,7 @@ where
                     max_stdout_bytes: limits.max_stdout_bytes,
                     max_stderr_bytes: limits.max_stderr_bytes,
                 },
+                clear_environment: command.clear_environment,
             },
             cancellation,
         )
@@ -1232,96 +996,6 @@ where
             "failed to parse output from external {adapter_kind} {adapter_id}: {error}"
         ))
     })
-}
-
-fn process_output_excerpt(bytes: &[u8]) -> String {
-    const MAX_PROCESS_OUTPUT_LOG_CHARS: usize = 4096;
-
-    let value = String::from_utf8_lossy(bytes);
-    let trimmed = value.trim();
-    let mut excerpt = trimmed
-        .chars()
-        .take(MAX_PROCESS_OUTPUT_LOG_CHARS)
-        .collect::<String>();
-
-    if trimmed.chars().count() > MAX_PROCESS_OUTPUT_LOG_CHARS {
-        excerpt.push_str("...");
-    }
-
-    excerpt
-}
-
-fn resolve_manifest_program(manifest_dir: &Path, program: &str) -> Result<PathBuf> {
-    if program.trim().is_empty() {
-        bail!("adapter command program must not be empty");
-    }
-
-    let path = PathBuf::from(program);
-    if path
-        .components()
-        .any(|component| matches!(component, std::path::Component::ParentDir))
-    {
-        bail!("adapter command program must not contain parent directory components");
-    }
-
-    if path.is_relative() && !(program.contains('/') || program.contains('\\')) {
-        bail!("adapter command program must be an explicit absolute or manifest-relative path");
-    }
-
-    if path.is_relative() && (program.contains('/') || program.contains('\\')) {
-        let base = manifest_dir
-            .canonicalize()
-            .with_context(|| format!("failed to canonicalize {}", manifest_dir.display()))?;
-        let resolved = manifest_dir
-            .join(path)
-            .canonicalize()
-            .with_context(|| format!("failed to canonicalize adapter command program {program}"))?;
-        if !resolved.starts_with(&base) {
-            bail!(
-                "adapter command program {} escapes manifest directory {}",
-                resolved.display(),
-                base.display()
-            );
-        }
-        Ok(resolved)
-    } else {
-        let resolved = path.canonicalize().with_context(|| {
-            format!(
-                "failed to canonicalize adapter command program {}",
-                path.display()
-            )
-        })?;
-        Ok(resolved)
-    }
-}
-
-fn resolve_external_process_allowlist(
-    root: &Path,
-    programs: &[PathBuf],
-) -> Result<BTreeSet<PathBuf>> {
-    programs
-        .iter()
-        .map(|program| {
-            let path = if program.is_absolute() {
-                program.clone()
-            } else {
-                root.join(program)
-            };
-            path.canonicalize().with_context(|| {
-                format!(
-                    "failed to canonicalize external process allowlist entry {}",
-                    path.display()
-                )
-            })
-        })
-        .collect()
-}
-
-fn normalize_extension(extension: impl AsRef<str>) -> String {
-    extension
-        .as_ref()
-        .trim_start_matches('.')
-        .to_ascii_lowercase()
 }
 
 #[cfg(test)]
@@ -1729,10 +1403,14 @@ mod tests {
             schema: ADAPTER_TRUST_SCHEMA.to_string(),
             trusted_plugins: vec![trusted_plugin_record(&plugin).unwrap()],
         };
-        assert!(is_adapter_plugin_trusted(&registry, &plugin).unwrap());
+        assert!(
+            plugin_trust_status::is_trusted(&registry, &plugin, trusted_plugin_record,).unwrap()
+        );
 
         fs::write(&program, b"changed executable version").unwrap();
-        assert!(!is_adapter_plugin_trusted(&registry, &plugin).unwrap());
+        assert!(
+            !plugin_trust_status::is_trusted(&registry, &plugin, trusted_plugin_record,).unwrap()
+        );
 
         fs::remove_dir_all(root).unwrap();
     }
@@ -1815,6 +1493,69 @@ mod tests {
         assert!(error.to_string().contains("timed out"));
     }
 
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn external_process_timeout_terminates_unix_process_group() {
+        let root = std::env::temp_dir().join(format!(
+            "athanor-runtime-process-group-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let child_pid = root.join("child.pid");
+        let command = ProcessCommand {
+            program: sh_path(),
+            args: vec![
+                "-c".to_string(),
+                format!("sleep 30 & echo $! > '{}'; wait", child_pid.display()),
+            ],
+            working_dir: test_working_dir(),
+            clear_environment: false,
+            expected_content_hash: None,
+            expected_content_size_bytes: None,
+            clear_environment: false,
+        };
+
+        let error = run_process_adapter_with_limits::<_, Value>(
+            "checker",
+            "external.checker.process_group",
+            &command,
+            &serde_json::json!({}),
+            ProcessLimits {
+                timeout: Duration::from_millis(200),
+                max_stdin_bytes: 1024,
+                max_stdout_bytes: 1024,
+                max_stderr_bytes: 1024,
+            },
+            None,
+        )
+        .await
+        .expect_err("process group should time out");
+        assert!(matches!(error, CoreError::DeadlineExceeded(_)));
+
+        let pid = fs::read_to_string(&child_pid)
+            .expect("background child should record its pid")
+            .trim()
+            .to_string();
+        let mut stopped = false;
+        for _ in 0..20 {
+            let status = std::process::Command::new("kill")
+                .args(["-0", pid.as_str()])
+                .output()
+                .expect("kill command should be available on Unix");
+            if !status.success() {
+                stopped = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        assert!(stopped, "background process {pid} remained alive");
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[tokio::test]
     async fn external_process_cancellation_is_reported() {
         let command = sleep_command();
@@ -1876,6 +1617,7 @@ mod tests {
                 program: command.program,
                 args: command.args,
                 working_dir: command.working_dir,
+                clear_environment: false,
                 stdin: Vec::new(),
                 limits: CoreProcessLimits {
                     timeout_ms: 10_000,
@@ -1891,6 +1633,33 @@ mod tests {
         assert!(output.success);
         assert_eq!(output.stdout.len(), 3);
         assert!(!output.stdout_truncated);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn clean_environment_process_profile_removes_inherited_environment() {
+        let output = ProcessRunner::run(
+            &TokioProcessRunner,
+            ProcessRequest {
+                label: "clean environment test".to_string(),
+                program: PathBuf::from("/usr/bin/env"),
+                args: Vec::new(),
+                working_dir: test_working_dir(),
+                clear_environment: true,
+                stdin: Vec::new(),
+                limits: CoreProcessLimits {
+                    timeout_ms: 10_000,
+                    max_stdin_bytes: 64,
+                    max_stdout_bytes: 1024,
+                    max_stderr_bytes: 1024,
+                },
+            },
+        )
+        .await
+        .expect("clean-environment process should run");
+
+        assert!(output.success);
+        assert!(output.stdout.is_empty());
     }
 
     #[tokio::test]
@@ -2170,6 +1939,9 @@ mod tests {
                 "$input | Out-Null; Start-Sleep -Seconds 5".to_string(),
             ],
             working_dir: test_working_dir(),
+            expected_content_hash: None,
+            expected_content_size_bytes: None,
+            clear_environment: false,
         }
     }
 
@@ -2179,6 +1951,9 @@ mod tests {
             program: sh_path(),
             args: vec!["-c".to_string(), "cat >/dev/null; sleep 5".to_string()],
             working_dir: test_working_dir(),
+            expected_content_hash: None,
+            expected_content_size_bytes: None,
+            clear_environment: false,
         }
     }
 
@@ -2192,6 +1967,10 @@ mod tests {
                 format!("$input | Out-Null; [Console]::Out.Write(('x' * {bytes}))"),
             ],
             working_dir: test_working_dir(),
+            expected_content_hash: None,
+            expected_content_size_bytes: None,
+            clear_environment: false,
+            clear_environment: false,
         }
     }
 
@@ -2204,6 +1983,8 @@ mod tests {
                 format!("cat >/dev/null; yes x | tr -d '\\n' | head -c {bytes}"),
             ],
             working_dir: test_working_dir(),
+            expected_content_hash: None,
+            expected_content_size_bytes: None,
         }
     }
 
@@ -2218,6 +1999,9 @@ mod tests {
                     .to_string(),
             ],
             working_dir: test_working_dir(),
+            expected_content_hash: None,
+            expected_content_size_bytes: None,
+            clear_environment: false,
         }
     }
 
@@ -2230,6 +2014,9 @@ mod tests {
                 "cat >/dev/null; printf '%s' 'intentional failure' >&2; exit 7".to_string(),
             ],
             working_dir: test_working_dir(),
+            expected_content_hash: None,
+            expected_content_size_bytes: None,
+            clear_environment: false,
         }
     }
 

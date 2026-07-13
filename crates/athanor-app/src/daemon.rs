@@ -1,37 +1,54 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::fs::{self};
-use std::io::ErrorKind;
+use std::future::Future;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
+#[cfg(test)]
+use std::time::{SystemTime, UNIX_EPOCH};
 #[cfg(unix)]
 use std::{env, os::unix::fs::PermissionsExt};
 
 use anyhow::{Context, Result, bail};
-use notify_debouncer_mini::notify::{
-    Config as NotifyConfig, PollWatcher, RecommendedWatcher, RecursiveMode,
-};
-use notify_debouncer_mini::{
-    Config as DebouncerConfig, DebounceEventResult, Debouncer, new_debouncer, new_debouncer_opt,
-};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 #[cfg(windows)]
-use tokio::net::windows::named_pipe::{
-    ClientOptions as PipeClientOptions, NamedPipeServer, ServerOptions as PipeServerOptions,
-};
+use tokio::net::windows::named_pipe::{NamedPipeServer, ServerOptions as PipeServerOptions};
 use tokio::net::{TcpListener, TcpStream};
 #[cfg(unix)]
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::{Semaphore, mpsc};
 
-use athanor_core::{CanonicalSnapshot, CanonicalSnapshotStore, SearchIndex};
+use athanor_core::{CanonicalSnapshot, CanonicalSnapshotStore, OperationContext, SearchIndex};
 use athanor_domain::ContextLevel;
 
+use crate::daemon_client::request as request_daemon_transport;
+#[cfg(test)]
+use crate::daemon_client::request_over_stream as request_daemon_over_stream;
+use crate::daemon_connection::{
+    handle as handle_connection, handle_busy as handle_busy_connection,
+};
+use crate::daemon_endpoint::{read as read_endpoint, write as write_endpoint};
+use crate::daemon_job_cancellation::cancel as cancel_daemon_job;
+use crate::daemon_job_registry::{get as get_daemon_job, list as list_daemon_jobs};
+use crate::daemon_job_scheduler::start as start_daemon_job;
+use crate::daemon_job_state::{
+    finish as finish_daemon_job, mark_running as mark_daemon_job_running,
+};
+#[cfg(test)]
+use crate::daemon_jobs_support::prune as prune_daemon_jobs;
+use crate::daemon_jobs_support::{is_valid_job_id, unix_time_ms};
+use crate::daemon_lifecycle::{active_job_count, current as lifecycle, set as set_lifecycle};
+use crate::daemon_protocol::{
+    error_response_from_anyhow, error_response_with_code, success_response, validate_limit,
+};
+use crate::daemon_recovery::cleanup_known_staging_artifacts;
 use crate::daemon_runtime::BoundedCache;
+#[cfg(test)]
+use crate::daemon_watcher::{collect_project_source_events, is_project_source_event};
+use crate::daemon_watcher::{start_file_watcher, start_watcher_index_job};
 use crate::explain::explain_snapshot;
 use crate::search::{
     get_or_build_search_index_sync, get_or_build_search_index_with_factory,
@@ -43,25 +60,34 @@ use crate::{
     RepositoryOverview, RuntimeComposition, RuntimeFileGuard, WikiOptions,
     build_repository_overview, change_map_project, change_map_project_with_composition,
     constant_time_token_eq, context_project, context_project_with_composition, create_daemon_token,
-    generate_context_pack, generate_project_cancellable,
-    generate_project_cancellable_with_composition, index_project_cancellable,
-    index_project_cancellable_with_composition, project_html_report_cancellable,
-    project_html_report_cancellable_with_composition, project_wiki_cancellable,
-    project_wiki_cancellable_with_composition, read_daemon_token,
+    generate_context_pack, generate_project_cancellable_with_composition_and_operation_context,
+    generate_project_cancellable_with_operation_context,
+    index_project_cancellable_with_composition_and_operation_context,
+    index_project_cancellable_with_operation_context,
+    project_html_report_cancellable_with_composition_and_operation_context,
+    project_html_report_cancellable_with_operation_context,
+    project_wiki_cancellable_with_composition_and_operation_context,
+    project_wiki_cancellable_with_operation_context, read_daemon_token,
 };
 use crate::{config::load_config, store::init_store};
 
-pub const DAEMON_ENDPOINT_SCHEMA: &str = "athanor.daemon_endpoint.v2";
-pub const DAEMON_REQUEST_SCHEMA: &str = "athanor.daemon_request.v2";
-pub const DAEMON_RESPONSE_SCHEMA: &str = "athanor.daemon_response.v2";
+pub const DAEMON_ENDPOINT_SCHEMA: &str = "athanor.daemon_endpoint.v3";
+pub const DAEMON_REQUEST_SCHEMA: &str = "athanor.daemon_request.v3";
+pub const DAEMON_RESPONSE_SCHEMA: &str = "athanor.daemon_response.v3";
+pub const DAEMON_ENDPOINT_SCHEMA_V2: &str = "athanor.daemon_endpoint.v2";
+pub const DAEMON_REQUEST_SCHEMA_V2: &str = "athanor.daemon_request.v2";
+pub const DAEMON_RESPONSE_SCHEMA_V2: &str = "athanor.daemon_response.v2";
+pub const DAEMON_REQUEST_SCHEMA_V3: &str = "athanor.daemon_request.v3";
+pub const DAEMON_RESPONSE_SCHEMA_V3: &str = "athanor.daemon_response.v3";
 pub const DAEMON_ENDPOINT_SCHEMA_V1: &str = "athanor.daemon_endpoint.v1";
 pub const DAEMON_REQUEST_SCHEMA_V1: &str = "athanor.daemon_request.v1";
-pub const DAEMON_PROTOCOL_VERSION: u32 = 2;
+pub const DAEMON_PROTOCOL_VERSION: u32 = 3;
+pub const DAEMON_PROTOCOL_VERSION_V2: u32 = 2;
 pub const DAEMON_JOBS_SCHEMA: &str = "athanor.daemon_jobs.v1";
 const DEFAULT_MAX_REQUEST_BYTES: u64 = 1024 * 1024;
 const DEFAULT_MAX_RESPONSE_BYTES: u64 = 1024 * 1024;
-const MIN_PROTOCOL_BYTES: u64 = 1024;
-const MAX_PROTOCOL_BYTES: u64 = 64 * 1024 * 1024;
+pub(crate) const MIN_PROTOCOL_BYTES: u64 = 1024;
+pub(crate) const MAX_PROTOCOL_BYTES: u64 = 64 * 1024 * 1024;
 const DERIVED_CACHE_CAPACITY: usize = 64;
 
 #[derive(Debug, Clone)]
@@ -153,19 +179,37 @@ pub enum DaemonCommand {
     Cancel {
         job_id: String,
     },
-    Index,
-    Generate,
-    Wiki,
-    HtmlReport,
+    Index {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        deadline_unix_ms: Option<u64>,
+    },
+    Generate {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        deadline_unix_ms: Option<u64>,
+    },
+    Wiki {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        deadline_unix_ms: Option<u64>,
+    },
+    HtmlReport {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        deadline_unix_ms: Option<u64>,
+    },
     Overview {
         top: usize,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        deadline_unix_ms: Option<u64>,
     },
     Explain {
         stable_key: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        deadline_unix_ms: Option<u64>,
     },
     Search {
         query: String,
         limit: usize,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        deadline_unix_ms: Option<u64>,
     },
     Context {
         task: String,
@@ -173,6 +217,8 @@ pub enum DaemonCommand {
         diff: bool,
         level: ContextLevel,
         limits: ContextLimitOverrides,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        deadline_unix_ms: Option<u64>,
     },
     ChangeMap {
         #[serde(default)]
@@ -185,6 +231,8 @@ pub enum DaemonCommand {
         max_files: usize,
         max_diagnostics: usize,
         max_depth: usize,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        deadline_unix_ms: Option<u64>,
     },
     Shutdown,
 }
@@ -199,6 +247,37 @@ pub struct DaemonResponse {
     pub result: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_details: Option<DaemonError>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DaemonError {
+    pub code: DaemonErrorCode,
+    pub message: String,
+    pub retryable: bool,
+    #[serde(default)]
+    pub details: serde_json::Map<String, Value>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DaemonErrorCode {
+    InvalidInput,
+    NotFound,
+    Conflict,
+    Busy,
+    Unauthorized,
+    Forbidden,
+    Cancelled,
+    DeadlineExceeded,
+    AdapterProtocol,
+    AdapterExecution,
+    StorageUnavailable,
+    StorageCorruption,
+    SnapshotNotCommitted,
+    Unsupported,
+    Internal,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -261,21 +340,21 @@ pub struct DaemonJobsReport {
     pub jobs: Vec<DaemonJob>,
 }
 
-struct DaemonState {
+pub(crate) struct DaemonState {
     composition: Option<RuntimeComposition>,
-    endpoint: DaemonEndpoint,
+    pub(crate) endpoint: DaemonEndpoint,
     auth_token: String,
     insecure_allow_v1: bool,
-    lifecycle: Mutex<DaemonLifecycleState>,
+    pub(crate) lifecycle: Mutex<DaemonLifecycleState>,
     last_successful_index: Mutex<Option<String>>,
-    jobs: Mutex<Vec<DaemonJob>>,
-    next_job_sequence: Mutex<u64>,
-    max_job_history: usize,
+    pub(crate) jobs: Mutex<Vec<DaemonJob>>,
+    pub(crate) next_job_sequence: Mutex<u64>,
+    pub(crate) max_job_history: usize,
     latest_snapshot_cache: Mutex<Option<CanonicalSnapshot>>,
     search_index_cache: Mutex<Option<CachedSearchIndex>>,
     overview_cache: Mutex<BoundedCache<OverviewCacheKey, RepositoryOverview>>,
     context_cache: Mutex<BoundedCache<ContextCacheKey, athanor_domain::ContextPack>>,
-    cancellation_tokens: Mutex<HashMap<String, CancellationToken>>,
+    pub(crate) cancellation_tokens: Mutex<HashMap<String, CancellationToken>>,
 }
 
 struct CachedSearchIndex {
@@ -358,8 +437,8 @@ async fn serve_daemon_inner(
     {
         bail!("daemon shutdown timeout must be between 1 and 300 seconds");
     }
-    validate_protocol_limit("max_request_bytes", options.max_request_bytes)?;
-    validate_protocol_limit("max_response_bytes", options.max_response_bytes)?;
+    validate_limit("max_request_bytes", options.max_request_bytes)?;
+    validate_limit("max_response_bytes", options.max_response_bytes)?;
     let root = options.root.canonicalize().with_context(|| {
         format!(
             "failed to canonicalize daemon root {}",
@@ -611,7 +690,6 @@ pub async fn request_daemon(
     options: DaemonClientOptions,
     mut request: DaemonRequest,
 ) -> Result<DaemonResponse> {
-    request.schema = DAEMON_REQUEST_SCHEMA.to_string();
     let runtime =
         DaemonRuntimePaths::for_project(&request.project_id, options.runtime_dir.as_deref())?;
     let endpoint = read_endpoint(&runtime.endpoint)?;
@@ -625,201 +703,36 @@ pub async fn request_daemon(
     if endpoint.token_path != runtime.token {
         bail!("daemon endpoint token path does not match the expected runtime path");
     }
+    request.schema = if endpoint.protocol_version == DAEMON_PROTOCOL_VERSION_V2
+        || endpoint.schema == DAEMON_ENDPOINT_SCHEMA_V2
+    {
+        DAEMON_REQUEST_SCHEMA_V2.to_string()
+    } else {
+        DAEMON_REQUEST_SCHEMA.to_string()
+    };
     request.auth_token = Some(read_daemon_token(&endpoint.token_path)?);
     validate_request_shape(&request)?;
-    match endpoint.transport {
-        DaemonTransport::Tcp => {
-            let stream = TcpStream::connect(endpoint.address)
-                .await
-                .with_context(|| format!("failed to connect to daemon at {}", endpoint.address))?;
-            request_daemon_over_stream(stream, &endpoint, &request).await
-        }
-        DaemonTransport::LocalSocket => request_daemon_over_local_socket(&endpoint, &request).await,
-    }
+    request_daemon_transport(&endpoint, &request).await
 }
 
-async fn request_daemon_over_stream<S>(
-    mut stream: S,
-    endpoint: &DaemonEndpoint,
-    request: &DaemonRequest,
-) -> Result<DaemonResponse>
-where
-    S: AsyncRead + AsyncWrite + Unpin,
-{
-    let request_json = serde_json::to_vec(&request)?;
-    if request_json.len() as u64 > endpoint.max_request_bytes {
-        bail!(
-            "daemon request exceeds {} bytes",
-            endpoint.max_request_bytes
-        );
-    }
-    stream.write_all(&request_json).await?;
-    stream.write_all(b"\n").await?;
-    stream.shutdown().await?;
-
-    let mut response = Vec::new();
-    stream
-        .take(endpoint.max_response_bytes + 1)
-        .read_to_end(&mut response)
-        .await
-        .context("failed to read daemon response")?;
-    if response.len() as u64 > endpoint.max_response_bytes {
-        bail!(
-            "daemon response exceeds {} bytes",
-            endpoint.max_response_bytes
-        );
-    }
-    if response.is_empty() {
-        bail!("daemon returned an empty response");
-    }
-    serde_json::from_slice(&response).context("failed to parse daemon response")
-}
-
-#[cfg(unix)]
-async fn request_daemon_over_local_socket(
-    endpoint: &DaemonEndpoint,
-    request: &DaemonRequest,
-) -> Result<DaemonResponse> {
-    let socket_path = endpoint
-        .local_socket_path
-        .as_ref()
-        .context("daemon endpoint does not include a local socket path")?;
-    let stream = UnixStream::connect(socket_path).await.with_context(|| {
-        format!(
-            "failed to connect to daemon socket {}",
-            socket_path.display()
-        )
-    })?;
-    request_daemon_over_stream(stream, endpoint, request).await
-}
-
-#[cfg(windows)]
-async fn request_daemon_over_local_socket(
-    endpoint: &DaemonEndpoint,
-    request: &DaemonRequest,
-) -> Result<DaemonResponse> {
-    let pipe_name = endpoint
-        .windows_pipe_name
-        .as_ref()
-        .context("daemon endpoint does not include a Windows pipe name")?;
-    let stream = PipeClientOptions::new()
-        .open(pipe_name)
-        .with_context(|| format!("failed to connect to daemon pipe {pipe_name}"))?;
-    request_daemon_over_stream(stream, endpoint, request).await
-}
-
-#[cfg(not(any(unix, windows)))]
-async fn request_daemon_over_local_socket(
-    _endpoint: &DaemonEndpoint,
-    _request: &DaemonRequest,
-) -> Result<DaemonResponse> {
-    bail!("local socket transport is not supported on this platform")
-}
-
-async fn handle_connection<S>(mut stream: S, state: Arc<DaemonState>) -> Result<bool>
-where
-    S: AsyncRead + AsyncWrite + Unpin,
-{
-    let mut line = String::new();
-    let bytes = BufReader::new(&mut stream)
-        .take(state.endpoint.max_request_bytes + 1)
-        .read_line(&mut line)
-        .await
-        .context("failed to read daemon request")?;
-    let (response, shutdown) = if bytes == 0 {
-        (
-            error_response("", &state.endpoint.project_id, "empty daemon request"),
-            false,
-        )
-    } else if bytes as u64 > state.endpoint.max_request_bytes {
-        (
-            error_response(
-                "",
-                &state.endpoint.project_id,
-                "daemon request exceeds size limit",
-            ),
-            false,
-        )
-    } else {
-        match serde_json::from_str::<DaemonRequest>(&line) {
-            Ok(request) => execute_request(Arc::clone(&state), request).await,
-            Err(error) => (
-                error_response(
-                    "",
-                    &state.endpoint.project_id,
-                    &format!("invalid daemon request JSON: {error}"),
-                ),
-                false,
-            ),
-        }
-    };
-    let response_json = serialize_daemon_response(response, state.endpoint.max_response_bytes)?;
-    if let Err(error) = stream.write_all(&response_json).await {
-        if is_client_disconnect(&error) {
-            return Ok(false);
-        }
-        return Err(error).context("failed to write daemon response");
-    }
-    if let Err(error) = stream.shutdown().await {
-        if is_client_disconnect(&error) {
-            return Ok(false);
-        }
-        return Err(error.into());
-    }
-    Ok(shutdown)
-}
-
-fn is_client_disconnect(error: &std::io::Error) -> bool {
-    matches!(
-        error.kind(),
-        ErrorKind::BrokenPipe
-            | ErrorKind::ConnectionAborted
-            | ErrorKind::ConnectionReset
-            | ErrorKind::NotConnected
-    )
-}
-
-async fn handle_busy_connection<S>(mut stream: S, state: &DaemonState) -> Result<()>
-where
-    S: AsyncRead + AsyncWrite + Unpin,
-{
-    let mut line = String::new();
-    let _ = BufReader::new(&mut stream)
-        .take(state.endpoint.max_request_bytes + 1)
-        .read_line(&mut line)
-        .await;
-    let parsed = serde_json::from_str::<DaemonRequest>(&line);
-    let request_id = parsed
-        .as_ref()
-        .map(|request| request.request_id.clone())
-        .unwrap_or_default();
-    let message = match parsed.as_ref() {
-        Ok(request) if validate_request(state, request).is_ok() => {
-            "daemon is busy; maximum concurrent request limit reached"
-        }
-        _ => "daemon authentication failed",
-    };
-    let response = error_response(&request_id, &state.endpoint.project_id, message);
-    stream
-        .write_all(&serialize_daemon_response(
-            response,
-            state.endpoint.max_response_bytes,
-        )?)
-        .await
-        .context("failed to write daemon busy response")?;
-    stream.shutdown().await?;
-    Ok(())
-}
-
-async fn execute_request(
+pub(crate) async fn execute_request(
     state: Arc<DaemonState>,
     request: DaemonRequest,
 ) -> (DaemonResponse, bool) {
     if let Err(error) = validate_request(&state, &request) {
+        let code = if validate_request_shape(&request).is_err() {
+            DaemonErrorCode::InvalidInput
+        } else if request.schema == DAEMON_REQUEST_SCHEMA_V1 {
+            DaemonErrorCode::Forbidden
+        } else {
+            DaemonErrorCode::Unauthorized
+        };
         return (
-            error_response(
+            error_response_with_code(
                 &request.request_id,
                 &state.endpoint.project_id,
+                code,
+                false,
                 &error.to_string(),
             ),
             false,
@@ -827,9 +740,11 @@ async fn execute_request(
     }
     if request.project_id != state.endpoint.project_id {
         return (
-            error_response(
+            error_response_with_code(
                 &request.request_id,
                 &state.endpoint.project_id,
+                DaemonErrorCode::InvalidInput,
+                false,
                 &format!(
                     "request project `{}` does not match daemon project `{}`",
                     request.project_id, state.endpoint.project_id
@@ -846,9 +761,11 @@ async fn execute_request(
         )
     {
         return (
-            error_response(
+            error_response_with_code(
                 &request.request_id,
                 &state.endpoint.project_id,
+                DaemonErrorCode::Busy,
+                true,
                 "daemon is stopping and does not accept new work",
             ),
             false,
@@ -881,9 +798,11 @@ async fn execute_request(
         DaemonCommand::Jobs { limit } => {
             if limit == 0 || limit > 100 {
                 return (
-                    error_response(
+                    error_response_with_code(
                         &request.request_id,
                         &state.endpoint.project_id,
+                        DaemonErrorCode::InvalidInput,
+                        false,
                         "jobs limit must be between 1 and 100",
                     ),
                     false,
@@ -899,10 +818,10 @@ async fn execute_request(
                     false,
                 ),
                 Err(error) => (
-                    error_response(
+                    error_response_from_anyhow(
                         &request.request_id,
                         &state.endpoint.project_id,
-                        &error.to_string(),
+                        &error,
                     ),
                     false,
                 ),
@@ -917,14 +836,23 @@ async fn execute_request(
                 ),
                 false,
             ),
-            Err(error) => (
-                error_response(
-                    &request.request_id,
-                    &state.endpoint.project_id,
-                    &error.to_string(),
-                ),
-                false,
-            ),
+            Err(error) => {
+                let code = if !is_valid_job_id(&job_id) {
+                    DaemonErrorCode::InvalidInput
+                } else {
+                    DaemonErrorCode::NotFound
+                };
+                (
+                    error_response_with_code(
+                        &request.request_id,
+                        &state.endpoint.project_id,
+                        code,
+                        false,
+                        &error.to_string(),
+                    ),
+                    false,
+                )
+            }
         },
         DaemonCommand::Cancel { job_id } => match cancel_daemon_job(&state, &job_id) {
             Ok(job) => (
@@ -935,39 +863,67 @@ async fn execute_request(
                 ),
                 false,
             ),
-            Err(error) => (
-                error_response(
-                    &request.request_id,
-                    &state.endpoint.project_id,
-                    &error.to_string(),
-                ),
-                false,
-            ),
-        },
-        DaemonCommand::Index => match start_index_job(&state, "index project".to_string()) {
-            Ok(job) => (
-                success_response(
-                    &request.request_id,
-                    &state.endpoint.project_id,
-                    serde_json::to_value(job).unwrap_or(Value::Null),
-                ),
-                false,
-            ),
-            Err(error) => (
-                error_response(
-                    &request.request_id,
-                    &state.endpoint.project_id,
-                    &error.to_string(),
-                ),
-                false,
-            ),
-        },
-        DaemonCommand::Generate => {
-            if has_active_job(&state, DaemonJobKind::Generate).unwrap_or(false) {
-                return (
-                    error_response(
+            Err(error) => {
+                let code = if !is_valid_job_id(&job_id) {
+                    DaemonErrorCode::InvalidInput
+                } else if error.to_string().contains("was not found") {
+                    DaemonErrorCode::NotFound
+                } else {
+                    DaemonErrorCode::Conflict
+                };
+                (
+                    error_response_with_code(
                         &request.request_id,
                         &state.endpoint.project_id,
+                        code,
+                        false,
+                        &error.to_string(),
+                    ),
+                    false,
+                )
+            }
+        },
+        DaemonCommand::Index { deadline_unix_ms } => {
+            let operation = deadline_unix_ms.map_or_else(
+                || OperationContext::new(format!("daemon.index.{}", request.request_id)),
+                |deadline| {
+                    OperationContext::new(format!("daemon.index.{}", request.request_id))
+                        .with_deadline_unix_ms(deadline)
+                },
+            );
+            match start_index_job_with_operation_context(
+                &state,
+                "index project".to_string(),
+                operation,
+            ) {
+                Ok(job) => (
+                    success_response(
+                        &request.request_id,
+                        &state.endpoint.project_id,
+                        serde_json::to_value(job).unwrap_or(Value::Null),
+                    ),
+                    false,
+                ),
+                Err(error) => (
+                    error_response_with_code(
+                        &request.request_id,
+                        &state.endpoint.project_id,
+                        DaemonErrorCode::Busy,
+                        true,
+                        &error.to_string(),
+                    ),
+                    false,
+                ),
+            }
+        }
+        DaemonCommand::Generate { deadline_unix_ms } => {
+            if has_active_job(&state, DaemonJobKind::Generate).unwrap_or(false) {
+                return (
+                    error_response_with_code(
+                        &request.request_id,
+                        &state.endpoint.project_id,
+                        DaemonErrorCode::Busy,
+                        true,
                         "generate job is already queued or running",
                     ),
                     false,
@@ -985,6 +941,13 @@ async fn execute_request(
                     let root = state.endpoint.root.clone();
                     let cancellation_for_task = cancellation.clone();
                     let composition = daemon_composition(&state);
+                    let operation = deadline_unix_ms.map_or_else(
+                        || OperationContext::new(format!("daemon.generate.{}", request.request_id)),
+                        |deadline| {
+                            OperationContext::new(format!("daemon.generate.{}", request.request_id))
+                                .with_deadline_unix_ms(deadline)
+                        },
+                    );
                     if let Err(error) = std::thread::Builder::new()
                         .name(format!("athd-generate-{job_id_for_task}"))
                         .spawn(move || {
@@ -1000,17 +963,19 @@ async fn execute_request(
                                         let options = GenerationOptions { root, force: false };
                                         match composition {
                                             Some(composition) => {
-                                                generate_project_cancellable_with_composition(
+                                                generate_project_cancellable_with_composition_and_operation_context(
                                                     options,
                                                     cancellation_for_task,
                                                     &composition,
+                                                    operation,
                                                 )
                                                 .await
                                             }
                                             None => {
-                                                generate_project_cancellable(
+                                                generate_project_cancellable_with_operation_context(
                                                     options,
                                                     cancellation_for_task,
+                                                    operation,
                                                 )
                                                 .await
                                             }
@@ -1070,21 +1035,23 @@ async fn execute_request(
                     )
                 }
                 Err(error) => (
-                    error_response(
+                    error_response_from_anyhow(
                         &request.request_id,
                         &state.endpoint.project_id,
-                        &error.to_string(),
+                        &error,
                     ),
                     false,
                 ),
             }
         }
-        DaemonCommand::Wiki => {
+        DaemonCommand::Wiki { deadline_unix_ms } => {
             if has_active_job(&state, DaemonJobKind::Wiki).unwrap_or(false) {
                 return (
-                    error_response(
+                    error_response_with_code(
                         &request.request_id,
                         &state.endpoint.project_id,
+                        DaemonErrorCode::Busy,
+                        true,
                         "wiki job is already queued or running",
                     ),
                     false,
@@ -1102,6 +1069,13 @@ async fn execute_request(
                     let root = state.endpoint.root.clone();
                     let cancellation_for_task = cancellation.clone();
                     let composition = daemon_composition(&state);
+                    let operation = deadline_unix_ms.map_or_else(
+                        || OperationContext::new(format!("daemon.wiki.{}", request.request_id)),
+                        |deadline| {
+                            OperationContext::new(format!("daemon.wiki.{}", request.request_id))
+                                .with_deadline_unix_ms(deadline)
+                        },
+                    );
                     if let Err(error) = std::thread::Builder::new()
                         .name(format!("athd-wiki-{job_id_for_task}"))
                         .spawn(move || {
@@ -1117,17 +1091,19 @@ async fn execute_request(
                                         let options = WikiOptions { root, output: None };
                                         match composition {
                                             Some(composition) => {
-                                                project_wiki_cancellable_with_composition(
+                                                project_wiki_cancellable_with_composition_and_operation_context(
                                                     options,
                                                     cancellation_for_task,
                                                     &composition,
+                                                    operation,
                                                 )
                                                 .await
                                             }
                                             None => {
-                                                project_wiki_cancellable(
+                                                project_wiki_cancellable_with_operation_context(
                                                     options,
                                                     cancellation_for_task,
+                                                    operation,
                                                 )
                                                 .await
                                             }
@@ -1185,21 +1161,23 @@ async fn execute_request(
                     )
                 }
                 Err(error) => (
-                    error_response(
+                    error_response_from_anyhow(
                         &request.request_id,
                         &state.endpoint.project_id,
-                        &error.to_string(),
+                        &error,
                     ),
                     false,
                 ),
             }
         }
-        DaemonCommand::HtmlReport => {
+        DaemonCommand::HtmlReport { deadline_unix_ms } => {
             if has_active_job(&state, DaemonJobKind::HtmlReport).unwrap_or(false) {
                 return (
-                    error_response(
+                    error_response_with_code(
                         &request.request_id,
                         &state.endpoint.project_id,
+                        DaemonErrorCode::Busy,
+                        true,
                         "HTML report job is already queued or running",
                     ),
                     false,
@@ -1217,6 +1195,21 @@ async fn execute_request(
                     let root = state.endpoint.root.clone();
                     let cancellation_for_task = cancellation.clone();
                     let composition = daemon_composition(&state);
+                    let operation = deadline_unix_ms.map_or_else(
+                        || {
+                            OperationContext::new(format!(
+                                "daemon.html_report.{}",
+                                request.request_id
+                            ))
+                        },
+                        |deadline| {
+                            OperationContext::new(format!(
+                                "daemon.html_report.{}",
+                                request.request_id
+                            ))
+                            .with_deadline_unix_ms(deadline)
+                        },
+                    );
                     if let Err(error) = std::thread::Builder::new()
                         .name(format!("athd-html-report-{job_id_for_task}"))
                         .spawn(move || {
@@ -1232,17 +1225,19 @@ async fn execute_request(
                                         let options = HtmlReportOptions { root, output: None };
                                         match composition {
                                             Some(composition) => {
-                                                project_html_report_cancellable_with_composition(
+                                                project_html_report_cancellable_with_composition_and_operation_context(
                                                     options,
                                                     cancellation_for_task,
                                                     &composition,
+                                                    operation,
                                                 )
                                                 .await
                                             }
                                             None => {
-                                                project_html_report_cancellable(
+                                                project_html_report_cancellable_with_operation_context(
                                                     options,
                                                     cancellation_for_task,
+                                                    operation,
                                                 )
                                                 .await
                                             }
@@ -1300,21 +1295,26 @@ async fn execute_request(
                     )
                 }
                 Err(error) => (
-                    error_response(
+                    error_response_from_anyhow(
                         &request.request_id,
                         &state.endpoint.project_id,
-                        &error.to_string(),
+                        &error,
                     ),
                     false,
                 ),
             }
         }
-        DaemonCommand::Overview { top } => {
+        DaemonCommand::Overview {
+            top,
+            deadline_unix_ms,
+        } => {
             if top == 0 || top > 100 {
                 return (
-                    error_response(
+                    error_response_with_code(
                         &request.request_id,
                         &state.endpoint.project_id,
+                        DaemonErrorCode::InvalidInput,
+                        false,
                         "overview top must be between 1 and 100",
                     ),
                     false,
@@ -1328,16 +1328,18 @@ async fn execute_request(
                 Ok(job_id) => job_id,
                 Err(error) => {
                     return (
-                        error_response(
+                        error_response_from_anyhow(
                             &request.request_id,
                             &state.endpoint.project_id,
-                            &error.to_string(),
+                            &error,
                         ),
                         false,
                     );
                 }
             };
-            match daemon_overview_from_cache(&state, top).await {
+            match within_daemon_deadline(deadline_unix_ms, daemon_overview_from_cache(&state, top))
+                .await
+            {
                 Ok(overview) => {
                     let _ =
                         finish_daemon_job(&state, &job_id, DaemonJobStatus::Succeeded, None, None);
@@ -1351,6 +1353,11 @@ async fn execute_request(
                     )
                 }
                 Err(error) => {
+                    let response = error_response_from_anyhow(
+                        &request.request_id,
+                        &state.endpoint.project_id,
+                        &error,
+                    );
                     let error_message = error.to_string();
                     let _ = finish_daemon_job(
                         &state,
@@ -1359,23 +1366,21 @@ async fn execute_request(
                         None,
                         Some(error_message.clone()),
                     );
-                    (
-                        error_response(
-                            &request.request_id,
-                            &state.endpoint.project_id,
-                            &error_message,
-                        ),
-                        false,
-                    )
+                    (response, false)
                 }
             }
         }
-        DaemonCommand::Explain { stable_key } => {
+        DaemonCommand::Explain {
+            stable_key,
+            deadline_unix_ms,
+        } => {
             if stable_key.trim().is_empty() {
                 return (
-                    error_response(
+                    error_response_with_code(
                         &request.request_id,
                         &state.endpoint.project_id,
+                        DaemonErrorCode::InvalidInput,
+                        false,
                         "entity stable key must not be empty",
                     ),
                     false,
@@ -1390,16 +1395,21 @@ async fn execute_request(
                 Ok(job_id) => job_id,
                 Err(error) => {
                     return (
-                        error_response(
+                        error_response_from_anyhow(
                             &request.request_id,
                             &state.endpoint.project_id,
-                            &error.to_string(),
+                            &error,
                         ),
                         false,
                     );
                 }
             };
-            match daemon_explain_from_cache(&state, &stable_key).await {
+            match within_daemon_deadline(
+                deadline_unix_ms,
+                daemon_explain_from_cache(&state, &stable_key),
+            )
+            .await
+            {
                 Ok(explanation) => {
                     let _ =
                         finish_daemon_job(&state, &job_id, DaemonJobStatus::Succeeded, None, None);
@@ -1413,6 +1423,11 @@ async fn execute_request(
                     )
                 }
                 Err(error) => {
+                    let response = error_response_from_anyhow(
+                        &request.request_id,
+                        &state.endpoint.project_id,
+                        &error,
+                    );
                     let error_message = error.to_string();
                     let _ = finish_daemon_job(
                         &state,
@@ -1421,23 +1436,22 @@ async fn execute_request(
                         None,
                         Some(error_message.clone()),
                     );
-                    (
-                        error_response(
-                            &request.request_id,
-                            &state.endpoint.project_id,
-                            &error_message,
-                        ),
-                        false,
-                    )
+                    (response, false)
                 }
             }
         }
-        DaemonCommand::Search { query, limit } => {
+        DaemonCommand::Search {
+            query,
+            limit,
+            deadline_unix_ms,
+        } => {
             if query.trim().is_empty() {
                 return (
-                    error_response(
+                    error_response_with_code(
                         &request.request_id,
                         &state.endpoint.project_id,
+                        DaemonErrorCode::InvalidInput,
+                        false,
                         "search query must not be empty",
                     ),
                     false,
@@ -1445,9 +1459,11 @@ async fn execute_request(
             }
             if limit == 0 || limit > 100 {
                 return (
-                    error_response(
+                    error_response_with_code(
                         &request.request_id,
                         &state.endpoint.project_id,
+                        DaemonErrorCode::InvalidInput,
+                        false,
                         "search limit must be between 1 and 100",
                     ),
                     false,
@@ -1462,16 +1478,21 @@ async fn execute_request(
                 Ok(job_id) => job_id,
                 Err(error) => {
                     return (
-                        error_response(
+                        error_response_from_anyhow(
                             &request.request_id,
                             &state.endpoint.project_id,
-                            &error.to_string(),
+                            &error,
                         ),
                         false,
                     );
                 }
             };
-            match daemon_search_from_cache(&state, query, limit).await {
+            match within_daemon_deadline(
+                deadline_unix_ms,
+                daemon_search_from_cache(&state, query, limit),
+            )
+            .await
+            {
                 Ok(report) => {
                     let _ =
                         finish_daemon_job(&state, &job_id, DaemonJobStatus::Succeeded, None, None);
@@ -1485,6 +1506,11 @@ async fn execute_request(
                     )
                 }
                 Err(error) => {
+                    let response = error_response_from_anyhow(
+                        &request.request_id,
+                        &state.endpoint.project_id,
+                        &error,
+                    );
                     let error_message = error.to_string();
                     let _ = finish_daemon_job(
                         &state,
@@ -1493,14 +1519,7 @@ async fn execute_request(
                         None,
                         Some(error_message.clone()),
                     );
-                    (
-                        error_response(
-                            &request.request_id,
-                            &state.endpoint.project_id,
-                            &error_message,
-                        ),
-                        false,
-                    )
+                    (response, false)
                 }
             }
         }
@@ -1509,12 +1528,15 @@ async fn execute_request(
             diff,
             level,
             limits,
+            deadline_unix_ms,
         } => {
             if task.trim().is_empty() && !diff {
                 return (
-                    error_response(
+                    error_response_with_code(
                         &request.request_id,
                         &state.endpoint.project_id,
+                        DaemonErrorCode::InvalidInput,
+                        false,
                         "context task must not be empty",
                     ),
                     false,
@@ -1528,10 +1550,10 @@ async fn execute_request(
                 Ok(job_id) => job_id,
                 Err(error) => {
                     return (
-                        error_response(
+                        error_response_from_anyhow(
                             &request.request_id,
                             &state.endpoint.project_id,
-                            &error.to_string(),
+                            &error,
                         ),
                         false,
                     );
@@ -1547,12 +1569,22 @@ async fn execute_request(
                 };
                 match daemon_composition(&state) {
                     Some(composition) => {
-                        context_project_with_composition(options, &composition).await
+                        within_daemon_deadline(
+                            deadline_unix_ms,
+                            context_project_with_composition(options, &composition),
+                        )
+                        .await
                     }
-                    None => context_project(options).await,
+                    None => {
+                        within_daemon_deadline(deadline_unix_ms, context_project(options)).await
+                    }
                 }
             } else {
-                daemon_context_from_cache(&state, &task, level, &limits).await
+                within_daemon_deadline(
+                    deadline_unix_ms,
+                    daemon_context_from_cache(&state, &task, level, &limits),
+                )
+                .await
             };
             match context_result {
                 Ok(pack) => {
@@ -1568,6 +1600,11 @@ async fn execute_request(
                     )
                 }
                 Err(error) => {
+                    let response = error_response_from_anyhow(
+                        &request.request_id,
+                        &state.endpoint.project_id,
+                        &error,
+                    );
                     let error_message = error.to_string();
                     let _ = finish_daemon_job(
                         &state,
@@ -1576,14 +1613,7 @@ async fn execute_request(
                         None,
                         Some(error_message.clone()),
                     );
-                    (
-                        error_response(
-                            &request.request_id,
-                            &state.endpoint.project_id,
-                            &error_message,
-                        ),
-                        false,
-                    )
+                    (response, false)
                 }
             }
         }
@@ -1595,6 +1625,7 @@ async fn execute_request(
             max_files,
             max_diagnostics,
             max_depth,
+            deadline_unix_ms,
         } => {
             let job_id = match start_daemon_job(
                 &state,
@@ -1604,10 +1635,10 @@ async fn execute_request(
                 Ok(job_id) => job_id,
                 Err(error) => {
                     return (
-                        error_response(
+                        error_response_from_anyhow(
                             &request.request_id,
                             &state.endpoint.project_id,
-                            &error.to_string(),
+                            &error,
                         ),
                         false,
                     );
@@ -1625,9 +1656,13 @@ async fn execute_request(
             };
             let report = match daemon_composition(&state) {
                 Some(composition) => {
-                    change_map_project_with_composition(options, &composition).await
+                    within_daemon_deadline(
+                        deadline_unix_ms,
+                        change_map_project_with_composition(options, &composition),
+                    )
+                    .await
                 }
-                None => change_map_project(options).await,
+                None => within_daemon_deadline(deadline_unix_ms, change_map_project(options)).await,
             };
             match report {
                 Ok(report) => {
@@ -1643,6 +1678,11 @@ async fn execute_request(
                     )
                 }
                 Err(error) => {
+                    let response = error_response_from_anyhow(
+                        &request.request_id,
+                        &state.endpoint.project_id,
+                        &error,
+                    );
                     let error_message = error.to_string();
                     let _ = finish_daemon_job(
                         &state,
@@ -1651,14 +1691,7 @@ async fn execute_request(
                         None,
                         Some(error_message.clone()),
                     );
-                    (
-                        error_response(
-                            &request.request_id,
-                            &state.endpoint.project_id,
-                            &error_message,
-                        ),
-                        false,
-                    )
+                    (response, false)
                 }
             }
         }
@@ -1674,7 +1707,11 @@ async fn execute_request(
 }
 
 fn validate_request_shape(request: &DaemonRequest) -> Result<()> {
-    if request.schema != DAEMON_REQUEST_SCHEMA && request.schema != DAEMON_REQUEST_SCHEMA_V1 {
+    if request.schema != DAEMON_REQUEST_SCHEMA
+        && request.schema != DAEMON_REQUEST_SCHEMA_V2
+        && request.schema != DAEMON_REQUEST_SCHEMA_V3
+        && request.schema != DAEMON_REQUEST_SCHEMA_V1
+    {
         bail!("unsupported daemon request schema `{}`", request.schema);
     }
     if request.request_id.is_empty() || request.request_id.len() > 128 {
@@ -1683,10 +1720,51 @@ fn validate_request_shape(request: &DaemonRequest) -> Result<()> {
     if request.project_id.is_empty() {
         bail!("daemon project_id must not be empty");
     }
+    let deadline = match &request.command {
+        DaemonCommand::Index { deadline_unix_ms }
+        | DaemonCommand::Generate { deadline_unix_ms }
+        | DaemonCommand::Wiki { deadline_unix_ms }
+        | DaemonCommand::HtmlReport { deadline_unix_ms }
+        | DaemonCommand::Overview {
+            deadline_unix_ms, ..
+        }
+        | DaemonCommand::Explain {
+            deadline_unix_ms, ..
+        }
+        | DaemonCommand::Search {
+            deadline_unix_ms, ..
+        }
+        | DaemonCommand::Context {
+            deadline_unix_ms, ..
+        }
+        | DaemonCommand::ChangeMap {
+            deadline_unix_ms, ..
+        } => *deadline_unix_ms,
+        _ => None,
+    };
+    if let Some(deadline) = deadline {
+        if deadline <= unix_time_ms()? as u64 {
+            bail!("daemon command deadline_unix_ms must be in the future");
+        }
+    }
     Ok(())
 }
 
-fn validate_request(state: &DaemonState, request: &DaemonRequest) -> Result<()> {
+async fn within_daemon_deadline<T>(
+    deadline_unix_ms: Option<u64>,
+    operation: impl Future<Output = Result<T>>,
+) -> Result<T> {
+    let Some(deadline_unix_ms) = deadline_unix_ms else {
+        return operation.await;
+    };
+    let now_unix_ms = unix_time_ms()? as u64;
+    let remaining = Duration::from_millis(deadline_unix_ms.saturating_sub(now_unix_ms));
+    tokio::time::timeout(remaining, operation)
+        .await
+        .map_err(|_| anyhow::anyhow!("daemon command deadline exceeded"))?
+}
+
+pub(crate) fn validate_request(state: &DaemonState, request: &DaemonRequest) -> Result<()> {
     validate_request_shape(request)?;
     if request.schema == DAEMON_REQUEST_SCHEMA_V1 {
         if !state.insecure_allow_v1 {
@@ -1707,105 +1785,6 @@ fn validate_request(state: &DaemonState, request: &DaemonRequest) -> Result<()> 
         bail!("daemon authentication failed");
     }
     Ok(())
-}
-
-fn start_file_watcher(
-    root: &Path,
-    debounce: Duration,
-    poll: bool,
-    watch_tx: mpsc::UnboundedSender<Vec<PathBuf>>,
-) -> Result<DaemonWatcher> {
-    let root = root.to_path_buf();
-    let root_for_handler = root.clone();
-    let handler = move |result: DebounceEventResult| match result {
-        Ok(events) => {
-            let paths = collect_project_source_events(
-                &root_for_handler,
-                events.into_iter().map(|event| event.path),
-            );
-            if !paths.is_empty() {
-                let _ = watch_tx.send(paths);
-            }
-        }
-        Err(error) => {
-            tracing::warn!(error = %error, "daemon file watcher event error");
-        }
-    };
-
-    if poll {
-        let config = DebouncerConfig::default()
-            .with_timeout(debounce)
-            .with_notify_config(NotifyConfig::default().with_poll_interval(debounce));
-        let mut debouncer = new_debouncer_opt::<_, PollWatcher>(config, handler)
-            .context("failed to create polling daemon file watcher")?;
-        debouncer
-            .watcher()
-            .watch(&root, RecursiveMode::Recursive)
-            .with_context(|| format!("failed to watch {}", root.display()))?;
-        Ok(DaemonWatcher::Poll {
-            _debouncer: debouncer,
-        })
-    } else {
-        let mut debouncer =
-            new_debouncer(debounce, handler).context("failed to create daemon file watcher")?;
-        debouncer
-            .watcher()
-            .watch(&root, RecursiveMode::Recursive)
-            .with_context(|| format!("failed to watch {}", root.display()))?;
-        Ok(DaemonWatcher::Recommended {
-            _debouncer: debouncer,
-        })
-    }
-}
-
-#[derive(Debug)]
-enum DaemonWatcher {
-    Recommended {
-        _debouncer: Debouncer<RecommendedWatcher>,
-    },
-    Poll {
-        _debouncer: Debouncer<PollWatcher>,
-    },
-}
-
-fn is_project_source_event(root: &Path, path: &Path) -> bool {
-    let relative = path
-        .strip_prefix(root)
-        .or_else(|_| path.strip_prefix("."))
-        .unwrap_or(path);
-    relative
-        .components()
-        .next()
-        .is_none_or(|component| component.as_os_str() != ".athanor")
-}
-
-fn collect_project_source_events(
-    root: &Path,
-    paths: impl IntoIterator<Item = PathBuf>,
-) -> Vec<PathBuf> {
-    let mut paths = paths
-        .into_iter()
-        .filter(|path| is_project_source_event(root, path))
-        .collect::<Vec<_>>();
-    paths.sort();
-    paths.dedup();
-    paths
-}
-
-fn start_watcher_index_job(
-    state: &Arc<DaemonState>,
-    paths: Vec<PathBuf>,
-) -> Result<Option<DaemonJob>> {
-    if has_active_job(state, DaemonJobKind::Index)? {
-        tracing::info!(
-            project_id = %state.endpoint.project_id,
-            changed_paths = paths.len(),
-            "daemon watcher skipped index because one is already queued or running"
-        );
-        return Ok(None);
-    }
-    let description = format!("watch index after {} changed paths", paths.len());
-    start_index_job(state, description).map(Some)
 }
 
 async fn latest_snapshot_for_daemon(state: &Arc<DaemonState>) -> Result<CanonicalSnapshot> {
@@ -2024,37 +2003,6 @@ fn invalidate_daemon_caches(state: &DaemonState) {
     }
 }
 
-fn lifecycle(state: &DaemonState) -> DaemonLifecycleState {
-    state
-        .lifecycle
-        .lock()
-        .map(|lifecycle| *lifecycle)
-        .unwrap_or(DaemonLifecycleState::Stopping)
-}
-
-fn set_lifecycle(state: &DaemonState, lifecycle: DaemonLifecycleState) {
-    match state.lifecycle.lock() {
-        Ok(mut current) => *current = lifecycle,
-        Err(_) => tracing::warn!("daemon lifecycle lock is poisoned"),
-    }
-}
-
-fn active_job_count(state: &DaemonState) -> Result<usize> {
-    let jobs = state
-        .jobs
-        .lock()
-        .map_err(|_| anyhow::anyhow!("daemon job registry lock is poisoned"))?;
-    Ok(jobs
-        .iter()
-        .filter(|job| {
-            matches!(
-                job.status,
-                DaemonJobStatus::Queued | DaemonJobStatus::Running | DaemonJobStatus::Cancelling
-            )
-        })
-        .count())
-}
-
 fn cache_status(state: &DaemonState) -> Value {
     serde_json::json!({
         "snapshot_loaded": state.latest_snapshot_cache.lock().is_ok_and(|cache| cache.is_some()),
@@ -2104,7 +2052,19 @@ async fn drain_active_jobs(state: &DaemonState, timeout: Duration) -> Result<()>
     }
 }
 
-fn start_index_job(state: &Arc<DaemonState>, description: String) -> Result<DaemonJob> {
+pub(crate) fn start_index_job(state: &Arc<DaemonState>, description: String) -> Result<DaemonJob> {
+    start_index_job_with_operation_context(
+        state,
+        description,
+        OperationContext::new("daemon.index"),
+    )
+}
+
+pub(crate) fn start_index_job_with_operation_context(
+    state: &Arc<DaemonState>,
+    description: String,
+    operation: OperationContext,
+) -> Result<DaemonJob> {
     if has_active_job(state, DaemonJobKind::Index)? {
         bail!("index job is already queued or running");
     }
@@ -2136,14 +2096,22 @@ fn start_index_job(state: &Arc<DaemonState>, description: String) -> Result<Daem
                         };
                         match composition {
                             Some(composition) => {
-                                index_project_cancellable_with_composition(
+                                index_project_cancellable_with_composition_and_operation_context(
                                     options,
                                     cancellation_for_task,
                                     &composition,
+                                    operation,
                                 )
                                 .await
                             }
-                            None => index_project_cancellable(options, cancellation_for_task).await,
+                            None => {
+                                index_project_cancellable_with_operation_context(
+                                    options,
+                                    cancellation_for_task,
+                                    operation,
+                                )
+                                .await
+                            }
                         }
                     })
                 });
@@ -2195,107 +2163,7 @@ fn start_index_job(state: &Arc<DaemonState>, description: String) -> Result<Daem
     Ok(job)
 }
 
-fn list_daemon_jobs(state: &DaemonState, limit: usize) -> Result<DaemonJobsReport> {
-    let jobs = state
-        .jobs
-        .lock()
-        .map_err(|_| anyhow::anyhow!("daemon job registry lock is poisoned"))?;
-    let total = jobs.len();
-    let mut returned_jobs = jobs.clone();
-    returned_jobs.sort_by(|left, right| {
-        right
-            .created_at_unix_ms
-            .cmp(&left.created_at_unix_ms)
-            .then_with(|| left.id.cmp(&right.id))
-    });
-    returned_jobs.truncate(limit);
-    Ok(DaemonJobsReport {
-        schema: DAEMON_JOBS_SCHEMA.to_string(),
-        total,
-        returned: returned_jobs.len(),
-        retention_limit: state.max_job_history,
-        jobs: returned_jobs,
-    })
-}
-
-fn get_daemon_job(state: &DaemonState, job_id: &str) -> Result<DaemonJob> {
-    if !is_valid_job_id(job_id) {
-        bail!("daemon job id must use the form job_00000001");
-    }
-    let jobs = state
-        .jobs
-        .lock()
-        .map_err(|_| anyhow::anyhow!("daemon job registry lock is poisoned"))?;
-    jobs.iter()
-        .find(|job| job.id == job_id)
-        .cloned()
-        .ok_or_else(|| anyhow::anyhow!("daemon job `{job_id}` was not found"))
-}
-
-fn cancel_daemon_job(state: &DaemonState, job_id: &str) -> Result<DaemonJob> {
-    if !is_valid_job_id(job_id) {
-        bail!("daemon job id must use the form job_00000001");
-    }
-    let current = get_daemon_job(state, job_id)?;
-    match current.status {
-        DaemonJobStatus::Queued => {
-            if let Some(cancellation) = cancellation_token(state, job_id)? {
-                cancellation.cancel();
-            }
-            let mut jobs = state
-                .jobs
-                .lock()
-                .map_err(|_| anyhow::anyhow!("daemon job registry lock is poisoned"))?;
-            let job = jobs
-                .iter_mut()
-                .find(|job| job.id == job_id)
-                .ok_or_else(|| anyhow::anyhow!("daemon job `{job_id}` was not found"))?;
-            match job.status {
-                DaemonJobStatus::Queued => {
-                    job.status = DaemonJobStatus::Cancelled;
-                    job.finished_at_unix_ms = Some(unix_time_ms()?);
-                    job.error = Some("job cancelled before start".to_string());
-                }
-                DaemonJobStatus::Running => {
-                    job.status = DaemonJobStatus::Cancelling;
-                    job.error = Some("job cancellation requested".to_string());
-                }
-                _ => {}
-            }
-            let cancelled = job.clone();
-            drop(jobs);
-            if cancelled.status == DaemonJobStatus::Cancelled {
-                remove_cancellation_token(state, job_id)?;
-            }
-            Ok(cancelled)
-        }
-        DaemonJobStatus::Running => {
-            let cancellation = cancellation_token(state, job_id)?.ok_or_else(|| {
-                anyhow::anyhow!("daemon job `{job_id}` is running and is not cancellable")
-            })?;
-            cancellation.cancel();
-            let mut jobs = state
-                .jobs
-                .lock()
-                .map_err(|_| anyhow::anyhow!("daemon job registry lock is poisoned"))?;
-            let job = jobs
-                .iter_mut()
-                .find(|job| job.id == job_id)
-                .ok_or_else(|| anyhow::anyhow!("daemon job `{job_id}` was not found"))?;
-            if job.status == DaemonJobStatus::Running {
-                job.status = DaemonJobStatus::Cancelling;
-                job.error = Some("job cancellation requested".to_string());
-            }
-            Ok(job.clone())
-        }
-        DaemonJobStatus::Cancelling
-        | DaemonJobStatus::Succeeded
-        | DaemonJobStatus::Failed
-        | DaemonJobStatus::Cancelled => Ok(current),
-    }
-}
-
-fn has_active_job(state: &DaemonState, kind: DaemonJobKind) -> Result<bool> {
+pub(crate) fn has_active_job(state: &DaemonState, kind: DaemonJobKind) -> Result<bool> {
     let jobs = state
         .jobs
         .lock()
@@ -2307,45 +2175,6 @@ fn has_active_job(state: &DaemonState, kind: DaemonJobKind) -> Result<bool> {
                 DaemonJobStatus::Queued | DaemonJobStatus::Running | DaemonJobStatus::Cancelling
             )
     }))
-}
-
-fn is_valid_job_id(job_id: &str) -> bool {
-    job_id.len() == 12
-        && job_id.starts_with("job_")
-        && job_id.as_bytes().iter().skip(4).all(u8::is_ascii_digit)
-}
-
-fn start_daemon_job(
-    state: &DaemonState,
-    kind: DaemonJobKind,
-    description: String,
-) -> Result<String> {
-    let mut next_job_sequence = state
-        .next_job_sequence
-        .lock()
-        .map_err(|_| anyhow::anyhow!("daemon job sequence lock is poisoned"))?;
-    let job_id = format!("job_{:08}", *next_job_sequence);
-    *next_job_sequence += 1;
-    drop(next_job_sequence);
-
-    let now = unix_time_ms()?;
-    let mut jobs = state
-        .jobs
-        .lock()
-        .map_err(|_| anyhow::anyhow!("daemon job registry lock is poisoned"))?;
-    jobs.push(DaemonJob {
-        id: job_id.clone(),
-        kind,
-        status: DaemonJobStatus::Queued,
-        description,
-        created_at_unix_ms: now,
-        started_at_unix_ms: None,
-        finished_at_unix_ms: None,
-        result: None,
-        error: None,
-    });
-    prune_daemon_jobs(&mut jobs, state.max_job_history);
-    Ok(job_id)
 }
 
 fn start_cancellable_daemon_job(
@@ -2373,7 +2202,10 @@ fn start_cancellable_daemon_job(
     Ok((job_id, cancellation))
 }
 
-fn cancellation_token(state: &DaemonState, job_id: &str) -> Result<Option<CancellationToken>> {
+pub(crate) fn cancellation_token(
+    state: &DaemonState,
+    job_id: &str,
+) -> Result<Option<CancellationToken>> {
     let tokens = state
         .cancellation_tokens
         .lock()
@@ -2381,35 +2213,13 @@ fn cancellation_token(state: &DaemonState, job_id: &str) -> Result<Option<Cancel
     Ok(tokens.get(job_id).cloned())
 }
 
-fn remove_cancellation_token(state: &DaemonState, job_id: &str) -> Result<()> {
+pub(crate) fn remove_cancellation_token(state: &DaemonState, job_id: &str) -> Result<()> {
     let mut tokens = state
         .cancellation_tokens
         .lock()
         .map_err(|_| anyhow::anyhow!("daemon cancellation registry lock is poisoned"))?;
     tokens.remove(job_id);
     Ok(())
-}
-
-fn mark_daemon_job_running(state: &DaemonState, job_id: &str) -> Result<bool> {
-    let started_at = unix_time_ms()?;
-    let mut jobs = state
-        .jobs
-        .lock()
-        .map_err(|_| anyhow::anyhow!("daemon job registry lock is poisoned"))?;
-    let job = jobs
-        .iter_mut()
-        .find(|job| job.id == job_id)
-        .ok_or_else(|| anyhow::anyhow!("daemon job `{job_id}` was not found"))?;
-    match job.status {
-        DaemonJobStatus::Queued => {
-            job.status = DaemonJobStatus::Running;
-            job.started_at_unix_ms = Some(started_at);
-            Ok(true)
-        }
-        DaemonJobStatus::Cancelled => Ok(false),
-        DaemonJobStatus::Running | DaemonJobStatus::Cancelling => Ok(true),
-        DaemonJobStatus::Succeeded | DaemonJobStatus::Failed => Ok(false),
-    }
 }
 
 fn begin_daemon_job_or_finish_failed(state: &DaemonState, job_id: &str) -> bool {
@@ -2426,32 +2236,6 @@ fn begin_daemon_job_or_finish_failed(state: &DaemonState, job_id: &str) -> bool 
             false
         }
     }
-}
-
-fn finish_daemon_job(
-    state: &DaemonState,
-    job_id: &str,
-    status: DaemonJobStatus,
-    result: Option<Value>,
-    error: Option<String>,
-) -> Result<()> {
-    let finished_at = unix_time_ms()?;
-    let mut jobs = state
-        .jobs
-        .lock()
-        .map_err(|_| anyhow::anyhow!("daemon job registry lock is poisoned"))?;
-    let job = jobs
-        .iter_mut()
-        .find(|job| job.id == job_id)
-        .ok_or_else(|| anyhow::anyhow!("daemon job `{job_id}` was not found"))?;
-    job.status = status;
-    job.finished_at_unix_ms = Some(finished_at);
-    job.result = result;
-    job.error = error;
-    prune_daemon_jobs(&mut jobs, state.max_job_history);
-    drop(jobs);
-    remove_cancellation_token(state, job_id)?;
-    Ok(())
 }
 
 fn finish_cancellable_daemon_job_error(
@@ -2473,165 +2257,12 @@ fn finish_cancellable_daemon_job_error(
     finish_daemon_job(state, job_id, status, None, Some(message))
 }
 
-fn prune_daemon_jobs(jobs: &mut Vec<DaemonJob>, max_job_history: usize) {
-    while jobs.len() > max_job_history {
-        let Some((index, _)) = jobs
-            .iter()
-            .enumerate()
-            .filter(|(_, job)| {
-                matches!(
-                    job.status,
-                    DaemonJobStatus::Succeeded
-                        | DaemonJobStatus::Failed
-                        | DaemonJobStatus::Cancelled
-                )
-            })
-            .min_by(|(_, left), (_, right)| {
-                left.created_at_unix_ms
-                    .cmp(&right.created_at_unix_ms)
-                    .then_with(|| left.id.cmp(&right.id))
-            })
-        else {
-            break;
-        };
-        jobs.remove(index);
-    }
-}
-
-fn read_endpoint(path: &Path) -> Result<DaemonEndpoint> {
-    let content =
-        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
-    let endpoint: DaemonEndpoint = serde_json::from_str(&content)
-        .with_context(|| format!("failed to parse {}", path.display()))?;
-    if endpoint.schema != DAEMON_ENDPOINT_SCHEMA {
-        bail!("unsupported daemon endpoint schema `{}`", endpoint.schema);
-    }
-    if endpoint.protocol_version != DAEMON_PROTOCOL_VERSION {
-        bail!(
-            "unsupported daemon protocol version `{}`",
-            endpoint.protocol_version
-        );
-    }
-    Ok(endpoint)
-}
-
-fn write_endpoint(path: &Path, endpoint: &DaemonEndpoint) -> Result<()> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| anyhow::anyhow!("daemon endpoint has no parent"))?;
-    let staging = parent.join(format!(".endpoint.json.tmp-{}", std::process::id()));
-    let content = serde_json::to_string_pretty(endpoint)?;
-    fs::write(&staging, format!("{content}\n"))
-        .with_context(|| format!("failed to write {}", staging.display()))?;
-    if path.exists() {
-        fs::remove_file(path).with_context(|| format!("failed to replace {}", path.display()))?;
-    }
-    fs::rename(&staging, path).with_context(|| format!("failed to publish {}", path.display()))
-}
-
-fn success_response(request_id: &str, project_id: &str, result: Value) -> DaemonResponse {
-    DaemonResponse {
-        schema: DAEMON_RESPONSE_SCHEMA.to_string(),
-        request_id: request_id.to_string(),
-        project_id: project_id.to_string(),
-        ok: true,
-        result: Some(result),
-        error: None,
-    }
-}
-
-fn error_response(request_id: &str, project_id: &str, error: &str) -> DaemonResponse {
-    DaemonResponse {
-        schema: DAEMON_RESPONSE_SCHEMA.to_string(),
-        request_id: request_id.to_string(),
-        project_id: project_id.to_string(),
-        ok: false,
-        result: None,
-        error: Some(error.to_string()),
-    }
-}
-
-fn serialize_daemon_response(response: DaemonResponse, max_response_bytes: u64) -> Result<Vec<u8>> {
-    let response_json = serde_json::to_vec(&response)?;
-    if response_json.len() as u64 <= max_response_bytes {
-        return Ok(response_json);
-    }
-
-    let overflow = error_response(
-        &response.request_id,
-        &response.project_id,
-        &format!(
-            "daemon response exceeds size limit of {} bytes",
-            max_response_bytes
-        ),
-    );
-    let overflow_json = serde_json::to_vec(&overflow)?;
-    if overflow_json.len() as u64 > max_response_bytes {
-        bail!("daemon overflow error response exceeds response size limit");
-    }
-    Ok(overflow_json)
-}
-
-fn validate_protocol_limit(name: &str, value: u64) -> Result<()> {
-    if !(MIN_PROTOCOL_BYTES..=MAX_PROTOCOL_BYTES).contains(&value) {
-        bail!("{name} must be between {MIN_PROTOCOL_BYTES} and {MAX_PROTOCOL_BYTES}");
-    }
-    Ok(())
-}
-
-fn cleanup_known_staging_artifacts(root: &Path) -> Result<()> {
-    let roots = [
-        root.join(".athanor/store/canonical/jsonl"),
-        root.join(".athanor/generated"),
-        root.join(".athanor/generated/current"),
-    ];
-    for directory in roots {
-        cleanup_staging_directory(&directory)?;
-    }
-    Ok(())
-}
-
-fn cleanup_staging_directory(directory: &Path) -> Result<()> {
-    let entries = match fs::read_dir(directory) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => {
-            return Err(error)
-                .with_context(|| format!("failed to inspect {}", directory.display()));
-        }
-    };
-    for entry in entries {
-        let entry = entry?;
-        let name = entry.file_name();
-        let name = name.to_string_lossy();
-        if !(name.starts_with('.') && (name.contains(".tmp-") || name.contains(".backup-"))) {
-            continue;
-        }
-        let path = entry.path();
-        if path.is_dir() {
-            fs::remove_dir_all(&path)
-                .with_context(|| format!("failed to remove stale staging {}", path.display()))?;
-        } else {
-            fs::remove_file(&path)
-                .with_context(|| format!("failed to remove stale staging {}", path.display()))?;
-        }
-    }
-    Ok(())
-}
-
 fn default_max_request_bytes() -> u64 {
     DEFAULT_MAX_REQUEST_BYTES
 }
 
 fn default_max_response_bytes() -> u64 {
     DEFAULT_MAX_RESPONSE_BYTES
-}
-
-fn unix_time_ms() -> Result<u128> {
-    Ok(SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .context("system clock is before Unix epoch")?
-        .as_millis())
 }
 
 struct LocalSocketGuard {
@@ -2810,6 +2441,10 @@ fn sanitize_local_socket_label(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::daemon_protocol::serialize_response;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    #[cfg(windows)]
+    use tokio::net::windows::named_pipe::ClientOptions as PipeClientOptions;
 
     #[tokio::test]
     async fn serves_status_and_rejects_wrong_project() {
@@ -3143,6 +2778,55 @@ mod tests {
         }
     }
 
+    #[test]
+    fn index_request_deadline_is_optional_for_existing_clients() {
+        let command: DaemonCommand = serde_json::from_value(serde_json::json!({
+            "name": "index"
+        }))
+        .expect("legacy index command should remain valid");
+
+        assert!(matches!(
+            command,
+            DaemonCommand::Index {
+                deadline_unix_ms: None
+            }
+        ));
+    }
+
+    #[test]
+    fn read_only_request_deadline_is_optional_for_existing_clients() {
+        let command: DaemonCommand = serde_json::from_value(serde_json::json!({
+            "name": "overview",
+            "top": 10
+        }))
+        .expect("legacy overview command should remain valid");
+
+        assert!(matches!(
+            command,
+            DaemonCommand::Overview {
+                top: 10,
+                deadline_unix_ms: None,
+            }
+        ));
+    }
+
+    #[tokio::test]
+    async fn read_only_deadline_bounds_async_work() {
+        let deadline = unix_time_ms().unwrap() as u64 + 1;
+        let result = within_daemon_deadline(Some(deadline), async {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            Ok(())
+        })
+        .await;
+
+        assert!(
+            result
+                .expect_err("expired read-only deadline must stop the request")
+                .to_string()
+                .contains("deadline exceeded")
+        );
+    }
+
     #[tokio::test]
     async fn rejects_missing_and_wrong_tokens_before_job_creation() {
         let root = temp_root("auth-rejection");
@@ -3156,7 +2840,10 @@ mod tests {
                     request_id: "req-auth".to_string(),
                     project_id: "alpha".to_string(),
                     auth_token,
-                    command: DaemonCommand::Overview { top: 1 },
+                    command: DaemonCommand::Overview {
+                        top: 1,
+                        deadline_unix_ms: None,
+                    },
                 },
             )
             .await;
@@ -3244,6 +2931,10 @@ mod tests {
                     .unwrap_or_default()
                     .contains(expected_error)
             );
+            assert_eq!(
+                response.error_details.as_ref().map(|details| details.code),
+                Some(DaemonErrorCode::InvalidInput)
+            );
         }
 
         assert!(state.jobs.lock().unwrap().is_empty());
@@ -3300,7 +2991,9 @@ mod tests {
                 request_id: "req-new-work".to_string(),
                 project_id: "alpha".to_string(),
                 auth_token: token,
-                command: DaemonCommand::Index,
+                command: DaemonCommand::Index {
+                    deadline_unix_ms: None,
+                },
             },
         )
         .await;
@@ -3321,10 +3014,17 @@ mod tests {
 
         for (command, expected_error) in [
             (DaemonCommand::Jobs { limit: 0 }, "jobs limit"),
-            (DaemonCommand::Overview { top: 0 }, "overview top"),
+            (
+                DaemonCommand::Overview {
+                    top: 0,
+                    deadline_unix_ms: None,
+                },
+                "overview top",
+            ),
             (
                 DaemonCommand::Explain {
                     stable_key: "  ".to_string(),
+                    deadline_unix_ms: None,
                 },
                 "stable key must not be empty",
             ),
@@ -3332,6 +3032,7 @@ mod tests {
                 DaemonCommand::Search {
                     query: "  ".to_string(),
                     limit: 10,
+                    deadline_unix_ms: None,
                 },
                 "search query must not be empty",
             ),
@@ -3339,6 +3040,7 @@ mod tests {
                 DaemonCommand::Search {
                     query: "login".to_string(),
                     limit: 0,
+                    deadline_unix_ms: None,
                 },
                 "search limit",
             ),
@@ -3348,8 +3050,22 @@ mod tests {
                     diff: false,
                     level: ContextLevel::Normal,
                     limits: ContextLimitOverrides::default(),
+                    deadline_unix_ms: None,
                 },
                 "context task must not be empty",
+            ),
+            (
+                DaemonCommand::Index {
+                    deadline_unix_ms: Some(0),
+                },
+                "deadline_unix_ms must be in the future",
+            ),
+            (
+                DaemonCommand::Overview {
+                    top: 10,
+                    deadline_unix_ms: Some(0),
+                },
+                "deadline_unix_ms must be in the future",
             ),
         ] {
             let (response, shutdown) = execute_request(
@@ -3421,25 +3137,33 @@ mod tests {
             (
                 "index",
                 DaemonJobKind::Index,
-                DaemonCommand::Index,
+                DaemonCommand::Index {
+                    deadline_unix_ms: None,
+                },
                 "index job is already queued or running",
             ),
             (
                 "generate",
                 DaemonJobKind::Generate,
-                DaemonCommand::Generate,
+                DaemonCommand::Generate {
+                    deadline_unix_ms: None,
+                },
                 "generate job is already queued or running",
             ),
             (
                 "wiki",
                 DaemonJobKind::Wiki,
-                DaemonCommand::Wiki,
+                DaemonCommand::Wiki {
+                    deadline_unix_ms: None,
+                },
                 "wiki job is already queued or running",
             ),
             (
                 "html",
                 DaemonJobKind::HtmlReport,
-                DaemonCommand::HtmlReport,
+                DaemonCommand::HtmlReport {
+                    deadline_unix_ms: None,
+                },
                 "HTML report job is already queued or running",
             ),
         ] {
@@ -4545,6 +4269,7 @@ mod tests {
                 auth_token: token.clone(),
                 command: DaemonCommand::Explain {
                     stable_key: "api://POST:/login".to_string(),
+                    deadline_unix_ms: None,
                 },
             },
         );
@@ -4558,6 +4283,7 @@ mod tests {
                 command: DaemonCommand::Search {
                     query: "login".to_string(),
                     limit: 10,
+                    deadline_unix_ms: None,
                 },
             },
         );
@@ -4598,7 +4324,10 @@ mod tests {
                 request_id: "req-overview".to_string(),
                 project_id: "alpha".to_string(),
                 auth_token: token.clone(),
-                command: DaemonCommand::Overview { top: 10 },
+                command: DaemonCommand::Overview {
+                    top: 10,
+                    deadline_unix_ms: None,
+                },
             },
         );
         let context = execute_request(
@@ -4613,6 +4342,7 @@ mod tests {
                     diff: false,
                     level: ContextLevel::Normal,
                     limits: ContextLimitOverrides::default(),
+                    deadline_unix_ms: None,
                 },
             },
         );
@@ -4661,17 +4391,23 @@ mod tests {
                 0 => DaemonCommand::Status,
                 1 => DaemonCommand::Explain {
                     stable_key: "api://POST:/login".to_string(),
+                    deadline_unix_ms: None,
                 },
                 2 => DaemonCommand::Search {
                     query: "login".to_string(),
                     limit: 10,
+                    deadline_unix_ms: None,
                 },
-                3 => DaemonCommand::Overview { top: 10 },
+                3 => DaemonCommand::Overview {
+                    top: 10,
+                    deadline_unix_ms: None,
+                },
                 _ => DaemonCommand::Context {
                     task: "login".to_string(),
                     diff: false,
                     level: ContextLevel::Normal,
                     limits: ContextLimitOverrides::default(),
+                    deadline_unix_ms: None,
                 },
             };
             execute_request(
@@ -5012,7 +4748,7 @@ mod tests {
             }),
         );
 
-        let serialized = serialize_daemon_response(response, DEFAULT_MAX_RESPONSE_BYTES).unwrap();
+        let serialized = serialize_response(response, DEFAULT_MAX_RESPONSE_BYTES).unwrap();
         assert!(serialized.len() as u64 <= DEFAULT_MAX_RESPONSE_BYTES);
         let parsed: DaemonResponse = serde_json::from_slice(&serialized).unwrap();
         assert!(!parsed.ok);

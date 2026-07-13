@@ -53,6 +53,85 @@ Decision:
 
 Reference: <https://github.com/sopaco/deepwiki-rs>.
 
+## Selected Reference Portfolio
+
+The following material was re-reviewed for direct fit, scope, and licensing. Local clones are
+inspection copies only; they are outside the Athanor workspace and must never become vendored
+source or a runtime dependency without a separate adoption spike.
+
+| Reference | Decision | Retain from it | Explicitly exclude |
+| --- | --- | --- | --- |
+| C4 model and Structurizr documentation | Required conceptual reference; no source adoption | One canonical model with independently selectable, hierarchical views; C4 context, container, component, and supporting dynamic/deployment view vocabulary | Structurizr DSL, Java model, layout engine, and workspace format as Athanor public contracts |
+| `arc42/arc42-template` (`8dff0d9`) | Required architecture-profile checklist; reference-only | Coverage checklist: goals, constraints, context, strategy, building blocks, runtime, deployment, concepts, decisions, quality, risks, glossary | Copying chapter prose, diagrams, or the template structure verbatim; it is CC BY-SA 4.0, so Athanor profiles must be independently authored |
+| `evildmp/diataxis-documentation-framework` (`855e9c1`) | Required content-classification reference; reference-only | Separate generated content into tutorial, how-to, reference, and explanation; in particular, preserve neutral graph-backed reference versus explicitly interpretive explanation | Reusing its text or template directly; it is CC BY-SA 4.0, and Diataxis is not a renderer or an indexing model |
+| `adr/madr` (`835fc94`) | Conditional, later ADR/documentation-extractor reference | A small, reviewable Markdown decision record with status, context, options, and outcome; the template is MIT or CC0 | Generating architectural decisions from code or treating an ADR as evidence of current implementation without linking/checking it |
+| `mermaid-js/mermaid` | Conditional Slice 3 rendering/validation candidate | Text diagram format compatible with Markdown, version-controlled source, and syntax validation through a replaceable rendering adapter | A JavaScript dependency in domain/core, direct model calls during indexing, or making Mermaid the only output diagram format |
+| `sourcegraph/scip` (`e01e97e`) | Retain as a Phase 12 external-index importer reference, not documentation generation work | Language-neutral definitions, references, implementations, and Rust bindings that can enrich canonical code relations through an adapter | Replacing Athanor stable IDs, evidence, ownership, or snapshots with SCIP documents; building an importer before its language-specific fixture contract |
+| Backstage TechDocs | Reference-only, do not clone or adopt | Entity-associated docs-as-code publication and CI-built static documentation separation | Backstage portal, catalog, Node/Python runtime, or storage model; its scope is a developer portal rather than Athanor projection |
+| OpenTelemetry semantic conventions and current LLM documentation papers | Evaluation and naming references only | Versioned terminology, requirement levels, and quality-evaluation questions | Importing telemetry schemas or experimental research workflows as Athanor architecture |
+
+The local inspection set is deliberately small:
+
+```text
+D:\deepwiki-rs                         # product/UX reference only
+D:\athanor-references\arc42-template   # architecture coverage checklist
+D:\athanor-references\diataxis-framework # document-type taxonomy
+D:\athanor-references\madr             # ADR format reference
+D:\athanor-references\scip             # future external-index protocol reference
+```
+
+No further repositories should be cloned for this plan until a delivery slice names a concrete
+replacement boundary and acceptance corpus. In particular, a full Backstage clone, a Structurizr
+implementation clone, an OpenTelemetry clone, or another AI wiki generator would add maintenance
+surface without improving the first deterministic architecture-document slice.
+
+## Reference Intake Protocol
+
+References are mined for a bounded idea, not adopted as packages by default. Every candidate passes
+the following sequence before it can change Athanor's roadmap or code.
+
+1. **Name the Athanor gap.** State the user-facing capability that is missing and identify the
+   existing snapshot, context, projector, extractor, checker, or adapter boundary it would touch.
+   A reference does not create a new product goal by itself.
+2. **Extract one transferable pattern.** Record the exact input contract, output contract,
+   validation rule, failure mode, or evaluation method worth retaining. Do not record vague ideas
+   such as "use agents" or "support many languages".
+3. **Apply the rejection filter.** Reject the candidate when it duplicates an existing Athanor
+   capability, bypasses canonical evidence/ownership, needs unbounded raw-file access, makes an
+   external format the source of truth, or expands a delivery slice without a Rustok scenario.
+4. **Check provenance.** Pin the source URL and revision, license, maintenance signal, dependency
+   footprint, data/secret exposure, and whether the material is reference-only or could legally be
+   reused. CC BY-SA material is treated as a conceptual reference unless its attribution and
+   share-alike consequences are explicitly accepted.
+5. **Create the smallest independent spike.** The spike stays behind an adapter or private app
+   boundary, uses a minimal fixture corpus, and produces Athanor-owned canonical or projection
+   contracts. It must be removable without a domain/core migration.
+6. **Measure against a real task.** Compare the baseline and spike on Rustok or another bounded
+   repository scenario: evidence/citation validity, signal quality, omitted knowledge, deterministic
+   output, runtime, resource use, review burden, and provider cost when applicable.
+7. **Make one explicit decision.** Classify the result as `adopt`, `defer`, or `reject`. Adoption
+   requires a scoped roadmap slice, acceptance criteria, dependency decision, tests, and—when it
+   changes material architecture—an ADR. Deferred and rejected candidates retain a concise reason
+   so they are not rediscovered and re-evaluated without new evidence.
+
+The intake record for a useful reference therefore contains only:
+
+```text
+source + pinned revision + license
+specific Athanor gap
+one transferable pattern
+adapter/app boundary and non-goals
+minimal fixture and measurable acceptance criteria
+decision with evidence
+```
+
+For documentation generation, the first intake exercise is intentionally limited to this question:
+"Can a deterministic architecture profile turn the current canonical snapshot into a cited,
+readable C4-style overview without an LLM?" C4 supplies the view vocabulary, arc42 supplies the
+coverage checklist, and Diataxis separates graph-backed reference from explanatory prose. The
+answer must be established by the Slice 1 fixture and Rustok evaluation before looking for more
+generators or model orchestration frameworks.
+
 ## Non-Negotiable Boundaries
 
 - The canonical snapshot remains the only truth source for generated claims.

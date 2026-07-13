@@ -5,7 +5,7 @@ use std::time::Instant;
 use crate::config::load_config;
 use crate::store::init_store;
 use anyhow::{Context, Result, bail};
-use athanor_core::CanonicalSnapshotStore;
+use athanor_core::{CanonicalSnapshotStore, OperationContext};
 use athanor_projector_support::{NewDirectoryPublication, replace_output_file, write_output_file};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -92,7 +92,15 @@ struct GenerationOutputs {
 }
 
 pub async fn generate_project(options: GenerationOptions) -> Result<GenerationReport> {
-    generate_project_inner(options, None, None).await
+    generate_project_inner(options, None, None, OperationContext::new("generate")).await
+}
+
+/// Generates coordinated read models with transport-neutral operation metadata.
+pub async fn generate_project_with_operation_context(
+    options: GenerationOptions,
+    operation: OperationContext,
+) -> Result<GenerationReport> {
+    generate_project_inner(options, None, None, operation).await
 }
 
 /// Generates coordinated read models with explicitly supplied runtime dependencies.
@@ -100,14 +108,26 @@ pub async fn generate_project_with_composition(
     options: GenerationOptions,
     composition: &RuntimeComposition,
 ) -> Result<GenerationReport> {
-    generate_project_inner(options, None, Some(composition.clone())).await
+    generate_project_inner(
+        options,
+        None,
+        Some(composition.clone()),
+        OperationContext::new("generate"),
+    )
+    .await
 }
 
 pub async fn generate_project_cancellable(
     options: GenerationOptions,
     cancellation: CancellationToken,
 ) -> Result<GenerationReport> {
-    generate_project_inner(options, Some(cancellation), None).await
+    generate_project_inner(
+        options,
+        Some(cancellation),
+        None,
+        OperationContext::new("generate"),
+    )
+    .await
 }
 
 /// Generates coordinated read models with explicitly supplied runtime dependencies.
@@ -116,16 +136,49 @@ pub async fn generate_project_cancellable_with_composition(
     cancellation: CancellationToken,
     composition: &RuntimeComposition,
 ) -> Result<GenerationReport> {
-    generate_project_inner(options, Some(cancellation), Some(composition.clone())).await
+    generate_project_inner(
+        options,
+        Some(cancellation),
+        Some(composition.clone()),
+        OperationContext::new("generate"),
+    )
+    .await
+}
+
+/// Cancellable generation with explicit operation metadata.
+pub async fn generate_project_cancellable_with_operation_context(
+    options: GenerationOptions,
+    cancellation: CancellationToken,
+    operation: OperationContext,
+) -> Result<GenerationReport> {
+    generate_project_inner(options, Some(cancellation), None, operation).await
+}
+
+/// Cancellable composition-aware generation with explicit operation metadata.
+pub async fn generate_project_cancellable_with_composition_and_operation_context(
+    options: GenerationOptions,
+    cancellation: CancellationToken,
+    composition: &RuntimeComposition,
+    operation: OperationContext,
+) -> Result<GenerationReport> {
+    generate_project_inner(
+        options,
+        Some(cancellation),
+        Some(composition.clone()),
+        operation,
+    )
+    .await
 }
 
 async fn generate_project_inner(
     options: GenerationOptions,
     cancellation: Option<CancellationToken>,
     composition: Option<RuntimeComposition>,
+    operation: OperationContext,
 ) -> Result<GenerationReport> {
     let total_started = Instant::now();
     check_cancelled(&cancellation)?;
+    operation.check_deadline()?;
     let root = normalize_canonical_path(
         options
             .root
@@ -152,6 +205,7 @@ async fn generate_project_inner(
     };
     let snapshot_load_ms = elapsed_ms(snapshot_load_started);
     check_cancelled(&cancellation)?;
+    operation.check_deadline()?;
     let snapshot_id = snapshot
         .snapshot
         .clone()
@@ -206,11 +260,13 @@ async fn generate_project_inner(
     let wiki_snapshot = snapshot_id.0.clone();
     let wiki_cancellation = cancellation.clone();
     let wiki_composition = composition.clone();
+    let wiki_operation = operation.clone();
     let wiki = tokio::task::spawn_blocking(move || {
         let cancelled = || {
             wiki_cancellation
                 .as_ref()
                 .is_some_and(CancellationToken::is_cancelled)
+                || wiki_operation.check_deadline().is_err()
         };
         match wiki_composition {
             Some(composition) => {
@@ -233,11 +289,13 @@ async fn generate_project_inner(
     let html_snapshot = snapshot_id.0.clone();
     let html_cancellation = cancellation.clone();
     let html_composition = composition.clone();
+    let html_operation = operation.clone();
     let html = tokio::task::spawn_blocking(move || {
         let cancelled = || {
             html_cancellation
                 .as_ref()
                 .is_some_and(CancellationToken::is_cancelled)
+                || html_operation.check_deadline().is_err()
         };
         match html_composition {
             Some(composition) => {
@@ -249,6 +307,7 @@ async fn generate_project_inner(
     });
 
     let (wiki_result, html_result) = tokio::join!(wiki, html);
+    operation.check_deadline()?;
     let wiki_ms = wiki_result
         .context("generation wiki worker panicked")?
         .context("failed to project generation wiki")?;
