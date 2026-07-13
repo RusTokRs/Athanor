@@ -2,6 +2,7 @@
 id: doc://docs/architecture/store-conformance.md
 kind: architecture
 language: en
+last_verified_snapshot: snap_jsonl_00000272
 source_language: en
 status: verified
 ---
