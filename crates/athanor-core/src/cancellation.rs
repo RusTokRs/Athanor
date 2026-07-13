@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
-use crate::{CoreError, CoreResult, OperationContext};
+use crate::ports::{CoreError, CoreResult, OperationContext};
 
 static CANCELLATIONS: OnceLock<Mutex<HashMap<String, Weak<AtomicBool>>>> = OnceLock::new();
 
