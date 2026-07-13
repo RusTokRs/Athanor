@@ -133,29 +133,33 @@ ath plugins untrust .athanor/plugins/example/athanor-adapter.json
 
 ## Releases
 
-Tagged releases publish signed and attested archives:
+Tagged releases publish signed and attested platform archives plus a workspace SBOM:
 
 ```text
 athanor-x86_64-pc-windows-msvc.zip
 athanor-x86_64-unknown-linux-gnu.tar.gz
+athanor-workspace-cyclonedx.tar.gz
 ```
 
-Each archive contains `ath`, `athd`, README, license, the platform install script, and a per-binary
-`SHA256SUMS` manifest. Release assets include archive SHA-256 files, Sigstore bundles, and GitHub
-build provenance attestations.
+Each platform archive contains `ath`, `athd`, README, license, the platform install script, and a
+per-binary `SHA256SUMS` manifest. The SBOM archive contains the per-crate CycloneDX 1.5 JSON documents
+produced from the locked, all-features workspace for all targets. Every primary artifact has an
+adjacent SHA-256 file, a Sigstore bundle for both the artifact and checksum, and a GitHub build
+provenance attestation.
 
-Before extraction or deployment, verify the downloaded archive itself. For example on Linux:
+Before extraction or deployment, verify the downloaded artifact itself. The same commands apply to a
+platform archive or the SBOM archive:
 
 ```bash
-archive=athanor-x86_64-unknown-linux-gnu.tar.gz
+artifact=athanor-x86_64-unknown-linux-gnu.tar.gz
 tag=vX.Y.Z
-sha256sum -c "$archive.sha256"
+sha256sum -c "$artifact.sha256"
 cosign verify-blob \
-  --bundle "$archive.sigstore.json" \
+  --bundle "$artifact.sigstore.json" \
   --certificate-identity "https://github.com/RusTokRs/Athanor/.github/workflows/release.yml@refs/tags/$tag" \
   --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
-  "$archive"
-gh attestation verify "$archive" --repo RusTokRs/Athanor
+  "$artifact"
+gh attestation verify "$artifact" --repo RusTokRs/Athanor
 ```
 
 After extraction, run the bundled `install.sh` or `install.ps1` from any working directory. The
@@ -166,13 +170,16 @@ or its checksum does not match. After installation, register a project and run t
 
 Release workflow:
 
-- `.github/workflows/release.yml` runs on version tags and builds both supported release targets.
-- The `build` job checks out source, installs the pinned Rust toolchain for each matrix target,
-  restores the Rust build cache, builds locked release binaries, writes the per-binary `SHA256SUMS`
-  manifest inside each archive, packages platform archives, writes archive SHA-256 checksums,
-  installs Cosign, signs archives and checksums, emits build provenance attestations, and uploads
-  target artifacts.
-- The `publish` job downloads all build artifacts and publishes the GitHub release with generated
+- `.github/workflows/release.yml` runs only on version tags.
+- The `build` matrix produces the Linux and Windows archives, embeds per-binary checksums, writes
+  archive checksums, signs the archives and checksum files, emits provenance, and uploads artifacts.
+- The `sbom` job installs pinned `cargo-cyclonedx 0.5.9`, generates CycloneDX 1.5 JSON for the locked
+  all-features workspace and all targets, packages the per-crate documents, writes checksums, signs
+  the SBOM and checksum, emits provenance, and uploads the result.
+- The `verify` job downloads all artifacts and fails unless every expected archive, checksum, and
+  Sigstore bundle exists; it verifies SHA-256, both Sigstore bundles, GitHub provenance, and SBOM
+  presence before publication.
+- The `publish` job runs only after `verify` succeeds and publishes all verified assets with generated
   release notes.
 
 Production gate workflow:
