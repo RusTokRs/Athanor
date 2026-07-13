@@ -4,7 +4,7 @@
 > Назначение: рабочий implementation plan для последовательного улучшения Athanor  
 > Репозиторий: `RusTokRs/Athanor`  
 > Базовая ветка: `main`  
-> Точка сверки: `26135e83d059a916c2bc6f52aeb3ad129c9039c9`  
+> Точка сверки: `309a72ce29a6da14fe706b770fce57e73ca27eae`  
 > Дата актуализации: 2026-07-13  
 > Статус: active implementation plan
 
@@ -26,6 +26,7 @@
 5. Пока разрешены прямые коммиты в `main`, сохранять Conventional Commits и воспроизводимые проверки. После branch protection перейти на PR.
 6. Отсутствие push-triggered workflow run в ответе GitHub-коннектора не является ни успехом, ни ошибкой.
 7. Process-local serialization не считается backend transaction или cross-process lease.
+8. Не отмечать object-kind visibility подтверждённой, если public contract не позволяет прочитать этот kind независимо.
 
 ## 1. Текущий baseline
 
@@ -70,7 +71,7 @@ cargo run -p ath --quiet --locked -- docs check
 | 4.2 Operation context | `[-]` | deadlines/cancellation in main paths | Полная E2E matrix |
 | 4.3 Pipeline memory | `[-]` | extraction concurrency and byte limits | Aggregate phase budget |
 | 4.4 Incremental invalidation | `[-]` | file-local planning/dependency closure | add/remove/rename/cross-file matrix |
-| 4.5 Storage transaction boundary | `[-]` | `SnapshotBatch`, shared lifecycle suite, JSONL durable prepare, Surreal process-local serialization | Portable prepared handle и native Surreal transaction |
+| 4.5 Storage transaction boundary | `[-]` | `SnapshotBatch`, shared lifecycle suite, JSONL durable prepare, Surreal process-local serialization | Fact read contract, portable prepared handle, native Surreal transaction |
 | 4.6 Runtime composition | `[-]` | `RuntimeComposition` in main paths | Remove global registry, inject process runner |
 | 4.7 Public API boundaries | `[-]` | focused namespaces/exports | Retire wildcard compatibility surface |
 | 4.8 Module decomposition | `[-]` | partial pipeline/plugin/daemon split | CLI/runtime god modules |
@@ -132,11 +133,12 @@ cargo run -p ath --quiet --locked -- docs check
 
 - [x] Расширить `athanor-store-conformance` lifecycle-контрактом `SnapshotBatch → prepare → commit/abort`.
 - [x] Проверять невидимость uncommitted/prepared snapshot.
-- [x] Проверять публикацию entity/fact/relation/diagnostic одним batch после commit.
+- [-] Batch fixture включает entity/fact/relation/diagnostic; entity/relation/diagnostic visibility проверяется независимо, но `KnowledgeStore` пока не имеет fact-query.
 - [x] Проверять запрет abort committed snapshot.
 - [x] Проверять, что aborted snapshot удаляется и не меняет `LatestCommitted`.
 - [x] Запускать query и lifecycle suites для Memory, JSONL и real embedded SurrealDB.
 - [x] Добавить dedicated `Store Conformance` workflow matrix.
+- [x] Документировать локальные команды, доказанные гарантии и ограничения в `docs/development/ci.md`.
 - [ ] Подтвердить успешный hosted matrix run.
 
 #### SurrealDB writer safety
@@ -150,6 +152,7 @@ cargo run -p ath --quiet --locked -- docs check
 
 #### Transactional publication
 
+- [ ] Добавить backend-neutral способ независимо проверить Facts после commit либо включить их в canonical snapshot conformance.
 - [ ] Ввести portable prepared transaction handle вместо неявного lifecycle по `SnapshotId`.
 - [ ] Реализовать native SurrealDB transaction для полного `SnapshotBatch` и commit marker.
 - [ ] Проверять per-statement backend errors до commit и делать rollback/cancel.
@@ -167,9 +170,10 @@ cargo run -p ath --quiet --locked -- docs check
 - `1f824e56813893d8cf4b312ea3f54465d464e530` — JSONL lifecycle integration;
 - `ea57e7ffc2d7733a2623569c46fe3cc99d14c28f` — SurrealDB lifecycle и concurrent allocation tests;
 - `615f4f7b2237385930ef53b9f8c8d6ff30a0443c` — backend conformance CI matrix;
-- `a8b0cbfae90d607221d7bbea5bd47cda91269d55`, `26135e83d059a916c2bc6f52aeb3ad129c9039c9` — architecture documentation.
+- `a8b0cbfae90d607221d7bbea5bd47cda91269d55`, `26135e83d059a916c2bc6f52aeb3ad129c9039c9` — architecture documentation;
+- `309a72ce29a6da14fe706b770fce57e73ca27eae` — CI commands, guarantees and troubleshooting.
 
-**Definition of Done:** Memory, JSONL и persistent SurrealDB имеют эквивалентный observable lifecycle; независимые writers не теряют updates; partial writes не публикуются; после crash видна только предыдущая или новая целая generation.
+**Definition of Done:** Memory, JSONL и persistent SurrealDB имеют эквивалентный observable lifecycle; все canonical object kinds независимо проверяемы; independent writers не теряют updates; partial writes не публикуются; после crash видна только предыдущая или новая целая generation.
 
 ## 4. P1 — безопасность исполнения и архитектурная сопровождаемость
 
@@ -240,21 +244,21 @@ cargo run -p ath --quiet --locked -- docs check
 ### P2.4. Локальная воспроизводимость
 
 - [x] Feature matrix, coverage measurement, installer/release и AppSec commands.
-- [ ] Store conformance commands и troubleshooting в `docs/development/ci.md`.
-- [ ] Common CI failures.
+- [x] Store conformance commands и troubleshooting в `docs/development/ci.md`.
+- [ ] Common CI failures для остальных workflows.
 - [ ] `justfile`, `xtask` или единый verification entrypoint.
 
 ## 6. Порядок реализации
 
 1. P0.4 — получить hosted conformance evidence и реализовать native SurrealDB batch transaction/cross-process conflict semantics.
-2. P0.3 — hosted AppSec evidence и blocking Zizmor.
-3. P0.1/P1.4 — hosted matrix, installer и release tag evidence.
-4. P0.4 — единая generation publication и fault injection.
-5. P1.1 sandbox hardening.
-6. P1.5 protocol E2E.
-7. Coverage gate decision перед крупными рефакторингами.
-8. P1.2/P1.3 decomposition.
-9. P1.6 performance budgets.
+2. P0.4 — добавить независимую Fact verification и portable prepared handle.
+3. P0.3 — hosted AppSec evidence и blocking Zizmor.
+4. P0.1/P1.4 — hosted matrix, installer и release tag evidence.
+5. P0.4 — единая generation publication и fault injection.
+6. P1.1 sandbox hardening.
+7. P1.5 protocol E2E.
+8. Coverage gate decision перед крупными рефакторингами.
+9. P1.2/P1.3 decomposition и P1.6 budgets.
 10. P2 governance/DX.
 
 ## 7. Текущий рабочий пакет
@@ -267,7 +271,7 @@ cargo run -p ath --quiet --locked -- docs check
 2. выбрать backend-native SurrealDB transaction boundary для полного `SnapshotBatch`;
 3. устранить read-modify-write allocation через backend transaction/lease, работающий между независимыми connections;
 4. добавить conflict и rollback tests;
-5. обновить архитектурную документацию и этот план;
+5. определить минимальный backend-neutral Fact read/conformance boundary;
 6. не переходить к generation pointer, пока backend transaction semantics не зафиксированы тестами.
 
 ## 8. Definition of Done проекта
@@ -276,6 +280,7 @@ cargo run -p ath --quiet --locked -- docs check
 - Memory, JSONL и SurrealDB проходят общий conformance suite.
 - Publication crash-safe и atomic на generation boundary.
 - Concurrent writers безопасны между независимыми процессами.
+- Все canonical object kinds доступны проверяемому backend-neutral contract.
 - External adapters bounded, cancellable и не оставляют orphan processes.
 - Optional feature graphs и AppSec gates блокируют regressions.
 - Coverage остаётся измеренной метрикой и становится gate только при доказанной пользе.
@@ -293,6 +298,8 @@ cargo run -p ath --quiet --locked -- docs check
 - Добавлен dedicated Store Conformance workflow matrix.
 - SurrealDB получил process-local async write gate, общий для cloned handles.
 - Добавлен 16-way concurrent snapshot allocation test.
+- Local commands и troubleshooting добавлены в CI documentation.
+- Уточнено ограничение: Fact входит в batch fixture, но не имеет независимого `KnowledgeStore` query contract.
 - Process-local gate явно не объявляется native transaction или cross-process lease.
 - P0.4 переведён из `[ ]` в `[-]`; следующая цель — native batch transaction и independent-writer conflicts.
 
