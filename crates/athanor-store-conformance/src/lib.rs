@@ -2,12 +2,12 @@
 
 use athanor_core::{
     CoreError, DiagnosticQuery, EntityQuery, EntityResolver, KnowledgeStore, RelationQuery,
-    SnapshotSelector,
+    SnapshotBatch, SnapshotSelector,
 };
 use athanor_domain::{
-    Diagnostic, DiagnosticId, DiagnosticKind, DiagnosticStatus, Entity, EntityId, EntityKind,
-    Relation, RelationId, RelationKind, RelationStatus, RepoId, Severity, SnapshotBase, SnapshotId,
-    StableKey,
+    Diagnostic, DiagnosticId, DiagnosticKind, DiagnosticStatus, Entity, EntityId, EntityKind, Fact,
+    FactId, FactKind, Relation, RelationId, RelationKind, RelationStatus, RepoId, Severity,
+    SnapshotBase, SnapshotId, StableKey,
 };
 use serde_json::json;
 
@@ -136,6 +136,141 @@ where
     assert!(matches!(error, CoreError::NotFound(_)));
 }
 
+/// Verifies the shared snapshot lifecycle used by publication orchestration.
+///
+/// The contract deliberately covers behavior common to every backend today: a complete
+/// `SnapshotBatch` stays invisible after prepare, becomes visible only after commit, cannot be
+/// aborted once committed, and an aborted snapshot never changes `LatestCommitted`.
+pub async fn verify_snapshot_lifecycle_contract<S>(store: &S)
+where
+    S: KnowledgeStore + EntityResolver,
+{
+    let prepared = begin(store).await;
+    let prepared_entity = entity("ent_prepared", "file://prepared.md");
+    store
+        .put_snapshot(
+            prepared.clone(),
+            SnapshotBatch {
+                entities: vec![prepared_entity.clone()],
+                facts: vec![fact("fact_prepared", &prepared, "ent_prepared")],
+                relations: vec![relation(
+                    "rel_prepared",
+                    &prepared,
+                    "ent_prepared",
+                    "ent_target",
+                )],
+                diagnostics: vec![diagnostic(
+                    "diag_prepared",
+                    &prepared,
+                    "ent_prepared",
+                )],
+            },
+        )
+        .await
+        .expect("store prepared snapshot batch");
+
+    store
+        .prepare_snapshot(prepared.clone())
+        .await
+        .expect("prepare snapshot");
+    store
+        .prepare_snapshot(prepared.clone())
+        .await
+        .expect("prepare must be idempotent before commit");
+
+    let error = store
+        .query_entities(
+            SnapshotSelector::Exact(prepared.clone()),
+            EntityQuery::default(),
+        )
+        .await
+        .expect_err("prepared snapshot must remain invisible");
+    assert!(matches!(error, CoreError::SnapshotNotCommitted(_)));
+
+    store
+        .commit_snapshot(prepared.clone())
+        .await
+        .expect("commit prepared snapshot");
+
+    let entities = store
+        .query_entities(
+            SnapshotSelector::Exact(prepared.clone()),
+            EntityQuery {
+                stable_key: Some(prepared_entity.stable_key.clone()),
+                ..EntityQuery::default()
+            },
+        )
+        .await
+        .expect("query committed prepared snapshot");
+    assert_eq!(entities, vec![prepared_entity.clone()]);
+
+    let relations = store
+        .query_relations(
+            SnapshotSelector::Exact(prepared.clone()),
+            RelationQuery {
+                from_entity: Some(prepared_entity.id.clone()),
+                ..RelationQuery::default()
+            },
+        )
+        .await
+        .expect("query committed relations");
+    assert_eq!(relations.len(), 1);
+    assert_eq!(relations[0].id.0, "rel_prepared");
+
+    let diagnostics = store
+        .query_diagnostics(
+            SnapshotSelector::Exact(prepared.clone()),
+            DiagnosticQuery {
+                entity: Some(prepared_entity.id.clone()),
+                ..DiagnosticQuery::default()
+            },
+        )
+        .await
+        .expect("query committed diagnostics");
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0].id.0, "diag_prepared");
+
+    let abort_error = store
+        .abort_snapshot(prepared.clone())
+        .await
+        .expect_err("committed snapshot must not be abortable");
+    assert!(matches!(abort_error, CoreError::Conflict(_)));
+
+    let aborted = begin(store).await;
+    store
+        .put_snapshot(
+            aborted.clone(),
+            SnapshotBatch {
+                entities: vec![entity("ent_aborted", "file://aborted.md")],
+                ..SnapshotBatch::default()
+            },
+        )
+        .await
+        .expect("store snapshot that will be aborted");
+    store
+        .abort_snapshot(aborted.clone())
+        .await
+        .expect("abort snapshot");
+
+    let error = store
+        .query_entities(SnapshotSelector::Exact(aborted), EntityQuery::default())
+        .await
+        .expect_err("aborted snapshot must not be queryable");
+    assert!(matches!(error, CoreError::NotFound(_)));
+
+    let latest = store
+        .query_entities(
+            SnapshotSelector::LatestCommitted,
+            EntityQuery {
+                stable_key: Some(prepared_entity.stable_key.clone()),
+                ..EntityQuery::default()
+            },
+        )
+        .await
+        .expect("query latest committed after abort");
+    assert_eq!(latest, vec![prepared_entity]);
+}
+
 async fn begin<S: KnowledgeStore>(store: &S) -> SnapshotId {
     store
         .begin_snapshot(
@@ -163,6 +298,21 @@ fn entity(id: &str, stable_key: &str) -> Entity {
         aliases: Vec::new(),
         ownership: Vec::new(),
         payload: json!({}),
+    }
+}
+
+fn fact(id: &str, snapshot: &SnapshotId, subject: &str) -> Fact {
+    Fact {
+        id: FactId(id.to_string()),
+        kind: FactKind::Other("conformance".to_string()),
+        subject: EntityId(subject.to_string()),
+        object: None,
+        value: json!({"verified": true}),
+        evidence: Vec::new(),
+        ownership: Vec::new(),
+        snapshot: snapshot.clone(),
+        extractor: "store-conformance".to_string(),
+        confidence: 1.0,
     }
 }
 
