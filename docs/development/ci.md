@@ -8,7 +8,7 @@ status: verified
 ---
 # Continuous Integration
 
-Athanor uses GitHub Actions for continuous quality, compatibility, security, and source-coverage checks.
+Athanor uses GitHub Actions for continuous quality, compatibility, store-contract, security, and source-coverage checks.
 
 ## Quality & Compatibility Pipeline
 
@@ -61,7 +61,28 @@ The default workspace features are empty, so the default slice is also the suppo
 
 This gate exists to prevent optional Cargo feature regressions from reaching the main branch. The matrix remains in the pull-request workflow unless hosted duration demonstrates that the `store-surreal` or aggregate slice must move to a scheduled full-feature run.
 
-### Rust Source Coverage
+## Store Conformance Workflow
+
+`.github/workflows/store-conformance.yml` runs a dedicated Ubuntu matrix for the Memory, JSONL, and embedded SurrealDB backends. Each entry executes its package tests against the locked dependency graph:
+
+```bash
+cargo test -p athanor-store-memory --locked
+cargo test -p athanor-store-jsonl --locked
+cargo test -p athanor-store-surrealdb --locked
+```
+
+The reusable suite checks committed snapshot selection, stable-key and ID-based queries, prepared-snapshot invisibility, commit/abort behavior, and preservation of `LatestCommitted` after an abort. The batch fixture includes entities, facts, relations, and diagnostics. The current public store query contract independently verifies entity, relation, and diagnostic visibility; fact visibility remains part of the future canonical-snapshot/transaction contract because `KnowledgeStore` has no fact query method.
+
+The embedded SurrealDB package also exercises sixteen concurrent snapshot allocations through cloned store handles. This proves only the process-local write gate. It does not prove cross-process exclusion, a native multi-statement backend transaction, or persistent-server conflict semantics.
+
+Troubleshooting:
+
+- a duplicate snapshot ID indicates a broken writer-coordination boundary;
+- a prepared snapshot visible to a query violates snapshot isolation;
+- an aborted snapshot selected by `LatestCommitted` violates publication semantics;
+- an embedded SurrealDB pass must not be used as evidence for external-server or multi-process behavior.
+
+## Rust Source Coverage
 
 The Linux coverage job installs `cargo-llvm-cov` at the pinned version `0.8.7` and runs the workspace tests with the locked dependency graph.
 
@@ -96,7 +117,7 @@ cargo install zizmor --version 1.26.1 --locked
 zizmor --offline --strict-collection --min-severity high --min-confidence high .
 ```
 
-All `uses:` references in the current CI, production, audit, release, and AppSec workflows are pinned to immutable commit SHAs. Human-readable version comments are retained next to the SHA, and the `github-actions` Dependabot ecosystem remains enabled so those pins can receive reviewed updates.
+All `uses:` references in the current CI, production, audit, release, AppSec, and store-conformance workflows are pinned to immutable commit SHAs. Human-readable version comments are retained next to the SHA, and the `github-actions` Dependabot ecosystem remains enabled so those pins can receive reviewed updates.
 
 ## Nightly Security Audit Workflow
 
