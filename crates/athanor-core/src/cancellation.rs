@@ -26,11 +26,15 @@ pub struct CancellationHandle {
 impl CancellationHandle {
     /// Returns the shared handle for a context, creating it on first use.
     pub fn for_context(context: &OperationContext) -> CoreResult<Self> {
-        let operation_id = context.operation_id.clone().ok_or_else(|| {
-            CoreError::InvalidInput(
-                "cancellable operation context requires a non-empty operation_id".to_string(),
-            )
-        })?;
+        let operation_id = context
+            .operation_id
+            .clone()
+            .filter(|operation_id| !operation_id.trim().is_empty())
+            .ok_or_else(|| {
+                CoreError::InvalidInput(
+                    "cancellable operation context requires a non-empty operation_id".to_string(),
+                )
+            })?;
 
         let mut cancellations = registry()
             .lock()
@@ -147,9 +151,11 @@ mod tests {
 
     #[test]
     fn cancellation_requires_operation_identity() {
-        let error = OperationContext::default()
-            .cancellation_handle()
-            .expect_err("anonymous context cannot own a cancellation handle");
-        assert!(matches!(error, CoreError::InvalidInput(_)));
+        for context in [OperationContext::default(), OperationContext::new("   ")] {
+            let error = context
+                .cancellation_handle()
+                .expect_err("anonymous context cannot own a cancellation handle");
+            assert!(matches!(error, CoreError::InvalidInput(_)));
+        }
     }
 }
