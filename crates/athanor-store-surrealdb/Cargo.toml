@@ -12,7 +12,7 @@ repository.workspace = true
 rust-version.workspace = true
 
 [lib]
-path = "src/transactional.rs"
+path = "src/lib.rs"
 
 [dependencies]
 async-trait.workspace = true
