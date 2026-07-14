@@ -1,4 +1,5 @@
 use anyhow::Result;
+use athanor_core::OperationContext;
 
 use crate::CancellationToken;
 use crate::daemon::{DaemonJob, DaemonJobKind, DaemonJobStatus, DaemonState};
@@ -42,9 +43,23 @@ pub(crate) fn start_cancellable(
     state: &DaemonState,
     kind: DaemonJobKind,
     description: String,
+    operation: &OperationContext,
 ) -> Result<(String, CancellationToken)> {
     let job_id = start(state, kind, description)?;
     let cancellation = CancellationToken::new();
+
+    if let Err(error) = cancellation.bind_operation(operation) {
+        let message = format!("failed to bind daemon cancellation: {error}");
+        let _ = finish(
+            state,
+            &job_id,
+            DaemonJobStatus::Failed,
+            None,
+            Some(message.clone()),
+        );
+        anyhow::bail!(message);
+    }
+
     let mut tokens = match state.cancellation_tokens.lock() {
         Ok(tokens) => tokens,
         Err(_) => {
