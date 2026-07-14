@@ -4,7 +4,7 @@ use anyhow::Result;
 
 use crate::daemon::{DaemonJob, DaemonJobKind, DaemonJobStatus, DaemonState};
 use crate::daemon_job_registry::get as get_daemon_job;
-use crate::daemon_job_scheduler::start_cancellable;
+use crate::daemon_job_scheduler::start_cancellable_with_operation;
 use crate::daemon_job_state::{begin_or_finish_failed, finish, finish_cancellable_error};
 use crate::daemon_operation::context as operation_context;
 use crate::{
@@ -28,7 +28,7 @@ pub(crate) fn start_index(
         anyhow::bail!("index job is already queued or running");
     }
     let (job_id, cancellation) =
-        start_cancellable(state, DaemonJobKind::Index, description, &operation)?;
+        start_cancellable_with_operation(state, DaemonJobKind::Index, description, &operation)?;
     let mut job = get_daemon_job(state, &job_id)?;
     let job_state = Arc::clone(state);
     let job_id_for_task = job_id.clone();
@@ -126,7 +126,7 @@ pub(crate) fn start_generate(
     deadline_unix_ms: Option<u64>,
 ) -> Result<Option<DaemonJob>> {
     let operation = operation_context("generate", request_id, deadline_unix_ms);
-    let (job_id, cancellation) = start_cancellable(
+    let (job_id, cancellation) = start_cancellable_with_operation(
         state,
         DaemonJobKind::Generate,
         "generate read models".to_string(),
@@ -219,7 +219,7 @@ pub(crate) fn start_html_report(
     deadline_unix_ms: Option<u64>,
 ) -> Result<Option<DaemonJob>> {
     let operation = operation_context("html_report", request_id, deadline_unix_ms);
-    let (job_id, cancellation) = start_cancellable(
+    let (job_id, cancellation) = start_cancellable_with_operation(
         state,
         DaemonJobKind::HtmlReport,
         "HTML report".to_string(),
@@ -310,7 +310,7 @@ pub(crate) fn start_wiki(
     deadline_unix_ms: Option<u64>,
 ) -> Result<Option<DaemonJob>> {
     let operation = operation_context("wiki", request_id, deadline_unix_ms);
-    let (job_id, cancellation) = start_cancellable(
+    let (job_id, cancellation) = start_cancellable_with_operation(
         state,
         DaemonJobKind::Wiki,
         "project wiki".to_string(),
