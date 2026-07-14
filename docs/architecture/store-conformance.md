@@ -10,7 +10,7 @@ status: verified
 
 Athanor treats canonical snapshots as a backend-neutral contract. Memory, JSONL, and SurrealDB
 stores must agree on what readers can observe while a snapshot moves through begin, write, prepare,
-commit, and abort.
+publish, and abort.
 
 ## Shared contract
 
@@ -23,205 +23,149 @@ commit, and abort.
 - rejection of abort after commit;
 - removal of aborted snapshots without changing `LatestCommitted`.
 
-The dedicated `Store Conformance` workflow runs package tests for Memory, JSONL, and the embedded
-SurrealDB engine on every pull request and push to `main`.
+The dedicated `Store Conformance` workflow is configured for Memory, JSONL, and embedded SurrealDB.
+Server-dependent remote tests remain isolated from the normal workspace and `--all-features` graph.
 
 ## SurrealDB transaction boundary
 
-The locked backend is SurrealDB `2.6.5`. Athanor uses the SurrealDB 2.x manual-transaction path:
-one `.query()` containing `BEGIN`, bulk `INSERT` statements, and `COMMIT`. The returned response is
-passed through `check()` so a statement-level error is surfaced instead of being mistaken for a
-successful request.
+The locked backend is SurrealDB `2.6.5`. Athanor uses one SurrealQL query containing `BEGIN`, bulk
+`INSERT` statements, and `COMMIT` for a complete `SnapshotBatch`. The response is passed through
+`check()` so statement-level errors cannot be mistaken for success.
 
-`KnowledgeStore::put_snapshot` serializes all entities, facts, relations, and diagnostics before
-opening the transaction. Non-empty object arrays are inserted inside one backend transaction. A
-duplicate record or any other statement error rolls the transaction back. A regression test submits
-a duplicate entity ID, requires the batch to fail, and then retries the same ID successfully to prove
-that the failed transaction left no partial record.
+The batch contains entities, facts, relations, and diagnostics. A duplicate-record regression
+requires the transaction to fail without partial rows, then retries the same identifiers
+successfully. Snapshot sequence allocation uses one atomic `UPDATE ONLY`; latest selection orders by
+the numeric sequence before the historical record-id fallback.
 
-The snapshot counter is initialized idempotently and incremented with one atomic `UPDATE ONLY`
-statement. Snapshot records carry the numeric sequence, and latest-snapshot selection orders by that
-sequence before falling back to the historical record ID order. A concurrency test uses separate
-process-local writer gates over the same backend client and requires 32 unique allocations.
+Counter allocation, snapshot-record creation, batch insertion, and the later commit marker are still
+separate backend requests. The batch transaction is therefore not yet an atomic generation
+publication protocol.
 
 ## Embedded persistent ownership
 
 SurrealKV protects a persistent database directory with an operating-system exclusive lock. Athanor
-therefore treats embedded persistent storage as a single-owner process model: the first connection
-owns the directory and a second independent connection to the same `surrealkv://` path must fail
-closed.
+treats embedded persistent storage as a single-owner process model. A second independent connection
+to the same `surrealkv://` directory must fail closed.
 
-The public store facade translates the confirmed lock message into `CoreError::Busy`. The same
-retryable category is used for the confirmed SurrealKV messages `Transaction write conflict`,
-`Transaction retry required`, and `Transaction conflict:`. Data validation, duplicate-record,
-serialization, and other statement failures remain non-retryable adapter errors.
-
-A persistent-path regression opens one connection, attempts a second independent connection to the
-same directory, and requires `Busy`. This proves exclusive embedded ownership and error
-classification. It does not prove concurrent remote-server transaction behavior.
+Confirmed ownership and transaction-conflict messages map to retryable `CoreError::Busy`. Data
+validation, duplicate records, serialization failures, and unrelated statement errors remain
+non-retryable adapter failures.
 
 ## Remote server conformance
 
-Remote support is opt-in through the crate feature `remote`, which enables the SurrealDB WebSocket
-protocol without changing the default embedded dependency graph. The dedicated CI job starts the
-matching `surrealdb/surrealdb:v2.6.5` server in an ephemeral Docker container and passes
-`ws://127.0.0.1:8000` through `ATHANOR_SURREAL_REMOTE_URI`.
+Remote support is opt-in through the `remote` crate feature. The configured hosted job starts
+`surrealdb/surrealdb:v2.6.5`, then explicitly runs ignored tests against
+`ATHANOR_SURREAL_REMOTE_URI`.
 
-Remote integration tests are ignored by default. This keeps workspace `--all-features` tests
-self-contained while allowing the dedicated job to execute them explicitly with `--ignored`.
-Configured remote checks cover:
+The remote suite uses two independent SDK connections and checks:
 
-- 32 concurrent snapshot allocations split across two independent SDK connections;
-- uniqueness of every allocated snapshot ID;
-- publication by one connection and canonical loading by another;
-- cross-connection visibility of both entity and fact records after commit.
+- 32 concurrent snapshot allocations produce unique identifiers;
+- one connection can publish a snapshot loaded by the other;
+- entity and fact records are visible across clients after commit.
 
-These checks prove shared-server visibility and independent-client allocation behavior once the
-hosted job succeeds. They do not deterministically force a server transaction conflict.
+These checks become evidence only after a successful hosted run. They do not deterministically force
+a real server write conflict.
 
-## Deadline- and cancellation-bounded retry policy
+## Deadline- and cancellation-bounded retry
 
-Only context-aware write and publication methods retry `CoreError::Busy`. The schedule is bounded to
-four delays: 10, 25, 50, and 100 milliseconds. Before every attempt the operation deadline and
-cancellation state are checked. If the remaining budget cannot fit the next delay, the current `Busy`
-error is returned without sleeping past the deadline. Non-retryable errors fail on the first attempt.
+Only context-aware write and publication methods retry `CoreError::Busy`. The delay schedule is
+10, 25, 50, and 100 milliseconds. Every attempt checks deadline and process-local cancellation
+state. Backoff polling uses intervals no larger than five milliseconds.
 
-`athanor-core` exposes a cloneable `CancellationHandle` through
-`OperationContextCancellation::cancellation_handle()`. The process-local cancellation state is keyed
-by the stable operation id and excluded from `OperationContext` serialization. Registration now acts
-as an exclusive lease: a second live cancellation authority for the same operation id returns
-`CoreError::Conflict` instead of silently sharing the first authority. Callers clone the returned
-handle when one operation needs multiple cancellation owners, and the id becomes reusable after all
-handle clones are dropped.
+`CancellationHandle` registration acts as an exclusive process-local lease for one
+`operation_id`. Independent live authorities with the same id receive `CoreError::Conflict`; callers
+clone an existing handle when one operation has multiple owners. The id becomes reusable after all
+clones are dropped.
 
-This lease makes the existing uniqueness requirement enforceable. Daemon request contexts use
-`daemon.<command>.<request_id>`; watcher index jobs are serialized by the single-active index guard.
-The core regressions cover clone propagation, duplicate-id rejection, identity reuse after drop,
-stable `Cancelled` mapping, unchanged JSON wire shape, and rejection of anonymous handles.
+The daemon operation-aware scheduler binds the application `CancellationToken` to the same core
+handle. Index, generation, wiki, and HTML jobs use this path. Repeating the same token/id binding is
+idempotent, while a different token with the same live id fails closed.
 
-SurrealDB backoff polls `OperationContext::check_active()` at intervals no larger than five
-milliseconds. Cancellation stops before the next backend attempt and interrupts a pending backoff
-with bounded latency. It does not abort a backend request that is already executing.
+## Prepared publication protocol
 
-## Daemon cancellation bridge
+`athanor-core` owns `PreparedSnapshot` and `PreparedSnapshotPublication` beside `KnowledgeStore`.
+`athanor-app` preserves source compatibility through a re-export.
 
-The application `CancellationToken` owns shared state containing an optional core
-`CancellationHandle`. The operation-aware daemon scheduler binds the token before inserting it into
-the daemon cancellation registry. Cancelling either the registry clone or the running-task clone sets
-both the application flag and the core operation state. Binding an independent token to an already
-active operation id fails closed instead of merging both jobs into one cancellation state. Repeating
-the same token/id binding is idempotent and reuses the handle already retained by that token.
+The protocol is:
 
-Index, coordinated generation, wiki projection, and HTML report jobs use this scheduler path. For
-index jobs, the exact bound `OperationContext` is passed through begin, batch write, and prepare, then
-is reused by the typed runtime coordinator for `publish_prepared`. Rollback and recovery use the plain
-`abort_prepared` path so cleanup is not skipped because the user cancelled the originating operation.
+1. `prepare_publication(snapshot, context)` crosses the backend prepare boundary and returns a typed
+   cleanup authority;
+2. `publish_prepared(handle, context)` performs context-aware canonical publication;
+3. `abort_prepared(handle)` uses a cancellation-independent plain abort path.
 
-The compatibility scheduler without an operation context remains available for tests and legacy
-jobs. Read-only daemon commands, CLI lifecycle cancellation, and MCP cancellation are not covered by
-this bridge yet.
+A cancellation race immediately after successful prepare must still return the typed handle. Losing
+that handle would strand durable prepared state without cleanup authority.
 
-## Prepared publication handle
+Memory, JSONL, and embedded SurrealDB regressions require publish to advance the latest committed
+view and require aborting a later prepared snapshot to preserve the previous latest generation.
 
-`athanor-core` owns `PreparedSnapshot` and the backend-neutral `PreparedSnapshotPublication`
-extension beside `KnowledgeStore`. `athanor-app` preserves its existing public API through a
-compatibility re-export, while store crates can exercise the same typed lifecycle without depending
-on the application layer.
+## Typed index publication coordinator
 
-The explicit protocol is:
+Production indexing is routed through `index_runtime.rs`. The deferred pipeline prepares canonical
+data first, then the runtime constructs `PreparedSnapshot` and calls the guarded
+`publish_prepared_index` boundary.
 
-1. `prepare_publication(snapshot, context)` checks the request before prepare, runs the backend
-   context-aware prepare method, and returns an opaque handle containing the snapshot identity;
-2. `publish_prepared(handle, context)` runs the context-aware commit path;
-3. `abort_prepared(handle)` deliberately uses the plain abort path so rollback remains possible after
-   deadline expiry or user cancellation.
+The coordinator:
 
-Once the backend prepare succeeds, `prepare_publication` returns the handle even if cancellation races
-immediately afterward. A second post-prepare cancellation check would discard the only typed cleanup
-authority after durable lifecycle state had changed. Publication still checks the context before
-commit, while rollback remains independent of the cancelled request budget.
+1. writes `athanor.index_publication.v2`;
+2. stages the JSONL read model and index state;
+3. publishes canonical data through `publish_prepared`;
+4. finalizes application backups;
+5. clears the durable journal.
 
-The handle serializes as the snapshot identity, which permits recovery journals to persist it without
-encoding backend-specific details. Existing stores remain compatible because the extension delegates
-to their current lifecycle methods.
+Journal v1 remains readable and is normalized to the typed v2 representation. Unknown schemas and
+fields fail closed. Journal paths must equal the expected project artifacts, and publication ids
+cannot contain path separators.
 
-`AthanorStore` forwards every context-aware write/publication method to its inner backend. Before this
-fix, the trait defaults on the wrapper could bypass SurrealDB retry and cancellation overrides. A
-recording-store regression requires batch write, prepare, and publish to use the context-aware backend
-methods while rollback uses plain abort.
+Startup calls guarded `recover_interrupted_publication` before loading previous state. A committed
+journal keeps the new generation and removes stale staging/backups. An uncommitted journal restores
+available backups, removes matching uncommitted current artifacts, and calls `abort_prepared`.
 
-Real backend regressions now exercise the typed protocol end to end for Memory, JSONL, and embedded
-SurrealDB. Publishing a prepared snapshot must advance `LatestCommitted`; preparing and aborting a
-later snapshot must leave the previously published snapshot selected. The Memory regression verifies
-visibility through `SnapshotSelector::LatestCommitted`, while JSONL and SurrealDB verify their
-canonical latest-snapshot representation.
+The public `index` API remains stable. The former monolithic `crates/athanor-app/src/index.rs` has
+been deleted after its incremental, validation, cancellation, and equivalence tests were migrated to
+focused production-runtime modules.
 
-## Typed index publication coordinator boundary
+## Recovery preflight and fault matrix
 
-`athanor-app/src/index_publication.rs` owns the coordinator boundary. Schema
-`athanor.index_publication.v2` stores a serialized `PreparedSnapshot` in the `prepared` field. Schema
-v1 records containing the historical raw `snapshot` string remain readable; deserialization converts
-them to `PreparedSnapshot` and normalizes subsequent serialization to v2. Unknown schemas and unknown
-fields fail closed.
+The guard validates every recovery-controlled artifact before any delete or rename:
 
-Journal loading additionally validates that `read_model` and `index_state` equal the expected paths
-under the selected project root. Publication identifiers accept only ASCII alphanumeric characters,
-hyphen, and underscore. A modified journal therefore cannot redirect recovery deletes or renames
-outside `.athanor`, or inject path separators through staging/backup names.
+- current, staged, and backup read models must be directories when present;
+- current, staged, and backup index states must be regular files when present;
+- a malformed type leaves the journal and all current artifacts untouched.
 
-The module exposes two typed coordinator operations:
+This prevents a regular file from being renamed into the read-model directory path or a directory
+from replacing the index-state file.
 
-- `publish_prepared_index` writes the durable journal, prepares the JSONL read model and index state,
-  publishes canonical data through `publish_prepared`, then finalizes backups and clears the journal;
-- `recover_interrupted_publication` loads either journal version, keeps and cleans up artefacts when
-  the canonical snapshot is committed, or restores backups and calls cancellation-independent
-  `abort_prepared` when it is not committed.
+Deterministic regressions cover:
 
-Production indexing is now routed through `index_runtime.rs`. After the deferred pipeline has crossed
-its prepare boundary, the runtime constructs `PreparedSnapshot`, invokes `publish_prepared_index`, and
-uses the same `OperationContext` for canonical publication. Startup recovery calls the typed recovery
-function before loading previous state. The public `index` module and `repo_id_for_root` surface remain
-unchanged.
+- journal persistence failure before a recovery record exists;
+- read-model prepare failure;
+- index-state prepare failure;
+- cancellation immediately before canonical publish;
+- read-model finalize failure after canonical commit;
+- index-state finalize failure after canonical commit;
+- journal clear failure after canonical commit;
+- malformed read-model and index-state backup types;
+- recovery with no backups for an uncommitted generation;
+- simultaneous canonical publish, application rollback, and canonical abort failures.
 
-The runtime adds a final fail-safe around coordinator errors. It checks whether the prepared snapshot
-became the latest committed snapshot; committed publications are left for journal recovery, while an
-uncommitted snapshot is aborted outside the request cancellation budget. This also closes the case
-where durable journal creation fails before the coordinator can enter its normal rollback branches.
-
-Publication errors roll back prepared application artefacts before aborting canonical data. The
-journal remains present if canonical publication succeeded but read-model/state finalization fails;
-recovery then sees the committed snapshot and removes stale backups instead of undoing the new
-complete generation.
-
-Regressions cover v2 round-trip, v1 normalization, atomic write/load/clear, unknown schemas,
-path-validation, publication-id traversal, rollback of an uncommitted publication, cleanup after a
-committed publication, and a production-module index run that requires canonical, read-model, and
-index-state snapshot identities to agree while leaving no journal after success.
-
-The former monolithic `index.rs` is compiled only as a temporary test-only legacy suite so its broad
-incremental and validation regressions remain available during extraction. It is no longer the
-production `index` module. Moving those tests to the new runtime module and deleting the legacy file is
-a cleanup step, not a blocker for the typed production path.
-
-## Prepare semantics
-
-SurrealDB snapshot metadata records `prepared` separately from `committed`. Once prepared, a snapshot
-rejects subsequent individual writes and batch writes. Prepare is idempotent before commit; committed
-snapshots remain immutable and cannot be aborted.
+For post-commit finalize failures, the canonical snapshot remains latest committed. After the
+transient filesystem fault is repaired, recovery finalizes the same generation instead of reverting
+it. Combined failures preserve the original publish error together with rollback and abort causes.
 
 ## Guarantees not claimed yet
 
-This slice does not make the whole lifecycle one transaction:
+The current implementation does not claim:
 
-- counter allocation and snapshot-record creation are separate backend requests, so a crash can leave
-  a harmless sequence gap;
-- the atomic batch transaction does not include the later commit marker;
-- abort removes canonical rows transactionally, then deletes snapshot metadata in a separate request;
-- a real remote write conflict has not yet been reproduced and observed through the public facade;
-- an already executing backend request is not force-aborted by the retry wrapper;
-- read-only daemon commands, CLI, and MCP are not yet connected to the same cancellation lifecycle;
-- canonical data, generated state, and read models still do not switch through one generation pointer;
-- hosted compile, test, formatting, and Clippy evidence for the runtime cutover is not yet available.
+- one backend transaction for canonical data and the commit marker;
+- one immutable generation pointer covering canonical data, state, and read models;
+- content/schema validation for every recovery backup before mutation;
+- deterministic remote write-conflict evidence;
+- force interruption of an SDK request already executing;
+- complete cancellation propagation for read-only daemon, CLI, and MCP operations;
+- hosted compile, test, formatting, Clippy, AppSec, installer, or release evidence while Actions runs
+  remain unavailable.
 
-P0.4 remains incomplete until hosted evidence, test-only legacy extraction, an observed remote
-conflict, commit-marker publication, fault injection, and generation-level recovery are covered.
+P0.4 remains incomplete until hosted evidence, recovery content validation, backend-neutral fact
+queries, data-plus-marker publication, generation-pointer switching, remote conflict evidence, and
+pointer-level fault injection are complete.
