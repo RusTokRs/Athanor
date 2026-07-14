@@ -30,6 +30,8 @@ mod daemon_watcher;
 mod daemon_write_jobs;
 pub mod docs;
 pub mod explain;
+#[cfg(test)]
+mod fact_query_tests;
 pub mod generation;
 pub mod graph;
 mod hash;
