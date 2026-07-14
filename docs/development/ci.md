@@ -77,13 +77,18 @@ cargo test -p athanor-store-surrealdb --locked
 
 The reusable suite checks committed snapshot selection, stable-key and ID-based queries, prepared-snapshot invisibility, commit/abort behavior, and preservation of `LatestCommitted` after an abort. The batch fixture includes entities, facts, relations, and diagnostics. The current public store query contract independently verifies entity, relation, and diagnostic visibility; fact visibility remains part of the canonical-snapshot contract because `KnowledgeStore` has no fact query method.
 
-The application publication regression additionally runs the backend-neutral typed protocol against the real JSONL store:
+`athanor-core` owns the backend-neutral `PreparedSnapshot` and `PreparedSnapshotPublication` extension beside `KnowledgeStore`. `athanor-app` preserves the existing application API through a compatibility re-export. Real backend regressions exercise the same typed protocol for Memory, JSONL, and embedded SurrealDB:
 
 ```bash
+cargo test -p athanor-core prepared_publication --locked
 cargo test -p athanor-app --test prepared_publication --locked
+cargo test -p athanor-store-memory --test prepared_publication --locked
+cargo test -p athanor-store-surrealdb --test prepared_publication --locked
 ```
 
-It requires `prepare_publication` followed by `publish_prepared` to advance `LatestCommitted`, and requires `abort_prepared` on a later snapshot to preserve the previously published generation. It also covers cancellation racing immediately after a successful backend prepare: the prepared handle must still be returned so cleanup can run outside the cancelled request budget. The race fixture retains the registered cancellation lease for the duration of prepare; a temporary handle would be dropped before the assertion and would not model an active operation correctly.
+Each backend requires `prepare_publication` followed by `publish_prepared` to advance the latest committed view, and requires `abort_prepared` on a later snapshot to preserve the previously published generation. The Memory regression also verifies that prepared data remains invisible through `SnapshotSelector::LatestCommitted`. JSONL and SurrealDB verify their canonical latest-snapshot representation.
+
+The application regression additionally covers context forwarding and cancellation racing immediately after a successful backend prepare: the prepared handle must still be returned so cleanup can run outside the cancelled request budget. The race fixture retains the registered cancellation lease for the duration of prepare; a temporary handle would be dropped before the assertion and would not model an active operation correctly.
 
 The embedded SurrealDB package additionally verifies:
 
@@ -138,8 +143,11 @@ Relevant local checks:
 
 ```bash
 cargo test -p athanor-core cancellation --locked
+cargo test -p athanor-core prepared_publication --locked
 cargo test -p athanor-app cancellation --locked
 cargo test -p athanor-app --test prepared_publication --locked
+cargo test -p athanor-store-memory --test prepared_publication --locked
+cargo test -p athanor-store-surrealdb --test prepared_publication --locked
 cargo test -p athanor-store-surrealdb cancellation_stops_retry_before_backoff --locked
 ```
 
@@ -152,6 +160,7 @@ Troubleshooting:
 - a write accepted after `prepare_snapshot` violates snapshot immutability;
 - a prepared snapshot visible to a query violates snapshot isolation;
 - an aborted snapshot selected by `LatestCommitted` violates publication semantics;
+- a backend-specific typed lifecycle test that does not preserve the previous latest snapshot after abort violates the shared publication contract;
 - a successful backend prepare that returns cancellation instead of a typed handle can strand prepared data without a cleanup authority;
 - a cancellation race fixture that creates and immediately drops its only handle does not retain a live cancellation state;
 - a second persistent embedded connection succeeding indicates that exclusive ownership is broken;
