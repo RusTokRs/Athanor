@@ -1,8 +1,8 @@
 //! Reusable async conformance checks for `KnowledgeStore` implementations.
 
 use athanor_core::{
-    CoreError, DiagnosticQuery, EntityQuery, EntityResolver, KnowledgeStore, RelationQuery,
-    SnapshotBatch, SnapshotSelector,
+    CoreError, DiagnosticQuery, EntityQuery, EntityResolver, FactQuery, FactQueryStore,
+    KnowledgeStore, RelationQuery, SnapshotBatch, SnapshotSelector,
 };
 use athanor_domain::{
     Diagnostic, DiagnosticId, DiagnosticKind, DiagnosticStatus, Entity, EntityId, EntityKind, Fact,
@@ -11,11 +11,11 @@ use athanor_domain::{
 };
 use serde_json::json;
 
-/// Verifies committed-snapshot isolation, ID-based relation/diagnostic filtering, and stable-key
+/// Verifies committed-snapshot isolation, entity/fact/relation/diagnostic filtering, and stable-key
 /// resolution for a store implementation.
 pub async fn verify_query_contract<S>(store: &S)
 where
-    S: KnowledgeStore + EntityResolver,
+    S: KnowledgeStore + EntityResolver + FactQueryStore,
 {
     let first = begin(store).await;
     let first_entity = entity("ent_first", "file://first.md");
@@ -23,6 +23,13 @@ where
         .put_entities(first.clone(), vec![first_entity.clone()])
         .await
         .expect("store first entity");
+    store
+        .put_facts(
+            first.clone(),
+            vec![fact("fact_first", &first, "ent_first")],
+        )
+        .await
+        .expect("store first fact");
     store
         .put_relations(
             first.clone(),
@@ -49,6 +56,16 @@ where
         .await
         .expect("store second entity");
     store
+        .put_facts(
+            second.clone(),
+            vec![
+                fact("fact_second_a", &second, "ent_second"),
+                fact("fact_second_b", &second, "ent_second"),
+            ],
+        )
+        .await
+        .expect("store second facts");
+    store
         .put_relations(
             second.clone(),
             vec![relation("rel_second", &second, "ent_second", "ent_target")],
@@ -66,6 +83,35 @@ where
         .commit_snapshot(second.clone())
         .await
         .expect("commit second");
+
+    let first_facts = store
+        .query_facts(
+            SnapshotSelector::Exact(first.clone()),
+            FactQuery {
+                subject: Some(EntityId("ent_first".to_string())),
+                extractor: Some("store-conformance".to_string()),
+                ..FactQuery::default()
+            },
+        )
+        .await
+        .expect("query first facts");
+    assert_eq!(first_facts.len(), 1);
+    assert_eq!(first_facts[0].id.0, "fact_first");
+
+    let latest_facts = store
+        .query_facts(
+            SnapshotSelector::LatestCommitted,
+            FactQuery {
+                subject: Some(EntityId("ent_second".to_string())),
+                extractor: Some("store-conformance".to_string()),
+                limit: Some(1),
+                ..FactQuery::default()
+            },
+        )
+        .await
+        .expect("query latest facts");
+    assert_eq!(latest_facts.len(), 1);
+    assert_eq!(latest_facts[0].subject.0, "ent_second");
 
     let first_relations = store
         .query_relations(
@@ -116,6 +162,24 @@ where
     assert_eq!(resolved, Some(first_entity.id));
 
     let uncommitted = begin(store).await;
+    store
+        .put_facts(
+            uncommitted.clone(),
+            vec![fact("fact_uncommitted", &uncommitted, "ent_uncommitted")],
+        )
+        .await
+        .expect("store uncommitted fact");
+    let error = store
+        .query_facts(
+            SnapshotSelector::Exact(uncommitted.clone()),
+            FactQuery::default(),
+        )
+        .await
+        .expect_err("uncommitted facts must not be queryable");
+    assert!(matches!(
+        error,
+        CoreError::NotFound(_) | CoreError::SnapshotNotCommitted(_)
+    ));
     let error = store
         .query_entities(
             SnapshotSelector::Exact(uncommitted.clone()),
@@ -143,7 +207,7 @@ where
 /// aborted once committed, and an aborted snapshot never changes `LatestCommitted`.
 pub async fn verify_snapshot_lifecycle_contract<S>(store: &S)
 where
-    S: KnowledgeStore + EntityResolver,
+    S: KnowledgeStore + EntityResolver + FactQueryStore,
 {
     let prepared = begin(store).await;
     let prepared_entity = entity("ent_prepared", "file://prepared.md");
@@ -179,6 +243,17 @@ where
         .expect("prepare must be idempotent before commit");
 
     let error = store
+        .query_facts(
+            SnapshotSelector::Exact(prepared.clone()),
+            FactQuery::default(),
+        )
+        .await
+        .expect_err("prepared facts must remain invisible");
+    assert!(matches!(
+        error,
+        CoreError::NotFound(_) | CoreError::SnapshotNotCommitted(_)
+    ));
+    let error = store
         .query_entities(
             SnapshotSelector::Exact(prepared.clone()),
             EntityQuery::default(),
@@ -191,6 +266,20 @@ where
         .commit_snapshot(prepared.clone())
         .await
         .expect("commit prepared snapshot");
+
+    let facts = store
+        .query_facts(
+            SnapshotSelector::Exact(prepared.clone()),
+            FactQuery {
+                subject: Some(prepared_entity.id.clone()),
+                extractor: Some("store-conformance".to_string()),
+                ..FactQuery::default()
+            },
+        )
+        .await
+        .expect("query committed facts");
+    assert_eq!(facts.len(), 1);
+    assert_eq!(facts[0].id.0, "fact_prepared");
 
     let entities = store
         .query_entities(
