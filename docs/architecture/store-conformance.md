@@ -109,7 +109,8 @@ The application `CancellationToken` owns shared state containing an optional cor
 `CancellationHandle`. The operation-aware daemon scheduler binds the token before inserting it into
 the daemon cancellation registry. Cancelling either the registry clone or the running-task clone sets
 both the application flag and the core operation state. Binding an independent token to an already
-active operation id now fails closed instead of merging both jobs into one cancellation state.
+active operation id fails closed instead of merging both jobs into one cancellation state. Repeating
+the same token/id binding is idempotent and reuses the handle already retained by that token.
 
 Index, coordinated generation, wiki projection, and HTML report jobs use this scheduler path. For
 index jobs, the exact bound `OperationContext` is passed to `begin_snapshot`, `put_snapshot`,
@@ -138,9 +139,9 @@ immediately afterward. A second post-prepare cancellation check would discard th
 authority after durable lifecycle state had changed. Publication still checks the context before
 commit, while rollback remains independent of the cancelled request budget.
 
-The handle serializes as the snapshot identity, which permits future recovery journals to persist it
-without encoding backend-specific details. Existing stores remain compatible because the extension
-delegates to their current lifecycle methods.
+The handle serializes as the snapshot identity, which permits recovery journals to persist it without
+encoding backend-specific details. Existing stores remain compatible because the extension delegates
+to their current lifecycle methods.
 
 `AthanorStore` forwards every context-aware write/publication method to its inner backend. Before this
 fix, the trait defaults on the wrapper could bypass SurrealDB retry and cancellation overrides. A
@@ -152,9 +153,23 @@ must advance `LatestCommitted`; preparing and aborting a later snapshot must lea
 published snapshot selected. Memory and SurrealDB typed-protocol regressions remain to be added to the
 same matrix.
 
-The current index publication coordinator still stores a raw snapshot id in its journal and calls
-`commit_snapshot` directly. Migrating that coordinator to persist and consume `PreparedSnapshot` is
-the next required step; the new API alone does not make data and the commit marker atomic.
+## Typed index publication journal v2
+
+`athanor-app/src/index_publication.rs` defines the staged typed recovery record for coordinator
+migration. Schema `athanor.index_publication.v2` stores a serialized `PreparedSnapshot` in the
+`prepared` field. Schema v1 records containing the historical raw `snapshot` string remain readable;
+deserialization converts them to `PreparedSnapshot` and normalizes subsequent serialization to v2.
+Unknown schema identifiers and unknown fields fail closed.
+
+Unit tests cover v2 round-trip, v1-to-v2 normalization, snapshot/path accessors, and rejection of an
+unknown schema. The module is registered in `athanor-app` with a temporary narrow `dead_code` allowance
+until the production coordinator consumes it.
+
+The current index publication coordinator still owns a separate local v1 journal type and calls
+`commit_snapshot` directly. Runtime migration is therefore not complete: `index.rs` must switch to the
+new module, create the typed journal from the prepared pipeline output, call `publish_prepared`, and use
+`abort_prepared` during rollback and recovery. The staged module alone does not change publication
+semantics.
 
 ## Prepare semantics
 
@@ -169,7 +184,7 @@ This slice does not make the whole lifecycle one transaction:
 - counter allocation and snapshot-record creation are separate backend requests, so a crash can leave
   a harmless sequence gap;
 - the atomic batch transaction does not include the later commit marker;
-- the index coordinator has not yet migrated from raw `SnapshotId` to `PreparedSnapshot`;
+- journal v2 is staged but the index coordinator still uses its local v1/raw-`SnapshotId` path;
 - abort removes canonical rows transactionally, then deletes snapshot metadata in a separate request;
 - a real remote write conflict has not yet been reproduced and observed through the public facade;
 - an already executing backend request is not force-aborted by the retry wrapper;
