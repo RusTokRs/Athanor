@@ -10,6 +10,7 @@ use athanor_core::{
 use athanor_domain::{
     Diagnostic, Entity, EntityId, Fact, Relation, RepoId, SnapshotBase, SnapshotId, StableKey,
 };
+use athanor_store_jsonl::JsonlKnowledgeStore;
 
 #[derive(Clone)]
 struct RecordingStore {
@@ -221,4 +222,85 @@ async fn successful_prepare_returns_handle_when_cancellation_races_after_backend
         calls.lock().unwrap().as_slice(),
         ["prepare_context", "abort_plain"]
     );
+}
+
+#[tokio::test]
+async fn jsonl_store_supports_typed_prepare_publish_and_abort() {
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("current time")
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("athanor-prepared-jsonl-{nonce}"));
+    let store = JsonlKnowledgeStore::new(&root);
+    let repo = RepoId(format!("repo_prepared_jsonl_{nonce}"));
+
+    let published = store
+        .begin_snapshot(repo.clone(), working_tree_base())
+        .await
+        .expect("begin published snapshot");
+    let publish_context = OperationContext::new(format!("test.jsonl.publish.{nonce}"));
+    store
+        .put_snapshot_with_context(
+            published.clone(),
+            SnapshotBatch::default(),
+            &publish_context,
+        )
+        .await
+        .expect("write published snapshot");
+    let prepared = store
+        .prepare_publication(published.clone(), &publish_context)
+        .await
+        .expect("prepare published snapshot");
+    store
+        .publish_prepared(&prepared, &publish_context)
+        .await
+        .expect("publish prepared snapshot");
+
+    let latest = store
+        .load_latest_snapshot()
+        .await
+        .expect("load latest published snapshot")
+        .expect("published snapshot exists");
+    assert_eq!(latest.snapshot.as_ref(), Some(&published));
+
+    let aborted = store
+        .begin_snapshot(repo, working_tree_base())
+        .await
+        .expect("begin aborted snapshot");
+    let abort_context = OperationContext::new(format!("test.jsonl.abort.{nonce}"));
+    store
+        .put_snapshot_with_context(
+            aborted.clone(),
+            SnapshotBatch::default(),
+            &abort_context,
+        )
+        .await
+        .expect("write aborted snapshot");
+    let prepared = store
+        .prepare_publication(aborted, &abort_context)
+        .await
+        .expect("prepare aborted snapshot");
+    store
+        .abort_prepared(&prepared)
+        .await
+        .expect("abort prepared snapshot");
+
+    let latest_after_abort = store
+        .load_latest_snapshot()
+        .await
+        .expect("load latest snapshot after abort")
+        .expect("published snapshot remains visible");
+    assert_eq!(latest_after_abort.snapshot.as_ref(), Some(&published));
+
+    drop(store);
+    std::fs::remove_dir_all(root).expect("remove JSONL prepared-publication store");
+}
+
+fn working_tree_base() -> SnapshotBase {
+    SnapshotBase {
+        branch: None,
+        commit: None,
+        parent_snapshot: None,
+        working_tree: true,
+    }
 }
