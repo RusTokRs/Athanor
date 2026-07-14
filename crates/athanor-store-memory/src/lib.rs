@@ -3,8 +3,8 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use athanor_core::{
-    CoreError, CoreResult, DiagnosticQuery, EntityQuery, EntityResolver, KnowledgeStore,
-    RelationQuery, SnapshotBatch, SnapshotSelector,
+    CanonicalSnapshot, CanonicalSnapshotStore, CoreError, CoreResult, DiagnosticQuery, EntityQuery,
+    EntityResolver, KnowledgeStore, RelationQuery, SnapshotBatch, SnapshotSelector,
 };
 use athanor_domain::{
     Diagnostic, Entity, EntityId, Fact, Relation, RepoId, SnapshotBase, SnapshotId, StableKey,
@@ -235,6 +235,31 @@ impl KnowledgeStore for MemoryKnowledgeStore {
 }
 
 #[async_trait]
+impl CanonicalSnapshotStore for MemoryKnowledgeStore {
+    async fn load_snapshot(&self, snapshot: &SnapshotId) -> CoreResult<Option<CanonicalSnapshot>> {
+        let state = self.lock_state()?;
+        let Some(data) = state.snapshot_data(snapshot) else {
+            return Ok(None);
+        };
+        if !data.committed {
+            return Err(CoreError::SnapshotNotCommitted(snapshot.0.clone()));
+        }
+        Ok(Some(canonical_snapshot(snapshot, data)))
+    }
+
+    async fn load_latest_snapshot(&self) -> CoreResult<Option<CanonicalSnapshot>> {
+        let state = self.lock_state()?;
+        let Some(snapshot) = state.committed_snapshot(&SnapshotSelector::LatestCommitted)? else {
+            return Ok(None);
+        };
+        let data = state
+            .snapshot_data(&snapshot)
+            .expect("latest committed snapshot must exist");
+        Ok(Some(canonical_snapshot(&snapshot, data)))
+    }
+}
+
+#[async_trait]
 impl EntityResolver for MemoryKnowledgeStore {
     async fn resolve_stable_key(
         &self,
@@ -297,8 +322,18 @@ impl State {
         }
     }
 
-    fn snapshot_data(&self, snapshot: Option<&SnapshotId>) -> Option<&SnapshotData> {
-        snapshot.and_then(|snapshot| self.snapshots.get(snapshot))
+    fn snapshot_data(&self, snapshot: &SnapshotId) -> Option<&SnapshotData> {
+        self.snapshots.get(snapshot)
+    }
+}
+
+fn canonical_snapshot(snapshot: &SnapshotId, data: &SnapshotData) -> CanonicalSnapshot {
+    CanonicalSnapshot {
+        snapshot: Some(snapshot.clone()),
+        entities: data.entities.clone(),
+        facts: data.facts.clone(),
+        relations: data.relations.clone(),
+        diagnostics: data.diagnostics.clone(),
     }
 }
 
