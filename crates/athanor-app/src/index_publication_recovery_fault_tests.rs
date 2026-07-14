@@ -11,6 +11,8 @@ use serde_json::json;
 
 use crate::index_publication::recover_interrupted_publication;
 use crate::index_publication_inner::INDEX_PUBLICATION_JOURNAL_SCHEMA_V2;
+use crate::index_state::INDEX_STATE_SCHEMA;
+use crate::read_model::JSONL_MANIFEST_SCHEMA;
 use crate::AthanorStore;
 
 #[tokio::test]
@@ -141,14 +143,21 @@ async fn prepared_recovery_fixture(id: &str) -> RecoveryFixture {
 
     fs::write(
         output_dir.join("manifest.json"),
-        serde_json::to_vec_pretty(&json!({ "snapshot": snapshot.0.clone() }))
-            .expect("serialize manifest"),
+        serde_json::to_vec_pretty(&json!({
+            "schema": JSONL_MANIFEST_SCHEMA,
+            "snapshot": snapshot.0.clone()
+        }))
+        .expect("serialize manifest"),
     )
     .expect("write current manifest");
     fs::write(
         &state_path,
-        serde_json::to_vec_pretty(&json!({ "snapshot": snapshot.0.clone() }))
-            .expect("serialize state"),
+        serde_json::to_vec_pretty(&json!({
+            "schema": INDEX_STATE_SCHEMA,
+            "snapshot": snapshot.0.clone(),
+            "files": {}
+        }))
+        .expect("serialize state"),
     )
     .expect("write current state");
     fs::write(
