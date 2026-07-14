@@ -2,7 +2,7 @@
 
 > Репозиторий: `RusTokRs/Athanor`  
 > Базовая ветка: `main`  
-> Точка сверки: `16c206e5409128ace94fe3ed174b5b474ea883ae`  
+> Точка сверки: `52fbfa444ec73833d72f71b0f2f006fcc5ca51de`  
 > Дата актуализации: 2026-07-14  
 > Статус: active implementation plan
 
@@ -26,8 +26,9 @@
 7. Recovery не может удалять или переименовывать paths вне ожидаемых `.athanor` artifacts.
 8. Recovery обязана fail-closed до destructive mutation при неверном типе, schema или snapshot identity.
 9. Historical index-state backup может использовать валидную предыдущую `athanor.index_state.vN` schema.
-10. Backend batch transaction не равна atomic generation publication, пока data, marker и application artifacts переключаются отдельно.
-11. Store-level typed publication protocol принадлежит `athanor-core`.
+10. Backend-neutral facts читаются только через committed canonical snapshots.
+11. Backend batch transaction не равна atomic generation publication, пока data, marker и application artifacts переключаются отдельно.
+12. Store-level typed publication protocol принадлежит `athanor-core`.
 
 ## 1. Текущий baseline
 
@@ -36,6 +37,9 @@
 - Rust workspace с `ath`, `athd`, adapters, stores, search и projectors;
 - JSONL default backend и opt-in embedded/remote SurrealDB;
 - shared lifecycle conformance для Memory, JSONL и embedded SurrealDB;
+- core-owned `FactQuery`/`FactQueryStore` с subject/object/kind/extractor/limit semantics;
+- blanket committed-only fact queries для любого `CanonicalSnapshotStore`;
+- Memory, JSONL, embedded и configured remote SurrealDB fact-query regressions;
 - native SurrealQL transaction для полного `SnapshotBatch`;
 - atomic snapshot counter, numeric sequence и prepared immutability;
 - embedded SurrealKV single-owner contract и retryable `Busy` mapping;
@@ -70,6 +74,15 @@ cargo fmt --all -- --check
 cargo test --workspace --quiet --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings
 
+cargo test -p athanor-core fact_query --locked
+cargo test -p athanor-app fact_query --locked
+cargo test -p athanor-store-memory --test fact_query --locked
+cargo test -p athanor-store-jsonl --test fact_query --locked
+cargo test -p athanor-store-surrealdb --test fact_query --locked
+cargo test -p athanor-store-memory --test conformance --locked
+cargo test -p athanor-store-jsonl --test conformance --locked
+cargo test -p athanor-store-surrealdb --test conformance --locked
+
 cargo test -p athanor-core cancellation --locked
 cargo test -p athanor-core prepared_publication --locked
 cargo test -p athanor-app index_runtime_tests --locked
@@ -95,12 +108,12 @@ cargo run -p ath --quiet --locked -- docs check
 
 | Область | Статус | Подтверждено | Остаётся |
 | --- | --- | --- | --- |
-| Query/snapshot isolation | `[-]` | committed-only reads, prepare/abort lifecycle, embedded suites | Hosted remote evidence, generation visibility |
+| Query/snapshot isolation | `[-]` | committed-only entity/fact/relation/diagnostic queries, exact/latest suites | Hosted remote evidence, generation visibility |
 | Atomic publication | `[-]` | typed production coordinator, staged recovery, full fault suite | data+marker protocol, generation pointer |
 | Recovery safety | `[-]` | v1/v2 journal, type/content preflight, identity checks, idempotence | cryptographic integrity, generation pointer |
 | Concurrent writers | `[-]` | JSONL lock, atomic counter, embedded ownership | Hosted remote conflict evidence |
 | Operation context | `[-]` | deadline, cancellation lease, daemon write path, typed publish context | Read commands, CLI/MCP, in-flight SDK interruption |
-| Store transaction boundary | `[-]` | native batch transaction, core prepared protocol, backend matrix | Fact query contract, full lifecycle transaction |
+| Store transaction boundary | `[-]` | native batch transaction, core prepared protocol, backend/fact matrix | data+marker transaction, full lifecycle transaction |
 | Runtime maintainability | `[-]` | legacy index god-file deleted, focused runtime/coordinator/tests | Further daemon/CLI decomposition |
 | Hosted CI governance | `[!]` | workflow-файлы существуют | Enable/verify Actions, runs, branch protection, required checks |
 | AppSec | `[-]` | CodeQL, dependency review, Gitleaks, blocking Zizmor, SBOM configured | Hosted evidence, push protection |
@@ -146,7 +159,7 @@ cargo run -p ath --quiet --locked -- docs check
 
 ### P0.4. Store conformance и transactional publication
 
-**Статус:** `[-]` — typed production path и crash-recovery fault matrix реализованы; lifecycle ещё не atomic на generation boundary.
+**Статус:** `[-]` — typed production path, query matrix и crash-recovery fault matrix реализованы; lifecycle ещё не atomic на generation boundary.
 
 #### Shared backend contract
 
@@ -156,8 +169,12 @@ cargo run -p ath --quiet --locked -- docs check
 - [x] Aborted snapshot не меняет `LatestCommitted`.
 - [x] Memory, JSONL и embedded SurrealDB shared suite.
 - [x] Typed lifecycle regressions для всех трёх backends.
-- [-] Remote entity+fact test настроен, hosted run отсутствует.
-- [ ] Общий backend-neutral `FactQuery` contract.
+- [x] Core-owned `FactQuery` и additive `FactQueryStore`.
+- [x] Subject/object/kind/extractor/limit filtering имеет одну blanket implementation.
+- [x] Exact/latest fact queries включены в shared conformance.
+- [x] Memory реализует `CanonicalSnapshotStore` и проходит прямой fact-query regression.
+- [x] JSONL и embedded SurrealDB проходят прямые fact-query regressions.
+- [-] Remote independent reader использует public `query_facts`, hosted run отсутствует.
 
 #### SurrealDB writer safety
 
@@ -196,28 +213,16 @@ cargo run -p ath --quiet --locked -- docs check
 - [x] Runtime regressions сверяют canonical/read-model/index-state snapshot identity.
 - [x] Legacy `crates/athanor-app/src/index.rs` удалён.
 - [x] Guard abort’ит prepared snapshot при ошибке до durable journal.
-- [x] Journal-write failure не оставляет stranded snapshot.
-- [x] Read-model prepare failure очищает journal и abort’ит snapshot.
-- [x] Index-state prepare failure откатывает read model, journal и snapshot.
-- [x] Canonical publish cancellation восстанавливает прежние artifacts.
-- [x] Read-model finalize failure оставляет committed generation recoverable.
-- [x] Index-state finalize failure оставляет committed generation recoverable.
-- [x] Journal-clear failure восстанавливается после возврата durable journal.
-- [x] Recovery отклоняет file вместо read-model directory до mutation.
-- [x] Recovery отклоняет directory вместо index-state file до mutation.
-- [x] Recovery валидирует parseable manifest/state schema и non-empty snapshot identity.
-- [x] Committed current и staged artifacts обязаны совпадать с journal snapshot.
-- [x] Uncommitted заменяемый current обязан совпадать с journal snapshot.
+- [x] Prepare/publish/finalize/clear и combined cleanup failures покрыты.
+- [x] Recovery валидирует type/schema/snapshot identity до mutation.
 - [x] Read-model/state backups обязаны представлять одну предыдущую generation.
 - [x] Historical state backup принимает строгую versioned `athanor.index_state.vN` schema.
 - [x] Recovery без backups удаляет uncommitted current artifacts и prepared snapshot.
 - [x] Committed и uncommitted repeated recovery после cleanup идемпотентны.
-- [x] Combined publish/rollback/abort failures сохраняют все причины.
 - [!] Hosted compile/test/fmt/Clippy evidence отсутствует из-за Actions blocker.
 
 #### Следующий transactional layer
 
-- [ ] Добавить backend-neutral `FactQuery`.
 - [ ] Объединить canonical data и commit marker в один backend protocol.
 - [ ] Ввести immutable generation id для canonical/state/read models.
 - [ ] Переключать один current pointer после подготовки всех artifacts.
@@ -226,12 +231,16 @@ cargo run -p ath --quiet --locked -- docs check
 
 Последние implementation-коммиты:
 
-- `3db6447a54f9ab2b5fe85a2e225b10f87097ee0f` — content/schema/snapshot recovery preflight;
-- `e931dfda9168258b04466e8225c7c119e40c2b35` — schema-bearing recovery fixtures;
-- `ce648d0e7a5e0599cf5f41563d1812b4fefb4068` — identity mismatch и repeated-recovery regressions;
-- `ae9d73bce90a80c548abd25f5e6abdb8573d7ade` — регистрация content suite;
-- `85cf8a9a2674fc0085456d5ec2fc3b6dd303f8bb` — upgrade-compatible historical state schemas;
-- `16c206e5409128ace94fe3ed174b5b474ea883ae` — строгая validation versioned schema.
+- `47341ccab962a259173b1a5da9d69543ae54e837` — core `FactQuery`/`FactQueryStore` contract;
+- `8f6251c556d5add95cf746bd944566b67ea0c880` — blanket canonical implementation;
+- `e05125a89a9e244a8428f67f30888ce96cd395b7` — snake-case/data-carrying kind normalization;
+- `077b2947e6aacec5f6686931e3cdec525718e18d` / `20dd44560576adc9ba346839e62c1445a4c8ab85` — Memory canonical reader и helper fix;
+- `2d785501ab0aaa32a83b1654585ec4b6314213bb` — Memory fact query regression;
+- `a1e3ecc80d3e750c586523fe0a96277826b4dfc4` — JSONL fact query regression;
+- `a26fbfd2fd3106c06fea1a8486dc09520fb95609` — embedded SurrealDB fact query regression;
+- `6d279c41dda251dec00e1c85bdd695de2bf32e94` — shared conformance fact queries;
+- `eb8f08274eeb607fef6c4a9e7a6b0297d575d6bf` — remote public fact query;
+- `52fbfa444ec73833d72f71b0f2f006fcc5ca51de` — application query surface.
 
 ## 4. P1 — execution safety и maintainability
 
@@ -306,37 +315,37 @@ cargo run -p ath --quiet --locked -- docs check
 ### P2.4. Локальная воспроизводимость
 
 - [x] Feature, coverage, AppSec, installer/release и store commands.
-- [x] Cancellation, runtime publication и recovery fault commands.
+- [x] Cancellation, fact-query, runtime publication и recovery commands.
 - [ ] Common CI failures для остальных workflows.
 - [ ] `justfile`, `xtask` или единый verification entrypoint.
 
 ## 6. Порядок реализации
 
 1. `[!]` Включить/проверить GitHub Actions и получить compile/test/fmt/Clippy evidence.
-2. P0.4 — backend-neutral `FactQuery`.
-3. P0.4 — canonical data + commit marker transaction protocol.
-4. P0.4 — immutable generation id и один current pointer.
-5. P0.4 — remote conflict evidence и pointer-switch fault injection.
-6. P1.5 — read-only daemon/CLI/MCP cancellation.
-7. P0.3/P0.1/P1.4 — hosted AppSec, matrices, installers и tag evidence.
-8. P1.1, daemon/CLI decomposition и performance budgets.
-9. P2 governance/DX.
+2. P0.4 — canonical data + commit marker transaction protocol.
+3. P0.4 — immutable generation id и один current pointer.
+4. P0.4 — remote conflict evidence и pointer-switch fault injection.
+5. P1.5 — read-only daemon/CLI/MCP cancellation.
+6. P0.3/P0.1/P1.4 — hosted AppSec, matrices, installers и tag evidence.
+7. P1.1, daemon/CLI decomposition и performance budgets.
+8. P2 governance/DX.
 
 ## 7. Текущий рабочий пакет
 
 **Активный blocker:** `GitHub Actions activation/visibility`.
 
-**Следующий безопасный кодовый срез до снятия blocker:** `P0.4 backend-neutral FactQuery`.
+**Следующий безопасный кодовый срез до снятия blocker:** `P0.4 canonical data + commit marker protocol`.
 
-1. Добавить `FactQuery` в core query contract.
-2. Реализовать одинаковую фильтрацию и limit semantics в Memory, JSONL и SurrealDB.
-3. Добавить shared conformance checks для exact/latest committed snapshots.
-4. Расширить remote cross-client test фактами через публичный query contract.
-5. Не считать backend contract hosted-подтверждённым без Actions/remote run.
+1. Ввести backend-neutral typed publication primitive, который не позволяет marker переключиться без durable data.
+2. Для JSONL атомарно публиковать snapshot directory и latest marker с recovery record.
+3. Для SurrealDB объединить data visibility и committed marker в одну backend transaction там, где это возможно.
+4. Сохранить Memory reference semantics и shared conformance.
+5. Добавить fault injection между data durability и marker visibility.
+6. Не считать protocol hosted-подтверждённым без Actions/remote run.
 
 ## 8. Definition of Done проекта
 
-- Public queries изолированы committed snapshot.
+- Public entity/fact/relation/diagnostic queries изолированы committed snapshot.
 - Memory, JSONL и SurrealDB проходят общий conformance suite.
 - Publication crash-safe и atomic на generation boundary.
 - Recovery fail-closed и идемпотентна при malformed/missing/mismatched artifacts.
@@ -351,20 +360,26 @@ cargo run -p ath --quiet --locked -- docs check
 
 ## 9. Журнал актуализаций
 
+### 2026-07-14 — backend-neutral FactQuery
+
+- Добавлен core-owned `FactQuery` и additive `FactQueryStore`.
+- Blanket implementation читает только committed `CanonicalSnapshotStore` и применяет единые filters/limit.
+- Memory получил canonical snapshot reader; JSONL и SurrealDB используют существующие readers.
+- Shared conformance и отдельные backend tests проверяют exact/latest и uncommitted isolation.
+- Remote independent reader настроен на публичный `query_facts`; hosted evidence отсутствует.
+
 ### 2026-07-14 — recovery content preflight и idempotence
 
 - Current/staging/backup artifacts валидируются по типу, JSON schema и snapshot identity до mutation.
 - Committed mismatch, uncommitted replaced-current mismatch и mixed backup generations fail-closed.
 - Historical state backups допускают строгую предыдущую versioned schema для recovery после upgrade.
 - Committed и uncommitted recovery безопасно повторяются после journal cleanup.
-- Hosted evidence не повышено: Actions runs/statuses всё ещё отсутствуют.
 
 ### 2026-07-14 — finalize и recovery fault matrix
 
 - Добавлены deterministic read-model finalize, index-state finalize и journal-clear failures.
-- Committed generation остаётся выбранной и завершается typed recovery после снятия transient filesystem fault.
-- Recovery preflight отклоняет неверный тип current/staging/backup artifact до destructive mutation.
-- Missing backups приводят к удалению только uncommitted current generation и prepared canonical snapshot.
+- Committed generation остаётся выбранной и завершается typed recovery после снятия transient fault.
+- Missing backups удаляют только uncommitted current generation и prepared canonical snapshot.
 - Combined canonical publish, application rollback и abort failures сохраняются в одной error chain.
 
 ### 2026-07-14 — production typed publication cutover
