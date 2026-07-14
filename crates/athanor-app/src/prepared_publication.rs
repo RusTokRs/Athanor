@@ -5,7 +5,7 @@ use athanor_core::{
 use athanor_domain::SnapshotId;
 use serde::{Deserialize, Serialize};
 
-/// Backend-neutral proof that a canonical snapshot passed its store-specific prepare boundary.
+/// Backend-neutral marker that a canonical snapshot passed its store-specific prepare boundary.
 ///
 /// The handle is intentionally opaque to publication coordinators: callers may inspect the
 /// snapshot identity, but publication and rollback must go back through the `KnowledgeStore` that
@@ -46,7 +46,10 @@ pub trait PreparedSnapshotPublication: KnowledgeStore {
         context.check_active()?;
         self.prepare_snapshot_with_context(snapshot.clone(), context)
             .await?;
-        context.check_active()?;
+
+        // A successful backend prepare has changed durable lifecycle state. Always return the
+        // handle so the coordinator can either publish it or run cancellation-independent cleanup.
+        // Re-checking cancellation here would lose the only typed reference to prepared data.
         Ok(PreparedSnapshot::new(snapshot))
     }
 
