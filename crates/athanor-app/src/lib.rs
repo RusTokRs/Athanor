@@ -43,6 +43,8 @@ mod index_publication_inner;
 #[cfg(test)]
 mod index_publication_fault_tests;
 #[cfg(test)]
+mod index_publication_finalize_tests;
+#[cfg(test)]
 mod index_runtime_tests;
 pub mod index_state;
 pub mod init;
