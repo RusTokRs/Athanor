@@ -131,10 +131,18 @@ The guard validates every recovery-controlled artifact before any delete or rena
 
 - current, staged, and backup read models must be directories when present;
 - current, staged, and backup index states must be regular files when present;
-- a malformed type leaves the journal and all current artifacts untouched.
+- read-model manifests must be parseable, use `athanor.jsonl_manifest.v1`, and carry a non-empty
+  snapshot identity;
+- new current and staged index state must use the active `INDEX_STATE_SCHEMA`;
+- historical state backups may use an earlier numeric `athanor.index_state.vN` schema, including a
+  validated version suffix, so recovery remains possible across an application upgrade;
+- staged artifacts must identify the journal snapshot;
+- committed current artifacts must identify the journal snapshot;
+- uncommitted current artifacts that would be replaced by backups must identify the journal snapshot;
+- read-model and index-state backups must identify the same previous generation when both exist.
 
-This prevents a regular file from being renamed into the read-model directory path or a directory
-from replacing the index-state file.
+A type, schema, parse, or identity mismatch fails closed before destructive mutation. The durable
+journal and current artifacts remain present for diagnosis and repair.
 
 Deterministic regressions cover:
 
@@ -146,12 +154,16 @@ Deterministic regressions cover:
 - index-state finalize failure after canonical commit;
 - journal clear failure after canonical commit;
 - malformed read-model and index-state backup types;
+- committed and uncommitted current identity mismatches;
+- mixed read-model/index-state backup generations;
 - recovery with no backups for an uncommitted generation;
+- repeated committed and uncommitted recovery after cleanup;
 - simultaneous canonical publish, application rollback, and canonical abort failures.
 
 For post-commit finalize failures, the canonical snapshot remains latest committed. After the
 transient filesystem fault is repaired, recovery finalizes the same generation instead of reverting
-it. Combined failures preserve the original publish error together with rollback and abort causes.
+it. A second recovery call after journal cleanup is a no-op. Combined failures preserve the original
+publish error together with rollback and abort causes.
 
 ## Guarantees not claimed yet
 
@@ -159,13 +171,13 @@ The current implementation does not claim:
 
 - one backend transaction for canonical data and the commit marker;
 - one immutable generation pointer covering canonical data, state, and read models;
-- content/schema validation for every recovery backup before mutation;
+- cryptographic content integrity for application artifacts;
 - deterministic remote write-conflict evidence;
 - force interruption of an SDK request already executing;
 - complete cancellation propagation for read-only daemon, CLI, and MCP operations;
 - hosted compile, test, formatting, Clippy, AppSec, installer, or release evidence while Actions runs
   remain unavailable.
 
-P0.4 remains incomplete until hosted evidence, recovery content validation, backend-neutral fact
-queries, data-plus-marker publication, generation-pointer switching, remote conflict evidence, and
-pointer-level fault injection are complete.
+P0.4 remains incomplete until hosted evidence, backend-neutral fact queries, data-plus-marker
+publication, generation-pointer switching, remote conflict evidence, and pointer-level fault
+injection are complete.
