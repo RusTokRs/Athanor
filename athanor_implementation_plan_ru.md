@@ -4,7 +4,7 @@
 > Назначение: рабочий implementation plan для последовательного улучшения Athanor  
 > Репозиторий: `RusTokRs/Athanor`  
 > Базовая ветка: `main`  
-> Точка сверки: `33e8bc9e799065a407a2732e2b4bceec56424486`  
+> Точка сверки: `bcdf7d5696d1ce17277cda043a46e6b9ae3e4330`  
 > Дата актуализации: 2026-07-14  
 > Статус: active implementation plan
 
@@ -34,6 +34,7 @@
 13. Наличие typed prepared handle не считается migration coordinator, пока journal и publish path продолжают использовать raw `SnapshotId`.
 14. После успешного backend prepare coordinator обязан получить cleanup authority даже при гонке cancellation.
 15. Cancellation lease существует, пока жив хотя бы один handle clone; временный handle не моделирует долгоживущую операцию.
+16. Повторный bind одного `CancellationToken` к тому же `operation_id` обязан переиспользовать уже удерживаемую lease, а не регистрировать новую.
 
 ## 1. Текущий baseline
 
@@ -50,6 +51,7 @@
 - bounded Busy retry `10/25/50/100 ms` с deadline и cancellation polling;
 - core `CancellationHandle` без изменения `OperationContext` JSON;
 - exclusive process-local cancellation identity lease с duplicate-id `Conflict`;
+- idempotent application binding для того же token/operation id;
 - daemon cancellation bridge для index/generate/wiki/html;
 - application-level `PreparedSnapshot` и `PreparedSnapshotPublication` protocol;
 - `AthanorStore` делегирует context-aware backend overrides;
@@ -86,7 +88,7 @@ cargo run -p ath --quiet --locked -- docs check
 | Snapshot isolation | `[-]` | committed-only reads, prepared immutability, lifecycle suite | Generation-level visibility |
 | Atomic publication | `[-]` | JSONL staging/recovery, SurrealDB batch rollback, typed prepared handle | Coordinator migration, commit marker и generation pointer |
 | Concurrent writers | `[-]` | JSONL locking, atomic Surreal counter, embedded ownership, remote two-client test configured | Hosted remote conflict evidence |
-| Operation context | `[-]` | deadlines, exclusive cancellation identity lease, daemon write-job bridge, context-forwarding wrapper | Read commands, CLI/MCP, in-flight SDK interruption |
+| Operation context | `[-]` | deadlines, exclusive cancellation identity lease, idempotent token binding, daemon write-job bridge, context-forwarding wrapper | Read commands, CLI/MCP, in-flight SDK interruption |
 | Storage transaction boundary | `[-]` | SnapshotBatch, native Surreal transaction, prepared publication extension, JSONL typed lifecycle | Journal migration, Memory/Surreal typed regressions и atomic data+marker publish |
 | Runtime composition | `[-]` | explicit composition in main paths | Global registry removal, injected process runner |
 | Default build | `[x]` | SurrealDB opt-in, remote tests ignored by default | Maintain boundary |
@@ -133,7 +135,7 @@ cargo run -p ath --quiet --locked -- docs check
 
 ### P0.4. Store conformance и transactional publication
 
-**Статус:** `[-]` — девятый cancellation-identity/test-correction slice реализован; coordinator migration, hosted evidence, observed remote conflict и generation publication остаются.
+**Статус:** `[-]` — десятый idempotent-binding slice реализован; coordinator migration, hosted evidence, observed remote conflict и generation publication остаются.
 
 #### Shared backend contract
 
@@ -166,6 +168,7 @@ cargo run -p ath --quiet --locked -- docs check
 - [x] Cancel любого clone выставляет app flag и core cancellation state.
 - [x] Cancellation до binding передаётся при binding.
 - [x] Rebind одного token к другому operation id запрещён.
+- [x] Повторный bind того же token к тому же operation id идемпотентен.
 - [x] Core registry выдаёт одну живую cancellation lease на `operation_id`.
 - [x] Второй активный registration того же id возвращает `CoreError::Conflict`.
 - [x] После drop всех handle clones operation id можно переиспользовать.
@@ -251,7 +254,7 @@ cargo run -p ath --quiet --locked -- docs check
    - `8a45f45ecd4a82f5e03343e3fe68cee88c8f0f7b`
    - `726222cb57c0dbd0f7f925a76494744461493f77`
    - `450fc7424034df2b8cdc26f882b6eadd915d3a85`
-   - `2cc048c693908c960f7f0e4b139d91fd0f6aab7f`
+   - `2cc048c693908c9601d3a304309ed09a6f5af07bd069`
    - `1206d1cb5924a8842595d0db45d02d370e3ff316`
    - `c3f32acb52a3747ce357b3f6f2c99c59af654ea3`
    - `30aca716cd28f5be3ad89edf42cefe0783798272`
@@ -261,6 +264,9 @@ cargo run -p ath --quiet --locked -- docs check
    - `967efb58b63919ebf91da4a2f01033c8309b34fa`
    - `eb16b74922f96fb373ac6f02636f815856401327`
    - `33e8bc9e799065a407a2732e2b4bceec56424486`
+10. Idempotent application cancellation binding:
+   - `eecbdb29fb450dc8c5f5824dab9dd9f9a75db14f`
+   - `bcdf7d5696d1ce17277cda043a46e6b9ae3e4330`
 
 **Definition of Done:** Memory, JSONL и persistent SurrealDB имеют эквивалентный observable lifecycle; independent writers не теряют updates; retries bounded attempts/deadline/cancellation; typed prepared state используется coordinator; partial writes не публикуются; после crash видна только предыдущая или новая целая generation.
 
@@ -297,13 +303,14 @@ cargo run -p ath --quiet --locked -- docs check
 
 ### P1.5. Operation context и protocol E2E
 
-**Статус:** `[-]` — exclusive cancellation identity lease, Surreal retry, wrapper forwarding и daemon write-job propagation реализованы; все transports ещё не покрыты.
+**Статус:** `[-]` — exclusive cancellation identity lease, idempotent token binding, Surreal retry, wrapper forwarding и daemon write-job propagation реализованы; все transports ещё не покрыты.
 
 - [-] Deadline propagation CLI→app, daemon→app, MCP→app.
 - [x] Cloneable core cancellation handle и stable non-retryable `Cancelled`.
 - [x] Cancellation state не меняет JSON shape `OperationContext`.
 - [x] Один active `operation_id` не может объединять независимые cancellation authorities.
 - [x] Duplicate active registration возвращает `Conflict`; released id переиспользуется.
+- [x] Повторный application bind того же token/id идемпотентен.
 - [x] SurrealDB retry bounded deadline/cancellation.
 - [x] `AthanorStore` сохраняет backend context overrides.
 - [x] Daemon index/generate/wiki/html cancellation доходит до core context.
@@ -345,7 +352,7 @@ cargo run -p ath --quiet --locked -- docs check
 - [x] Feature, coverage, installer/release, AppSec и store commands задокументированы.
 - [x] Prepared publication regression command зафиксирован в плане.
 - [x] Toolchain-action и blocking Zizmor expectations задокументированы.
-- [x] Cancellation identity lease и duplicate-id failure mode задокументированы.
+- [x] Cancellation identity lease, duplicate-id failure mode и idempotent same-token binding задокументированы.
 - [ ] Common CI failures для остальных workflows.
 - [ ] `justfile`, `xtask` или единый verification entrypoint.
 
@@ -368,12 +375,13 @@ cargo run -p ath --quiet --locked -- docs check
 
 Следующий кодовый срез:
 
-1. добавить `Option<PreparedSnapshot>` в deferred pipeline result либо отдельный prepared output type;
-2. записывать typed handle в index publication journal;
-3. заменить direct `commit_snapshot` на `publish_prepared`;
-4. заменить recovery/rollback raw snapshot path на `abort_prepared` с backward-compatible journal parsing;
-5. добавить tests: journal round-trip, publish через context override, rollback вне cancellation;
-6. после этого добавить typed regressions Memory/SurrealDB и спроектировать data+marker atomic protocol.
+1. получить локальный checkout либо точный patch-capable transport для большого `index.rs`;
+2. добавить `Option<PreparedSnapshot>` в deferred pipeline result либо отдельный prepared output type;
+3. записывать typed handle в index publication journal v2 с backward-compatible чтением v1;
+4. заменить direct `commit_snapshot` на `publish_prepared`;
+5. заменить recovery/rollback raw snapshot path на `abort_prepared`;
+6. добавить tests: journal round-trip v1/v2, publish через context override, rollback вне cancellation;
+7. после этого добавить typed regressions Memory/SurrealDB и спроектировать data+marker atomic protocol.
 
 ## 8. Definition of Done проекта
 
@@ -390,6 +398,14 @@ cargo run -p ath --quiet --locked -- docs check
 - Roadmap, plan, issues и release notes соответствуют коду.
 
 ## 9. Журнал актуализаций
+
+### 2026-07-14 — idempotent application cancellation binding
+
+- Исправлен self-conflict: повторный `bind_operation` того же `CancellationToken` к тому же `operation_id` больше не пытается создать вторую core lease.
+- Повторный same-token/same-id bind переиспользует удерживаемый handle и остаётся cancellable через любой clone token.
+- Rebind того же token к другому id и bind независимого token к активному id по-прежнему fail-closed.
+- Добавлен regression `rebinding_same_token_to_same_operation_is_idempotent`.
+- CI guide и implementation plan синхронизированы; coordinator migration остаётся активным P0.4 пунктом.
 
 ### 2026-07-14 — exclusive cancellation identity lease
 
