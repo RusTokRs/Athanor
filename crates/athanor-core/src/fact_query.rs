@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use athanor_domain::{EntityId, Fact};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::{CanonicalSnapshotStore, CoreError, CoreResult, SnapshotSelector};
 
@@ -94,10 +95,14 @@ pub fn filter_facts<'a>(facts: impl IntoIterator<Item = &'a Fact>, query: &FactQ
 }
 
 fn fact_kind_name(fact: &Fact) -> String {
-    serde_json::to_value(&fact.kind)
-        .ok()
-        .and_then(|value| value.as_str().map(ToOwned::to_owned))
-        .unwrap_or_else(|| format!("{:?}", fact.kind).to_ascii_lowercase())
+    match serde_json::to_value(&fact.kind) {
+        Ok(Value::String(name)) => name,
+        Ok(Value::Object(kind)) if kind.len() == 1 => kind
+            .into_keys()
+            .next()
+            .expect("single fact-kind key"),
+        _ => format!("{:?}", fact.kind).to_ascii_lowercase(),
+    }
 }
 
 #[cfg(test)]
@@ -178,6 +183,29 @@ mod tests {
                 &facts,
                 &FactQuery {
                     kind: Some("file_discovered".to_string()),
+                    ..FactQuery::default()
+                }
+            )
+            .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn data_carrying_kind_matches_its_serialized_variant_name() {
+        let facts = vec![fact(
+            "fact_1",
+            FactKind::Other("custom".to_string()),
+            "entity_a",
+            None,
+            "custom",
+        )];
+
+        assert_eq!(
+            filter_facts(
+                &facts,
+                &FactQuery {
+                    kind: Some("other".to_string()),
                     ..FactQuery::default()
                 }
             )
