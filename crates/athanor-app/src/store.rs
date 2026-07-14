@@ -9,7 +9,8 @@ use anyhow::{Result, bail};
 use async_trait::async_trait;
 use athanor_core::{
     CanonicalSnapshot, CanonicalSnapshotStore, CoreResult, DiagnosticQuery, EntityQuery,
-    EntityResolver, KnowledgeStore, RelationQuery, SnapshotBatch, SnapshotSelector,
+    EntityResolver, KnowledgeStore, OperationContext, RelationQuery, SnapshotBatch,
+    SnapshotSelector,
 };
 use athanor_domain::{
     Diagnostic, Entity, EntityId, Fact, Relation, RepoId, SnapshotBase, SnapshotId, StableKey,
@@ -67,12 +68,45 @@ impl KnowledgeStore for AthanorStore {
         self.inner.begin_snapshot(repo, base).await
     }
 
+    async fn begin_snapshot_with_context(
+        &self,
+        repo: RepoId,
+        base: SnapshotBase,
+        context: &OperationContext,
+    ) -> CoreResult<SnapshotId> {
+        self.inner
+            .begin_snapshot_with_context(repo, base, context)
+            .await
+    }
+
     async fn put_entities(&self, snapshot: SnapshotId, entities: Vec<Entity>) -> CoreResult<()> {
         self.inner.put_entities(snapshot, entities).await
     }
 
+    async fn put_entities_with_context(
+        &self,
+        snapshot: SnapshotId,
+        entities: Vec<Entity>,
+        context: &OperationContext,
+    ) -> CoreResult<()> {
+        self.inner
+            .put_entities_with_context(snapshot, entities, context)
+            .await
+    }
+
     async fn put_facts(&self, snapshot: SnapshotId, facts: Vec<Fact>) -> CoreResult<()> {
         self.inner.put_facts(snapshot, facts).await
+    }
+
+    async fn put_facts_with_context(
+        &self,
+        snapshot: SnapshotId,
+        facts: Vec<Fact>,
+        context: &OperationContext,
+    ) -> CoreResult<()> {
+        self.inner
+            .put_facts_with_context(snapshot, facts, context)
+            .await
     }
 
     async fn put_relations(
@@ -83,6 +117,17 @@ impl KnowledgeStore for AthanorStore {
         self.inner.put_relations(snapshot, relations).await
     }
 
+    async fn put_relations_with_context(
+        &self,
+        snapshot: SnapshotId,
+        relations: Vec<Relation>,
+        context: &OperationContext,
+    ) -> CoreResult<()> {
+        self.inner
+            .put_relations_with_context(snapshot, relations, context)
+            .await
+    }
+
     async fn put_diagnostics(
         &self,
         snapshot: SnapshotId,
@@ -91,12 +136,44 @@ impl KnowledgeStore for AthanorStore {
         self.inner.put_diagnostics(snapshot, diagnostics).await
     }
 
+    async fn put_diagnostics_with_context(
+        &self,
+        snapshot: SnapshotId,
+        diagnostics: Vec<Diagnostic>,
+        context: &OperationContext,
+    ) -> CoreResult<()> {
+        self.inner
+            .put_diagnostics_with_context(snapshot, diagnostics, context)
+            .await
+    }
+
     async fn put_snapshot(&self, snapshot: SnapshotId, batch: SnapshotBatch) -> CoreResult<()> {
         self.inner.put_snapshot(snapshot, batch).await
     }
 
+    async fn put_snapshot_with_context(
+        &self,
+        snapshot: SnapshotId,
+        batch: SnapshotBatch,
+        context: &OperationContext,
+    ) -> CoreResult<()> {
+        self.inner
+            .put_snapshot_with_context(snapshot, batch, context)
+            .await
+    }
+
     async fn prepare_snapshot(&self, snapshot: SnapshotId) -> CoreResult<()> {
         self.inner.prepare_snapshot(snapshot).await
+    }
+
+    async fn prepare_snapshot_with_context(
+        &self,
+        snapshot: SnapshotId,
+        context: &OperationContext,
+    ) -> CoreResult<()> {
+        self.inner
+            .prepare_snapshot_with_context(snapshot, context)
+            .await
     }
 
     async fn query_entities(
@@ -127,8 +204,28 @@ impl KnowledgeStore for AthanorStore {
         self.inner.commit_snapshot(snapshot).await
     }
 
+    async fn commit_snapshot_with_context(
+        &self,
+        snapshot: SnapshotId,
+        context: &OperationContext,
+    ) -> CoreResult<()> {
+        self.inner
+            .commit_snapshot_with_context(snapshot, context)
+            .await
+    }
+
     async fn abort_snapshot(&self, snapshot: SnapshotId) -> CoreResult<()> {
         self.inner.abort_snapshot(snapshot).await
+    }
+
+    async fn abort_snapshot_with_context(
+        &self,
+        snapshot: SnapshotId,
+        context: &OperationContext,
+    ) -> CoreResult<()> {
+        self.inner
+            .abort_snapshot_with_context(snapshot, context)
+            .await
     }
 }
 
