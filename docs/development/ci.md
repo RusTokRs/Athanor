@@ -51,7 +51,7 @@ Each slice runs locked `cargo check`, tests, and Clippy. Remote SurrealDB integr
 `#[ignore]` and are executed only by the dedicated server job, so `--all-features` stays
 self-contained.
 
-## Store conformance
+## Store conformance and fact queries
 
 The configured store matrix runs:
 
@@ -61,8 +61,23 @@ cargo test -p athanor-store-jsonl --locked
 cargo test -p athanor-store-surrealdb --locked
 ```
 
-The shared contract covers committed selection, stable-key and ID queries, prepared invisibility,
-commit/abort semantics, and preservation of `LatestCommitted` after an abort.
+The shared contract covers committed selection, stable-key entity queries, backend-neutral fact
+queries, relation/diagnostic filtering, prepared invisibility, commit/abort semantics, and
+preservation of `LatestCommitted` after abort.
+
+`FactQuery` filters by `subject`, `object`, serialized kind name, extractor, and limit. The
+`FactQueryStore` blanket implementation operates on `CanonicalSnapshotStore`, so Memory, JSONL,
+SurrealDB, and `AthanorStore` share one committed-only implementation.
+
+Focused checks:
+
+```bash
+cargo test -p athanor-core fact_query --locked
+cargo test -p athanor-app fact_query --locked
+cargo test -p athanor-store-memory --test fact_query --locked
+cargo test -p athanor-store-jsonl --test fact_query --locked
+cargo test -p athanor-store-surrealdb --test fact_query --locked
+```
 
 Typed backend publication checks:
 
@@ -91,33 +106,19 @@ cargo test -p athanor-app index_publication_content_tests --locked
 cargo test -p athanor-app index_publication_combined_error_tests --locked
 ```
 
-The fault matrix covers:
-
-- durable journal creation failure;
-- read-model and index-state prepare failure;
-- cancellation before canonical publish;
-- read-model and index-state finalize failure after commit;
-- journal clear failure after commit;
-- malformed backup types;
-- schema, parse, and snapshot-identity mismatches;
-- mixed backup generations;
-- recovery without backups;
-- repeated committed and uncommitted recovery;
-- simultaneous publish, rollback, and abort failures.
-
-Post-commit finalize failures keep the new canonical snapshot selected. After a transient filesystem
-fault is repaired, recovery removes stale backups and clears the journal without reverting the
-committed generation.
+The fault matrix covers journal/prepare/publish/finalize/clear failures, malformed artifact types,
+schema and identity mismatches, mixed backup generations, absent backups, repeated recovery, and
+simultaneous publish/rollback/abort failures.
 
 Recovery content preflight is fail-closed before destructive mutation:
 
 - manifests and state documents must be parseable and contain a non-empty snapshot identity;
 - active current/staged artifacts use exact current schemas;
 - historical index-state backups may use a validated numeric `athanor.index_state.vN` schema;
-- current/staged snapshot identities must agree with the journal when recovery would mutate them;
-- read-model and state backups must identify the same previous generation.
+- current/staged snapshot identities agree with the journal when recovery would mutate them;
+- read-model and state backups identify the same previous generation.
 
-A second recovery call after a successful committed or uncommitted cleanup must be a no-op.
+A second recovery call after successful committed or uncommitted cleanup must be a no-op.
 
 ## Remote SurrealDB
 
@@ -139,13 +140,11 @@ ATHANOR_SURREAL_REMOTE_URI=ws://127.0.0.1:8000 \
   --features remote --test remote --locked -- --ignored
 ```
 
-The configured suite checks two-client allocation uniqueness and cross-client entity/fact
-visibility. It is not evidence of remote behavior until a hosted run succeeds, and it does not yet
-force a real write conflict.
+The configured suite checks two-client allocation uniqueness, canonical cross-client visibility, and
+fact retrieval through public `FactQueryStore` from the independent reader. It is not evidence of
+remote behavior until a hosted run succeeds, and it does not yet force a real write conflict.
 
 ## Retry and cancellation checks
-
-Relevant local commands:
 
 ```bash
 cargo test -p athanor-core cancellation --locked
@@ -182,16 +181,9 @@ invent a percentage floor.
 
 ## AppSec and release integrity
 
-Configured checks include:
-
-- `cargo-deny`;
-- dependency review with a `moderate` threshold;
-- CodeQL Rust `security-extended`;
-- full-history Gitleaks;
-- blocking Zizmor `1.26.1` high-severity/high-confidence findings;
-- nightly dependency audit;
-- CycloneDX SBOM, checksums, Sigstore signing, and provenance;
-- release verification before publish.
+Configured checks include `cargo-deny`, dependency review, CodeQL Rust `security-extended`,
+full-history Gitleaks, blocking Zizmor, nightly dependency audit, CycloneDX SBOM, checksums, Sigstore
+signing, provenance, and release verification before publish.
 
 All workflow `uses:` references are pinned to immutable commit SHAs. Platform settings such as secret
 push protection and required checks still need explicit verification.
@@ -207,14 +199,15 @@ zizmor --offline --strict-collection --min-severity high --min-confidence high .
 
 - Different canonical, read-model, and index-state snapshot ids mean the typed coordinator was
   bypassed.
+- A fact returned from an uncommitted/prepared snapshot violates query isolation.
+- Different fact filters or limit behavior between backends means the canonical blanket contract was
+  bypassed.
 - A successful publication leaving `index-publication.json` means finalization did not complete.
 - A journal-write failure leaving prepared canonical data means the pre-journal cleanup guard failed.
 - A malformed type, schema, or snapshot identity changing current artifacts means recovery preflight
   was bypassed.
 - Mixed read-model/state backup generations must fail before either current artifact is replaced.
 - A second recovery call changing state after journal cleanup violates idempotence.
-- A committed finalize failure reverting to the previous snapshot violates recovery semantics.
 - A combined failure that omits the original publish cause or cleanup cause loses diagnostic context.
-- A prepared snapshot visible through `LatestCommitted` violates snapshot isolation.
 - A remote test running during normal `--all-features` means its isolation boundary was removed.
 - Empty hosted statuses must not be interpreted as successful checks.
