@@ -107,8 +107,10 @@ pub mod publication {
     };
 }
 
-/// Read-only canonical knowledge query use cases.
+/// Read-only canonical knowledge query use cases and backend-neutral request contracts.
 pub mod query {
+    pub use athanor_core::{FactQuery, FactQueryStore};
+
     pub use crate::context::*;
     pub use crate::explain::*;
     pub use crate::graph::*;
