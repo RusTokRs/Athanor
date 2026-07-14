@@ -34,9 +34,13 @@ pub mod generation;
 pub mod graph;
 mod hash;
 pub mod impact;
+#[path = "index_runtime.rs"]
 pub mod index;
-#[allow(dead_code)]
 mod index_publication;
+#[cfg(test)]
+#[allow(dead_code)]
+#[path = "index.rs"]
+mod legacy_index;
 pub mod index_state;
 pub mod init;
 pub mod invalidation;
