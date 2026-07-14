@@ -30,6 +30,7 @@ jobs:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@81507be746c04af74ed35958a57969a1cfe076b5 # 1.100.0
         with:
+          toolchain: 1.95.0
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
       - run: cargo build --release --locked --target ${{ matrix.target }} -p ath -p athd
@@ -86,6 +87,8 @@ jobs:
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@81507be746c04af74ed35958a57969a1cfe076b5 # 1.100.0
+        with:
+          toolchain: 1.95.0
       - name: Install cargo-cyclonedx
         run: cargo install cargo-cyclonedx --version 0.5.9 --locked
       - name: Generate and package workspace SBOMs
