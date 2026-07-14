@@ -87,6 +87,7 @@ cargo test -p athanor-app index_publication --locked
 cargo test -p athanor-app index_publication_fault_tests --locked
 cargo test -p athanor-app index_publication_finalize_tests --locked
 cargo test -p athanor-app index_publication_recovery_fault_tests --locked
+cargo test -p athanor-app index_publication_content_tests --locked
 cargo test -p athanor-app index_publication_combined_error_tests --locked
 ```
 
@@ -98,16 +99,25 @@ The fault matrix covers:
 - read-model and index-state finalize failure after commit;
 - journal clear failure after commit;
 - malformed backup types;
+- schema, parse, and snapshot-identity mismatches;
+- mixed backup generations;
 - recovery without backups;
+- repeated committed and uncommitted recovery;
 - simultaneous publish, rollback, and abort failures.
 
 Post-commit finalize failures keep the new canonical snapshot selected. After a transient filesystem
 fault is repaired, recovery removes stale backups and clears the journal without reverting the
 committed generation.
 
-Recovery preflight must reject a file where a read-model directory is expected and a directory where
-an index-state file is expected. The journal and current artifacts must remain untouched on this
-failure path.
+Recovery content preflight is fail-closed before destructive mutation:
+
+- manifests and state documents must be parseable and contain a non-empty snapshot identity;
+- active current/staged artifacts use exact current schemas;
+- historical index-state backups may use a validated numeric `athanor.index_state.vN` schema;
+- current/staged snapshot identities must agree with the journal when recovery would mutate them;
+- read-model and state backups must identify the same previous generation.
+
+A second recovery call after a successful committed or uncommitted cleanup must be a no-op.
 
 ## Remote SurrealDB
 
@@ -199,7 +209,10 @@ zizmor --offline --strict-collection --min-severity high --min-confidence high .
   bypassed.
 - A successful publication leaving `index-publication.json` means finalization did not complete.
 - A journal-write failure leaving prepared canonical data means the pre-journal cleanup guard failed.
-- A malformed backup changing current artifacts means recovery preflight was bypassed.
+- A malformed type, schema, or snapshot identity changing current artifacts means recovery preflight
+  was bypassed.
+- Mixed read-model/state backup generations must fail before either current artifact is replaced.
+- A second recovery call changing state after journal cleanup violates idempotence.
 - A committed finalize failure reverting to the previous snapshot violates recovery semantics.
 - A combined failure that omits the original publish cause or cleanup cause loses diagnostic context.
 - A prepared snapshot visible through `LatestCommitted` violates snapshot isolation.
