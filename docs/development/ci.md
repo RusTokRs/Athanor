@@ -83,7 +83,7 @@ The application publication regression additionally runs the backend-neutral typ
 cargo test -p athanor-app --test prepared_publication --locked
 ```
 
-It requires `prepare_publication` followed by `publish_prepared` to advance `LatestCommitted`, and requires `abort_prepared` on a later snapshot to preserve the previously published generation. It also covers cancellation racing immediately after a successful backend prepare: the prepared handle must still be returned so cleanup can run outside the cancelled request budget.
+It requires `prepare_publication` followed by `publish_prepared` to advance `LatestCommitted`, and requires `abort_prepared` on a later snapshot to preserve the previously published generation. It also covers cancellation racing immediately after a successful backend prepare: the prepared handle must still be returned so cleanup can run outside the cancelled request budget. The race fixture retains the registered cancellation lease for the duration of prepare; a temporary handle would be dropped before the assertion and would not model an active operation correctly.
 
 The embedded SurrealDB package additionally verifies:
 
@@ -126,11 +126,11 @@ This job proves remote shared-server visibility only after a successful hosted r
 
 Context-aware SurrealDB write and publication methods retry only `CoreError::Busy`. Backoff is bounded to 10, 25, 50, and 100 milliseconds. Every attempt checks both deadline and process-local cancellation state; when the remaining deadline cannot fit the next delay, the current `Busy` error is returned without sleeping past the budget.
 
-`OperationContextCancellation::cancellation_handle()` returns a cloneable handle for a stable operation id. Cancellation state is not serialized, and all live handles for the same operation id share one process-local atomic flag. Callers must keep operation ids unique while work is active. The core unit tests verify clone propagation, stable `Cancelled` error mapping, unchanged JSON wire shape, and rejection of anonymous cancellation handles.
+`OperationContextCancellation::cancellation_handle()` registers one live cancellation authority for a stable operation id. Callers clone that returned handle when several owners participate in the same operation. A second registration while any clone is alive fails with `CoreError::Conflict` instead of merging independent contexts into one global flag; after every clone is dropped, the operation id may be registered again. Cancellation state remains process-local and is not serialized. The core unit tests verify clone propagation, duplicate-id rejection, identity reuse after drop, stable `Cancelled` mapping, unchanged JSON wire shape, and rejection of anonymous cancellation handles.
 
 During retry backoff, cancellation is polled at intervals no larger than five milliseconds. A cancellation request therefore prevents the next retry and interrupts the wait with bounded latency. It does not force-abort a backend request that has already entered the SurrealDB SDK.
 
-Daemon write jobs use an operation-aware scheduler. Before a token is inserted into the daemon cancellation registry, the application `CancellationToken` is bound to the same core handle carried by the job's `OperationContext`. The registry clone and running-task clone therefore cancel the same state. Index, generate, wiki, and HTML report jobs use this path; index forwards the bound context through `begin_snapshot`, `put_snapshot`, `prepare_snapshot`, and `commit_snapshot`.
+Daemon write jobs use an operation-aware scheduler. Before a token is inserted into the daemon cancellation registry, the application `CancellationToken` is bound to the same core handle carried by the job's `OperationContext`. The registry clone and running-task clone therefore cancel the same state. Index, generate, wiki, and HTML report jobs use this path; index forwards the bound context through `begin_snapshot`, `put_snapshot`, `prepare_snapshot`, and `commit_snapshot`. Binding another independent token to the same active operation id fails closed.
 
 Relevant local checks:
 
@@ -151,10 +151,12 @@ Troubleshooting:
 - a prepared snapshot visible to a query violates snapshot isolation;
 - an aborted snapshot selected by `LatestCommitted` violates publication semantics;
 - a successful backend prepare that returns cancellation instead of a typed handle can strand prepared data without a cleanup authority;
+- a cancellation race fixture that creates and immediately drops its only handle does not retain a live cancellation state;
 - a second persistent embedded connection succeeding indicates that exclusive ownership is broken;
 - lock contention returned as `AdapterExecution` instead of `Busy` indicates a retry-classification regression;
 - a cancelled retry issuing a second backend attempt indicates that `check_active()` was bypassed;
 - a daemon registry token that does not cancel the bound `OperationContext` indicates scheduler binding was bypassed;
+- a second live registration of the same operation id succeeding indicates that independent cancellation contexts can still be merged;
 - rebinding one application token to a different operation id must fail;
 - cancellation state appearing in serialized `OperationContext` is a wire-compatibility regression;
 - remote tests running during a normal `--all-features` job indicate that their `#[ignore]` boundary was removed;
