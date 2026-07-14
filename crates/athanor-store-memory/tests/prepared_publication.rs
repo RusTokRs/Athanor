@@ -2,9 +2,7 @@ use athanor_core::{
     EntityQuery, KnowledgeStore, OperationContext, PreparedSnapshotPublication, SnapshotBatch,
     SnapshotSelector,
 };
-use athanor_domain::{
-    Entity, EntityId, EntityKind, RepoId, SnapshotBase, StableKey,
-};
+use athanor_domain::{Entity, EntityId, EntityKind, RepoId, SnapshotBase, StableKey};
 use athanor_store_memory::MemoryKnowledgeStore;
 use serde_json::json;
 
