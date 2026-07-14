@@ -62,7 +62,10 @@ async fn fact_queries_are_committed_only_and_filter_consistently() {
         )
         .await
         .expect_err("uncommitted facts must not be queryable");
-    assert!(matches!(error, CoreError::NotFound(_) | CoreError::SnapshotNotCommitted(_)));
+    assert!(matches!(
+        error,
+        CoreError::NotFound(_) | CoreError::SnapshotNotCommitted(_)
+    ));
 
     store
         .commit_snapshot(snapshot.clone())
@@ -113,7 +116,9 @@ async fn latest_fact_query_without_a_committed_snapshot_is_empty() {
             .is_empty()
     );
 
-    fs::remove_dir_all(root).expect("remove empty fact query fixture");
+    if root.exists() {
+        fs::remove_dir_all(root).expect("remove empty fact query fixture");
+    }
 }
 
 fn fact(
