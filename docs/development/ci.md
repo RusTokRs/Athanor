@@ -14,6 +14,8 @@ Athanor uses GitHub Actions for continuous quality, compatibility, store-contrac
 
 The main `CI` workflow runs on pushes to `main`, pull requests, and manual dispatches.
 
+All uses of the SHA-pinned `dtolnay/rust-toolchain` action pass `toolchain: 1.95.0` explicitly. A full action commit SHA does not encode the Rust channel, so omitting this input would leave CI, production, and release jobs without the repository's declared MSRV toolchain.
+
 ### Security & License Checks
 
 Runs `cargo-deny` on `ubuntu-latest` to verify dependency licenses, advisories, bans, and sources.
@@ -75,6 +77,14 @@ cargo test -p athanor-store-surrealdb --locked
 
 The reusable suite checks committed snapshot selection, stable-key and ID-based queries, prepared-snapshot invisibility, commit/abort behavior, and preservation of `LatestCommitted` after an abort. The batch fixture includes entities, facts, relations, and diagnostics. The current public store query contract independently verifies entity, relation, and diagnostic visibility; fact visibility remains part of the canonical-snapshot contract because `KnowledgeStore` has no fact query method.
 
+The application publication regression additionally runs the backend-neutral typed protocol against the real JSONL store:
+
+```bash
+cargo test -p athanor-app --test prepared_publication --locked
+```
+
+It requires `prepare_publication` followed by `publish_prepared` to advance `LatestCommitted`, and requires `abort_prepared` on a later snapshot to preserve the previously published generation. It also covers cancellation racing immediately after a successful backend prepare: the prepared handle must still be returned so cleanup can run outside the cancelled request budget.
+
 The embedded SurrealDB package additionally verifies:
 
 - a complete `SnapshotBatch` is submitted through one `BEGIN`/bulk-`INSERT`/`COMMIT` transaction;
@@ -127,6 +137,7 @@ Relevant local checks:
 ```bash
 cargo test -p athanor-core cancellation --locked
 cargo test -p athanor-app cancellation --locked
+cargo test -p athanor-app --test prepared_publication --locked
 cargo test -p athanor-store-surrealdb cancellation_stops_retry_before_backoff --locked
 ```
 
@@ -139,6 +150,7 @@ Troubleshooting:
 - a write accepted after `prepare_snapshot` violates snapshot immutability;
 - a prepared snapshot visible to a query violates snapshot isolation;
 - an aborted snapshot selected by `LatestCommitted` violates publication semantics;
+- a successful backend prepare that returns cancellation instead of a typed handle can strand prepared data without a cleanup authority;
 - a second persistent embedded connection succeeding indicates that exclusive ownership is broken;
 - lock contention returned as `AdapterExecution` instead of `Busy` indicates a retry-classification regression;
 - a cancelled retry issuing a second backend attempt indicates that `check_active()` was bypassed;
@@ -175,7 +187,7 @@ It contains four independent checks:
 1. **Dependency review** runs only for pull requests and rejects newly introduced dependencies with known vulnerabilities of moderate severity or higher. Snapshot warnings are retried because the dependency graph can be updated asynchronously.
 2. **CodeQL / Rust** initializes the official CodeQL Rust extractor, builds the locked workspace with all features, runs the `security-extended` query suite, and uploads results to code scanning.
 3. **Secret scan** checks the complete Git history with Gitleaks. GitHub also provides automatic secret scanning for this public repository; repository push-protection remains a platform setting that must be confirmed separately.
-4. **Workflow security audit** installs pinned `zizmor 1.26.1` and audits workflows, local actions, and Dependabot configuration in offline, strict-collection mode. The initial rollout emits high-severity/high-confidence annotations without failing the workflow. After the first hosted report is reviewed and any justified exceptions are documented, `--no-exit-codes` must be removed to make the audit blocking.
+4. **Workflow security audit** installs pinned `zizmor 1.26.1` and audits workflows, local actions, and Dependabot configuration in offline, strict-collection mode. High-severity/high-confidence findings now return a failing exit status and block the workflow; justified exceptions must be documented rather than globally suppressing exit codes.
 
 Local workflow audit:
 
