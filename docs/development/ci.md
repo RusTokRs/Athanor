@@ -90,6 +90,32 @@ Each backend requires `prepare_publication` followed by `publish_prepared` to ad
 
 The application regression additionally covers context forwarding and cancellation racing immediately after a successful backend prepare: the prepared handle must still be returned so cleanup can run outside the cancelled request budget. The race fixture retains the registered cancellation lease for the duration of prepare; a temporary handle would be dropped before the assertion and would not model an active operation correctly.
 
+### Typed Index Runtime Publication
+
+Production indexing is routed through `index_runtime.rs`. The deferred pipeline crosses the backend
+prepare boundary first; the runtime then wraps the snapshot identity as `PreparedSnapshot`, writes the
+v2 publication journal, stages read-model and index-state artefacts, and calls `publish_prepared` with
+the same `OperationContext`. Startup recovery accepts both legacy v1 and typed v2 journals.
+
+A focused production-module regression requires canonical storage, the JSONL read-model manifest, and
+index state to expose one snapshot identity. It also requires the journal to be cleared after success
+and an unchanged rerun to reuse the same committed snapshot:
+
+```bash
+cargo test -p athanor-app production_index_runtime_publishes_one_typed_generation --locked
+```
+
+The runtime has a final cleanup guard around coordinator errors. Before issuing an extra
+cancellation-independent `abort_prepared`, it checks whether the prepared snapshot became the latest
+committed snapshot. A committed publication is left for journal recovery; an uncommitted publication
+is aborted. This guard also covers durable journal creation failures that happen before the normal
+coordinator rollback branches are entered.
+
+The former monolithic `index.rs` is currently compiled only as a test-only legacy suite. It preserves
+broad incremental and validation regressions while those tests are moved into focused modules. It is
+not the production `index` module and must be deleted after hosted compile/test/format/Clippy evidence
+confirms the cutover.
+
 The embedded SurrealDB package additionally verifies:
 
 - a complete `SnapshotBatch` is submitted through one `BEGIN`/bulk-`INSERT`/`COMMIT` transaction;
@@ -137,7 +163,7 @@ Context-aware SurrealDB write and publication methods retry only `CoreError::Bus
 
 During retry backoff, cancellation is polled at intervals no larger than five milliseconds. A cancellation request therefore prevents the next retry and interrupts the wait with bounded latency. It does not force-abort a backend request that has already entered the SurrealDB SDK.
 
-Daemon write jobs use an operation-aware scheduler. Before a token is inserted into the daemon cancellation registry, the application `CancellationToken` is bound to the same core handle carried by the job's `OperationContext`. The registry clone and running-task clone therefore cancel the same state. Index, generate, wiki, and HTML report jobs use this path; index forwards the bound context through `begin_snapshot`, `put_snapshot`, `prepare_snapshot`, and `commit_snapshot`. Repeating the same binding is safe and idempotent; binding another independent token to the same active operation id fails closed.
+Daemon write jobs use an operation-aware scheduler. Before a token is inserted into the daemon cancellation registry, the application `CancellationToken` is bound to the same core handle carried by the job's `OperationContext`. The registry clone and running-task clone therefore cancel the same state. Index, generate, wiki, and HTML report jobs use this path. Index forwards the bound context through begin, batch write, and prepare, then the typed runtime reuses it for `publish_prepared`. Repeating the same binding is safe and idempotent; binding another independent token to the same active operation id fails closed.
 
 Relevant local checks:
 
@@ -145,13 +171,15 @@ Relevant local checks:
 cargo test -p athanor-core cancellation --locked
 cargo test -p athanor-core prepared_publication --locked
 cargo test -p athanor-app cancellation --locked
+cargo test -p athanor-app index_publication --locked
+cargo test -p athanor-app production_index_runtime_publishes_one_typed_generation --locked
 cargo test -p athanor-app --test prepared_publication --locked
 cargo test -p athanor-store-memory --test prepared_publication --locked
 cargo test -p athanor-store-surrealdb --test prepared_publication --locked
 cargo test -p athanor-store-surrealdb cancellation_stops_retry_before_backoff --locked
 ```
 
-Plain methods do not retry. Data, duplicate-ID, serialization, and other statement failures fail immediately. Rollback after an index publication error deliberately uses the plain abort path so cleanup can complete even when the originating operation was cancelled. Read-only daemon commands, CLI, and MCP cancellation propagation remain separate E2E work.
+Plain methods do not retry. Data, duplicate-ID, serialization, and other statement failures fail immediately. Rollback and recovery after an index publication error deliberately use `abort_prepared` outside the originating cancellation/deadline budget. Read-only daemon commands, CLI, and MCP cancellation propagation remain separate E2E work.
 
 Troubleshooting:
 
@@ -161,6 +189,10 @@ Troubleshooting:
 - a prepared snapshot visible to a query violates snapshot isolation;
 - an aborted snapshot selected by `LatestCommitted` violates publication semantics;
 - a backend-specific typed lifecycle test that does not preserve the previous latest snapshot after abort violates the shared publication contract;
+- different snapshot identities in canonical storage, read-model manifest, and index state indicate that the typed runtime coordinator was bypassed;
+- a successful production index leaving `index-publication.json` behind indicates incomplete finalization;
+- a coordinator error aborting a snapshot that is already latest committed indicates that the committed-state guard was bypassed;
+- a journal-write failure leaving an uncommitted prepared snapshot indicates that the runtime cleanup guard was bypassed;
 - a successful backend prepare that returns cancellation instead of a typed handle can strand prepared data without a cleanup authority;
 - a cancellation race fixture that creates and immediately drops its only handle does not retain a live cancellation state;
 - a second persistent embedded connection succeeding indicates that exclusive ownership is broken;
