@@ -35,6 +35,8 @@ pub mod graph;
 mod hash;
 pub mod impact;
 pub mod index;
+#[allow(dead_code)]
+mod index_publication;
 pub mod index_state;
 pub mod init;
 pub mod invalidation;
