@@ -8,9 +8,9 @@ use crate::config::ProjectConfig;
 use anyhow::{Result, bail};
 use async_trait::async_trait;
 use athanor_core::{
-    CanonicalSnapshot, CanonicalSnapshotStore, CoreResult, DiagnosticQuery, EntityQuery,
-    EntityResolver, KnowledgeStore, OperationContext, RelationQuery, SnapshotBatch,
-    SnapshotSelector,
+    CanonicalSnapshot, CanonicalSnapshotStore, CoreError, CoreResult, DiagnosticQuery, EntityQuery,
+    EntityResolver, FactQuery, FactQueryStore, KnowledgeStore, OperationContext, RelationQuery,
+    SnapshotBatch, SnapshotSelector, filter_facts,
 };
 use athanor_domain::{
     Diagnostic, Entity, EntityId, Fact, Relation, RepoId, SnapshotBase, SnapshotId, StableKey,
@@ -226,6 +226,30 @@ impl KnowledgeStore for AthanorStore {
         self.inner
             .abort_snapshot_with_context(snapshot, context)
             .await
+    }
+}
+
+#[async_trait]
+impl FactQueryStore for AthanorStore {
+    async fn query_facts(
+        &self,
+        snapshot: SnapshotSelector,
+        query: FactQuery,
+    ) -> CoreResult<Vec<Fact>> {
+        let canonical = match snapshot {
+            SnapshotSelector::Exact(snapshot) => self
+                .inner
+                .load_snapshot(&snapshot)
+                .await?
+                .ok_or_else(|| CoreError::NotFound(format!("snapshot {}", snapshot.0)))?,
+            SnapshotSelector::LatestCommitted => {
+                let Some(snapshot) = self.inner.load_latest_snapshot().await? else {
+                    return Ok(Vec::new());
+                };
+                snapshot
+            }
+        };
+        Ok(filter_facts(&canonical.facts, &query))
     }
 }
 
