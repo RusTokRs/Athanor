@@ -39,10 +39,6 @@ pub mod index;
 mod index_publication;
 #[cfg(test)]
 mod index_runtime_tests;
-#[cfg(test)]
-#[allow(dead_code)]
-#[path = "index.rs"]
-mod legacy_index;
 pub mod index_state;
 pub mod init;
 pub mod invalidation;
