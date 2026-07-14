@@ -126,9 +126,26 @@ fn validate_recovery_artifacts(
     let read_current = read_model_identity_if_present(journal.read_model(), "current read model")?;
     let read_staged = read_model_identity_if_present(&read_staging, "staged read model")?;
     let read_previous = read_model_identity_if_present(&read_backup, "read model backup")?;
-    let state_current = state_identity_if_present(journal.index_state(), "current index state")?;
-    let state_staged = state_identity_if_present(&state_staging, "staged index state")?;
-    let state_previous = state_identity_if_present(&state_backup, "index state backup")?;
+    let current_state_schema = if committed || state_backup.exists() {
+        StateSchemaPolicy::ExactCurrent
+    } else {
+        StateSchemaPolicy::VersionedHistorical
+    };
+    let state_current = state_identity_if_present(
+        journal.index_state(),
+        "current index state",
+        current_state_schema,
+    )?;
+    let state_staged = state_identity_if_present(
+        &state_staging,
+        "staged index state",
+        StateSchemaPolicy::ExactCurrent,
+    )?;
+    let state_previous = state_identity_if_present(
+        &state_backup,
+        "index state backup",
+        StateSchemaPolicy::VersionedHistorical,
+    )?;
 
     require_expected_if_present(read_staged.as_deref(), expected, "staged read model")?;
     require_expected_if_present(state_staged.as_deref(), expected, "staged index state")?;
@@ -209,11 +226,22 @@ fn read_model_identity_if_present(path: &Path, label: &str) -> Result<Option<Str
         crate::read_model::JSONL_MANIFEST_SCHEMA,
         label,
         &manifest,
+        SchemaPolicy::Exact,
     )
     .map(Some)
 }
 
-fn state_identity_if_present(path: &Path, label: &str) -> Result<Option<String>> {
+#[derive(Debug, Clone, Copy)]
+enum StateSchemaPolicy {
+    ExactCurrent,
+    VersionedHistorical,
+}
+
+fn state_identity_if_present(
+    path: &Path,
+    label: &str,
+    policy: StateSchemaPolicy,
+) -> Result<Option<String>> {
     if !path.exists() {
         return Ok(None);
     }
@@ -222,13 +250,24 @@ fn state_identity_if_present(path: &Path, label: &str) -> Result<Option<String>>
             .with_context(|| format!("failed to read recovery {label} {}", path.display()))?,
     )
     .with_context(|| format!("failed to parse recovery {label} {}", path.display()))?;
+    let schema_policy = match policy {
+        StateSchemaPolicy::ExactCurrent => SchemaPolicy::Exact,
+        StateSchemaPolicy::VersionedHistorical => SchemaPolicy::Versioned("athanor.index_state.v"),
+    };
     artifact_identity(
         &value,
         crate::index_state::INDEX_STATE_SCHEMA,
         label,
         path,
+        schema_policy,
     )
     .map(Some)
+}
+
+#[derive(Debug, Clone, Copy)]
+enum SchemaPolicy {
+    Exact,
+    Versioned(&'static str),
 }
 
 fn artifact_identity(
@@ -236,12 +275,22 @@ fn artifact_identity(
     expected_schema: &str,
     label: &str,
     path: &Path,
+    policy: SchemaPolicy,
 ) -> Result<String> {
     let schema = value
         .get("schema")
         .and_then(serde_json::Value::as_str)
         .ok_or_else(|| anyhow::anyhow!("publication recovery {label} {} has no schema", path.display()))?;
-    if schema != expected_schema {
+    let schema_valid = match policy {
+        SchemaPolicy::Exact => schema == expected_schema,
+        SchemaPolicy::Versioned(prefix) => schema.strip_prefix(prefix).is_some_and(|version| {
+            version
+                .chars()
+                .next()
+                .is_some_and(|character| character.is_ascii_digit())
+        }),
+    };
+    if !schema_valid {
         bail!(
             "publication recovery {label} {} has schema `{schema}`, expected `{expected_schema}`",
             path.display()
@@ -304,8 +353,9 @@ mod tests {
     };
     use athanor_domain::{RepoId, SnapshotBase};
     use athanor_store_jsonl::JsonlKnowledgeStore;
+    use serde_json::json;
 
-    use super::publish_prepared_index;
+    use super::{StateSchemaPolicy, publish_prepared_index, state_identity_if_present};
     use crate::{
         AffectedFileSet, AthanorStore, IndexPipelineMetrics, IndexPipelineOutput, IndexStateStore,
     };
@@ -388,6 +438,60 @@ mod tests {
         );
 
         fs::remove_dir_all(root).expect("remove journal failure test root");
+    }
+
+    #[test]
+    fn historical_state_schema_is_accepted_for_recovery_backup() {
+        let root = test_root("historical-state-schema");
+        let path = root.join("index-state.json");
+        fs::create_dir_all(&root).expect("create state fixture");
+        fs::write(
+            &path,
+            serde_json::to_vec_pretty(&json!({
+                "schema": "athanor.index_state.v45",
+                "snapshot": "snap_previous",
+                "files": {}
+            }))
+            .expect("serialize historical state"),
+        )
+        .expect("write historical state");
+
+        let snapshot = state_identity_if_present(
+            &path,
+            "historical state backup",
+            StateSchemaPolicy::VersionedHistorical,
+        )
+        .expect("accept versioned historical state");
+        assert_eq!(snapshot.as_deref(), Some("snap_previous"));
+
+        fs::remove_dir_all(root).expect("remove historical state fixture");
+    }
+
+    #[test]
+    fn historical_state_schema_is_rejected_for_new_current_artifact() {
+        let root = test_root("current-state-schema");
+        let path = root.join("index-state.json");
+        fs::create_dir_all(&root).expect("create state fixture");
+        fs::write(
+            &path,
+            serde_json::to_vec_pretty(&json!({
+                "schema": "athanor.index_state.v45",
+                "snapshot": "snap_current",
+                "files": {}
+            }))
+            .expect("serialize historical state"),
+        )
+        .expect("write historical state");
+
+        let error = state_identity_if_present(
+            &path,
+            "current index state",
+            StateSchemaPolicy::ExactCurrent,
+        )
+        .expect_err("new current state must use the active schema");
+        assert!(error.to_string().contains("expected"));
+
+        fs::remove_dir_all(root).expect("remove current state fixture");
     }
 
     fn test_root(label: &str) -> PathBuf {
