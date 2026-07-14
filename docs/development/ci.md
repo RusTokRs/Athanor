@@ -8,23 +8,24 @@ status: verified
 ---
 # Continuous Integration
 
-Athanor uses GitHub Actions for continuous quality, compatibility, store-contract, security, and source-coverage checks.
+Athanor defines GitHub Actions workflows for quality, optional features, store conformance, source
+coverage, AppSec, installers, and releases.
 
-## Quality & Compatibility Pipeline
+## Hosted status
 
-The main `CI` workflow runs on pushes to `main`, pull requests, and manual dispatches.
+The workflow files are present on `main`, but the public Actions page currently shows onboarding
+instead of workflow runs. The connector also returns no push-run or commit-status evidence. Until
+Actions are enabled or made visible in repository/organization settings, hosted checks, artifacts,
+and enforcement remain unverified.
 
-All uses of the SHA-pinned `dtolnay/rust-toolchain` action pass `toolchain: 1.95.0` explicitly. A full action commit SHA does not encode the Rust channel, so omitting this input would leave CI, production, and release jobs without the repository's declared MSRV toolchain.
+Do not mark a hosted item complete based only on workflow YAML.
 
-### Security & License Checks
+## Quality and compatibility
 
-Runs `cargo-deny` on `ubuntu-latest` to verify dependency licenses, advisories, bans, and sources.
+The main `CI` workflow is configured for pushes to `main`, pull requests, and manual dispatches.
+SHA-pinned `dtolnay/rust-toolchain` steps pass `toolchain: 1.95.0` explicitly.
 
-### Code Quality & Formatting
-
-The default quality matrix runs across Linux (`ubuntu-latest`), Windows (`windows-latest`), and macOS (`macos-latest`).
-
-Each matrix job runs:
+The Linux, Windows, and macOS quality matrix runs:
 
 ```bash
 cargo fmt --all -- --check
@@ -34,40 +35,25 @@ cargo run -p ath --quiet --locked -- index .
 cargo run -p ath --quiet --locked -- docs check
 ```
 
-The Linux and Windows entries also exercise the packaged installer integrity contract. Each smoke test
-creates two disposable binaries and a valid `SHA256SUMS`, verifies a successful installation, then
-modifies one binary and requires the installer to fail before writing a second installation directory.
-The Linux script is also syntax-checked and exercised locally with the same positive/tamper sequence
-when release tooling changes.
+Linux and Windows also exercise fail-closed installer checksum behavior with a valid installation and
+a tampered binary.
 
-### Optional Feature Matrix
+## Optional feature matrix
 
-The CI workflow also runs an Ubuntu feature compatibility matrix with `fail-fast: false`.
+The Ubuntu compatibility matrix uses `fail-fast: false` and covers:
 
-Supported slices:
+- default/no-default feature graph;
+- `store-surreal`;
+- `js-ts-precision`;
+- `--all-features`.
 
-- default feature graph
-- `store-surreal` optional backend
-- `js-ts-precision` precision mode
-- `--all-features` aggregate validation
+Each slice runs locked `cargo check`, tests, and Clippy. Remote SurrealDB integration tests remain
+`#[ignore]` and are executed only by the dedicated server job, so `--all-features` stays
+self-contained.
 
-Each slice runs:
+## Store conformance
 
-```bash
-cargo check --workspace <features> --locked
-cargo test --workspace --quiet <features> --locked
-cargo clippy --workspace --all-targets <features> --locked -- -D warnings
-```
-
-The default workspace features are empty, so the default slice is also the supported `--no-default-features` boundary. A separate spelling is not run because it would duplicate the same Cargo graph.
-
-The SurrealDB crate feature `remote` enables only the WebSocket client protocol. Its server-dependent integration tests are explicitly ignored during normal workspace and `--all-features` runs, so the aggregate feature graph remains self-contained.
-
-This gate exists to prevent optional Cargo feature regressions from reaching the main branch. The matrix remains in the pull-request workflow unless hosted duration demonstrates that the `store-surreal` or aggregate slice must move to a scheduled full-feature run.
-
-## Store Conformance Workflow
-
-`.github/workflows/store-conformance.yml` runs a dedicated Ubuntu matrix for the Memory, JSONL, and embedded SurrealDB backends. Each entry executes its package tests against the locked dependency graph:
+The configured store matrix runs:
 
 ```bash
 cargo test -p athanor-store-memory --locked
@@ -75,9 +61,10 @@ cargo test -p athanor-store-jsonl --locked
 cargo test -p athanor-store-surrealdb --locked
 ```
 
-The reusable suite checks committed snapshot selection, stable-key and ID-based queries, prepared-snapshot invisibility, commit/abort behavior, and preservation of `LatestCommitted` after an abort. The batch fixture includes entities, facts, relations, and diagnostics. The current public store query contract independently verifies entity, relation, and diagnostic visibility; fact visibility remains part of the canonical-snapshot contract because `KnowledgeStore` has no fact query method.
+The shared contract covers committed selection, stable-key and ID queries, prepared invisibility,
+commit/abort semantics, and preservation of `LatestCommitted` after an abort.
 
-`athanor-core` owns the backend-neutral `PreparedSnapshot` and `PreparedSnapshotPublication` extension beside `KnowledgeStore`. `athanor-app` preserves the existing application API through a compatibility re-export. Real backend regressions exercise the same typed protocol for Memory, JSONL, and embedded SurrealDB:
+Typed backend publication checks:
 
 ```bash
 cargo test -p athanor-core prepared_publication --locked
@@ -86,52 +73,45 @@ cargo test -p athanor-store-memory --test prepared_publication --locked
 cargo test -p athanor-store-surrealdb --test prepared_publication --locked
 ```
 
-Each backend requires `prepare_publication` followed by `publish_prepared` to advance the latest committed view, and requires `abort_prepared` on a later snapshot to preserve the previously published generation. The Memory regression also verifies that prepared data remains invisible through `SnapshotSelector::LatestCommitted`. JSONL and SurrealDB verify their canonical latest-snapshot representation.
+## Typed index runtime and recovery
 
-The application regression additionally covers context forwarding and cancellation racing immediately after a successful backend prepare: the prepared handle must still be returned so cleanup can run outside the cancelled request budget. The race fixture retains the registered cancellation lease for the duration of prepare; a temporary handle would be dropped before the assertion and would not model an active operation correctly.
+Production indexing uses `index_runtime.rs` and the guarded typed publication coordinator. The broad
+incremental, validation, cancellation, and fresh-index equivalence regressions have been moved to
+focused modules; the former monolithic `crates/athanor-app/src/index.rs` has been deleted.
 
-### Typed Index Runtime Publication
-
-Production indexing is routed through `index_runtime.rs`. The deferred pipeline crosses the backend
-prepare boundary first; the runtime then wraps the snapshot identity as `PreparedSnapshot`, writes the
-v2 publication journal, stages read-model and index-state artefacts, and calls `publish_prepared` with
-the same `OperationContext`. Startup recovery accepts both legacy v1 and typed v2 journals.
-
-A focused production-module regression requires canonical storage, the JSONL read-model manifest, and
-index state to expose one snapshot identity. It also requires the journal to be cleared after success
-and an unchanged rerun to reuse the same committed snapshot:
+Run the complete application publication suite with:
 
 ```bash
-cargo test -p athanor-app production_index_runtime_publishes_one_typed_generation --locked
+cargo test -p athanor-app index_runtime_tests --locked
+cargo test -p athanor-app index_publication --locked
+cargo test -p athanor-app index_publication_fault_tests --locked
+cargo test -p athanor-app index_publication_finalize_tests --locked
+cargo test -p athanor-app index_publication_recovery_fault_tests --locked
+cargo test -p athanor-app index_publication_combined_error_tests --locked
 ```
 
-The runtime has a final cleanup guard around coordinator errors. Before issuing an extra
-cancellation-independent `abort_prepared`, it checks whether the prepared snapshot became the latest
-committed snapshot. A committed publication is left for journal recovery; an uncommitted publication
-is aborted. This guard also covers durable journal creation failures that happen before the normal
-coordinator rollback branches are entered.
+The fault matrix covers:
 
-The former monolithic `index.rs` is currently compiled only as a test-only legacy suite. It preserves
-broad incremental and validation regressions while those tests are moved into focused modules. It is
-not the production `index` module and must be deleted after hosted compile/test/format/Clippy evidence
-confirms the cutover.
+- durable journal creation failure;
+- read-model and index-state prepare failure;
+- cancellation before canonical publish;
+- read-model and index-state finalize failure after commit;
+- journal clear failure after commit;
+- malformed backup types;
+- recovery without backups;
+- simultaneous publish, rollback, and abort failures.
 
-The embedded SurrealDB package additionally verifies:
+Post-commit finalize failures keep the new canonical snapshot selected. After a transient filesystem
+fault is repaired, recovery removes stale backups and clears the journal without reverting the
+committed generation.
 
-- a complete `SnapshotBatch` is submitted through one `BEGIN`/bulk-`INSERT`/`COMMIT` transaction;
-- response-level statement errors are checked and reported;
-- a duplicate-ID failure rolls back completely, proven by a successful clean retry with the same ID;
-- prepared snapshots reject late writes;
-- 32 concurrent allocations using separate process-local writer gates produce unique snapshot IDs;
-- two independent `connect()` calls to one persistent `surrealkv://` directory enforce exclusive ownership;
-- the rejected second connection is classified as `CoreError::Busy` and is retryable;
-- confirmed transaction-conflict messages are retryable, while data and statement failures remain non-retryable.
+Recovery preflight must reject a file where a read-model directory is expected and a directory where
+an index-state file is expected. The journal and current artifacts must remain untouched on this
+failure path.
 
-The allocation test proves backend atomicity over one shared embedded client without relying on the wrapper mutex. The persistent-path test proves that embedded SurrealKV fails closed when a second owner attempts to open the same directory. Embedded storage is therefore a single-owner process model, not a multi-writer database.
+## Remote SurrealDB
 
-### Remote SurrealDB Job
-
-The `surrealdb-remote` job starts the exact server line used by the locked SDK:
+The dedicated job starts:
 
 ```bash
 docker run --detach --rm \
@@ -141,7 +121,7 @@ docker run --detach --rm \
   start --log warn --unauthenticated --bind 0.0.0.0:8000 memory
 ```
 
-After the `/health` endpoint responds, CI runs the ignored remote tests explicitly:
+After the health endpoint responds:
 
 ```bash
 ATHANOR_SURREAL_REMOTE_URI=ws://127.0.0.1:8000 \
@@ -149,67 +129,32 @@ ATHANOR_SURREAL_REMOTE_URI=ws://127.0.0.1:8000 \
   --features remote --test remote --locked -- --ignored
 ```
 
-The configured contract uses two independent SDK connections. It requires 32 concurrent allocations to produce unique snapshot IDs, then writes and commits a batch through one connection and loads its entity and fact records through the other. Server logs are printed and the container is removed even when the test fails.
+The configured suite checks two-client allocation uniqueness and cross-client entity/fact
+visibility. It is not evidence of remote behavior until a hosted run succeeds, and it does not yet
+force a real write conflict.
 
-This job proves remote shared-server visibility only after a successful hosted run. It does not yet deterministically reproduce a transaction write conflict.
+## Retry and cancellation checks
 
-### Retry and Cancellation Contract
-
-Context-aware SurrealDB write and publication methods retry only `CoreError::Busy`. Backoff is bounded to 10, 25, 50, and 100 milliseconds. Every attempt checks both deadline and process-local cancellation state; when the remaining deadline cannot fit the next delay, the current `Busy` error is returned without sleeping past the budget.
-
-`OperationContextCancellation::cancellation_handle()` registers one live cancellation authority for a stable operation id. Callers clone that returned handle when several owners participate in the same operation. A second registration while any clone is alive fails with `CoreError::Conflict` instead of merging independent contexts into one global flag; after every clone is dropped, the operation id may be registered again. Cancellation state remains process-local and is not serialized. The core unit tests verify clone propagation, duplicate-id rejection, identity reuse after drop, stable `Cancelled` mapping, unchanged JSON wire shape, and rejection of anonymous cancellation handles.
-
-`CancellationToken::bind_operation()` is idempotent for the same token and operation id: it reuses the handle already held by the token instead of attempting a second core registration. Binding a different operation id to that token still fails, and binding an independent token to the same active operation id still fails closed with `Conflict`.
-
-During retry backoff, cancellation is polled at intervals no larger than five milliseconds. A cancellation request therefore prevents the next retry and interrupts the wait with bounded latency. It does not force-abort a backend request that has already entered the SurrealDB SDK.
-
-Daemon write jobs use an operation-aware scheduler. Before a token is inserted into the daemon cancellation registry, the application `CancellationToken` is bound to the same core handle carried by the job's `OperationContext`. The registry clone and running-task clone therefore cancel the same state. Index, generate, wiki, and HTML report jobs use this path. Index forwards the bound context through begin, batch write, and prepare, then the typed runtime reuses it for `publish_prepared`. Repeating the same binding is safe and idempotent; binding another independent token to the same active operation id fails closed.
-
-Relevant local checks:
+Relevant local commands:
 
 ```bash
 cargo test -p athanor-core cancellation --locked
-cargo test -p athanor-core prepared_publication --locked
 cargo test -p athanor-app cancellation --locked
-cargo test -p athanor-app index_publication --locked
-cargo test -p athanor-app production_index_runtime_publishes_one_typed_generation --locked
-cargo test -p athanor-app --test prepared_publication --locked
-cargo test -p athanor-store-memory --test prepared_publication --locked
-cargo test -p athanor-store-surrealdb --test prepared_publication --locked
 cargo test -p athanor-store-surrealdb cancellation_stops_retry_before_backoff --locked
 ```
 
-Plain methods do not retry. Data, duplicate-ID, serialization, and other statement failures fail immediately. Rollback and recovery after an index publication error deliberately use `abort_prepared` outside the originating cancellation/deadline budget. Read-only daemon commands, CLI, and MCP cancellation propagation remain separate E2E work.
+Context-aware SurrealDB writes retry only `CoreError::Busy` with bounded delays of 10, 25, 50, and
+100 milliseconds. Cancellation polling prevents the next attempt and interrupts backoff, but does
+not force-abort an SDK request already executing.
 
-Troubleshooting:
+One live `operation_id` owns one process-local cancellation authority. Clone the registered handle
+for additional owners. Independent duplicate registration fails with `CoreError::Conflict`, while
+repeating the same application token/id binding is idempotent.
 
-- a duplicate snapshot ID indicates a broken atomic counter boundary;
-- a clean retry failing after the intentional duplicate-ID batch suggests partial transaction leakage;
-- a write accepted after `prepare_snapshot` violates snapshot immutability;
-- a prepared snapshot visible to a query violates snapshot isolation;
-- an aborted snapshot selected by `LatestCommitted` violates publication semantics;
-- a backend-specific typed lifecycle test that does not preserve the previous latest snapshot after abort violates the shared publication contract;
-- different snapshot identities in canonical storage, read-model manifest, and index state indicate that the typed runtime coordinator was bypassed;
-- a successful production index leaving `index-publication.json` behind indicates incomplete finalization;
-- a coordinator error aborting a snapshot that is already latest committed indicates that the committed-state guard was bypassed;
-- a journal-write failure leaving an uncommitted prepared snapshot indicates that the runtime cleanup guard was bypassed;
-- a successful backend prepare that returns cancellation instead of a typed handle can strand prepared data without a cleanup authority;
-- a cancellation race fixture that creates and immediately drops its only handle does not retain a live cancellation state;
-- a second persistent embedded connection succeeding indicates that exclusive ownership is broken;
-- lock contention returned as `AdapterExecution` instead of `Busy` indicates a retry-classification regression;
-- a cancelled retry issuing a second backend attempt indicates that `check_active()` was bypassed;
-- a daemon registry token that does not cancel the bound `OperationContext` indicates scheduler binding was bypassed;
-- a second live registration of the same operation id succeeding indicates that independent cancellation contexts can still be merged;
-- repeating the same token/id binding and receiving a conflict indicates that application binding is not idempotent;
-- rebinding one application token to a different operation id must fail;
-- cancellation state appearing in serialized `OperationContext` is a wire-compatibility regression;
-- remote tests running during a normal `--all-features` job indicate that their `#[ignore]` boundary was removed;
-- a remote job failure before tests should be diagnosed from the Docker health check and captured server logs;
-- an embedded or remote visibility pass must not be used as evidence that a real write conflict was reproduced.
+## Rust source coverage
 
-## Rust Source Coverage
-
-The Linux coverage job installs `cargo-llvm-cov` at the pinned version `0.8.7` and runs the workspace tests with the locked dependency graph.
+The coverage job installs pinned `cargo-llvm-cov 0.8.7` and uploads LCOV, JSON summary, and HTML
+artifacts.
 
 Local equivalent:
 
@@ -222,18 +167,24 @@ cargo llvm-cov report --json --summary-only --output-path coverage/summary.json
 cargo llvm-cov report --html --output-dir coverage/html
 ```
 
-The job uploads `coverage/lcov.info`, `coverage/summary.json`, and the HTML report as the `rust-source-coverage` artifact for 14 days. Coverage remains an observation job until a successful hosted artifact establishes a real baseline and branch protection makes a blocking threshold enforceable. A percentage floor must not be guessed from repository size or test count.
+Coverage remains observational until the first hosted artifact establishes a real baseline. Do not
+invent a percentage floor.
 
-## AppSec Workflow
+## AppSec and release integrity
 
-`.github/workflows/appsec.yml` runs on pushes to `main`, pull requests, a weekly schedule, and manual dispatches.
+Configured checks include:
 
-It contains four independent checks:
+- `cargo-deny`;
+- dependency review with a `moderate` threshold;
+- CodeQL Rust `security-extended`;
+- full-history Gitleaks;
+- blocking Zizmor `1.26.1` high-severity/high-confidence findings;
+- nightly dependency audit;
+- CycloneDX SBOM, checksums, Sigstore signing, and provenance;
+- release verification before publish.
 
-1. **Dependency review** runs only for pull requests and rejects newly introduced dependencies with known vulnerabilities of moderate severity or higher. Snapshot warnings are retried because the dependency graph can be updated asynchronously.
-2. **CodeQL / Rust** initializes the official CodeQL Rust extractor, builds the locked workspace with all features, runs the `security-extended` query suite, and uploads results to code scanning.
-3. **Secret scan** checks the complete Git history with Gitleaks. GitHub also provides automatic secret scanning for this public repository; repository push-protection remains a platform setting that must be confirmed separately.
-4. **Workflow security audit** installs pinned `zizmor 1.26.1` and audits workflows, local actions, and Dependabot configuration in offline, strict-collection mode. High-severity/high-confidence findings now return a failing exit status and block the workflow; justified exceptions must be documented rather than globally suppressing exit codes.
+All workflow `uses:` references are pinned to immutable commit SHAs. Platform settings such as secret
+push protection and required checks still need explicit verification.
 
 Local workflow audit:
 
@@ -242,12 +193,15 @@ cargo install zizmor --version 1.26.1 --locked
 zizmor --offline --strict-collection --min-severity high --min-confidence high .
 ```
 
-All `uses:` references in the current CI, production, audit, release, AppSec, and store-conformance workflows are pinned to immutable commit SHAs. Human-readable version comments are retained next to the SHA, and the `github-actions` Dependabot ecosystem remains enabled so those pins can receive reviewed updates.
+## Troubleshooting
 
-## Nightly Security Audit Workflow
-
-A separate nightly `Security Audit` workflow runs every day at midnight and scans the locked dependency tree for newly discovered vulnerabilities. It also enforces the workspace `unsafe_code` denial policy.
-
-## Principles & Permissions
-
-Read-oriented workflows use repository `contents: read`, disable persisted checkout credentials, and cancel superseded runs where appropriate. CodeQL receives `security-events: write` only in its own job. Release-only signing and publishing permissions remain confined to the tag-triggered release workflow.
+- Different canonical, read-model, and index-state snapshot ids mean the typed coordinator was
+  bypassed.
+- A successful publication leaving `index-publication.json` means finalization did not complete.
+- A journal-write failure leaving prepared canonical data means the pre-journal cleanup guard failed.
+- A malformed backup changing current artifacts means recovery preflight was bypassed.
+- A committed finalize failure reverting to the previous snapshot violates recovery semantics.
+- A combined failure that omits the original publish cause or cleanup cause loses diagnostic context.
+- A prepared snapshot visible through `LatestCommitted` violates snapshot isolation.
+- A remote test running during normal `--all-features` means its isolation boundary was removed.
+- Empty hosted statuses must not be interpreted as successful checks.
