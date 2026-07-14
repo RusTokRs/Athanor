@@ -28,13 +28,13 @@ impl CancellationToken {
 
     pub fn cancel(&self) {
         self.state.cancelled.store(true, Ordering::Release);
-        if let Some(operation) = self
+        let operation = self
             .state
             .operation
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .as_ref()
-        {
+            .clone();
+        if let Some(operation) = operation {
             operation.cancel();
         }
     }
