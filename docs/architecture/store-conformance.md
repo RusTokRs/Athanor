@@ -161,9 +161,16 @@ migration. Schema `athanor.index_publication.v2` stores a serialized `PreparedSn
 deserialization converts them to `PreparedSnapshot` and normalizes subsequent serialization to v2.
 Unknown schema identifiers and unknown fields fail closed.
 
-Unit tests cover v2 round-trip, v1-to-v2 normalization, snapshot/path accessors, and rejection of an
-unknown schema. The module is registered in `athanor-app` with a temporary narrow `dead_code` allowance
-until the production coordinator consumes it.
+The module now owns journal persistence as well as the wire format. `write()` publishes through a
+staging file and restores the previous journal from a backup if the final rename fails; `load()`
+returns either a normalized v1/v2 record or no journal; `clear()` removes the durable recovery record.
+The path is derived from the index-state artifact so both the staged module and the current coordinator
+address `.athanor/state/index-publication.json`.
+
+Unit tests cover v2 round-trip, v1-to-v2 normalization, snapshot/path accessors, rejection of an
+unknown schema, and a filesystem write/load/clear round-trip. The module is registered in
+`athanor-app` with a temporary narrow `dead_code` allowance until the production coordinator consumes
+it.
 
 The current index publication coordinator still owns a separate local v1 journal type and calls
 `commit_snapshot` directly. Runtime migration is therefore not complete: `index.rs` must switch to the
