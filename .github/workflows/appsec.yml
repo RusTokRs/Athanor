@@ -90,4 +90,4 @@ jobs:
       - name: Install Zizmor
         run: cargo install zizmor --version 1.26.1 --locked
       - name: Audit workflows
-        run: zizmor --offline --strict-collection --min-severity high --min-confidence high --format github --no-exit-codes .
+        run: zizmor --offline --strict-collection --min-severity high --min-confidence high --format github .
