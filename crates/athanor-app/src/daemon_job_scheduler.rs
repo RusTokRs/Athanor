@@ -39,16 +39,37 @@ pub(super) fn start(
     Ok(job_id)
 }
 
+/// Compatibility helper for tests and jobs that do not yet carry an `OperationContext`.
 pub(crate) fn start_cancellable(
+    state: &DaemonState,
+    kind: DaemonJobKind,
+    description: String,
+) -> Result<(String, CancellationToken)> {
+    start_cancellable_inner(state, kind, description, None)
+}
+
+/// Starts a cancellable job whose registry token also controls the supplied core operation.
+pub(crate) fn start_cancellable_with_operation(
     state: &DaemonState,
     kind: DaemonJobKind,
     description: String,
     operation: &OperationContext,
 ) -> Result<(String, CancellationToken)> {
+    start_cancellable_inner(state, kind, description, Some(operation))
+}
+
+fn start_cancellable_inner(
+    state: &DaemonState,
+    kind: DaemonJobKind,
+    description: String,
+    operation: Option<&OperationContext>,
+) -> Result<(String, CancellationToken)> {
     let job_id = start(state, kind, description)?;
     let cancellation = CancellationToken::new();
 
-    if let Err(error) = cancellation.bind_operation(operation) {
+    if let Some(operation) = operation
+        && let Err(error) = cancellation.bind_operation(operation)
+    {
         let message = format!("failed to bind daemon cancellation: {error}");
         let _ = finish(
             state,
