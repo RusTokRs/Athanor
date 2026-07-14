@@ -153,30 +153,39 @@ must advance `LatestCommitted`; preparing and aborting a later snapshot must lea
 published snapshot selected. Memory and SurrealDB typed-protocol regressions remain to be added to the
 same matrix.
 
-## Typed index publication journal v2
+## Typed index publication coordinator boundary
 
-`athanor-app/src/index_publication.rs` defines the staged typed recovery record for coordinator
-migration. Schema `athanor.index_publication.v2` stores a serialized `PreparedSnapshot` in the
-`prepared` field. Schema v1 records containing the historical raw `snapshot` string remain readable;
-deserialization converts them to `PreparedSnapshot` and normalizes subsequent serialization to v2.
-Unknown schema identifiers and unknown fields fail closed.
+`athanor-app/src/index_publication.rs` owns the staged coordinator boundary. Schema
+`athanor.index_publication.v2` stores a serialized `PreparedSnapshot` in the `prepared` field. Schema
+v1 records containing the historical raw `snapshot` string remain readable; deserialization converts
+them to `PreparedSnapshot` and normalizes subsequent serialization to v2. Unknown schemas and unknown
+fields fail closed.
 
-The module now owns journal persistence as well as the wire format. `write()` publishes through a
-staging file and restores the previous journal from a backup if the final rename fails; `load()`
-returns either a normalized v1/v2 record or no journal; `clear()` removes the durable recovery record.
-The path is derived from the index-state artifact so both the staged module and the current coordinator
-address `.athanor/state/index-publication.json`.
+Journal loading additionally validates that `read_model` and `index_state` equal the expected paths
+under the selected project root. Publication identifiers accept only ASCII alphanumeric characters,
+hyphen, and underscore. A modified journal therefore cannot redirect recovery deletes or renames
+outside `.athanor`, or inject path separators through staging/backup names.
 
-Unit tests cover v2 round-trip, v1-to-v2 normalization, snapshot/path accessors, rejection of an
-unknown schema, and a filesystem write/load/clear round-trip. The module is registered in
-`athanor-app` with a temporary narrow `dead_code` allowance until the production coordinator consumes
-it.
+The module exposes two typed coordinator operations:
 
-The current index publication coordinator still owns a separate local v1 journal type and calls
-`commit_snapshot` directly. Runtime migration is therefore not complete: `index.rs` must switch to the
-new module, create the typed journal from the prepared pipeline output, call `publish_prepared`, and use
-`abort_prepared` during rollback and recovery. The staged module alone does not change publication
-semantics.
+- `publish_prepared_index` writes the durable journal, prepares the JSONL read model and index state,
+  publishes canonical data through `publish_prepared`, then finalizes backups and clears the journal;
+- `recover_interrupted_publication` loads either journal version, keeps and cleans up artefacts when
+  the canonical snapshot is committed, or restores backups and calls cancellation-independent
+  `abort_prepared` when it is not committed.
+
+Publication errors roll back prepared application artefacts before aborting canonical data. The
+journal remains present if canonical publication succeeded but read-model/state finalization fails;
+recovery then sees the committed snapshot and removes stale backups instead of undoing the new
+complete generation.
+
+Regressions cover v2 round-trip, v1 normalization, atomic write/load/clear, unknown schemas,
+path-validation, publication-id traversal, rollback of an uncommitted publication, and cleanup after
+a committed publication.
+
+The runtime `index.rs` still owns its local v1 journal and direct `commit_snapshot` path. The staged
+coordinator is intentionally not counted as production wiring until `index.rs` calls these functions
+and the local journal/recovery implementation is removed.
 
 ## Prepare semantics
 
@@ -191,13 +200,13 @@ This slice does not make the whole lifecycle one transaction:
 - counter allocation and snapshot-record creation are separate backend requests, so a crash can leave
   a harmless sequence gap;
 - the atomic batch transaction does not include the later commit marker;
-- journal v2 is staged but the index coordinator still uses its local v1/raw-`SnapshotId` path;
+- the typed coordinator boundary is implemented but runtime `index.rs` has not been switched to it;
 - abort removes canonical rows transactionally, then deletes snapshot metadata in a separate request;
 - a real remote write conflict has not yet been reproduced and observed through the public facade;
 - an already executing backend request is not force-aborted by the retry wrapper;
 - read-only daemon commands, CLI, and MCP are not yet connected to the same cancellation lifecycle;
 - canonical data, generated state, and read models still do not switch through one generation pointer.
 
-P0.4 remains incomplete until coordinator migration, hosted remote evidence, an observed remote
+P0.4 remains incomplete until runtime coordinator wiring, hosted remote evidence, an observed remote
 conflict, commit-marker publication, fault injection, and generation-level recovery are covered by
 tests.
