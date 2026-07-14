@@ -91,12 +91,17 @@ mod tests {
     use std::fs;
     use std::path::PathBuf;
 
-    use athanor_core::{CanonicalSnapshotStore, KnowledgeStore, SnapshotBatch};
+    use athanor_core::{
+        CanonicalSnapshotStore, KnowledgeStore, OperationContext, PreparedSnapshotPublication,
+        SnapshotBatch,
+    };
     use athanor_domain::{RepoId, SnapshotBase};
     use athanor_store_jsonl::JsonlKnowledgeStore;
 
-    use super::*;
-    use crate::{AffectedFileSet, IndexPipelineMetrics};
+    use super::publish_prepared_index;
+    use crate::{
+        AffectedFileSet, AthanorStore, IndexPipelineMetrics, IndexPipelineOutput, IndexStateStore,
+    };
 
     #[tokio::test]
     async fn journal_write_failure_aborts_prepared_snapshot() {
