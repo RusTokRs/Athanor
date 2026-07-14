@@ -45,29 +45,35 @@ impl CancellationToken {
 
     /// Binds every clone of this token to one core operation cancellation handle.
     ///
-    /// Rebinding to a different operation id is rejected because one daemon job must not control
-    /// unrelated work. The core registry also rejects a second live authority for the same id.
+    /// Rebinding the same token to the same operation id is idempotent. Rebinding to a different
+    /// operation id is rejected because one daemon job must not control unrelated work. The core
+    /// registry also rejects a second live authority owned by an independent token for the same id.
     /// Cancellation requested before binding is propagated immediately.
     pub fn bind_operation(&self, operation: &OperationContext) -> Result<()> {
-        let handle = operation
-            .cancellation_handle()
-            .map_err(anyhow::Error::new)?;
         let mut bound = self
             .state
             .operation
             .lock()
             .map_err(|_| anyhow::anyhow!("application cancellation binding lock is poisoned"))?;
 
-        if let Some(existing) = bound.as_ref()
-            && existing.operation_id() != handle.operation_id()
-        {
-            bail!(
-                "cancellation token is already bound to operation `{}`, not `{}`",
-                existing.operation_id(),
-                handle.operation_id()
-            );
+        if let Some(existing) = bound.as_ref() {
+            let requested = operation.operation_id.as_deref().unwrap_or_default();
+            if existing.operation_id() != requested {
+                bail!(
+                    "cancellation token is already bound to operation `{}`, not `{}`",
+                    existing.operation_id(),
+                    requested
+                );
+            }
+            if self.is_cancelled() {
+                existing.cancel();
+            }
+            return Ok(());
         }
 
+        let handle = operation
+            .cancellation_handle()
+            .map_err(anyhow::Error::new)?;
         if self.is_cancelled() {
             handle.cancel();
         }
@@ -124,6 +130,20 @@ mod tests {
         let operation = OperationContext::new("daemon.generate.request-42");
 
         token.bind_operation(&operation).unwrap();
+
+        assert!(operation.is_cancelled());
+    }
+
+    #[test]
+    fn rebinding_same_token_to_same_operation_is_idempotent() {
+        let token = CancellationToken::new();
+        let operation = OperationContext::new("daemon.index.same-request");
+        token.bind_operation(&operation).unwrap();
+
+        token
+            .bind_operation(&operation)
+            .expect("same token and operation identity must reuse the existing lease");
+        token.cancel();
 
         assert!(operation.is_cancelled());
     }
