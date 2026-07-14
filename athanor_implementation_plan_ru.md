@@ -2,7 +2,7 @@
 
 > Репозиторий: `RusTokRs/Athanor`  
 > Базовая ветка: `main`  
-> Точка сверки: `e9785a124577a7e971b386f34f7443484d3ab19d`  
+> Точка сверки: `aa302318c525da13571bce9ef26c564b8973c21b`  
 > Дата актуализации: 2026-07-14  
 > Статус: active implementation plan
 
@@ -46,9 +46,10 @@
 - typed lifecycle regressions для Memory, JSONL и embedded SurrealDB;
 - `IndexPublicationJournal` v2 с v1 compatibility, atomic persistence и path validation;
 - typed coordinator с rollback/recovery;
-- production index runtime через `index_runtime.rs` и `publish_prepared_index`;
+- production index runtime через `index_runtime.rs` и guarded `publish_prepared_index`;
 - broad incremental/validation/cancellation tests мигрированы на production runtime;
 - legacy `crates/athanor-app/src/index.rs` удалён;
+- deterministic publication fault regressions для journal write, read-model prepare, index-state prepare и canonical publish cancellation;
 - feature, quality, AppSec, coverage, installer и release workflow-файлы.
 
 Платформенное состояние:
@@ -67,6 +68,7 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test -p athanor-core cancellation --locked
 cargo test -p athanor-core prepared_publication --locked
 cargo test -p athanor-app index_publication --locked
+cargo test -p athanor-app index_publication_fault_tests --locked
 cargo test -p athanor-app index_runtime_tests --locked
 cargo test -p athanor-app --test prepared_publication --locked
 cargo test -p athanor-store-memory --test prepared_publication --locked
@@ -83,7 +85,7 @@ cargo run -p ath --quiet --locked -- docs check
 | Область | Статус | Подтверждено | Остаётся |
 | --- | --- | --- | --- |
 | Query/snapshot isolation | `[-]` | committed-only reads, prepare/abort lifecycle, embedded suites | Hosted remote evidence, generation visibility |
-| Atomic publication | `[-]` | typed production coordinator, staged read-model/state recovery | data+marker protocol, generation pointer, fault injection |
+| Atomic publication | `[-]` | typed production coordinator, staged recovery, four fault regressions | finalize/clear faults, data+marker protocol, generation pointer |
 | Concurrent writers | `[-]` | JSONL lock, atomic counter, embedded ownership | Hosted remote conflict evidence |
 | Operation context | `[-]` | deadline, cancellation lease, daemon write path, typed publish context | Read commands, CLI/MCP, in-flight SDK interruption |
 | Store transaction boundary | `[-]` | native batch transaction, core prepared protocol, backend matrix, typed runtime | Fact contract, full lifecycle transaction |
@@ -179,17 +181,24 @@ cargo run -p ath --quiet --locked -- docs check
 - [x] `recover_interrupted_publication`: committed cleanup или uncommitted rollback/abort.
 - [x] Public `index` module переключён на `index_runtime.rs`.
 - [x] Production path не содержит local journal v1 или direct `commit_snapshot`.
-- [x] Coordinator error guard проверяет latest committed перед дополнительным abort.
 - [x] Production regression сверяет canonical/read-model/index-state snapshot identity.
 - [x] Cancellation, incremental update/remove, relinking, equivalence и validate-only tests используют production runtime.
-- [x] Test-only legacy module registration удалена.
 - [x] Legacy `crates/athanor-app/src/index.rs` удалён.
+- [x] Guard: ошибка до durable journal abort’ит prepared snapshot без status probe.
+- [x] Journal-write failure regression проверяет отсутствие stranded snapshot.
+- [x] Read-model prepare failure очищает journal и abort’ит snapshot.
+- [x] Index-state prepare failure откатывает prepared read model, journal и snapshot.
+- [x] Canonical publish cancellation восстанавливает предыдущие read-model/state backups.
 - [!] Hosted compile/test/fmt/Clippy evidence отсутствует из-за Actions blocker.
 
 #### Следующий transactional layer
 
-- [ ] Fault injection: journal write, read-model prepare/finalize, state prepare/finalize, canonical publish, recovery.
-- [ ] Перенести pre-journal abort guarantee непосредственно в coordinator и добавить regression.
+- [-] Fault injection: journal write, read-model prepare, state prepare и canonical publish покрыты.
+- [ ] Read-model finalize failure.
+- [ ] Index-state finalize failure.
+- [ ] Journal clear failure после canonical commit.
+- [ ] Combined error, если rollback/abort тоже падает.
+- [ ] Recovery faults при повреждённых/частично отсутствующих backups.
 - [ ] Объединить canonical data и commit marker в один backend protocol.
 - [ ] Добавить backend-neutral Fact verification.
 - [ ] Ввести immutable generation id для canonical/state/read models.
@@ -257,41 +266,47 @@ cargo run -p ath --quiet --locked -- docs check
 ## 6. Порядок реализации
 
 1. `[!]` Проверить/включить GitHub Actions и получить compile/test/fmt/Clippy evidence.
-2. P0.4 — coordinator fault injection и pre-journal abort regression.
+2. P0.4 — finalize/clear/recovery fault injection и combined cleanup errors.
 3. P0.4 — объединить canonical data и commit marker.
 4. P0.4 — детерминированный remote transaction conflict.
 5. P1.5 — read-only daemon/CLI/MCP cancellation.
-6. P0.4 — Fact conformance, generation pointer и recovery fault injection.
+6. P0.4 — Fact conformance и generation pointer.
 7. P0.3/P0.1/P1.4 — hosted AppSec, matrices, installers и tag evidence.
 8. P1.1, daemon/CLI decomposition и performance budgets.
 9. P2 governance/DX.
 
 ## 7. Текущий рабочий пакет
 
-**Активный пункт:** `P0.4 coordinator fault injection and pre-journal cleanup`.
+**Активный пункт:** `P0.4 publication finalize and recovery fault injection`.
 
 Следующий кодовый срез:
 
-1. сделать journal persistence injectable в unit test или добавить deterministic filesystem failure fixture;
-2. доказать, что journal-write failure вызывает `abort_prepared`;
-3. проверить combined error, если cleanup тоже падает;
-4. добавить fault points для read-model/state prepare и finalize;
-5. не начинать data+marker redesign до реального compile evidence либо полного статического proof по затронутым interfaces.
+1. добавить injectable filesystem/finalize fault seam без production overhead;
+2. доказать committed recovery после read-model/state finalize failure;
+3. проверить journal clear failure после canonical commit;
+4. проверить combined error, если rollback или abort также падает;
+5. добавить recovery regressions для missing/corrupt staging и backups;
+6. не начинать data+marker redesign до реального compile evidence либо полного статического proof по interfaces.
 
 ## 8. Журнал актуализаций
+
+### 2026-07-14 — publication fault injection
+
+- Добавлен guard над coordinator: отсутствие durable journal означает, что canonical commit не начинался, поэтому prepared snapshot abort’ится без status probe.
+- Journal-write failure fixture блокирует `.athanor/state` и подтверждает отсутствие stranded canonical snapshot.
+- Read-model и index-state prepare failures проверяют journal cleanup, application rollback и canonical abort.
+- Cancellation перед canonical publish проверяет восстановление предыдущих read-model/state backups.
 
 ### 2026-07-14 — legacy index cleanup
 
 - Broad runtime regressions перенесены в `index_runtime_tests.rs`.
 - Production API покрывает cancellation, incremental add/change/remove, frontmatter relinking, incremental/full equivalence и validate-only.
-- Test-only `legacy_index` registration удалена.
 - Старый `crates/athanor-app/src/index.rs` удалён.
 
 ### 2026-07-14 — typed production cutover
 
 - `index_runtime.rs` использует typed v1/v2 recovery и `publish_prepared_index`.
 - Production path не содержит local v1 journal или direct commit.
-- Добавлен runtime guard для cleanup ошибок до/после coordinator boundary.
 
 ### 2026-07-14 — core protocol и backend matrix
 
