@@ -36,7 +36,10 @@ mod hash;
 pub mod impact;
 #[path = "index_runtime.rs"]
 pub mod index;
+#[path = "index_publication_guard.rs"]
 mod index_publication;
+#[path = "index_publication.rs"]
+mod index_publication_inner;
 #[cfg(test)]
 mod index_runtime_tests;
 pub mod index_state;
