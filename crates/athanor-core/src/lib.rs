@@ -4,10 +4,12 @@
 //! request/response shapes used by the application layer.
 
 pub mod cancellation;
+pub mod fact_query;
 pub mod ports;
 pub mod prepared_publication;
 
 pub use cancellation::{CancellationHandle, OperationContextCancellation};
+pub use fact_query::{FactQuery, FactQueryStore, filter_facts};
 pub use ports::{
     AffectedSubset, AgentInterface, AgentRequest, AgentResponse, CanonicalSnapshot,
     CanonicalSnapshotStore, CheckInput, Checker, CoreError, CoreErrorCode, CoreResult,
