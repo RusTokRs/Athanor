@@ -2,8 +2,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use athanor_core::{
-    CanonicalSnapshotStore, KnowledgeStore, OperationContext, PreparedSnapshot,
-    PreparedSnapshotPublication, SnapshotBatch,
+    CanonicalSnapshotStore, KnowledgeStore, OperationContext, OperationContextCancellation,
+    PreparedSnapshot, PreparedSnapshotPublication, SnapshotBatch,
 };
 use athanor_domain::{RepoId, SnapshotBase, SnapshotId};
 use athanor_store_jsonl::JsonlKnowledgeStore;
@@ -79,6 +79,60 @@ async fn index_state_prepare_failure_rolls_back_read_model_journal_and_snapshot(
     assert!(!publication_journal(&root).exists());
 
     fs::remove_dir_all(root).expect("remove index-state prepare fixture");
+}
+
+#[tokio::test]
+async fn cancelled_canonical_publish_restores_previous_artifacts_and_aborts_snapshot() {
+    let root = test_root("canonical-publish-cancelled");
+    let fixture = prepared_fixture(&root, "test.publication.canonical-publish").await;
+    let output_dir = root.join(".athanor/generated/current/jsonl");
+    let state_path = root.join(".athanor/state/index-state.json");
+    fs::create_dir_all(&output_dir).expect("create previous read model");
+    fs::create_dir_all(state_path.parent().expect("state parent"))
+        .expect("create previous state directory");
+    fs::write(
+        output_dir.join("manifest.json"),
+        r#"{"snapshot":"snap_previous"}"#,
+    )
+    .expect("write previous read-model manifest");
+    fs::write(&state_path, "previous-state").expect("write previous index state");
+    let cancellation = fixture
+        .operation
+        .cancellation_handle()
+        .expect("register publication cancellation");
+    cancellation.cancel();
+    let state_store = IndexStateStore::new(&state_path);
+
+    let error = publish_prepared_index(
+        &root,
+        &fixture.store,
+        &state_store,
+        &output_dir,
+        &fixture.output,
+        fixture.prepared,
+        &fixture.operation,
+    )
+    .await
+    .expect_err("cancelled canonical publish must fail");
+
+    assert!(
+        error
+            .chain()
+            .any(|cause| cause.to_string().contains("was cancelled"))
+    );
+    assert_snapshot_aborted(&fixture.store, &fixture.snapshot).await;
+    assert_eq!(
+        fs::read_to_string(output_dir.join("manifest.json"))
+            .expect("read restored read-model manifest"),
+        r#"{"snapshot":"snap_previous"}"#
+    );
+    assert_eq!(
+        fs::read_to_string(&state_path).expect("read restored index state"),
+        "previous-state"
+    );
+    assert!(!publication_journal(&root).exists());
+
+    fs::remove_dir_all(root).expect("remove canonical publish fixture");
 }
 
 struct PreparedFixture {
