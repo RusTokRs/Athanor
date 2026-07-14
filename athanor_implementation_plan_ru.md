@@ -3,7 +3,7 @@
 > Язык документа: русский  
 > Репозиторий: `RusTokRs/Athanor`  
 > Базовая ветка: `main`  
-> Точка сверки: `6a92a75fba53e2b96dc3aa93859f09bddf47b70d`  
+> Точка сверки: `c2ed0bd1f5f8b3c3b7add9198f9655bd4ef6f3f6`  
 > Дата актуализации: 2026-07-14  
 > Статус: active implementation plan
 
@@ -31,6 +31,7 @@
 11. Recovery journal не может управлять путями вне ожидаемых `.athanor` artifacts.
 12. Store-level publication protocol принадлежит `athanor-core`; application crate может только re-export или orchestrate его.
 13. После coordinator error нельзя автоматически abort snapshot, пока не проверено, что он не стал latest committed.
+14. Переход к следующему transaction layer запрещён, пока GitHub Actions не показывает реальные compile/test/fmt/Clippy runs либо не получена эквивалентная воспроизводимая локальная проверка.
 
 ## 1. Текущий baseline
 
@@ -54,7 +55,14 @@
 - typed coordinator с rollback/recovery;
 - production `index` path через `index_runtime.rs`, typed startup recovery и `publish_prepared_index`;
 - production regression на совпадение canonical/read-model/index-state snapshot identities;
-- feature, quality, AppSec, coverage, installer и release workflows.
+- feature, quality, AppSec, coverage, installer и release workflow-файлы.
+
+Платформенное состояние:
+
+- [!] публичная GitHub Actions-страница репозитория не показывает workflow list или runs и отображает onboarding;
+- [!] connector не возвращает commit statuses и PR-filtered workflow runs для текущего HEAD;
+- [ ] проверить/включить Actions в repository или organization settings;
+- [ ] после активации получить первый push-run и разобрать реальные findings.
 
 Локальные проверки:
 
@@ -86,30 +94,32 @@ cargo run -p ath --quiet --locked -- docs check
 | Concurrent writers | `[-]` | JSONL lock, atomic counter, embedded ownership, remote two-client test configured | Hosted remote conflict evidence |
 | Operation context | `[-]` | deadline, cancellation lease, daemon write-job bridge, typed publish context | Read commands, CLI/MCP, in-flight SDK interruption |
 | Store transaction boundary | `[-]` | native batch transaction, core prepared protocol, three backend regressions, typed runtime recovery | Fact contract, full lifecycle transaction, legacy test extraction |
-| Hosted CI governance | `[-]` | matrices/workflows существуют | Hosted evidence, branch protection, required checks |
-| AppSec | `[-]` | dependency review, CodeQL, Gitleaks, blocking Zizmor, SBOM | Hosted evidence и push protection |
-| Release integrity | `[-]` | fail-closed installers, signed assets/SBOM | Hosted/tag evidence |
+| Hosted CI governance | `[!]` | workflow-файлы существуют | Actions page/runs отсутствуют; enable/verify settings, затем required checks |
+| AppSec | `[-]` | dependency review, CodeQL, Gitleaks, blocking Zizmor, SBOM configured | Hosted evidence и push protection |
+| Release integrity | `[-]` | fail-closed installers, signed assets/SBOM configured | Hosted/tag evidence |
 | Default build | `[x]` | SurrealDB remote path остаётся opt-in | Maintain boundary |
 
 ## 3. P0 — release-blocking quality and security
 
 ### P0.1. CI feature matrix
 
-**Статус:** `[-]` — implementation готов, hosted evidence отсутствует.
+**Статус:** `[!]` — implementation готов, но GitHub Actions не показывает workflows/runs.
 
 - [x] default/no-default, `store-surreal`, `js-ts-precision`, `--all-features`.
 - [x] Check/test/Clippy с `--locked`.
 - [x] Remote server tests изолированы от обычного `--all-features`.
 - [x] SHA-pinned actions и explicit Rust `1.95.0`.
+- [!] Проверить/включить GitHub Actions для репозитория или организации.
 - [ ] Подтвердить hosted run всех slices.
 - [ ] Сделать checks required после branch protection.
 
 ### P0.2. Coverage measurement
 
-**Статус:** `[-]` — measurement есть, blocking floor не обоснован данными.
+**Статус:** `[-]` — measurement workflow есть, но Actions blocker не позволяет получить baseline.
 
 - [x] Pinned `cargo-llvm-cov 0.8.7`.
 - [x] LCOV, JSON summary и HTML artifact.
+- [!] Сначала устранить Actions blocker.
 - [ ] Получить первый hosted artifact.
 - [ ] Решить по данным, нужен общий floor или targeted gate.
 
@@ -124,7 +134,7 @@ cargo run -p ath --quiet --locked -- docs check
 - [x] Immutable SHA pins.
 - [x] CycloneDX SBOM, checksum, Sigstore и provenance.
 - [x] Release `verify` блокирует `publish`.
-- [ ] Подтвердить hosted AppSec/tag release.
+- [!] Hosted AppSec зависит от устранения Actions blocker.
 - [ ] Подтвердить repository secret push protection.
 
 ### P0.4. Store conformance и transactional publication
@@ -207,6 +217,7 @@ cargo run -p ath --quiet --locked -- docs check
 - [x] `index_publication` больше не требует production `dead_code` allowance.
 - [x] Production regression проверяет canonical/read-model/index-state snapshot identity и cleared journal.
 - [-] Старый `index.rs` временно компилируется только как test-only legacy suite с локальным allowance.
+- [!] Hosted compile/test/fmt/Clippy заблокированы отсутствием видимых Actions runs.
 - [ ] После hosted compile перенести broad incremental/validation tests и удалить legacy-файл.
 
 Последние implementation-коммиты:
@@ -223,7 +234,8 @@ cargo run -p ath --quiet --locked -- docs check
 - `3a8adc1afde9601554450a64e540f904986c3c76` — production runtime regression;
 - `6d1cdcd5de79ca08e7f68075861a3bec1072d3a6` — Clippy import correction;
 - `fbfd782820653db974c7e0fb18ed6d8594cb8718` — test registration;
-- `6a92a75fba53e2b96dc3aa93859f09bddf47b70d` — architecture documentation.
+- `6a92a75fba53e2b96dc3aa93859f09bddf47b70d` — architecture documentation;
+- `c2ed0bd1f5f8b3c3b7add9198f9655bd4ef6f3f6` — CI verification documentation.
 
 #### Следующий transactional layer
 
@@ -262,7 +274,8 @@ cargo run -p ath --quiet --locked -- docs check
 
 - [x] Per-binary checksums и fail-closed Linux/Windows installers.
 - [x] Tamper smoke и archive/Sigstore/provenance docs.
-- [ ] Подтвердить hosted smoke и version tag.
+- [!] Hosted smoke зависит от устранения Actions blocker.
+- [ ] Подтвердить version tag.
 
 ### P1.5. Operation context и protocol E2E
 
@@ -314,8 +327,8 @@ cargo run -p ath --quiet --locked -- docs check
 
 ## 6. Порядок реализации
 
-1. P0.4 — получить hosted compile/test/fmt/Clippy evidence для typed runtime cutover.
-2. P0.4 — исправить реальные hosted findings, не повышая статус без evidence.
+1. P0.1 — проверить/включить GitHub Actions и получить первый push-run.
+2. P0.4 — разобрать compile/test/fmt/Clippy findings typed runtime cutover.
 3. P0.4 — перенести broad tests из test-only `index.rs` и удалить legacy-файл.
 4. P0.4 — объединить canonical data и commit marker.
 5. P0.4 — детерминированно воспроизвести remote transaction conflict.
@@ -327,15 +340,16 @@ cargo run -p ath --quiet --locked -- docs check
 
 ## 7. Текущий рабочий пакет
 
-**Активный пункт:** `P0.4 hosted verification and legacy-test extraction after typed runtime cutover`.
+**Активный пункт:** `P0.1 enable/verify GitHub Actions, затем P0.4 hosted verification`.
 
-Следующий кодовый срез после evidence:
+Платформенный следующий шаг:
 
-1. перенести incremental, validation и cancellation tests из test-only `index.rs` в focused test modules;
-2. удалить `legacy_index` registration и локальный journal v1 implementation;
-3. удалить старый `crates/athanor-app/src/index.rs`;
-4. сохранить production `index_runtime.rs` public surface без изменений;
-5. после clean workspace checks перейти к canonical data+commit-marker protocol.
+1. открыть repository или organization Settings → Actions → General;
+2. разрешить Actions и reusable actions, необходимые SHA-pinned workflow;
+3. выполнить manual dispatch либо новый push в `main`;
+4. получить run для `CI`, `Store Conformance`, `AppSec` и coverage;
+5. разобрать реальные compile/test/fmt/Clippy findings;
+6. только после green evidence удалить test-only legacy `index.rs` и идти к data+marker protocol.
 
 ## 8. Definition of Done проекта
 
@@ -352,6 +366,13 @@ cargo run -p ath --quiet --locked -- docs check
 - Roadmap, plan, issues и release notes соответствуют коду.
 
 ## 9. Журнал актуализаций
+
+### 2026-07-14 — hosted Actions blocker
+
+- Публичная Actions-страница не показывает workflow list или runs и отображает onboarding, несмотря на workflow-файлы в `main`.
+- Commit status и PR-filtered workflow-run endpoints для текущего HEAD пусты.
+- Hosted CI governance переведён в `[!]`; это блокирует честное подтверждение compile/test/fmt/Clippy, coverage, AppSec и installer smoke.
+- Следующий обязательный шаг — проверить или включить Actions в repository/organization settings и запустить первый workflow.
 
 ### 2026-07-14 — typed production index runtime cutover
 
