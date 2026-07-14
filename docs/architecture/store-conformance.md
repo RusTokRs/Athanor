@@ -123,8 +123,10 @@ this bridge yet.
 
 ## Prepared publication handle
 
-`athanor-app` now exposes `PreparedSnapshot` and the backend-neutral
-`PreparedSnapshotPublication` extension over `KnowledgeStore`.
+`athanor-core` owns `PreparedSnapshot` and the backend-neutral `PreparedSnapshotPublication`
+extension beside `KnowledgeStore`. `athanor-app` preserves its existing public API through a
+compatibility re-export, while store crates can exercise the same typed lifecycle without depending
+on the application layer.
 
 The explicit protocol is:
 
@@ -148,10 +150,11 @@ fix, the trait defaults on the wrapper could bypass SurrealDB retry and cancella
 recording-store regression requires batch write, prepare, and publish to use the context-aware backend
 methods while rollback uses plain abort.
 
-A real JSONL regression now exercises the typed protocol end to end. Publishing a prepared snapshot
-must advance `LatestCommitted`; preparing and aborting a later snapshot must leave the previously
-published snapshot selected. Memory and SurrealDB typed-protocol regressions remain to be added to the
-same matrix.
+Real backend regressions now exercise the typed protocol end to end for Memory, JSONL, and embedded
+SurrealDB. Publishing a prepared snapshot must advance `LatestCommitted`; preparing and aborting a
+later snapshot must leave the previously published snapshot selected. The Memory regression verifies
+visibility through `SnapshotSelector::LatestCommitted`, while JSONL and SurrealDB verify their
+canonical latest-snapshot representation.
 
 ## Typed index publication coordinator boundary
 
