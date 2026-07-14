@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use athanor_app::{AthanorStore, PreparedSnapshotPublication};
 use athanor_core::{
     CanonicalSnapshot, CanonicalSnapshotStore, CoreResult, DiagnosticQuery, EntityQuery,
-    EntityResolver, KnowledgeStore, OperationContext, RelationQuery, SnapshotBatch,
-    SnapshotSelector,
+    EntityResolver, KnowledgeStore, OperationContext, OperationContextCancellation, RelationQuery,
+    SnapshotBatch, SnapshotSelector,
 };
 use athanor_domain::{
     Diagnostic, Entity, EntityId, Fact, Relation, RepoId, SnapshotBase, SnapshotId, StableKey,
@@ -14,6 +14,7 @@ use athanor_domain::{
 #[derive(Clone)]
 struct RecordingStore {
     calls: Arc<Mutex<Vec<&'static str>>>,
+    cancel_during_prepare: bool,
 }
 
 impl RecordingStore {
@@ -80,9 +81,12 @@ impl KnowledgeStore for RecordingStore {
     async fn prepare_snapshot_with_context(
         &self,
         _snapshot: SnapshotId,
-        _context: &OperationContext,
+        context: &OperationContext,
     ) -> CoreResult<()> {
         self.record("prepare_context");
+        if self.cancel_during_prepare {
+            context.cancellation_handle()?.cancel();
+        }
         Ok(())
     }
 
@@ -166,6 +170,7 @@ async fn store_wrapper_preserves_context_overrides_and_plain_cleanup() {
     let calls = Arc::new(Mutex::new(Vec::new()));
     let store = AthanorStore::new(RecordingStore {
         calls: Arc::clone(&calls),
+        cancel_during_prepare: false,
     });
     let snapshot = SnapshotId("snap_recording_0001".to_string());
     let context = OperationContext::new("daemon.index.request-42");
@@ -191,5 +196,29 @@ async fn store_wrapper_preserves_context_overrides_and_plain_cleanup() {
             "commit_context",
             "abort_plain"
         ]
+    );
+}
+
+#[tokio::test]
+async fn successful_prepare_returns_handle_when_cancellation_races_after_backend_prepare() {
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let store = AthanorStore::new(RecordingStore {
+        calls: Arc::clone(&calls),
+        cancel_during_prepare: true,
+    });
+    let snapshot = SnapshotId("snap_recording_prepare_race".to_string());
+    let context = OperationContext::new("daemon.index.prepare-race");
+
+    let prepared = store
+        .prepare_publication(snapshot.clone(), &context)
+        .await
+        .expect("successful backend prepare must return its cleanup handle");
+
+    assert_eq!(prepared.snapshot(), &snapshot);
+    assert!(context.is_cancelled());
+    store.abort_prepared(&prepared).await.unwrap();
+    assert_eq!(
+        calls.lock().unwrap().as_slice(),
+        ["prepare_context", "abort_plain"]
     );
 }
