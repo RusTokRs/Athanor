@@ -5,6 +5,7 @@
 
 pub mod cancellation;
 pub mod ports;
+pub mod prepared_publication;
 
 pub use cancellation::{CancellationHandle, OperationContextCancellation};
 pub use ports::{
@@ -17,3 +18,4 @@ pub use ports::{
     SnapshotBatch, SnapshotSelector, SourceFile, SourceProvider, Transport, VectorIndex,
     VectorItem, VectorQuery, VectorSearchResult,
 };
+pub use prepared_publication::{PreparedSnapshot, PreparedSnapshotPublication};
