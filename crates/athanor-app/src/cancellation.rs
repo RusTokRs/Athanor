@@ -46,7 +46,8 @@ impl CancellationToken {
     /// Binds every clone of this token to one core operation cancellation handle.
     ///
     /// Rebinding to a different operation id is rejected because one daemon job must not control
-    /// unrelated work. Cancellation requested before binding is propagated immediately.
+    /// unrelated work. The core registry also rejects a second live authority for the same id.
+    /// Cancellation requested before binding is propagated immediately.
     pub fn bind_operation(&self, operation: &OperationContext) -> Result<()> {
         let handle = operation
             .cancellation_handle()
@@ -125,6 +126,21 @@ mod tests {
         token.bind_operation(&operation).unwrap();
 
         assert!(operation.is_cancelled());
+    }
+
+    #[test]
+    fn independent_tokens_cannot_share_active_operation_identity() {
+        let first = CancellationToken::new();
+        let second = CancellationToken::new();
+        first
+            .bind_operation(&OperationContext::new("daemon.index.duplicate-request"))
+            .unwrap();
+
+        let error = second
+            .bind_operation(&OperationContext::new("daemon.index.duplicate-request"))
+            .expect_err("duplicate operation identity must fail closed");
+
+        assert!(error.to_string().contains("already active"));
     }
 
     #[test]
