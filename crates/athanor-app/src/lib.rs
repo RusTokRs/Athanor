@@ -49,6 +49,7 @@ mod pipeline_metrics;
 mod pipeline_ownership;
 mod pipeline_source;
 mod pipeline_support;
+mod prepared_publication;
 mod project_path;
 pub mod project_registry;
 mod projection;
@@ -81,6 +82,7 @@ pub mod indexing {
 /// Publication artefacts and lifecycle APIs.
 pub mod publication {
     pub use crate::index_state::{IndexState, IndexStateStore, PreparedIndexState};
+    pub use crate::prepared_publication::{PreparedSnapshot, PreparedSnapshotPublication};
     pub use crate::read_model::{
         JsonlReadModelReport, JsonlReadModelWriter, PreparedJsonlReadModel,
     };
@@ -125,6 +127,7 @@ pub use init::*;
 pub use invalidation::*;
 pub use overview::*;
 pub use pipeline::*;
+pub use prepared_publication::*;
 pub use project_registry::*;
 pub use projection::{install_html_projector_factory, install_wiki_projector_factory};
 pub use read_model::*;
