@@ -120,20 +120,30 @@ this bridge yet.
 
 The explicit protocol is:
 
-1. `prepare_publication(snapshot, context)` runs the backend context-aware prepare method and returns
-   an opaque handle containing the snapshot identity;
+1. `prepare_publication(snapshot, context)` checks the request before prepare, runs the backend
+   context-aware prepare method, and returns an opaque handle containing the snapshot identity;
 2. `publish_prepared(handle, context)` runs the context-aware commit path;
 3. `abort_prepared(handle)` deliberately uses the plain abort path so rollback remains possible after
    deadline expiry or user cancellation.
+
+Once the backend prepare succeeds, `prepare_publication` returns the handle even if cancellation races
+immediately afterward. A second post-prepare cancellation check would discard the only typed cleanup
+authority after durable lifecycle state had changed. Publication still checks the context before
+commit, while rollback remains independent of the cancelled request budget.
 
 The handle serializes as the snapshot identity, which permits future recovery journals to persist it
 without encoding backend-specific details. Existing stores remain compatible because the extension
 delegates to their current lifecycle methods.
 
-`AthanorStore` now forwards every context-aware write/publication method to its inner backend. Before
-this fix, the trait defaults on the wrapper could bypass SurrealDB retry and cancellation overrides.
-A regression test records the actual calls and requires batch write, prepare, and publish to use the
-context-aware backend methods while rollback uses plain abort.
+`AthanorStore` forwards every context-aware write/publication method to its inner backend. Before this
+fix, the trait defaults on the wrapper could bypass SurrealDB retry and cancellation overrides. A
+recording-store regression requires batch write, prepare, and publish to use the context-aware backend
+methods while rollback uses plain abort.
+
+A real JSONL regression now exercises the typed protocol end to end. Publishing a prepared snapshot
+must advance `LatestCommitted`; preparing and aborting a later snapshot must leave the previously
+published snapshot selected. Memory and SurrealDB typed-protocol regressions remain to be added to the
+same matrix.
 
 The current index publication coordinator still stores a raw snapshot id in its journal and calls
 `commit_snapshot` directly. Migrating that coordinator to persist and consume `PreparedSnapshot` is
