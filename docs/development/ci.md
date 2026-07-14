@@ -116,18 +116,21 @@ This job proves remote shared-server visibility only after a successful hosted r
 
 Context-aware SurrealDB write and publication methods retry only `CoreError::Busy`. Backoff is bounded to 10, 25, 50, and 100 milliseconds. Every attempt checks both deadline and process-local cancellation state; when the remaining deadline cannot fit the next delay, the current `Busy` error is returned without sleeping past the budget.
 
-`OperationContextCancellation::cancellation_handle()` returns a cloneable handle for a stable operation id. Cancellation state is not serialized, and all live handles for the same operation id share one process-local atomic flag. The core unit tests verify clone propagation, stable `Cancelled` error mapping, unchanged JSON wire shape, and rejection of anonymous cancellation handles.
+`OperationContextCancellation::cancellation_handle()` returns a cloneable handle for a stable operation id. Cancellation state is not serialized, and all live handles for the same operation id share one process-local atomic flag. Callers must keep operation ids unique while work is active. The core unit tests verify clone propagation, stable `Cancelled` error mapping, unchanged JSON wire shape, and rejection of anonymous cancellation handles.
 
 During retry backoff, cancellation is polled at intervals no larger than five milliseconds. A cancellation request therefore prevents the next retry and interrupts the wait with bounded latency. It does not force-abort a backend request that has already entered the SurrealDB SDK.
+
+Daemon write jobs use an operation-aware scheduler. Before a token is inserted into the daemon cancellation registry, the application `CancellationToken` is bound to the same core handle carried by the job's `OperationContext`. The registry clone and running-task clone therefore cancel the same state. Index, generate, wiki, and HTML report jobs use this path; index forwards the bound context through `begin_snapshot`, `put_snapshot`, `prepare_snapshot`, and `commit_snapshot`.
 
 Relevant local checks:
 
 ```bash
 cargo test -p athanor-core cancellation --locked
+cargo test -p athanor-app cancellation --locked
 cargo test -p athanor-store-surrealdb cancellation_stops_retry_before_backoff --locked
 ```
 
-Plain methods do not retry. Data, duplicate-ID, serialization, and other statement failures fail immediately. The application daemon still has its own `CancellationToken`; automatic daemon-token to core-handle propagation remains a separate E2E task.
+Plain methods do not retry. Data, duplicate-ID, serialization, and other statement failures fail immediately. Rollback after an index publication error deliberately uses the plain abort path so cleanup can complete even when the originating operation was cancelled. Read-only daemon commands, CLI, and MCP cancellation propagation remain separate E2E work.
 
 Troubleshooting:
 
@@ -139,6 +142,8 @@ Troubleshooting:
 - a second persistent embedded connection succeeding indicates that exclusive ownership is broken;
 - lock contention returned as `AdapterExecution` instead of `Busy` indicates a retry-classification regression;
 - a cancelled retry issuing a second backend attempt indicates that `check_active()` was bypassed;
+- a daemon registry token that does not cancel the bound `OperationContext` indicates scheduler binding was bypassed;
+- rebinding one application token to a different operation id must fail;
 - cancellation state appearing in serialized `OperationContext` is a wire-compatibility regression;
 - remote tests running during a normal `--all-features` job indicate that their `#[ignore]` boundary was removed;
 - a remote job failure before tests should be diagnosed from the Docker health check and captured server logs;
