@@ -53,9 +53,8 @@ closed.
 
 The public store facade translates the confirmed lock message into `CoreError::Busy`. The same
 retryable category is used for the confirmed SurrealKV messages `Transaction write conflict`,
-`Transaction retry required`, and `Transaction conflict:`. `CoreError::Busy` is transport-neutral and
-reports `is_retryable() == true`. Data validation, duplicate-record, serialization, and other
-statement failures remain `CoreError::Adapter` and are not retryable.
+`Transaction retry required`, and `Transaction conflict:`. Data validation, duplicate-record,
+serialization, and other statement failures remain non-retryable adapter errors.
 
 A persistent-path regression opens one connection, attempts a second independent connection to the
 same directory, and requires `Busy`. This proves exclusive embedded ownership and error
@@ -68,7 +67,7 @@ protocol without changing the default embedded dependency graph. The dedicated C
 matching `surrealdb/surrealdb:v2.6.5` server in an ephemeral Docker container and passes
 `ws://127.0.0.1:8000` through `ATHANOR_SURREAL_REMOTE_URI`.
 
-Remote integration tests are marked ignored by default. This keeps workspace `--all-features` tests
+Remote integration tests are ignored by default. This keeps workspace `--all-features` tests
 self-contained while allowing the dedicated job to execute them explicitly with `--ignored`.
 Configured remote checks cover:
 
@@ -89,34 +88,56 @@ error is returned without sleeping past the deadline. Non-retryable errors fail 
 
 `athanor-core` exposes a cloneable `CancellationHandle` through
 `OperationContextCancellation::cancellation_handle()`. The process-local cancellation state is keyed
-by the stable operation id and held through weak registry entries. It is deliberately excluded from
-`OperationContext` serialization, so daemon/MCP/CLI wire formats remain operation-id and deadline
-only. Callers that create handles must use operation identities that are unique while work is active.
-Daemon request contexts use `daemon.<command>.<request_id>`; watcher index jobs are serialized by the
-single-active-index guard.
+by the stable operation id and excluded from `OperationContext` serialization. Callers that create
+handles must therefore use operation identities that are unique while work is active. Daemon request
+contexts use `daemon.<command>.<request_id>`; watcher index jobs are serialized by the single-active
+index guard.
 
 SurrealDB backoff polls `OperationContext::check_active()` at intervals no larger than five
-milliseconds. Cancellation therefore stops before the next backend attempt and interrupts a pending
-backoff with bounded latency. It does not abort a backend request that is already executing.
+milliseconds. Cancellation stops before the next backend attempt and interrupts a pending backoff
+with bounded latency. It does not abort a backend request that is already executing.
 
 ## Daemon cancellation bridge
 
-The application `CancellationToken` now owns shared state containing the optional core
+The application `CancellationToken` owns shared state containing an optional core
 `CancellationHandle`. The operation-aware daemon scheduler binds the token before inserting it into
-the daemon cancellation registry. Cancelling either the registry clone or the running-task clone then
-sets both the application flag and the core operation state.
+the daemon cancellation registry. Cancelling either the registry clone or the running-task clone sets
+both the application flag and the core operation state.
 
-Index, coordinated generation, wiki projection, and HTML report jobs use this operation-aware
-scheduler path. For index jobs, the exact bound `OperationContext` is passed to `begin_snapshot`,
-`put_snapshot`, `prepare_snapshot`, and `commit_snapshot`. Cancelling a queued or running daemon index
-job therefore prevents the next SurrealDB retry attempt and interrupts a retry backoff. If cancellation
-arrives during an SDK request, that request is allowed to finish; the pipeline observes cancellation
-at the next cooperative boundary. Rollback uses a plain abort path so cleanup is not skipped merely
+Index, coordinated generation, wiki projection, and HTML report jobs use this scheduler path. For
+index jobs, the exact bound `OperationContext` is passed to `begin_snapshot`, `put_snapshot`,
+`prepare_snapshot`, and `commit_snapshot`. Rollback uses a plain abort path so cleanup is not skipped
 because the user cancelled the originating operation.
 
-The compatibility scheduler without an operation context remains available for tests and jobs that
-have not migrated. Read-only daemon commands, CLI lifecycle cancellation, and MCP cancellation are
-not covered by this bridge yet.
+The compatibility scheduler without an operation context remains available for tests and legacy
+jobs. Read-only daemon commands, CLI lifecycle cancellation, and MCP cancellation are not covered by
+this bridge yet.
+
+## Prepared publication handle
+
+`athanor-app` now exposes `PreparedSnapshot` and the backend-neutral
+`PreparedSnapshotPublication` extension over `KnowledgeStore`.
+
+The explicit protocol is:
+
+1. `prepare_publication(snapshot, context)` runs the backend context-aware prepare method and returns
+   an opaque handle containing the snapshot identity;
+2. `publish_prepared(handle, context)` runs the context-aware commit path;
+3. `abort_prepared(handle)` deliberately uses the plain abort path so rollback remains possible after
+   deadline expiry or user cancellation.
+
+The handle serializes as the snapshot identity, which permits future recovery journals to persist it
+without encoding backend-specific details. Existing stores remain compatible because the extension
+delegates to their current lifecycle methods.
+
+`AthanorStore` now forwards every context-aware write/publication method to its inner backend. Before
+this fix, the trait defaults on the wrapper could bypass SurrealDB retry and cancellation overrides.
+A regression test records the actual calls and requires batch write, prepare, and publish to use the
+context-aware backend methods while rollback uses plain abort.
+
+The current index publication coordinator still stores a raw snapshot id in its journal and calls
+`commit_snapshot` directly. Migrating that coordinator to persist and consume `PreparedSnapshot` is
+the next required step; the new API alone does not make data and the commit marker atomic.
 
 ## Prepare semantics
 
@@ -131,11 +152,13 @@ This slice does not make the whole lifecycle one transaction:
 - counter allocation and snapshot-record creation are separate backend requests, so a crash can leave
   a harmless sequence gap;
 - the atomic batch transaction does not include the later commit marker;
+- the index coordinator has not yet migrated from raw `SnapshotId` to `PreparedSnapshot`;
 - abort removes canonical rows transactionally, then deletes snapshot metadata in a separate request;
 - a real remote write conflict has not yet been reproduced and observed through the public facade;
 - an already executing backend request is not force-aborted by the retry wrapper;
 - read-only daemon commands, CLI, and MCP are not yet connected to the same cancellation lifecycle;
 - canonical data, generated state, and read models still do not switch through one generation pointer.
 
-P0.4 remains incomplete until hosted remote evidence, an observed remote conflict, commit-marker
-publication, fault injection, and generation-level recovery are covered by tests.
+P0.4 remains incomplete until coordinator migration, hosted remote evidence, an observed remote
+conflict, commit-marker publication, fault injection, and generation-level recovery are covered by
+tests.
