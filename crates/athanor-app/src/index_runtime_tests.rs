@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use athanor_core::{CanonicalSnapshotStore, KnowledgeStore};
+use athanor_core::CanonicalSnapshotStore;
 use athanor_store_jsonl::JsonlKnowledgeStore;
 
 use crate::{IndexOptions, index_project_with_composition};
