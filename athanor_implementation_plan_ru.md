@@ -3,7 +3,7 @@
 > Язык документа: русский  
 > Репозиторий: `RusTokRs/Athanor`  
 > Базовая ветка: `main`  
-> Точка сверки: `6af88298a381e8f461d475412d7621fb4d5ce8de`  
+> Точка сверки: `6a92a75fba53e2b96dc3aa93859f09bddf47b70d`  
 > Дата актуализации: 2026-07-14  
 > Статус: active implementation plan
 
@@ -26,10 +26,11 @@
 6. Server-dependent tests не должны неявно входить в self-contained `--all-features` graph.
 7. Один `operation_id` может иметь только одну живую cancellation authority; дополнительные владельцы clone существующий handle.
 8. Cancellation/deadline не блокируют rollback и recovery.
-9. Typed handle или journal v2 не считаются production migration, пока runtime path использует raw `SnapshotId`.
+9. Production migration считается выполненной только когда публичный `index` path использует typed journal/recovery/publish; test-only legacy код учитывается как cleanup debt.
 10. Legacy journal v1 должен читаться после перехода writer на v2.
 11. Recovery journal не может управлять путями вне ожидаемых `.athanor` artifacts.
 12. Store-level publication protocol принадлежит `athanor-core`; application crate может только re-export или orchestrate его.
+13. После coordinator error нельзя автоматически abort snapshot, пока не проверено, что он не стал latest committed.
 
 ## 1. Текущий baseline
 
@@ -49,8 +50,10 @@
 - compatibility re-export через `athanor-app`;
 - context-aware backend forwarding через `AthanorStore`;
 - typed prepare→publish/abort regressions для Memory, JSONL и embedded SurrealDB;
-- `IndexPublicationJournal` v2 с v1 compatibility и atomic persistence;
-- staged typed index coordinator boundary с rollback/recovery и path validation;
+- `IndexPublicationJournal` v2 с v1 compatibility, atomic persistence и path validation;
+- typed coordinator с rollback/recovery;
+- production `index` path через `index_runtime.rs`, typed startup recovery и `publish_prepared_index`;
+- production regression на совпадение canonical/read-model/index-state snapshot identities;
 - feature, quality, AppSec, coverage, installer и release workflows.
 
 Локальные проверки:
@@ -63,6 +66,7 @@ cargo test -p athanor-core cancellation --locked
 cargo test -p athanor-core prepared_publication --locked
 cargo test -p athanor-app cancellation --locked
 cargo test -p athanor-app index_publication --locked
+cargo test -p athanor-app production_index_runtime_publishes_one_typed_generation --locked
 cargo test -p athanor-app --test prepared_publication --locked
 cargo test -p athanor-store-memory --test prepared_publication --locked
 cargo test -p athanor-store-jsonl --locked
@@ -78,14 +82,14 @@ cargo run -p ath --quiet --locked -- docs check
 | Область | Статус | Подтверждено | Остаётся |
 | --- | --- | --- | --- |
 | Query/snapshot isolation | `[-]` | committed-only reads, prepare/abort lifecycle, embedded suites | Hosted remote evidence и generation visibility |
-| Atomic publication | `[-]` | JSONL staging/recovery, Surreal batch rollback, typed coordinator boundary | Runtime wiring, data+marker protocol, generation pointer |
+| Atomic publication | `[-]` | typed production coordinator, JSONL staging/recovery, Surreal batch rollback | Hosted evidence, data+marker protocol, generation pointer |
 | Concurrent writers | `[-]` | JSONL lock, atomic counter, embedded ownership, remote two-client test configured | Hosted remote conflict evidence |
-| Operation context | `[-]` | deadline, cancellation lease, daemon write-job bridge | Read commands, CLI/MCP, in-flight SDK interruption |
-| Store transaction boundary | `[-]` | native batch transaction, core prepared protocol, three backend regressions, typed journal/recovery boundary | Runtime coordinator, Fact contract, full lifecycle transaction |
-| Hosted CI governance | `[-]` | matrices/workflows exist | Hosted evidence, branch protection, required checks |
+| Operation context | `[-]` | deadline, cancellation lease, daemon write-job bridge, typed publish context | Read commands, CLI/MCP, in-flight SDK interruption |
+| Store transaction boundary | `[-]` | native batch transaction, core prepared protocol, three backend regressions, typed runtime recovery | Fact contract, full lifecycle transaction, legacy test extraction |
+| Hosted CI governance | `[-]` | matrices/workflows существуют | Hosted evidence, branch protection, required checks |
 | AppSec | `[-]` | dependency review, CodeQL, Gitleaks, blocking Zizmor, SBOM | Hosted evidence и push protection |
 | Release integrity | `[-]` | fail-closed installers, signed assets/SBOM | Hosted/tag evidence |
-| Default build | `[x]` | SurrealDB remote path remains opt-in | Maintain boundary |
+| Default build | `[x]` | SurrealDB remote path остаётся opt-in | Maintain boundary |
 
 ## 3. P0 — release-blocking quality and security
 
@@ -125,7 +129,7 @@ cargo run -p ath --quiet --locked -- docs check
 
 ### P0.4. Store conformance и transactional publication
 
-**Статус:** `[-]` — core protocol и backend matrix реализованы; runtime `index.rs` ещё использует local v1/raw snapshot path.
+**Статус:** `[-]` — typed production runtime включён; hosted evidence, legacy test extraction и generation-level atomicity остаются.
 
 #### Shared backend contract
 
@@ -156,7 +160,8 @@ cargo run -p ath --quiet --locked -- docs check
 - [x] Duplicate active registration → non-retryable `Conflict`.
 - [x] Same-token/same-id bind идемпотентен.
 - [x] Daemon index/generate/wiki/html используют operation-aware scheduler.
-- [x] Rollback выполняется plain path вне user cancellation.
+- [x] Typed runtime повторно использует тот же `OperationContext` для publish.
+- [x] Rollback/recovery выполняются plain path вне user cancellation.
 - [ ] Read-only daemon commands перевести на cancellable lifecycle.
 - [ ] Связать CLI и MCP cancellation с core handle.
 
@@ -179,11 +184,11 @@ cargo run -p ath --quiet --locked -- docs check
 - [x] Cancellation race после backend prepare не теряет cleanup handle.
 - [x] `AthanorStore` сохраняет backend context overrides.
 - [x] Recording regression для context batch/prepare/commit и plain abort.
-- [x] Memory typed lifecycle regression: prepared invisibility, publish visibility, abort preserves latest.
-- [x] JSONL typed lifecycle regression: publish/abort сохраняют `LatestCommitted` semantics.
-- [x] Embedded SurrealDB typed lifecycle regression: publish/abort сохраняют canonical latest snapshot.
+- [x] Memory typed lifecycle regression.
+- [x] JSONL typed lifecycle regression.
+- [x] Embedded SurrealDB typed lifecycle regression.
 
-#### Typed index journal и coordinator boundary
+#### Typed index journal и production coordinator
 
 - [x] Journal v2 хранит serialized `PreparedSnapshot`.
 - [x] Journal v1 читается и нормализуется в v2.
@@ -194,22 +199,31 @@ cargo run -p ath --quiet --locked -- docs check
 - [x] `publish_prepared_index` реализует journal → read model/state prepare → typed publish → finalize.
 - [x] Publish failure откатывает application artifacts и вызывает `abort_prepared`.
 - [x] `recover_interrupted_publication` различает committed и uncommitted typed journals.
-- [x] Recovery regressions покрывают rollback и committed cleanup.
-- [-] Module пока зарегистрирован с narrow `dead_code` allowance.
-- [-] Runtime `index.rs` продолжает использовать local v1 journal/direct commit.
-- [ ] Подключить runtime к typed coordinator и удалить local v1 implementation.
-- [ ] После wiring удалить temporary `dead_code` allowance.
+- [x] Public `index` module переключён на `index_runtime.rs`.
+- [x] Deferred-prepared boundary превращается в `PreparedSnapshot` перед coordinator call.
+- [x] Startup использует typed v1/v2 recovery до загрузки previous state.
+- [x] Production path не содержит local journal v1 или direct `commit_snapshot`.
+- [x] Coordinator error guard проверяет latest committed перед дополнительным abort.
+- [x] `index_publication` больше не требует production `dead_code` allowance.
+- [x] Production regression проверяет canonical/read-model/index-state snapshot identity и cleared journal.
+- [-] Старый `index.rs` временно компилируется только как test-only legacy suite с локальным allowance.
+- [ ] После hosted compile перенести broad incremental/validation tests и удалить legacy-файл.
 
 Последние implementation-коммиты:
 
-- `068ab8e795889d8b115ca0fa69196568f9ff7c09` — typed coordinator, recovery и journal path hardening;
+- `068ab8e795889d8b115ca0fa69196568f9ff7c09` — typed coordinator, recovery и path hardening;
 - `5331c5ee7251eb2a5ac9e3b2aa68b7a86dec2cc0` — core-owned prepared publication protocol;
 - `8ffd6b93b9c0813f9c1358f23952226ee2abfa37` — core exports;
 - `8f75e74796d044ce42b829cdc319e074e8177a69` — app compatibility re-export;
 - `c9f941b9314ef83864d5b0d3467514aa1d50866e` — Memory typed lifecycle regression;
 - `4a87ca11da3ed9e7d00743fb0d9cd79d3d179963` — embedded SurrealDB typed lifecycle regression;
-- `6af88298a381e8f461d475412d7621fb4d5ce8de` — manual formatting correction;
-- `260e9d205359c0e2a53436bd527e416e8d7b1f5d` — architecture documentation.
+- `710bd6f0cb89ac4f6df39cbf2a7246dc9fb03f6a` — typed production runtime module;
+- `a8b53fb753c54d77b8662f28acb3c8ca35d3d78a` — coordinator error ownership fix;
+- `3cd88de3169f833b6e5d3ba9636d35fd843abb90` — production module cutover;
+- `3a8adc1afde9601554450a64e540f904986c3c76` — production runtime regression;
+- `6d1cdcd5de79ca08e7f68075861a3bec1072d3a6` — Clippy import correction;
+- `fbfd782820653db974c7e0fb18ed6d8594cb8718` — test registration;
+- `6a92a75fba53e2b96dc3aa93859f09bddf47b70d` — architecture documentation.
 
 #### Следующий transactional layer
 
@@ -259,11 +273,11 @@ cargo run -p ath --quiet --locked -- docs check
 - [x] Exclusive identity lease и reuse после drop.
 - [x] SurrealDB retry bounded deadline/cancellation.
 - [x] Daemon write-job propagation.
+- [x] Typed index publish использует bound context; rollback/recovery cancellation-independent.
 - [ ] Read-only daemon jobs/queries.
 - [ ] CLI/MCP cancellation lifecycle.
 - [ ] Cancellation queued/running reads.
 - [ ] Cooperative/isolated synchronous projectors.
-- [ ] Rollback/recovery вне request deadline/cancellation.
 
 ### P1.6. Aggregate performance budgets
 
@@ -294,36 +308,34 @@ cargo run -p ath --quiet --locked -- docs check
 ### P2.4. Локальная воспроизводимость
 
 - [x] Feature, coverage, AppSec, installer/release и store commands.
-- [x] Cancellation и typed publication regression commands.
+- [x] Cancellation, backend publication и production runtime regression commands.
 - [ ] Common CI failures для остальных workflows.
 - [ ] `justfile`, `xtask` или единый verification entrypoint.
 
 ## 6. Порядок реализации
 
-1. P0.4 — подключить typed coordinator boundary в runtime `index.rs` и удалить local v1 journal.
-2. P0.4 — получить hosted compile/test/fmt/Clippy evidence и исправить реальные findings.
-3. P0.4 — объединить canonical data и commit marker.
-4. P0.4 — детерминированно воспроизвести remote transaction conflict.
-5. P1.5 — read-only daemon/CLI/MCP cancellation.
-6. P0.4 — Fact conformance, generation pointer и fault injection.
-7. P0.3/P0.1/P1.4 — hosted AppSec, matrices, installers и tag evidence.
-8. P1.1, decomposition и performance budgets.
-9. P2 governance/DX.
+1. P0.4 — получить hosted compile/test/fmt/Clippy evidence для typed runtime cutover.
+2. P0.4 — исправить реальные hosted findings, не повышая статус без evidence.
+3. P0.4 — перенести broad tests из test-only `index.rs` и удалить legacy-файл.
+4. P0.4 — объединить canonical data и commit marker.
+5. P0.4 — детерминированно воспроизвести remote transaction conflict.
+6. P1.5 — read-only daemon/CLI/MCP cancellation.
+7. P0.4 — Fact conformance, generation pointer и fault injection.
+8. P0.3/P0.1/P1.4 — hosted AppSec, matrices, installers и tag evidence.
+9. P1.1, decomposition и performance budgets.
+10. P2 governance/DX.
 
 ## 7. Текущий рабочий пакет
 
-**Активный пункт:** `P0.4 runtime wiring for typed index publication coordinator`.
+**Активный пункт:** `P0.4 hosted verification and legacy-test extraction after typed runtime cutover`.
 
-Следующий кодовый срез:
+Следующий кодовый срез после evidence:
 
-1. импортировать `publish_prepared_index`, typed recovery и `PreparedSnapshot` в `index.rs`;
-2. создать handle на гарантированной deferred-prepared boundary;
-3. заменить local v1 journal/read-model/state/direct-commit block одним typed coordinator call;
-4. заменить startup recovery на staged typed recovery;
-5. удалить local journal/recovery helpers и временный `#[allow(dead_code)]`;
-6. сохранить чтение legacy v1 через module deserializer;
-7. перенести/адаптировать runtime recovery tests к v1 и v2;
-8. не переходить к data+marker protocol до успешной проверки wiring.
+1. перенести incremental, validation и cancellation tests из test-only `index.rs` в focused test modules;
+2. удалить `legacy_index` registration и локальный journal v1 implementation;
+3. удалить старый `crates/athanor-app/src/index.rs`;
+4. сохранить production `index_runtime.rs` public surface без изменений;
+5. после clean workspace checks перейти к canonical data+commit-marker protocol.
 
 ## 8. Definition of Done проекта
 
@@ -341,29 +353,30 @@ cargo run -p ath --quiet --locked -- docs check
 
 ## 9. Журнал актуализаций
 
+### 2026-07-14 — typed production index runtime cutover
+
+- Добавлен focused `index_runtime.rs`, сохраняющий прежний public API и `repo_id_for_root`.
+- Startup recovery переключён на typed journal v1/v2 recovery.
+- Deferred pipeline output превращается в `PreparedSnapshot` и публикуется через `publish_prepared_index` с тем же `OperationContext`.
+- Direct `commit_snapshot` и local journal v1 исключены из production path.
+- Coordinator error guard проверяет latest committed перед дополнительным cancellation-independent abort; это закрывает leak при ошибке записи journal.
+- Добавлен production regression на согласованность canonical/read-model/index-state snapshot identities, cleared journal и no-change rerun.
+- Старый `index.rs` сохранён только как временная test-only suite; production на него больше не ссылается.
+- Hosted compile/test/fmt/Clippy evidence пока отсутствует, поэтому P0.4 остаётся `[-]`.
+
 ### 2026-07-14 — core-owned prepared protocol и backend matrix
 
 - `PreparedSnapshot`/`PreparedSnapshotPublication` перенесены рядом с `KnowledgeStore` в `athanor-core`.
 - `athanor-app` сохраняет source compatibility через re-export.
-- Добавлен Memory typed lifecycle regression с prepared invisibility и сохранением latest после abort.
-- Добавлен embedded SurrealDB typed lifecycle regression с canonical latest verification.
-- JSONL, Memory и embedded SurrealDB теперь используют один typed protocol без зависимости store crates от app.
-- `Cargo.toml` и `Cargo.lock` не изменялись: использованы существующие зависимости.
-- Runtime `index.rs` ещё не подключён; P0.4 остаётся `[-]`.
+- Добавлены Memory и embedded SurrealDB typed lifecycle regressions.
+- JSONL, Memory и embedded SurrealDB используют один typed protocol.
 
 ### 2026-07-14 — typed index coordinator boundary
 
 - Добавлены `publish_prepared_index` и typed `recover_interrupted_publication`.
 - Publish boundary сохраняет journal до canonical publish и finalization application artifacts.
-- Failures откатывают read model/state и выполняют cancellation-independent `abort_prepared`.
 - Recovery сохраняет committed generation либо восстанавливает backups для uncommitted snapshot.
 - Journal paths проверяются против ожидаемого project root; publication id не допускает traversal.
-- Runtime `index.rs` ещё не подключён.
-
-### 2026-07-14 — typed journal v2 staging
-
-- Journal v2 хранит `PreparedSnapshot`, читает v1, unknown schema/fields fail-closed.
-- Реализованы atomic write/load/clear.
 
 ### 2026-07-14 — cancellation и prepared protocol
 
