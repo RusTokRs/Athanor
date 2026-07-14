@@ -91,15 +91,32 @@ error is returned without sleeping past the deadline. Non-retryable errors fail 
 `OperationContextCancellation::cancellation_handle()`. The process-local cancellation state is keyed
 by the stable operation id and held through weak registry entries. It is deliberately excluded from
 `OperationContext` serialization, so daemon/MCP/CLI wire formats remain operation-id and deadline
-only. Dropping all handles releases the state; reusing an operation id later starts with a fresh token.
+only. Callers that create handles must use operation identities that are unique while work is active.
+Daemon request contexts use `daemon.<command>.<request_id>`; watcher index jobs are serialized by the
+single-active-index guard.
 
 SurrealDB backoff polls `OperationContext::check_active()` at intervals no larger than five
 milliseconds. Cancellation therefore stops before the next backend attempt and interrupts a pending
 backoff with bounded latency. It does not abort a backend request that is already executing.
 
-Plain methods without `OperationContext` do not retry. The existing application-level daemon
-`CancellationToken` is still a separate primitive and is not yet bound automatically to the core
-handle, so daemon cancellation propagation into storage retry remains an explicit open E2E step.
+## Daemon cancellation bridge
+
+The application `CancellationToken` now owns shared state containing the optional core
+`CancellationHandle`. The operation-aware daemon scheduler binds the token before inserting it into
+the daemon cancellation registry. Cancelling either the registry clone or the running-task clone then
+sets both the application flag and the core operation state.
+
+Index, coordinated generation, wiki projection, and HTML report jobs use this operation-aware
+scheduler path. For index jobs, the exact bound `OperationContext` is passed to `begin_snapshot`,
+`put_snapshot`, `prepare_snapshot`, and `commit_snapshot`. Cancelling a queued or running daemon index
+job therefore prevents the next SurrealDB retry attempt and interrupts a retry backoff. If cancellation
+arrives during an SDK request, that request is allowed to finish; the pipeline observes cancellation
+at the next cooperative boundary. Rollback uses a plain abort path so cleanup is not skipped merely
+because the user cancelled the originating operation.
+
+The compatibility scheduler without an operation context remains available for tests and jobs that
+have not migrated. Read-only daemon commands, CLI lifecycle cancellation, and MCP cancellation are
+not covered by this bridge yet.
 
 ## Prepare semantics
 
@@ -116,8 +133,8 @@ This slice does not make the whole lifecycle one transaction:
 - the atomic batch transaction does not include the later commit marker;
 - abort removes canonical rows transactionally, then deletes snapshot metadata in a separate request;
 - a real remote write conflict has not yet been reproduced and observed through the public facade;
-- daemon cancellation is not yet bridged to the core cancellation handle;
 - an already executing backend request is not force-aborted by the retry wrapper;
+- read-only daemon commands, CLI, and MCP are not yet connected to the same cancellation lifecycle;
 - canonical data, generated state, and read models still do not switch through one generation pointer.
 
 P0.4 remains incomplete until hosted remote evidence, an observed remote conflict, commit-marker
