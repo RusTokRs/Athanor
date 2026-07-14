@@ -4,7 +4,7 @@
 > Назначение: рабочий implementation plan для последовательного улучшения Athanor  
 > Репозиторий: `RusTokRs/Athanor`  
 > Базовая ветка: `main`  
-> Точка сверки: `837506aa16954cf8bb0f84887b08b8e54b6a86cf`  
+> Точка сверки: `30aca716cd28f5be3ad89edf42cefe0783798272`  
 > Дата актуализации: 2026-07-14  
 > Статус: active implementation plan
 
@@ -32,6 +32,7 @@
 11. Cancellation handle, keyed by operation id, требует уникального id на время активной операции.
 12. Cancellation/deadline не должны блокировать rollback и recovery.
 13. Наличие typed prepared handle не считается migration coordinator, пока journal и publish path продолжают использовать raw `SnapshotId`.
+14. После успешного backend prepare coordinator обязан получить cleanup authority даже при гонке cancellation.
 
 ## 1. Текущий baseline
 
@@ -50,9 +51,11 @@
 - daemon cancellation bridge для index/generate/wiki/html;
 - application-level `PreparedSnapshot` и `PreparedSnapshotPublication` protocol;
 - `AthanorStore` делегирует context-aware backend overrides;
+- typed JSONL prepare→publish/abort regression и cancellation-race regression;
 - Linux/Windows/macOS quality matrix, optional-feature matrix и store conformance workflow;
+- explicit Rust `1.95.0` input во всех SHA-pinned `dtolnay/rust-toolchain` uses;
 - measurement-only coverage artifacts;
-- dependency review, CodeQL v4, Gitleaks, Zizmor и immutable action pins;
+- dependency review, CodeQL v4, Gitleaks, blocking Zizmor и immutable action pins;
 - signed archives, installer checksums, CycloneDX SBOM и release verification.
 
 Базовые команды:
@@ -81,22 +84,23 @@ cargo run -p ath --quiet --locked -- docs check
 | Atomic publication | `[-]` | JSONL staging/recovery, SurrealDB batch rollback, typed prepared handle | Coordinator migration, commit marker и generation pointer |
 | Concurrent writers | `[-]` | JSONL locking, atomic Surreal counter, embedded ownership, remote two-client test configured | Hosted remote conflict evidence |
 | Operation context | `[-]` | deadlines, core cancellation, daemon write-job bridge, context-forwarding wrapper | Read commands, CLI/MCP, in-flight SDK interruption |
-| Storage transaction boundary | `[-]` | SnapshotBatch, native Surreal transaction, prepared publication extension | Journal migration и atomic data+marker publish |
+| Storage transaction boundary | `[-]` | SnapshotBatch, native Surreal transaction, prepared publication extension, JSONL typed lifecycle | Journal migration, Memory/Surreal typed regressions и atomic data+marker publish |
 | Runtime composition | `[-]` | explicit composition in main paths | Global registry removal, injected process runner |
 | Default build | `[x]` | SurrealDB opt-in, remote tests ignored by default | Maintain boundary |
-| Hosted CI governance | `[-]` | workflows/matrices exist | Hosted evidence, branch protection, required checks |
-| AppSec automation | `[-]` | dependency review, CodeQL, Gitleaks, Zizmor, SBOM | Hosted evidence, blocking Zizmor, push protection |
+| Hosted CI governance | `[-]` | workflows/matrices и explicit Rust toolchain input | Hosted evidence, branch protection, required checks |
+| AppSec automation | `[-]` | dependency review, CodeQL, Gitleaks, blocking Zizmor, SBOM | Hosted evidence и push protection |
 | Installer/release integrity | `[-]` | fail-closed installers and signed assets | Hosted/tag evidence |
 
 ## 3. P0 — release-blocking quality and security gates
 
 ### P0.1. CI feature matrix
 
-**Статус:** `[-]` — реализация готова; hosted run и required checks не подтверждены.
+**Статус:** `[-]` — реализация и toolchain wiring готовы; hosted run и required checks не подтверждены.
 
 - [x] default/no-default, `store-surreal`, `js-ts-precision`, `--all-features`.
 - [x] Check/test/Clippy с `--locked`.
 - [x] Remote server tests изолированы от обычного `--all-features`.
+- [x] Во всех SHA-pinned `dtolnay/rust-toolchain` uses задан `toolchain: 1.95.0`.
 - [x] Документация в `docs/development/ci.md`.
 - [ ] Подтвердить hosted run всех slices.
 - [ ] Сделать matrix required check после branch protection.
@@ -112,21 +116,21 @@ cargo run -p ath --quiet --locked -- docs check
 
 ### P0.3. AppSec и software supply chain
 
-**Статус:** `[-]` — технический срез реализован; hosted enforcement отсутствует.
+**Статус:** `[-]` — технический срез и blocking workflow audit реализованы; hosted enforcement отсутствует.
 
 - [x] Dependency review с порогом `moderate`.
 - [x] CodeQL v4/Rust `security-extended`.
 - [x] Gitleaks full history.
-- [x] Pinned Zizmor `1.26.1`; пока report-only.
+- [x] Pinned Zizmor `1.26.1`; high/high findings блокируют workflow.
 - [x] Все `uses:` pinned на immutable SHA.
 - [x] CycloneDX SBOM, checksum, Sigstore и provenance.
 - [x] Release `verify` блокирует `publish`.
 - [ ] Подтвердить hosted AppSec и tag release.
-- [ ] Удалить `--no-exit-codes` после review Zizmor findings.
+- [ ] Подтвердить repository secret push protection.
 
 ### P0.4. Store conformance и transactional publication
 
-**Статус:** `[-]` — седьмой prepared-handle/context-forwarding slice реализован; coordinator migration, hosted evidence, observed remote conflict и generation publication остаются.
+**Статус:** `[-]` — восьмой audit/typed-JSONL slice реализован; coordinator migration, hosted evidence, observed remote conflict и generation publication остаются.
 
 #### Shared backend contract
 
@@ -185,13 +189,15 @@ cargo run -p ath --quiet --locked -- docs check
 - [x] Ввести backend-neutral `PreparedSnapshot` в application publication API.
 - [x] Сериализовать handle как snapshot identity без backend-specific wire format.
 - [x] `prepare_publication` использует context-aware prepare и возвращает typed handle.
+- [x] После успешного backend prepare cancellation race не теряет typed cleanup handle.
 - [x] `publish_prepared` использует context-aware commit.
 - [x] `abort_prepared` использует plain abort вне user cancellation/deadline.
 - [x] `AthanorStore` делегирует все context-aware write/publication methods inner backend.
-- [x] Regression-test различает context batch/prepare/commit и plain abort.
+- [x] Recording regression различает context batch/prepare/commit и plain abort.
+- [x] JSONL typed prepare→publish/abort regression подтверждает `LatestCommitted` semantics.
+- [-] Memory и SurrealDB typed prepare→publish/abort regressions остаются.
 - [-] Index pipeline готовит snapshot, но coordinator journal ещё хранит raw `SnapshotId`.
 - [ ] Перевести index journal, commit и recovery на `PreparedSnapshot`.
-- [ ] Добавить conformance test typed prepare→publish/abort для Memory, JSONL и SurrealDB.
 
 #### Transactional publication
 
@@ -232,6 +238,16 @@ cargo run -p ath --quiet --locked -- docs check
    - `8642b53dfb59fa00555bc632c879d28400131714`
    - `01274a3d9c9601d3a304309ed09a6f5af07bd069`
    - `837506aa16954cf8bb0f84887b08b8e54b6a86cf`
+8. Audit fixes и typed JSONL lifecycle:
+   - `a3363242f4d22be3b9b36e0575c88b58b3842530`
+   - `24aa8ad05f3450766fa98833bec4f798e08df3c4`
+   - `8a45f45ecd4a82f5e03343e3fe68cee88c8f0f7b`
+   - `726222cb57c0dbd0f7f925a76494744461493f77`
+   - `450fc7424034df2b8cdc26f882b6eadd915d3a85`
+   - `2cc048c693908c960f7f0e4b139d91fd0f6aab7f`
+   - `1206d1cb5924a8842595d0db45d02d370e3ff316`
+   - `c3f32acb52a3747ce357b3f6f2c99c59af654ea3`
+   - `30aca716cd28f5be3ad89edf42cefe0783798272`
 
 **Definition of Done:** Memory, JSONL и persistent SurrealDB имеют эквивалентный observable lifecycle; independent writers не теряют updates; retries bounded attempts/deadline/cancellation; typed prepared state используется coordinator; partial writes не публикуются; после crash видна только предыдущая или новая целая generation.
 
@@ -276,6 +292,7 @@ cargo run -p ath --quiet --locked -- docs check
 - [x] SurrealDB retry bounded deadline/cancellation.
 - [x] `AthanorStore` сохраняет backend context overrides.
 - [x] Daemon index/generate/wiki/html cancellation доходит до core context.
+- [x] Успешный prepare сохраняет cleanup handle при cancellation race.
 - [ ] Read-only daemon jobs и queries.
 - [ ] CLI/MCP cancellation lifecycle.
 - [ ] Cancellation queued/running reads.
@@ -312,19 +329,20 @@ cargo run -p ath --quiet --locked -- docs check
 
 - [x] Feature, coverage, installer/release, AppSec и store commands задокументированы.
 - [x] Prepared publication regression command зафиксирован в плане.
+- [x] Toolchain-action и blocking Zizmor expectations задокументированы.
 - [ ] Common CI failures для остальных workflows.
 - [ ] `justfile`, `xtask` или единый verification entrypoint.
 
 ## 6. Порядок реализации
 
-1. P0.4 — получить hosted compile/test/fmt/Clippy evidence для prepared-handle slice.
+1. P0.4 — получить hosted compile/test/fmt/Clippy evidence для audit/typed-JSONL slice.
 2. P0.4 — мигрировать index coordinator/journal/recovery на `PreparedSnapshot`.
-3. P0.4 — объединить canonical data и commit marker для SurrealDB.
-4. P0.4 — детерминированно воспроизвести remote transaction conflict.
-5. P1.5 — устранить operation-id registry collision и покрыть read-only daemon/CLI/MCP.
-6. P0.4 — Fact conformance, generation pointer и fault injection.
-7. P0.3 — hosted AppSec evidence и blocking Zizmor.
-8. P0.1/P1.4 — hosted matrices, installers и tag evidence.
+3. P0.4 — добавить Memory и SurrealDB typed lifecycle regressions.
+4. P0.4 — объединить canonical data и commit marker для SurrealDB.
+5. P0.4 — детерминированно воспроизвести remote transaction conflict.
+6. P1.5 — устранить operation-id registry collision и покрыть read-only daemon/CLI/MCP.
+7. P0.4 — Fact conformance, generation pointer и fault injection.
+8. P0.3/P0.1/P1.4 — hosted AppSec, matrices, installers и tag evidence.
 9. P1.1 sandbox, decomposition и performance budgets.
 10. P2 governance/DX.
 
@@ -339,7 +357,7 @@ cargo run -p ath --quiet --locked -- docs check
 3. заменить direct `commit_snapshot` на `publish_prepared`;
 4. заменить recovery/rollback raw snapshot path на `abort_prepared` с backward-compatible journal parsing;
 5. добавить tests: journal round-trip, publish через context override, rollback вне cancellation;
-6. после этого спроектировать SurrealDB data+marker atomic protocol.
+6. после этого добавить typed regressions Memory/SurrealDB и спроектировать data+marker atomic protocol.
 
 ## 8. Definition of Done проекта
 
@@ -356,6 +374,16 @@ cargo run -p ath --quiet --locked -- docs check
 - Roadmap, plan, issues и release notes соответствуют коду.
 
 ## 9. Журнал актуализаций
+
+### 2026-07-14 — повторный аудит, workflow fixes и typed JSONL lifecycle
+
+- Найден и исправлен отсутствующий `toolchain: 1.95.0` во всех SHA-pinned `dtolnay/rust-toolchain` вызовах CI, production и release.
+- Zizmor переведён из report-only в blocking high-severity/high-confidence gate.
+- Исправлена cancellation race после успешного backend prepare: typed cleanup handle больше не теряется.
+- Добавлен regression, отменяющий context внутри backend prepare и затем выполняющий plain abort.
+- Добавлен реальный JSONL typed prepare→publish/abort regression с проверкой `LatestCommitted`.
+- Проверена recovery-семантика read model: prepare уже переключает current и сохраняет backup до finalize; найденная гипотеза о потере новой generation не подтвердилась.
+- P0.4 остаётся `[-]`; активным остаётся coordinator/journal migration.
 
 ### 2026-07-14 — prepared publication handle и context forwarding
 
