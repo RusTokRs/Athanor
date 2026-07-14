@@ -2,7 +2,7 @@
 
 > Репозиторий: `RusTokRs/Athanor`  
 > Базовая ветка: `main`  
-> Точка сверки: `e96132f2bd1bcca8dc444fb433dcd06c5d709487`  
+> Точка сверки: `16c206e5409128ace94fe3ed174b5b474ea883ae`  
 > Дата актуализации: 2026-07-14  
 > Статус: active implementation plan
 
@@ -24,9 +24,10 @@
 5. Cancellation/deadline не должны блокировать rollback или recovery.
 6. Journal v1 обязан читаться после перехода writer на v2.
 7. Recovery не может удалять или переименовывать paths вне ожидаемых `.athanor` artifacts.
-8. Recovery обязана fail-closed до destructive mutation при неверном типе artifact/backup.
-9. Backend batch transaction не равна atomic generation publication, пока data, marker и application artifacts переключаются отдельно.
-10. Store-level typed publication protocol принадлежит `athanor-core`.
+8. Recovery обязана fail-closed до destructive mutation при неверном типе, schema или snapshot identity.
+9. Historical index-state backup может использовать валидную предыдущую `athanor.index_state.vN` schema.
+10. Backend batch transaction не равна atomic generation publication, пока data, marker и application artifacts переключаются отдельно.
+11. Store-level typed publication protocol принадлежит `athanor-core`.
 
 ## 1. Текущий baseline
 
@@ -49,7 +50,9 @@
 - broad incremental/validation/cancellation tests на production runtime;
 - legacy `crates/athanor-app/src/index.rs` удалён;
 - deterministic publication fault suite для prepare/publish/finalize/clear/recovery;
-- recovery preflight отклоняет неверные artifact types до mutation;
+- recovery preflight валидирует artifact type, schema и snapshot identity до mutation;
+- committed/uncommitted repeated recovery проверена как idempotent после cleanup;
+- historical state backup допускает строгую versioned schema, malformed version strings отклоняются;
 - combined publish/rollback/abort errors сохраняются в error chain;
 - feature, quality, AppSec, coverage, installer и release workflow-файлы.
 
@@ -74,6 +77,7 @@ cargo test -p athanor-app index_publication --locked
 cargo test -p athanor-app index_publication_fault_tests --locked
 cargo test -p athanor-app index_publication_finalize_tests --locked
 cargo test -p athanor-app index_publication_recovery_fault_tests --locked
+cargo test -p athanor-app index_publication_content_tests --locked
 cargo test -p athanor-app index_publication_combined_error_tests --locked
 cargo test -p athanor-app --test prepared_publication --locked
 cargo test -p athanor-store-memory --test prepared_publication --locked
@@ -92,8 +96,8 @@ cargo run -p ath --quiet --locked -- docs check
 | Область | Статус | Подтверждено | Остаётся |
 | --- | --- | --- | --- |
 | Query/snapshot isolation | `[-]` | committed-only reads, prepare/abort lifecycle, embedded suites | Hosted remote evidence, generation visibility |
-| Atomic publication | `[-]` | typed production coordinator, staged recovery, prepare/publish/finalize fault suite | data+marker protocol, generation pointer |
-| Recovery safety | `[-]` | v1/v2 journal, type preflight, malformed/missing backup tests, committed recovery | content/schema validation, repeated-recovery idempotence |
+| Atomic publication | `[-]` | typed production coordinator, staged recovery, full fault suite | data+marker protocol, generation pointer |
+| Recovery safety | `[-]` | v1/v2 journal, type/content preflight, identity checks, idempotence | cryptographic integrity, generation pointer |
 | Concurrent writers | `[-]` | JSONL lock, atomic counter, embedded ownership | Hosted remote conflict evidence |
 | Operation context | `[-]` | deadline, cancellation lease, daemon write path, typed publish context | Read commands, CLI/MCP, in-flight SDK interruption |
 | Store transaction boundary | `[-]` | native batch transaction, core prepared protocol, backend matrix | Fact query contract, full lifecycle transaction |
@@ -201,29 +205,33 @@ cargo run -p ath --quiet --locked -- docs check
 - [x] Journal-clear failure восстанавливается после возврата durable journal.
 - [x] Recovery отклоняет file вместо read-model directory до mutation.
 - [x] Recovery отклоняет directory вместо index-state file до mutation.
+- [x] Recovery валидирует parseable manifest/state schema и non-empty snapshot identity.
+- [x] Committed current и staged artifacts обязаны совпадать с journal snapshot.
+- [x] Uncommitted заменяемый current обязан совпадать с journal snapshot.
+- [x] Read-model/state backups обязаны представлять одну предыдущую generation.
+- [x] Historical state backup принимает строгую versioned `athanor.index_state.vN` schema.
 - [x] Recovery без backups удаляет uncommitted current artifacts и prepared snapshot.
+- [x] Committed и uncommitted repeated recovery после cleanup идемпотентны.
 - [x] Combined publish/rollback/abort failures сохраняют все причины.
 - [!] Hosted compile/test/fmt/Clippy evidence отсутствует из-за Actions blocker.
 
 #### Следующий transactional layer
 
-- [ ] Проверять schema и snapshot identity содержимого current/staging/backup artifacts до recovery mutation.
-- [ ] Добавить repeated-recovery/idempotence regressions.
-- [ ] Объединить canonical data и commit marker в один backend protocol.
 - [ ] Добавить backend-neutral `FactQuery`.
+- [ ] Объединить canonical data и commit marker в один backend protocol.
 - [ ] Ввести immutable generation id для canonical/state/read models.
 - [ ] Переключать один current pointer после подготовки всех artifacts.
 - [ ] Расширить fault injection на pointer switch и generation cleanup.
+- [ ] Добавить cryptographic/content checksum для application artifacts.
 
 Последние implementation-коммиты:
 
-- `30810a5c8f5064218707e7eb72556c08fd699175` — finalize и journal-clear fault suite;
-- `bb3967b5a624555a07c7efab129b2bc559e00aa8` — регистрация finalize suite;
-- `ca8225a109e977b199ed9991f4a9fcc81358c7cb` — recovery artifact-type preflight;
-- `ca3c5d48a4e8ee5682c259640e472558a9c19edb` — malformed/missing backup regressions;
-- `124e50e1de9143b9e27644cf79f2f57ede6dd001` — регистрация recovery suite;
-- `b422da104a1c8f8fcad00668eee20b5edce30eae` — combined cleanup error regression;
-- `e96132f2bd1bcca8dc444fb433dcd06c5d709487` — регистрация combined-error suite.
+- `3db6447a54f9ab2b5fe85a2e225b10f87097ee0f` — content/schema/snapshot recovery preflight;
+- `e931dfda9168258b04466e8225c7c119e40c2b35` — schema-bearing recovery fixtures;
+- `ce648d0e7a5e0599cf5f41563d1812b4fefb4068` — identity mismatch и repeated-recovery regressions;
+- `ae9d73bce90a80c548abd25f5e6abdb8573d7ade` — регистрация content suite;
+- `85cf8a9a2674fc0085456d5ec2fc3b6dd303f8bb` — upgrade-compatible historical state schemas;
+- `16c206e5409128ace94fe3ed174b5b474ea883ae` — строгая validation versioned schema.
 
 ## 4. P1 — execution safety и maintainability
 
@@ -305,35 +313,33 @@ cargo run -p ath --quiet --locked -- docs check
 ## 6. Порядок реализации
 
 1. `[!]` Включить/проверить GitHub Actions и получить compile/test/fmt/Clippy evidence.
-2. P0.4 — content/schema preflight и repeated-recovery idempotence.
-3. P0.4 — backend-neutral `FactQuery`.
-4. P0.4 — canonical data + commit marker transaction protocol.
-5. P0.4 — immutable generation id и один current pointer.
-6. P0.4 — remote conflict evidence и pointer-switch fault injection.
-7. P1.5 — read-only daemon/CLI/MCP cancellation.
-8. P0.3/P0.1/P1.4 — hosted AppSec, matrices, installers и tag evidence.
-9. P1.1, daemon/CLI decomposition и performance budgets.
-10. P2 governance/DX.
+2. P0.4 — backend-neutral `FactQuery`.
+3. P0.4 — canonical data + commit marker transaction protocol.
+4. P0.4 — immutable generation id и один current pointer.
+5. P0.4 — remote conflict evidence и pointer-switch fault injection.
+6. P1.5 — read-only daemon/CLI/MCP cancellation.
+7. P0.3/P0.1/P1.4 — hosted AppSec, matrices, installers и tag evidence.
+8. P1.1, daemon/CLI decomposition и performance budgets.
+9. P2 governance/DX.
 
 ## 7. Текущий рабочий пакет
 
 **Активный blocker:** `GitHub Actions activation/visibility`.
 
-**Следующий безопасный кодовый срез до снятия blocker:** `P0.4 recovery content preflight`.
+**Следующий безопасный кодовый срез до снятия blocker:** `P0.4 backend-neutral FactQuery`.
 
-1. Проверить, что current/read-model backup содержат parseable `manifest.json`.
-2. Проверить, что current/index-state backup содержат parseable JSON state.
-3. Сверить snapshot identity с journal перед restore/cleanup.
-4. Не удалять и не переименовывать artifacts при schema/snapshot mismatch.
-5. Добавить повторный recovery regression после частично завершённого cleanup.
-6. Не переходить к data+marker protocol до hosted compile evidence текущего fault suite.
+1. Добавить `FactQuery` в core query contract.
+2. Реализовать одинаковую фильтрацию и limit semantics в Memory, JSONL и SurrealDB.
+3. Добавить shared conformance checks для exact/latest committed snapshots.
+4. Расширить remote cross-client test фактами через публичный query contract.
+5. Не считать backend contract hosted-подтверждённым без Actions/remote run.
 
 ## 8. Definition of Done проекта
 
 - Public queries изолированы committed snapshot.
 - Memory, JSONL и SurrealDB проходят общий conformance suite.
 - Publication crash-safe и atomic на generation boundary.
-- Recovery fail-closed и идемпотентна при malformed/missing artifacts.
+- Recovery fail-closed и идемпотентна при malformed/missing/mismatched artifacts.
 - Embedded ownership fail-closed; remote writers не теряют updates.
 - Busy retry bounded attempts/deadline/cancellation.
 - Daemon/CLI/MCP имеют эквивалентную cancellation semantics.
@@ -345,6 +351,14 @@ cargo run -p ath --quiet --locked -- docs check
 
 ## 9. Журнал актуализаций
 
+### 2026-07-14 — recovery content preflight и idempotence
+
+- Current/staging/backup artifacts валидируются по типу, JSON schema и snapshot identity до mutation.
+- Committed mismatch, uncommitted replaced-current mismatch и mixed backup generations fail-closed.
+- Historical state backups допускают строгую предыдущую versioned schema для recovery после upgrade.
+- Committed и uncommitted recovery безопасно повторяются после journal cleanup.
+- Hosted evidence не повышено: Actions runs/statuses всё ещё отсутствуют.
+
 ### 2026-07-14 — finalize и recovery fault matrix
 
 - Добавлены deterministic read-model finalize, index-state finalize и journal-clear failures.
@@ -352,7 +366,6 @@ cargo run -p ath --quiet --locked -- docs check
 - Recovery preflight отклоняет неверный тип current/staging/backup artifact до destructive mutation.
 - Missing backups приводят к удалению только uncommitted current generation и prepared canonical snapshot.
 - Combined canonical publish, application rollback и abort failures сохраняются в одной error chain.
-- Hosted evidence не повышено: Actions runs/statuses всё ещё отсутствуют.
 
 ### 2026-07-14 — production typed publication cutover
 
