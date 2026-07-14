@@ -4,7 +4,10 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use athanor_core::{CanonicalSnapshotStore, KnowledgeStore, OperationContext, SnapshotBatch};
+use athanor_core::{
+    CanonicalSnapshotStore, FactQuery, FactQueryStore, KnowledgeStore, OperationContext,
+    SnapshotBatch, SnapshotSelector,
+};
 use athanor_domain::{
     Entity, EntityId, EntityKind, Fact, FactId, FactKind, RepoId, SnapshotBase, StableKey,
 };
@@ -124,8 +127,22 @@ async fn committed_batch_is_visible_from_an_independent_remote_connection() {
         .await
         .expect("load committed snapshot through independent connection")
         .expect("committed remote snapshot exists");
-    assert_eq!(loaded.entities, vec![entity]);
-    assert_eq!(loaded.facts, vec![fact]);
+    assert_eq!(loaded.entities, vec![entity.clone()]);
+    assert_eq!(loaded.facts, vec![fact.clone()]);
+
+    let queried = reader
+        .query_facts(
+            SnapshotSelector::Exact(snapshot),
+            FactQuery {
+                subject: Some(entity.id),
+                extractor: Some("remote-conformance".to_string()),
+                limit: Some(1),
+                ..FactQuery::default()
+            },
+        )
+        .await
+        .expect("query fact through independent connection");
+    assert_eq!(queried, vec![fact]);
 }
 
 fn remote_uri() -> String {
