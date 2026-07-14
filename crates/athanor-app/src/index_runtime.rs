@@ -429,14 +429,15 @@ async fn publish_prepared_index_with_cleanup(
     {
         Ok(publication) => Ok(publication),
         Err(error) => {
-            let committed = store
-                .load_latest_snapshot()
-                .await
-                .map_err(|status_error| {
-                    error.context(format!(
+            let latest = match store.load_latest_snapshot().await {
+                Ok(latest) => latest,
+                Err(status_error) => {
+                    return Err(error.context(format!(
                         "failed to determine publication state after coordinator error: {status_error}"
-                    ))
-                })?
+                    )));
+                }
+            };
+            let committed = latest
                 .and_then(|snapshot| snapshot.snapshot)
                 .is_some_and(|snapshot| snapshot == *prepared.snapshot());
             if committed {
