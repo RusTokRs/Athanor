@@ -217,10 +217,19 @@ fn read_model_identity_if_present(path: &Path, label: &str) -> Result<Option<Str
     }
     let manifest = path.join("manifest.json");
     let value: serde_json::Value = serde_json::from_slice(
-        &fs::read(&manifest)
-            .with_context(|| format!("failed to read recovery {label} manifest {}", manifest.display()))?,
+        &fs::read(&manifest).with_context(|| {
+            format!(
+                "failed to read recovery {label} manifest {}",
+                manifest.display()
+            )
+        })?,
     )
-    .with_context(|| format!("failed to parse recovery {label} manifest {}", manifest.display()))?;
+    .with_context(|| {
+        format!(
+            "failed to parse recovery {label} manifest {}",
+            manifest.display()
+        )
+    })?;
     artifact_identity(
         &value,
         crate::read_model::JSONL_MANIFEST_SCHEMA,
@@ -280,15 +289,15 @@ fn artifact_identity(
     let schema = value
         .get("schema")
         .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| anyhow::anyhow!("publication recovery {label} {} has no schema", path.display()))?;
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "publication recovery {label} {} has no schema",
+                path.display()
+            )
+        })?;
     let schema_valid = match policy {
         SchemaPolicy::Exact => schema == expected_schema,
-        SchemaPolicy::Versioned(prefix) => schema.strip_prefix(prefix).is_some_and(|version| {
-            version
-                .chars()
-                .next()
-                .is_some_and(|character| character.is_ascii_digit())
-        }),
+        SchemaPolicy::Versioned(prefix) => is_versioned_schema(schema, prefix),
     };
     if !schema_valid {
         bail!(
@@ -307,6 +316,26 @@ fn artifact_identity(
                 path.display()
             )
         })
+}
+
+fn is_versioned_schema(schema: &str, prefix: &str) -> bool {
+    let Some(version) = schema.strip_prefix(prefix) else {
+        return false;
+    };
+    let digits = version
+        .bytes()
+        .take_while(|byte| byte.is_ascii_digit())
+        .count();
+    if digits == 0 {
+        return false;
+    }
+    let suffix = &version[digits..];
+    suffix.is_empty()
+        || (suffix.starts_with('-')
+            && suffix.len() > 1
+            && suffix[1..]
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_')))
 }
 
 fn require_expected(actual: Option<&str>, expected: &str, label: &str) -> Result<()> {
@@ -355,7 +384,10 @@ mod tests {
     use athanor_store_jsonl::JsonlKnowledgeStore;
     use serde_json::json;
 
-    use super::{StateSchemaPolicy, publish_prepared_index, state_identity_if_present};
+    use super::{
+        StateSchemaPolicy, is_versioned_schema, publish_prepared_index,
+        state_identity_if_present,
+    };
     use crate::{
         AffectedFileSet, AthanorStore, IndexPipelineMetrics, IndexPipelineOutput, IndexStateStore,
     };
@@ -465,6 +497,27 @@ mod tests {
         assert_eq!(snapshot.as_deref(), Some("snap_previous"));
 
         fs::remove_dir_all(root).expect("remove historical state fixture");
+    }
+
+    #[test]
+    fn historical_state_schema_with_supported_suffix_is_accepted() {
+        assert!(is_versioned_schema(
+            "athanor.index_state.v46-js-ts-precision-v1",
+            "athanor.index_state.v"
+        ));
+    }
+
+    #[test]
+    fn malformed_historical_state_schema_is_rejected() {
+        for schema in [
+            "athanor.index_state.v",
+            "athanor.index_state.vevil",
+            "athanor.index_state.v4evil",
+            "athanor.index_state.v45-",
+            "athanor.index_state.v45/escape",
+        ] {
+            assert!(!is_versioned_schema(schema, "athanor.index_state.v"));
+        }
     }
 
     #[test]
