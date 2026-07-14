@@ -3,9 +3,9 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use athanor_app::{AthanorStore, PreparedSnapshotPublication};
 use athanor_core::{
-    CanonicalSnapshot, CanonicalSnapshotStore, CoreResult, DiagnosticQuery, EntityQuery,
-    EntityResolver, KnowledgeStore, OperationContext, OperationContextCancellation, RelationQuery,
-    SnapshotBatch, SnapshotSelector,
+    CancellationHandle, CanonicalSnapshot, CanonicalSnapshotStore, CoreResult, DiagnosticQuery,
+    EntityQuery, EntityResolver, KnowledgeStore, OperationContext, OperationContextCancellation,
+    RelationQuery, SnapshotBatch, SnapshotSelector,
 };
 use athanor_domain::{
     Diagnostic, Entity, EntityId, Fact, Relation, RepoId, SnapshotBase, SnapshotId, StableKey,
@@ -15,7 +15,7 @@ use athanor_store_jsonl::JsonlKnowledgeStore;
 #[derive(Clone)]
 struct RecordingStore {
     calls: Arc<Mutex<Vec<&'static str>>>,
-    cancel_during_prepare: bool,
+    cancel_on_prepare: Option<CancellationHandle>,
 }
 
 impl RecordingStore {
@@ -82,11 +82,11 @@ impl KnowledgeStore for RecordingStore {
     async fn prepare_snapshot_with_context(
         &self,
         _snapshot: SnapshotId,
-        context: &OperationContext,
+        _context: &OperationContext,
     ) -> CoreResult<()> {
         self.record("prepare_context");
-        if self.cancel_during_prepare {
-            context.cancellation_handle()?.cancel();
+        if let Some(cancellation) = &self.cancel_on_prepare {
+            cancellation.cancel();
         }
         Ok(())
     }
@@ -171,7 +171,7 @@ async fn store_wrapper_preserves_context_overrides_and_plain_cleanup() {
     let calls = Arc::new(Mutex::new(Vec::new()));
     let store = AthanorStore::new(RecordingStore {
         calls: Arc::clone(&calls),
-        cancel_during_prepare: false,
+        cancel_on_prepare: None,
     });
     let snapshot = SnapshotId("snap_recording_0001".to_string());
     let context = OperationContext::new("daemon.index.request-42");
@@ -203,12 +203,15 @@ async fn store_wrapper_preserves_context_overrides_and_plain_cleanup() {
 #[tokio::test]
 async fn successful_prepare_returns_handle_when_cancellation_races_after_backend_prepare() {
     let calls = Arc::new(Mutex::new(Vec::new()));
-    let store = AthanorStore::new(RecordingStore {
-        calls: Arc::clone(&calls),
-        cancel_during_prepare: true,
-    });
     let snapshot = SnapshotId("snap_recording_prepare_race".to_string());
     let context = OperationContext::new("daemon.index.prepare-race");
+    let cancellation = context
+        .cancellation_handle()
+        .expect("register cancellation lease");
+    let store = AthanorStore::new(RecordingStore {
+        calls: Arc::clone(&calls),
+        cancel_on_prepare: Some(cancellation.clone()),
+    });
 
     let prepared = store
         .prepare_publication(snapshot.clone(), &context)
