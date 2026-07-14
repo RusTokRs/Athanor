@@ -88,10 +88,16 @@ error is returned without sleeping past the deadline. Non-retryable errors fail 
 
 `athanor-core` exposes a cloneable `CancellationHandle` through
 `OperationContextCancellation::cancellation_handle()`. The process-local cancellation state is keyed
-by the stable operation id and excluded from `OperationContext` serialization. Callers that create
-handles must therefore use operation identities that are unique while work is active. Daemon request
-contexts use `daemon.<command>.<request_id>`; watcher index jobs are serialized by the single-active
-index guard.
+by the stable operation id and excluded from `OperationContext` serialization. Registration now acts
+as an exclusive lease: a second live cancellation authority for the same operation id returns
+`CoreError::Conflict` instead of silently sharing the first authority. Callers clone the returned
+handle when one operation needs multiple cancellation owners, and the id becomes reusable after all
+handle clones are dropped.
+
+This lease makes the existing uniqueness requirement enforceable. Daemon request contexts use
+`daemon.<command>.<request_id>`; watcher index jobs are serialized by the single-active index guard.
+The core regressions cover clone propagation, duplicate-id rejection, identity reuse after drop,
+stable `Cancelled` mapping, unchanged JSON wire shape, and rejection of anonymous handles.
 
 SurrealDB backoff polls `OperationContext::check_active()` at intervals no larger than five
 milliseconds. Cancellation stops before the next backend attempt and interrupts a pending backoff
@@ -102,7 +108,8 @@ with bounded latency. It does not abort a backend request that is already execut
 The application `CancellationToken` owns shared state containing an optional core
 `CancellationHandle`. The operation-aware daemon scheduler binds the token before inserting it into
 the daemon cancellation registry. Cancelling either the registry clone or the running-task clone sets
-both the application flag and the core operation state.
+both the application flag and the core operation state. Binding an independent token to an already
+active operation id now fails closed instead of merging both jobs into one cancellation state.
 
 Index, coordinated generation, wiki projection, and HTML report jobs use this scheduler path. For
 index jobs, the exact bound `OperationContext` is passed to `begin_snapshot`, `put_snapshot`,
