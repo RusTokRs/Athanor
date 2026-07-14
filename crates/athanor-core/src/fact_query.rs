@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use athanor_domain::{EntityId, Fact};
 use serde::{Deserialize, Serialize};
 
-use crate::{CoreResult, SnapshotSelector};
+use crate::{CanonicalSnapshotStore, CoreError, CoreResult, SnapshotSelector};
 
 /// Filters facts visible through one committed canonical snapshot.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -28,6 +28,33 @@ pub trait FactQueryStore: Send + Sync {
         snapshot: SnapshotSelector,
         query: FactQuery,
     ) -> CoreResult<Vec<Fact>>;
+}
+
+/// Every canonical snapshot store exposes the same committed-only fact query semantics.
+#[async_trait]
+impl<T> FactQueryStore for T
+where
+    T: CanonicalSnapshotStore + Send + Sync,
+{
+    async fn query_facts(
+        &self,
+        snapshot: SnapshotSelector,
+        query: FactQuery,
+    ) -> CoreResult<Vec<Fact>> {
+        let canonical = match snapshot {
+            SnapshotSelector::Exact(snapshot) => self
+                .load_snapshot(&snapshot)
+                .await?
+                .ok_or_else(|| CoreError::NotFound(format!("snapshot {}", snapshot.0)))?,
+            SnapshotSelector::LatestCommitted => {
+                let Some(snapshot) = self.load_latest_snapshot().await? else {
+                    return Ok(Vec::new());
+                };
+                snapshot
+            }
+        };
+        Ok(filter_facts(&canonical.facts, &query))
+    }
 }
 
 /// Applies the shared in-memory filtering semantics used by canonical-snapshot facades and stores.
