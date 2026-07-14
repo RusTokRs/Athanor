@@ -12,11 +12,12 @@ fn registry() -> &'static Mutex<HashMap<String, Weak<AtomicBool>>> {
     CANCELLATIONS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-/// Cloneable cancellation authority shared by every handle registered for one operation id.
+/// Cloneable cancellation authority for one active operation identity.
 ///
 /// The handle is process-local and is intentionally not serialized with `OperationContext`.
-/// Transports keep the existing operation-id/deadline wire contract, while application code can
-/// cancel all in-process clones that carry the same stable operation id.
+/// Transports keep the existing operation-id/deadline wire contract. One operation id may own only
+/// one live cancellation authority at a time; callers that need another clone must clone the
+/// returned handle instead of registering the id again.
 #[derive(Debug, Clone)]
 pub struct CancellationHandle {
     operation_id: String,
@@ -24,7 +25,10 @@ pub struct CancellationHandle {
 }
 
 impl CancellationHandle {
-    /// Returns the shared handle for a context, creating it on first use.
+    /// Registers the cancellation authority for a context.
+    ///
+    /// A second live registration for the same operation id is rejected. This fail-closed lease
+    /// prevents independent contexts from being silently merged into one global cancellation state.
     pub fn for_context(context: &OperationContext) -> CoreResult<Self> {
         let operation_id = context
             .operation_id
@@ -39,14 +43,19 @@ impl CancellationHandle {
         let mut cancellations = registry()
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let state = cancellations
+        if cancellations
             .get(&operation_id)
             .and_then(Weak::upgrade)
-            .unwrap_or_else(|| {
-                let state = Arc::new(AtomicBool::new(false));
-                cancellations.insert(operation_id.clone(), Arc::downgrade(&state));
-                state
-            });
+            .is_some()
+        {
+            return Err(CoreError::Conflict(format!(
+                "cancellation identity `{operation_id}` is already active"
+            )));
+        }
+        cancellations.remove(&operation_id);
+
+        let state = Arc::new(AtomicBool::new(false));
+        cancellations.insert(operation_id.clone(), Arc::downgrade(&state));
 
         Ok(Self {
             operation_id,
@@ -117,10 +126,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn cloned_handles_cancel_one_operation_context() {
+    fn cloned_handle_cancels_one_operation_context() {
         let context = OperationContext::new("core-cancellation-shared");
-        let first = context.cancellation_handle().expect("create first handle");
-        let second = context.cancellation_handle().expect("reuse shared handle");
+        let first = context.cancellation_handle().expect("create handle");
+        let second = first.clone();
 
         assert_eq!(first.operation_id(), "core-cancellation-shared");
         assert!(!context.is_cancelled());
@@ -133,6 +142,39 @@ mod tests {
             .expect_err("cancelled context must reject new work");
         assert!(matches!(error, CoreError::Cancelled(_)));
         assert!(!error.is_retryable());
+    }
+
+    #[test]
+    fn duplicate_live_operation_identity_is_rejected() {
+        let first_context = OperationContext::new("core-cancellation-exclusive");
+        let _first = first_context
+            .cancellation_handle()
+            .expect("register first handle");
+        let second_context = OperationContext::new("core-cancellation-exclusive");
+
+        let error = second_context
+            .cancellation_handle()
+            .expect_err("duplicate active identity must be rejected");
+
+        assert!(matches!(error, CoreError::Conflict(_)));
+        assert!(error.to_string().contains("already active"));
+    }
+
+    #[test]
+    fn operation_identity_can_be_reused_after_handle_drop() {
+        let first_context = OperationContext::new("core-cancellation-reuse");
+        let first = first_context
+            .cancellation_handle()
+            .expect("register first handle");
+        drop(first);
+
+        let second_context = OperationContext::new("core-cancellation-reuse");
+        let second = second_context
+            .cancellation_handle()
+            .expect("reuse released operation identity");
+
+        assert!(!second.is_cancelled());
+        assert!(!second_context.is_cancelled());
     }
 
     #[test]
