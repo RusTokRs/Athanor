@@ -128,9 +128,11 @@ Context-aware SurrealDB write and publication methods retry only `CoreError::Bus
 
 `OperationContextCancellation::cancellation_handle()` registers one live cancellation authority for a stable operation id. Callers clone that returned handle when several owners participate in the same operation. A second registration while any clone is alive fails with `CoreError::Conflict` instead of merging independent contexts into one global flag; after every clone is dropped, the operation id may be registered again. Cancellation state remains process-local and is not serialized. The core unit tests verify clone propagation, duplicate-id rejection, identity reuse after drop, stable `Cancelled` mapping, unchanged JSON wire shape, and rejection of anonymous cancellation handles.
 
+`CancellationToken::bind_operation()` is idempotent for the same token and operation id: it reuses the handle already held by the token instead of attempting a second core registration. Binding a different operation id to that token still fails, and binding an independent token to the same active operation id still fails closed with `Conflict`.
+
 During retry backoff, cancellation is polled at intervals no larger than five milliseconds. A cancellation request therefore prevents the next retry and interrupts the wait with bounded latency. It does not force-abort a backend request that has already entered the SurrealDB SDK.
 
-Daemon write jobs use an operation-aware scheduler. Before a token is inserted into the daemon cancellation registry, the application `CancellationToken` is bound to the same core handle carried by the job's `OperationContext`. The registry clone and running-task clone therefore cancel the same state. Index, generate, wiki, and HTML report jobs use this path; index forwards the bound context through `begin_snapshot`, `put_snapshot`, `prepare_snapshot`, and `commit_snapshot`. Binding another independent token to the same active operation id fails closed.
+Daemon write jobs use an operation-aware scheduler. Before a token is inserted into the daemon cancellation registry, the application `CancellationToken` is bound to the same core handle carried by the job's `OperationContext`. The registry clone and running-task clone therefore cancel the same state. Index, generate, wiki, and HTML report jobs use this path; index forwards the bound context through `begin_snapshot`, `put_snapshot`, `prepare_snapshot`, and `commit_snapshot`. Repeating the same binding is safe and idempotent; binding another independent token to the same active operation id fails closed.
 
 Relevant local checks:
 
@@ -157,6 +159,7 @@ Troubleshooting:
 - a cancelled retry issuing a second backend attempt indicates that `check_active()` was bypassed;
 - a daemon registry token that does not cancel the bound `OperationContext` indicates scheduler binding was bypassed;
 - a second live registration of the same operation id succeeding indicates that independent cancellation contexts can still be merged;
+- repeating the same token/id binding and receiving a conflict indicates that application binding is not idempotent;
 - rebinding one application token to a different operation id must fail;
 - cancellation state appearing in serialized `OperationContext` is a wire-compatibility regression;
 - remote tests running during a normal `--all-features` job indicate that their `#[ignore]` boundary was removed;
