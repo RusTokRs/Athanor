@@ -27,7 +27,8 @@ pub(crate) fn start_index(
     if crate::daemon_job_state::has_active(state, DaemonJobKind::Index)? {
         anyhow::bail!("index job is already queued or running");
     }
-    let (job_id, cancellation) = start_cancellable(state, DaemonJobKind::Index, description)?;
+    let (job_id, cancellation) =
+        start_cancellable(state, DaemonJobKind::Index, description, &operation)?;
     let mut job = get_daemon_job(state, &job_id)?;
     let job_state = Arc::clone(state);
     let job_id_for_task = job_id.clone();
@@ -124,17 +125,18 @@ pub(crate) fn start_generate(
     request_id: &str,
     deadline_unix_ms: Option<u64>,
 ) -> Result<Option<DaemonJob>> {
+    let operation = operation_context("generate", request_id, deadline_unix_ms);
     let (job_id, cancellation) = start_cancellable(
         state,
         DaemonJobKind::Generate,
         "generate read models".to_string(),
+        &operation,
     )?;
     let job = get_daemon_job(state, &job_id).ok();
     let job_state = Arc::clone(state);
     let job_id_for_task = job_id.clone();
     let root = state.endpoint.root.clone();
     let composition = crate::daemon_queries::composition(state);
-    let operation = operation_context("generate", request_id, deadline_unix_ms);
     if let Err(error) = std::thread::Builder::new()
         .name(format!("athd-generate-{job_id_for_task}"))
         .spawn(move || {
@@ -216,14 +218,18 @@ pub(crate) fn start_html_report(
     request_id: &str,
     deadline_unix_ms: Option<u64>,
 ) -> Result<Option<DaemonJob>> {
-    let (job_id, cancellation) =
-        start_cancellable(state, DaemonJobKind::HtmlReport, "HTML report".to_string())?;
+    let operation = operation_context("html_report", request_id, deadline_unix_ms);
+    let (job_id, cancellation) = start_cancellable(
+        state,
+        DaemonJobKind::HtmlReport,
+        "HTML report".to_string(),
+        &operation,
+    )?;
     let job = get_daemon_job(state, &job_id).ok();
     let job_state = Arc::clone(state);
     let job_id_for_task = job_id.clone();
     let root = state.endpoint.root.clone();
     let composition = crate::daemon_queries::composition(state);
-    let operation = operation_context("html_report", request_id, deadline_unix_ms);
     if let Err(error) = std::thread::Builder::new()
         .name(format!("athd-html-report-{job_id_for_task}"))
         .spawn(move || {
@@ -303,14 +309,18 @@ pub(crate) fn start_wiki(
     request_id: &str,
     deadline_unix_ms: Option<u64>,
 ) -> Result<Option<DaemonJob>> {
-    let (job_id, cancellation) =
-        start_cancellable(state, DaemonJobKind::Wiki, "project wiki".to_string())?;
+    let operation = operation_context("wiki", request_id, deadline_unix_ms);
+    let (job_id, cancellation) = start_cancellable(
+        state,
+        DaemonJobKind::Wiki,
+        "project wiki".to_string(),
+        &operation,
+    )?;
     let job = get_daemon_job(state, &job_id).ok();
     let job_state = Arc::clone(state);
     let job_id_for_task = job_id.clone();
     let root = state.endpoint.root.clone();
     let composition = crate::daemon_queries::composition(state);
-    let operation = operation_context("wiki", request_id, deadline_unix_ms);
     if let Err(error) = std::thread::Builder::new()
         .name(format!("athd-wiki-{job_id_for_task}"))
         .spawn(move || {
