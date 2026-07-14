@@ -17,11 +17,24 @@ publish, and abort.
 `athanor-store-conformance` provides reusable async checks for:
 
 - exact and latest committed snapshot selection;
-- stable-key, relation, and diagnostic query behavior;
+- stable-key entity lookup;
+- backend-neutral fact filtering by subject, object, kind, extractor, and limit;
+- relation and diagnostic filtering;
 - invisibility of uncommitted and prepared snapshots;
 - complete observable publication after commit;
 - rejection of abort after commit;
 - removal of aborted snapshots without changing `LatestCommitted`.
+
+The core-owned `FactQuery` and `FactQueryStore` are additive to `KnowledgeStore`. Every
+`CanonicalSnapshotStore` receives the same blanket committed-only implementation, so canonical
+backends cannot silently diverge on filter or limit semantics. `athanor-app::query` re-exports the
+request and trait as part of its stable read-only surface.
+
+Memory now implements `CanonicalSnapshotStore`; JSONL and SurrealDB already expose canonical
+snapshots. The shared conformance suite therefore exercises exact/latest fact queries for all three
+backends. Dedicated backend tests additionally cover subject/object/kind/extractor filters and the
+uncommitted visibility boundary. The remote two-client suite queries a committed fact through the
+public contract from the independent reader connection.
 
 The dedicated `Store Conformance` workflow is configured for Memory, JSONL, and embedded SurrealDB.
 Server-dependent remote tests remain isolated from the normal workspace and `--all-features` graph.
@@ -61,7 +74,8 @@ The remote suite uses two independent SDK connections and checks:
 
 - 32 concurrent snapshot allocations produce unique identifiers;
 - one connection can publish a snapshot loaded by the other;
-- entity and fact records are visible across clients after commit.
+- entity records are visible across clients after commit;
+- the independent reader can retrieve the committed fact through `FactQueryStore`.
 
 These checks become evidence only after a successful hosted run. They do not deterministically force
 a real server write conflict.
@@ -178,6 +192,5 @@ The current implementation does not claim:
 - hosted compile, test, formatting, Clippy, AppSec, installer, or release evidence while Actions runs
   remain unavailable.
 
-P0.4 remains incomplete until hosted evidence, backend-neutral fact queries, data-plus-marker
-publication, generation-pointer switching, remote conflict evidence, and pointer-level fault
-injection are complete.
+P0.4 remains incomplete until hosted evidence, data-plus-marker publication, generation-pointer
+switching, remote conflict evidence, and pointer-level fault injection are complete.
