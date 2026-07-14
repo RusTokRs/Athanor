@@ -113,9 +113,9 @@ active operation id fails closed instead of merging both jobs into one cancellat
 the same token/id binding is idempotent and reuses the handle already retained by that token.
 
 Index, coordinated generation, wiki projection, and HTML report jobs use this scheduler path. For
-index jobs, the exact bound `OperationContext` is passed to `begin_snapshot`, `put_snapshot`,
-`prepare_snapshot`, and `commit_snapshot`. Rollback uses a plain abort path so cleanup is not skipped
-because the user cancelled the originating operation.
+index jobs, the exact bound `OperationContext` is passed through begin, batch write, and prepare, then
+is reused by the typed runtime coordinator for `publish_prepared`. Rollback and recovery use the plain
+`abort_prepared` path so cleanup is not skipped because the user cancelled the originating operation.
 
 The compatibility scheduler without an operation context remains available for tests and legacy
 jobs. Read-only daemon commands, CLI lifecycle cancellation, and MCP cancellation are not covered by
@@ -158,7 +158,7 @@ canonical latest-snapshot representation.
 
 ## Typed index publication coordinator boundary
 
-`athanor-app/src/index_publication.rs` owns the staged coordinator boundary. Schema
+`athanor-app/src/index_publication.rs` owns the coordinator boundary. Schema
 `athanor.index_publication.v2` stores a serialized `PreparedSnapshot` in the `prepared` field. Schema
 v1 records containing the historical raw `snapshot` string remain readable; deserialization converts
 them to `PreparedSnapshot` and normalizes subsequent serialization to v2. Unknown schemas and unknown
@@ -177,18 +177,31 @@ The module exposes two typed coordinator operations:
   the canonical snapshot is committed, or restores backups and calls cancellation-independent
   `abort_prepared` when it is not committed.
 
+Production indexing is now routed through `index_runtime.rs`. After the deferred pipeline has crossed
+its prepare boundary, the runtime constructs `PreparedSnapshot`, invokes `publish_prepared_index`, and
+uses the same `OperationContext` for canonical publication. Startup recovery calls the typed recovery
+function before loading previous state. The public `index` module and `repo_id_for_root` surface remain
+unchanged.
+
+The runtime adds a final fail-safe around coordinator errors. It checks whether the prepared snapshot
+became the latest committed snapshot; committed publications are left for journal recovery, while an
+uncommitted snapshot is aborted outside the request cancellation budget. This also closes the case
+where durable journal creation fails before the coordinator can enter its normal rollback branches.
+
 Publication errors roll back prepared application artefacts before aborting canonical data. The
 journal remains present if canonical publication succeeded but read-model/state finalization fails;
 recovery then sees the committed snapshot and removes stale backups instead of undoing the new
 complete generation.
 
 Regressions cover v2 round-trip, v1 normalization, atomic write/load/clear, unknown schemas,
-path-validation, publication-id traversal, rollback of an uncommitted publication, and cleanup after
-a committed publication.
+path-validation, publication-id traversal, rollback of an uncommitted publication, cleanup after a
+committed publication, and a production-module index run that requires canonical, read-model, and
+index-state snapshot identities to agree while leaving no journal after success.
 
-The runtime `index.rs` still owns its local v1 journal and direct `commit_snapshot` path. The staged
-coordinator is intentionally not counted as production wiring until `index.rs` calls these functions
-and the local journal/recovery implementation is removed.
+The former monolithic `index.rs` is compiled only as a temporary test-only legacy suite so its broad
+incremental and validation regressions remain available during extraction. It is no longer the
+production `index` module. Moving those tests to the new runtime module and deleting the legacy file is
+a cleanup step, not a blocker for the typed production path.
 
 ## Prepare semantics
 
@@ -203,13 +216,12 @@ This slice does not make the whole lifecycle one transaction:
 - counter allocation and snapshot-record creation are separate backend requests, so a crash can leave
   a harmless sequence gap;
 - the atomic batch transaction does not include the later commit marker;
-- the typed coordinator boundary is implemented but runtime `index.rs` has not been switched to it;
 - abort removes canonical rows transactionally, then deletes snapshot metadata in a separate request;
 - a real remote write conflict has not yet been reproduced and observed through the public facade;
 - an already executing backend request is not force-aborted by the retry wrapper;
 - read-only daemon commands, CLI, and MCP are not yet connected to the same cancellation lifecycle;
-- canonical data, generated state, and read models still do not switch through one generation pointer.
+- canonical data, generated state, and read models still do not switch through one generation pointer;
+- hosted compile, test, formatting, and Clippy evidence for the runtime cutover is not yet available.
 
-P0.4 remains incomplete until runtime coordinator wiring, hosted remote evidence, an observed remote
-conflict, commit-marker publication, fault injection, and generation-level recovery are covered by
-tests.
+P0.4 remains incomplete until hosted evidence, test-only legacy extraction, an observed remote
+conflict, commit-marker publication, fault injection, and generation-level recovery are covered.
