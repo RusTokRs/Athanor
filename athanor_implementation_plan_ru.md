@@ -4,7 +4,7 @@
 > Назначение: рабочий implementation plan для последовательного улучшения Athanor  
 > Репозиторий: `RusTokRs/Athanor`  
 > Базовая ветка: `main`  
-> Точка сверки: `bcdf7d5696d1ce17277cda043a46e6b9ae3e4330`  
+> Точка сверки: `5100f287386354b5c75a6b66d67ac263fce640b3`  
 > Дата актуализации: 2026-07-14  
 > Статус: active implementation plan
 
@@ -31,10 +31,11 @@
 10. Server-dependent tests не должны неявно запускаться в self-contained `--all-features` graph.
 11. Один `operation_id` может иметь только одну живую cancellation authority; дополнительные владельцы обязаны clone существующий handle.
 12. Cancellation/deadline не должны блокировать rollback и recovery.
-13. Наличие typed prepared handle не считается migration coordinator, пока journal и publish path продолжают использовать raw `SnapshotId`.
+13. Наличие typed prepared handle или journal v2 не считается migration coordinator, пока runtime publish/recovery path продолжает использовать raw `SnapshotId`.
 14. После успешного backend prepare coordinator обязан получить cleanup authority даже при гонке cancellation.
 15. Cancellation lease существует, пока жив хотя бы один handle clone; временный handle не моделирует долгоживущую операцию.
 16. Повторный bind одного `CancellationToken` к тому же `operation_id` обязан переиспользовать уже удерживаемую lease, а не регистрировать новую.
+17. Legacy publication journal v1 должен читаться после перехода writer на typed schema v2.
 
 ## 1. Текущий baseline
 
@@ -54,6 +55,7 @@
 - idempotent application binding для того же token/operation id;
 - daemon cancellation bridge для index/generate/wiki/html;
 - application-level `PreparedSnapshot` и `PreparedSnapshotPublication` protocol;
+- staged `IndexPublicationJournal` v2 с typed handle, v1 compatibility и atomic write/load/clear;
 - `AthanorStore` делегирует context-aware backend overrides;
 - typed JSONL prepare→publish/abort regression и cancellation-race regression;
 - Linux/Windows/macOS quality matrix, optional-feature matrix и store conformance workflow;
@@ -70,6 +72,7 @@ cargo test --workspace --quiet --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test -p athanor-core cancellation --locked
 cargo test -p athanor-app cancellation --locked
+cargo test -p athanor-app index_publication --locked
 cargo test -p athanor-app --test prepared_publication --locked
 cargo test -p athanor-store-memory --locked
 cargo test -p athanor-store-jsonl --locked
@@ -86,10 +89,10 @@ cargo run -p ath --quiet --locked -- docs check
 | --- | --- | --- | --- |
 | Query contract | `[-]` | ID queries, resolver, embedded suites, remote contract configured | Hosted remote evidence, полный persistent path |
 | Snapshot isolation | `[-]` | committed-only reads, prepared immutability, lifecycle suite | Generation-level visibility |
-| Atomic publication | `[-]` | JSONL staging/recovery, SurrealDB batch rollback, typed prepared handle | Coordinator migration, commit marker и generation pointer |
+| Atomic publication | `[-]` | JSONL staging/recovery, SurrealDB batch rollback, typed prepared handle, staged journal v2 | Runtime coordinator migration, commit marker и generation pointer |
 | Concurrent writers | `[-]` | JSONL locking, atomic Surreal counter, embedded ownership, remote two-client test configured | Hosted remote conflict evidence |
 | Operation context | `[-]` | deadlines, exclusive cancellation identity lease, idempotent token binding, daemon write-job bridge, context-forwarding wrapper | Read commands, CLI/MCP, in-flight SDK interruption |
-| Storage transaction boundary | `[-]` | SnapshotBatch, native Surreal transaction, prepared publication extension, JSONL typed lifecycle | Journal migration, Memory/Surreal typed regressions и atomic data+marker publish |
+| Storage transaction boundary | `[-]` | SnapshotBatch, native Surreal transaction, prepared publication extension, typed journal storage, JSONL typed lifecycle | `index.rs` wiring, Memory/Surreal typed regressions и atomic data+marker publish |
 | Runtime composition | `[-]` | explicit composition in main paths | Global registry removal, injected process runner |
 | Default build | `[x]` | SurrealDB opt-in, remote tests ignored by default | Maintain boundary |
 | Hosted CI governance | `[-]` | workflows/matrices и explicit Rust toolchain input | Hosted evidence, branch protection, required checks |
@@ -135,7 +138,7 @@ cargo run -p ath --quiet --locked -- docs check
 
 ### P0.4. Store conformance и transactional publication
 
-**Статус:** `[-]` — десятый idempotent-binding slice реализован; coordinator migration, hosted evidence, observed remote conflict и generation publication остаются.
+**Статус:** `[-]` — одиннадцатый typed-journal-v2 staging slice реализован; runtime coordinator migration, hosted evidence, observed remote conflict и generation publication остаются.
 
 #### Shared backend contract
 
@@ -205,9 +208,14 @@ cargo run -p ath --quiet --locked -- docs check
 - [x] `AthanorStore` делегирует все context-aware write/publication methods inner backend.
 - [x] Recording regression различает context batch/prepare/commit и plain abort.
 - [x] JSONL typed prepare→publish/abort regression подтверждает `LatestCommitted` semantics.
+- [x] `IndexPublicationJournal` v2 хранит serialized `PreparedSnapshot`.
+- [x] Journal v1 читается и нормализуется в typed v2; unknown schema/fields fail-closed.
+- [x] Journal предоставляет atomic write, load и clear с filesystem regression.
 - [-] Memory и SurrealDB typed prepare→publish/abort regressions остаются.
-- [-] Index pipeline готовит snapshot, но coordinator journal ещё хранит raw `SnapshotId`.
-- [ ] Перевести index journal, commit и recovery на `PreparedSnapshot`.
+- [-] Новый journal module зарегистрирован с временным narrow `dead_code` allowance.
+- [-] Runtime `index.rs` пока хранит локальный v1/raw-`SnapshotId` journal и вызывает direct `commit_snapshot`.
+- [ ] Перевести runtime journal, commit и recovery на `PreparedSnapshotPublication`.
+- [ ] Удалить локальный journal type и временный `dead_code` allowance после wiring.
 
 #### Transactional publication
 
@@ -267,6 +275,13 @@ cargo run -p ath --quiet --locked -- docs check
 10. Idempotent application cancellation binding:
    - `eecbdb29fb450dc8c5f5824dab9dd9f9a75db14f`
    - `bcdf7d5696d1ce17277cda043a46e6b9ae3e4330`
+   - `acf8a3c5bdae60391cb04e52baf94c2eec930a5c`
+11. Typed journal v2 staging:
+   - `cc43df7eed093543b985816300e5a5ddceae7114`
+   - `aa9122b5bf3ae3163fac0e4c80977d6aa91698fc`
+   - `3278d92de070600939ec949b44ea179ef266e765`
+   - `9d866fd3d877db27a94cdf4dbd9efc673d8fa098`
+   - `5100f287386354b5c75a6b66d67ac263fce640b3`
 
 **Definition of Done:** Memory, JSONL и persistent SurrealDB имеют эквивалентный observable lifecycle; independent writers не теряют updates; retries bounded attempts/deadline/cancellation; typed prepared state используется coordinator; partial writes не публикуются; после crash видна только предыдущая или новая целая generation.
 
@@ -353,35 +368,38 @@ cargo run -p ath --quiet --locked -- docs check
 - [x] Prepared publication regression command зафиксирован в плане.
 - [x] Toolchain-action и blocking Zizmor expectations задокументированы.
 - [x] Cancellation identity lease, duplicate-id failure mode и idempotent same-token binding задокументированы.
+- [x] Typed journal v1/v2 и persistence regression command зафиксированы.
 - [ ] Common CI failures для остальных workflows.
 - [ ] `justfile`, `xtask` или единый verification entrypoint.
 
 ## 6. Порядок реализации
 
-1. P0.4 — получить hosted compile/test/fmt/Clippy evidence для cancellation-lease/typed-JSONL slices.
-2. P0.4 — мигрировать index coordinator/journal/recovery на `PreparedSnapshot`.
-3. P0.4 — добавить Memory и SurrealDB typed lifecycle regressions.
-4. P0.4 — объединить canonical data и commit marker для SurrealDB.
-5. P0.4 — детерминированно воспроизвести remote transaction conflict.
-6. P1.5 — покрыть read-only daemon/CLI/MCP cancellation lifecycle.
-7. P0.4 — Fact conformance, generation pointer и fault injection.
-8. P0.3/P0.1/P1.4 — hosted AppSec, matrices, installers и tag evidence.
-9. P1.1 sandbox, decomposition и performance budgets.
-10. P2 governance/DX.
+1. P0.4 — получить hosted compile/test/fmt/Clippy evidence для typed-journal/cancellation slices.
+2. P0.4 — подключить `index_publication` в runtime coordinator и удалить локальный v1 journal.
+3. P0.4 — заменить direct commit/abort на `publish_prepared`/`abort_prepared`.
+4. P0.4 — добавить Memory и SurrealDB typed lifecycle regressions.
+5. P0.4 — объединить canonical data и commit marker для SurrealDB.
+6. P0.4 — детерминированно воспроизвести remote transaction conflict.
+7. P1.5 — покрыть read-only daemon/CLI/MCP cancellation lifecycle.
+8. P0.4 — Fact conformance, generation pointer и fault injection.
+9. P0.3/P0.1/P1.4 — hosted AppSec, matrices, installers и tag evidence.
+10. P1.1 sandbox, decomposition и performance budgets.
+11. P2 governance/DX.
 
 ## 7. Текущий рабочий пакет
 
-**Активный пункт:** `P0.4 prepared publication coordinator migration`.
+**Активный пункт:** `P0.4 runtime coordinator wiring for typed publication journal`.
 
 Следующий кодовый срез:
 
-1. получить локальный checkout либо точный patch-capable transport для большого `index.rs`;
-2. добавить `Option<PreparedSnapshot>` в deferred pipeline result либо отдельный prepared output type;
-3. записывать typed handle в index publication journal v2 с backward-compatible чтением v1;
-4. заменить direct `commit_snapshot` на `publish_prepared`;
-5. заменить recovery/rollback raw snapshot path на `abort_prepared`;
-6. добавить tests: journal round-trip v1/v2, publish через context override, rollback вне cancellation;
-7. после этого добавить typed regressions Memory/SurrealDB и спроектировать data+marker atomic protocol.
+1. заменить локальный `IndexPublicationJournal` в `index.rs` на `crate::index_publication::IndexPublicationJournal`;
+2. удалить локальные schema/write/load/clear implementations и использовать staged module;
+3. передавать `PreparedSnapshot` из deferred pipeline output либо создать его на гарантированной prepared boundary;
+4. создавать journal v2 до staging read model/state;
+5. заменить direct `commit_snapshot` на `publish_prepared`;
+6. заменить rollback/recovery raw snapshot path на `abort_prepared`, сохранив чтение v1;
+7. обновить recovery tests для v1 и v2;
+8. удалить временный `#[allow(dead_code)]` после wiring.
 
 ## 8. Definition of Done проекта
 
@@ -398,6 +416,16 @@ cargo run -p ath --quiet --locked -- docs check
 - Roadmap, plan, issues и release notes соответствуют коду.
 
 ## 9. Журнал актуализаций
+
+### 2026-07-14 — typed index publication journal v2 staging
+
+- Добавлен внутренний `IndexPublicationJournal` schema v2 с serialized `PreparedSnapshot` в поле `prepared`.
+- Legacy schema v1 с raw `snapshot` читается и нормализуется в typed v2 representation.
+- Unknown schema и unknown fields отклоняются fail-closed.
+- Реализованы atomic staging/backup write, load, clear и единый journal path.
+- Добавлены regressions: v2 round-trip, v1→v2 normalization, unknown schema и filesystem write/load/clear.
+- Модуль зарегистрирован с временным narrow `dead_code` allowance; runtime `index.rs` ещё не подключён.
+- P0.4 остаётся `[-]`; активным назначен runtime coordinator wiring.
 
 ### 2026-07-14 — idempotent application cancellation binding
 
