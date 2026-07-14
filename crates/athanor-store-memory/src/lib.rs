@@ -101,7 +101,7 @@ impl KnowledgeStore for MemoryKnowledgeStore {
     async fn prepare_snapshot(&self, snapshot: SnapshotId) -> CoreResult<()> {
         let state = self.lock_state()?;
         let snapshot = state
-            .snapshot_data(&snapshot)
+            .snapshot_data(Some(&snapshot))
             .ok_or_else(|| CoreError::NotFound(format!("snapshot {}", snapshot.0)))?;
         if snapshot.committed {
             return Err(CoreError::Conflict(
@@ -238,7 +238,7 @@ impl KnowledgeStore for MemoryKnowledgeStore {
 impl CanonicalSnapshotStore for MemoryKnowledgeStore {
     async fn load_snapshot(&self, snapshot: &SnapshotId) -> CoreResult<Option<CanonicalSnapshot>> {
         let state = self.lock_state()?;
-        let Some(data) = state.snapshot_data(snapshot) else {
+        let Some(data) = state.snapshot_data(Some(snapshot)) else {
             return Ok(None);
         };
         if !data.committed {
@@ -253,7 +253,7 @@ impl CanonicalSnapshotStore for MemoryKnowledgeStore {
             return Ok(None);
         };
         let data = state
-            .snapshot_data(&snapshot)
+            .snapshot_data(Some(&snapshot))
             .expect("latest committed snapshot must exist");
         Ok(Some(canonical_snapshot(&snapshot, data)))
     }
@@ -322,8 +322,8 @@ impl State {
         }
     }
 
-    fn snapshot_data(&self, snapshot: &SnapshotId) -> Option<&SnapshotData> {
-        self.snapshots.get(snapshot)
+    fn snapshot_data(&self, snapshot: Option<&SnapshotId>) -> Option<&SnapshotData> {
+        snapshot.and_then(|snapshot| self.snapshots.get(snapshot))
     }
 }
 
