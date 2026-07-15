@@ -187,7 +187,8 @@ fn validate_exact_generation(snapshot_dir: &Path, snapshot: &SnapshotId) -> Core
     let marker_path = snapshot_dir.join("commit.json");
     match manifest.get("commit_marker_schema") {
         Some(Value::String(schema))
-            if schema == legacy::atomic_publication::SNAPSHOT_COMMIT_SCHEMA =>
+            if schema == legacy::atomic_publication::SNAPSHOT_COMMIT_SCHEMA
+                || schema == legacy::atomic_publication::SNAPSHOT_COMMIT_SCHEMA_V1 =>
         {
             legacy::atomic_publication::validate_commit_marker(snapshot_dir, snapshot)
         }
