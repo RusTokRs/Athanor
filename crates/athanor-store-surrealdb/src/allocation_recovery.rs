@@ -7,6 +7,7 @@ use serde_json::json;
 use super::{SnapshotRecord, SurrealKnowledgeStore};
 
 const MAX_ORPHAN_CLEANUP_BATCH: usize = 128;
+const DEFAULT_ORPHAN_MIN_AGE_MS: u64 = 24 * 60 * 60 * 1_000;
 
 impl SurrealKnowledgeStore {
     pub(crate) async fn begin_snapshot_allocation_atomic(
@@ -15,6 +16,14 @@ impl SurrealKnowledgeStore {
         base: SnapshotBase,
         context: &OperationContext,
     ) -> CoreResult<SnapshotId> {
+        let stale_before_unix_ms = current_unix_ms().saturating_sub(DEFAULT_ORPHAN_MIN_AGE_MS);
+        self.recover_orphan_snapshot_allocations_bounded(
+            &repo,
+            stale_before_unix_ms,
+            MAX_ORPHAN_CLEANUP_BATCH,
+        )
+        .await?;
+
         let _guard = self.write_gate.lock().await;
         let sequence = self.allocate_snapshot_sequence().await?;
         let snapshot_id = format!("snap_surreal_{sequence:08}");
