@@ -41,6 +41,9 @@ impl CanonicalLatestIdentity {
 pub trait CanonicalLatestPointer: Send + Sync {
     async fn load_latest_identity(&self) -> CoreResult<Option<CanonicalLatestIdentity>>;
 
+    /// Validates an exact committed target using the same backend rules as repair, without mutation.
+    async fn validate_latest_identity(&self, identity: &CanonicalLatestIdentity) -> CoreResult<()>;
+
     async fn repair_latest_identity(&self, identity: CanonicalLatestIdentity) -> CoreResult<()>;
 }
 
