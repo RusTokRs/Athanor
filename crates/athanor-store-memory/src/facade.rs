@@ -70,12 +70,12 @@ mod latest_pointer_tests {
     async fn validates_only_the_actual_newest_committed_generation() {
         let store = MemoryKnowledgeStore::new();
         let first = store
-            .begin_snapshot(RepoId("repo".to_string()), SnapshotBase::default())
+            .begin_snapshot(RepoId("repo".to_string()), snapshot_base())
             .await
             .unwrap();
         store.commit_snapshot(first.clone()).await.unwrap();
         let second = store
-            .begin_snapshot(RepoId("repo".to_string()), SnapshotBase::default())
+            .begin_snapshot(RepoId("repo".to_string()), snapshot_base())
             .await
             .unwrap();
         store.commit_snapshot(second.clone()).await.unwrap();
@@ -106,5 +106,14 @@ mod latest_pointer_tests {
                 .to_string()
                 .contains("expected")
         );
+    }
+
+    fn snapshot_base() -> SnapshotBase {
+        SnapshotBase {
+            branch: None,
+            commit: None,
+            parent_snapshot: None,
+            working_tree: true,
+        }
     }
 }
