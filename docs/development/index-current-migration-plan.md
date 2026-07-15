@@ -10,20 +10,21 @@ status: verified
 
 ## Status
 
-Writer-side migration bridge, pointer-first index-state readers, and repair inspection are implemented
-on `main`. New successful production indexing runs retain the legacy mutable application artifacts for
-compatibility, publish an immutable application generation, and atomically select it through a separate
-index pointer.
+Writer-side migration bridge, pointer-first index-state readers, repair inspection, and an explicit
+index-generation retention API are implemented on `main`. New successful production indexing runs retain
+the legacy mutable application artifacts for compatibility, publish an immutable application generation,
+and atomically select it through a separate index pointer.
 
 All standard `IndexStateStore::load()` callers now resolve the validated pointer-selected immutable
 state. The application also exports validated read-model and index-state path resolvers through
 `athanor_app::publication`. A present invalid pointer fails closed; the legacy paths are used only when
 no index pointer exists.
 
-`repair inspect` now augments the established canonical and `ath generate` inspection with validation of
+`repair inspect` augments the established canonical and `ath generate` inspection with validation of
 `index-current.json`, its selected artifacts, pending bridge-journal state, incomplete index generations,
-and unpointed immutable index generations. Index generations remain report-only during this migration
-slice: legacy cleanup counters cannot remove them.
+and unpointed immutable index generations. The public `cleanup_index_generations` API provides a separate
+two-step retention protocol; the existing `keep_generated` counter never selects transactional index
+generations.
 
 This pointer is intentionally independent from `.athanor/generated/current.json`, which belongs to the
 on-demand `ath generate` command and coordinates JSONL, wiki, and HTML projection generations.
@@ -139,23 +140,46 @@ Inspection verifies:
 - pending `index-current-publication.json` schema and snapshot-derived generation;
 - read-model generations without matching immutable state, and state files without matching read-model
   generations;
-- generations referenced by neither the current pointer nor a pending journal.
+- generations referenced by neither the current pointer nor a pending journal;
+- an unpointed generation matching canonical latest is classified as `recoverable_index_generation`, not
+  as a removable orphan.
 
-Current retention policy is deliberately conservative:
+Current retention policy is fail-closed:
 
 - the pointed generation is always protected;
 - a generation referenced by a pending bridge journal is always protected;
-- unpointed complete generations are reported as `orphan_index_generation` but are not deleted;
-- incomplete generations are reported and block cleanup;
-- pending, corrupt, incomplete, stale, or canonically unresolvable index publication state blocks
-  `repair cleanup` before canonical or generated retention mutates the project;
-- `repair apply` may first recover the canonical latest pointer, but its cleanup phase remains subject to
-  the same guard;
+- a canonical-latest generation without a pointer is protected until pointer recovery;
+- incomplete, pending, corrupt, stale, or canonically unresolved publication state blocks cleanup;
+- the explicit API accepts its own `keep` count and returns structured `removed` and `retained` rows;
+- dry-run returns a SHA-256 confirmation token derived from the canonical root, retention count, and exact
+  ordered orphan set;
+- destructive cleanup requires the matching token, so changed filesystem state invalidates approval;
+- read-model and index-state members are staged by sibling renames before deletion;
 - existing `keep_canonical`, `keep_generated`, and `generated_only` flags never select immutable index
   generations.
 
-This report-only stage provides compatibility and operational visibility before a separate CLI option
-can authorize index-generation removal.
+The library contract is:
+
+```rust
+use athanor_app::{cleanup_index_generations, IndexGenerationCleanupOptions};
+
+let plan = cleanup_index_generations(IndexGenerationCleanupOptions {
+    root: root.clone(),
+    dry_run: true,
+    keep: 1,
+    confirmation_token: None,
+})?;
+
+cleanup_index_generations(IndexGenerationCleanupOptions {
+    root,
+    dry_run: false,
+    keep: 1,
+    confirmation_token: plan.confirmation_token,
+})?;
+```
+
+CLI wiring is intentionally the next isolated commit because `apps/ath/src/main.rs` is still a large
+monolithic dispatch file and must be changed from a complete verified source snapshot.
 
 ## Compatibility Window
 
@@ -179,6 +203,9 @@ cargo test -p athanor-app index_current --locked
 cargo test -p athanor-app index_state --locked
 cargo test -p athanor-app valid_pointer_generation_is_clean --locked
 cargo test -p athanor-app pointer_without_canonical_latest_blocks_cleanup --locked
+cargo test -p athanor-app dry_run_token_is_required_for_the_exact_plan --locked
+cargo test -p athanor-app corruption_matrix_fails_closed --locked
+cargo test -p athanor-app canonical_latest_generation_is_recoverable_not_removable --locked
 cargo test -p athanor-app index_current_runtime_tests --locked
 cargo test -p athanor-app index_publication_atomic_tests --locked
 cargo test -p athanor-app index_publication_recovery_fault_tests --locked
@@ -197,21 +224,22 @@ The runtime coverage verifies:
 - repair considers a complete pointed generation clean;
 - repair reports but retains an unpointed generation;
 - a pending bridge journal blocks cleanup;
-- a present index pointer without a valid canonical latest snapshot blocks cleanup.
+- a present index pointer without a valid canonical latest snapshot blocks cleanup;
+- the corruption matrix covers unsupported pointer schema, path mismatch, stale snapshot, generation
+  mismatch, missing manifest, missing state, malformed journal, and half-published generations;
+- destructive retention requires a token from the exact dry-run plan;
+- canonical-latest generations without a pointer are treated as recoverable.
 
-## Next Slice: Explicit Index Retention And Corruption Matrix
+## Next Slice: CLI Wiring And Standalone Recovery
 
 The next implementation slice must:
 
-1. Add an explicit index-generation retention option rather than reusing `keep_generated`.
-2. Extend cleanup result kinds so removed and retained index generations are structured report rows,
-   not only inspection issues.
-3. Require dry-run visibility before destructive index-generation cleanup and retain pointed and
-   journal-referenced generations unconditionally.
-4. Add dedicated corruption tests for unsupported pointer schema, path mismatch, stale snapshot,
-   generation mismatch, missing manifest, missing state, malformed journal, and half-published
-   generations.
-5. Add repair recovery for a committed pending bridge journal without requiring a full indexing run.
+1. Expose the explicit index retention plan/apply protocol through `ath repair` without reusing
+   `--keep-generated`.
+2. Add CLI help, JSON, token mismatch, and text-rendering tests.
+3. Add repair recovery for a committed pending bridge journal without requiring a full indexing run.
+4. Add fault injection around the pair-rename/tombstone cleanup boundary and idempotent tombstone cleanup.
+5. Update the main P0.4 checklist after the CLI and standalone recovery paths are verified.
 6. After all external consumers have a compatibility release using the resolvers, stop writing the
    mutable compatibility paths and collapse publication to one immutable coordinator.
 
