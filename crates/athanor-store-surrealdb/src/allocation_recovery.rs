@@ -80,7 +80,7 @@ impl SurrealKnowledgeStore {
             )
             .bind(("repo", repo.0.clone()))
             .bind(("stale_before", stale_before_unix_ms))
-            .bind(("limit", limit))
+            .bind(("limit", limit as u64))
             .await
             .map_err(|error| {
                 CoreError::Adapter(format!(
