@@ -242,7 +242,7 @@ impl CanonicalLatestPointer for JsonlKnowledgeStore {
         Ok(Some(identity))
     }
 
-    async fn repair_latest_identity(&self, identity: CanonicalLatestIdentity) -> CoreResult<()> {
+    async fn validate_latest_identity(&self, identity: &CanonicalLatestIdentity) -> CoreResult<()> {
         identity.validate()?;
         let snapshot_dir = self.root().join("snapshots").join(&identity.snapshot.0);
         validate_repair_target(&snapshot_dir, &identity.snapshot)?;
@@ -255,6 +255,11 @@ impl CanonicalLatestPointer for JsonlKnowledgeStore {
                 exact.snapshot, identity.snapshot.0
             )));
         }
+        Ok(())
+    }
+
+    async fn repair_latest_identity(&self, identity: CanonicalLatestIdentity) -> CoreResult<()> {
+        self.validate_latest_identity(&identity).await?;
         self.write_latest_identity(&identity.snapshot)
     }
 }
@@ -438,6 +443,10 @@ mod latest_pointer_tests {
         )
         .unwrap();
         store
+            .validate_latest_identity(&CanonicalLatestIdentity::for_snapshot(second.clone()))
+            .await
+            .unwrap();
+        store
             .repair_latest_identity(CanonicalLatestIdentity::for_snapshot(second.clone()))
             .await
             .unwrap();
@@ -466,7 +475,7 @@ mod latest_pointer_tests {
             .await
             .unwrap();
         let error = store
-            .repair_latest_identity(CanonicalLatestIdentity {
+            .validate_latest_identity(&CanonicalLatestIdentity {
                 snapshot,
                 generation: GenerationId("gen_wrong".to_string()),
             })
