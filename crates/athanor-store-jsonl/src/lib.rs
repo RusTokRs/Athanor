@@ -482,7 +482,7 @@ mod latest_pointer_tests {
         let root = test_root("repair");
         let store = JsonlKnowledgeStore::new(&root);
         let first = store
-            .begin_snapshot(RepoId("repo".to_string()), SnapshotBase::default())
+            .begin_snapshot(RepoId("repo".to_string()), snapshot_base())
             .await
             .unwrap();
         store
@@ -490,7 +490,7 @@ mod latest_pointer_tests {
             .await
             .unwrap();
         let second = store
-            .begin_snapshot(RepoId("repo".to_string()), SnapshotBase::default())
+            .begin_snapshot(RepoId("repo".to_string()), snapshot_base())
             .await
             .unwrap();
         store
@@ -537,7 +537,7 @@ mod latest_pointer_tests {
         let root = test_root("mismatch");
         let store = JsonlKnowledgeStore::new(&root);
         let snapshot = store
-            .begin_snapshot(RepoId("repo".to_string()), SnapshotBase::default())
+            .begin_snapshot(RepoId("repo".to_string()), snapshot_base())
             .await
             .unwrap();
         store
@@ -553,6 +553,15 @@ mod latest_pointer_tests {
             .expect_err("mismatched generation must fail");
         assert!(matches!(error, CoreError::InvalidInput(_)));
         fs::remove_dir_all(root).unwrap();
+    }
+
+    fn snapshot_base() -> SnapshotBase {
+        SnapshotBase {
+            branch: None,
+            commit: None,
+            parent_snapshot: None,
+            working_tree: true,
+        }
     }
 
     fn test_root(label: &str) -> std::path::PathBuf {
