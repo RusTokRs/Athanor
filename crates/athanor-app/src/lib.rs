@@ -44,6 +44,7 @@ mod index_publication;
 #[allow(dead_code)]
 #[path = "index_publication_guard.rs"]
 mod index_publication_legacy;
+#[allow(dead_code)]
 #[path = "index_publication.rs"]
 mod index_publication_inner;
 #[cfg(test)]
