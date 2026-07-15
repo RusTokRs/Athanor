@@ -38,8 +38,12 @@ mod hash;
 pub mod impact;
 #[path = "index_runtime.rs"]
 pub mod index;
-#[path = "index_publication_guard.rs"]
+#[path = "index_publication_atomic.rs"]
 mod index_publication;
+#[cfg(test)]
+#[allow(dead_code)]
+#[path = "index_publication_guard.rs"]
+mod index_publication_legacy;
 #[path = "index_publication.rs"]
 mod index_publication_inner;
 #[cfg(test)]
