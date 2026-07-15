@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use anyhow::{Result, bail};
 
 mod current {
