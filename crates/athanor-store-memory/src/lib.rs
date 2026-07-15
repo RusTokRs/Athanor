@@ -3,8 +3,9 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use athanor_core::{
-    CanonicalSnapshot, CanonicalSnapshotStore, CoreError, CoreResult, DiagnosticQuery, EntityQuery,
-    EntityResolver, KnowledgeStore, RelationQuery, SnapshotBatch, SnapshotSelector,
+    AtomicSnapshotPublication, CanonicalSnapshot, CanonicalSnapshotStore, CoreError, CoreResult,
+    DiagnosticQuery, EntityQuery, EntityResolver, KnowledgeStore, RelationQuery, SnapshotBatch,
+    SnapshotSelector,
 };
 use athanor_domain::{
     Diagnostic, Entity, EntityId, Fact, Relation, RepoId, SnapshotBase, SnapshotId, StableKey,
@@ -230,6 +231,32 @@ impl KnowledgeStore for MemoryKnowledgeStore {
             )));
         }
         state.snapshots.remove(&snapshot);
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl AtomicSnapshotPublication for MemoryKnowledgeStore {
+    async fn publish_snapshot_batch(
+        &self,
+        snapshot: SnapshotId,
+        batch: SnapshotBatch,
+    ) -> CoreResult<()> {
+        let mut state = self.lock_state()?;
+        let data = state.snapshot_mut(&snapshot)?;
+        if data.committed {
+            return Err(CoreError::Conflict(format!(
+                "cannot republish committed snapshot {}",
+                snapshot.0
+            )));
+        }
+        *data = SnapshotData {
+            committed: true,
+            entities: batch.entities,
+            facts: batch.facts,
+            relations: batch.relations,
+            diagnostics: batch.diagnostics,
+        };
         Ok(())
     }
 }
