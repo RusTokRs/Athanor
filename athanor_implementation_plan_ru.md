@@ -2,7 +2,7 @@
 
 > Репозиторий: `RusTokRs/Athanor`  
 > Базовая ветка: `main`  
-> Точка сверки: `b8bb58828bd73b2683af8702a0931d5bf99c4ec5`  
+> Точка сверки кода: `cb5800d9bf57c8d64c2eb83a63812bea1f2602e2`  
 > Дата актуализации: 2026-07-15  
 > Статус: active implementation plan
 
@@ -17,7 +17,7 @@
 
 Правила:
 
-1. Коммиты идут только напрямую в `main`, пока пользователь явно не изменит режим.
+1. Все коммиты идут напрямую в `main`, пока пользователь явно не изменит режим.
 2. Один коммит — одна логически завершённая часть.
 3. Hosted/platform пункт не выполнен без run/status evidence.
 4. Coverage threshold не назначается без измерения.
@@ -40,7 +40,7 @@
 - backend-neutral `FactQuery` и `AtomicSnapshotPublication`;
 - backend atomic data+marker boundaries;
 - process-local deferred canonical batch barrier;
-- active snapshot-native publisher и exact canonical recovery entrypoint;
+- active snapshot-native publisher и recovery entrypoint;
 - journal v2/v1 compatibility и recovery fault matrix;
 - SurrealDB context-owned allocation metadata и bounded orphan cleanup;
 - feature, coverage, AppSec, installer и release workflows.
@@ -85,12 +85,12 @@ ATHANOR_SURREAL_REMOTE_URI=ws://127.0.0.1:8000 \
 | Область | Статус | Подтверждено | Остаётся |
 | --- | --- | --- | --- |
 | Query isolation | `[-]` | committed exact/latest contracts | Hosted remote evidence, one generation view |
-| Atomic publication | `[-]` | backend boundaries, data barrier, snapshot-native publisher/recovery entry | Runtime cleanup, legacy internals, one pointer |
+| Atomic publication | `[-]` | backend boundaries, data barrier, snapshot publisher/recovery entry | Runtime cleanup, legacy internals, one pointer |
 | Allocation recovery | `[-]` | metadata, 24h cutoff, bounded conditional cleanup, tests | Legacy untagged policy, hosted evidence |
 | Recovery safety | `[-]` | journal/preflight/exact probe/idempotence | Remove compatibility internals, checksums, one pointer |
 | Concurrent writers | `[-]` | JSONL lock, counter, embedded ownership | Remote conflict evidence |
 | Operation context | `[-]` | cancellation lease, Busy retry, daemon writes | Reads, CLI/MCP, ambiguous in-flight request |
-| Runtime maintainability | `[-]` | focused runtime/coordinator | Remove prepared/legacy transition layer |
+| Runtime maintainability | `[-]` | focused runtime/coordinator, direct fault coverage | Remove prepared/legacy transition layer |
 | Hosted CI | `[!]` | workflow files | Enable Actions, runs, required checks |
 | AppSec | `[-]` | configured gates/SBOM | Hosted evidence, push protection |
 | Release integrity | `[-]` | fail-closed installers/signing configured | Hosted/tag evidence |
@@ -122,7 +122,7 @@ ATHANOR_SURREAL_REMOTE_URI=ws://127.0.0.1:8000 \
 
 ### P0.4. Store conformance и transactional publication
 
-**Статус:** `[-]` — backend/data/allocation boundaries и snapshot-native publisher/recovery entry реализованы; runtime transition, legacy internals и один generation pointer открыты.
+**Статус:** `[-]` — backend/data/allocation boundaries и snapshot-native publisher/recovery entry реализованы; осталось 2 transition-cleanup и 5 generation-layer срезов.
 
 #### Shared backend contract
 
@@ -171,7 +171,7 @@ ATHANOR_SURREAL_REMOTE_URI=ws://127.0.0.1:8000 \
 - [-] Legacy untagged records не удаляются автоматически.
 - [!] Hosted embedded/remote evidence отсутствует.
 
-#### Snapshot-native transition — осталось 3 code slices
+#### Snapshot-native transition — осталось 2 code slices
 
 - [x] Production journal хранит `SnapshotId`; v2 wire сохраняет `prepared`.
 - [x] v1 raw `snapshot` читается и нормализуется в v2.
@@ -179,9 +179,9 @@ ATHANOR_SURREAL_REMOTE_URI=ws://127.0.0.1:8000 \
 - [x] Основной `publish_index_snapshot` принимает `SnapshotId`.
 - [x] Publication cleanup использует plain `abort_snapshot`.
 - [x] Active recovery entrypoint использует snapshot-native journal type.
+- [x] Prepare/cancellation, combined-error и finalize fault suites имеют direct snapshot API coverage.
 - [ ] Runtime передаёт `output.snapshot.clone()` и не импортирует `PreparedSnapshotPublication`.
-- [ ] Перенести remaining fault fixtures на direct snapshot API.
-- [ ] Удалить compatibility wrapper и legacy journal/coordinator modules.
+- [ ] Удалить compatibility wrapper, duplicate compatibility tests и legacy journal/coordinator modules.
 
 #### Generation layer — осталось 5 code slices
 
@@ -242,12 +242,13 @@ ATHANOR_SURREAL_REMOTE_URI=ws://127.0.0.1:8000 \
 ## 6. Порядок реализации
 
 1. `[!]` Включить Actions и получить compile/test/fmt/Clippy evidence.
-2. P0.4 — 3 transition-cleanup среза.
-3. P0.4 — 5 generation-layer срезов.
-4. P0.4 — remote conflict evidence/pointer fault injection.
-5. P1.5 — read-only daemon/CLI/MCP cancellation.
-6. Hosted AppSec/matrix/installer/tag evidence.
-7. Sandbox, decomposition, performance и P2.
+2. P0.4 — runtime direct `SnapshotId` cutover.
+3. P0.4 — удалить compatibility/legacy transition layer.
+4. P0.4 — 5 generation-layer срезов.
+5. P0.4 — remote conflict evidence/pointer fault injection.
+6. P1.5 — read-only daemon/CLI/MCP cancellation.
+7. Hosted AppSec/matrix/installer/tag evidence.
+8. Sandbox, decomposition, performance и P2.
 
 ## 7. Текущий рабочий пакет
 
@@ -258,16 +259,15 @@ ATHANOR_SURREAL_REMOTE_URI=ws://127.0.0.1:8000 \
 1. Runtime вызывает `publish_index_snapshot` с `output.snapshot.clone()`.
 2. Runtime cleanup exact-probe’ит snapshot и вызывает plain `abort_snapshot`.
 3. Удалить runtime imports `PreparedSnapshot`/`PreparedSnapshotPublication`.
-4. Перевести fault fixtures на direct snapshot API.
-5. Удалить compatibility wrapper и legacy modules после migration.
-6. Не считать hosted-подтверждённым без Actions.
+4. После runtime cutover удалить compatibility wrapper, duplicate compatibility tests и legacy modules.
+5. Не считать hosted-подтверждённым без Actions.
 
 ## 8. Сколько осталось
 
-- До завершения текущего transactional P0.4: **8 code slices** — 3 transition-cleanup + 5 generation-layer.
-- До release-grade P0: те же 8 code slices плюс **5 hosted/platform evidence packages**, заблокированных Actions/settings.
+- До завершения текущего transactional P0.4: **7 code slices** — 2 transition-cleanup + 5 generation-layer.
+- До release-grade P0: те же 7 code slices плюс **5 hosted/platform evidence packages**, заблокированных Actions/settings.
 - После P0 остаются **17 крупных P1 items** и **4 P2 governance items**.
-- По самостоятельным рабочим пакетам проект находится примерно на **60–65%** от текущего плана; по коду P0.4 — примерно на **80%**, но hosted доказательство пока отсутствует.
+- По самостоятельным рабочим пакетам проект находится примерно на **62–67%** от текущего плана; по коду P0.4 — примерно на **82–85%**, но hosted доказательство пока отсутствует.
 
 ## 9. Definition of Done
 
@@ -285,12 +285,10 @@ ATHANOR_SURREAL_REMOTE_URI=ws://127.0.0.1:8000 \
 
 ## 10. Журнал актуализаций
 
-### 2026-07-15 — snapshot-native recovery entrypoint
+### 2026-07-15 — direct snapshot fault migration
 
-- Active publisher использует SnapshotId-backed journal writer.
-- Основной coordinator API принимает `SnapshotId`.
-- Publication rollback использует plain `abort_snapshot`.
-- Pointer-failure regression вызывает direct API и проверяет v2 wire.
-- Active recovery entrypoint загружает и валидирует snapshot-native journal до artifact mutation.
-- Artifact cleanup временно делегируется проверенному legacy recovery module.
-- Осталось 3 transition-cleanup и 5 generation-layer code slices.
+- Prepare/read-model/state/cancellation fault fixtures переведены на `publish_index_snapshot`.
+- Combined publish/rollback/abort error fixture переведён на direct snapshot API.
+- Finalize/read-model/index-state/journal-clear faults получили параллельную direct snapshot suite.
+- Compatibility finalize tests остаются только до удаления transition layer.
+- Осталось 2 transition-cleanup и 5 generation-layer code slices.
