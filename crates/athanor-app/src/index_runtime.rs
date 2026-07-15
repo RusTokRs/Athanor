@@ -3,17 +3,14 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use athanor_core::{
-    CanonicalSnapshotStore, CoreError, OperationContext, PreparedSnapshot,
-    PreparedSnapshotPublication,
-};
-use athanor_domain::{RepoId, SnapshotBase};
+use athanor_core::{CanonicalSnapshotStore, CoreError, KnowledgeStore, OperationContext};
+use athanor_domain::{RepoId, SnapshotBase, SnapshotId};
 use fs2::FileExt;
 use serde::Serialize;
 
 use crate::hash::stable_hash;
 use crate::index_publication::{
-    IndexPublicationOutcome, publish_prepared_index, recover_interrupted_publication,
+    IndexPublicationOutcome, publish_index_snapshot, recover_interrupted_publication,
 };
 use crate::project_path::normalize_canonical_path;
 use crate::transient_store::TransientKnowledgeStore;
@@ -165,7 +162,7 @@ async fn index_project_inner(
     let previous_state = state_store.load().context("failed to load index state")?;
     let previous_snapshot = match previous_state.snapshot.as_ref() {
         Some(snapshot) => canonical_store
-            .load_snapshot(&athanor_domain::SnapshotId(snapshot.clone()))
+            .load_snapshot(&SnapshotId(snapshot.clone()))
             .await
             .context("failed to load previous canonical snapshot")?,
         None => None,
@@ -341,7 +338,7 @@ async fn index_project_inner(
     }
 
     // The incremental pipeline deliberately reuses the previous committed snapshot when source
-    // discovery finds no changes. There is no prepared snapshot to publish in that case.
+    // discovery finds no changes. There is no new snapshot to publish in that case.
     if previous_state.snapshot.as_deref() == Some(output.snapshot.0.as_str())
         && output.affected_files.changed.is_empty()
         && output.affected_files.removed.is_empty()
@@ -372,14 +369,13 @@ async fn index_project_inner(
     remove_validation_result(&validation_result)
         .context("failed to remove stale validation result")?;
 
-    let prepared = PreparedSnapshot::new(output.snapshot.clone());
-    let publication = publish_prepared_index_with_cleanup(
+    let publication = publish_index_snapshot_with_cleanup(
         &root,
         &canonical_store,
         &state_store,
         &output_dir,
         &output,
-        prepared,
+        output.snapshot.clone(),
         &operation,
     )
     .await?;
@@ -407,48 +403,56 @@ async fn index_project_inner(
     })
 }
 
-async fn publish_prepared_index_with_cleanup(
+async fn publish_index_snapshot_with_cleanup(
     root: &Path,
     store: &AthanorStore,
     state_store: &IndexStateStore,
     output_dir: &Path,
     output: &crate::IndexPipelineOutput,
-    prepared: PreparedSnapshot,
+    snapshot: SnapshotId,
     operation: &OperationContext,
 ) -> Result<IndexPublicationOutcome> {
-    match publish_prepared_index(
+    match publish_index_snapshot(
         root,
         store,
         state_store,
         output_dir,
         output,
-        prepared.clone(),
+        snapshot.clone(),
         operation,
     )
     .await
     {
         Ok(publication) => Ok(publication),
         Err(error) => {
-            let latest = match store.load_latest_snapshot().await {
-                Ok(latest) => latest,
+            let committed = match store.load_snapshot(&snapshot).await {
+                Ok(Some(canonical)) => {
+                    if canonical.snapshot.as_ref() != Some(&snapshot) {
+                        return Err(error.context(format!(
+                            "exact canonical snapshot {} returned identity {:?}",
+                            snapshot.0, canonical.snapshot
+                        )));
+                    }
+                    true
+                }
+                Ok(None)
+                | Err(CoreError::NotFound(_))
+                | Err(CoreError::SnapshotNotCommitted(_)) => false,
                 Err(status_error) => {
                     return Err(error.context(format!(
-                        "failed to determine publication state after coordinator error: {status_error}"
+                        "failed to determine exact publication state after coordinator error: {status_error}"
                     )));
                 }
             };
-            let committed = latest
-                .and_then(|snapshot| snapshot.snapshot)
-                .is_some_and(|snapshot| snapshot == *prepared.snapshot());
             if committed {
                 return Err(error);
             }
 
-            match store.abort_prepared(&prepared).await {
+            match store.abort_snapshot(snapshot.clone()).await {
                 Ok(()) | Err(CoreError::NotFound(_)) => Err(error),
                 Err(abort_error) => Err(error.context(format!(
-                    "failed to abort prepared snapshot {} after coordinator error: {abort_error}",
-                    prepared.snapshot().0
+                    "failed to abort snapshot {} after coordinator error: {abort_error}",
+                    snapshot.0
                 ))),
             }
         }
