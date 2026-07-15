@@ -114,17 +114,18 @@ cargo test -p athanor-store-memory --test prepared_publication --locked
 cargo test -p athanor-store-surrealdb --test prepared_publication --locked
 ```
 
-## Typed index runtime and recovery
+## Production atomic index coordinator
 
-Production indexing uses `index_runtime.rs` and the guarded typed publication coordinator. The broad
-incremental, validation, cancellation, and fresh-index equivalence regressions live in focused
-modules; the former monolithic `crates/athanor-app/src/index.rs` has been deleted.
+Production `index_publication` now resolves to `index_publication_atomic.rs`. The compatibility guard
+and inner coordinator remain compiled for journal types and legacy fault fixtures, with intentional
+legacy dead code explicitly allowed during the transition.
 
 Run the complete application publication suite with:
 
 ```bash
 cargo test -p athanor-app index_runtime_tests --locked
 cargo test -p athanor-app index_publication --locked
+cargo test -p athanor-app index_publication_atomic_tests --locked
 cargo test -p athanor-app index_publication_fault_tests --locked
 cargo test -p athanor-app index_publication_finalize_tests --locked
 cargo test -p athanor-app index_publication_recovery_fault_tests --locked
@@ -132,14 +133,28 @@ cargo test -p athanor-app index_publication_content_tests --locked
 cargo test -p athanor-app index_publication_combined_error_tests --locked
 ```
 
-The fault matrix covers journal/prepare/publish/finalize/clear failures, malformed artifact types,
-schema and identity mismatches, mixed backup generations, absent backups, repeated recovery, and
-simultaneous publish/rollback/abort failures.
+The active coordinator writes the durable journal, stages read-model/state artifacts, builds a
+complete `SnapshotBatch` from pipeline output, and calls `AtomicSnapshotPublication`. If the backend
+returns an error, it probes the journal snapshot by exact canonical id:
 
-The next production cutover must pass the complete `SnapshotBatch` into
-`AtomicSnapshotPublication`. Recovery must probe the journal snapshot by exact canonical id rather
-than relying only on `LatestCommitted`, because JSONL may commit the exact generation before a
-separate latest-pointer update fails.
+- exact committed: retain journal and application artifacts for committed recovery; never abort;
+- exact absent/uncommitted: roll application artifacts back, clear journal, and abort;
+- exact probe failure: preserve the original publish error with probe context.
+
+Recovery uses the same exact probe instead of relying only on `LatestCommitted`. The JSONL regression
+blocks `latest.json` after exact directory publication and requires the coordinator to preserve the
+exact committed generation, journal, read-model manifest, and index state. After removing the
+pointer fault, recovery clears stale application backups and the journal without reverting the
+committed generation. Repeated recovery is a no-op.
+
+Finalize sabotage hooks were moved from `commit_snapshot_with_context` to the atomic capability so
+read-model finalize, index-state finalize, and journal-clear fault tests still inject failures after
+the canonical commit. Combined publish/rollback/abort diagnostics are also preserved through the new
+boundary.
+
+The deferred pipeline still calls `put_snapshot_with_context` and `prepare_publication` before the
+journal. Therefore this suite does not yet prove crash safety in the pre-journal interval. Removing
+that prewrite is the next P0.4 slice.
 
 ## Remote SurrealDB
 
@@ -231,6 +246,9 @@ zizmor --offline --strict-collection --min-severity high --min-confidence high .
   data-plus-marker boundary.
 - A failed SurrealDB atomic transaction that exposes inserted rows or a committed marker violates
   rollback semantics.
+- An atomic coordinator error that rolls back application artifacts after exact commit violates the
+  exact canonical probe.
+- A committed exact recovery that depends on `LatestCommitted` violates pointer-failure safety.
 - A successful publication leaving `index-publication.json` means finalization did not complete.
 - A malformed application artifact changing current state means recovery preflight was bypassed.
 - A second recovery call changing state after journal cleanup violates idempotence.
