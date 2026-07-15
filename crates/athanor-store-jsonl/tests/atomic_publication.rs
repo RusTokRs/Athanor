@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use athanor_core::{
     AtomicSnapshotPublication, CanonicalSnapshotStore, CoreError, EntityQuery, KnowledgeStore,
@@ -49,17 +49,18 @@ async fn publishes_complete_exact_generation_with_commit_marker() {
     assert_eq!(exact.entities, vec![committed.clone()]);
     assert!(exact.entities.iter().all(|item| item.id.0 != "ent_partial"));
 
-    let marker_path = root
-        .join("snapshots")
-        .join(&snapshot.0)
-        .join("commit.json");
-    let marker: Value = serde_json::from_slice(&fs::read(marker_path).expect("read commit marker"))
-        .expect("parse commit marker");
+    let snapshot_dir = snapshot_dir(&root, &snapshot.0);
+    let marker: Value = read_json(&snapshot_dir.join("commit.json"));
     assert_eq!(
         marker["schema"].as_str(),
         Some("athanor.canonical_commit.v1")
     );
     assert_eq!(marker["snapshot"].as_str(), Some(snapshot.0.as_str()));
+    let manifest: Value = read_json(&snapshot_dir.join("manifest.json"));
+    assert_eq!(
+        manifest["commit_marker_schema"].as_str(),
+        Some("athanor.canonical_commit.v1")
+    );
 
     let latest = store
         .load_latest_snapshot()
@@ -125,6 +126,95 @@ async fn latest_pointer_finalization_error_does_not_make_exact_generation_aborta
     fs::remove_dir_all(root).expect("remove pointer failure fixture");
 }
 
+#[tokio::test]
+async fn required_commit_marker_must_exist_and_match_schema_and_snapshot() {
+    for (label, marker) in [
+        ("missing", None),
+        (
+            "schema",
+            Some(json!({
+                "schema": "athanor.canonical_commit.v999",
+                "snapshot": "placeholder"
+            })),
+        ),
+        (
+            "snapshot",
+            Some(json!({
+                "schema": "athanor.canonical_commit.v1",
+                "snapshot": "snap_jsonl_foreign"
+            })),
+        ),
+    ] {
+        let root = test_root(label);
+        let store = JsonlKnowledgeStore::new(&root);
+        let snapshot = begin(&store).await;
+        store
+            .publish_snapshot_batch(snapshot.clone(), SnapshotBatch::default())
+            .await
+            .expect("publish atomic snapshot");
+        let marker_path = snapshot_dir(&root, &snapshot.0).join("commit.json");
+        match marker {
+            None => fs::remove_file(&marker_path).expect("remove required marker"),
+            Some(mut marker) => {
+                if label == "schema" {
+                    marker["snapshot"] = Value::String(snapshot.0.clone());
+                }
+                fs::write(
+                    &marker_path,
+                    serde_json::to_vec_pretty(&marker).expect("serialize malformed marker"),
+                )
+                .expect("replace marker");
+            }
+        }
+
+        let error = store
+            .load_snapshot(&snapshot)
+            .await
+            .expect_err("invalid required marker must fail closed");
+        assert!(matches!(
+            error,
+            CoreError::Adapter(_) | CoreError::AdapterProtocol(_)
+        ));
+        fs::remove_dir_all(root).expect("remove invalid marker fixture");
+    }
+}
+
+#[tokio::test]
+async fn legacy_manifest_without_marker_requirement_remains_readable() {
+    let root = test_root("legacy");
+    let store = JsonlKnowledgeStore::new(&root);
+    let snapshot = begin(&store).await;
+    let legacy_entity = entity("ent_legacy", "legacy.md");
+    store
+        .put_snapshot(
+            snapshot.clone(),
+            SnapshotBatch {
+                entities: vec![legacy_entity.clone()],
+                ..SnapshotBatch::default()
+            },
+        )
+        .await
+        .expect("write legacy snapshot batch");
+    store
+        .commit_snapshot(snapshot.clone())
+        .await
+        .expect("commit through legacy compatibility path");
+
+    let directory = snapshot_dir(&root, &snapshot.0);
+    assert!(!directory.join("commit.json").exists());
+    let manifest: Value = read_json(&directory.join("manifest.json"));
+    assert!(manifest.get("commit_marker_schema").is_none());
+
+    let exact = store
+        .load_snapshot(&snapshot)
+        .await
+        .expect("load legacy exact generation")
+        .expect("legacy exact generation exists");
+    assert_eq!(exact.entities, vec![legacy_entity]);
+
+    fs::remove_dir_all(root).expect("remove legacy compatibility fixture");
+}
+
 async fn begin(store: &JsonlKnowledgeStore) -> athanor_domain::SnapshotId {
     store
         .begin_snapshot(
@@ -153,6 +243,14 @@ fn entity(id: &str, path: &str) -> Entity {
         ownership: Vec::new(),
         payload: json!({}),
     }
+}
+
+fn snapshot_dir(root: &Path, snapshot: &str) -> PathBuf {
+    root.join("snapshots").join(snapshot)
+}
+
+fn read_json(path: &Path) -> Value {
+    serde_json::from_slice(&fs::read(path).expect("read JSON fixture")).expect("parse JSON fixture")
 }
 
 fn test_root(label: &str) -> PathBuf {
