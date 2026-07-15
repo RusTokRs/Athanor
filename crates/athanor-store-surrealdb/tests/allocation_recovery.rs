@@ -31,13 +31,14 @@ async fn cleanup_respects_cutoff_and_is_idempotent() {
         .await
         .expect("remove stale allocation");
     assert_eq!(removed, vec![snapshot.clone()]);
-    assert!(matches!(
+    assert!(
         store
             .load_snapshot(&snapshot)
             .await
-            .expect_err("removed allocation no longer exists"),
-        CoreError::NotFound(_)
-    ));
+            .expect("probe removed allocation")
+            .is_none(),
+        "removed allocation must no longer have a snapshot record"
+    );
     assert!(
         store
             .recover_orphan_snapshot_allocations(&repo, u64::MAX, 128)
