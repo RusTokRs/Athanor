@@ -2,8 +2,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use athanor_core::{
-    CanonicalSnapshotStore, CoreError, KnowledgeStore, OperationContext, PreparedSnapshotPublication,
-    SnapshotBatch,
+    CanonicalSnapshotStore, CoreError, KnowledgeStore, OperationContext,
+    PreparedSnapshotPublication, SnapshotBatch,
 };
 use athanor_domain::{Entity, EntityId, EntityKind, RepoId, SnapshotBase, StableKey};
 use athanor_store_jsonl::JsonlKnowledgeStore;
@@ -60,7 +60,8 @@ async fn exact_commit_survives_latest_pointer_failure_and_recovery() {
     let state_store = IndexStateStore::new(root.join(".athanor/state/index-state.json"));
     let output_dir = root.join(".athanor/generated/current/jsonl");
 
-    fs::create_dir_all(canonical_root.join("latest.json")).expect("block latest pointer finalization");
+    fs::create_dir_all(canonical_root.join("latest.json"))
+        .expect("block latest pointer finalization");
     let error = publish_index_snapshot(
         &root,
         &store,
@@ -98,7 +99,10 @@ async fn exact_commit_survives_latest_pointer_failure_and_recovery() {
             .expect_err("exact committed snapshot must not be aborted"),
         CoreError::Conflict(_)
     ));
-    assert_eq!(artifact_snapshot(&output_dir.join("manifest.json")), snapshot.0);
+    assert_eq!(
+        artifact_snapshot(&output_dir.join("manifest.json")),
+        snapshot.0
+    );
     assert_eq!(
         artifact_snapshot(&root.join(".athanor/state/index-state.json")),
         snapshot.0
@@ -109,12 +113,21 @@ async fn exact_commit_survives_latest_pointer_failure_and_recovery() {
         .await
         .expect("recover committed exact generation");
     assert!(!publication_journal(&root).exists());
-    assert_eq!(artifact_snapshot(&output_dir.join("manifest.json")), snapshot.0);
+    assert_eq!(
+        artifact_snapshot(&output_dir.join("manifest.json")),
+        snapshot.0
+    );
     assert_eq!(
         artifact_snapshot(&root.join(".athanor/state/index-state.json")),
         snapshot.0
     );
-    assert!(store.load_snapshot(&snapshot).await.expect("reload exact").is_some());
+    assert!(
+        store
+            .load_snapshot(&snapshot)
+            .await
+            .expect("reload exact")
+            .is_some()
+    );
 
     recover_interrupted_publication(&root, &store)
         .await

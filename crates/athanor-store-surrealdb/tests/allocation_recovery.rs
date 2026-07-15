@@ -122,11 +122,7 @@ async fn cleanup_never_removes_prepared_or_committed_allocations() {
         .expect("remove prepared test allocation");
 }
 
-async fn allocate(
-    store: &SurrealKnowledgeStore,
-    repo: RepoId,
-    operation_id: &str,
-) -> SnapshotId {
+async fn allocate(store: &SurrealKnowledgeStore, repo: RepoId, operation_id: &str) -> SnapshotId {
     store
         .begin_snapshot_allocation(
             repo,

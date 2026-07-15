@@ -98,7 +98,8 @@ fn fact_kind_name(fact: &Fact) -> String {
     match serde_json::to_value(&fact.kind) {
         Ok(Value::String(name)) => name,
         Ok(Value::Object(kind)) if kind.len() == 1 => kind
-            .into_keys()
+            .into_iter()
+            .map(|(key, _)| key)
             .next()
             .expect("single fact-kind key"),
         _ => format!("{:?}", fact.kind).to_ascii_lowercase(),
@@ -112,7 +113,13 @@ mod tests {
 
     use super::*;
 
-    fn fact(id: &str, kind: FactKind, subject: &str, object: Option<&str>, extractor: &str) -> Fact {
+    fn fact(
+        id: &str,
+        kind: FactKind,
+        subject: &str,
+        object: Option<&str>,
+        extractor: &str,
+    ) -> Fact {
         Fact {
             id: FactId(id.to_string()),
             kind,
@@ -144,13 +151,7 @@ mod tests {
                 Some("entity_c"),
                 "openapi",
             ),
-            fact(
-                "fact_3",
-                FactKind::SymbolDefined,
-                "entity_a",
-                None,
-                "rust",
-            ),
+            fact("fact_3", FactKind::SymbolDefined, "entity_a", None, "rust"),
         ];
 
         let results = filter_facts(

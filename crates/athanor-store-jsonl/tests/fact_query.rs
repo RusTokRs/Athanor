@@ -4,9 +4,7 @@ use std::path::PathBuf;
 use athanor_core::{
     CoreError, FactQuery, FactQueryStore, KnowledgeStore, SnapshotBatch, SnapshotSelector,
 };
-use athanor_domain::{
-    EntityId, Fact, FactId, FactKind, RepoId, SnapshotBase, SnapshotId,
-};
+use athanor_domain::{EntityId, Fact, FactId, FactKind, RepoId, SnapshotBase, SnapshotId};
 use athanor_store_jsonl::JsonlKnowledgeStore;
 use serde_json::json;
 
@@ -15,7 +13,10 @@ async fn fact_query_filters_committed_jsonl_snapshot() {
     let root = test_root();
     let store = JsonlKnowledgeStore::new(&root);
     let snapshot = store
-        .begin_snapshot(RepoId("repo_jsonl_fact_query".to_string()), working_tree_base())
+        .begin_snapshot(
+            RepoId("repo_jsonl_fact_query".to_string()),
+            working_tree_base(),
+        )
         .await
         .expect("begin snapshot");
     let expected = fact(

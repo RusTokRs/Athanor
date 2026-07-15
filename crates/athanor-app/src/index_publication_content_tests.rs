@@ -6,11 +6,11 @@ use athanor_domain::{RepoId, SnapshotBase, SnapshotId};
 use athanor_store_jsonl::JsonlKnowledgeStore;
 use serde_json::json;
 
+use crate::AthanorStore;
 use crate::index_publication::recover_interrupted_publication;
 use crate::index_publication_journal::INDEX_PUBLICATION_JOURNAL_SCHEMA_V2;
 use crate::index_state::INDEX_STATE_SCHEMA;
 use crate::read_model::JSONL_MANIFEST_SCHEMA;
-use crate::AthanorStore;
 
 #[tokio::test]
 async fn recovery_rejects_committed_current_identity_mismatch_before_cleanup() {
@@ -27,7 +27,10 @@ async fn recovery_rejects_committed_current_identity_mismatch_before_cleanup() {
 
     assert!(error.to_string().contains("current read model"));
     assert!(error.to_string().contains("does not match journal"));
-    assert_eq!(read_model_snapshot(&fixture.output_dir), "snap_wrong_current");
+    assert_eq!(
+        read_model_snapshot(&fixture.output_dir),
+        "snap_wrong_current"
+    );
     assert!(fixture.read_backup().is_dir());
     assert!(fixture.state_backup().is_file());
     assert!(fixture.journal.is_file());
@@ -51,7 +54,10 @@ async fn recovery_rejects_uncommitted_replaced_current_mismatch_before_rollback(
 
     assert!(error.to_string().contains("replaced during rollback"));
     assert!(error.to_string().contains("does not match journal"));
-    assert_eq!(read_model_snapshot(&fixture.output_dir), "snap_unrelated_current");
+    assert_eq!(
+        read_model_snapshot(&fixture.output_dir),
+        "snap_unrelated_current"
+    );
     assert!(fixture.read_backup().is_dir());
     assert!(fixture.state_backup().is_file());
     assert!(fixture.journal.is_file());

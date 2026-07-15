@@ -75,7 +75,10 @@ async fn index_state_prepare_failure_rolls_back_read_model_journal_and_snapshot(
             .any(|cause| cause.to_string().contains("failed to create"))
     );
     assert_snapshot_aborted(&fixture.store, &fixture.snapshot).await;
-    assert!(!output_dir.exists(), "prepared read model must be rolled back");
+    assert!(
+        !output_dir.exists(),
+        "prepared read model must be rolled back"
+    );
     assert!(!publication_journal(&root).exists());
 
     fs::remove_dir_all(root).expect("remove index-state prepare fixture");

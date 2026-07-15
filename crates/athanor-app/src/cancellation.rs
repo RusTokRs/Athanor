@@ -50,11 +50,10 @@ impl CancellationToken {
     /// registry also rejects a second live authority owned by an independent token for the same id.
     /// Cancellation requested before binding is propagated immediately.
     pub fn bind_operation(&self, operation: &OperationContext) -> Result<()> {
-        let mut bound = self
-            .state
-            .operation
-            .lock()
-            .map_err(|_| anyhow::anyhow!("application cancellation binding lock is poisoned"))?;
+        let mut bound =
+            self.state.operation.lock().map_err(|_| {
+                anyhow::anyhow!("application cancellation binding lock is poisoned")
+            })?;
 
         if let Some(existing) = bound.as_ref() {
             let requested = operation.operation_id.as_deref().unwrap_or_default();

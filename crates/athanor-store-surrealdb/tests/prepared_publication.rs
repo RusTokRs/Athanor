@@ -48,11 +48,7 @@ async fn typed_prepare_publish_and_abort_preserve_latest_committed() {
         .expect("begin aborted snapshot");
     let abort_context = OperationContext::new("test.surreal.abort");
     store
-        .put_snapshot_with_context(
-            aborted.clone(),
-            SnapshotBatch::default(),
-            &abort_context,
-        )
+        .put_snapshot_with_context(aborted.clone(), SnapshotBatch::default(), &abort_context)
         .await
         .expect("write aborted snapshot");
     let prepared = store

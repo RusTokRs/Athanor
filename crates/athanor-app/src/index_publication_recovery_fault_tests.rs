@@ -6,11 +6,11 @@ use athanor_domain::{RepoId, SnapshotBase, SnapshotId};
 use athanor_store_jsonl::JsonlKnowledgeStore;
 use serde_json::json;
 
+use crate::AthanorStore;
 use crate::index_publication::recover_interrupted_publication;
 use crate::index_publication_journal::INDEX_PUBLICATION_JOURNAL_SCHEMA_V2;
 use crate::index_state::INDEX_STATE_SCHEMA;
 use crate::read_model::JSONL_MANIFEST_SCHEMA;
-use crate::AthanorStore;
 
 #[tokio::test]
 async fn recovery_rejects_file_read_model_backup_before_mutation() {
@@ -110,8 +110,7 @@ async fn prepared_recovery_fixture(id: &str) -> RecoveryFixture {
     let state_path = root.join(".athanor/state/index-state.json");
     let journal = root.join(".athanor/state/index-publication.json");
     fs::create_dir_all(&output_dir).expect("create current read model");
-    fs::create_dir_all(state_path.parent().expect("state parent"))
-        .expect("create state directory");
+    fs::create_dir_all(state_path.parent().expect("state parent")).expect("create state directory");
 
     let store = AthanorStore::new(JsonlKnowledgeStore::new(
         root.join(".athanor/store/canonical/jsonl"),

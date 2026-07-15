@@ -15,8 +15,7 @@ use crate::{
 async fn production_index_runtime_publishes_one_typed_generation() {
     let root = test_root("typed-runtime");
     fs::create_dir_all(root.join("src")).expect("create source directory");
-    fs::write(root.join("src/lib.rs"), "pub fn typed_runtime() {}\n")
-        .expect("write source file");
+    fs::write(root.join("src/lib.rs"), "pub fn typed_runtime() {}\n").expect("write source file");
 
     let composition = crate::test_runtime::composition();
     let report = run_index(&root, &composition).await;
@@ -58,8 +57,7 @@ async fn production_index_runtime_publishes_one_typed_generation() {
 async fn cancelled_index_does_not_publish_snapshot_state_or_read_model() {
     let root = test_root("cancelled");
     fs::create_dir_all(root.join("src")).expect("create source directory");
-    fs::write(root.join("src/lib.rs"), "pub fn cancelled() {}\n")
-        .expect("write source file");
+    fs::write(root.join("src/lib.rs"), "pub fn cancelled() {}\n").expect("write source file");
     let composition = crate::test_runtime::composition();
     let cancellation = CancellationToken::new();
     cancellation.cancel();
@@ -96,8 +94,7 @@ async fn incremental_runtime_updates_and_removes_only_changed_sources() {
     fs::create_dir_all(root.join("src")).expect("create source directory");
     fs::create_dir_all(root.join("docs")).expect("create docs directory");
     fs::write(root.join("src/lib.rs"), "pub fn hello() {}\n").expect("write Rust source");
-    fs::write(root.join("docs/auth.md"), "# Auth\n\n## Login\n")
-        .expect("write Markdown source");
+    fs::write(root.join("docs/auth.md"), "# Auth\n\n## Login\n").expect("write Markdown source");
     let composition = crate::test_runtime::composition();
 
     let first = run_index(&root, &composition).await;
@@ -142,8 +139,8 @@ async fn incremental_runtime_updates_and_removes_only_changed_sources() {
     assert_eq!(third.changed_files, 1);
     assert_eq!(third.unchanged_files, 1);
     assert_eq!(third.removed_files, 0);
-    let third_entities = fs::read_to_string(third.output_dir.join("entities.jsonl"))
-        .expect("read updated entities");
+    let third_entities =
+        fs::read_to_string(third.output_dir.join("entities.jsonl")).expect("read updated entities");
     assert!(third_entities.contains("doc://docs/auth.md"));
     assert!(!third_entities.contains("doc://docs/auth.md#login"));
 
@@ -192,15 +189,13 @@ async fn runtime_refreshes_frontmatter_links_when_api_target_changes() {
     let changed = run_index(&root, &composition).await;
     assert_eq!(changed.changed_files, 1);
     assert!(
-        read_generated(&root, "diagnostics.jsonl")
-            .contains("documentation_reference_unresolved")
+        read_generated(&root, "diagnostics.jsonl").contains("documentation_reference_unresolved")
     );
 
     write_openapi_path(&root, "/login");
     run_index(&root, &composition).await;
     assert!(
-        !read_generated(&root, "diagnostics.jsonl")
-            .contains("documentation_reference_unresolved")
+        !read_generated(&root, "diagnostics.jsonl").contains("documentation_reference_unresolved")
     );
 
     fs::remove_dir_all(root).expect("remove frontmatter runtime test root");
@@ -254,8 +249,7 @@ async fn incremental_runtime_matches_fresh_index_for_same_sources() {
 async fn validate_only_writes_result_without_publication_artifacts() {
     let root = test_root("validate-only");
     fs::create_dir_all(root.join("docs")).expect("create docs directory");
-    fs::write(root.join("docs/auth.md"), "# Auth\n\n## Login\n")
-        .expect("write validation source");
+    fs::write(root.join("docs/auth.md"), "# Auth\n\n## Login\n").expect("write validation source");
     let composition = crate::test_runtime::composition();
 
     let report = index_project_with_composition(
@@ -289,7 +283,11 @@ async fn validate_only_writes_result_without_publication_artifacts() {
     assert!(validation_json.contains("\"files_indexed\": 1"));
     assert!(!root.join(".athanor/state/index-state.json").exists());
     assert!(!root.join(".athanor/generated/current/jsonl").exists());
-    assert!(!root.join(".athanor/store/canonical/jsonl/latest.json").exists());
+    assert!(
+        !root
+            .join(".athanor/store/canonical/jsonl/latest.json")
+            .exists()
+    );
     assert!(!publication_journal(&root).exists());
 
     fs::remove_dir_all(root).expect("remove validate-only runtime test root");
@@ -299,8 +297,7 @@ async fn validate_only_writes_result_without_publication_artifacts() {
 async fn validate_only_honors_configured_result_path() {
     let root = test_root("configured-validation");
     fs::create_dir_all(root.join("docs")).expect("create docs directory");
-    fs::write(root.join("docs/auth.md"), "# Auth\n\n## Login\n")
-        .expect("write validation source");
+    fs::write(root.join("docs/auth.md"), "# Auth\n\n## Login\n").expect("write validation source");
     let validation_result = root.join("custom-validation-result.json");
     let composition = crate::test_runtime::composition();
 

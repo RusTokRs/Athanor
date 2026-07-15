@@ -4,8 +4,7 @@ use std::sync::Arc;
 use athanor_core::KnowledgeStore;
 use athanor_domain::{RepoId, SnapshotBase};
 use athanor_store_conformance::{
-    verify_atomic_publication_contract, verify_query_contract,
-    verify_snapshot_lifecycle_contract,
+    verify_atomic_publication_contract, verify_query_contract, verify_snapshot_lifecycle_contract,
 };
 use athanor_store_surrealdb::SurrealKnowledgeStore;
 use tokio::task::JoinSet;

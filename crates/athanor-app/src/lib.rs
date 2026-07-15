@@ -40,7 +40,6 @@ pub mod impact;
 pub mod index;
 #[path = "index_publication_snapshot.rs"]
 mod index_publication;
-mod index_publication_journal;
 #[cfg(test)]
 mod index_publication_atomic_tests;
 #[cfg(test)]
@@ -51,6 +50,7 @@ mod index_publication_content_tests;
 mod index_publication_fault_tests;
 #[cfg(test)]
 mod index_publication_finalize_tests;
+mod index_publication_journal;
 #[cfg(test)]
 mod index_publication_recovery_fault_tests;
 #[cfg(test)]

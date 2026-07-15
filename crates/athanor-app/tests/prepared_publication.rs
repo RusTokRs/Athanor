@@ -294,11 +294,7 @@ async fn jsonl_store_supports_typed_prepare_publish_and_abort() {
         .expect("begin aborted snapshot");
     let abort_context = OperationContext::new(format!("test.jsonl.abort.{nonce}"));
     store
-        .put_snapshot_with_context(
-            aborted.clone(),
-            SnapshotBatch::default(),
-            &abort_context,
-        )
+        .put_snapshot_with_context(aborted.clone(), SnapshotBatch::default(), &abort_context)
         .await
         .expect("write aborted snapshot");
     let prepared = store

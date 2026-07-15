@@ -1,7 +1,5 @@
 use async_trait::async_trait;
-use athanor_core::{
-    AtomicSnapshotPublication, CoreResult, OperationContext, SnapshotBatch,
-};
+use athanor_core::{AtomicSnapshotPublication, CoreResult, OperationContext, SnapshotBatch};
 use athanor_domain::{RepoId, SnapshotBase, SnapshotId};
 
 use super::{SurrealKnowledgeStore, classify_backend_result, retry_busy_with_context};
@@ -32,11 +30,7 @@ impl AtomicSnapshotPublication for SurrealKnowledgeStore {
     ) -> CoreResult<Vec<SnapshotId>> {
         classify_backend_result(
             self.inner
-                .recover_orphan_snapshot_allocations_bounded(
-                    repo,
-                    stale_before_unix_ms,
-                    limit,
-                )
+                .recover_orphan_snapshot_allocations_bounded(repo, stale_before_unix_ms, limit)
                 .await,
         )
     }

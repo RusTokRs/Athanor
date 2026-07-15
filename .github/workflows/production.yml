@@ -23,7 +23,7 @@ jobs:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@81507be746c04af74ed35958a57969a1cfe076b5 # 1.100.0
         with:
-          toolchain: 1.95.0
+          toolchain: "1.95.0"
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
       - name: Authenticated daemon lifecycle (Linux)
@@ -72,7 +72,7 @@ jobs:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@81507be746c04af74ed35958a57969a1cfe076b5 # 1.100.0
         with:
-          toolchain: 1.95.0
+          toolchain: "1.95.0"
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
       - name: One-hour watcher and query soak
         shell: bash

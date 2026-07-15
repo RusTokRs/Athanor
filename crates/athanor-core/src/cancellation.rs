@@ -108,9 +108,7 @@ impl OperationContextCancellation for OperationContext {
     fn check_cancelled(&self) -> CoreResult<()> {
         if self.is_cancelled() {
             let operation = self.operation_id.as_deref().unwrap_or("operation");
-            return Err(CoreError::Cancelled(format!(
-                "{operation} was cancelled"
-            )));
+            return Err(CoreError::Cancelled(format!("{operation} was cancelled")));
         }
         Ok(())
     }

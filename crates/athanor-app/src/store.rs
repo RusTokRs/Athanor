@@ -16,12 +16,7 @@ use athanor_domain::{
 };
 
 pub trait AthanorStoreBackend:
-    KnowledgeStore
-    + AtomicSnapshotPublication
-    + CanonicalSnapshotStore
-    + EntityResolver
-    + Send
-    + Sync
+    KnowledgeStore + AtomicSnapshotPublication + CanonicalSnapshotStore + EntityResolver + Send + Sync
 {
 }
 

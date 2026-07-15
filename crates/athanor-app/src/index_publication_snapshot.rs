@@ -154,10 +154,7 @@ pub(crate) async fn recover_interrupted_publication(
     journal.clear()
 }
 
-async fn exact_snapshot_is_committed(
-    store: &AthanorStore,
-    snapshot: &SnapshotId,
-) -> Result<bool> {
+async fn exact_snapshot_is_committed(store: &AthanorStore, snapshot: &SnapshotId) -> Result<bool> {
     match store.load_snapshot(snapshot).await {
         Ok(Some(canonical)) => {
             if canonical.snapshot.as_ref() != Some(snapshot) {
@@ -169,9 +166,9 @@ async fn exact_snapshot_is_committed(
             }
             Ok(true)
         }
-        Ok(None)
-        | Err(CoreError::NotFound(_))
-        | Err(CoreError::SnapshotNotCommitted(_)) => Ok(false),
+        Ok(None) | Err(CoreError::NotFound(_)) | Err(CoreError::SnapshotNotCommitted(_)) => {
+            Ok(false)
+        }
         Err(error) => Err(anyhow::Error::new(error).context(format!(
             "failed to probe exact canonical snapshot {}",
             snapshot.0
@@ -193,10 +190,7 @@ async fn abort_snapshot_with_error<T>(
     }
 }
 
-fn validate_recovery_artifacts(
-    journal: &IndexPublicationJournal,
-    committed: bool,
-) -> Result<()> {
+fn validate_recovery_artifacts(journal: &IndexPublicationJournal, committed: bool) -> Result<()> {
     let (read_staging, read_backup) = publication_paths(journal.read_model(), journal.id())?;
     let (state_staging, state_backup) = publication_paths(journal.index_state(), journal.id())?;
 
@@ -281,16 +275,8 @@ fn cleanup_publication_artifacts(journal: &IndexPublicationJournal) -> Result<()
 }
 
 fn rollback_publication_artifacts(journal: &IndexPublicationJournal) -> Result<()> {
-    restore_publication_directory(
-        journal.read_model(),
-        journal.id(),
-        &journal.snapshot().0,
-    )?;
-    restore_publication_file(
-        journal.index_state(),
-        journal.id(),
-        &journal.snapshot().0,
-    )
+    restore_publication_directory(journal.read_model(), journal.id(), &journal.snapshot().0)?;
+    restore_publication_file(journal.index_state(), journal.id(), &journal.snapshot().0)
 }
 
 fn publication_paths(path: &Path, id: &str) -> Result<(PathBuf, PathBuf)> {
@@ -372,20 +358,19 @@ fn read_model_identity_if_present(path: &Path, label: &str) -> Result<Option<Str
         return Ok(None);
     }
     let manifest = path.join("manifest.json");
-    let value: serde_json::Value = serde_json::from_slice(
-        &fs::read(&manifest).with_context(|| {
+    let value: serde_json::Value =
+        serde_json::from_slice(&fs::read(&manifest).with_context(|| {
             format!(
                 "failed to read recovery {label} manifest {}",
                 manifest.display()
             )
-        })?,
-    )
-    .with_context(|| {
-        format!(
-            "failed to parse recovery {label} manifest {}",
-            manifest.display()
-        )
-    })?;
+        })?)
+        .with_context(|| {
+            format!(
+                "failed to parse recovery {label} manifest {}",
+                manifest.display()
+            )
+        })?;
     artifact_identity(
         &value,
         crate::read_model::JSONL_MANIFEST_SCHEMA,
