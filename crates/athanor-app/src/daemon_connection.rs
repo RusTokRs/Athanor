@@ -6,7 +6,7 @@ use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWrite
 
 use crate::daemon::{
     DAEMON_REQUEST_SCHEMA_V2, DAEMON_RESPONSE_SCHEMA_V2, DAEMON_RESPONSE_SCHEMA_V3,
-    DaemonErrorCode, DaemonRequest, DaemonState, execute_request,
+    DaemonErrorCode, DaemonRequest, DaemonState,
 };
 use crate::daemon_protocol::{error_response_with_code, serialize_response, validate_request};
 
@@ -51,7 +51,8 @@ where
                 } else {
                     DAEMON_RESPONSE_SCHEMA_V3
                 };
-                let (mut response, shutdown) = execute_request(Arc::clone(&state), request).await;
+                let (mut response, shutdown) =
+                    crate::daemon_read_dispatch::execute(Arc::clone(&state), request).await;
                 response.schema = response_schema.to_string();
                 (response, shutdown)
             }
