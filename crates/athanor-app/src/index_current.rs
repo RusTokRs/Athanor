@@ -8,6 +8,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 pub(crate) const INDEX_CURRENT_SCHEMA: &str = "athanor.index_current.v1";
+const LEGACY_READ_MODEL_PATH: &str = ".athanor/generated/current/jsonl";
+const LEGACY_INDEX_STATE_PATH: &str = ".athanor/state/index-state.json";
 
 /// The single application-level pointer selecting one complete transactional index generation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -148,6 +150,24 @@ impl IndexCurrent {
     }
 }
 
+/// Resolves the validated immutable JSONL read-model directory, or the legacy path when no pointer
+/// has been published yet. A present invalid pointer never falls back.
+pub(crate) fn resolve_read_model_path(root: &Path) -> Result<PathBuf> {
+    match IndexCurrent::load(root).context("failed to resolve index current pointer for read model")? {
+        Some(current) => Ok(current.read_model_path(root)),
+        None => Ok(root.join(LEGACY_READ_MODEL_PATH)),
+    }
+}
+
+/// Resolves the validated immutable index-state file, or the legacy path when no pointer has been
+/// published yet. A present invalid pointer never falls back.
+pub(crate) fn resolve_index_state_path(root: &Path) -> Result<PathBuf> {
+    match IndexCurrent::load(root).context("failed to resolve index current pointer for index state")? {
+        Some(current) => Ok(current.index_state_path(root)),
+        None => Ok(root.join(LEGACY_INDEX_STATE_PATH)),
+    }
+}
+
 pub(crate) fn read_model_path(root: &Path, generation: &GenerationId) -> PathBuf {
     root.join(read_model_relative(generation))
 }
@@ -193,7 +213,7 @@ fn validate_artifact_identity(
     let snapshot = value.get("snapshot").and_then(Value::as_str).ok_or_else(|| {
         anyhow::anyhow!("{label} {} has no snapshot identity", path.display())
     })?;
-    if snapshot != expected_snapshot.0 {
+    if snapshot != expected_snapshot.0.as_str() {
         bail!(
             "{label} {} identifies snapshot `{snapshot}`, expected `{}`",
             path.display(),
@@ -256,43 +276,77 @@ mod tests {
 
     #[test]
     fn pointer_write_and_load_require_matching_complete_artifacts() {
-        let root = std::env::temp_dir().join(format!(
-            "athanor-index-current-test-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        let current = IndexCurrent::for_snapshot(SnapshotId("snap_test".to_string()));
-        let read_model = current.read_model_path(&root);
-        fs::create_dir_all(&read_model).unwrap();
-        fs::write(
-            read_model.join("manifest.json"),
-            serde_json::to_vec_pretty(&json!({
-                "schema": crate::read_model::JSONL_MANIFEST_SCHEMA,
-                "snapshot": "snap_test",
-                "generation": "gen_snap_test"
-            }))
-            .unwrap(),
-        )
-        .unwrap();
-        let state = current.index_state_path(&root);
-        fs::create_dir_all(state.parent().unwrap()).unwrap();
-        fs::write(
-            &state,
-            serde_json::to_vec_pretty(&json!({
-                "schema": crate::index_state::INDEX_STATE_SCHEMA,
-                "snapshot": "snap_test",
-                "generation": "gen_snap_test",
-                "files": {}
-            }))
-            .unwrap(),
-        )
-        .unwrap();
+        let root = test_root("complete");
+        let current = write_complete_current(&root, "snap_test");
 
         current.write(&root).unwrap();
         assert_eq!(IndexCurrent::load(&root).unwrap(), Some(current));
 
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn resolvers_use_pointer_and_fall_back_only_when_absent() {
+        let root = test_root("resolver");
+        assert_eq!(
+            resolve_read_model_path(&root).unwrap(),
+            root.join(LEGACY_READ_MODEL_PATH)
+        );
+        assert_eq!(
+            resolve_index_state_path(&root).unwrap(),
+            root.join(LEGACY_INDEX_STATE_PATH)
+        );
+
+        let current = write_complete_current(&root, "snap_current");
+        current.write(&root).unwrap();
+        assert_eq!(
+            resolve_read_model_path(&root).unwrap(),
+            current.read_model_path(&root)
+        );
+        assert_eq!(
+            resolve_index_state_path(&root).unwrap(),
+            current.index_state_path(&root)
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    fn write_complete_current(root: &Path, snapshot: &str) -> IndexCurrent {
+        let current = IndexCurrent::for_snapshot(SnapshotId(snapshot.to_string()));
+        let generation = format!("gen_{snapshot}");
+        let read_model = current.read_model_path(root);
+        fs::create_dir_all(&read_model).unwrap();
+        fs::write(
+            read_model.join("manifest.json"),
+            serde_json::to_vec_pretty(&json!({
+                "schema": crate::read_model::JSONL_MANIFEST_SCHEMA,
+                "snapshot": snapshot,
+                "generation": generation
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let state = current.index_state_path(root);
+        fs::create_dir_all(state.parent().unwrap()).unwrap();
+        fs::write(
+            &state,
+            serde_json::to_vec_pretty(&json!({
+                "schema": crate::index_state::INDEX_STATE_SCHEMA,
+                "snapshot": snapshot,
+                "generation": format!("gen_{snapshot}"),
+                "files": {}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        current
+    }
+
+    fn test_root(label: &str) -> PathBuf {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("athanor-index-current-{label}-{nonce}"))
     }
 }
