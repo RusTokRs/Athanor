@@ -40,6 +40,7 @@ fn index_publishes_checksum_bound_pointer_and_repair_detects_tampering() {
             .as_str()
             .expect("index-state pointer path"),
     );
+    assert!(state.is_file());
     let manifest: Value =
         serde_json::from_slice(&fs::read(read_model.join("manifest.json")).unwrap()).unwrap();
     assert_eq!(manifest["checksums"]["algorithm"], "sha256");
