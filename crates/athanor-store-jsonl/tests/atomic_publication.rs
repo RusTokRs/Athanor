@@ -53,13 +53,17 @@ async fn publishes_complete_exact_generation_with_commit_marker() {
     let marker: Value = read_json(&snapshot_dir.join("commit.json"));
     assert_eq!(
         marker["schema"].as_str(),
-        Some("athanor.canonical_commit.v1")
+        Some("athanor.canonical_commit.v2")
     );
     assert_eq!(marker["snapshot"].as_str(), Some(snapshot.0.as_str()));
+    assert_eq!(
+        marker["generation"].as_str(),
+        Some(format!("gen_{}", snapshot.0).as_str())
+    );
     let manifest: Value = read_json(&snapshot_dir.join("manifest.json"));
     assert_eq!(
         manifest["commit_marker_schema"].as_str(),
-        Some("athanor.canonical_commit.v1")
+        Some("athanor.canonical_commit.v2")
     );
 
     let latest = store
