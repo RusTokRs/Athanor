@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use athanor_core::{AtomicSnapshotPublication, CoreError, CoreResult, SnapshotBatch};
 use athanor_domain::SnapshotId;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use super::{
     JsonlKnowledgeStore, SnapshotData, unique_suffix, write_latest, write_snapshot_contents,
@@ -98,6 +99,7 @@ pub(crate) fn publish_exact_generation(
 
     let publish_result = (|| {
         write_snapshot_contents(&staging_dir, snapshot, data)?;
+        declare_commit_marker_requirement(&staging_dir, snapshot)?;
         write_commit_marker(&staging_dir, snapshot)?;
         fs::rename(&staging_dir, &snapshot_dir).map_err(|error| {
             CoreError::Adapter(format!(
@@ -109,6 +111,54 @@ pub(crate) fn publish_exact_generation(
         let _ = fs::remove_dir_all(&staging_dir);
     }
     publish_result
+}
+
+fn declare_commit_marker_requirement(
+    snapshot_dir: &std::path::Path,
+    snapshot: &SnapshotId,
+) -> CoreResult<()> {
+    let path = snapshot_dir.join("manifest.json");
+    let mut manifest: Value = serde_json::from_slice(&fs::read(&path).map_err(|error| {
+        CoreError::Adapter(format!(
+            "failed to read atomic snapshot manifest {}: {error}",
+            path.display()
+        ))
+    })?)
+    .map_err(|error| {
+        CoreError::AdapterProtocol(format!(
+            "failed to parse atomic snapshot manifest {}: {error}",
+            path.display()
+        ))
+    })?;
+    let object = manifest.as_object_mut().ok_or_else(|| {
+        CoreError::AdapterProtocol(format!(
+            "atomic snapshot manifest {} must be a JSON object",
+            path.display()
+        ))
+    })?;
+    if object.get("snapshot").and_then(Value::as_str) != Some(snapshot.0.as_str()) {
+        return Err(CoreError::AdapterProtocol(format!(
+            "atomic snapshot manifest {} does not identify `{}`",
+            path.display(),
+            snapshot.0
+        )));
+    }
+    object.insert(
+        "commit_marker_schema".to_string(),
+        Value::String(SNAPSHOT_COMMIT_SCHEMA.to_string()),
+    );
+    fs::write(
+        &path,
+        serde_json::to_vec_pretty(&manifest).map_err(|error| {
+            CoreError::Adapter(format!("failed to serialize atomic snapshot manifest: {error}"))
+        })?,
+    )
+    .map_err(|error| {
+        CoreError::Adapter(format!(
+            "failed to write atomic snapshot manifest {}: {error}",
+            path.display()
+        ))
+    })
 }
 
 pub(crate) fn write_commit_marker(
