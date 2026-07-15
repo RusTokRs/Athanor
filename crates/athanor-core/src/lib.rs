@@ -6,12 +6,14 @@
 pub mod atomic_publication;
 pub mod cancellation;
 pub mod fact_query;
+pub mod latest_pointer;
 pub mod ports;
 pub mod prepared_publication;
 
 pub use atomic_publication::AtomicSnapshotPublication;
 pub use cancellation::{CancellationHandle, OperationContextCancellation};
 pub use fact_query::{FactQuery, FactQueryStore, filter_facts};
+pub use latest_pointer::{CanonicalLatestIdentity, CanonicalLatestPointer};
 pub use ports::{
     AffectedSubset, AgentInterface, AgentRequest, AgentResponse, CanonicalSnapshot,
     CanonicalSnapshotStore, CheckInput, Checker, CoreError, CoreErrorCode, CoreResult,
