@@ -26,7 +26,7 @@ pub struct IndexState {
 }
 
 impl Serialize for IndexState {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
@@ -54,7 +54,7 @@ impl Serialize for IndexState {
 }
 
 impl<'de> Deserialize<'de> for IndexState {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -220,12 +220,17 @@ impl IndexStateStore {
 
         let content = fs::read_to_string(&self.path)
             .with_context(|| format!("failed to read {}", self.path.display()))?;
-        let state = serde_json::from_str::<IndexState>(&content)
+        let value: serde_json::Value = serde_json::from_str(&content)
             .with_context(|| format!("failed to parse {}", self.path.display()))?;
-
-        if state.schema != INDEX_STATE_SCHEMA {
+        let schema = value
+            .get("schema")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| anyhow::anyhow!("index state {} has no schema", self.path.display()))?;
+        if schema != INDEX_STATE_SCHEMA {
             return Ok(IndexState::empty());
         }
+        let state = serde_json::from_value::<IndexState>(value)
+            .with_context(|| format!("failed to decode {}", self.path.display()))?;
 
         Ok(state)
     }
@@ -338,6 +343,17 @@ mod tests {
     }
 
     #[test]
+    fn generation_without_snapshot_is_rejected() {
+        let error = serde_json::from_str::<IndexState>(&format!(
+            r#"{{"schema":"{}","snapshot":null,"generation":"gen_orphan","files":{{}}}}"#,
+            INDEX_STATE_SCHEMA
+        ))
+        .expect_err("generation without snapshot must fail closed");
+
+        assert!(error.to_string().contains("has no snapshot identity"));
+    }
+
+    #[test]
     fn computes_changed_unchanged_and_removed_files() {
         let previous = IndexState {
             schema: INDEX_STATE_SCHEMA.to_string(),
@@ -382,7 +398,7 @@ mod tests {
     }
 
     #[test]
-    fn incompatible_state_schema_forces_a_full_rebuild() {
+    fn incompatible_state_schema_forces_a_full_rebuild_before_current_wire_validation() {
         let root = std::env::temp_dir().join(format!(
             "athanor-index-state-schema-test-{}",
             std::time::SystemTime::now()
@@ -394,7 +410,7 @@ mod tests {
         fs::create_dir_all(&root).unwrap();
         fs::write(
             &path,
-            r#"{"schema":"athanor.index_state.v9","snapshot":"snap_old","files":{}}"#,
+            r#"{"schema":"athanor.index_state.v999","snapshot":"snap_old","generation":"gen_wrong","future_field":true,"files":{}}"#,
         )
         .unwrap();
 
