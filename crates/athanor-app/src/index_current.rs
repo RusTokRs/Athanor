@@ -64,6 +64,7 @@ impl IndexCurrent {
         &self.generation
     }
 
+    #[cfg(test)]
     pub(crate) fn snapshot(&self) -> &SnapshotId {
         &self.snapshot
     }
