@@ -72,7 +72,11 @@ async fn exact_commit_survives_latest_pointer_failure_and_recovery() {
     )
     .await
     .expect_err("latest pointer failure must be reported after exact commit");
-    assert!(error.to_string().contains("committed"));
+    assert!(
+        error
+            .chain()
+            .any(|cause| cause.to_string().contains("committed"))
+    );
     assert!(publication_journal(&root).exists());
 
     let exact = store
