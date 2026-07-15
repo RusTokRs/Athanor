@@ -10,10 +10,10 @@ status: verified
 
 ## Status
 
-Writer-side migration bridge, pointer-first index-state readers, repair inspection, and an explicit
-index-generation retention API are implemented on `main`. New successful production indexing runs retain
-the legacy mutable application artifacts for compatibility, publish an immutable application generation,
-and atomically select it through a separate index pointer.
+Writer-side migration bridge, pointer-first index-state readers, repair inspection, explicit
+index-generation retention, and standalone publication recovery are implemented on `main`. New successful
+production indexing runs retain the legacy mutable application artifacts for compatibility, publish an
+immutable application generation, and atomically select it through a separate index pointer.
 
 All standard `IndexStateStore::load()` callers now resolve the validated pointer-selected immutable
 state. The application also exports validated read-model and index-state path resolvers through
@@ -24,7 +24,8 @@ no index pointer exists.
 `index-current.json`, its selected artifacts, pending bridge-journal state, incomplete index generations,
 and unpointed immutable index generations. The public `cleanup_index_generations` API provides a separate
 two-step retention protocol; the existing `keep_generated` counter never selects transactional index
-generations.
+generations. `recover_index_publication` runs the same coordinator recovery under the same project lock
+without starting source discovery or the indexing pipeline.
 
 This pointer is intentionally independent from `.athanor/generated/current.json`, which belongs to the
 on-demand `ath generate` command and coordinates JSONL, wiki, and HTML projection generations.
@@ -64,6 +65,7 @@ remain readable only at explicitly documented migration boundaries.
     index-current.json                     # single atomic application pointer
     index-publication.json                 # canonical/read-model/state coordinator journal
     index-current-publication.json         # immutable-copy/pointer bridge journal
+    index-publication.lock                 # shared index and repair recovery lock
 ```
 
 `index-current.json` uses schema `athanor.index_current.v1` and contains deterministic relative paths.
@@ -111,7 +113,8 @@ external consumers, repair, and future application read models.
 
 ## Recovery Rules
 
-Recovery always runs under `.athanor/state/index-publication.lock` before a new index pipeline starts.
+Recovery always runs under `.athanor/state/index-publication.lock` before a new index pipeline or an
+explicit repair recovery mutates publication state.
 
 - If `index-publication.json` exists, the original coordinator first finalizes a committed canonical
   publication or restores previous mutable artifacts and aborts the unfinished snapshot.
@@ -158,7 +161,7 @@ Current retention policy is fail-closed:
 - existing `keep_canonical`, `keep_generated`, and `generated_only` flags never select immutable index
   generations.
 
-The library contract is:
+The library retention contract is:
 
 ```rust
 use athanor_app::{cleanup_index_generations, IndexGenerationCleanupOptions};
@@ -178,8 +181,33 @@ cleanup_index_generations(IndexGenerationCleanupOptions {
 })?;
 ```
 
-CLI wiring is intentionally the next isolated commit because `apps/ath/src/main.rs` is still a large
-monolithic dispatch file and must be changed from a complete verified source snapshot.
+## Standalone Publication Recovery
+
+The repair recovery contract is:
+
+```rust
+use athanor_app::{recover_index_publication, RepairRecoverIndexOptions};
+
+let plan = recover_index_publication(RepairRecoverIndexOptions {
+    root: root.clone(),
+    dry_run: true,
+}).await?;
+
+if plan.needed {
+    recover_index_publication(RepairRecoverIndexOptions {
+        root,
+        dry_run: false,
+    }).await?;
+}
+```
+
+Dry-run reads journal identity and inspection state without acquiring the mutation lock or initializing a
+backend. Apply acquires `index-publication.lock`, rechecks pending journals under the lock, initializes the
+configured store, invokes the established coordinator recovery, and performs a fresh repair inspection.
+This closes committed pending bridge journals without running the indexing pipeline.
+
+CLI wiring remains an isolated follow-up because `apps/ath/src/main.rs` is still a large monolithic
+dispatch file and must be changed from a complete verified source snapshot.
 
 ## Compatibility Window
 
@@ -206,6 +234,8 @@ cargo test -p athanor-app pointer_without_canonical_latest_blocks_cleanup --lock
 cargo test -p athanor-app dry_run_token_is_required_for_the_exact_plan --locked
 cargo test -p athanor-app corruption_matrix_fails_closed --locked
 cargo test -p athanor-app canonical_latest_generation_is_recoverable_not_removable --locked
+cargo test -p athanor-app standalone_recovery_publishes_committed_pending_pointer --locked
+cargo test -p athanor-app dry_run_reports_pending_identity_without_mutation --locked
 cargo test -p athanor-app index_current_runtime_tests --locked
 cargo test -p athanor-app index_publication_atomic_tests --locked
 cargo test -p athanor-app index_publication_recovery_fault_tests --locked
@@ -228,19 +258,19 @@ The runtime coverage verifies:
 - the corruption matrix covers unsupported pointer schema, path mismatch, stale snapshot, generation
   mismatch, missing manifest, missing state, malformed journal, and half-published generations;
 - destructive retention requires a token from the exact dry-run plan;
-- canonical-latest generations without a pointer are treated as recoverable.
+- canonical-latest generations without a pointer are treated as recoverable;
+- standalone recovery publishes a committed pending pointer and public dry-run leaves journals untouched.
 
-## Next Slice: CLI Wiring And Standalone Recovery
+## Next Slice: CLI Wiring And Cleanup Fault Injection
 
 The next implementation slice must:
 
-1. Expose the explicit index retention plan/apply protocol through `ath repair` without reusing
+1. Expose index retention plan/apply and standalone recovery through `ath repair` without reusing
    `--keep-generated`.
-2. Add CLI help, JSON, token mismatch, and text-rendering tests.
-3. Add repair recovery for a committed pending bridge journal without requiring a full indexing run.
-4. Add fault injection around the pair-rename/tombstone cleanup boundary and idempotent tombstone cleanup.
-5. Update the main P0.4 checklist after the CLI and standalone recovery paths are verified.
-6. After all external consumers have a compatibility release using the resolvers, stop writing the
+2. Add CLI help, JSON, token mismatch, exit-code, and text-rendering tests.
+3. Add fault injection around the pair-rename/tombstone cleanup boundary and idempotent tombstone cleanup.
+4. Update the main P0.4 checklist after CLI and cleanup fault paths are verified.
+5. After all external consumers have a compatibility release using the resolvers, stop writing the
    mutable compatibility paths and collapse publication to one immutable coordinator.
 
 ## Definition of Done for Migration Completion
