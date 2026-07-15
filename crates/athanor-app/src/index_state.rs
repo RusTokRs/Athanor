@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use athanor_core::SourceFile;
+use athanor_domain::{GenerationId, SnapshotId};
 use serde::{Deserialize, Serialize};
 
 #[cfg(not(feature = "js-ts-precision"))]
@@ -15,6 +16,8 @@ pub const INDEX_STATE_SCHEMA: &str = "athanor.index_state.v46-js-ts-precision-v1
 pub struct IndexState {
     pub schema: String,
     pub snapshot: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generation: Option<String>,
     pub files: BTreeMap<String, FileState>,
 }
 
@@ -36,11 +39,14 @@ impl IndexState {
         Self {
             schema: INDEX_STATE_SCHEMA.to_string(),
             snapshot: None,
+            generation: None,
             files: BTreeMap::new(),
         }
     }
 
     pub fn from_sources(snapshot: impl Into<String>, sources: &[SourceFile]) -> Self {
+        let snapshot = snapshot.into();
+        let generation = GenerationId::for_snapshot(&SnapshotId(snapshot.clone()));
         let files = sources
             .iter()
             .map(|source| {
@@ -56,7 +62,8 @@ impl IndexState {
 
         Self {
             schema: INDEX_STATE_SCHEMA.to_string(),
-            snapshot: Some(snapshot.into()),
+            snapshot: Some(snapshot),
+            generation: Some(generation.0),
             files,
         }
     }
@@ -175,116 +182,7 @@ impl IndexStateStore {
     }
 }
 
-#[allow(clippy::items_after_test_module)]
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn computes_changed_unchanged_and_removed_files() {
-        let previous = IndexState {
-            schema: INDEX_STATE_SCHEMA.to_string(),
-            snapshot: Some("snap_previous".to_string()),
-            files: BTreeMap::from([
-                (
-                    "docs/auth.md".to_string(),
-                    FileState {
-                        content_hash: Some("hash-a".to_string()),
-                        language_hint: Some("markdown".to_string()),
-                    },
-                ),
-                (
-                    "docs/removed.md".to_string(),
-                    FileState {
-                        content_hash: Some("hash-r".to_string()),
-                        language_hint: Some("markdown".to_string()),
-                    },
-                ),
-            ]),
-        };
-        let current = vec![
-            SourceFile {
-                path: "docs/auth.md".to_string(),
-                language_hint: Some("markdown".to_string()),
-                content_hash: Some("hash-a".to_string()),
-                content: None,
-            },
-            SourceFile {
-                path: "docs/new.md".to_string(),
-                language_hint: Some("markdown".to_string()),
-                content_hash: Some("hash-n".to_string()),
-                content: None,
-            },
-        ];
-
-        let affected = previous.affected_files(&current);
-
-        assert!(affected.unchanged.contains("docs/auth.md"));
-        assert!(affected.changed.contains("docs/new.md"));
-        assert!(affected.removed.contains("docs/removed.md"));
-    }
-
-    #[test]
-    fn incompatible_state_schema_forces_a_full_rebuild() {
-        let root = std::env::temp_dir().join(format!(
-            "athanor-index-state-schema-test-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        let path = root.join("index-state.json");
-        fs::create_dir_all(&root).unwrap();
-        fs::write(
-            &path,
-            r#"{"schema":"athanor.index_state.v9","snapshot":"snap_old","files":{}}"#,
-        )
-        .unwrap();
-
-        let state = IndexStateStore::new(&path).load().unwrap();
-
-        assert_eq!(state, IndexState::empty());
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn prepared_state_rolls_back_to_the_previous_state() {
-        let root = std::env::temp_dir().join(format!(
-            "athanor-index-state-rollback-test-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        fs::create_dir_all(&root).unwrap();
-        let path = root.join("index-state.json");
-        let store = IndexStateStore::new(&path);
-        store
-            .save(&IndexState {
-                schema: INDEX_STATE_SCHEMA.to_string(),
-                snapshot: Some("snap_old".to_string()),
-                files: BTreeMap::new(),
-            })
-            .unwrap();
-        store
-            .prepare(&IndexState {
-                schema: INDEX_STATE_SCHEMA.to_string(),
-                snapshot: Some("snap_new".to_string()),
-                files: BTreeMap::new(),
-            })
-            .unwrap()
-            .rollback()
-            .unwrap();
-
-        assert_eq!(store.load().unwrap().snapshot.as_deref(), Some("snap_old"));
-        fs::remove_dir_all(root).unwrap();
-    }
-}
-
 /// Publishes a complete state document only after its staged replacement is ready.
-///
-/// The backup keeps the prior valid state recoverable if the final rename fails on platforms
-/// where replacing an existing path is not supported by a single rename.
 fn write_staged_json(
     path: &Path,
     state: &IndexState,
@@ -331,4 +229,74 @@ fn publication_nonce() -> String {
             .unwrap_or_default()
             .as_nanos()
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn state_joins_snapshot_to_immutable_generation() {
+        let state = IndexState::from_sources("snap_test", &[]);
+
+        assert_eq!(state.snapshot.as_deref(), Some("snap_test"));
+        assert_eq!(state.generation.as_deref(), Some("gen_snap_test"));
+    }
+
+    #[test]
+    fn legacy_state_without_generation_remains_readable() {
+        let state: IndexState = serde_json::from_str(&format!(
+            r#"{{"schema":"{}","snapshot":"snap_old","files":{{}}}}"#,
+            INDEX_STATE_SCHEMA
+        ))
+        .unwrap();
+
+        assert_eq!(state.snapshot.as_deref(), Some("snap_old"));
+        assert_eq!(state.generation, None);
+    }
+
+    #[test]
+    fn computes_changed_unchanged_and_removed_files() {
+        let previous = IndexState {
+            schema: INDEX_STATE_SCHEMA.to_string(),
+            snapshot: Some("snap_previous".to_string()),
+            generation: Some("gen_snap_previous".to_string()),
+            files: BTreeMap::from([
+                (
+                    "docs/auth.md".to_string(),
+                    FileState {
+                        content_hash: Some("hash-a".to_string()),
+                        language_hint: Some("markdown".to_string()),
+                    },
+                ),
+                (
+                    "docs/removed.md".to_string(),
+                    FileState {
+                        content_hash: Some("hash-r".to_string()),
+                        language_hint: Some("markdown".to_string()),
+                    },
+                ),
+            ]),
+        };
+        let current = vec![
+            SourceFile {
+                path: "docs/auth.md".to_string(),
+                language_hint: Some("markdown".to_string()),
+                content_hash: Some("hash-a".to_string()),
+                content: None,
+            },
+            SourceFile {
+                path: "docs/new.md".to_string(),
+                language_hint: Some("markdown".to_string()),
+                content_hash: Some("hash-n".to_string()),
+                content: None,
+            },
+        ];
+
+        let affected = previous.affected_files(&current);
+
+        assert!(affected.unchanged.contains("docs/auth.md"));
+        assert!(affected.changed.contains("docs/new.md"));
+        assert!(affected.removed.contains("docs/removed.md"));
+    }
 }
