@@ -105,14 +105,20 @@ uncommitted, and permit a later valid atomic retry.
 The public facade retries the complete boundary only when the backend message is classified as a
 confirmed transaction conflict/`Busy`. Data and serialization failures are not retried.
 
-Typed compatibility publication checks remain available:
+Typed compatibility and deferred-facade checks:
 
 ```bash
 cargo test -p athanor-core prepared_publication --locked
 cargo test -p athanor-app --test prepared_publication --locked
+cargo test -p athanor-app --test deferred_canonical_buffer --locked
 cargo test -p athanor-store-memory --test prepared_publication --locked
 cargo test -p athanor-store-surrealdb --test prepared_publication --locked
 ```
+
+`deferred_canonical_buffer` proves both the facade and real deferred `IndexPipeline` path. A
+context-aware full batch and prepare must not create an exact JSONL generation or prepared directory.
+The explicit coordinator batch must be the first canonical data published and must replace any
+process-local pending contents.
 
 ## Production atomic index coordinator
 
@@ -131,6 +137,7 @@ cargo test -p athanor-app index_publication_finalize_tests --locked
 cargo test -p athanor-app index_publication_recovery_fault_tests --locked
 cargo test -p athanor-app index_publication_content_tests --locked
 cargo test -p athanor-app index_publication_combined_error_tests --locked
+cargo test -p athanor-app --test deferred_canonical_buffer --locked
 ```
 
 The active coordinator writes the durable journal, stages read-model/state artifacts, builds a
@@ -152,9 +159,12 @@ read-model finalize, index-state finalize, and journal-clear fault tests still i
 the canonical commit. Combined publish/rollback/abort diagnostics are also preserved through the new
 boundary.
 
-The deferred pipeline still calls `put_snapshot_with_context` and `prepare_publication` before the
-journal. Therefore this suite does not yet prove crash safety in the pre-journal interval. Removing
-that prewrite is the next P0.4 slice.
+The application facade now buffers context-aware full batches in process memory. The deferred
+pipeline still invokes its compatibility `put_snapshot_with_context` and prepare methods, but those
+calls do not mutate backend rows or a prepared marker. The durable journal and application staging
+therefore precede the first canonical data publication. Snapshot allocation itself still precedes the
+journal and remains the next crash-recovery slice, especially for durable uncommitted SurrealDB
+snapshot records.
 
 ## Remote SurrealDB
 
@@ -249,6 +259,10 @@ zizmor --offline --strict-collection --min-severity high --min-confidence high .
 - An atomic coordinator error that rolls back application artifacts after exact commit violates the
   exact canonical probe.
 - A committed exact recovery that depends on `LatestCommitted` violates pointer-failure safety.
+- A deferred pipeline that creates an exact generation or prepared directory before the coordinator
+  atomic boundary bypasses the application pending-batch barrier.
+- A coordinator publication exposing the pending compatibility batch instead of `IndexPipelineOutput`
+  violates complete-batch replacement.
 - A successful publication leaving `index-publication.json` means finalization did not complete.
 - A malformed application artifact changing current state means recovery preflight was bypassed.
 - A second recovery call changing state after journal cleanup violates idempotence.
