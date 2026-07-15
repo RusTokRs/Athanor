@@ -3,9 +3,9 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use athanor_app::{AthanorStore, PreparedSnapshotPublication};
 use athanor_core::{
-    CancellationHandle, CanonicalSnapshot, CanonicalSnapshotStore, CoreResult, DiagnosticQuery,
-    EntityQuery, EntityResolver, KnowledgeStore, OperationContext, OperationContextCancellation,
-    RelationQuery, SnapshotBatch, SnapshotSelector,
+    AtomicSnapshotPublication, CancellationHandle, CanonicalSnapshot, CanonicalSnapshotStore,
+    CoreResult, DiagnosticQuery, EntityQuery, EntityResolver, KnowledgeStore, OperationContext,
+    OperationContextCancellation, RelationQuery, SnapshotBatch, SnapshotSelector,
 };
 use athanor_domain::{
     Diagnostic, Entity, EntityId, Fact, Relation, RepoId, SnapshotBase, SnapshotId, StableKey,
@@ -140,6 +140,28 @@ impl KnowledgeStore for RecordingStore {
         _context: &OperationContext,
     ) -> CoreResult<()> {
         self.record("abort_context");
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl AtomicSnapshotPublication for RecordingStore {
+    async fn publish_snapshot_batch(
+        &self,
+        _snapshot: SnapshotId,
+        _batch: SnapshotBatch,
+    ) -> CoreResult<()> {
+        self.record("atomic_plain");
+        Ok(())
+    }
+
+    async fn publish_snapshot_batch_with_context(
+        &self,
+        _snapshot: SnapshotId,
+        _batch: SnapshotBatch,
+        _context: &OperationContext,
+    ) -> CoreResult<()> {
+        self.record("atomic_context");
         Ok(())
     }
 }
