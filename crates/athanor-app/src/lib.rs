@@ -25,6 +25,7 @@ mod daemon_lifecycle;
 mod daemon_operation;
 mod daemon_protocol;
 mod daemon_queries;
+mod daemon_read_dispatch;
 mod daemon_recovery;
 pub mod daemon_runtime;
 mod daemon_watcher;
