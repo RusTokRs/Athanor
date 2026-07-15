@@ -105,6 +105,7 @@ pub mod indexing {
 
 /// Publication artefacts and lifecycle APIs.
 pub mod publication {
+    pub use crate::index_current::{resolve_index_state_path, resolve_read_model_path};
     pub use crate::index_state::{IndexState, IndexStateStore, PreparedIndexState};
     pub use crate::prepared_publication::{PreparedSnapshot, PreparedSnapshotPublication};
     pub use crate::read_model::{
