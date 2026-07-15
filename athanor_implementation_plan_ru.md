@@ -2,7 +2,7 @@
 
 > Репозиторий: `RusTokRs/Athanor`  
 > Базовая ветка: `main`  
-> Точка сверки кода: `a9f31f8f474129351389107eecc05102dc38bed4`  
+> Точка сверки кода: `f6da2b7ad3a0b499c652718018abdc189e1e754b`  
 > Дата актуализации: 2026-07-15  
 > Статус: active implementation plan
 
@@ -22,13 +22,14 @@
 3. Hosted/platform пункт не выполнен без run/status evidence.
 4. Coverage threshold не назначается без измерения.
 5. Cancellation/deadline не блокируют rollback/recovery.
-6. Journal v1 читается после перехода writer на v2.
+6. Journal v1/v2 читается после перехода writer на v3.
 7. Recovery fail-closed проверяет path/type/schema/snapshot identity до mutation.
 8. Queries читают только committed canonical snapshots.
 9. Data+marker atomic только внутри одного backend boundary.
 10. Durable success не превращается в post-commit cancellation error.
 11. До durable application journal допустима allocation authority, но не rows/prepared marker.
 12. Backend atomic publication ещё не равна одному generation pointer.
+13. `GenerationId` детерминированно выводится из уникального `SnapshotId` и не имеет отдельного allocator/counter.
 
 ## 1. Baseline
 
@@ -41,7 +42,9 @@
 - backend atomic data+marker boundaries;
 - process-local deferred canonical batch barrier;
 - snapshot-native runtime publisher и recovery;
-- journal v2/v1 compatibility и recovery fault matrix;
+- journal v3 с чтением v2/v1;
+- backend-neutral immutable `GenerationId`;
+- generation identity в JSONL canonical marker, Surreal snapshot record, read-model manifest, index state и recovery journal;
 - SurrealDB context-owned allocation metadata и bounded orphan cleanup;
 - feature, coverage, AppSec, installer и release workflows.
 
@@ -60,10 +63,16 @@ cargo fmt --all -- --check
 cargo test --workspace --quiet --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings
 
+cargo test -p athanor-domain generation --locked
+cargo test -p athanor-app index_publication_journal --locked
+cargo test -p athanor-app read_model --locked
+cargo test -p athanor-app index_state --locked
+cargo test -p athanor-app index_publication_atomic_tests --locked
+cargo test -p athanor-store-jsonl --test atomic_publication --locked
+cargo test -p athanor-store-surrealdb --test atomic_publication --locked
+
 cargo test -p athanor-app --test prepared_publication --locked
 cargo test -p athanor-app --test deferred_canonical_buffer --locked
-cargo test -p athanor-app index_publication_journal --locked
-cargo test -p athanor-app index_publication_atomic_tests --locked
 cargo test -p athanor-app index_publication_fault_tests --locked
 cargo test -p athanor-app index_publication_finalize_tests --locked
 cargo test -p athanor-app index_publication_recovery_fault_tests --locked
@@ -85,9 +94,9 @@ ATHANOR_SURREAL_REMOTE_URI=ws://127.0.0.1:8000 \
 | Область | Статус | Подтверждено | Остаётся |
 | --- | --- | --- | --- |
 | Query isolation | `[-]` | committed exact/latest contracts | Hosted remote evidence, one generation view |
-| Atomic publication | `[-]` | backend boundaries, data barrier, snapshot runtime/recovery | One generation pointer |
+| Atomic publication | `[-]` | backend boundaries, data barrier, immutable generation identity | One current pointer и repair protocol |
 | Allocation recovery | `[-]` | metadata, 24h cutoff, bounded conditional cleanup, tests | Legacy untagged policy, hosted evidence |
-| Recovery safety | `[-]` | journal/preflight/exact probe/idempotence, plain abort | Checksums, one pointer |
+| Recovery safety | `[-]` | journal/preflight/exact probe/idempotence, plain abort, generation-bearing journal | Checksums, one pointer |
 | Concurrent writers | `[-]` | JSONL lock, counter, embedded ownership | Remote conflict evidence |
 | Operation context | `[-]` | cancellation lease, Busy retry, daemon writes | Reads, CLI/MCP, ambiguous in-flight request |
 | Runtime maintainability | `[-]` | focused runtime/coordinator, legacy coordinator removed | Other runtime/daemon decomposition |
@@ -122,7 +131,7 @@ ATHANOR_SURREAL_REMOTE_URI=ws://127.0.0.1:8000 \
 
 ### P0.4. Store conformance и transactional publication
 
-**Статус:** `[-]` — backend/data/allocation boundaries и snapshot-native runtime/recovery реализованы; осталось 5 generation-layer срезов.
+**Статус:** `[-]` — backend/data/allocation boundaries, snapshot-native runtime/recovery и immutable generation identity реализованы; осталось 4 generation-layer среза.
 
 #### Shared backend contract
 
@@ -134,18 +143,17 @@ ATHANOR_SURREAL_REMOTE_URI=ws://127.0.0.1:8000 \
 
 #### Atomic coordinator/recovery
 
-- [x] Journal v2/v1 compatibility и atomic persistence.
+- [x] Journal v3/v2/v1 compatibility и atomic persistence.
 - [x] Active publisher и runtime используют direct `SnapshotId` API.
 - [x] Journal/staging предшествуют final canonical data mutation.
 - [x] Explicit complete batch через atomic capability.
 - [x] Exact probe перед rollback/abort.
 - [x] Exact committed generation не abort’ится.
-- [x] Recovery загружает snapshot-native journal и использует plain `abort_snapshot`.
+- [x] Recovery использует plain `abort_snapshot`.
 - [x] Recovery path/type/schema/snapshot preflight.
 - [x] Pointer/finalize/clear/combined-error regressions.
 - [x] Repeated recovery идемпотентен.
-- [x] Prepare/cancellation/combined/finalize/content/recovery fixtures используют direct snapshot или plain store lifecycle.
-- [x] Compatibility publisher и legacy guard/atomic/typed coordinator modules удалены.
+- [x] Compatibility publisher и legacy coordinator modules удалены.
 - [!] Hosted compile/test/fmt/Clippy отсутствует.
 
 #### Deferred canonical barrier
@@ -173,19 +181,23 @@ ATHANOR_SURREAL_REMOTE_URI=ws://127.0.0.1:8000 \
 - [-] Legacy untagged records не удаляются автоматически.
 - [!] Hosted embedded/remote evidence отсутствует.
 
-#### Snapshot-native transition
+#### Immutable generation identity — завершено
 
-- [x] Production journal хранит `SnapshotId`; v2 wire сохраняет `prepared`.
-- [x] v1 raw `snapshot` читается и нормализуется в v2.
-- [x] Unknown fields/schema и неверные paths/id fail-closed.
-- [x] Runtime передаёт `output.snapshot.clone()` и не импортирует typed publication authority.
-- [x] Publication и recovery cleanup используют plain `abort_snapshot`.
-- [x] Fault/finalize/recovery suites мигрированы.
-- [x] Compatibility wrapper и три legacy coordinator-файла удалены.
+- [x] Domain newtype `GenerationId` не зависит от backend.
+- [x] Identity детерминированно выводится как `gen_<SnapshotId>`.
+- [x] JSONL canonical commit marker writer перешёл на schema v2 с `generation`.
+- [x] JSONL reader продолжает принимать legacy marker v1.
+- [x] Surreal atomic commit сохраняет generation в snapshot record.
+- [x] Read-model `manifest.json` содержит snapshot + generation.
+- [x] Persisted index state wire содержит snapshot + generation и читает legacy state без generation.
+- [x] Index state fail-closed отклоняет несовпадающую пару snapshot/generation.
+- [x] Recovery journal writer перешёл на v3; v1/v2 читаются и нормализуются.
+- [x] Pointer-failure recovery regression проверяет сохранение одного generation во journal/read-model/state.
+- [!] Hosted compile/test/fmt/Clippy evidence отсутствует.
 
-#### Generation layer — осталось 5 code slices
+#### Generation layer — осталось 4 code slices
 
-- [ ] Immutable generation id для canonical/read-model/state.
+- [x] Immutable generation id для canonical/read-model/state/journal.
 - [ ] Один current pointer после подготовки artifacts.
 - [ ] Backend latest-pointer repair через generation protocol.
 - [ ] Pointer switch/cleanup fault injection.
@@ -239,60 +251,56 @@ ATHANOR_SURREAL_REMOTE_URI=ws://127.0.0.1:8000 \
 - [ ] Conventional commit lint/changelog/version consistency.
 - [ ] `justfile`, `xtask` или unified verification entrypoint.
 
-## 6. Порядок реализации
+## 6. Оценка готовности
+
+Оценка остаётся диапазоном, а не release assertion:
+
+- весь roadmap до текущего среза: `67–72%`;
+- после завершения immutable generation identity: ориентировочно `68–73%`;
+- код P0.4 до текущего среза: `88–90%`;
+- после завершения immutable generation identity: ориентировочно `91–93%`;
+- до release-grade P0 остаются 4 кодовых generation-layer среза и 5 hosted/platform evidence packages;
+- после P0 остаются 17 крупных P1-пунктов и 4 P2-пункта.
+
+## 7. Порядок реализации
 
 1. `[!]` Включить Actions и получить compile/test/fmt/Clippy evidence.
-2. P0.4 — immutable generation id.
-3. P0.4 — один current pointer.
-4. P0.4 — backend latest-pointer repair.
-5. P0.4 — pointer switch/cleanup fault injection.
-6. P0.4 — checksums application artifacts.
-7. P0.4 — remote conflict evidence.
-8. P1.5 — read-only daemon/CLI/MCP cancellation.
-9. Hosted AppSec/matrix/installer/tag evidence.
-10. Sandbox, decomposition, performance и P2.
+2. P0.4 — один current pointer.
+3. P0.4 — backend latest-pointer repair.
+4. P0.4 — pointer switch/cleanup fault injection.
+5. P0.4 — checksums application artifacts.
+6. P0.4 — remote conflict evidence.
+7. P1.5 — read-only daemon/CLI/MCP cancellation.
+8. Hosted AppSec/matrix/installer/tag evidence.
+9. Sandbox, decomposition, performance и P2.
 
-## 7. Текущий рабочий пакет
+## 8. Текущий рабочий пакет
 
 **Активный blocker:** `GitHub Actions activation/visibility`.
 
-**Текущий безопасный кодовый срез:** `P0.4 immutable generation identity`.
+**Завершённый кодовый срез:** `P0.4 immutable generation identity`.
 
-1. Ввести backend-neutral `GenerationId` рядом со snapshot identity.
-2. Пронести generation id в canonical marker, read-model manifest и index state.
-3. Journal должен фиксировать snapshot + generation.
-4. Recovery обязана fail-closed отклонять смешанные generation identities.
-5. Добавить JSONL/Memory/SurrealDB и application regressions.
-6. Не считать hosted-подтверждённым без Actions.
+**Следующий безопасный кодовый срез:** `P0.4 one current pointer`.
 
-## 8. Сколько осталось
+Целевой результат следующего среза:
 
-- До завершения текущего transactional P0.4: **5 code slices** — весь snapshot-native transition закрыт.
-- До release-grade P0: 5 code slices плюс **5 hosted/platform evidence packages**, заблокированных Actions/settings.
-- После P0 остаются **17 крупных P1 items** и **4 P2 governance items**.
-- По самостоятельным рабочим пакетам проект находится примерно на **67–72%** от текущего плана; по коду P0.4 — примерно на **88–90%**, но hosted доказательство пока отсутствует.
+- canonical, read-model и state сначала подготавливаются под immutable `GenerationId`;
+- один application-level pointer атомарно выбирает generation только после готовности всех artifacts;
+- readers разрешают latest через этот pointer, а не через независимые mutable locations;
+- legacy locations остаются readable на migration window;
+- rollback до pointer switch удаляет только непубличную generation;
+- recovery после pointer switch завершает cleanup, не откатывая durable success.
 
-## 9. Definition of Done
+## 9. Журнал актуализаций
 
-- Queries изолированы committed snapshot.
-- Three-backend shared suites проходят.
-- Publication atomic/crash-safe на generation boundary.
-- Allocation recovery bounded/fail-closed/idempotent.
-- Recovery fail-closed и идемпотентна.
-- Busy retry bounded deadline/cancellation.
-- Daemon/CLI/MCP cancellation эквивалентна.
-- External adapters bounded/cancellable.
-- CI/AppSec/install/release gates enforce regressions.
-- Runtime/CLI не god modules.
-- Plan/issues/release notes соответствуют коду.
+### 2026-07-15 — immutable generation identity
 
-## 10. Журнал актуализаций
-
-### 2026-07-15 — snapshot-native transition завершён
-
-- Runtime вызывает direct `publish_index_snapshot` и exact-probe cleanup.
-- Prepared publisher adapter удалён.
-- Recovery internals перенесены в active snapshot-native coordinator и используют plain abort.
-- Fault/finalize/content/recovery fixtures мигрированы с typed coordinator lifecycle.
-- Legacy guard, atomic coordinator и typed coordinator/journal файлы удалены.
-- Осталось 5 generation-layer code slices.
+- Добавлен backend-neutral domain type `GenerationId`.
+- Выбрано deterministic mapping `gen_<SnapshotId>` без нового allocator/counter.
+- JSONL canonical marker переведён на v2; v1 остаётся readable.
+- Surreal atomic commit сохраняет generation в snapshot record.
+- Read-model manifest и index-state wire сохраняют generation.
+- Index state отклоняет mismatched snapshot/generation и читает legacy state без generation.
+- Recovery journal переведён на v3 с чтением v2/v1.
+- Добавлены marker, state, manifest, journal и pointer-failure recovery regressions.
+- Generation-layer backlog уменьшен с пяти до четырёх code slices.
