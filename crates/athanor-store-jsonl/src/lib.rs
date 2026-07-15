@@ -190,7 +190,11 @@ fn validate_exact_generation(snapshot_dir: &Path, snapshot: &SnapshotId) -> Core
             if schema == legacy::atomic_publication::SNAPSHOT_COMMIT_SCHEMA
                 || schema == legacy::atomic_publication::SNAPSHOT_COMMIT_SCHEMA_V1 =>
         {
-            legacy::atomic_publication::validate_commit_marker(snapshot_dir, snapshot)
+            legacy::atomic_publication::validate_commit_marker_schema(
+                snapshot_dir,
+                snapshot,
+                schema,
+            )
         }
         Some(Value::String(schema)) => Err(CoreError::AdapterProtocol(format!(
             "canonical manifest {} requires unsupported commit marker schema `{schema}`",
