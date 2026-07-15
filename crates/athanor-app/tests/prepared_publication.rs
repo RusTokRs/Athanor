@@ -189,7 +189,7 @@ impl EntityResolver for RecordingStore {
 }
 
 #[tokio::test]
-async fn store_wrapper_preserves_context_overrides_and_plain_cleanup() {
+async fn store_wrapper_buffers_context_batch_until_atomic_publish() {
     let calls = Arc::new(Mutex::new(Vec::new()));
     let store = AthanorStore::new(RecordingStore {
         calls: Arc::clone(&calls),
@@ -207,18 +207,18 @@ async fn store_wrapper_preserves_context_overrides_and_plain_cleanup() {
         .await
         .unwrap();
     assert_eq!(prepared.snapshot(), &snapshot);
+    assert!(
+        calls.lock().unwrap().is_empty(),
+        "context batch and prepare must remain process-local before commit"
+    );
 
     store.publish_prepared(&prepared, &context).await.unwrap();
-    store.abort_prepared(&prepared).await.unwrap();
+    assert_eq!(calls.lock().unwrap().as_slice(), ["atomic_context"]);
 
+    store.abort_prepared(&prepared).await.unwrap();
     assert_eq!(
         calls.lock().unwrap().as_slice(),
-        [
-            "batch_context",
-            "prepare_context",
-            "commit_context",
-            "abort_plain"
-        ]
+        ["atomic_context", "abort_plain"]
     );
 }
 
