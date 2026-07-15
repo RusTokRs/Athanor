@@ -1,5 +1,5 @@
 use athanor_core::{CoreError, CoreResult, SnapshotBatch};
-use athanor_domain::SnapshotId;
+use athanor_domain::{GenerationId, SnapshotId};
 
 use super::{SurrealKnowledgeStore, insert_record};
 
@@ -38,6 +38,7 @@ impl SurrealKnowledgeStore {
             .iter()
             .map(|diagnostic| insert_record(&snapshot, &diagnostic.id.0, diagnostic))
             .collect::<CoreResult<Vec<_>>>()?;
+        let generation = GenerationId::for_snapshot(&snapshot);
 
         let mut sql = String::from(
             "BEGIN;\n\
@@ -60,13 +61,14 @@ impl SurrealKnowledgeStore {
         }
         sql.push_str(
             "UPDATE ONLY type::thing('snapshot', $snapshot) \
-             SET prepared = true, committed = true RETURN NONE;\n\
+             SET prepared = true, committed = true, generation = $generation RETURN NONE;\n\
              COMMIT;",
         );
 
         self.db
             .query(sql)
             .bind(("snapshot", snapshot.0.clone()))
+            .bind(("generation", generation.0))
             .bind(("entities", entities))
             .bind(("facts", facts))
             .bind(("relations", relations))
