@@ -137,7 +137,7 @@ Targeted checks:
 
 ```bash
 cargo test -p athanor-app index_current --locked
-cargo test -p athanor-app index_state_pointer --locked
+cargo test -p athanor-app index_state --locked
 cargo test -p athanor-app index_current_runtime_tests --locked
 cargo test -p athanor-app index_publication_atomic_tests --locked
 cargo test -p athanor-app index_publication_recovery_fault_tests --locked
