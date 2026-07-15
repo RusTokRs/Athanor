@@ -5,20 +5,93 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use athanor_core::SourceFile;
 use athanor_domain::{GenerationId, SnapshotId};
-use serde::{Deserialize, Serialize};
+use serde::de::Error as _;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[cfg(not(feature = "js-ts-precision"))]
 pub const INDEX_STATE_SCHEMA: &str = "athanor.index_state.v46";
 #[cfg(feature = "js-ts-precision")]
 pub const INDEX_STATE_SCHEMA: &str = "athanor.index_state.v46-js-ts-precision-v1";
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+/// Incremental index state.
+///
+/// The persisted wire document includes a deterministic `generation` field whenever `snapshot` is
+/// present. The field is intentionally derived rather than stored in the public Rust structure so
+/// existing callers cannot construct a mismatched snapshot/generation pair.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct IndexState {
     pub schema: String,
     pub snapshot: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub generation: Option<String>,
     pub files: BTreeMap<String, FileState>,
+}
+
+impl Serialize for IndexState {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        #[derive(Serialize)]
+        struct IndexStateWire<'a> {
+            schema: &'a str,
+            snapshot: &'a Option<String>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            generation: Option<GenerationId>,
+            files: &'a BTreeMap<String, FileState>,
+        }
+
+        let generation = self
+            .snapshot
+            .as_ref()
+            .map(|snapshot| GenerationId::for_snapshot(&SnapshotId(snapshot.clone())));
+        IndexStateWire {
+            schema: &self.schema,
+            snapshot: &self.snapshot,
+            generation,
+            files: &self.files,
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for IndexState {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct IndexStateWire {
+            schema: String,
+            snapshot: Option<String>,
+            #[serde(default)]
+            generation: Option<GenerationId>,
+            files: BTreeMap<String, FileState>,
+        }
+
+        let wire = IndexStateWire::deserialize(deserializer)?;
+        match (&wire.snapshot, &wire.generation) {
+            (Some(snapshot), Some(generation)) => {
+                let expected = GenerationId::for_snapshot(&SnapshotId(snapshot.clone()));
+                if generation != &expected {
+                    return Err(D::Error::custom(format!(
+                        "index state generation `{generation}` does not match snapshot `{snapshot}`"
+                    )));
+                }
+            }
+            (None, Some(generation)) => {
+                return Err(D::Error::custom(format!(
+                    "index state generation `{generation}` has no snapshot identity"
+                )));
+            }
+            _ => {}
+        }
+
+        Ok(Self {
+            schema: wire.schema,
+            snapshot: wire.snapshot,
+            files: wire.files,
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -39,14 +112,11 @@ impl IndexState {
         Self {
             schema: INDEX_STATE_SCHEMA.to_string(),
             snapshot: None,
-            generation: None,
             files: BTreeMap::new(),
         }
     }
 
     pub fn from_sources(snapshot: impl Into<String>, sources: &[SourceFile]) -> Self {
-        let snapshot = snapshot.into();
-        let generation = GenerationId::for_snapshot(&SnapshotId(snapshot.clone()));
         let files = sources
             .iter()
             .map(|source| {
@@ -62,8 +132,7 @@ impl IndexState {
 
         Self {
             schema: INDEX_STATE_SCHEMA.to_string(),
-            snapshot: Some(snapshot),
-            generation: Some(generation.0),
+            snapshot: Some(snapshot.into()),
             files,
         }
     }
@@ -236,11 +305,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn state_joins_snapshot_to_immutable_generation() {
-        let state = IndexState::from_sources("snap_test", &[]);
+    fn state_wire_joins_snapshot_to_immutable_generation() {
+        let value = serde_json::to_value(IndexState::from_sources("snap_test", &[])).unwrap();
 
-        assert_eq!(state.snapshot.as_deref(), Some("snap_test"));
-        assert_eq!(state.generation.as_deref(), Some("gen_snap_test"));
+        assert_eq!(value["snapshot"], "snap_test");
+        assert_eq!(value["generation"], "gen_snap_test");
     }
 
     #[test]
@@ -252,7 +321,17 @@ mod tests {
         .unwrap();
 
         assert_eq!(state.snapshot.as_deref(), Some("snap_old"));
-        assert_eq!(state.generation, None);
+    }
+
+    #[test]
+    fn mismatched_generation_is_rejected() {
+        let error = serde_json::from_str::<IndexState>(&format!(
+            r#"{{"schema":"{}","snapshot":"snap_one","generation":"gen_snap_two","files":{{}}}}"#,
+            INDEX_STATE_SCHEMA
+        ))
+        .expect_err("mismatched generation must fail closed");
+
+        assert!(error.to_string().contains("does not match snapshot"));
     }
 
     #[test]
@@ -260,7 +339,6 @@ mod tests {
         let previous = IndexState {
             schema: INDEX_STATE_SCHEMA.to_string(),
             snapshot: Some("snap_previous".to_string()),
-            generation: Some("gen_snap_previous".to_string()),
             files: BTreeMap::from([
                 (
                     "docs/auth.md".to_string(),
