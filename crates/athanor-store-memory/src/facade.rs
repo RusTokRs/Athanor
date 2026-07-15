@@ -21,7 +21,7 @@ impl CanonicalLatestPointer for MemoryKnowledgeStore {
         Ok(Some(CanonicalLatestIdentity::for_snapshot(snapshot)))
     }
 
-    async fn repair_latest_identity(&self, identity: CanonicalLatestIdentity) -> CoreResult<()> {
+    async fn validate_latest_identity(&self, identity: &CanonicalLatestIdentity) -> CoreResult<()> {
         identity.validate()?;
         let Some(exact) = self.load_snapshot(&identity.snapshot).await? else {
             return Err(CoreError::NotFound(format!(
@@ -38,7 +38,7 @@ impl CanonicalLatestPointer for MemoryKnowledgeStore {
         let latest = self.load_latest_identity().await?.ok_or_else(|| {
             CoreError::NotFound("memory store has no committed latest snapshot".to_string())
         })?;
-        if latest != identity {
+        if &latest != identity {
             return Err(CoreError::Conflict(format!(
                 "memory latest is {} / {}, requested {} / {}",
                 latest.snapshot.0,
@@ -48,6 +48,10 @@ impl CanonicalLatestPointer for MemoryKnowledgeStore {
             )));
         }
         Ok(())
+    }
+
+    async fn repair_latest_identity(&self, identity: CanonicalLatestIdentity) -> CoreResult<()> {
+        self.validate_latest_identity(&identity).await
     }
 }
 
@@ -88,7 +92,7 @@ mod latest_pointer_tests {
         };
         assert!(
             store
-                .repair_latest_identity(mismatch)
+                .validate_latest_identity(&mismatch)
                 .await
                 .expect_err("generation mismatch must fail")
                 .to_string()
