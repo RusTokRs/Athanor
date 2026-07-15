@@ -1,16 +1,13 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use athanor_core::{
-    CanonicalSnapshotStore, KnowledgeStore, OperationContext, PreparedSnapshotPublication,
-    SnapshotBatch,
-};
+use athanor_core::{CanonicalSnapshotStore, KnowledgeStore, SnapshotBatch};
 use athanor_domain::{RepoId, SnapshotBase, SnapshotId};
 use athanor_store_jsonl::JsonlKnowledgeStore;
 use serde_json::json;
 
 use crate::index_publication::recover_interrupted_publication;
-use crate::index_publication_inner::INDEX_PUBLICATION_JOURNAL_SCHEMA_V2;
+use crate::index_publication_journal::INDEX_PUBLICATION_JOURNAL_SCHEMA_V2;
 use crate::index_state::INDEX_STATE_SCHEMA;
 use crate::read_model::JSONL_MANIFEST_SCHEMA;
 use crate::AthanorStore;
@@ -219,16 +216,15 @@ async fn recovery_fixture(label: &str, committed: bool) -> RecoveryFixture {
         .put_snapshot(snapshot.clone(), SnapshotBatch::default())
         .await
         .expect("write snapshot");
-    let operation = OperationContext::new(format!("test.recovery.content.{label}"));
-    let prepared = store
-        .prepare_publication(snapshot.clone(), &operation)
+    store
+        .prepare_snapshot(snapshot.clone())
         .await
         .expect("prepare snapshot");
     if committed {
         store
-            .publish_prepared(&prepared, &operation)
+            .commit_snapshot(snapshot.clone())
             .await
-            .expect("publish snapshot");
+            .expect("commit snapshot");
     }
 
     RecoveryFixture {
