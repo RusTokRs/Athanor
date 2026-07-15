@@ -1,6 +1,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use athanor_core::{CanonicalSnapshotStore, KnowledgeStore};
+use athanor_domain::{RepoId, SnapshotBase};
 use athanor_store_jsonl::JsonlKnowledgeStore;
 use serde_json::json;
 
@@ -81,6 +83,47 @@ async fn committed_pointer_journal_recovers_immutable_generation_and_pointer() {
     assert!(!pointer_publication_journal(&root).exists());
 
     fs::remove_dir_all(root).expect("remove pointer recovery fixture");
+}
+
+#[tokio::test]
+async fn pointer_journal_without_legacy_journal_aborts_uncommitted_snapshot() {
+    let root = test_root("orphan");
+    fs::create_dir_all(root.join(".athanor/state")).expect("create state directory");
+    let store = AthanorStore::new(JsonlKnowledgeStore::new(
+        root.join(".athanor/store/canonical/jsonl"),
+    ));
+    let snapshot = store
+        .begin_snapshot(
+            RepoId("repo_pointer_orphan".to_string()),
+            SnapshotBase {
+                branch: None,
+                commit: None,
+                parent_snapshot: None,
+                working_tree: true,
+            },
+        )
+        .await
+        .expect("begin orphan snapshot");
+    fs::write(
+        pointer_publication_journal(&root),
+        serde_json::to_vec_pretty(&json!({
+            "schema": "athanor.index_current_publication.v1",
+            "snapshot": snapshot.0.clone(),
+            "generation": format!("gen_{}", snapshot.0)
+        }))
+        .unwrap(),
+    )
+    .expect("write orphan pointer journal");
+
+    recover_interrupted_publication(&root, &store)
+        .await
+        .expect("recover orphan pointer publication");
+
+    assert!(store.load_snapshot(&snapshot).await.unwrap().is_none());
+    assert!(!pointer_publication_journal(&root).exists());
+    assert!(!IndexCurrent::path(&root).exists());
+
+    fs::remove_dir_all(root).expect("remove pointer orphan fixture");
 }
 
 async fn run_index(root: &Path, composition: &crate::RuntimeComposition) -> crate::IndexReport {
