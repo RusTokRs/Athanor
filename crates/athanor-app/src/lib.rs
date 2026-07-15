@@ -38,8 +38,11 @@ mod hash;
 pub mod impact;
 #[path = "index_runtime.rs"]
 pub mod index;
-#[path = "index_publication_atomic.rs"]
+#[path = "index_publication_snapshot.rs"]
 mod index_publication;
+#[allow(dead_code)]
+#[path = "index_publication_atomic.rs"]
+mod index_publication_atomic_legacy;
 #[cfg(test)]
 #[allow(dead_code)]
 #[path = "index_publication_guard.rs"]
@@ -47,7 +50,6 @@ mod index_publication_legacy;
 #[allow(dead_code)]
 #[path = "index_publication.rs"]
 mod index_publication_inner;
-#[allow(dead_code)]
 mod index_publication_journal;
 #[cfg(test)]
 mod index_publication_atomic_tests;
