@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use athanor_domain::SnapshotId;
+use athanor_domain::{RepoId, SnapshotBase, SnapshotId};
 
 use crate::cancellation::OperationContextCancellation;
 use crate::{CoreResult, KnowledgeStore, OperationContext, SnapshotBatch};
@@ -13,6 +13,32 @@ use crate::{CoreResult, KnowledgeStore, OperationContext, SnapshotBatch};
 /// pointer remains a separate layer.
 #[async_trait]
 pub trait AtomicSnapshotPublication: KnowledgeStore {
+    /// Allocates one snapshot with transport-neutral operation metadata when the backend needs a
+    /// durable allocation record. The default preserves the existing context-aware store contract.
+    async fn begin_snapshot_allocation(
+        &self,
+        repo: RepoId,
+        base: SnapshotBase,
+        context: &OperationContext,
+    ) -> CoreResult<SnapshotId> {
+        context.check_active()?;
+        self.begin_snapshot_with_context(repo, base, context).await
+    }
+
+    /// Removes a bounded set of stale, uncommitted and unprepared allocation records for one repo.
+    ///
+    /// Backends without durable allocation records return an empty set. Implementations must repeat
+    /// the committed/prepared/age checks at the destructive boundary and must never remove a record
+    /// newer than `stale_before_unix_ms`.
+    async fn recover_orphan_snapshot_allocations(
+        &self,
+        _repo: &RepoId,
+        _stale_before_unix_ms: u64,
+        _limit: usize,
+    ) -> CoreResult<Vec<SnapshotId>> {
+        Ok(Vec::new())
+    }
+
     /// Atomically writes the complete canonical batch and marks the snapshot committed.
     async fn publish_snapshot_batch(
         &self,
