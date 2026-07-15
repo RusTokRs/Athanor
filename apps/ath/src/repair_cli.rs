@@ -2,9 +2,10 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
 use athanor_app::{
-    IndexGenerationCleanupOptions, IndexGenerationCleanupReport, RepairRecoverIndexCleanupOptions,
-    RepairRecoverIndexCleanupReport, RepairRecoverIndexOptions, RepairRecoverIndexReport,
-    cleanup_index_generations, recover_index_cleanup, recover_index_publication,
+    IndexGenerationCleanupOptions, IndexGenerationCleanupReport, RepairCanonicalLatestOptions,
+    RepairCanonicalLatestReport, RepairRecoverIndexCleanupOptions, RepairRecoverIndexCleanupReport,
+    RepairRecoverIndexOptions, RepairRecoverIndexReport, cleanup_index_generations,
+    recover_index_cleanup, recover_index_publication, repair_canonical_latest,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -27,6 +28,12 @@ pub(crate) enum Command {
         dry_run: bool,
         json: bool,
     },
+    RepairLatest {
+        path: PathBuf,
+        dry_run: bool,
+        snapshot: Option<String>,
+        json: bool,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,6 +42,7 @@ pub(crate) enum HelpTopic {
     IndexRetention,
     RecoverIndex,
     RecoverIndexCleanup,
+    RepairLatest,
 }
 
 pub(crate) fn parse(args: &[String]) -> Result<Option<Command>> {
@@ -52,6 +60,7 @@ pub(crate) fn parse(args: &[String]) -> Result<Option<Command>> {
         "index-retention" | "cleanup-index" => parse_index_retention(&args[2..]).map(Some),
         "recover-index" => parse_recover_index(&args[2..]).map(Some),
         "recover-index-cleanup" => parse_recover_index_cleanup(&args[2..]).map(Some),
+        "repair-latest" => parse_repair_latest(&args[2..]).map(Some),
         _ => Ok(None),
     }
 }
@@ -136,6 +145,50 @@ fn parse_recover_index_cleanup(args: &[String]) -> Result<Command> {
     Ok(Command::RecoverIndexCleanup {
         path,
         dry_run,
+        json,
+    })
+}
+
+fn parse_repair_latest(args: &[String]) -> Result<Command> {
+    if args.iter().any(|arg| arg == "--help" || arg == "-h") {
+        return Ok(Command::Help(HelpTopic::RepairLatest));
+    }
+    let mut path = None;
+    let mut dry_run = false;
+    let mut snapshot = None;
+    let mut json = false;
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--dry-run" => {
+                dry_run = true;
+                index += 1;
+            }
+            "--json" => {
+                json = true;
+                index += 1;
+            }
+            "--snapshot" => {
+                snapshot = Some(
+                    args.get(index + 1)
+                        .context("--snapshot requires a value")?
+                        .clone(),
+                );
+                index += 2;
+            }
+            value if value.starts_with('-') => bail!("unknown repair-latest option `{value}`"),
+            value => {
+                if path.replace(PathBuf::from(value)).is_some() {
+                    bail!("repair-latest accepts at most one project path");
+                }
+                index += 1;
+            }
+        }
+    }
+    Ok(Command::RepairLatest {
+        path: path.unwrap_or_else(|| PathBuf::from(".")),
+        dry_run,
+        snapshot,
         json,
     })
 }
@@ -229,6 +282,25 @@ pub(crate) async fn run(command: Command) -> Result<()> {
             }
             Ok(())
         }
+        Command::RepairLatest {
+            path,
+            dry_run,
+            snapshot,
+            json,
+        } => {
+            let report = repair_canonical_latest(RepairCanonicalLatestOptions {
+                root: path,
+                dry_run,
+                snapshot,
+            })
+            .await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                print_repair_latest(&report);
+            }
+            Ok(())
+        }
     }
 }
 
@@ -239,6 +311,7 @@ fn print_help(topic: HelpTopic) {
             println!("  index-retention       Plan or apply immutable index-generation retention");
             println!("  recover-index         Recover a pending transactional index publication");
             println!("  recover-index-cleanup Finish an interrupted confirmed index cleanup");
+            println!("  repair-latest         Repair canonical latest to the authoritative generation");
             println!();
             println!("Existing commands remain available: inspect, cleanup, regenerate, recover-canonical, apply");
         }
@@ -260,6 +333,13 @@ fn print_help(topic: HelpTopic) {
             println!("Finish an interrupted confirmed index-generation cleanup");
             println!();
             println!("Usage: ath repair recover-index-cleanup [PATH] [--dry-run] [--json]");
+        }
+        HelpTopic::RepairLatest => {
+            println!("Repair canonical latest to the authoritative newest committed generation");
+            println!();
+            println!("Usage: ath repair repair-latest [PATH] [--snapshot <ID>] [--dry-run] [--json]");
+            println!();
+            println!("An explicit snapshot is accepted only when backend discovery confirms it is authoritative.");
         }
     }
 }
@@ -297,6 +377,23 @@ fn print_recover_index_cleanup(report: &RepairRecoverIndexCleanupReport) {
     println!("  recovered: {}", report.recovered);
     for tombstone in &report.tombstones {
         println!("  staged: {} ({})", tombstone.generation, tombstone.token);
+    }
+    println!("  remaining issues: {}", report.remaining_issues.len());
+}
+
+fn print_repair_latest(report: &RepairCanonicalLatestReport) {
+    println!("canonical latest repair at {}", report.root.display());
+    println!("  needed: {}", report.needed);
+    println!("  repaired: {}", report.repaired);
+    println!(
+        "  target: {} ({})",
+        report.target.snapshot.0, report.target.generation
+    );
+    if let Some(previous) = &report.previous {
+        println!("  previous: {} ({})", previous.snapshot.0, previous.generation);
+    }
+    if let Some(error) = &report.previous_error {
+        println!("  previous pointer error: {error}");
     }
     println!("  remaining issues: {}", report.remaining_issues.len());
 }
@@ -349,7 +446,7 @@ mod tests {
     }
 
     #[test]
-    fn parses_recovery_and_help_without_intercepting_legacy_commands() {
+    fn parses_repair_commands_without_intercepting_legacy_commands() {
         assert_eq!(
             parse(&args(&["repair", "recover-index", "project", "--dry-run"]))
                 .unwrap(),
@@ -371,6 +468,23 @@ mod tests {
                 path: PathBuf::from("project"),
                 dry_run: false,
                 json: true,
+            })
+        );
+        assert_eq!(
+            parse(&args(&[
+                "repair",
+                "repair-latest",
+                "project",
+                "--snapshot",
+                "snap_jsonl_00000002",
+                "--dry-run",
+            ]))
+            .unwrap(),
+            Some(Command::RepairLatest {
+                path: PathBuf::from("project"),
+                dry_run: true,
+                snapshot: Some("snap_jsonl_00000002".to_string()),
+                json: false,
             })
         );
         assert_eq!(
