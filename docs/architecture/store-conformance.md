@@ -51,6 +51,9 @@ staged contents with the complete batch and marks the snapshot committed. Before
 exact reads fail with `SnapshotNotCommitted`; after it, exact and latest reads expose only the new
 complete generation. Republish and abort of the committed snapshot fail closed.
 
+The application `TransientKnowledgeStore` implements the same replacement semantics so internal
+composition and test paths satisfy the production store capability bound.
+
 ### JSONL
 
 JSONL writes all JSONL data, indexes, manifest, and `athanor.canonical_commit.v1` marker into a
@@ -129,61 +132,63 @@ The daemon operation-aware scheduler binds the application `CancellationToken` t
 handle. Index, generation, wiki, and HTML jobs use this path. Repeating the same token/id binding is
 idempotent, while a different token with the same live id fails closed.
 
-## Prepared publication protocol
+## Prepared publication compatibility
 
-`athanor-core` owns `PreparedSnapshot` and `PreparedSnapshotPublication` beside `KnowledgeStore`.
-`athanor-app` preserves source compatibility through a re-export.
+`athanor-core` still owns `PreparedSnapshot` and `PreparedSnapshotPublication`. Journal v1/v2 and
+existing cleanup/fault fixtures retain this typed handle as an abort authority.
 
-The protocol is:
+The production coordinator no longer uses `publish_prepared` as its final canonical boundary. It
+constructs a complete `SnapshotBatch` from `IndexPipelineOutput` and invokes
+`publish_snapshot_batch_with_context` after the durable journal and application staging exist.
+Prepared handles remain useful before that boundary: a journal-write, read-model prepare, state
+prepare, cancellation, or uncommitted atomic failure can still abort the snapshot through the plain
+cancellation-independent cleanup path.
 
-1. `prepare_publication(snapshot, context)` crosses the backend prepare boundary and returns a typed
-   cleanup authority;
-2. `publish_prepared(handle, context)` performs context-aware canonical publication;
-3. `abort_prepared(handle)` uses a cancellation-independent plain abort path.
+## Production atomic index coordinator
 
-A cancellation race immediately after successful prepare must still return the typed handle. Losing
-that handle would strand durable prepared state without cleanup authority.
+Production indexing remains routed through `index_runtime.rs`, while `index_publication_atomic.rs`
+now owns the active publication and recovery functions. The former guard and inner coordinator stay
+compiled as an explicitly allowed compatibility layer for journal types and legacy fault tests.
 
-This compatibility protocol remains active in the production index coordinator. The next cutover
-must pass the complete `SnapshotBatch` into `AtomicSnapshotPublication` instead of writing canonical
-rows before the durable application journal exists.
+The active coordinator:
 
-## Typed index publication coordinator
+1. validates the prepared handle against the pipeline output;
+2. writes `athanor.index_publication.v2`;
+3. stages the JSONL read model and index state;
+4. builds the complete canonical `SnapshotBatch` from output entities, facts, relations, and
+   diagnostics;
+5. calls `AtomicSnapshotPublication`;
+6. probes the journal snapshot by exact canonical id if publication returns an error;
+7. keeps the journal and staged application artefacts when the exact generation is already committed;
+8. otherwise rolls application artefacts back, clears the journal, and aborts the snapshot;
+9. finalizes application backups and clears the journal after a clean atomic publish.
 
-Production indexing is routed through `index_runtime.rs`. The current deferred pipeline writes and
-prepares canonical data first, then constructs `PreparedSnapshot` and calls the guarded
-`publish_prepared_index` boundary.
+Recovery also probes the journal snapshot by exact id. It no longer relies only on
+`LatestCommitted`, so a JSONL exact generation remains recognized as committed when a separate
+`latest.json` finalization fails. Committed recovery keeps the matching read model/state generation
+and removes stale backups; uncommitted recovery restores backups and aborts the snapshot.
 
-The coordinator:
+A dedicated regression blocks `latest.json` after exact JSONL publication. The coordinator must
+return the pointer error while retaining the journal, exact generation, read-model manifest, and
+index state. Abort must fail with `Conflict`; after removing the transient pointer fault, recovery
+cleans the journal without reverting application artefacts, and repeated recovery is a no-op.
 
-1. writes `athanor.index_publication.v2`;
-2. stages the JSONL read model and index state;
-3. publishes the previously prepared canonical snapshot;
-4. finalizes application backups;
-5. clears the durable journal.
-
-Journal v1 remains readable and is normalized to the typed v2 representation. Unknown schemas and
-fields fail closed. Journal paths must equal the expected project artifacts, and publication ids
-cannot contain path separators.
-
-Startup calls guarded `recover_interrupted_publication` before loading previous state. A committed
-journal keeps the new generation and removes stale staging/backups. An uncommitted journal restores
-available backups, removes matching uncommitted current artifacts, and calls `abort_prepared`.
-Recovery currently determines canonical commit by the latest committed snapshot. The atomic cutover
-must add exact-snapshot commit probing so a committed exact generation is recognized even if a
-separate latest pointer failed.
+The remaining crash window is earlier: the deferred pipeline still writes and prepares uncommitted
+canonical rows before the durable publication journal is created. A process crash in that interval
+can strand prepared state without a journal. The next cutover must make deferred execution return the
+complete batch without calling `put_snapshot_with_context` or `prepare_publication` first.
 
 ## Recovery preflight and fault matrix
 
-The guard validates every recovery-controlled artifact before any delete or rename:
+Recovery validates every controlled application artifact before any delete or rename:
 
 - current, staged, and backup read models must be directories when present;
 - current, staged, and backup index states must be regular files when present;
 - read-model manifests must be parseable, use `athanor.jsonl_manifest.v1`, and carry a non-empty
   snapshot identity;
 - new current and staged index state must use the active `INDEX_STATE_SCHEMA`;
-- historical state backups may use an earlier numeric `athanor.index_state.vN` schema, including a
-  validated version suffix, so recovery remains possible across an application upgrade;
+- historical state backups may use an earlier numeric `athanor.index_state.vN` schema with a
+  validated suffix;
 - staged artifacts must identify the journal snapshot;
 - committed current artifacts must identify the journal snapshot;
 - uncommitted current artifacts that would be replaced by backups must identify the journal snapshot;
@@ -192,22 +197,17 @@ The guard validates every recovery-controlled artifact before any delete or rena
 A type, schema, parse, or identity mismatch fails closed before destructive mutation. The durable
 journal and current artifacts remain present for diagnosis and repair.
 
-Deterministic regressions cover journal/prepare/publish/finalize/clear failures, malformed artifact
-types, schema and identity mismatches, mixed backup generations, absent backups, repeated recovery,
-and simultaneous publish/rollback/abort failures.
-
-For post-commit finalize failures, the canonical snapshot remains committed. After the transient
-filesystem fault is repaired, recovery finalizes the same generation instead of reverting it. A
-second recovery call after journal cleanup is a no-op. Combined failures preserve the original
-publish error together with rollback and abort causes.
+Deterministic regressions cover journal/prepare/atomic-publish/finalize/clear failures, malformed
+artifact types, schema and identity mismatches, mixed backup generations, absent backups, repeated
+recovery, exact-commit/latest-pointer failure, and simultaneous publish/rollback/abort failures.
 
 ## Guarantees not claimed yet
 
 The current implementation does not claim:
 
-- production index-coordinator cutover to `AtomicSnapshotPublication`;
-- exact canonical commit probing during publication recovery;
+- zero canonical mutation before the durable application publication journal;
 - one immutable generation pointer covering canonical data, state, and read models;
+- automatic repair of a failed JSONL `latest.json` pointer from the backend-neutral recovery API;
 - cryptographic content integrity for application artifacts;
 - deterministic remote write-conflict evidence;
 - force interruption or outcome recovery for an SDK request already executing;
@@ -215,6 +215,6 @@ The current implementation does not claim:
 - hosted compile, test, formatting, Clippy, AppSec, installer, or release evidence while Actions runs
   remain unavailable.
 
-P0.4 remains incomplete until hosted evidence, production coordinator cutover, exact-marker recovery,
-generation-pointer switching, remote conflict evidence, and pointer-level fault injection are
+P0.4 remains incomplete until deferred prewrite is removed, hosted evidence exists, one generation
+pointer is introduced, remote conflict behavior is evidenced, and pointer-level fault injection is
 complete.
