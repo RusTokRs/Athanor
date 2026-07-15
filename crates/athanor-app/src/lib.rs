@@ -36,6 +36,7 @@ pub mod generation;
 pub mod graph;
 mod hash;
 pub mod impact;
+mod index_current;
 #[path = "index_runtime.rs"]
 pub mod index;
 #[path = "index_publication_snapshot.rs"]
