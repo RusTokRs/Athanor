@@ -13,10 +13,9 @@ pub(crate) const INDEX_PUBLICATION_JOURNAL_SCHEMA_V3: &str = "athanor.index_publ
 /// Durable publication journal joining canonical and application artefacts into one immutable
 /// generation.
 ///
-/// The version-two wire field remains named `prepared` for compatibility with already persisted
-/// journals. Version three adds the backend-neutral generation identity. Legacy v1/v2 journals are
-/// normalized in memory and retain a compatibility flag so recovery can accept pre-generation
-/// application artefacts.
+/// The wire field remains named `prepared` for compatibility with already persisted v2 journals.
+/// Version three adds the backend-neutral generation identity. Legacy v1/v2 journals are
+/// normalized in memory and are rewritten as v3 on the next publication.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub(crate) struct IndexPublicationJournal {
     schema: String,
@@ -26,8 +25,6 @@ pub(crate) struct IndexPublicationJournal {
     id: String,
     read_model: PathBuf,
     index_state: PathBuf,
-    #[serde(skip)]
-    legacy_generation: bool,
 }
 
 impl IndexPublicationJournal {
@@ -44,7 +41,6 @@ impl IndexPublicationJournal {
             id,
             read_model: expected_read_model(root),
             index_state: expected_index_state(root),
-            legacy_generation: false,
         }
     }
 
@@ -125,14 +121,6 @@ impl IndexPublicationJournal {
         &self.snapshot
     }
 
-    pub(crate) fn generation(&self) -> &GenerationId {
-        &self.generation
-    }
-
-    pub(crate) fn requires_generation_identity(&self) -> bool {
-        !self.legacy_generation
-    }
-
     pub(crate) fn id(&self) -> &str {
         &self.id
     }
@@ -154,7 +142,8 @@ impl IndexPublicationJournal {
         if self.snapshot.0.is_empty() {
             bail!("publication journal has an empty snapshot identity");
         }
-        if self.generation != GenerationId::for_snapshot(&self.snapshot) {
+        let expected_generation = GenerationId::for_snapshot(&self.snapshot);
+        if self.generation != expected_generation {
             bail!(
                 "publication journal generation `{}` does not match snapshot `{}`",
                 self.generation,
@@ -240,7 +229,6 @@ impl<'de> Deserialize<'de> for IndexPublicationJournal {
                     id: journal.id,
                     read_model: journal.read_model,
                     index_state: journal.index_state,
-                    legacy_generation: false,
                 })
             }
             JournalWire::V2(journal) => {
@@ -258,7 +246,6 @@ impl<'de> Deserialize<'de> for IndexPublicationJournal {
                     id: journal.id,
                     read_model: journal.read_model,
                     index_state: journal.index_state,
-                    legacy_generation: true,
                 })
             }
             JournalWire::V1(journal) => {
@@ -277,7 +264,6 @@ impl<'de> Deserialize<'de> for IndexPublicationJournal {
                     id: journal.id,
                     read_model: journal.read_model,
                     index_state: journal.index_state,
-                    legacy_generation: true,
                 })
             }
         }
@@ -338,9 +324,8 @@ mod tests {
         let decoded: IndexPublicationJournal =
             serde_json::from_value(value).expect("deserialize v3 journal");
         assert_eq!(decoded, journal);
-        assert_eq!(decoded.snapshot().0, "snap_test_0003");
-        assert_eq!(decoded.generation().0, "gen_snap_test_0003");
-        assert!(decoded.requires_generation_identity());
+        assert_eq!(decoded.snapshot.0, "snap_test_0003");
+        assert_eq!(decoded.generation.0, "gen_snap_test_0003");
     }
 
     #[test]
@@ -354,9 +339,8 @@ mod tests {
         }))
         .expect("deserialize v2 journal");
 
-        assert_eq!(decoded.snapshot().0, "snap_test_0002");
-        assert_eq!(decoded.generation().0, "gen_snap_test_0002");
-        assert!(!decoded.requires_generation_identity());
+        assert_eq!(decoded.snapshot.0, "snap_test_0002");
+        assert_eq!(decoded.generation.0, "gen_snap_test_0002");
         let normalized = serde_json::to_value(decoded).expect("serialize normalized journal");
         assert_eq!(normalized["schema"], INDEX_PUBLICATION_JOURNAL_SCHEMA_V3);
         assert_eq!(normalized["prepared"], "snap_test_0002");
@@ -374,9 +358,8 @@ mod tests {
         }))
         .expect("deserialize v1 journal");
 
-        assert_eq!(decoded.snapshot().0, "snap_test_0001");
-        assert_eq!(decoded.generation().0, "gen_snap_test_0001");
-        assert!(!decoded.requires_generation_identity());
+        assert_eq!(decoded.snapshot.0, "snap_test_0001");
+        assert_eq!(decoded.generation.0, "gen_snap_test_0001");
         let normalized = serde_json::to_value(decoded).expect("serialize normalized journal");
         assert_eq!(normalized["schema"], INDEX_PUBLICATION_JOURNAL_SCHEMA_V3);
         assert_eq!(normalized["prepared"], "snap_test_0001");
