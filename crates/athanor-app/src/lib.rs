@@ -36,10 +36,9 @@ pub mod generation;
 pub mod graph;
 mod hash;
 pub mod impact;
-mod index_current;
 #[path = "index_runtime.rs"]
 pub mod index;
-#[path = "index_publication_snapshot.rs"]
+#[path = "index_publication.rs"]
 mod index_publication;
 #[cfg(test)]
 mod index_publication_atomic_tests;
@@ -51,6 +50,7 @@ mod index_publication_content_tests;
 mod index_publication_fault_tests;
 #[cfg(test)]
 mod index_publication_finalize_tests;
+mod index_current;
 mod index_publication_journal;
 #[cfg(test)]
 mod index_publication_recovery_fault_tests;
