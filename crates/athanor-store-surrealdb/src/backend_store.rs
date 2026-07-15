@@ -6,7 +6,8 @@ use athanor_core::{
     EntityResolver, KnowledgeStore, RelationQuery, SnapshotBatch, SnapshotSelector,
 };
 use athanor_domain::{
-    Diagnostic, Entity, EntityId, Fact, Relation, RepoId, SnapshotBase, SnapshotId, StableKey,
+    Diagnostic, Entity, EntityId, Fact, GenerationId, Relation, RepoId, SnapshotBase, SnapshotId,
+    StableKey,
 };
 use serde::de;
 use serde::{Deserialize, Serialize};
@@ -42,6 +43,8 @@ struct SnapshotRecord {
     #[serde(default)]
     prepared: bool,
     committed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    generation: Option<GenerationId>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -178,7 +181,9 @@ impl SurrealKnowledgeStore {
                     .into_iter()
                     .next()
                     .ok_or_else(|| CoreError::NotFound("no committed snapshot".to_string()))?;
-                return Ok(SnapshotId(record.id));
+                let snapshot = SnapshotId(record.id.clone());
+                validate_committed_generation(&record, &snapshot)?;
+                return Ok(snapshot);
             }
         };
 
@@ -186,6 +191,7 @@ impl SurrealKnowledgeStore {
         if !record.committed {
             return Err(CoreError::SnapshotNotCommitted(snapshot.0));
         }
+        validate_committed_generation(&record, &snapshot)?;
         Ok(snapshot)
     }
 
@@ -196,6 +202,24 @@ impl SurrealKnowledgeStore {
             write_gate: Arc::new(Mutex::new(())),
         }
     }
+}
+
+fn validate_committed_generation(
+    record: &SnapshotRecord,
+    snapshot: &SnapshotId,
+) -> CoreResult<()> {
+    let Some(generation) = &record.generation else {
+        // Migration window for committed records written before generation identity existed.
+        return Ok(());
+    };
+    let expected = GenerationId::for_snapshot(snapshot);
+    if generation != &expected {
+        return Err(CoreError::AdapterProtocol(format!(
+            "committed snapshot {} identifies generation `{generation}`, expected `{expected}`",
+            snapshot.0
+        )));
+    }
+    Ok(())
 }
 
 async fn initialize_snapshot_counter(db: &Surreal<Any>) -> CoreResult<()> {
@@ -267,6 +291,7 @@ impl KnowledgeStore for SurrealKnowledgeStore {
             sequence,
             prepared: false,
             committed: false,
+            generation: None,
         };
 
         let _: Option<SnapshotRecord> = self
@@ -535,10 +560,11 @@ impl KnowledgeStore for SurrealKnowledgeStore {
         let _guard = self.write_gate.lock().await;
         let mut record = self.load_snapshot_record(&snapshot).await?;
         if record.committed {
-            return Ok(());
+            return validate_committed_generation(&record, &snapshot);
         }
         record.prepared = true;
         record.committed = true;
+        record.generation = Some(GenerationId::for_snapshot(&snapshot));
         let _: Option<SnapshotRecord> = self
             .db
             .update(("snapshot", &snapshot.0))
@@ -633,6 +659,7 @@ impl CanonicalSnapshotStore for SurrealKnowledgeStore {
         if !snapshot_record.committed {
             return Err(CoreError::SnapshotNotCommitted(snapshot.0.clone()));
         }
+        validate_committed_generation(&snapshot_record, snapshot)?;
 
         let entities = load_records(&self.db, "entity", snapshot).await?;
         let facts = load_records(&self.db, "fact", snapshot).await?;
@@ -845,9 +872,65 @@ mod tests {
             .unwrap();
         store.commit_snapshot(snapshot.clone()).await.unwrap();
 
+        let record = store.load_snapshot_record(&snapshot).await.unwrap();
+        assert_eq!(
+            record.generation,
+            Some(GenerationId::for_snapshot(&snapshot))
+        );
         let reloaded = store.load_latest_snapshot().await.unwrap().unwrap();
         assert_eq!(reloaded.snapshot, Some(snapshot));
         assert_eq!(reloaded.entities, vec![entity]);
+    }
+
+    #[tokio::test]
+    async fn committed_generation_mismatch_fails_exact_and_latest_reads() {
+        let store = SurrealKnowledgeStore::connect("mem://").await.unwrap();
+        let snapshot = store
+            .begin_snapshot(RepoId("repo_generation_mismatch".to_string()), base())
+            .await
+            .unwrap();
+        store.commit_snapshot(snapshot.clone()).await.unwrap();
+
+        let mut record = store.load_snapshot_record(&snapshot).await.unwrap();
+        record.generation = Some(GenerationId("gen_foreign".to_string()));
+        let _: Option<SnapshotRecord> = store
+            .db
+            .update(("snapshot", &snapshot.0))
+            .content(record)
+            .await
+            .unwrap();
+
+        let exact = store
+            .load_snapshot(&snapshot)
+            .await
+            .expect_err("mismatched exact generation must fail closed");
+        assert!(matches!(exact, CoreError::AdapterProtocol(_)));
+        let latest = store
+            .query_entities(SnapshotSelector::LatestCommitted, EntityQuery::default())
+            .await
+            .expect_err("mismatched latest generation must fail closed");
+        assert!(matches!(latest, CoreError::AdapterProtocol(_)));
+    }
+
+    #[tokio::test]
+    async fn legacy_committed_record_without_generation_remains_readable() {
+        let store = SurrealKnowledgeStore::connect("mem://").await.unwrap();
+        let snapshot = store
+            .begin_snapshot(RepoId("repo_legacy_generation".to_string()), base())
+            .await
+            .unwrap();
+        let mut record = store.load_snapshot_record(&snapshot).await.unwrap();
+        record.prepared = true;
+        record.committed = true;
+        record.generation = None;
+        let _: Option<SnapshotRecord> = store
+            .db
+            .update(("snapshot", &snapshot.0))
+            .content(record)
+            .await
+            .unwrap();
+
+        assert!(store.load_snapshot(&snapshot).await.unwrap().is_some());
     }
 
     #[tokio::test]
