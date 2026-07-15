@@ -3,9 +3,9 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use athanor_core::{CanonicalLatestIdentity, CanonicalLatestPointer};
-use athanor_domain::{GenerationId, SnapshotId};
+use athanor_domain::SnapshotId;
 use fs2::FileExt;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 mod current {
     include!("repair_cleanup_recovery.rs");
@@ -13,9 +13,7 @@ mod current {
 
 pub use current::*;
 
-const INDEX_CURRENT_PATH: &str = ".athanor/state/index-current.json";
 const PUBLICATION_LOCK_PATH: &str = ".athanor/state/index-publication.lock";
-const INDEX_CURRENT_SCHEMA: &str = "athanor.index_current.v1";
 
 #[derive(Debug, Clone)]
 pub struct RepairCanonicalLatestOptions {
@@ -38,16 +36,6 @@ pub struct RepairCanonicalLatestReport {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub previous_error: Option<String>,
     pub remaining_issues: Vec<RepairIssue>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct IndexCurrentIdentity {
-    schema: String,
-    snapshot: String,
-    generation: GenerationId,
-    read_model: String,
-    index_state: String,
 }
 
 /// Repairs the backend's latest committed identity without running indexing.
@@ -149,7 +137,8 @@ async fn resolve_target(
             snapshot.to_string(),
         )))
     } else {
-        read_index_current_identity(root)?
+        crate::index_current::IndexCurrent::load(root)?
+            .map(|current| current.canonical_identity())
     };
 
     let discovered = store
@@ -175,39 +164,6 @@ async fn resolve_target(
     } else {
         Ok(discovered)
     }
-}
-
-fn read_index_current_identity(root: &Path) -> Result<Option<CanonicalLatestIdentity>> {
-    let path = root.join(INDEX_CURRENT_PATH);
-    if !path.exists() {
-        return Ok(None);
-    }
-    let document: IndexCurrentIdentity = serde_json::from_slice(
-        &fs::read(&path).with_context(|| format!("failed to read {}", path.display()))?,
-    )
-    .with_context(|| format!("failed to parse {}", path.display()))?;
-    if document.schema != INDEX_CURRENT_SCHEMA {
-        bail!(
-            "index-current {} has unsupported schema {}",
-            path.display(),
-            document.schema
-        );
-    }
-    let identity = CanonicalLatestIdentity {
-        snapshot: SnapshotId(document.snapshot),
-        generation: document.generation,
-    };
-    identity.validate()?;
-
-    let expected_read = format!(
-        ".athanor/generated/index-generations/{}/jsonl",
-        identity.generation
-    );
-    let expected_state = format!(".athanor/state/index-state-{}.json", identity.generation);
-    if document.read_model != expected_read || document.index_state != expected_state {
-        bail!("index-current {} contains non-deterministic paths", path.display());
-    }
-    Ok(Some(identity))
 }
 
 struct LatestRepairLock {
