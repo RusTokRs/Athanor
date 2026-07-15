@@ -1,16 +1,13 @@
 use std::fs;
 use std::path::PathBuf;
 
-use athanor_core::{
-    CanonicalSnapshotStore, KnowledgeStore, OperationContext, PreparedSnapshotPublication,
-    SnapshotBatch,
-};
+use athanor_core::{CanonicalSnapshotStore, KnowledgeStore, SnapshotBatch};
 use athanor_domain::{RepoId, SnapshotBase, SnapshotId};
 use athanor_store_jsonl::JsonlKnowledgeStore;
 use serde_json::json;
 
 use crate::index_publication::recover_interrupted_publication;
-use crate::index_publication_inner::INDEX_PUBLICATION_JOURNAL_SCHEMA_V2;
+use crate::index_publication_journal::INDEX_PUBLICATION_JOURNAL_SCHEMA_V2;
 use crate::index_state::INDEX_STATE_SCHEMA;
 use crate::read_model::JSONL_MANIFEST_SCHEMA;
 use crate::AthanorStore;
@@ -135,9 +132,8 @@ async fn prepared_recovery_fixture(id: &str) -> RecoveryFixture {
         .put_snapshot(snapshot.clone(), SnapshotBatch::default())
         .await
         .expect("write recovery snapshot");
-    let operation = OperationContext::new(format!("test.recovery.{id}"));
-    let _prepared = store
-        .prepare_publication(snapshot.clone(), &operation)
+    store
+        .prepare_snapshot(snapshot.clone())
         .await
         .expect("prepare recovery snapshot");
 
