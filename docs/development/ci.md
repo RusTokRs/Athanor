@@ -79,6 +79,25 @@ cargo test -p athanor-store-jsonl --test fact_query --locked
 cargo test -p athanor-store-surrealdb --test fact_query --locked
 ```
 
+## Atomic canonical publication
+
+`AtomicSnapshotPublication` publishes a complete canonical batch and its committed marker through one
+backend-specific boundary. Memory is the reference implementation; JSONL writes the batch and
+`commit.json` into a hidden staging directory and publishes the exact committed generation with one
+rename.
+
+Focused checks:
+
+```bash
+cargo test -p athanor-store-memory --test atomic_publication --locked
+cargo test -p athanor-store-jsonl --test atomic_publication --locked
+```
+
+The JSONL suite also forces a latest-pointer finalization error after exact publication. The exact
+snapshot must remain readable and abort must fail, because the canonical data and commit marker were
+already durably published before the separate pointer step. Marker schema/identity validation on
+exact load, SurrealDB transaction support, and production coordinator cutover remain open.
+
 Typed backend publication checks:
 
 ```bash
@@ -202,6 +221,10 @@ zizmor --offline --strict-collection --min-severity high --min-confidence high .
 - A fact returned from an uncommitted/prepared snapshot violates query isolation.
 - Different fact filters or limit behavior between backends means the canonical blanket contract was
   bypassed.
+- A JSONL exact committed generation without `commit.json` means the atomic publication path was
+  bypassed or the marker was removed after publication.
+- A latest-pointer error that makes the exact JSONL generation abortable violates the durable
+  data-plus-marker boundary.
 - A successful publication leaving `index-publication.json` means finalization did not complete.
 - A journal-write failure leaving prepared canonical data means the pre-journal cleanup guard failed.
 - A malformed type, schema, or snapshot identity changing current artifacts means recovery preflight
