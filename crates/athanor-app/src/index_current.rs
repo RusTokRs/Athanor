@@ -152,7 +152,7 @@ impl IndexCurrent {
 
 /// Resolves the validated immutable JSONL read-model directory, or the legacy path when no pointer
 /// has been published yet. A present invalid pointer never falls back.
-pub(crate) fn resolve_read_model_path(root: &Path) -> Result<PathBuf> {
+pub fn resolve_read_model_path(root: &Path) -> Result<PathBuf> {
     match IndexCurrent::load(root).context("failed to resolve index current pointer for read model")? {
         Some(current) => Ok(current.read_model_path(root)),
         None => Ok(root.join(LEGACY_READ_MODEL_PATH)),
@@ -161,19 +161,11 @@ pub(crate) fn resolve_read_model_path(root: &Path) -> Result<PathBuf> {
 
 /// Resolves the validated immutable index-state file, or the legacy path when no pointer has been
 /// published yet. A present invalid pointer never falls back.
-pub(crate) fn resolve_index_state_path(root: &Path) -> Result<PathBuf> {
+pub fn resolve_index_state_path(root: &Path) -> Result<PathBuf> {
     match IndexCurrent::load(root).context("failed to resolve index current pointer for index state")? {
         Some(current) => Ok(current.index_state_path(root)),
         None => Ok(root.join(LEGACY_INDEX_STATE_PATH)),
     }
-}
-
-pub(crate) fn read_model_path(root: &Path, generation: &GenerationId) -> PathBuf {
-    root.join(read_model_relative(generation))
-}
-
-pub(crate) fn index_state_path(root: &Path, generation: &GenerationId) -> PathBuf {
-    root.join(index_state_relative(generation))
 }
 
 fn read_model_relative(generation: &GenerationId) -> String {
