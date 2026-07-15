@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use athanor_core::{CanonicalSnapshotStore, KnowledgeStore};
 use athanor_domain::{RepoId, SnapshotBase};
 use athanor_store_jsonl::JsonlKnowledgeStore;
-use serde_json::json;
+use serde_json::{Value, json};
 
 use crate::index_current::IndexCurrent;
 use crate::index_publication::recover_interrupted_publication;
@@ -40,6 +40,35 @@ async fn production_index_publishes_valid_immutable_current_generation() {
     );
     assert!(root.join(".athanor/state/index-state.json").is_file());
     assert!(!pointer_publication_journal(&root).exists());
+
+    let pointer: Value = serde_json::from_slice(
+        &fs::read(IndexCurrent::path(&root)).expect("read checksum-bound pointer"),
+    )
+    .expect("parse checksum-bound pointer");
+    assert_eq!(pointer["schema"], crate::index_current::INDEX_CURRENT_SCHEMA);
+    assert!(
+        pointer["read_model_manifest_sha256"]
+            .as_str()
+            .is_some_and(|digest| digest.starts_with("sha256:"))
+    );
+    assert!(
+        pointer["index_state_sha256"]
+            .as_str()
+            .is_some_and(|digest| digest.starts_with("sha256:"))
+    );
+    let manifest: Value = serde_json::from_slice(
+        &fs::read(current.read_model_path(&root).join("manifest.json"))
+            .expect("read immutable manifest"),
+    )
+    .expect("parse immutable manifest");
+    assert_eq!(manifest["checksums"]["algorithm"], "sha256");
+    assert_eq!(
+        manifest["checksums"]["files"]
+            .as_object()
+            .expect("checksum file map")
+            .len(),
+        4
+    );
 
     let second = run_index(&root, &composition).await;
     assert_eq!(second.snapshot, report.snapshot);
@@ -77,7 +106,7 @@ async fn committed_pointer_journal_recovers_immutable_generation_and_pointer() {
     )
     .expect("write pending pointer journal");
 
-    let store = AthanorStore::new(JsonlKnowledgeStore::new(
+    let store = AthanorStore::new_with_latest_pointer(JsonlKnowledgeStore::new(
         root.join(".athanor/store/canonical/jsonl"),
     ));
     recover_interrupted_publication(&root, &store)
@@ -104,7 +133,7 @@ async fn committed_pointer_journal_recovers_immutable_generation_and_pointer() {
 async fn pointer_journal_without_legacy_journal_aborts_uncommitted_snapshot() {
     let root = test_root("orphan");
     fs::create_dir_all(root.join(".athanor/state")).expect("create state directory");
-    let store = AthanorStore::new(JsonlKnowledgeStore::new(
+    let store = AthanorStore::new_with_latest_pointer(JsonlKnowledgeStore::new(
         root.join(".athanor/store/canonical/jsonl"),
     ));
     let snapshot = store
