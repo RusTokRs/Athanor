@@ -60,3 +60,37 @@ impl CanonicalLatestPointer for SurrealKnowledgeStore {
         self.validate_latest_identity(&identity).await
     }
 }
+
+#[cfg(test)]
+mod latest_pointer_tests {
+    use athanor_core::{CanonicalLatestPointer, KnowledgeStore};
+    use athanor_domain::{RepoId, SnapshotBase};
+
+    use super::*;
+
+    #[tokio::test]
+    async fn validates_only_newest_committed_generation() {
+        let store = SurrealKnowledgeStore::connect("mem://").await.unwrap();
+        let first = store
+            .begin_snapshot(RepoId("repo_latest".to_string()), SnapshotBase::default())
+            .await
+            .unwrap();
+        store.commit_snapshot(first.clone()).await.unwrap();
+        let second = store
+            .begin_snapshot(RepoId("repo_latest".to_string()), SnapshotBase::default())
+            .await
+            .unwrap();
+        store.commit_snapshot(second.clone()).await.unwrap();
+
+        let target = CanonicalLatestIdentity::for_snapshot(second.clone());
+        assert_eq!(store.discover_latest_identity().await.unwrap(), Some(target.clone()));
+        store.validate_latest_identity(&target).await.unwrap();
+        store.repair_latest_identity(target).await.unwrap();
+
+        let error = store
+            .validate_latest_identity(&CanonicalLatestIdentity::for_snapshot(first))
+            .await
+            .expect_err("derived latest must not rewind");
+        assert!(matches!(error, CoreError::Conflict(_)));
+    }
+}
