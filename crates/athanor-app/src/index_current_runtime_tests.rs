@@ -21,7 +21,7 @@ async fn production_index_publishes_valid_immutable_current_generation() {
         .expect("load index current pointer")
         .expect("index current pointer exists");
 
-    assert_eq!(current.snapshot().0, report.snapshot);
+    assert_eq!(current.snapshot().0.as_str(), report.snapshot.as_str());
     assert_eq!(
         current.generation().as_str(),
         format!("gen_{}", report.snapshot)
@@ -58,7 +58,7 @@ async fn committed_pointer_journal_recovers_immutable_generation_and_pointer() {
         pointer_publication_journal(&root),
         serde_json::to_vec_pretty(&json!({
             "schema": "athanor.index_current_publication.v1",
-            "snapshot": report.snapshot,
+            "snapshot": report.snapshot.clone(),
             "generation": format!("gen_{}", report.snapshot)
         }))
         .unwrap(),
@@ -75,7 +75,7 @@ async fn committed_pointer_journal_recovers_immutable_generation_and_pointer() {
     let recovered = IndexCurrent::load(&root)
         .expect("load recovered pointer")
         .expect("recovered pointer exists");
-    assert_eq!(recovered.snapshot().0, report.snapshot);
+    assert_eq!(recovered.snapshot().0.as_str(), report.snapshot.as_str());
     assert!(recovered.read_model_path(&root).join("manifest.json").is_file());
     assert!(recovered.index_state_path(&root).is_file());
     assert!(!pointer_publication_journal(&root).exists());
