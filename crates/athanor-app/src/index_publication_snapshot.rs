@@ -13,9 +13,8 @@ use crate::{
     AthanorStore, IndexPipelineOutput, IndexState, IndexStateStore, JsonlReadModelWriter,
 };
 
-pub(crate) use crate::index_publication_atomic_legacy::{
-    IndexPublicationOutcome, recover_interrupted_publication,
-};
+pub(crate) use crate::index_publication_atomic_legacy::IndexPublicationOutcome;
+use crate::index_publication_atomic_legacy::recover_interrupted_publication as recover_legacy_publication;
 
 /// Stages application artefacts behind a durable snapshot-native journal, then atomically publishes
 /// the complete canonical batch and commit marker.
@@ -127,6 +126,23 @@ pub(crate) async fn publish_index_snapshot(
         read_model_write_ms,
         index_state_write_ms,
     })
+}
+
+/// Loads and validates the snapshot-native journal before delegating artifact recovery to the
+/// compatibility implementation. The persisted wire format is shared, so v1 and v2 journals remain
+/// readable while recovery identity is owned by `SnapshotId` at the active entrypoint.
+pub(crate) async fn recover_interrupted_publication(
+    root: &Path,
+    store: &AthanorStore,
+) -> Result<()> {
+    let Some(journal) = IndexPublicationJournal::load(root)? else {
+        return Ok(());
+    };
+
+    // Probe the exact journal identity before the compatibility recovery touches artifacts. This
+    // rejects malformed or backend-inconsistent canonical identities at the snapshot-native boundary.
+    let _ = exact_snapshot_is_committed(store, journal.snapshot()).await?;
+    recover_legacy_publication(root, store).await
 }
 
 /// Compatibility adapter for existing runtime/fault fixtures. Publication state is converted to the
