@@ -215,7 +215,18 @@ pub(crate) async fn search(
     query: String,
     limit: usize,
 ) -> Result<crate::search::SearchReport> {
-    search_with_operation_context(state, query, limit, &OperationContext::default()).await
+    let operation = OperationContext::default();
+    let snapshot = latest_snapshot(state).await?;
+    let index = search_index(state, &snapshot)?;
+    search_snapshot_with_index_and_operation_context(
+        &state.endpoint.root,
+        &snapshot,
+        query,
+        limit,
+        index.as_ref(),
+        &operation,
+    )
+    .await
 }
 
 pub(crate) async fn search_with_operation_context(
@@ -324,6 +335,11 @@ fn is_operation_termination(error: &anyhow::Error) -> bool {
     error.chain().any(|cause| {
         cause
             .downcast_ref::<CoreError>()
-            .is_some_and(|error| matches!(error, CoreError::Cancelled(_) | CoreError::DeadlineExceeded(_)))
+            .is_some_and(|error| {
+                matches!(
+                    error,
+                    CoreError::Cancelled(_) | CoreError::DeadlineExceeded(_)
+                )
+            })
     })
 }
