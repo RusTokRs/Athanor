@@ -14,8 +14,7 @@ use crate::{AthanorStore, IndexOptions, index_project_with_composition};
 async fn production_index_publishes_valid_immutable_current_generation() {
     let root = test_root("published");
     fs::create_dir_all(root.join("src")).expect("create source directory");
-    fs::write(root.join("src/lib.rs"), "pub fn index_current() {}\n")
-        .expect("write source file");
+    fs::write(root.join("src/lib.rs"), "pub fn index_current() {}\n").expect("write source file");
     let composition = crate::test_runtime::composition();
 
     let report = run_index(&root, &composition).await;
@@ -28,9 +27,17 @@ async fn production_index_publishes_valid_immutable_current_generation() {
         current.generation().as_str(),
         format!("gen_{}", report.snapshot)
     );
-    assert!(current.read_model_path(&root).join("manifest.json").is_file());
+    assert!(
+        current
+            .read_model_path(&root)
+            .join("manifest.json")
+            .is_file()
+    );
     assert!(current.index_state_path(&root).is_file());
-    assert!(root.join(".athanor/generated/current/jsonl/manifest.json").is_file());
+    assert!(
+        root.join(".athanor/generated/current/jsonl/manifest.json")
+            .is_file()
+    );
     assert!(root.join(".athanor/state/index-state.json").is_file());
     assert!(!pointer_publication_journal(&root).exists());
 
@@ -45,8 +52,11 @@ async fn production_index_publishes_valid_immutable_current_generation() {
 async fn committed_pointer_journal_recovers_immutable_generation_and_pointer() {
     let root = test_root("recovery");
     fs::create_dir_all(root.join("src")).expect("create source directory");
-    fs::write(root.join("src/lib.rs"), "pub fn recover_index_current() {}\n")
-        .expect("write source file");
+    fs::write(
+        root.join("src/lib.rs"),
+        "pub fn recover_index_current() {}\n",
+    )
+    .expect("write source file");
     let composition = crate::test_runtime::composition();
 
     let report = run_index(&root, &composition).await;
@@ -78,7 +88,12 @@ async fn committed_pointer_journal_recovers_immutable_generation_and_pointer() {
         .expect("load recovered pointer")
         .expect("recovered pointer exists");
     assert_eq!(recovered.snapshot().0.as_str(), report.snapshot.as_str());
-    assert!(recovered.read_model_path(&root).join("manifest.json").is_file());
+    assert!(
+        recovered
+            .read_model_path(&root)
+            .join("manifest.json")
+            .is_file()
+    );
     assert!(recovered.index_state_path(&root).is_file());
     assert!(!pointer_publication_journal(&root).exists());
 
