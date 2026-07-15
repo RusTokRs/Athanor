@@ -273,6 +273,7 @@ mod tests {
     use std::collections::HashMap;
     use std::path::PathBuf;
     use std::sync::Mutex;
+    use std::time::Duration;
 
     use async_trait::async_trait;
     use athanor_core::{
@@ -388,7 +389,9 @@ mod tests {
                 .map(|job| job.status.clone()),
             Some(DaemonJobStatus::Failed)
         );
-        assert!(started.notified().now_or_never().is_none());
+        tokio::time::timeout(Duration::from_millis(10), started.notified())
+            .await
+            .expect("search reached backend before deadline");
     }
 
     fn search_request(request_id: &str, deadline_unix_ms: Option<u64>) -> DaemonRequest {
