@@ -19,19 +19,15 @@ pub(crate) use crate::index_publication_atomic_legacy::{
 
 /// Stages application artefacts behind a durable snapshot-native journal, then atomically publishes
 /// the complete canonical batch and commit marker.
-///
-/// The prepared handle is retained only at the compatibility call boundary. Journal persistence,
-/// exact commit probing, and rollback authority use the canonical snapshot identity directly.
-pub(crate) async fn publish_prepared_index(
+pub(crate) async fn publish_index_snapshot(
     root: &Path,
     store: &AthanorStore,
     state_store: &IndexStateStore,
     output_dir: &Path,
     output: &IndexPipelineOutput,
-    prepared: PreparedSnapshot,
+    snapshot: SnapshotId,
     operation: &OperationContext,
 ) -> Result<IndexPublicationOutcome> {
-    let snapshot = prepared.into_snapshot();
     if snapshot != output.snapshot {
         bail!(
             "publication snapshot {} does not match pipeline output {}",
@@ -131,6 +127,30 @@ pub(crate) async fn publish_prepared_index(
         read_model_write_ms,
         index_state_write_ms,
     })
+}
+
+/// Compatibility adapter for existing runtime/fault fixtures. Publication state is converted to the
+/// canonical snapshot identity immediately; the active coordinator does not persist or abort through
+/// the prepared handle.
+pub(crate) async fn publish_prepared_index(
+    root: &Path,
+    store: &AthanorStore,
+    state_store: &IndexStateStore,
+    output_dir: &Path,
+    output: &IndexPipelineOutput,
+    prepared: PreparedSnapshot,
+    operation: &OperationContext,
+) -> Result<IndexPublicationOutcome> {
+    publish_index_snapshot(
+        root,
+        store,
+        state_store,
+        output_dir,
+        output,
+        prepared.into_snapshot(),
+        operation,
+    )
+    .await
 }
 
 async fn exact_snapshot_is_committed(
