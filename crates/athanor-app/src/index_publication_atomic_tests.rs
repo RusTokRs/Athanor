@@ -82,7 +82,7 @@ async fn exact_commit_survives_latest_pointer_failure_and_recovery() {
     let journal: Value = serde_json::from_slice(&fs::read(&journal_path).expect("read journal"))
         .expect("parse journal");
     assert_eq!(journal["schema"], "athanor.index_publication.v2");
-    assert_eq!(journal["prepared"], snapshot.0);
+    assert_eq!(journal["prepared"].as_str(), Some(snapshot.0.as_str()));
     assert!(journal.get("snapshot").is_none());
 
     let exact = store
