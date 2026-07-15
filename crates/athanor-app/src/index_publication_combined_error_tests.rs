@@ -5,9 +5,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use async_trait::async_trait;
 use athanor_core::{
-    CanonicalSnapshot, CanonicalSnapshotStore, CoreError, CoreResult, DiagnosticQuery, EntityQuery,
-    EntityResolver, KnowledgeStore, OperationContext, PreparedSnapshot, RelationQuery,
-    SnapshotSelector,
+    AtomicSnapshotPublication, CanonicalSnapshot, CanonicalSnapshotStore, CoreError, CoreResult,
+    DiagnosticQuery, EntityQuery, EntityResolver, KnowledgeStore, OperationContext, PreparedSnapshot,
+    RelationQuery, SnapshotBatch, SnapshotSelector,
 };
 use athanor_domain::{
     Diagnostic, Entity, EntityId, Fact, Relation, RepoId, SnapshotBase, SnapshotId, StableKey,
@@ -54,21 +54,31 @@ async fn publication_preserves_publish_rollback_and_abort_errors() {
     .expect_err("combined publication failure must be reported");
     let messages = error.chain().map(ToString::to_string).collect::<Vec<_>>();
 
-    assert!(messages.iter().any(|message| {
-        message.contains("failed to publish prepared canonical snapshot")
-    }));
-    assert!(messages
-        .iter()
-        .any(|message| message.contains("injected canonical publish failure")));
-    assert!(messages
-        .iter()
-        .any(|message| message.contains("failed to rollback index state")));
-    assert!(messages
-        .iter()
-        .any(|message| message.contains("failed to rollback read model")));
-    assert!(messages
-        .iter()
-        .any(|message| message.contains("injected canonical abort failure")));
+    assert!(
+        messages
+            .iter()
+            .any(|message| message.contains("failed to publish prepared canonical snapshot"))
+    );
+    assert!(
+        messages
+            .iter()
+            .any(|message| message.contains("injected canonical publish failure"))
+    );
+    assert!(
+        messages
+            .iter()
+            .any(|message| message.contains("failed to rollback index state"))
+    );
+    assert!(
+        messages
+            .iter()
+            .any(|message| message.contains("failed to rollback read model"))
+    );
+    assert!(
+        messages
+            .iter()
+            .any(|message| message.contains("injected canonical abort failure"))
+    );
     assert!(abort_count.load(Ordering::Acquire) >= 1);
     assert!(!root.join(".athanor/state/index-publication.json").exists());
     assert!(output_dir.is_file());
@@ -177,6 +187,31 @@ impl KnowledgeStore for FailingCleanupStore {
         self.abort_count.fetch_add(1, Ordering::AcqRel);
         Err(CoreError::Adapter(
             "injected canonical abort failure".to_string(),
+        ))
+    }
+}
+
+#[async_trait]
+impl AtomicSnapshotPublication for FailingCleanupStore {
+    async fn publish_snapshot_batch(
+        &self,
+        _snapshot: SnapshotId,
+        _batch: SnapshotBatch,
+    ) -> CoreResult<()> {
+        Err(CoreError::Adapter(
+            "injected canonical publish failure".to_string(),
+        ))
+    }
+
+    async fn publish_snapshot_batch_with_context(
+        &self,
+        _snapshot: SnapshotId,
+        _batch: SnapshotBatch,
+        _context: &OperationContext,
+    ) -> CoreResult<()> {
+        self.corrupt_application_artifacts()?;
+        Err(CoreError::Adapter(
+            "injected canonical publish failure".to_string(),
         ))
     }
 }
