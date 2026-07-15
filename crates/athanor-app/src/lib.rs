@@ -47,6 +47,7 @@ mod index_publication_legacy;
 #[allow(dead_code)]
 #[path = "index_publication.rs"]
 mod index_publication_inner;
+mod index_publication_journal;
 #[cfg(test)]
 mod index_publication_atomic_tests;
 #[cfg(test)]
@@ -101,74 +102,40 @@ pub mod indexing {
         index_project_cancellable_with_operation_context, index_project_with_composition,
         index_project_with_operation_context,
     };
-    pub use crate::invalidation::*;
-    pub use crate::pipeline::{IndexPipeline, IndexPipelineMetrics, IndexPipelineOutput};
-}
-
-/// Publication artefacts and lifecycle APIs.
-pub mod publication {
-    pub use crate::index_state::{IndexState, IndexStateStore, PreparedIndexState};
-    pub use crate::prepared_publication::{PreparedSnapshot, PreparedSnapshotPublication};
-    pub use crate::read_model::{
-        JsonlReadModelReport, JsonlReadModelWriter, PreparedJsonlReadModel,
+    pub use crate::pipeline::{
+        AffectedFiles, IncrementalIndexContext, IndexPipeline, IndexPipelineMetrics,
+        IndexPipelineOutput,
     };
 }
 
-/// Read-only canonical knowledge query use cases and backend-neutral request contracts.
+/// Stable publication-facing application API.
+pub mod publication {
+    pub use crate::index_state::{IndexFileState, IndexState, IndexStateStore};
+    pub use crate::prepared_publication::{PreparedSnapshot, PreparedSnapshotPublication};
+    pub use crate::read_model::{
+        JSONL_MANIFEST_SCHEMA, JsonlReadModelReport, JsonlReadModelWriter,
+    };
+}
+
+/// Stable read-only query-facing application API.
 pub mod query {
     pub use athanor_core::{FactQuery, FactQueryStore};
 
-    pub use crate::context::*;
-    pub use crate::explain::*;
-    pub use crate::graph::*;
-    pub use crate::impact::*;
-    pub use crate::overview::*;
-    pub use crate::search::*;
+    pub use crate::capabilities::{CapabilitiesOptions, CapabilitiesReport, capabilities_project};
+    pub use crate::change_map::{ChangeMapOptions, ChangeMapReport, change_map_project};
+    pub use crate::context::{ContextOptions, ContextPack, context_project};
+    pub use crate::coverage::{CoverageOptions, CoverageReport, coverage_project};
+    pub use crate::explain::{ExplainOptions, ExplainReport, explain_project};
+    pub use crate::impact::{ImpactOptions, ImpactReport, impact_project};
+    pub use crate::overview::{OverviewOptions, OverviewReport, overview_project};
+    pub use crate::search::{SearchOptions, SearchReport, search_project};
 }
 
-/// Project registration and repository identity APIs.
+/// Stable project-registry-facing application API.
 pub mod projects {
-    pub use crate::project_registry::*;
-}
-
-pub use api::*;
-pub use api_registry::*;
-pub use bench::*;
-pub use cancellation::*;
-pub use capabilities::*;
-pub use change_map::*;
-pub use check::*;
-pub use composition::*;
-pub use config::*;
-pub use context::*;
-pub use coverage::*;
-pub use daemon::*;
-pub use daemon_runtime::*;
-pub use docs::*;
-pub use explain::*;
-pub use generation::*;
-pub use graph::*;
-pub use impact::*;
-pub use index::*;
-pub use index_state::*;
-pub use init::*;
-pub use invalidation::*;
-pub use overview::*;
-pub use pipeline::*;
-pub use prepared_publication::*;
-pub use project_registry::*;
-pub use projection::{install_html_projector_factory, install_wiki_projector_factory};
-pub use read_model::*;
-pub use repair::*;
-pub use report::*;
-pub use runtime::*;
-pub use rustok_architecture::*;
-pub use search::*;
-pub use store::*;
-pub use validate_changed::*;
-pub use wiki::*;
-
-#[cfg(test)]
-pub(crate) fn ensure_test_runtime() {
-    test_runtime::install();
+    pub use crate::project_registry::{
+        ProjectRegistryEntry, ProjectRegistryReport, ProjectRegistrationOptions,
+        ProjectResolutionOptions, list_registered_projects, register_project,
+        resolve_registered_project, unregister_project,
+    };
 }
