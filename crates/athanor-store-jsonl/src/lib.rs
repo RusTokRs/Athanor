@@ -394,9 +394,6 @@ fn discover_latest_identity(root: &Path) -> CoreResult<Option<CanonicalLatestIde
             continue;
         }
         let snapshot = SnapshotId(name);
-        if validate_repair_target(&entry.path(), &snapshot).is_err() {
-            continue;
-        }
         if latest
             .as_ref()
             .is_none_or(|current: &SnapshotId| snapshot.0 > current.0)
@@ -404,7 +401,13 @@ fn discover_latest_identity(root: &Path) -> CoreResult<Option<CanonicalLatestIde
             latest = Some(snapshot);
         }
     }
-    Ok(latest.map(CanonicalLatestIdentity::for_snapshot))
+    let Some(latest) = latest else {
+        return Ok(None);
+    };
+    let snapshot_dir = snapshots.join(&latest.0);
+    validate_exact_generation(&snapshot_dir, &latest)?;
+    validate_repair_target(&snapshot_dir, &latest)?;
+    Ok(Some(CanonicalLatestIdentity::for_snapshot(latest)))
 }
 
 fn acquire_pointer_lock(root: &Path) -> CoreResult<File> {
