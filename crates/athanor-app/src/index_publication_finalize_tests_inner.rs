@@ -5,15 +5,14 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use athanor_core::{
     CanonicalSnapshot, CanonicalSnapshotStore, CoreError, CoreResult, DiagnosticQuery, EntityQuery,
-    EntityResolver, KnowledgeStore, OperationContext, PreparedSnapshot, PreparedSnapshotPublication,
-    RelationQuery, SnapshotBatch, SnapshotSelector,
+    EntityResolver, KnowledgeStore, OperationContext, RelationQuery, SnapshotBatch, SnapshotSelector,
 };
 use athanor_domain::{
     Diagnostic, Entity, EntityId, Fact, Relation, RepoId, SnapshotBase, SnapshotId, StableKey,
 };
 use athanor_store_jsonl::JsonlKnowledgeStore;
 
-use crate::index_publication::{publish_prepared_index, recover_interrupted_publication};
+use crate::index_publication::{publish_index_snapshot, recover_interrupted_publication};
 use crate::{
     AffectedFileSet, AthanorStore, IndexPipelineMetrics, IndexPipelineOutput, IndexState,
     IndexStateStore, JsonlReadModelWriter,
@@ -52,20 +51,19 @@ async fn assert_finalize_failure_recovers(mode: SabotageMode, expected_error: &s
         backend,
         store,
         snapshot,
-        prepared,
         output,
         operation,
         state_store,
         output_dir,
-    } = prepared_fixture(&root, mode).await;
+    } = snapshot_fixture(&root, mode).await;
 
-    let error = publish_prepared_index(
+    let error = publish_index_snapshot(
         &root,
         &store,
         &state_store,
         &output_dir,
         &output,
-        prepared,
+        snapshot.clone(),
         &operation,
     )
     .await
@@ -97,14 +95,13 @@ struct PublicationFixture {
     backend: SabotagingStore,
     store: AthanorStore,
     snapshot: SnapshotId,
-    prepared: PreparedSnapshot,
     output: IndexPipelineOutput,
     operation: OperationContext,
     state_store: IndexStateStore,
     output_dir: PathBuf,
 }
 
-async fn prepared_fixture(root: &Path, mode: SabotageMode) -> PublicationFixture {
+async fn snapshot_fixture(root: &Path, mode: SabotageMode) -> PublicationFixture {
     let backend = SabotagingStore::new(root, mode);
     let output_dir = root.join(".athanor/generated/current/jsonl");
     let state_store = IndexStateStore::new(root.join(".athanor/state/index-state.json"));
@@ -128,10 +125,6 @@ async fn prepared_fixture(root: &Path, mode: SabotageMode) -> PublicationFixture
         .await
         .expect("write snapshot batch");
     let operation = OperationContext::new(format!("test.publication.{}", mode.label()));
-    let prepared = store
-        .prepare_publication(snapshot.clone(), &operation)
-        .await
-        .expect("prepare snapshot");
     let output = IndexPipelineOutput {
         snapshot: snapshot.clone(),
         files: Vec::new(),
@@ -147,7 +140,6 @@ async fn prepared_fixture(root: &Path, mode: SabotageMode) -> PublicationFixture
         backend,
         store,
         snapshot,
-        prepared,
         output,
         operation,
         state_store,
