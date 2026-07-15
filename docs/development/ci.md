@@ -40,18 +40,12 @@ a tampered binary.
 
 ## Optional feature matrix
 
-The Ubuntu compatibility matrix uses `fail-fast: false` and covers:
+The Ubuntu compatibility matrix uses `fail-fast: false` and covers default/no-default,
+`store-surreal`, `js-ts-precision`, and `--all-features`. Each slice runs locked check, tests, and
+Clippy. Remote SurrealDB integration tests remain `#[ignore]` and are executed only by the dedicated
+server job.
 
-- default/no-default feature graph;
-- `store-surreal`;
-- `js-ts-precision`;
-- `--all-features`.
-
-Each slice runs locked `cargo check`, tests, and Clippy. Remote SurrealDB integration tests remain
-`#[ignore]` and are executed only by the dedicated server job, so `--all-features` stays
-self-contained.
-
-## Store conformance and fact queries
+## Store conformance
 
 The configured store matrix runs:
 
@@ -61,13 +55,16 @@ cargo test -p athanor-store-jsonl --locked
 cargo test -p athanor-store-surrealdb --locked
 ```
 
-The shared contract covers committed selection, stable-key entity queries, backend-neutral fact
-queries, relation/diagnostic filtering, prepared invisibility, commit/abort semantics, and
-preservation of `LatestCommitted` after abort.
+Memory, JSONL, and embedded SurrealDB invoke the same three reusable contracts:
 
-`FactQuery` filters by `subject`, `object`, serialized kind name, extractor, and limit. The
-`FactQueryStore` blanket implementation operates on `CanonicalSnapshotStore`, so Memory, JSONL,
-SurrealDB, and `AthanorStore` share one committed-only implementation.
+- committed query and fact filtering;
+- prepared/commit/abort lifecycle;
+- atomic complete-batch plus committed-marker publication.
+
+The atomic contract stages partial data, requires it to remain uncommitted, publishes a complete
+replacement batch, compares exact and latest reads, and rejects republish and abort after commit.
+Backend-focused regressions then exercise filesystem marker corruption and SurrealDB transaction
+rollback.
 
 Focused checks:
 
@@ -77,28 +74,38 @@ cargo test -p athanor-app fact_query --locked
 cargo test -p athanor-store-memory --test fact_query --locked
 cargo test -p athanor-store-jsonl --test fact_query --locked
 cargo test -p athanor-store-surrealdb --test fact_query --locked
-```
 
-## Atomic canonical publication
-
-`AtomicSnapshotPublication` publishes a complete canonical batch and its committed marker through one
-backend-specific boundary. Memory is the reference implementation; JSONL writes the batch and
-`commit.json` into a hidden staging directory and publishes the exact committed generation with one
-rename.
-
-Focused checks:
-
-```bash
 cargo test -p athanor-store-memory --test atomic_publication --locked
 cargo test -p athanor-store-jsonl --test atomic_publication --locked
+cargo test -p athanor-store-surrealdb --test atomic_publication --locked
+
+cargo test -p athanor-store-memory --test conformance --locked
+cargo test -p athanor-store-jsonl --test conformance --locked
+cargo test -p athanor-store-surrealdb --test conformance --locked
 ```
 
-The JSONL suite also forces a latest-pointer finalization error after exact publication. The exact
-snapshot must remain readable and abort must fail, because the canonical data and commit marker were
-already durably published before the separate pointer step. Marker schema/identity validation on
-exact load, SurrealDB transaction support, and production coordinator cutover remain open.
+### JSONL marker policy
 
-Typed backend publication checks:
+An atomic JSONL manifest declares `commit_marker_schema: athanor.canonical_commit.v1`. Exact and
+latest loads require a parseable marker with the same schema and snapshot identity. Missing,
+malformed, wrong-schema, and foreign-snapshot markers fail closed. A legacy manifest without the
+declaration remains readable; an undeclared marker, when present, is still validated.
+
+The JSONL suite also forces `latest.json` finalization failure after exact directory publication. The
+exact generation must remain readable and non-abortable because data and marker were already
+committed by the directory rename.
+
+### SurrealDB transaction policy
+
+The SurrealDB atomic boundary deletes old rows, inserts the complete replacement batch, and updates
+the snapshot record to `prepared = true, committed = true` inside one SurrealQL transaction. A
+duplicate-record statement failure must roll back both rows and marker, leave the snapshot
+uncommitted, and permit a later valid atomic retry.
+
+The public facade retries the complete boundary only when the backend message is classified as a
+confirmed transaction conflict/`Busy`. Data and serialization failures are not retried.
+
+Typed compatibility publication checks remain available:
 
 ```bash
 cargo test -p athanor-core prepared_publication --locked
@@ -110,8 +117,8 @@ cargo test -p athanor-store-surrealdb --test prepared_publication --locked
 ## Typed index runtime and recovery
 
 Production indexing uses `index_runtime.rs` and the guarded typed publication coordinator. The broad
-incremental, validation, cancellation, and fresh-index equivalence regressions have been moved to
-focused modules; the former monolithic `crates/athanor-app/src/index.rs` has been deleted.
+incremental, validation, cancellation, and fresh-index equivalence regressions live in focused
+modules; the former monolithic `crates/athanor-app/src/index.rs` has been deleted.
 
 Run the complete application publication suite with:
 
@@ -129,15 +136,10 @@ The fault matrix covers journal/prepare/publish/finalize/clear failures, malform
 schema and identity mismatches, mixed backup generations, absent backups, repeated recovery, and
 simultaneous publish/rollback/abort failures.
 
-Recovery content preflight is fail-closed before destructive mutation:
-
-- manifests and state documents must be parseable and contain a non-empty snapshot identity;
-- active current/staged artifacts use exact current schemas;
-- historical index-state backups may use a validated numeric `athanor.index_state.vN` schema;
-- current/staged snapshot identities agree with the journal when recovery would mutate them;
-- read-model and state backups identify the same previous generation.
-
-A second recovery call after successful committed or uncommitted cleanup must be a no-op.
+The next production cutover must pass the complete `SnapshotBatch` into
+`AtomicSnapshotPublication`. Recovery must probe the journal snapshot by exact canonical id rather
+than relying only on `LatestCommitted`, because JSONL may commit the exact generation before a
+separate latest-pointer update fails.
 
 ## Remote SurrealDB
 
@@ -159,9 +161,10 @@ ATHANOR_SURREAL_REMOTE_URI=ws://127.0.0.1:8000 \
   --features remote --test remote --locked -- --ignored
 ```
 
-The configured suite checks two-client allocation uniqueness, canonical cross-client visibility, and
-fact retrieval through public `FactQueryStore` from the independent reader. It is not evidence of
-remote behavior until a hosted run succeeds, and it does not yet force a real write conflict.
+The configured suite checks two-client allocation uniqueness and atomic cross-client visibility. One
+connection publishes rows and marker through `AtomicSnapshotPublication`; the independent reader
+loads the entity/fact batch and retrieves the fact through `FactQueryStore`. It is not evidence of
+remote behavior until a hosted run succeeds, and it does not force a real write conflict.
 
 ## Retry and cancellation checks
 
@@ -173,7 +176,8 @@ cargo test -p athanor-store-surrealdb cancellation_stops_retry_before_backoff --
 
 Context-aware SurrealDB writes retry only `CoreError::Busy` with bounded delays of 10, 25, 50, and
 100 milliseconds. Cancellation polling prevents the next attempt and interrupts backoff, but does
-not force-abort an SDK request already executing.
+not force-abort an SDK request already executing. Atomic publication does not perform a post-success
+cancellation check because durable commit has already happened.
 
 One live `operation_id` owns one process-local cancellation authority. Clone the registered handle
 for additional owners. Independent duplicate registration fails with `CoreError::Conflict`, while
@@ -221,15 +225,14 @@ zizmor --offline --strict-collection --min-severity high --min-confidence high .
 - A fact returned from an uncommitted/prepared snapshot violates query isolation.
 - Different fact filters or limit behavior between backends means the canonical blanket contract was
   bypassed.
-- A JSONL exact committed generation without `commit.json` means the atomic publication path was
-  bypassed or the marker was removed after publication.
+- A declared JSONL marker that is missing, malformed, or identifies another snapshot must fail exact
+  and latest reads.
 - A latest-pointer error that makes the exact JSONL generation abortable violates the durable
   data-plus-marker boundary.
+- A failed SurrealDB atomic transaction that exposes inserted rows or a committed marker violates
+  rollback semantics.
 - A successful publication leaving `index-publication.json` means finalization did not complete.
-- A journal-write failure leaving prepared canonical data means the pre-journal cleanup guard failed.
-- A malformed type, schema, or snapshot identity changing current artifacts means recovery preflight
-  was bypassed.
-- Mixed read-model/state backup generations must fail before either current artifact is replaced.
+- A malformed application artifact changing current state means recovery preflight was bypassed.
 - A second recovery call changing state after journal cleanup violates idempotence.
 - A combined failure that omits the original publish cause or cleanup cause loses diagnostic context.
 - A remote test running during normal `--all-features` means its isolation boundary was removed.
