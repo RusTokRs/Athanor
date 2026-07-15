@@ -2,7 +2,7 @@
 
 > Репозиторий: `RusTokRs/Athanor`  
 > Базовая ветка: `main`  
-> Точка сверки: `ebb88d3f52a888f6d7ab8e09698563811d120b24`  
+> Точка сверки: `66bcc6c8642234c6dc7bc05d13f5ba93bdc5d56c`  
 > Дата актуализации: 2026-07-15  
 > Статус: active implementation plan
 
@@ -43,7 +43,7 @@
 - active atomic coordinator и exact canonical recovery;
 - journal v2/v1 compatibility и recovery fault matrix;
 - SurrealDB context-owned allocation metadata и bounded orphan cleanup;
-- snapshot-native production journal module с прежним v1/v2 wire format;
+- active snapshot-native journal writer и `SnapshotId` coordinator API с прежним v1/v2 wire format;
 - feature, coverage, AppSec, installer и release workflows.
 
 Платформенное состояние:
@@ -89,7 +89,7 @@ cargo run -p ath --quiet --locked -- docs check
 | Область | Статус | Подтверждено | Остаётся |
 | --- | --- | --- | --- |
 | Query isolation | `[-]` | committed exact/latest contracts | Hosted remote evidence, one generation view |
-| Atomic publication | `[-]` | backend boundaries, data barrier, active coordinator, exact recovery | Snapshot-native cutover, one pointer |
+| Atomic publication | `[-]` | backend boundaries, data barrier, snapshot-native publisher, exact recovery | Runtime/recovery transition, one pointer |
 | Allocation recovery | `[-]` | metadata, 24h cutoff, bounded conditional cleanup, tests | Legacy untagged policy, hosted evidence |
 | Recovery safety | `[-]` | journal/preflight/exact probe/idempotence | Checksums, one pointer |
 | Concurrent writers | `[-]` | JSONL lock, counter, embedded ownership | Remote conflict evidence |
@@ -126,7 +126,7 @@ cargo run -p ath --quiet --locked -- docs check
 
 ### P0.4. Store conformance и transactional publication
 
-**Статус:** `[-]` — backend/data/allocation boundaries реализованы; active snapshot-native cutover и один generation pointer открыты.
+**Статус:** `[-]` — backend/data/allocation boundaries и snapshot-native publisher реализованы; runtime/recovery transition и один generation pointer открыты.
 
 #### Shared backend contract
 
@@ -139,7 +139,7 @@ cargo run -p ath --quiet --locked -- docs check
 #### Atomic coordinator/recovery
 
 - [x] Journal v2/v1 compatibility и atomic persistence.
-- [x] Active `index_publication_atomic.rs`.
+- [x] Active publisher маршрутизирован через `index_publication_snapshot.rs`.
 - [x] Journal/staging предшествуют final canonical data mutation.
 - [x] Explicit complete batch через atomic capability.
 - [x] Exact probe перед rollback/abort.
@@ -183,11 +183,14 @@ cargo run -p ath --quiet --locked -- docs check
 - [x] v1 raw `snapshot` читается и нормализуется в v2.
 - [x] Unknown fields/schema и неверные paths/id fail-closed.
 - [x] Focused v1/v2 serialization tests добавлены.
-- [-] Модуль staged с transition `dead_code` allowance.
-- [ ] Переключить active coordinator на snapshot-native journal.
-- [ ] Active coordinator принимает `SnapshotId`, не prepared handle.
-- [ ] Recovery/pre-journal cleanup используют plain allocation abort.
-- [ ] Runtime не импортирует `PreparedSnapshotPublication`.
+- [x] Snapshot-native journal writer активен в production publisher path.
+- [x] Основной `publish_index_snapshot` принимает `SnapshotId`.
+- [x] Journal-write/staging/publish error cleanup использует plain `abort_snapshot`.
+- [x] Pointer-failure regression вызывает direct snapshot API и проверяет v2 wire.
+- [-] `publish_prepared_index` остаётся compatibility adapter для runtime/fault fixtures.
+- [-] Exact recovery временно переиспользует прежний atomic module и typed abort authority.
+- [ ] Runtime передаёт `output.snapshot.clone()` и не импортирует `PreparedSnapshotPublication`.
+- [ ] Recovery использует snapshot-native journal type и plain `abort_snapshot`.
 - [ ] Перенести remaining fault fixtures.
 - [ ] Удалить legacy journal/coordinator modules.
 
@@ -250,8 +253,8 @@ cargo run -p ath --quiet --locked -- docs check
 ## 6. Порядок реализации
 
 1. `[!]` Включить Actions и получить compile/test/fmt/Clippy evidence.
-2. P0.4 — active snapshot-native coordinator cutover.
-3. P0.4 — перенести tests/types и удалить transition modules.
+2. P0.4 — runtime/recovery snapshot-native cutover.
+3. P0.4 — перенести remaining fixtures и удалить transition modules.
 4. P0.4 — immutable generation id и один current pointer.
 5. P0.4 — remote conflict evidence/pointer fault injection.
 6. P1.5 — read-only daemon/CLI/MCP cancellation.
@@ -264,14 +267,15 @@ cargo run -p ath --quiet --locked -- docs check
 
 **Текущий безопасный кодовый срез:** `P0.4 active snapshot-native coordinator cutover`.
 
-1. Active coordinator использует `index_publication_journal::IndexPublicationJournal`.
-2. Coordinator signature принимает `SnapshotId`.
-3. Pre-journal/publish/recovery cleanup вызывает plain `abort_snapshot`.
-4. Runtime передаёт `output.snapshot.clone()` без prepared handle.
-5. Test-only compatibility wrapper сохраняет старые fixtures до миграции.
-6. Удалить active imports `PreparedSnapshotPublication`.
-7. Проверить v1/v2 recovery и pointer-failure suite.
-8. Не считать hosted-подтверждённым без Actions.
+1. [x] Active publisher использует `index_publication_journal::IndexPublicationJournal`.
+2. [x] Основной coordinator API принимает `SnapshotId`.
+3. [x] Publication cleanup вызывает plain `abort_snapshot`.
+4. [x] Direct pointer-failure test проверяет v2 journal wire и exact commit.
+5. [ ] Runtime передаёт `output.snapshot.clone()` без prepared handle.
+6. [ ] Recovery переходит с atomic compatibility module на snapshot-native journal/plain abort.
+7. [ ] Удалить runtime import `PreparedSnapshotPublication`.
+8. [ ] После fixture migration удалить compatibility wrapper/modules.
+9. [!] Не считать hosted-подтверждённым без Actions.
 
 ## 8. Definition of Done
 
@@ -296,4 +300,7 @@ cargo run -p ath --quiet --locked -- docs check
 - Embedded tests покрывают cutoff/limit/idempotence/protected states.
 - Исправлено ожидание удалённой записи на `Ok(None)`.
 - Добавлен SnapshotId-backed journal с прежним v1/v2 wire format.
-- Active coordinator cutover остаётся следующим коммитом.
+- Production publisher переключён на snapshot-native journal writer.
+- Основной coordinator API принимает `SnapshotId`; publication rollback использует plain abort.
+- Pointer-failure regression вызывает direct API и проверяет journal wire.
+- Runtime/recovery compatibility cutover остаётся следующим срезом.
