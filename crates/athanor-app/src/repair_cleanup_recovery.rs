@@ -44,9 +44,9 @@ pub struct RepairRecoverIndexCleanupReport {
     pub remaining_issues: Vec<RepairIssue>,
 }
 
-/// Finishes index-generation deletion that was already staged through sibling tombstones.
+/// Finishes or rolls back index-generation deletion that was already staged through sibling tombstones.
 ///
-/// The function never selects live generations for deletion. It only removes direct-child tombstones
+/// The function never selects live generations for deletion. It only handles direct-child tombstones
 /// created by the confirmed retention protocol, under the application publication lock.
 pub fn recover_index_cleanup(
     options: RepairRecoverIndexCleanupOptions,
@@ -65,15 +65,7 @@ pub fn recover_index_cleanup(
     let _lock = CleanupLock::acquire(root.join(LOCK_PATH))?;
     let staged = scan_tombstones(&root)?;
     for tombstone in &staged {
-        validate_no_live_conflict(&root, tombstone)?;
-        if let Some(path) = &tombstone.read_model {
-            fs::remove_dir_all(path)
-                .with_context(|| format!("failed to remove staged read model {}", path.display()))?;
-        }
-        if let Some(path) = &tombstone.index_state {
-            fs::remove_file(path)
-                .with_context(|| format!("failed to remove staged index state {}", path.display()))?;
-        }
+        recover_tombstone(&root, tombstone)?;
     }
     let remaining = scan_tombstones(&root)?;
     if !remaining.is_empty() {
@@ -182,22 +174,67 @@ fn parse_generation(token: &str) -> Result<String> {
     Ok(generation.to_string())
 }
 
-fn validate_no_live_conflict(root: &Path, tombstone: &IndexCleanupTombstone) -> Result<()> {
+fn recover_tombstone(root: &Path, tombstone: &IndexCleanupTombstone) -> Result<()> {
     let live_read = root.join(READ_ROOT).join(&tombstone.generation);
     let live_state = root
         .join(STATE_ROOT)
         .join(format!("index-state-{}.json", tombstone.generation));
-    if tombstone.read_model.is_some() && live_read.exists() {
-        bail!(
-            "refusing cleanup recovery because live read model {} conflicts with tombstone {}",
-            live_read.display(),
-            tombstone.token
-        );
+    match (&tombstone.read_model, &tombstone.index_state) {
+        (Some(read_tombstone), Some(state_tombstone)) => {
+            ensure_absent(&live_read, "read model", tombstone)?;
+            ensure_absent(&live_state, "index state", tombstone)?;
+            fs::remove_dir_all(read_tombstone).with_context(|| {
+                format!(
+                    "failed to remove staged read model {}",
+                    read_tombstone.display()
+                )
+            })?;
+            fs::remove_file(state_tombstone).with_context(|| {
+                format!(
+                    "failed to remove staged index state {}",
+                    state_tombstone.display()
+                )
+            })?;
+        }
+        (Some(read_tombstone), None) if live_state.is_file() => {
+            ensure_absent(&live_read, "read model", tombstone)?;
+            fs::rename(read_tombstone, &live_read).with_context(|| {
+                format!(
+                    "failed to roll back staged read model {} to {}",
+                    read_tombstone.display(),
+                    live_read.display()
+                )
+            })?;
+        }
+        (Some(read_tombstone), None) => {
+            ensure_absent(&live_read, "read model", tombstone)?;
+            fs::remove_dir_all(read_tombstone).with_context(|| {
+                format!(
+                    "failed to remove staged read model {}",
+                    read_tombstone.display()
+                )
+            })?;
+        }
+        (None, Some(state_tombstone)) => {
+            ensure_absent(&live_read, "read model", tombstone)?;
+            ensure_absent(&live_state, "index state", tombstone)?;
+            fs::remove_file(state_tombstone).with_context(|| {
+                format!(
+                    "failed to remove staged index state {}",
+                    state_tombstone.display()
+                )
+            })?;
+        }
+        (None, None) => bail!("empty index cleanup tombstone row {}", tombstone.token),
     }
-    if tombstone.index_state.is_some() && live_state.exists() {
+    Ok(())
+}
+
+fn ensure_absent(path: &Path, kind: &str, tombstone: &IndexCleanupTombstone) -> Result<()> {
+    if path.exists() {
         bail!(
-            "refusing cleanup recovery because live index state {} conflicts with tombstone {}",
-            live_state.display(),
+            "refusing cleanup recovery because live {kind} {} conflicts with tombstone {}",
+            path.display(),
             tombstone.token
         );
     }
@@ -256,6 +293,26 @@ mod tests {
         .unwrap();
         assert!(!repeated.needed);
         assert!(!repeated.recovered);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rolls_back_read_tombstone_before_state_staging() {
+        let root = test_root("read-only");
+        let tombstone = stage_pair(&root, "gen_snap_read", "66-900");
+        let live_state = root.join(STATE_ROOT).join("index-state-gen_snap_read.json");
+        fs::rename(tombstone.index_state.as_ref().unwrap(), &live_state).unwrap();
+
+        let applied = recover_index_cleanup(RepairRecoverIndexCleanupOptions {
+            root: root.clone(),
+            dry_run: false,
+        })
+        .unwrap();
+        let live_read = root.join(READ_ROOT).join("gen_snap_read");
+        assert!(applied.recovered);
+        assert!(live_read.is_dir());
+        assert!(live_state.is_file());
+        assert!(!tombstone.read_model.unwrap().exists());
         fs::remove_dir_all(root).unwrap();
     }
 
