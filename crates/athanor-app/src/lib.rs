@@ -58,6 +58,7 @@ mod index_publication_journal;
 mod index_publication_recovery_fault_tests;
 #[cfg(test)]
 mod index_runtime_tests;
+#[path = "index_state_pointer.rs"]
 pub mod index_state;
 pub mod init;
 pub mod invalidation;
