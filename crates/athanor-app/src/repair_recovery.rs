@@ -173,13 +173,14 @@ mod tests {
             .await
             .unwrap();
         store.commit_snapshot(snapshot.clone()).await.unwrap();
-        write_legacy_artifacts(&root, &snapshot.0);
+        let snapshot_id = snapshot.0.clone();
+        write_legacy_artifacts(&root, &snapshot_id);
         fs::write(
             root.join(POINTER_JOURNAL_PATH),
             serde_json::to_vec_pretty(&json!({
                 "schema": "athanor.index_current_publication.v1",
-                "snapshot": snapshot.0,
-                "generation": format!("gen_{}", snapshot.0)
+                "snapshot": snapshot_id,
+                "generation": format!("gen_{snapshot_id}")
             }))
             .unwrap(),
         )
