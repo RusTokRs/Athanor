@@ -230,7 +230,9 @@ impl LatestRepairLock {
 
 #[cfg(test)]
 mod tests {
-    use athanor_core::{AtomicSnapshotPublication, CanonicalLatestPointer, KnowledgeStore, SnapshotBatch};
+    use athanor_core::{
+        AtomicSnapshotPublication, CanonicalLatestPointer, KnowledgeStore, SnapshotBatch,
+    };
     use athanor_domain::{RepoId, SnapshotBase};
     use athanor_store_jsonl::JsonlKnowledgeStore;
 
@@ -241,7 +243,7 @@ mod tests {
         let root = test_root("repair");
         let backend = JsonlKnowledgeStore::new(root.join(".athanor/store/canonical/jsonl"));
         let first = backend
-            .begin_snapshot(RepoId("repo".to_string()), SnapshotBase::default())
+            .begin_snapshot(RepoId("repo".to_string()), snapshot_base())
             .await
             .unwrap();
         backend
@@ -249,7 +251,7 @@ mod tests {
             .await
             .unwrap();
         let second = backend
-            .begin_snapshot(RepoId("repo".to_string()), SnapshotBase::default())
+            .begin_snapshot(RepoId("repo".to_string()), snapshot_base())
             .await
             .unwrap();
         backend
@@ -293,7 +295,7 @@ mod tests {
         let root = test_root("rewind");
         let backend = JsonlKnowledgeStore::new(root.join(".athanor/store/canonical/jsonl"));
         let first = backend
-            .begin_snapshot(RepoId("repo".to_string()), SnapshotBase::default())
+            .begin_snapshot(RepoId("repo".to_string()), snapshot_base())
             .await
             .unwrap();
         backend
@@ -301,7 +303,7 @@ mod tests {
             .await
             .unwrap();
         let second = backend
-            .begin_snapshot(RepoId("repo".to_string()), SnapshotBase::default())
+            .begin_snapshot(RepoId("repo".to_string()), snapshot_base())
             .await
             .unwrap();
         backend
@@ -320,6 +322,15 @@ mod tests {
         .expect_err("repair must not rewind canonical latest");
         assert!(error.to_string().contains("not authoritative"));
         fs::remove_dir_all(root).unwrap();
+    }
+
+    fn snapshot_base() -> SnapshotBase {
+        SnapshotBase {
+            branch: None,
+            commit: None,
+            parent_snapshot: None,
+            working_tree: true,
+        }
     }
 
     fn test_root(label: &str) -> PathBuf {
