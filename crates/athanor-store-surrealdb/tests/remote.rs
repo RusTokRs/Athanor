@@ -5,8 +5,8 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use athanor_core::{
-    CanonicalSnapshotStore, FactQuery, FactQueryStore, KnowledgeStore, OperationContext,
-    SnapshotBatch, SnapshotSelector,
+    AtomicSnapshotPublication, CanonicalSnapshotStore, FactQuery, FactQueryStore, KnowledgeStore,
+    OperationContext, SnapshotBatch, SnapshotSelector,
 };
 use athanor_domain::{
     Entity, EntityId, EntityKind, Fact, FactId, FactKind, RepoId, SnapshotBase, StableKey,
@@ -58,7 +58,7 @@ async fn independent_remote_connections_allocate_unique_snapshot_ids() {
 
 #[tokio::test]
 #[ignore = "requires ATHANOR_SURREAL_REMOTE_URI and a dedicated SurrealDB server"]
-async fn committed_batch_is_visible_from_an_independent_remote_connection() {
+async fn atomic_batch_is_visible_from_an_independent_remote_connection() {
     let uri = remote_uri();
     let writer = SurrealKnowledgeStore::connect(&uri)
         .await
@@ -102,7 +102,7 @@ async fn committed_batch_is_visible_from_an_independent_remote_connection() {
     };
 
     writer
-        .put_snapshot_with_context(
+        .publish_snapshot_batch_with_context(
             snapshot.clone(),
             SnapshotBatch {
                 entities: vec![entity.clone()],
@@ -112,15 +112,7 @@ async fn committed_batch_is_visible_from_an_independent_remote_connection() {
             &context,
         )
         .await
-        .expect("write remote snapshot batch");
-    writer
-        .prepare_snapshot_with_context(snapshot.clone(), &context)
-        .await
-        .expect("prepare remote snapshot");
-    writer
-        .commit_snapshot_with_context(snapshot.clone(), &context)
-        .await
-        .expect("commit remote snapshot");
+        .expect("atomically publish remote snapshot batch and marker");
 
     let loaded = reader
         .load_snapshot(&snapshot)
