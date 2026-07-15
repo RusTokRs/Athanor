@@ -9,6 +9,7 @@ pub mod fact_query;
 pub mod latest_pointer;
 pub mod ports;
 pub mod prepared_publication;
+pub mod read_operation;
 
 pub use atomic_publication::AtomicSnapshotPublication;
 pub use cancellation::{CancellationHandle, OperationContextCancellation};
@@ -25,3 +26,7 @@ pub use ports::{
     VectorItem, VectorQuery, VectorSearchResult,
 };
 pub use prepared_publication::{PreparedSnapshot, PreparedSnapshotPublication};
+pub use read_operation::{
+    CanonicalSnapshotStoreOperationExt, EntityResolverOperationExt, FactQueryStoreOperationExt,
+    KnowledgeStoreQueryOperationExt, SearchIndexOperationExt,
+};
