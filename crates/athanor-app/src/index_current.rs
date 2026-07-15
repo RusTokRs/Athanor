@@ -52,8 +52,7 @@ impl IndexCurrent {
         let path = Self::path(root);
         let content = serde_json::to_string_pretty(self)
             .context("failed to serialize index current pointer")?;
-        replace_output_file(&path, &content, "index current pointer")
-            .map_err(anyhow::Error::new)
+        replace_output_file(&path, &content, "index current pointer").map_err(anyhow::Error::new)
     }
 
     pub(crate) fn path(root: &Path) -> PathBuf {
@@ -115,10 +114,7 @@ impl IndexCurrent {
 
     fn validate(&self) -> Result<()> {
         if self.schema != INDEX_CURRENT_SCHEMA {
-            bail!(
-                "unsupported index current pointer schema `{}`",
-                self.schema
-            );
+            bail!("unsupported index current pointer schema `{}`", self.schema);
         }
         if self.snapshot.0.trim().is_empty() {
             bail!("index current pointer has an empty snapshot identity");
@@ -154,7 +150,9 @@ impl IndexCurrent {
 /// Resolves the validated immutable JSONL read-model directory, or the legacy path when no pointer
 /// has been published yet. A present invalid pointer never falls back.
 pub fn resolve_read_model_path(root: &Path) -> Result<PathBuf> {
-    match IndexCurrent::load(root).context("failed to resolve index current pointer for read model")? {
+    match IndexCurrent::load(root)
+        .context("failed to resolve index current pointer for read model")?
+    {
         Some(current) => Ok(current.read_model_path(root)),
         None => Ok(root.join(LEGACY_READ_MODEL_PATH)),
     }
@@ -163,7 +161,9 @@ pub fn resolve_read_model_path(root: &Path) -> Result<PathBuf> {
 /// Resolves the validated immutable index-state file, or the legacy path when no pointer has been
 /// published yet. A present invalid pointer never falls back.
 pub fn resolve_index_state_path(root: &Path) -> Result<PathBuf> {
-    match IndexCurrent::load(root).context("failed to resolve index current pointer for index state")? {
+    match IndexCurrent::load(root)
+        .context("failed to resolve index current pointer for index state")?
+    {
         Some(current) => Ok(current.index_state_path(root)),
         None => Ok(root.join(LEGACY_INDEX_STATE_PATH)),
     }
@@ -177,10 +177,7 @@ fn read_model_relative(generation: &GenerationId) -> String {
 }
 
 fn index_state_relative(generation: &GenerationId) -> String {
-    format!(
-        ".athanor/state/index-state-{}.json",
-        generation.as_str()
-    )
+    format!(".athanor/state/index-state-{}.json", generation.as_str())
 }
 
 fn validate_artifact_identity(
@@ -194,18 +191,20 @@ fn validate_artifact_identity(
         &fs::read(path).with_context(|| format!("failed to read {label} {}", path.display()))?,
     )
     .with_context(|| format!("failed to parse {label} {}", path.display()))?;
-    let schema = value.get("schema").and_then(Value::as_str).ok_or_else(|| {
-        anyhow::anyhow!("{label} {} has no schema", path.display())
-    })?;
+    let schema = value
+        .get("schema")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow::anyhow!("{label} {} has no schema", path.display()))?;
     if schema != expected_schema {
         bail!(
             "{label} {} has schema `{schema}`, expected `{expected_schema}`",
             path.display()
         );
     }
-    let snapshot = value.get("snapshot").and_then(Value::as_str).ok_or_else(|| {
-        anyhow::anyhow!("{label} {} has no snapshot identity", path.display())
-    })?;
+    let snapshot = value
+        .get("snapshot")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow::anyhow!("{label} {} has no snapshot identity", path.display()))?;
     if snapshot != expected_snapshot.0.as_str() {
         bail!(
             "{label} {} identifies snapshot `{snapshot}`, expected `{}`",
@@ -252,11 +251,23 @@ mod tests {
     fn pointer_rejects_foreign_generation_and_paths() {
         let mut current = IndexCurrent::for_snapshot(SnapshotId("snap_test".to_string()));
         current.generation = GenerationId("gen_foreign".to_string());
-        assert!(current.validate().unwrap_err().to_string().contains("does not match"));
+        assert!(
+            current
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("does not match")
+        );
 
         let mut current = IndexCurrent::for_snapshot(SnapshotId("snap_test".to_string()));
         current.read_model = "../../foreign".to_string();
-        assert!(current.validate().unwrap_err().to_string().contains("read-model path"));
+        assert!(
+            current
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("read-model path")
+        );
     }
 
     #[test]
