@@ -52,22 +52,22 @@ pub async fn recover_index_publication(
             .canonicalize()
             .with_context(|| format!("failed to canonicalize {}", options.root.display()))?,
     );
-    let pending = pending_identity(&root)?;
-    let needed = has_pending_publication(&root);
-    let before = inspect_repair(RepairInspectOptions { root: root.clone() })?;
 
-    if options.dry_run || !needed {
-        return Ok(report(
-            root,
-            options.dry_run,
-            needed,
-            false,
-            pending,
-            before,
-        ));
+    if options.dry_run {
+        let pending = pending_identity(&root)?;
+        let needed = has_pending_publication(&root);
+        let inspection = inspect_repair(RepairInspectOptions { root: root.clone() })?;
+        return Ok(report(root, true, needed, false, pending, inspection));
     }
 
     let _lock = PublicationLock::acquire(root.join(PUBLICATION_LOCK_PATH))?;
+    let pending = pending_identity(&root)?;
+    let needed = has_pending_publication(&root);
+    let before = inspect_repair(RepairInspectOptions { root: root.clone() })?;
+    if !needed {
+        return Ok(report(root, false, false, false, pending, before));
+    }
+
     let config = crate::config::load_config(&root)?;
     let store = crate::store::init_store(&root, &config).await?;
     recover_index_publication_with_store(&root, &store).await?;
@@ -179,7 +179,7 @@ mod tests {
             root.join(POINTER_JOURNAL_PATH),
             serde_json::to_vec_pretty(&json!({
                 "schema": "athanor.index_current_publication.v1",
-                "snapshot": snapshot_id,
+                "snapshot": snapshot_id.clone(),
                 "generation": format!("gen_{snapshot_id}")
             }))
             .unwrap(),
@@ -195,8 +195,8 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
-    #[test]
-    fn dry_run_reports_pending_identity_without_mutation() {
+    #[tokio::test]
+    async fn dry_run_reports_pending_identity_without_mutation() {
         let root = test_root("dry-run");
         fs::create_dir_all(root.join(".athanor/state")).unwrap();
         fs::write(
@@ -205,10 +205,16 @@ mod tests {
         )
         .unwrap();
 
-        let pending = pending_identity(&root).unwrap().unwrap();
-        assert_eq!(pending.snapshot, "snap_pending");
-        assert_eq!(pending.generation, "gen_snap_pending");
-        assert!(has_pending_publication(&root));
+        let report = recover_index_publication(RepairRecoverIndexOptions {
+            root: root.clone(),
+            dry_run: true,
+        })
+        .await
+        .unwrap();
+        assert!(report.needed);
+        assert!(!report.recovered);
+        assert_eq!(report.snapshot.as_deref(), Some("snap_pending"));
+        assert_eq!(report.generation.as_deref(), Some("gen_snap_pending"));
         assert!(root.join(POINTER_JOURNAL_PATH).exists());
         fs::remove_dir_all(root).unwrap();
     }
