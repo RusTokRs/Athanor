@@ -1,7 +1,8 @@
 use std::future::Future;
 
 use athanor_store_conformance::{
-    verify_query_contract, verify_snapshot_lifecycle_contract,
+    verify_atomic_publication_contract, verify_query_contract,
+    verify_snapshot_lifecycle_contract,
 };
 use athanor_store_jsonl::JsonlKnowledgeStore;
 
@@ -17,6 +18,14 @@ async fn satisfies_shared_query_contract() {
 async fn satisfies_shared_snapshot_lifecycle_contract() {
     with_store("lifecycle", |store| async move {
         verify_snapshot_lifecycle_contract(&store).await;
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn satisfies_shared_atomic_publication_contract() {
+    with_store("atomic-publication", |store| async move {
+        verify_atomic_publication_contract(&store).await;
     })
     .await;
 }
