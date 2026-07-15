@@ -1,16 +1,15 @@
 use std::future::Future;
 use std::path::Path;
 use std::pin::Pin;
-use std::sync::Arc;
-use std::sync::OnceLock;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::config::ProjectConfig;
 use anyhow::{Result, bail};
 use async_trait::async_trait;
 use athanor_core::{
     AtomicSnapshotPublication, CanonicalSnapshot, CanonicalSnapshotStore, CoreResult,
-    DiagnosticQuery, EntityQuery, EntityResolver, KnowledgeStore, OperationContext, RelationQuery,
-    SnapshotBatch, SnapshotSelector,
+    DiagnosticQuery, EntityQuery, EntityResolver, KnowledgeStore, OperationContext,
+    OperationContextCancellation, RelationQuery, SnapshotBatch, SnapshotSelector,
 };
 use athanor_domain::{
     Diagnostic, Entity, EntityId, Fact, Relation, RepoId, SnapshotBase, SnapshotId, StableKey,
@@ -36,16 +35,62 @@ impl<T> AthanorStoreBackend for T where
 {
 }
 
+#[derive(Debug)]
+struct PendingSnapshotBatch {
+    snapshot: SnapshotId,
+    batch: SnapshotBatch,
+}
+
 #[derive(Clone)]
 pub struct AthanorStore {
     inner: Arc<dyn AthanorStoreBackend>,
+    pending_batches: Arc<Mutex<Vec<PendingSnapshotBatch>>>,
 }
 
 impl AthanorStore {
     pub fn new(store: impl AthanorStoreBackend + 'static) -> Self {
         Self {
             inner: Arc::new(store),
+            pending_batches: Arc::new(Mutex::new(Vec::new())),
         }
+    }
+
+    fn stage_pending_batch(&self, snapshot: SnapshotId, batch: SnapshotBatch) {
+        let mut pending = self
+            .pending_batches
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(existing) = pending
+            .iter_mut()
+            .find(|existing| existing.snapshot == snapshot)
+        {
+            existing.batch = batch;
+        } else {
+            pending.push(PendingSnapshotBatch { snapshot, batch });
+        }
+    }
+
+    fn has_pending_batch(&self, snapshot: &SnapshotId) -> bool {
+        self.pending_batches
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+            .any(|pending| &pending.snapshot == snapshot)
+    }
+
+    fn take_pending_batch(&self, snapshot: &SnapshotId) -> Option<SnapshotBatch> {
+        let mut pending = self
+            .pending_batches
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let index = pending
+            .iter()
+            .position(|pending| &pending.snapshot == snapshot)?;
+        Some(pending.swap_remove(index).batch)
+    }
+
+    fn clear_pending_batch(&self, snapshot: &SnapshotId) {
+        let _ = self.take_pending_batch(snapshot);
     }
 }
 
@@ -167,12 +212,15 @@ impl KnowledgeStore for AthanorStore {
         batch: SnapshotBatch,
         context: &OperationContext,
     ) -> CoreResult<()> {
-        self.inner
-            .put_snapshot_with_context(snapshot, batch, context)
-            .await
+        context.check_active()?;
+        self.stage_pending_batch(snapshot, batch);
+        Ok(())
     }
 
     async fn prepare_snapshot(&self, snapshot: SnapshotId) -> CoreResult<()> {
+        if self.has_pending_batch(&snapshot) {
+            return Ok(());
+        }
         self.inner.prepare_snapshot(snapshot).await
     }
 
@@ -181,6 +229,10 @@ impl KnowledgeStore for AthanorStore {
         snapshot: SnapshotId,
         context: &OperationContext,
     ) -> CoreResult<()> {
+        if self.has_pending_batch(&snapshot) {
+            context.check_active()?;
+            return Ok(());
+        }
         self.inner
             .prepare_snapshot_with_context(snapshot, context)
             .await
@@ -211,6 +263,9 @@ impl KnowledgeStore for AthanorStore {
     }
 
     async fn commit_snapshot(&self, snapshot: SnapshotId) -> CoreResult<()> {
+        if let Some(batch) = self.take_pending_batch(&snapshot) {
+            return self.inner.publish_snapshot_batch(snapshot, batch).await;
+        }
         self.inner.commit_snapshot(snapshot).await
     }
 
@@ -219,12 +274,19 @@ impl KnowledgeStore for AthanorStore {
         snapshot: SnapshotId,
         context: &OperationContext,
     ) -> CoreResult<()> {
+        if let Some(batch) = self.take_pending_batch(&snapshot) {
+            return self
+                .inner
+                .publish_snapshot_batch_with_context(snapshot, batch, context)
+                .await;
+        }
         self.inner
             .commit_snapshot_with_context(snapshot, context)
             .await
     }
 
     async fn abort_snapshot(&self, snapshot: SnapshotId) -> CoreResult<()> {
+        self.clear_pending_batch(&snapshot);
         self.inner.abort_snapshot(snapshot).await
     }
 
@@ -233,6 +295,7 @@ impl KnowledgeStore for AthanorStore {
         snapshot: SnapshotId,
         context: &OperationContext,
     ) -> CoreResult<()> {
+        self.clear_pending_batch(&snapshot);
         self.inner
             .abort_snapshot_with_context(snapshot, context)
             .await
@@ -246,6 +309,7 @@ impl AtomicSnapshotPublication for AthanorStore {
         snapshot: SnapshotId,
         batch: SnapshotBatch,
     ) -> CoreResult<()> {
+        self.clear_pending_batch(&snapshot);
         self.inner.publish_snapshot_batch(snapshot, batch).await
     }
 
@@ -255,6 +319,7 @@ impl AtomicSnapshotPublication for AthanorStore {
         batch: SnapshotBatch,
         context: &OperationContext,
     ) -> CoreResult<()> {
+        self.clear_pending_batch(&snapshot);
         self.inner
             .publish_snapshot_batch_with_context(snapshot, batch, context)
             .await
