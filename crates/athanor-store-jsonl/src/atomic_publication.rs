@@ -2,7 +2,7 @@ use std::fs;
 
 use async_trait::async_trait;
 use athanor_core::{AtomicSnapshotPublication, CoreError, CoreResult, SnapshotBatch};
-use athanor_domain::SnapshotId;
+use athanor_domain::{GenerationId, SnapshotId};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -10,13 +10,22 @@ use super::{
     JsonlKnowledgeStore, SnapshotData, unique_suffix, write_latest, write_snapshot_contents,
 };
 
-pub(crate) const SNAPSHOT_COMMIT_SCHEMA: &str = "athanor.canonical_commit.v1";
+pub(crate) const SNAPSHOT_COMMIT_SCHEMA_V1: &str = "athanor.canonical_commit.v1";
+pub(crate) const SNAPSHOT_COMMIT_SCHEMA: &str = "athanor.canonical_commit.v2";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct SnapshotCommit {
-    pub(crate) schema: String,
-    pub(crate) snapshot: String,
+struct SnapshotCommitV2 {
+    schema: String,
+    snapshot: String,
+    generation: GenerationId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SnapshotCommitV1 {
+    schema: String,
+    snapshot: String,
 }
 
 #[async_trait]
@@ -165,9 +174,10 @@ pub(crate) fn write_commit_marker(
     snapshot_dir: &std::path::Path,
     snapshot: &SnapshotId,
 ) -> CoreResult<()> {
-    let marker = SnapshotCommit {
+    let marker = SnapshotCommitV2 {
         schema: SNAPSHOT_COMMIT_SCHEMA.to_string(),
         snapshot: snapshot.0.clone(),
+        generation: GenerationId::for_snapshot(snapshot),
     };
     fs::write(
         snapshot_dir.join("commit.json"),
@@ -185,7 +195,7 @@ pub(crate) fn validate_commit_marker(
     snapshot: &SnapshotId,
 ) -> CoreResult<()> {
     let path = snapshot_dir.join("commit.json");
-    let marker: SnapshotCommit = serde_json::from_slice(
+    let value: Value = serde_json::from_slice(
         &fs::read(&path).map_err(|error| {
             CoreError::Adapter(format!(
                 "failed to read snapshot commit marker {}: {error}",
@@ -199,21 +209,87 @@ pub(crate) fn validate_commit_marker(
             path.display()
         ))
     })?;
-    if marker.schema != SNAPSHOT_COMMIT_SCHEMA {
-        return Err(CoreError::AdapterProtocol(format!(
-            "snapshot commit marker {} has schema `{}`, expected `{}`",
-            path.display(),
-            marker.schema,
-            SNAPSHOT_COMMIT_SCHEMA
-        )));
+    let schema = value.get("schema").and_then(Value::as_str).ok_or_else(|| {
+        CoreError::AdapterProtocol(format!(
+            "snapshot commit marker {} has no schema",
+            path.display()
+        ))
+    })?;
+
+    match schema {
+        SNAPSHOT_COMMIT_SCHEMA => {
+            let marker: SnapshotCommitV2 = serde_json::from_value(value).map_err(|error| {
+                CoreError::AdapterProtocol(format!(
+                    "failed to decode snapshot commit marker {}: {error}",
+                    path.display()
+                ))
+            })?;
+            validate_snapshot_identity(&path, snapshot, &marker.snapshot)?;
+            let expected = GenerationId::for_snapshot(snapshot);
+            if marker.generation != expected {
+                return Err(CoreError::AdapterProtocol(format!(
+                    "snapshot commit marker {} identifies generation `{}`, expected `{}`",
+                    path.display(),
+                    marker.generation,
+                    expected
+                )));
+            }
+            Ok(())
+        }
+        SNAPSHOT_COMMIT_SCHEMA_V1 => {
+            let marker: SnapshotCommitV1 = serde_json::from_value(value).map_err(|error| {
+                CoreError::AdapterProtocol(format!(
+                    "failed to decode legacy snapshot commit marker {}: {error}",
+                    path.display()
+                ))
+            })?;
+            validate_snapshot_identity(&path, snapshot, &marker.snapshot)
+        }
+        other => Err(CoreError::AdapterProtocol(format!(
+            "snapshot commit marker {} has unsupported schema `{other}`",
+            path.display()
+        ))),
     }
-    if marker.snapshot != snapshot.0 {
+}
+
+fn validate_snapshot_identity(
+    path: &std::path::Path,
+    snapshot: &SnapshotId,
+    actual: &str,
+) -> CoreResult<()> {
+    if actual != snapshot.0 {
         return Err(CoreError::AdapterProtocol(format!(
-            "snapshot commit marker {} identifies `{}`, expected `{}`",
+            "snapshot commit marker {} identifies `{actual}`, expected `{}`",
             path.display(),
-            marker.snapshot,
             snapshot.0
         )));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn marker_contains_immutable_generation_identity() {
+        let root = std::env::temp_dir().join(format!(
+            "athanor-canonical-generation-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let snapshot = SnapshotId("snap_test".to_string());
+
+        write_commit_marker(&root, &snapshot).unwrap();
+        let marker: SnapshotCommitV2 =
+            serde_json::from_slice(&fs::read(root.join("commit.json")).unwrap()).unwrap();
+
+        assert_eq!(marker.snapshot, "snap_test");
+        assert_eq!(marker.generation.0, "gen_snap_test");
+        validate_commit_marker(&root, &snapshot).unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
 }
