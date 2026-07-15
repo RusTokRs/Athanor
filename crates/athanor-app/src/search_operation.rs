@@ -83,3 +83,69 @@ pub async fn search_snapshot_with_index_and_operation_context(
         results: search_items,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Mutex;
+
+    use async_trait::async_trait;
+    use athanor_core::{
+        CancellationHandle, CoreError, CoreResult, SearchDocument, SearchResult,
+    };
+    use athanor_domain::SnapshotId;
+
+    use super::*;
+
+    struct CancellingIndex {
+        cancellation: Mutex<Option<CancellationHandle>>,
+    }
+
+    #[async_trait]
+    impl SearchIndex for CancellingIndex {
+        async fn index_document(&self, _doc: SearchDocument) -> CoreResult<()> {
+            Ok(())
+        }
+
+        async fn remove_document(&self, _id: &str) -> CoreResult<()> {
+            Ok(())
+        }
+
+        async fn search(&self, _query: SearchQuery) -> CoreResult<Vec<SearchResult>> {
+            self.cancellation
+                .lock()
+                .expect("search cancellation fixture lock")
+                .take()
+                .expect("search cancellation handle")
+                .cancel();
+            Ok(Vec::new())
+        }
+    }
+
+    #[tokio::test]
+    async fn mid_flight_cancellation_does_not_return_successful_report() {
+        let operation = OperationContext::new("search.mid-flight");
+        let cancellation = operation.cancellation_handle().unwrap();
+        let index = CancellingIndex {
+            cancellation: Mutex::new(Some(cancellation)),
+        };
+        let snapshot = CanonicalSnapshot {
+            snapshot: Some(SnapshotId("snap_test".to_string())),
+            ..CanonicalSnapshot::default()
+        };
+
+        let error = search_snapshot_with_index_and_operation_context(
+            Path::new("."),
+            &snapshot,
+            "entity".to_string(),
+            10,
+            &index,
+            &operation,
+        )
+        .await
+        .expect_err("cancelled search must not return a report");
+
+        assert!(error
+            .chain()
+            .any(|cause| matches!(cause.downcast_ref::<CoreError>(), Some(CoreError::Cancelled(_)))));
+    }
+}
