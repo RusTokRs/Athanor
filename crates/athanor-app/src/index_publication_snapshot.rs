@@ -4,7 +4,7 @@ use std::time::Instant;
 use anyhow::{Context, Result, bail};
 use athanor_core::{
     AtomicSnapshotPublication, CanonicalSnapshotStore, CoreError, KnowledgeStore, OperationContext,
-    PreparedSnapshot, SnapshotBatch,
+    SnapshotBatch,
 };
 use athanor_domain::SnapshotId;
 
@@ -81,9 +81,8 @@ pub(crate) async fn publish_index_snapshot(
         .publish_snapshot_batch_with_context(snapshot.clone(), batch, operation)
         .await
     {
-        let error = anyhow::Error::new(publish_error).context(
-            "failed to publish prepared canonical snapshot after read model and index state",
-        );
+        let error = anyhow::Error::new(publish_error)
+            .context("failed to publish canonical snapshot after read model and index state");
         match exact_snapshot_is_committed(store, &snapshot).await {
             Ok(true) => {
                 // The exact canonical generation and marker are durable. Keep the journal and staged
@@ -143,30 +142,6 @@ pub(crate) async fn recover_interrupted_publication(
     // rejects malformed or backend-inconsistent canonical identities at the snapshot-native boundary.
     let _ = exact_snapshot_is_committed(store, journal.snapshot()).await?;
     recover_legacy_publication(root, store).await
-}
-
-/// Compatibility adapter for existing runtime/fault fixtures. Publication state is converted to the
-/// canonical snapshot identity immediately; the active coordinator does not persist or abort through
-/// the prepared handle.
-pub(crate) async fn publish_prepared_index(
-    root: &Path,
-    store: &AthanorStore,
-    state_store: &IndexStateStore,
-    output_dir: &Path,
-    output: &IndexPipelineOutput,
-    prepared: PreparedSnapshot,
-    operation: &OperationContext,
-) -> Result<IndexPublicationOutcome> {
-    publish_index_snapshot(
-        root,
-        store,
-        state_store,
-        output_dir,
-        output,
-        prepared.into_snapshot(),
-        operation,
-    )
-    .await
 }
 
 async fn exact_snapshot_is_committed(
