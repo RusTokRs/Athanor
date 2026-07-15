@@ -252,6 +252,9 @@ impl IndexStateStore {
 }
 
 /// Publishes a complete state document only after its staged replacement is ready.
+///
+/// The backup keeps the prior valid state recoverable if the final rename fails on platforms
+/// where replacing an existing path is not supported by a single rename.
 fn write_staged_json(
     path: &Path,
     state: &IndexState,
@@ -376,5 +379,64 @@ mod tests {
         assert!(affected.unchanged.contains("docs/auth.md"));
         assert!(affected.changed.contains("docs/new.md"));
         assert!(affected.removed.contains("docs/removed.md"));
+    }
+
+    #[test]
+    fn incompatible_state_schema_forces_a_full_rebuild() {
+        let root = std::env::temp_dir().join(format!(
+            "athanor-index-state-schema-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let path = root.join("index-state.json");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(
+            &path,
+            r#"{"schema":"athanor.index_state.v9","snapshot":"snap_old","files":{}}"#,
+        )
+        .unwrap();
+
+        let state = IndexStateStore::new(&path).load().unwrap();
+
+        assert_eq!(state, IndexState::empty());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn prepared_state_rolls_back_to_the_previous_generation() {
+        let root = std::env::temp_dir().join(format!(
+            "athanor-index-state-rollback-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("index-state.json");
+        let store = IndexStateStore::new(&path);
+        store
+            .save(&IndexState {
+                schema: INDEX_STATE_SCHEMA.to_string(),
+                snapshot: Some("snap_old".to_string()),
+                files: BTreeMap::new(),
+            })
+            .unwrap();
+        store
+            .prepare(&IndexState {
+                schema: INDEX_STATE_SCHEMA.to_string(),
+                snapshot: Some("snap_new".to_string()),
+                files: BTreeMap::new(),
+            })
+            .unwrap()
+            .rollback()
+            .unwrap();
+
+        assert_eq!(store.load().unwrap().snapshot.as_deref(), Some("snap_old"));
+        let restored: serde_json::Value =
+            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        assert_eq!(restored["generation"], "gen_snap_old");
+        fs::remove_dir_all(root).unwrap();
     }
 }
