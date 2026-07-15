@@ -2,7 +2,7 @@
 
 > Репозиторий: `RusTokRs/Athanor`  
 > Базовая ветка: `main`  
-> Точка сверки: `bd9c89b3fbe04bcb0ad2733b82dbb226540e1680`  
+> Точка сверки: `d93aa85e9b7043674ea96aac2e66ae09155b57b4`  
 > Дата актуализации: 2026-07-15  
 > Статус: active implementation plan
 
@@ -45,6 +45,8 @@
 - core-owned additive `AtomicSnapshotPublication` capability;
 - Memory reference implementation публикует complete batch и committed marker одной mutex-секцией;
 - Memory regression проверяет invisibility до boundary, полную замену partial staging и запрет republish/abort;
+- JSONL atomic path пишет complete generation и `commit.json` в hidden staging и публикует exact snapshot одним rename;
+- JSONL pointer-finalization regression сохраняет exact committed generation non-abortable после ошибки `latest.json`;
 - native SurrealQL transaction для полного `SnapshotBatch`;
 - atomic snapshot counter, numeric sequence и prepared immutability;
 - embedded SurrealKV single-owner contract и retryable `Busy` mapping;
@@ -85,6 +87,7 @@ cargo test -p athanor-store-memory --test fact_query --locked
 cargo test -p athanor-store-jsonl --test fact_query --locked
 cargo test -p athanor-store-surrealdb --test fact_query --locked
 cargo test -p athanor-store-memory --test atomic_publication --locked
+cargo test -p athanor-store-jsonl --test atomic_publication --locked
 cargo test -p athanor-store-memory --test conformance --locked
 cargo test -p athanor-store-jsonl --test conformance --locked
 cargo test -p athanor-store-surrealdb --test conformance --locked
@@ -115,11 +118,11 @@ cargo run -p ath --quiet --locked -- docs check
 | Область | Статус | Подтверждено | Остаётся |
 | --- | --- | --- | --- |
 | Query/snapshot isolation | `[-]` | committed-only entity/fact/relation/diagnostic queries, exact/latest suites | Hosted remote evidence, generation visibility |
-| Atomic publication | `[-]` | typed coordinator, recovery matrix, core capability, Memory atomic reference | JSONL/SurrealDB implementations, coordinator cutover, generation pointer |
-| Recovery safety | `[-]` | v1/v2 journal, type/content preflight, identity checks, idempotence | cryptographic integrity, generation pointer |
+| Atomic publication | `[-]` | typed coordinator/recovery, core capability, Memory and JSONL exact boundaries | JSONL marker validation, SurrealDB, coordinator cutover, generation pointer |
+| Recovery safety | `[-]` | v1/v2 journal, type/content preflight, identity checks, idempotence | cryptographic integrity, exact canonical marker, generation pointer |
 | Concurrent writers | `[-]` | JSONL lock, atomic counter, embedded ownership | Hosted remote conflict evidence |
 | Operation context | `[-]` | deadline, cancellation lease, daemon write path, typed publish context | Read commands, CLI/MCP, in-flight SDK interruption |
-| Store transaction boundary | `[-]` | native batch transaction, core prepared/fact/atomic capability, Memory reference | JSONL/Surreal data+marker, full lifecycle transaction |
+| Store transaction boundary | `[-]` | native batch transaction, core prepared/fact/atomic capability, Memory/JSONL exact publication | Surreal data+marker, coordinator cutover, full lifecycle transaction |
 | Runtime maintainability | `[-]` | legacy index god-file deleted, focused runtime/coordinator/tests | Further daemon/CLI decomposition |
 | Hosted CI governance | `[!]` | workflow-файлы существуют | Enable/verify Actions, runs, branch protection, required checks |
 | AppSec | `[-]` | CodeQL, dependency review, Gitleaks, blocking Zizmor, SBOM configured | Hosted evidence, push protection |
@@ -165,7 +168,7 @@ cargo run -p ath --quiet --locked -- docs check
 
 ### P0.4. Store conformance и transactional publication
 
-**Статус:** `[-]` — typed production path, query/recovery matrix и atomic capability реализованы; production backends ещё не atomic на data+marker boundary.
+**Статус:** `[-]` — typed production path, query/recovery matrix и Memory/JSONL atomic capability реализованы; SurrealDB и production coordinator ещё не переведены.
 
 #### Shared backend contract
 
@@ -234,13 +237,17 @@ cargo run -p ath --quiet --locked -- docs check
 - [x] Context-aware boundary проверяет cancellation/deadline только до durable publish.
 - [x] Memory одной mutex-секцией заменяет partial staging complete batch и ставит committed marker.
 - [x] Memory regression проверяет exact/latest visibility, replacement, republish и abort semantics.
-- [ ] JSONL: публиковать canonical directory и marker одним rename boundary.
-- [ ] JSONL: отделить committed exact generation от отдельного latest pointer failure.
+- [x] JSONL пишет complete canonical generation и `commit.json` в hidden staging.
+- [x] JSONL одним directory rename публикует exact committed generation.
+- [x] JSONL после exact commit отмечает state committed до обновления `latest.json`.
+- [x] JSONL pointer-finalization regression подтверждает non-abortable exact generation после ошибки.
+- [ ] JSONL exact load должен fail-closed валидировать marker schema/snapshot identity.
+- [ ] Legacy JSONL exact generation без marker должна иметь явную compatibility policy.
 - [ ] SurrealDB: объединить canonical rows и snapshot committed marker в одну SurrealQL transaction.
 - [ ] SurrealDB facade: retry entire atomic boundary только для подтверждённого `Busy`.
 - [ ] Production coordinator: передавать complete `SnapshotBatch` в atomic capability.
 - [ ] Recovery: определять canonical commit по exact marker, а не только `LatestCommitted`.
-- [ ] Добавить backend-neutral atomic publication conformance и fault injection.
+- [-] Direct Memory/JSONL atomic regressions добавлены; общий трех-backend conformance остаётся открытым.
 
 #### Следующий transactional layer
 
@@ -255,6 +262,10 @@ cargo run -p ath --quiet --locked -- docs check
 - `bad6d4a168415ccad9995bfcb7eb14860652d0ac` — core public export;
 - `e23a425031efd1046e09fb7472ced7f6221ccff2` — Memory atomic data+marker implementation;
 - `37c1078af83b3557d8370327da674979764e6a86` — Memory atomic publication regression;
+- `761189751b6aef6b2bf67030caf1911969326dcb` — JSONL atomic exact-generation publisher;
+- `5dee6fca2e8bb32fdf59795d1308a9ced7fa62bf` — JSONL source/module split without blob rewrite;
+- `c476b7dff322be309b512483c61535098c1e84b0` / `d93aa85e9b7043674ea96aac2e66ae09155b57b4` — JSONL atomic regressions;
+- `e0e0845ae248e8d39a7dd77764a0bda9580bbd6f` — atomic staging recovery allowlist fix;
 - `47341ccab962a259173b1a5da9d69543ae54e837` — core `FactQuery`/`FactQueryStore` contract;
 - `8f6251c556d5add95cf746bd944566b67ea0c880` — blanket canonical fact implementation;
 - `6d279c41dda251dec00e1c85bdd695de2bf32e94` — shared conformance fact queries;
@@ -334,14 +345,14 @@ cargo run -p ath --quiet --locked -- docs check
 ### P2.4. Локальная воспроизводимость
 
 - [x] Feature, coverage, AppSec, installer/release и store commands.
-- [x] Cancellation, fact-query, atomic Memory publication, runtime publication и recovery commands.
+- [x] Cancellation, fact-query, atomic Memory/JSONL publication, runtime publication и recovery commands.
 - [ ] Common CI failures для остальных workflows.
 - [ ] `justfile`, `xtask` или единый verification entrypoint.
 
 ## 6. Порядок реализации
 
 1. `[!]` Включить/проверить GitHub Actions и получить compile/test/fmt/Clippy evidence.
-2. P0.4 — JSONL atomic data + marker implementation.
+2. P0.4 — JSONL exact marker validation и legacy compatibility policy.
 3. P0.4 — SurrealDB atomic data + marker transaction.
 4. P0.4 — production coordinator cutover и exact-marker recovery.
 5. P0.4 — immutable generation id и один current pointer.
@@ -355,15 +366,15 @@ cargo run -p ath --quiet --locked -- docs check
 
 **Активный blocker:** `GitHub Actions activation/visibility`.
 
-**Текущий безопасный кодовый срез до снятия blocker:** `P0.4 JSONL atomic data + commit marker`.
+**Текущий безопасный кодовый срез до снятия blocker:** `P0.4 JSONL marker validation → SurrealDB atomic transaction`.
 
-1. Реализовать `AtomicSnapshotPublication` для `JsonlKnowledgeStore`.
-2. Записывать complete data и commit marker в hidden staging directory.
-3. Одним rename публиковать committed exact generation.
-4. Обновлять latest pointer отдельным шагом, не позволяя его failure сделать committed generation abortable.
-5. Валидировать marker/snapshot identity при exact load.
-6. Добавить deterministic regression для failure после exact commit и до latest pointer.
-7. После JSONL перейти к одной SurrealQL transaction для rows + snapshot marker.
+1. Подключить fail-closed schema/snapshot validation `commit.json` к exact JSONL load.
+2. Зафиксировать explicit compatibility policy для legacy exact generations без marker.
+3. Добавить malformed/mismatched marker regressions.
+4. Реализовать rows + committed marker одной SurrealQL transaction.
+5. Retry whole SurrealDB atomic boundary только для подтвержденного conflict/Busy.
+6. Добавить embedded regression и configured remote independent-reader regression.
+7. После backend implementations перевести production coordinator на complete `SnapshotBatch`.
 8. Не считать protocol hosted-подтверждённым без Actions/remote run.
 
 ## 8. Definition of Done проекта
@@ -382,6 +393,14 @@ cargo run -p ath --quiet --locked -- docs check
 - Roadmap, plan, issues и release notes соответствуют коду.
 
 ## 9. Журнал актуализаций
+
+### 2026-07-15 — JSONL atomic exact generation
+
+- JSONL store source перенесён в `store.rs` тем же Git blob; новый crate root подключает focused atomic module.
+- Complete canonical data, indexes, manifest и `commit.json` записываются в hidden staging directory.
+- Один directory rename публикует exact committed generation; state становится committed до отдельного `latest.json` шага.
+- Pointer-finalization failure возвращает ошибку, но exact generation остаётся readable и non-abortable.
+- Marker validation при exact load и legacy compatibility policy остаются открытыми.
 
 ### 2026-07-15 — atomic data+marker capability и Memory reference
 
