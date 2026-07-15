@@ -194,6 +194,22 @@ pub(crate) fn validate_commit_marker(
     snapshot_dir: &std::path::Path,
     snapshot: &SnapshotId,
 ) -> CoreResult<()> {
+    validate_commit_marker_inner(snapshot_dir, snapshot, None)
+}
+
+pub(crate) fn validate_commit_marker_schema(
+    snapshot_dir: &std::path::Path,
+    snapshot: &SnapshotId,
+    expected_schema: &str,
+) -> CoreResult<()> {
+    validate_commit_marker_inner(snapshot_dir, snapshot, Some(expected_schema))
+}
+
+fn validate_commit_marker_inner(
+    snapshot_dir: &std::path::Path,
+    snapshot: &SnapshotId,
+    expected_schema: Option<&str>,
+) -> CoreResult<()> {
     let path = snapshot_dir.join("commit.json");
     let value: Value = serde_json::from_slice(
         &fs::read(&path).map_err(|error| {
@@ -219,6 +235,14 @@ pub(crate) fn validate_commit_marker(
                 path.display()
             ))
         })?;
+    if let Some(expected_schema) = expected_schema
+        && schema != expected_schema
+    {
+        return Err(CoreError::AdapterProtocol(format!(
+            "snapshot commit marker {} has schema `{schema}`, manifest requires `{expected_schema}`",
+            path.display()
+        )));
+    }
 
     match schema.as_str() {
         SNAPSHOT_COMMIT_SCHEMA => {
@@ -293,7 +317,35 @@ mod tests {
 
         assert_eq!(marker.snapshot, "snap_test");
         assert_eq!(marker.generation.0, "gen_snap_test");
-        validate_commit_marker(&root, &snapshot).unwrap();
+        validate_commit_marker_schema(&root, &snapshot, SNAPSHOT_COMMIT_SCHEMA).unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn declared_v2_schema_rejects_legacy_v1_marker() {
+        let root = std::env::temp_dir().join(format!(
+            "athanor-canonical-marker-schema-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let snapshot = SnapshotId("snap_test".to_string());
+        let marker = SnapshotCommitV1 {
+            schema: SNAPSHOT_COMMIT_SCHEMA_V1.to_string(),
+            snapshot: snapshot.0.clone(),
+        };
+        fs::write(
+            root.join("commit.json"),
+            serde_json::to_vec_pretty(&marker).unwrap(),
+        )
+        .unwrap();
+
+        let error = validate_commit_marker_schema(&root, &snapshot, SNAPSHOT_COMMIT_SCHEMA)
+            .expect_err("manifest-declared v2 must reject a v1 marker");
+        assert!(matches!(error, CoreError::AdapterProtocol(_)));
+        assert!(error.to_string().contains("manifest requires"));
         fs::remove_dir_all(root).unwrap();
     }
 }
