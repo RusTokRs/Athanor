@@ -38,6 +38,9 @@ mod hash;
 pub mod impact;
 #[path = "index_runtime.rs"]
 pub mod index;
+mod index_current;
+#[cfg(test)]
+mod index_current_runtime_tests;
 #[path = "index_publication.rs"]
 mod index_publication;
 #[cfg(test)]
@@ -50,9 +53,6 @@ mod index_publication_content_tests;
 mod index_publication_fault_tests;
 #[cfg(test)]
 mod index_publication_finalize_tests;
-mod index_current;
-#[cfg(test)]
-mod index_current_runtime_tests;
 mod index_publication_journal;
 #[cfg(test)]
 mod index_publication_recovery_fault_tests;
