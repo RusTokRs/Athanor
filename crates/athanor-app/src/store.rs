@@ -126,6 +126,10 @@ impl CanonicalLatestPointer for DerivedLatestPointer {
         Ok(Some(CanonicalLatestIdentity::for_snapshot(snapshot)))
     }
 
+    async fn discover_latest_identity(&self) -> CoreResult<Option<CanonicalLatestIdentity>> {
+        self.load_latest_identity().await
+    }
+
     async fn validate_latest_identity(&self, identity: &CanonicalLatestIdentity) -> CoreResult<()> {
         identity.validate()?;
         let exact = self
@@ -139,7 +143,7 @@ impl CanonicalLatestPointer for DerivedLatestPointer {
                 exact.snapshot, identity.snapshot.0
             )));
         }
-        let latest = self.load_latest_identity().await?.ok_or_else(|| {
+        let latest = self.discover_latest_identity().await?.ok_or_else(|| {
             CoreError::NotFound("canonical store has no committed latest snapshot".to_string())
         })?;
         if &latest != identity {
@@ -426,6 +430,10 @@ impl CanonicalSnapshotStore for AthanorStore {
 impl CanonicalLatestPointer for AthanorStore {
     async fn load_latest_identity(&self) -> CoreResult<Option<CanonicalLatestIdentity>> {
         self.latest_pointer.load_latest_identity().await
+    }
+
+    async fn discover_latest_identity(&self) -> CoreResult<Option<CanonicalLatestIdentity>> {
+        self.latest_pointer.discover_latest_identity().await
     }
 
     async fn validate_latest_identity(&self, identity: &CanonicalLatestIdentity) -> CoreResult<()> {
