@@ -1,7 +1,9 @@
 use std::fs;
 use std::path::PathBuf;
 
-use athanor_app::{AthanorStore, PreparedSnapshotPublication};
+use athanor_app::{
+    AthanorStore, IncrementalIndexContext, IndexPipeline, PreparedSnapshotPublication,
+};
 use athanor_core::{
     AtomicSnapshotPublication, CanonicalSnapshotStore, CoreError, KnowledgeStore, OperationContext,
     SnapshotBatch,
@@ -18,12 +20,7 @@ async fn deferred_context_batch_does_not_mutate_jsonl_before_atomic_boundary() {
     let snapshot = store
         .begin_snapshot(
             RepoId("repo_deferred_buffer".to_string()),
-            SnapshotBase {
-                branch: None,
-                commit: None,
-                parent_snapshot: None,
-                working_tree: true,
-            },
+            working_tree_base(),
         )
         .await
         .expect("begin deferred snapshot");
@@ -45,17 +42,7 @@ async fn deferred_context_batch_does_not_mutate_jsonl_before_atomic_boundary() {
         .await
         .expect("create compatibility cleanup handle");
 
-    assert!(
-        store
-            .load_snapshot(&snapshot)
-            .await
-            .expect("probe exact snapshot before publication")
-            .is_none(),
-        "pending context batch must not create an exact canonical generation"
-    );
-    let snapshots = canonical_root.join("snapshots");
-    assert!(!snapshots.join(&snapshot.0).exists());
-    assert!(!snapshots.join(format!(".{}.prepared", snapshot.0)).exists());
+    assert_unpublished(&store, &canonical_root, &snapshot).await;
 
     let committed = entity("ent_committed", "committed.md");
     store
@@ -82,7 +69,13 @@ async fn deferred_context_batch_does_not_mutate_jsonl_before_atomic_boundary() {
             .iter()
             .all(|entity| entity.id.0 != "ent_pending")
     );
-    assert!(snapshots.join(&snapshot.0).join("commit.json").is_file());
+    assert!(
+        canonical_root
+            .join("snapshots")
+            .join(&snapshot.0)
+            .join("commit.json")
+            .is_file()
+    );
     assert!(matches!(
         store
             .abort_prepared(&prepared)
@@ -92,6 +85,70 @@ async fn deferred_context_batch_does_not_mutate_jsonl_before_atomic_boundary() {
     ));
 
     fs::remove_dir_all(root).expect("remove deferred buffer fixture");
+}
+
+#[tokio::test]
+async fn deferred_pipeline_returns_complete_output_without_canonical_prewrite() {
+    let root = test_root("pipeline-buffer");
+    let canonical_root = root.join("canonical");
+    let store = AthanorStore::new(JsonlKnowledgeStore::new(&canonical_root));
+    let operation = OperationContext::new("test.deferred-pipeline-buffer");
+
+    let output = IndexPipeline::new(store.clone())
+        .run_with_incremental_deferred_operation_context(
+            RepoId("repo_deferred_pipeline".to_string()),
+            working_tree_base(),
+            IncrementalIndexContext::default(),
+            operation.clone(),
+        )
+        .await
+        .expect("run deferred pipeline");
+
+    assert_unpublished(&store, &canonical_root, &output.snapshot).await;
+
+    store
+        .publish_snapshot_batch_with_context(
+            output.snapshot.clone(),
+            SnapshotBatch {
+                entities: output.entities.clone(),
+                facts: output.facts.clone(),
+                relations: output.relations.clone(),
+                diagnostics: output.diagnostics.clone(),
+            },
+            &operation,
+        )
+        .await
+        .expect("publish deferred pipeline output atomically");
+
+    let exact = store
+        .load_snapshot(&output.snapshot)
+        .await
+        .expect("load published pipeline snapshot")
+        .expect("published pipeline snapshot exists");
+    assert_eq!(exact.entities, output.entities);
+    assert_eq!(exact.facts, output.facts);
+    assert_eq!(exact.relations, output.relations);
+    assert_eq!(exact.diagnostics, output.diagnostics);
+
+    fs::remove_dir_all(root).expect("remove deferred pipeline fixture");
+}
+
+async fn assert_unpublished(
+    store: &AthanorStore,
+    canonical_root: &std::path::Path,
+    snapshot: &athanor_domain::SnapshotId,
+) {
+    assert!(
+        store
+            .load_snapshot(snapshot)
+            .await
+            .expect("probe exact snapshot before publication")
+            .is_none(),
+        "pending context batch must not create an exact canonical generation"
+    );
+    let snapshots = canonical_root.join("snapshots");
+    assert!(!snapshots.join(&snapshot.0).exists());
+    assert!(!snapshots.join(format!(".{}.prepared", snapshot.0)).exists());
 }
 
 fn entity(id: &str, path: &str) -> Entity {
@@ -106,6 +163,15 @@ fn entity(id: &str, path: &str) -> Entity {
         aliases: Vec::new(),
         ownership: Vec::new(),
         payload: json!({}),
+    }
+}
+
+fn working_tree_base() -> SnapshotBase {
+    SnapshotBase {
+        branch: None,
+        commit: None,
+        parent_snapshot: None,
+        working_tree: true,
     }
 }
 
