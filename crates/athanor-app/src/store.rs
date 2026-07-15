@@ -8,20 +8,31 @@ use crate::config::ProjectConfig;
 use anyhow::{Result, bail};
 use async_trait::async_trait;
 use athanor_core::{
-    CanonicalSnapshot, CanonicalSnapshotStore, CoreResult, DiagnosticQuery, EntityQuery,
-    EntityResolver, KnowledgeStore, OperationContext, RelationQuery, SnapshotBatch, SnapshotSelector,
+    AtomicSnapshotPublication, CanonicalSnapshot, CanonicalSnapshotStore, CoreResult,
+    DiagnosticQuery, EntityQuery, EntityResolver, KnowledgeStore, OperationContext, RelationQuery,
+    SnapshotBatch, SnapshotSelector,
 };
 use athanor_domain::{
     Diagnostic, Entity, EntityId, Fact, Relation, RepoId, SnapshotBase, SnapshotId, StableKey,
 };
 
 pub trait AthanorStoreBackend:
-    KnowledgeStore + CanonicalSnapshotStore + EntityResolver + Send + Sync
+    KnowledgeStore
+    + AtomicSnapshotPublication
+    + CanonicalSnapshotStore
+    + EntityResolver
+    + Send
+    + Sync
 {
 }
 
 impl<T> AthanorStoreBackend for T where
-    T: KnowledgeStore + CanonicalSnapshotStore + EntityResolver + Send + Sync
+    T: KnowledgeStore
+        + AtomicSnapshotPublication
+        + CanonicalSnapshotStore
+        + EntityResolver
+        + Send
+        + Sync
 {
 }
 
@@ -224,6 +235,28 @@ impl KnowledgeStore for AthanorStore {
     ) -> CoreResult<()> {
         self.inner
             .abort_snapshot_with_context(snapshot, context)
+            .await
+    }
+}
+
+#[async_trait]
+impl AtomicSnapshotPublication for AthanorStore {
+    async fn publish_snapshot_batch(
+        &self,
+        snapshot: SnapshotId,
+        batch: SnapshotBatch,
+    ) -> CoreResult<()> {
+        self.inner.publish_snapshot_batch(snapshot, batch).await
+    }
+
+    async fn publish_snapshot_batch_with_context(
+        &self,
+        snapshot: SnapshotId,
+        batch: SnapshotBatch,
+        context: &OperationContext,
+    ) -> CoreResult<()> {
+        self.inner
+            .publish_snapshot_batch_with_context(snapshot, batch, context)
             .await
     }
 }
