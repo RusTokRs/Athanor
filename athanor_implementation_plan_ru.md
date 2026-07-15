@@ -2,7 +2,7 @@
 
 > Репозиторий: `RusTokRs/Athanor`  
 > Базовая ветка: `main`  
-> Точка сверки кода: `249613c546c24027cdc8ababe0814efba826511c`  
+> Точка сверки кода: `f5f5076208c6ae3fafd23f1f0413fa5c8930819e`  
 > Дата актуализации: 2026-07-15  
 > Статус: active implementation plan
 
@@ -32,6 +32,8 @@
 13. `GenerationId` детерминированно выводится из уникального `SnapshotId` и не имеет отдельного allocator/counter.
 14. Canonical latest repair не может перемотать visibility на более старый committed snapshot.
 15. Destructive index retention требует token от точного dry-run plan.
+16. `index-current.v2` выдаёт selected paths только после проверки manifest/state и полного checksum chain.
+17. Existing immutable generation не seal’ится recovery без совпадения с validated compatibility source.
 
 ## 1. Baseline
 
@@ -47,7 +49,8 @@
 - journal v3 с чтением v2/v1;
 - backend-neutral immutable `GenerationId`;
 - generation identity в canonical marker/record, read-model manifest, index state и recovery journal;
-- один validated `index-current.json` для application artifacts;
+- один checksum-bound `index-current.v2` для application artifacts;
+- exact four-file JSONL digest map и immutable state digest;
 - pointer-first index-state readers с legacy fallback только при отсутствии pointer;
 - repair inspect/retention/publication recovery/cleanup recovery;
 - backend-neutral canonical latest discovery, validation и repair;
@@ -58,7 +61,7 @@
 
 - [!] GitHub Actions page показывает onboarding вместо runs;
 - [!] connector не возвращает push-run/status evidence;
-- [!] DNS clone заблокирован в локальной среде;
+- [!] DNS clone и локальный Rust toolchain недоступны в рабочей среде;
 - [ ] проверить/включить Actions;
 - [ ] получить hosted run и исправить реальные findings.
 
@@ -71,13 +74,17 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 
 cargo test -p athanor-domain generation --locked
 cargo test -p athanor-core latest_pointer --locked
+cargo test -p athanor-app artifact_checksum --locked
 cargo test -p athanor-app index_current --locked
 cargo test -p athanor-app index_state --locked
+cargo test -p athanor-app index_current_runtime_tests --locked
 cargo test -p athanor-app index_publication_atomic_tests --locked
 cargo test -p athanor-app index_publication_recovery_fault_tests --locked
 cargo test -p athanor-app repair_latest --locked
 cargo test -p athanor-app repair_cleanup_recovery --locked
 cargo test -p ath --test repair_cli --locked
+cargo test -p ath --test index_checksum_cli --locked
+cargo test -p ath --test index_checksum_recovery_cli --locked
 
 cargo test -p athanor-store-memory latest_pointer --locked
 cargo test -p athanor-store-jsonl latest --locked
@@ -99,9 +106,9 @@ ATHANOR_SURREAL_REMOTE_URI=ws://127.0.0.1:8000 \
 | Область | Статус | Подтверждено | Остаётся |
 | --- | --- | --- | --- |
 | Query isolation | `[-]` | committed exact/latest contracts, generation identity | Hosted remote evidence |
-| Atomic publication | `[-]` | backend boundaries, application pointer, repair protocol | Artifact checksums |
+| Atomic publication | `[-]` | backend boundaries, v2 application pointer, checksum chain, repair protocol | Hosted compile/test/Clippy evidence |
 | Allocation recovery | `[-]` | metadata, 24h cutoff, bounded conditional cleanup, tests | Legacy untagged policy, hosted evidence |
-| Recovery safety | `[-]` | journals, pointer recovery, cleanup recovery, idempotence | Artifact checksums, hosted evidence |
+| Recovery safety | `[-]` | journals, checksummed pointer recovery, cleanup recovery, idempotence | Hosted/Windows fault evidence |
 | Concurrent writers | `[-]` | JSONL/application locks, embedded ownership | Remote conflict evidence |
 | Operation context | `[-]` | cancellation lease, Busy retry, daemon writes | Reads, CLI/MCP, ambiguous in-flight request |
 | Runtime maintainability | `[-]` | focused runtime/coordinator, repair command wrapper | Other runtime/daemon decomposition |
@@ -136,7 +143,7 @@ ATHANOR_SURREAL_REMOTE_URI=ws://127.0.0.1:8000 \
 
 ### P0.4. Store conformance и transactional publication
 
-**Статус:** `[-]` — transactional code path почти завершён; остался один generation-layer code slice и hosted evidence.
+**Статус:** `[-]` — generation-layer code complete; release-grade статус блокируют hosted feature/OS/backend evidence и branch policy.
 
 #### Shared backend contract
 
@@ -225,13 +232,26 @@ ATHANOR_SURREAL_REMOTE_URI=ws://127.0.0.1:8000 \
 - [x] CLI `ath repair repair-latest` поддерживает dry-run, JSON и explicit snapshot.
 - [!] Hosted JSONL/embedded/remote evidence отсутствует.
 
-#### Generation layer — остался 1 code slice
+#### Application artifact checksums — завершено на уровне кода
+
+- [x] `index-current.v2` связывает generation с manifest/state SHA-256 digests.
+- [x] Manifest содержит exact map четырёх JSONL файлов.
+- [x] Readers проверяют manifest digest, exact file set, каждый data digest и state digest.
+- [x] Missing/extra/nested/symlink/non-regular entries fail closed.
+- [x] Repair сообщает `index_current_checksum_mismatch`; cleanup блокируется.
+- [x] Bridge recovery обновляет v1/pre-checksum generation до v2 идемпотентно.
+- [x] Existing immutable target обязан совпадать с compatibility source до sealing.
+- [x] Tamper, missing-file, extra-file, state corruption и repeated recovery regressions.
+- [x] `index-current.v1` остаётся временно readable только как identity-only migration format.
+- [!] Hosted Linux/Windows compile/test/Clippy evidence отсутствует.
+
+#### Generation layer — code complete
 
 - [x] Immutable generation id для canonical/read-model/state/journal.
 - [x] Один current pointer после подготовки artifacts.
 - [x] Backend latest-pointer repair через generation protocol.
 - [x] Pointer switch/cleanup fault injection и recovery.
-- [ ] Checksums application artifacts.
+- [x] Checksums application artifacts.
 
 ## 4. P1 — execution safety и maintainability
 
@@ -286,38 +306,49 @@ ATHANOR_SURREAL_REMOTE_URI=ws://127.0.0.1:8000 \
 
 Оценка остаётся диапазоном, а не release assertion:
 
-- весь roadmap: ориентировочно `72–76%`;
-- код P0.4: ориентировочно `96–98%`;
-- до release-grade P0 остаются 1 кодовый generation-layer срез и 5 hosted/platform evidence packages;
+- весь roadmap: ориентировочно `73–77%`;
+- generation-layer код P0.4: `100%` по текущему scope;
+- release-grade P0.4 остаётся `[-]` до hosted feature/OS/backend evidence;
+- до release-grade P0 остаются 5 hosted/platform evidence packages и policy work;
 - после P0 остаются 17 крупных P1-пунктов и 4 P2-пункта.
 
 ## 7. Порядок реализации
 
 1. `[!]` Включить Actions и получить compile/test/fmt/Clippy evidence.
-2. P0.4 — checksums application artifacts.
-3. P0.4 — remote conflict/latest repair evidence.
-4. Hosted AppSec/matrix/installer/tag evidence.
-5. P1.5 — read-only daemon/CLI/MCP cancellation.
-6. Sandbox, decomposition, performance и P2.
+2. P0.4 — hosted JSONL/embedded/remote conflict/latest/checksum evidence.
+3. Hosted AppSec/matrix/installer/tag evidence и required checks.
+4. P1.5 — read-only daemon jobs/queries и CLI/MCP cancellation lifecycle.
+5. P1.1 — OS-level sandbox и resource limits.
+6. Остальная decomposition, performance и P2.
 
 ## 8. Текущий рабочий пакет
 
 **Активный blocker:** `GitHub Actions activation/visibility`.
 
-**Завершённый кодовый срез:** `P0.4 backend latest-pointer repair`.
+**Завершённый кодовый срез:** `P0.4 application artifact checksums`; generation-layer code complete.
 
-**Следующий безопасный кодовый срез:** `P0.4 checksums application artifacts`.
+**Следующий безопасный кодовый срез:** `P1.5 read-only operation context propagation`.
 
 Целевой результат следующего среза:
 
-- immutable read-model manifest содержит checksums всех опубликованных JSONL файлов;
-- immutable index-state pointer/документ содержит checksum state payload;
-- `index-current.json` связывает generation с ожидаемыми manifest/state digests;
-- readers и repair проверяют digests до открытия selected artifacts;
-- checksum mismatch, missing file, path substitution и repeated recovery имеют regressions;
-- legacy generation без checksums остаётся readable только в явно ограниченном migration window.
+- read-only daemon jobs и queries получают explicit `OperationContext`;
+- cancellation/deadline проверяются до и после потенциально долгих backend/search операций;
+- ambiguous in-flight request не превращается в ложный successful response;
+- CLI/MCP lifecycle использует тот же stable cancellation contract;
+- существующие synchronous projectors получают документированную cooperative cancellation boundary;
+- regressions покрывают pre-cancel, mid-flight cancel, deadline и successful completion.
 
 ## 9. Журнал актуализаций
+
+### 2026-07-15 — application artifact checksums
+
+- Writer `index-current` переведён на schema v2 с manifest/state SHA-256 digests.
+- Immutable manifest содержит deterministic exact map четырёх JSONL data files.
+- Reader и repair проверяют полный checksum chain до выдачи selected paths.
+- Missing, extra, nested, symlinked и modified artifacts отклоняются fail-closed.
+- Bridge recovery сравнивает reused generation с compatibility source, seal’ит и обновляет v1 до v2.
+- Добавлены CLI regressions для tamper, missing/extra files, state corruption и repeated migration recovery.
+- Generation-layer backlog закрыт на уровне кода; hosted evidence остаётся открытым.
 
 ### 2026-07-15 — backend latest repair и transactional repair CLI
 
@@ -329,4 +360,3 @@ ATHANOR_SURREAL_REMOTE_URI=ws://127.0.0.1:8000 \
 - JSONL latest writer перешёл на generation-bearing schema; legacy pointer query-compatible.
 - Authoritative discovery не доверяет mutable pointer и не откатывается к старому generation.
 - Memory и SurrealDB сохраняют derived-latest semantics.
-- Generation-layer backlog уменьшен до одного code slice: application artifact checksums.
