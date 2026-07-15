@@ -9,7 +9,7 @@ use athanor_domain::{Entity, EntityId, EntityKind, RepoId, SnapshotBase, StableK
 use athanor_store_jsonl::JsonlKnowledgeStore;
 use serde_json::{Value, json};
 
-use crate::index_publication::{publish_prepared_index, recover_interrupted_publication};
+use crate::index_publication::{publish_index_snapshot, recover_interrupted_publication};
 use crate::{
     AffectedFileSet, AthanorStore, IndexPipelineMetrics, IndexPipelineOutput, IndexStateStore,
 };
@@ -61,13 +61,13 @@ async fn exact_commit_survives_latest_pointer_failure_and_recovery() {
     let output_dir = root.join(".athanor/generated/current/jsonl");
 
     fs::create_dir_all(canonical_root.join("latest.json")).expect("block latest pointer finalization");
-    let error = publish_prepared_index(
+    let error = publish_index_snapshot(
         &root,
         &store,
         &state_store,
         &output_dir,
         &output,
-        prepared.clone(),
+        snapshot.clone(),
         &operation,
     )
     .await
