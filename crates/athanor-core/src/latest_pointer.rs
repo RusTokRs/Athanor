@@ -34,14 +34,18 @@ impl CanonicalLatestIdentity {
 
 /// Repairs or validates the backend's latest committed snapshot identity.
 ///
-/// Persisted-pointer backends atomically replace their pointer after validating the exact committed
-/// target. Backends that derive latest from committed records validate that the requested identity is
-/// already their newest committed generation and perform no synthetic mutation.
+/// Persisted-pointer backends atomically replace their pointer after validating the authoritative
+/// newest committed target. Backends that derive latest from committed records validate the same target
+/// and perform no synthetic mutation.
 #[async_trait]
 pub trait CanonicalLatestPointer: Send + Sync {
+    /// Loads the identity currently exposed through the backend's latest selection mechanism.
     async fn load_latest_identity(&self) -> CoreResult<Option<CanonicalLatestIdentity>>;
 
-    /// Validates an exact committed target using the same backend rules as repair, without mutation.
+    /// Discovers the authoritative newest committed generation without trusting a mutable latest pointer.
+    async fn discover_latest_identity(&self) -> CoreResult<Option<CanonicalLatestIdentity>>;
+
+    /// Validates an exact authoritative target using the same backend rules as repair, without mutation.
     async fn validate_latest_identity(&self, identity: &CanonicalLatestIdentity) -> CoreResult<()>;
 
     async fn repair_latest_identity(&self, identity: CanonicalLatestIdentity) -> CoreResult<()>;
