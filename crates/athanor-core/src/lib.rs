@@ -3,11 +3,13 @@
 //! Implementations live in adapter crates. This crate owns only contracts and
 //! request/response shapes used by the application layer.
 
+pub mod atomic_publication;
 pub mod cancellation;
 pub mod fact_query;
 pub mod ports;
 pub mod prepared_publication;
 
+pub use atomic_publication::AtomicSnapshotPublication;
 pub use cancellation::{CancellationHandle, OperationContextCancellation};
 pub use fact_query::{FactQuery, FactQueryStore, filter_facts};
 pub use ports::{
