@@ -10,9 +10,15 @@ status: verified
 
 ## Status
 
-Writer-side migration bridge implemented on `main`. New successful production indexing runs retain the
-legacy mutable application artifacts for compatibility, publish an immutable application generation,
-and atomically select it through a separate index pointer.
+Writer-side migration bridge and pointer-first index-state readers are implemented on `main`. New
+successful production indexing runs retain the legacy mutable application artifacts for compatibility,
+publish an immutable application generation, and atomically select it through a separate index
+pointer.
+
+All standard `IndexStateStore::load()` callers now resolve the validated pointer-selected immutable
+state. The application also exports validated read-model and index-state path resolvers through
+`athanor_app::publication`. A present invalid pointer fails closed; the legacy paths are used only when
+no index pointer exists.
 
 This pointer is intentionally independent from `.athanor/generated/current.json`, which belongs to the
 on-demand `ath generate` command and coordinates JSONL, wiki, and HTML projection generations.
@@ -75,6 +81,28 @@ The migration bridge preserves the established coordinator and adds a second dur
 Readers using `index-current.json` therefore observe either the previous complete generation or the new
 complete generation. They never need to infer coherence by comparing two mutable paths.
 
+## Reader Resolution
+
+The public application resolver contract is:
+
+```rust
+athanor_app::publication::resolve_read_model_path(root)
+athanor_app::publication::resolve_index_state_path(root)
+```
+
+Both functions load and validate `index-current.json` when it exists. They return the legacy path only
+when the pointer is absent. They do not hide pointer corruption, missing targets, unsupported schemas,
+or identity mismatches.
+
+`IndexStateStore` keeps compatibility writes directed at its configured path, but its standard project
+layout read path is resolved through `resolve_index_state_path`. This migrates coverage, impact,
+change-map, context, check, capabilities, validate-changed, and incremental indexing state reads
+without duplicating pointer logic in each service.
+
+The repository currently has no production service that parses the exported JSONL read model directly;
+canonical query services read through `CanonicalSnapshotStore`. The read-model resolver is exported for
+external consumers, repair, and future application read models.
+
 ## Recovery Rules
 
 Recovery always runs under `.athanor/state/index-publication.lock` before a new index pipeline starts.
@@ -92,14 +120,15 @@ Recovery always runs under `.athanor/state/index-publication.lock` before a new 
 
 ## Compatibility Window
 
-The legacy paths remain published because existing runtime and external readers still consume them.
-They are source artifacts for the immutable bridge, not the long-term selection contract.
+The legacy paths remain published because existing external readers may still consume them. They are
+source artifacts for the immutable bridge, not the long-term selection contract.
 
 During this window:
 
 - canonical visibility remains authoritative for commit status;
 - `index-current.json` is the coherent application-generation selector for migrated readers;
-- existing callers may continue to read mutable paths;
+- standard in-repository state readers are pointer-first;
+- external callers can use the exported validated resolvers;
 - the bridge journal makes a committed-but-not-yet-pointed generation recoverable.
 
 ## Verification
@@ -108,6 +137,7 @@ Targeted checks:
 
 ```bash
 cargo test -p athanor-app index_current --locked
+cargo test -p athanor-app index_state_pointer --locked
 cargo test -p athanor-app index_current_runtime_tests --locked
 cargo test -p athanor-app index_publication_atomic_tests --locked
 cargo test -p athanor-app index_publication_recovery_fault_tests --locked
@@ -119,20 +149,24 @@ The runtime coverage verifies:
 - a normal production index writes a valid immutable generation and pointer;
 - a committed bridge journal recreates missing immutable artifacts and the pointer;
 - a bridge journal written before the legacy journal aborts an uncommitted orphan snapshot;
-- a no-change index keeps the existing pointer stable.
+- a no-change index keeps the existing pointer stable;
+- standard state reads prefer pointed immutable state;
+- no pointer falls back to legacy state;
+- a present pointer with incomplete artifacts fails closed.
 
-## Next Slice: Pointer-First Readers
+## Next Slice: Repair And Retention
 
 The next implementation slice must:
 
-1. Resolve persisted incremental state through `index-current.json` when the pointer exists.
-2. Resolve application JSONL reads through the pointer instead of the mutable compatibility path.
-3. Keep an explicit fallback to legacy paths only when no pointer exists.
-4. Add corruption tests for missing targets, schema mismatch, snapshot mismatch, and generation mismatch.
-5. Update repair inspection and cleanup so pointed generations are retained and unpointed immutable
-   generations are reported as orphans.
-6. After all in-repository readers are migrated and one compatibility release has passed, stop writing
-   the mutable compatibility paths and collapse publication to one immutable coordinator.
+1. Update `repair inspect` to validate `index-current.json`, its target artifacts, and pending bridge
+   journal state.
+2. Report unpointed immutable index generations separately from `ath generate` generations.
+3. Define retention for immutable index generations before allowing `repair cleanup` to remove them.
+4. Keep the pointed generation and any generation referenced by a pending journal unconditionally.
+5. Add corruption tests for unsupported pointer schema, path mismatch, snapshot mismatch, generation
+   mismatch, missing manifest, and missing state.
+6. After all external consumers have a compatibility release using the resolvers, stop writing the
+   mutable compatibility paths and collapse publication to one immutable coordinator.
 
 ## Definition of Done for Migration Completion
 
