@@ -11,6 +11,9 @@ publish.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
+[lib]
+path = "src/facade.rs"
+
 [dependencies]
 async-trait.workspace = true
 athanor-core = { path = "../athanor-core" }
