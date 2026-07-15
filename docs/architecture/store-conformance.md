@@ -31,6 +31,25 @@ The core-owned `FactQuery`/`FactQueryStore` implementation is shared by every
 Memory, JSONL, and embedded SurrealDB run the same query, lifecycle, and atomic-publication suites.
 Remote server tests remain opt-in and are evidence only after a successful hosted run.
 
+## Immutable generation identity
+
+`athanor-domain::GenerationId` is the backend-neutral identity shared by one canonical commit and
+all application artefacts derived from it. It is deterministically derived as `gen_<SnapshotId>`.
+The mapping is immutable because a canonical snapshot can be committed only once, and it avoids a
+second allocator, counter, or crash-sensitive identity source.
+
+New publications persist the same identity in:
+
+- JSONL `commit.json` using `athanor.canonical_commit.v2`;
+- the committed SurrealDB snapshot record;
+- JSONL read-model `manifest.json`;
+- `.athanor/state/index-state.json`;
+- `.athanor/state/index-publication.json` using journal v3.
+
+JSONL marker v1, publication journal v1/v2, and index-state documents without `generation` remain
+readable during the migration window. A present generation must match the deterministic identity of
+the snapshot or loading fails closed.
+
 ## Atomic canonical data and marker
 
 `athanor-core::AtomicSnapshotPublication` owns three related backend capabilities:
@@ -51,10 +70,11 @@ recovery is a no-op.
 
 ### JSONL
 
-JSONL writes data, indexes, manifest, and `athanor.canonical_commit.v1` into a hidden staging
-directory. One rename publishes the exact generation. Atomic manifests declare
-`commit_marker_schema`; exact/latest reads reject a missing, malformed, wrong-schema, or
-foreign-snapshot marker. Legacy manifests without that declaration remain readable, while an
+JSONL writes data, indexes, manifest, and `athanor.canonical_commit.v2` into a hidden staging
+directory. The marker contains both snapshot and generation identity. One rename publishes the exact
+generation. Atomic manifests declare `commit_marker_schema`; exact/latest reads reject a missing,
+malformed, wrong-schema, foreign-snapshot, or mismatched-generation marker. Legacy v1 markers and
+manifests without a marker declaration remain readable during the migration window, while an
 undeclared marker is still validated when present.
 
 `latest.json` remains a separate pointer. A pointer finalization error may occur after exact commit,
@@ -64,9 +84,9 @@ publication does not leave a durable allocation record.
 
 ### SurrealDB
 
-SurrealDB replaces all rows for one snapshot and sets `prepared = true, committed = true` in one
-SurrealQL transaction. Statement failure rolls back both rows and marker. The facade retries the
-entire boundary only for classified `Busy` conflicts.
+SurrealDB replaces all rows for one snapshot and sets `prepared = true`, `committed = true`, and the
+deterministic `generation` in one SurrealQL transaction. Statement failure rolls back rows and marker.
+The facade retries the entire boundary only for classified `Busy` conflicts.
 
 Context-aware allocation creates the snapshot record with:
 
@@ -103,16 +123,16 @@ process-local state. While that batch is pending:
 - abort clears the pending batch and delegates cancellation-independent backend cleanup.
 
 The remaining pre-journal durable state is allocation authority. JSONL has no durable empty
-generation, while SurrealDB now tags and bounds recovery of stale context-owned allocation records.
+generation, while SurrealDB tags and bounds recovery of stale context-owned allocation records.
 
 ## Production coordinator
 
-Production indexing is routed through `index_runtime.rs` and `index_publication_atomic.rs`:
+Production indexing is routed through `index_runtime.rs` and the focused publication coordinator:
 
 1. recover an interrupted publication under the project publication lock;
 2. run deferred extraction/linking/checking with only process-local canonical data;
-3. write `athanor.index_publication.v2`;
-4. stage read model and index state;
+3. write `athanor.index_publication.v3` with snapshot and generation identity;
+4. stage generation-bearing read model and index state;
 5. build the complete canonical batch from pipeline output;
 6. call the backend atomic data+marker boundary;
 7. exact-probe the journal snapshot after an error;
@@ -121,7 +141,8 @@ Production indexing is routed through `index_runtime.rs` and `index_publication_
 10. finalize backups and clear the journal after success.
 
 Recovery uses exact canonical identity rather than only `LatestCommitted`. This preserves a JSONL
-exact commit when a separate latest-pointer update fails.
+exact commit when a separate latest-pointer update fails. Pointer-failure regression also verifies
+that journal, read-model manifest, and index state retain the same generation identity.
 
 ## Recovery preflight
 
@@ -136,15 +157,15 @@ Before any application-artifact delete or rename, recovery verifies:
 
 Type, schema, parse, or identity mismatch fails closed. Deterministic regressions cover journal,
 prepare, publish, finalize, clear, malformed artifacts, absent backups, repeated recovery, exact
-commit/latest-pointer failure, and combined publish/rollback/abort errors.
+commit/latest-pointer failure, generation identity, and combined publish/rollback/abort errors.
 
 ## Guarantees not claimed yet
 
 The implementation does not yet claim:
 
-- one immutable generation pointer covering canonical data, index state, and read models;
+- one immutable current pointer covering canonical data, index state, and read models;
 - automatic cleanup of legacy SurrealDB allocation records without ownership metadata;
-- automatic JSONL latest-pointer repair through the backend-neutral recovery API;
+- automatic backend latest-pointer repair through the generation protocol;
 - cryptographic content integrity for application artifacts;
 - deterministic remote write-conflict evidence;
 - force interruption/outcome recovery for an SDK request already executing;
@@ -152,5 +173,6 @@ The implementation does not yet claim:
 - hosted compile, test, formatting, Clippy, AppSec, installer, or release evidence while Actions runs
   remain unavailable.
 
-P0.4 remains partial until hosted evidence exists, the prepared transition layer is removed, and one
-immutable generation pointer coordinates canonical data, state, and read models.
+P0.4 remains partial until one immutable current pointer coordinates canonical data, state, and read
+models, pointer repair/fault injection are complete, application artefacts have checksums, and hosted
+evidence exists.
