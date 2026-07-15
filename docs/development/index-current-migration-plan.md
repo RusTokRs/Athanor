@@ -134,7 +134,8 @@ Inspection verifies:
 - pointer schema, snapshot-derived generation, deterministic read-model path, and deterministic state
   path;
 - selected manifest and state existence plus schema/snapshot/generation identity;
-- equality between the selected pointer snapshot and the latest canonical snapshot when one exists;
+- equality between the selected pointer snapshot and the latest canonical snapshot;
+- a present index pointer has a readable canonical latest pointer and resolvable authoritative snapshot;
 - pending `index-current-publication.json` schema and snapshot-derived generation;
 - read-model generations without matching immutable state, and state files without matching read-model
   generations;
@@ -146,8 +147,10 @@ Current retention policy is deliberately conservative:
 - a generation referenced by a pending bridge journal is always protected;
 - unpointed complete generations are reported as `orphan_index_generation` but are not deleted;
 - incomplete generations are reported and block cleanup;
-- pending, corrupt, incomplete, or stale index publication state blocks `repair cleanup` and
-  `repair apply` before canonical or generated retention mutates the project;
+- pending, corrupt, incomplete, stale, or canonically unresolvable index publication state blocks
+  `repair cleanup` before canonical or generated retention mutates the project;
+- `repair apply` may first recover the canonical latest pointer, but its cleanup phase remains subject to
+  the same guard;
 - existing `keep_canonical`, `keep_generated`, and `generated_only` flags never select immutable index
   generations.
 
@@ -174,7 +177,8 @@ Targeted checks:
 ```bash
 cargo test -p athanor-app index_current --locked
 cargo test -p athanor-app index_state --locked
-cargo test -p athanor-app repair_pointer --locked
+cargo test -p athanor-app valid_pointer_generation_is_clean --locked
+cargo test -p athanor-app pointer_without_canonical_latest_blocks_cleanup --locked
 cargo test -p athanor-app index_current_runtime_tests --locked
 cargo test -p athanor-app index_publication_atomic_tests --locked
 cargo test -p athanor-app index_publication_recovery_fault_tests --locked
@@ -192,7 +196,8 @@ The runtime coverage verifies:
 - a present pointer with incomplete artifacts fails closed;
 - repair considers a complete pointed generation clean;
 - repair reports but retains an unpointed generation;
-- a pending bridge journal blocks cleanup.
+- a pending bridge journal blocks cleanup;
+- a present index pointer without a valid canonical latest snapshot blocks cleanup.
 
 ## Next Slice: Explicit Index Retention And Corruption Matrix
 
