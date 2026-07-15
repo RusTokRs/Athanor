@@ -47,6 +47,8 @@ mod index_publication_legacy;
 #[path = "index_publication.rs"]
 mod index_publication_inner;
 #[cfg(test)]
+mod index_publication_atomic_tests;
+#[cfg(test)]
 mod index_publication_combined_error_tests;
 #[cfg(test)]
 mod index_publication_content_tests;
