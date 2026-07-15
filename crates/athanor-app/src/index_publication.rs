@@ -173,6 +173,11 @@ pub(crate) async fn publish_index_snapshot(
                 snapshot.0
             ))),
             Ok(false) => {
+                if let Err(abort_error) = abort_uncommitted_snapshot(store, &snapshot).await {
+                    return Err(error.context(format!(
+                        "failed to abort uncommitted index current snapshot: {abort_error}"
+                    )));
+                }
                 if let Err(clear_error) = pointer_journal.clear(root) {
                     return Err(error.context(format!(
                         "failed to clear uncommitted index current publication: {clear_error}"
@@ -198,6 +203,8 @@ pub(crate) async fn recover_interrupted_publication(
     };
     if exact_snapshot_is_committed(store, &pointer_journal.snapshot).await? {
         publish_current_generation(root, &pointer_journal)?;
+    } else {
+        abort_uncommitted_snapshot(store, &pointer_journal.snapshot).await?;
     }
     pointer_journal.clear(root)
 }
@@ -393,7 +400,7 @@ fn validate_artifact_identity(
     let snapshot = value.get("snapshot").and_then(Value::as_str).ok_or_else(|| {
         anyhow::anyhow!("{label} {} has no snapshot identity", path.display())
     })?;
-    if snapshot != expected_snapshot.0 {
+    if snapshot != expected_snapshot.0.as_str() {
         bail!(
             "{label} {} identifies snapshot `{snapshot}`, expected `{}`",
             path.display(),
@@ -432,6 +439,17 @@ async fn exact_snapshot_is_committed(store: &AthanorStore, snapshot: &SnapshotId
             "failed to probe exact canonical snapshot {}",
             snapshot.0
         ))),
+    }
+}
+
+async fn abort_uncommitted_snapshot(
+    store: &AthanorStore,
+    snapshot: &SnapshotId,
+) -> Result<()> {
+    match store.abort_snapshot(snapshot.clone()).await {
+        Ok(()) | Err(CoreError::NotFound(_)) => Ok(()),
+        Err(error) => Err(anyhow::Error::new(error)
+            .context(format!("failed to abort uncommitted snapshot {}", snapshot.0))),
     }
 }
 
