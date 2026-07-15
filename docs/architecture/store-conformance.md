@@ -39,6 +39,24 @@ public contract from the independent reader connection.
 The dedicated `Store Conformance` workflow is configured for Memory, JSONL, and embedded SurrealDB.
 Server-dependent remote tests remain isolated from the normal workspace and `--all-features` graph.
 
+## Atomic canonical data and commit marker
+
+`athanor-core::AtomicSnapshotPublication` is an additive capability for stores that can publish a
+complete `SnapshotBatch` and its committed marker through one backend-specific atomic boundary.
+The context-aware method checks cancellation and deadline before entering that boundary and does not
+re-check them after success, because durable publication has already happened and must not be
+mistaken for a rollback candidate.
+
+Memory provides the reference implementation. One mutex critical section replaces any partial
+staged contents with the complete batch and marks the snapshot committed. Before that section,
+exact reads fail with `SnapshotNotCommitted`; after it, exact and latest reads expose only the new
+complete generation. Republish and abort of the committed snapshot fail closed.
+
+This capability deliberately does not claim that the latest-generation pointer or application read
+models move in the same atomic operation. JSONL, SurrealDB, and the production index coordinator
+still need backend-specific implementations and cutover before the project can claim data-plus-marker
+atomicity outside the Memory reference store.
+
 ## SurrealDB transaction boundary
 
 The locked backend is SurrealDB `2.6.5`. Athanor uses one SurrealQL query containing `BEGIN`, bulk
@@ -183,7 +201,8 @@ publish error together with rollback and abort causes.
 
 The current implementation does not claim:
 
-- one backend transaction for canonical data and the commit marker;
+- production JSONL or SurrealDB implementation of `AtomicSnapshotPublication`;
+- production index-coordinator cutover to the atomic data-plus-marker capability;
 - one immutable generation pointer covering canonical data, state, and read models;
 - cryptographic content integrity for application artifacts;
 - deterministic remote write-conflict evidence;
@@ -192,5 +211,6 @@ The current implementation does not claim:
 - hosted compile, test, formatting, Clippy, AppSec, installer, or release evidence while Actions runs
   remain unavailable.
 
-P0.4 remains incomplete until hosted evidence, data-plus-marker publication, generation-pointer
-switching, remote conflict evidence, and pointer-level fault injection are complete.
+P0.4 remains incomplete until hosted evidence, JSONL/SurrealDB data-plus-marker publication,
+production coordinator cutover, generation-pointer switching, remote conflict evidence, and
+pointer-level fault injection are complete.
