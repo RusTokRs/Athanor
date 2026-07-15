@@ -218,11 +218,11 @@ fn uses_legacy_runtime_layout(
 
 fn publish_current_generation(root: &Path, journal: &IndexCurrentPublicationJournal) -> Result<()> {
     journal.validate()?;
-    let current = IndexCurrent::for_snapshot(journal.snapshot.clone());
-    if current.generation() != &journal.generation {
+    let migration_current = IndexCurrent::for_snapshot(journal.snapshot.clone());
+    if migration_current.generation() != &journal.generation {
         bail!(
             "index current pointer generation {} does not match journal {}",
-            current.generation(),
+            migration_current.generation(),
             journal.generation
         );
     }
@@ -244,8 +244,43 @@ fn publish_current_generation(root: &Path, journal: &IndexCurrentPublicationJour
         "legacy index state",
     )?;
 
-    publish_immutable_directory(&source_read_model, &current.read_model_path(root))?;
-    publish_immutable_file(&source_state, &current.index_state_path(root))?;
+    let target_read_model = migration_current.read_model_path(root);
+    let target_state = migration_current.index_state_path(root);
+    publish_immutable_directory(&source_read_model, &target_read_model)?;
+    publish_immutable_file(&source_state, &target_state)?;
+
+    validate_artifact_identity(
+        &target_read_model.join("manifest.json"),
+        crate::read_model::JSONL_MANIFEST_SCHEMA,
+        &journal.snapshot,
+        &journal.generation,
+        "immutable read-model manifest",
+    )?;
+    validate_artifact_identity(
+        &target_state,
+        crate::index_state::INDEX_STATE_SCHEMA,
+        &journal.snapshot,
+        &journal.generation,
+        "immutable index state",
+    )?;
+    crate::artifact_checksum::validate_read_model_matches(
+        &source_read_model,
+        &target_read_model,
+    )?;
+    crate::artifact_checksum::validate_file_matches(
+        &source_state,
+        &target_state,
+        "index state",
+    )?;
+
+    let read_model_manifest_sha256 =
+        crate::artifact_checksum::seal_read_model(&target_read_model)?;
+    let index_state_sha256 = crate::artifact_checksum::sha256_file(&target_state)?;
+    let current = IndexCurrent::for_snapshot_with_checksums(
+        journal.snapshot.clone(),
+        read_model_manifest_sha256,
+        index_state_sha256,
+    );
     current.write(root)
 }
 
