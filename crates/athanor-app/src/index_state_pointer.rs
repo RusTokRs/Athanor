@@ -56,12 +56,8 @@ fn resolve_read_path(configured: &Path) -> Result<PathBuf> {
     let Some(root) = legacy_project_root(configured) else {
         return Ok(configured.to_path_buf());
     };
-    match crate::index_current::IndexCurrent::load(root)
-        .context("failed to resolve index current pointer for index-state read")?
-    {
-        Some(current) => Ok(current.index_state_path(root)),
-        None => Ok(configured.to_path_buf()),
-    }
+    crate::index_current::resolve_index_state_path(root)
+        .context("failed to resolve index current pointer for index-state read")
 }
 
 fn legacy_project_root(path: &Path) -> Option<&Path> {
