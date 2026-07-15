@@ -129,9 +129,7 @@ impl KnowledgeStore for AthanorStore {
         base: SnapshotBase,
         context: &OperationContext,
     ) -> CoreResult<SnapshotId> {
-        self.inner
-            .begin_snapshot_with_context(repo, base, context)
-            .await
+        AtomicSnapshotPublication::begin_snapshot_allocation(self, repo, base, context).await
     }
 
     async fn put_entities(&self, snapshot: SnapshotId, entities: Vec<Entity>) -> CoreResult<()> {
@@ -304,6 +302,28 @@ impl KnowledgeStore for AthanorStore {
 
 #[async_trait]
 impl AtomicSnapshotPublication for AthanorStore {
+    async fn begin_snapshot_allocation(
+        &self,
+        repo: RepoId,
+        base: SnapshotBase,
+        context: &OperationContext,
+    ) -> CoreResult<SnapshotId> {
+        self.inner
+            .begin_snapshot_allocation(repo, base, context)
+            .await
+    }
+
+    async fn recover_orphan_snapshot_allocations(
+        &self,
+        repo: &RepoId,
+        stale_before_unix_ms: u64,
+        limit: usize,
+    ) -> CoreResult<Vec<SnapshotId>> {
+        self.inner
+            .recover_orphan_snapshot_allocations(repo, stale_before_unix_ms, limit)
+            .await
+    }
+
     async fn publish_snapshot_batch(
         &self,
         snapshot: SnapshotId,
