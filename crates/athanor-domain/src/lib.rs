@@ -4,6 +4,8 @@
 //! dependencies. It contains only the canonical knowledge vocabulary shared by
 //! all adapters.
 
+pub mod generation;
 pub mod model;
 
+pub use generation::*;
 pub use model::*;
