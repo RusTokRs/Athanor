@@ -68,7 +68,7 @@ impl AtomicSnapshotPublication for JsonlKnowledgeStore {
     }
 }
 
-pub(crate) fn publish_exact_generation(
+fn publish_exact_generation(
     store: &JsonlKnowledgeStore,
     snapshot: &SnapshotId,
     data: &SnapshotData,

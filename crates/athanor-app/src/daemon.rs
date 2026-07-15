@@ -1417,6 +1417,9 @@ async fn within_daemon_deadline<T>(
         return operation.await;
     };
     let now_unix_ms = unix_time_ms()? as u64;
+    if deadline_unix_ms <= now_unix_ms {
+        anyhow::bail!("daemon command deadline exceeded");
+    }
     let remaining = Duration::from_millis(deadline_unix_ms.saturating_sub(now_unix_ms));
     tokio::time::timeout(remaining, operation)
         .await
@@ -1498,6 +1501,7 @@ fn mark_daemon_job_running(state: &DaemonState, job_id: &str) -> Result<bool> {
 }
 
 #[cfg(test)]
+#[allow(dead_code)]
 fn begin_daemon_job_or_finish_failed(state: &DaemonState, job_id: &str) -> bool {
     crate::daemon_job_state::begin_or_finish_failed(state, job_id)
 }

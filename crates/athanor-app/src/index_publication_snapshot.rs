@@ -487,12 +487,12 @@ fn require_expected(actual: Option<&str>, expected: &str, label: &str) -> Result
 }
 
 fn require_expected_if_present(actual: Option<&str>, expected: &str, label: &str) -> Result<()> {
-    if let Some(actual) = actual {
-        if actual != expected {
-            bail!(
-                "publication recovery {label} snapshot `{actual}` does not match journal `{expected}`"
-            );
-        }
+    if let Some(actual) = actual
+        && actual != expected
+    {
+        bail!(
+            "publication recovery {label} snapshot `{actual}` does not match journal `{expected}`"
+        );
     }
     Ok(())
 }
@@ -502,12 +502,10 @@ fn require_matching_if_both_present(
     right: Option<&str>,
     label: &str,
 ) -> Result<()> {
-    if let (Some(left), Some(right)) = (left, right) {
-        if left != right {
-            bail!(
-                "publication recovery {label} refer to different snapshots `{left}` and `{right}`"
-            );
-        }
+    if let (Some(left), Some(right)) = (left, right)
+        && left != right
+    {
+        bail!("publication recovery {label} refer to different snapshots `{left}` and `{right}`");
     }
     Ok(())
 }

@@ -554,6 +554,10 @@ impl IndexPipeline {
             ..IndexPipelineMetrics::default()
         };
         check_cancelled(&cancellation)?;
+        operation
+            .check_deadline()
+            .map_err(anyhow::Error::new)
+            .context("operation deadline check before source discovery")?;
         let previous_snapshot_available = incremental.previous_snapshot.is_some();
 
         info!("starting source discovery");
@@ -955,6 +959,7 @@ impl IndexPipeline {
         .await
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn check(
         &self,
         snapshot: &SnapshotId,

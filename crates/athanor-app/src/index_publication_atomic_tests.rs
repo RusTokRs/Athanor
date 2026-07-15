@@ -108,7 +108,7 @@ async fn exact_commit_survives_latest_pointer_failure_and_recovery() {
         snapshot.0
     );
 
-    fs::remove_dir_all(canonical_root.join("latest.json")).expect("remove pointer fault");
+    fs::remove_file(canonical_root.join("latest.json")).expect("remove pointer fault");
     recover_interrupted_publication(&root, &store)
         .await
         .expect("recover committed exact generation");

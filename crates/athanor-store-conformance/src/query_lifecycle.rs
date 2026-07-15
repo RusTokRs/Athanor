@@ -1,4 +1,4 @@
-//! Reusable async conformance checks for `KnowledgeStore` implementations.
+// Reusable async conformance checks for `KnowledgeStore` implementations.
 
 use athanor_core::{
     CoreError, DiagnosticQuery, EntityQuery, EntityResolver, FactQuery, FactQueryStore,

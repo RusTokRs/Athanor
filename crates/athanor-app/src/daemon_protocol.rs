@@ -184,10 +184,10 @@ pub(crate) fn validate_request_shape(request: &DaemonRequest) -> Result<()> {
         } => *deadline_unix_ms,
         _ => None,
     };
-    if let Some(deadline) = deadline {
-        if deadline <= unix_time_ms()? as u64 {
-            bail!("daemon command deadline_unix_ms must be in the future");
-        }
+    if let Some(deadline) = deadline
+        && deadline <= unix_time_ms()? as u64
+    {
+        bail!("daemon command deadline_unix_ms must be in the future");
     }
     Ok(())
 }

@@ -10,6 +10,7 @@ use crate::pipeline_metrics::{adapter_run, elapsed_ms};
 use crate::pipeline_support::within_operation_deadline;
 use crate::{AdapterRunMetrics, CancellationToken};
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn check(
     checkers: &[Box<dyn Checker>],
     snapshot: &SnapshotId,

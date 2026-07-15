@@ -1,4 +1,4 @@
-//! Public SurrealDB store boundary with stable retry classification.
+// Public SurrealDB store boundary with stable retry classification.
 
 use std::future::Future;
 use std::time::Duration;
@@ -51,6 +51,7 @@ fn is_retryable_surreal_message(message: &str) -> bool {
         || message.contains("transaction write conflict")
         || message.contains("transaction retry required")
         || message.contains("transaction conflict:")
+        || message.contains("read or write conflict")
 }
 
 async fn sleep_with_context(context: &OperationContext, delay: Duration) -> CoreResult<()> {

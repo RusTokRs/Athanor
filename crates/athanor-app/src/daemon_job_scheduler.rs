@@ -40,6 +40,7 @@ pub(super) fn start(
 }
 
 /// Compatibility helper for tests and jobs that do not yet carry an `OperationContext`.
+#[allow(dead_code)]
 pub(crate) fn start_cancellable(
     state: &DaemonState,
     kind: DaemonJobKind,

@@ -130,7 +130,7 @@ fn entity(id: &str, stable_key: &str) -> Entity {
         name: stable_key.to_string(),
         title: None,
         source: None,
-        language: Some("rust".to_string()),
+        language: Some(athanor_domain::LanguageCode("rust".to_string())),
         aliases: Vec::new(),
         ownership: Vec::new(),
         payload: json!({}),
