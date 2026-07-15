@@ -72,12 +72,12 @@ mod latest_pointer_tests {
     async fn validates_only_newest_committed_generation() {
         let store = SurrealKnowledgeStore::connect("mem://").await.unwrap();
         let first = store
-            .begin_snapshot(RepoId("repo_latest".to_string()), SnapshotBase::default())
+            .begin_snapshot(RepoId("repo_latest".to_string()), snapshot_base())
             .await
             .unwrap();
         store.commit_snapshot(first.clone()).await.unwrap();
         let second = store
-            .begin_snapshot(RepoId("repo_latest".to_string()), SnapshotBase::default())
+            .begin_snapshot(RepoId("repo_latest".to_string()), snapshot_base())
             .await
             .unwrap();
         store.commit_snapshot(second.clone()).await.unwrap();
@@ -92,5 +92,14 @@ mod latest_pointer_tests {
             .await
             .expect_err("derived latest must not rewind");
         assert!(matches!(error, CoreError::Conflict(_)));
+    }
+
+    fn snapshot_base() -> SnapshotBase {
+        SnapshotBase {
+            branch: None,
+            commit: None,
+            parent_snapshot: None,
+            working_tree: true,
+        }
     }
 }
