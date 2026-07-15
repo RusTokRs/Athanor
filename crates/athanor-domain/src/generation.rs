@@ -25,7 +25,7 @@ impl GenerationId {
 
 impl fmt::Display for GenerationId {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(formatter)
+        fmt::Display::fmt(&self.0, formatter)
     }
 }
 
