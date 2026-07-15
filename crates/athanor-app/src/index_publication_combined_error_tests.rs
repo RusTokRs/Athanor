@@ -56,7 +56,7 @@ async fn publication_preserves_publish_rollback_and_abort_errors() {
     assert!(
         messages
             .iter()
-            .any(|message| message.contains("failed to publish prepared canonical snapshot"))
+            .any(|message| message.contains("failed to publish canonical snapshot"))
     );
     assert!(
         messages
