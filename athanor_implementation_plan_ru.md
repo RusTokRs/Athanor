@@ -2,7 +2,7 @@
 
 > Репозиторий: `RusTokRs/Athanor`  
 > Базовая ветка: `main`  
-> Точка сверки: `66bcc6c8642234c6dc7bc05d13f5ba93bdc5d56c`  
+> Точка сверки: `b8bb58828bd73b2683af8702a0931d5bf99c4ec5`  
 > Дата актуализации: 2026-07-15  
 > Статус: active implementation plan
 
@@ -37,13 +37,12 @@
 - Rust workspace с `ath`, `athd`, adapters, stores, search и projectors;
 - JSONL default и opt-in embedded/remote SurrealDB;
 - shared Memory/JSONL/SurrealDB query/lifecycle/atomic conformance;
-- core-owned `FactQuery`, `AtomicSnapshotPublication`, compatibility `PreparedSnapshot`;
+- backend-neutral `FactQuery` и `AtomicSnapshotPublication`;
 - backend atomic data+marker boundaries;
 - process-local deferred canonical batch barrier;
-- active atomic coordinator и exact canonical recovery;
+- active snapshot-native publisher и exact canonical recovery entrypoint;
 - journal v2/v1 compatibility и recovery fault matrix;
 - SurrealDB context-owned allocation metadata и bounded orphan cleanup;
-- active snapshot-native journal writer и `SnapshotId` coordinator API с прежним v1/v2 wire format;
 - feature, coverage, AppSec, installer и release workflows.
 
 Платформенное состояние:
@@ -79,9 +78,6 @@ cargo test -p athanor-store-surrealdb --test allocation_recovery --locked
 
 ATHANOR_SURREAL_REMOTE_URI=ws://127.0.0.1:8000 \
   cargo test -p athanor-store-surrealdb --features remote --test remote --locked -- --ignored
-
-cargo run -p ath --quiet --locked -- index .
-cargo run -p ath --quiet --locked -- docs check
 ```
 
 ## 2. Сводный статус
@@ -89,9 +85,9 @@ cargo run -p ath --quiet --locked -- docs check
 | Область | Статус | Подтверждено | Остаётся |
 | --- | --- | --- | --- |
 | Query isolation | `[-]` | committed exact/latest contracts | Hosted remote evidence, one generation view |
-| Atomic publication | `[-]` | backend boundaries, data barrier, snapshot-native publisher, exact recovery | Runtime/recovery transition, one pointer |
+| Atomic publication | `[-]` | backend boundaries, data barrier, snapshot-native publisher/recovery entry | Runtime cleanup, legacy internals, one pointer |
 | Allocation recovery | `[-]` | metadata, 24h cutoff, bounded conditional cleanup, tests | Legacy untagged policy, hosted evidence |
-| Recovery safety | `[-]` | journal/preflight/exact probe/idempotence | Checksums, one pointer |
+| Recovery safety | `[-]` | journal/preflight/exact probe/idempotence | Remove compatibility internals, checksums, one pointer |
 | Concurrent writers | `[-]` | JSONL lock, counter, embedded ownership | Remote conflict evidence |
 | Operation context | `[-]` | cancellation lease, Busy retry, daemon writes | Reads, CLI/MCP, ambiguous in-flight request |
 | Runtime maintainability | `[-]` | focused runtime/coordinator | Remove prepared/legacy transition layer |
@@ -126,7 +122,7 @@ cargo run -p ath --quiet --locked -- docs check
 
 ### P0.4. Store conformance и transactional publication
 
-**Статус:** `[-]` — backend/data/allocation boundaries и snapshot-native publisher реализованы; runtime/recovery transition и один generation pointer открыты.
+**Статус:** `[-]` — backend/data/allocation boundaries и snapshot-native publisher/recovery entry реализованы; runtime transition, legacy internals и один generation pointer открыты.
 
 #### Shared backend contract
 
@@ -144,10 +140,10 @@ cargo run -p ath --quiet --locked -- docs check
 - [x] Explicit complete batch через atomic capability.
 - [x] Exact probe перед rollback/abort.
 - [x] Exact committed generation не abort’ится.
-- [x] Recovery exact-probes journal snapshot.
+- [x] Active recovery entrypoint загружает и валидирует snapshot-native journal.
 - [x] Pointer/finalize/clear/combined-error regressions.
 - [x] Recovery preflight и repeated recovery.
-- [-] Legacy guard/inner coordinator остаются transition layer.
+- [-] Artifact cleanup/recovery internals временно делегируются legacy atomic module.
 - [!] Hosted compile/test/fmt/Clippy отсутствует.
 
 #### Deferred canonical barrier
@@ -172,29 +168,22 @@ cargo run -p ath --quiet --locked -- docs check
 - [x] Prepared/committed защищены.
 - [x] Explicit cutoff/limit и embedded regressions.
 - [x] Idempotence.
-- [x] Regression исправлен под `load_snapshot -> Ok(None)` для удалённой записи.
 - [-] Legacy untagged records не удаляются автоматически.
 - [!] Hosted embedded/remote evidence отсутствует.
 
-#### Snapshot-native journal/cutover
+#### Snapshot-native transition — осталось 3 code slices
 
-- [x] Новый production journal хранит `SnapshotId`, не `PreparedSnapshot`.
-- [x] v2 wire сохраняет поле `prepared: "<snapshot-id>"`.
+- [x] Production journal хранит `SnapshotId`; v2 wire сохраняет `prepared`.
 - [x] v1 raw `snapshot` читается и нормализуется в v2.
 - [x] Unknown fields/schema и неверные paths/id fail-closed.
-- [x] Focused v1/v2 serialization tests добавлены.
-- [x] Snapshot-native journal writer активен в production publisher path.
 - [x] Основной `publish_index_snapshot` принимает `SnapshotId`.
-- [x] Journal-write/staging/publish error cleanup использует plain `abort_snapshot`.
-- [x] Pointer-failure regression вызывает direct snapshot API и проверяет v2 wire.
-- [-] `publish_prepared_index` остаётся compatibility adapter для runtime/fault fixtures.
-- [-] Exact recovery временно переиспользует прежний atomic module и typed abort authority.
+- [x] Publication cleanup использует plain `abort_snapshot`.
+- [x] Active recovery entrypoint использует snapshot-native journal type.
 - [ ] Runtime передаёт `output.snapshot.clone()` и не импортирует `PreparedSnapshotPublication`.
-- [ ] Recovery использует snapshot-native journal type и plain `abort_snapshot`.
-- [ ] Перенести remaining fault fixtures.
-- [ ] Удалить legacy journal/coordinator modules.
+- [ ] Перенести remaining fault fixtures на direct snapshot API.
+- [ ] Удалить compatibility wrapper и legacy journal/coordinator modules.
 
-#### Следующий generation layer
+#### Generation layer — осталось 5 code slices
 
 - [ ] Immutable generation id для canonical/read-model/state.
 - [ ] Один current pointer после подготовки artifacts.
@@ -253,31 +242,34 @@ cargo run -p ath --quiet --locked -- docs check
 ## 6. Порядок реализации
 
 1. `[!]` Включить Actions и получить compile/test/fmt/Clippy evidence.
-2. P0.4 — runtime/recovery snapshot-native cutover.
-3. P0.4 — перенести remaining fixtures и удалить transition modules.
-4. P0.4 — immutable generation id и один current pointer.
-5. P0.4 — remote conflict evidence/pointer fault injection.
-6. P1.5 — read-only daemon/CLI/MCP cancellation.
-7. Hosted AppSec/matrix/installer/tag evidence.
-8. Sandbox, decomposition, performance и P2.
+2. P0.4 — 3 transition-cleanup среза.
+3. P0.4 — 5 generation-layer срезов.
+4. P0.4 — remote conflict evidence/pointer fault injection.
+5. P1.5 — read-only daemon/CLI/MCP cancellation.
+6. Hosted AppSec/matrix/installer/tag evidence.
+7. Sandbox, decomposition, performance и P2.
 
 ## 7. Текущий рабочий пакет
 
 **Активный blocker:** `GitHub Actions activation/visibility`.
 
-**Текущий безопасный кодовый срез:** `P0.4 active snapshot-native coordinator cutover`.
+**Текущий безопасный кодовый срез:** `P0.4 runtime direct SnapshotId cutover`.
 
-1. [x] Active publisher использует `index_publication_journal::IndexPublicationJournal`.
-2. [x] Основной coordinator API принимает `SnapshotId`.
-3. [x] Publication cleanup вызывает plain `abort_snapshot`.
-4. [x] Direct pointer-failure test проверяет v2 journal wire и exact commit.
-5. [ ] Runtime передаёт `output.snapshot.clone()` без prepared handle.
-6. [ ] Recovery переходит с atomic compatibility module на snapshot-native journal/plain abort.
-7. [ ] Удалить runtime import `PreparedSnapshotPublication`.
-8. [ ] После fixture migration удалить compatibility wrapper/modules.
-9. [!] Не считать hosted-подтверждённым без Actions.
+1. Runtime вызывает `publish_index_snapshot` с `output.snapshot.clone()`.
+2. Runtime cleanup exact-probe’ит snapshot и вызывает plain `abort_snapshot`.
+3. Удалить runtime imports `PreparedSnapshot`/`PreparedSnapshotPublication`.
+4. Перевести fault fixtures на direct snapshot API.
+5. Удалить compatibility wrapper и legacy modules после migration.
+6. Не считать hosted-подтверждённым без Actions.
 
-## 8. Definition of Done
+## 8. Сколько осталось
+
+- До завершения текущего transactional P0.4: **8 code slices** — 3 transition-cleanup + 5 generation-layer.
+- До release-grade P0: те же 8 code slices плюс **5 hosted/platform evidence packages**, заблокированных Actions/settings.
+- После P0 остаются **17 крупных P1 items** и **4 P2 governance items**.
+- По самостоятельным рабочим пакетам проект находится примерно на **60–65%** от текущего плана; по коду P0.4 — примерно на **80%**, но hosted доказательство пока отсутствует.
+
+## 9. Definition of Done
 
 - Queries изолированы committed snapshot.
 - Three-backend shared suites проходят.
@@ -291,16 +283,14 @@ cargo run -p ath --quiet --locked -- docs check
 - Runtime/CLI не god modules.
 - Plan/issues/release notes соответствуют коду.
 
-## 9. Журнал актуализаций
+## 10. Журнал актуализаций
 
-### 2026-07-15 — allocation recovery и snapshot-native journal staging
+### 2026-07-15 — snapshot-native recovery entrypoint
 
-- Core capability расширен allocation/recovery boundary.
-- SurrealDB tagged allocations очищаются bounded/cutoff/predicate-safe.
-- Embedded tests покрывают cutoff/limit/idempotence/protected states.
-- Исправлено ожидание удалённой записи на `Ok(None)`.
-- Добавлен SnapshotId-backed journal с прежним v1/v2 wire format.
-- Production publisher переключён на snapshot-native journal writer.
-- Основной coordinator API принимает `SnapshotId`; publication rollback использует plain abort.
-- Pointer-failure regression вызывает direct API и проверяет journal wire.
-- Runtime/recovery compatibility cutover остаётся следующим срезом.
+- Active publisher использует SnapshotId-backed journal writer.
+- Основной coordinator API принимает `SnapshotId`.
+- Publication rollback использует plain `abort_snapshot`.
+- Pointer-failure regression вызывает direct API и проверяет v2 wire.
+- Active recovery entrypoint загружает и валидирует snapshot-native journal до artifact mutation.
+- Artifact cleanup временно делегируется проверенному legacy recovery module.
+- Осталось 3 transition-cleanup и 5 generation-layer code slices.
