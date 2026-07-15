@@ -1,0 +1,97 @@
+use async_trait::async_trait;
+use athanor_core::{
+    CanonicalLatestIdentity, CanonicalLatestPointer, CanonicalSnapshotStore, CoreError, CoreResult,
+};
+
+use crate::SurrealKnowledgeStore;
+
+#[async_trait]
+impl CanonicalLatestPointer for SurrealKnowledgeStore {
+    async fn load_latest_identity(&self) -> CoreResult<Option<CanonicalLatestIdentity>> {
+        let Some(latest) = self.load_latest_snapshot().await? else {
+            return Ok(None);
+        };
+        let snapshot = latest.snapshot.ok_or_else(|| {
+            CoreError::AdapterProtocol("latest SurrealDB snapshot has no identity".to_string())
+        })?;
+        Ok(Some(CanonicalLatestIdentity::for_snapshot(snapshot)))
+    }
+
+    async fn discover_latest_identity(&self) -> CoreResult<Option<CanonicalLatestIdentity>> {
+        self.load_latest_identity().await
+    }
+
+    async fn validate_latest_identity(&self, identity: &CanonicalLatestIdentity) -> CoreResult<()> {
+        identity.validate()?;
+        let exact = self
+            .load_snapshot(&identity.snapshot)
+            .await?
+            .ok_or_else(|| CoreError::NotFound(format!("snapshot {}", identity.snapshot.0)))?;
+        if exact.snapshot.as_ref() != Some(&identity.snapshot) {
+            return Err(CoreError::AdapterProtocol(format!(
+                "exact SurrealDB snapshot returned identity {:?}, expected {}",
+                exact.snapshot, identity.snapshot.0
+            )));
+        }
+        let latest = self.discover_latest_identity().await?.ok_or_else(|| {
+            CoreError::NotFound("SurrealDB has no committed latest snapshot".to_string())
+        })?;
+        if &latest != identity {
+            return Err(CoreError::Conflict(format!(
+                "SurrealDB derives latest as {} / {}, requested {} / {}",
+                latest.snapshot.0,
+                latest.generation,
+                identity.snapshot.0,
+                identity.generation
+            )));
+        }
+        Ok(())
+    }
+
+    async fn repair_latest_identity(&self, identity: CanonicalLatestIdentity) -> CoreResult<()> {
+        self.validate_latest_identity(&identity).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use athanor_core::{CanonicalLatestPointer, KnowledgeStore};
+    use athanor_domain::{RepoId, SnapshotBase};
+
+    use super::*;
+
+    #[tokio::test]
+    async fn validates_only_newest_committed_generation() {
+        let store = SurrealKnowledgeStore::connect("mem://").await.unwrap();
+        let first = store
+            .begin_snapshot(RepoId("repo_latest".to_string()), snapshot_base())
+            .await
+            .unwrap();
+        store.commit_snapshot(first.clone()).await.unwrap();
+        let second = store
+            .begin_snapshot(RepoId("repo_latest".to_string()), snapshot_base())
+            .await
+            .unwrap();
+        store.commit_snapshot(second.clone()).await.unwrap();
+
+        let target = CanonicalLatestIdentity::for_snapshot(second.clone());
+        assert_eq!(store.discover_latest_identity().await.unwrap(), Some(target.clone()));
+        store.validate_latest_identity(&target).await.unwrap();
+        store.repair_latest_identity(target).await.unwrap();
+
+        let error = store
+            .validate_latest_identity(&CanonicalLatestIdentity::for_snapshot(first))
+            .await
+            .expect_err("derived latest must not rewind");
+        assert!(matches!(error, CoreError::Conflict(_)));
+    }
+
+    fn snapshot_base() -> SnapshotBase {
+        SnapshotBase {
+            branch: None,
+            commit: None,
+            parent_snapshot: None,
+            working_tree: true,
+        }
+    }
+}
