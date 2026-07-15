@@ -2,6 +2,7 @@
 
 pub mod api;
 pub mod api_registry;
+mod artifact_checksum;
 pub mod bench;
 pub mod cancellation;
 pub mod capabilities;
