@@ -17,3 +17,6 @@ athanor-domain = { path = "../athanor-domain" }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+futures = "0.3"
