@@ -3,14 +3,15 @@ use std::fs;
 use async_trait::async_trait;
 use athanor_core::{AtomicSnapshotPublication, CoreError, CoreResult, SnapshotBatch};
 use athanor_domain::SnapshotId;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
-use super::{JsonlKnowledgeStore, SnapshotData, unique_suffix, write_latest, write_snapshot_contents};
+use super::{
+    JsonlKnowledgeStore, SnapshotData, unique_suffix, write_latest, write_snapshot_contents,
+};
 
 pub(crate) const SNAPSHOT_COMMIT_SCHEMA: &str = "athanor.canonical_commit.v1";
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub(crate) struct SnapshotCommit {
     pub(crate) schema: String,
     pub(crate) snapshot: String,
@@ -84,7 +85,7 @@ pub(crate) fn publish_exact_generation(
     }
 
     let staging_dir = parent.join(format!(
-        ".{}.atomic-staging-{}",
+        ".{}.staging-atomic-{}",
         snapshot.0,
         unique_suffix()
     ));
@@ -123,43 +124,7 @@ pub(crate) fn write_commit_marker(
             CoreError::Adapter(format!("failed to serialize snapshot commit marker: {error}"))
         })?,
     )
-    .map_err(|error| CoreError::Adapter(format!("failed to write snapshot commit marker: {error}")))
-}
-
-pub(crate) fn validate_commit_marker(
-    snapshot_dir: &std::path::Path,
-    snapshot: &SnapshotId,
-) -> CoreResult<()> {
-    let path = snapshot_dir.join("commit.json");
-    let marker: SnapshotCommit = serde_json::from_slice(
-        &fs::read(&path).map_err(|error| {
-            CoreError::Adapter(format!(
-                "failed to read snapshot commit marker {}: {error}",
-                path.display()
-            ))
-        })?,
-    )
     .map_err(|error| {
-        CoreError::Adapter(format!(
-            "failed to parse snapshot commit marker {}: {error}",
-            path.display()
-        ))
-    })?;
-    if marker.schema != SNAPSHOT_COMMIT_SCHEMA {
-        return Err(CoreError::AdapterProtocol(format!(
-            "snapshot commit marker {} has schema {}, expected {}",
-            path.display(),
-            marker.schema,
-            SNAPSHOT_COMMIT_SCHEMA
-        )));
-    }
-    if marker.snapshot != snapshot.0 {
-        return Err(CoreError::AdapterProtocol(format!(
-            "snapshot commit marker {} identifies {}, expected {}",
-            path.display(),
-            marker.snapshot,
-            snapshot.0
-        )));
-    }
-    Ok(())
+        CoreError::Adapter(format!("failed to write snapshot commit marker: {error}"))
+    })
 }
