@@ -7,7 +7,7 @@ use athanor_core::{
     AtomicSnapshotPublication, CanonicalSnapshotStore, CoreError, KnowledgeStore, OperationContext,
     SnapshotBatch,
 };
-use athanor_domain::SnapshotId;
+use athanor_domain::{GenerationId, SnapshotId};
 
 use crate::index_publication_journal::IndexPublicationJournal;
 use crate::{
@@ -190,6 +190,12 @@ async fn abort_snapshot_with_error<T>(
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ArtifactIdentity {
+    snapshot: String,
+    generation: Option<String>,
+}
+
 fn validate_recovery_artifacts(journal: &IndexPublicationJournal, committed: bool) -> Result<()> {
     let (read_staging, read_backup) = publication_paths(journal.read_model(), journal.id())?;
     let (state_staging, state_backup) = publication_paths(journal.index_state(), journal.id())?;
@@ -201,7 +207,9 @@ fn validate_recovery_artifacts(journal: &IndexPublicationJournal, committed: boo
     require_file_if_present(&state_staging, "staged index state")?;
     require_file_if_present(&state_backup, "index state backup")?;
 
-    let expected = journal.snapshot().0.as_str();
+    let expected_snapshot = journal.snapshot().0.as_str();
+    let expected_generation = journal.generation().as_str();
+    let require_generation = journal.requires_generation_identity();
     let read_current = read_model_identity_if_present(journal.read_model(), "current read model")?;
     let read_staged = read_model_identity_if_present(&read_staging, "staged read model")?;
     let read_previous = read_model_identity_if_present(&read_backup, "read model backup")?;
@@ -226,32 +234,60 @@ fn validate_recovery_artifacts(journal: &IndexPublicationJournal, committed: boo
         StateSchemaPolicy::VersionedHistorical,
     )?;
 
-    require_expected_if_present(read_staged.as_deref(), expected, "staged read model")?;
-    require_expected_if_present(state_staged.as_deref(), expected, "staged index state")?;
+    require_expected_identity_if_present(
+        read_staged.as_ref(),
+        expected_snapshot,
+        expected_generation,
+        require_generation,
+        "staged read model",
+    )?;
+    require_expected_identity_if_present(
+        state_staged.as_ref(),
+        expected_snapshot,
+        expected_generation,
+        require_generation,
+        "staged index state",
+    )?;
 
     if committed {
-        require_expected(read_current.as_deref(), expected, "current read model")?;
-        require_expected(state_current.as_deref(), expected, "current index state")?;
+        require_expected_identity(
+            read_current.as_ref(),
+            expected_snapshot,
+            expected_generation,
+            require_generation,
+            "current read model",
+        )?;
+        require_expected_identity(
+            state_current.as_ref(),
+            expected_snapshot,
+            expected_generation,
+            require_generation,
+            "current index state",
+        )?;
     } else {
         if read_backup.exists() {
-            require_expected_if_present(
-                read_current.as_deref(),
-                expected,
+            require_expected_identity_if_present(
+                read_current.as_ref(),
+                expected_snapshot,
+                expected_generation,
+                require_generation,
                 "current read model replaced during rollback",
             )?;
         }
         if state_backup.exists() {
-            require_expected_if_present(
-                state_current.as_deref(),
-                expected,
+            require_expected_identity_if_present(
+                state_current.as_ref(),
+                expected_snapshot,
+                expected_generation,
+                require_generation,
                 "current index state replaced during rollback",
             )?;
         }
     }
 
     require_matching_if_both_present(
-        read_previous.as_deref(),
-        state_previous.as_deref(),
+        read_previous.as_ref(),
+        state_previous.as_ref(),
         "read-model and index-state backups",
     )
 }
@@ -304,7 +340,7 @@ fn restore_publication_directory(path: &Path, id: &str, snapshot: &str) -> Resul
         }
         fs::rename(backup, path)?;
     } else if read_model_identity_if_present(path, "current read model")?
-        .is_some_and(|current| current == snapshot)
+        .is_some_and(|current| current.snapshot == snapshot)
     {
         fs::remove_dir_all(path)?;
     }
@@ -326,7 +362,7 @@ fn restore_publication_file(path: &Path, id: &str, snapshot: &str) -> Result<()>
         "current index state",
         StateSchemaPolicy::VersionedHistorical,
     )?
-    .is_some_and(|current| current == snapshot)
+    .is_some_and(|current| current.snapshot == snapshot)
     {
         fs::remove_file(path)?;
     }
@@ -353,7 +389,7 @@ fn require_file_if_present(path: &Path, label: &str) -> Result<()> {
     Ok(())
 }
 
-fn read_model_identity_if_present(path: &Path, label: &str) -> Result<Option<String>> {
+fn read_model_identity_if_present(path: &Path, label: &str) -> Result<Option<ArtifactIdentity>> {
     if !path.exists() {
         return Ok(None);
     }
@@ -391,7 +427,7 @@ fn state_identity_if_present(
     path: &Path,
     label: &str,
     policy: StateSchemaPolicy,
-) -> Result<Option<String>> {
+) -> Result<Option<ArtifactIdentity>> {
     if !path.exists() {
         return Ok(None);
     }
@@ -426,7 +462,7 @@ fn artifact_identity(
     label: &str,
     path: &Path,
     policy: SchemaPolicy,
-) -> Result<String> {
+) -> Result<ArtifactIdentity> {
     let schema = value
         .get("schema")
         .and_then(serde_json::Value::as_str)
@@ -446,7 +482,7 @@ fn artifact_identity(
             path.display()
         );
     }
-    value
+    let snapshot = value
         .get("snapshot")
         .and_then(serde_json::Value::as_str)
         .filter(|snapshot| !snapshot.trim().is_empty())
@@ -456,7 +492,30 @@ fn artifact_identity(
                 "publication recovery {label} {} has no non-empty snapshot identity",
                 path.display()
             )
-        })
+        })?;
+    let generation = match value.get("generation") {
+        None => None,
+        Some(serde_json::Value::String(generation)) if !generation.trim().is_empty() => {
+            let expected = GenerationId::for_snapshot(&SnapshotId(snapshot.clone()));
+            if generation != expected.as_str() {
+                bail!(
+                    "publication recovery {label} {} generation `{generation}` does not match snapshot `{snapshot}`",
+                    path.display()
+                );
+            }
+            Some(generation.clone())
+        }
+        Some(_) => {
+            bail!(
+                "publication recovery {label} {} has an invalid generation identity",
+                path.display()
+            );
+        }
+    };
+    Ok(ArtifactIdentity {
+        snapshot,
+        generation,
+    })
 }
 
 fn is_versioned_schema(schema: &str, prefix: &str) -> bool {
@@ -479,37 +538,130 @@ fn is_versioned_schema(schema: &str, prefix: &str) -> bool {
                 .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_')))
 }
 
-fn require_expected(actual: Option<&str>, expected: &str, label: &str) -> Result<()> {
+fn require_expected_identity(
+    actual: Option<&ArtifactIdentity>,
+    expected_snapshot: &str,
+    expected_generation: &str,
+    require_generation: bool,
+    label: &str,
+) -> Result<()> {
     let actual = actual.ok_or_else(|| {
-        anyhow::anyhow!("publication recovery {label} is missing for snapshot {expected}")
+        anyhow::anyhow!(
+            "publication recovery {label} is missing for snapshot {expected_snapshot}"
+        )
     })?;
-    require_expected_if_present(Some(actual), expected, label)
+    require_expected_identity_if_present(
+        Some(actual),
+        expected_snapshot,
+        expected_generation,
+        require_generation,
+        label,
+    )
 }
 
-fn require_expected_if_present(actual: Option<&str>, expected: &str, label: &str) -> Result<()> {
-    if let Some(actual) = actual
-        && actual != expected
-    {
+fn require_expected_identity_if_present(
+    actual: Option<&ArtifactIdentity>,
+    expected_snapshot: &str,
+    expected_generation: &str,
+    require_generation: bool,
+    label: &str,
+) -> Result<()> {
+    let Some(actual) = actual else {
+        return Ok(());
+    };
+    if actual.snapshot != expected_snapshot {
         bail!(
-            "publication recovery {label} snapshot `{actual}` does not match journal `{expected}`"
+            "publication recovery {label} snapshot `{}` does not match journal `{expected_snapshot}`",
+            actual.snapshot
         );
+    }
+    match actual.generation.as_deref() {
+        Some(generation) if generation != expected_generation => {
+            bail!(
+                "publication recovery {label} generation `{generation}` does not match journal `{expected_generation}`"
+            );
+        }
+        None if require_generation => {
+            bail!(
+                "publication recovery {label} has no generation identity for journal `{expected_generation}`"
+            );
+        }
+        _ => {}
     }
     Ok(())
 }
 
 fn require_matching_if_both_present(
-    left: Option<&str>,
-    right: Option<&str>,
+    left: Option<&ArtifactIdentity>,
+    right: Option<&ArtifactIdentity>,
     label: &str,
 ) -> Result<()> {
-    if let (Some(left), Some(right)) = (left, right)
-        && left != right
-    {
-        bail!("publication recovery {label} refer to different snapshots `{left}` and `{right}`");
+    if let (Some(left), Some(right)) = (left, right) {
+        if left.snapshot != right.snapshot {
+            bail!(
+                "publication recovery {label} refer to different snapshots `{}` and `{}`",
+                left.snapshot,
+                right.snapshot
+            );
+        }
+        if let (Some(left_generation), Some(right_generation)) =
+            (left.generation.as_deref(), right.generation.as_deref())
+            && left_generation != right_generation
+        {
+            bail!(
+                "publication recovery {label} refer to different generations `{left_generation}` and `{right_generation}`"
+            );
+        }
     }
     Ok(())
 }
 
 fn elapsed_ms(duration: std::time::Duration) -> u64 {
     duration.as_millis().min(u128::from(u64::MAX)) as u64
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn artifact_identity_rejects_generation_mismatch() {
+        let value = json!({
+            "schema": crate::read_model::JSONL_MANIFEST_SCHEMA,
+            "snapshot": "snap_one",
+            "generation": "gen_snap_two"
+        });
+
+        let error = artifact_identity(
+            &value,
+            crate::read_model::JSONL_MANIFEST_SCHEMA,
+            "test artifact",
+            Path::new("manifest.json"),
+            SchemaPolicy::Exact,
+        )
+        .expect_err("mismatched generation must fail closed");
+
+        assert!(error.to_string().contains("does not match snapshot"));
+    }
+
+    #[test]
+    fn generation_aware_journal_requires_generation_in_artifact() {
+        let identity = ArtifactIdentity {
+            snapshot: "snap_one".to_string(),
+            generation: None,
+        };
+
+        let error = require_expected_identity(
+            Some(&identity),
+            "snap_one",
+            "gen_snap_one",
+            true,
+            "test artifact",
+        )
+        .expect_err("generation-aware recovery must reject legacy artifact");
+
+        assert!(error.to_string().contains("has no generation identity"));
+    }
 }
