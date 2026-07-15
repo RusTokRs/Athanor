@@ -109,7 +109,7 @@ fn default_store<'a>(
         match config.storage.mode {
             StorageMode::Jsonl => {
                 let path = root.join(&config.storage.path);
-                Ok(AthanorStore::new(
+                Ok(AthanorStore::new_with_latest_pointer(
                     athanor_store_jsonl::JsonlKnowledgeStore::new(path),
                 ))
             }
@@ -124,7 +124,7 @@ fn default_store<'a>(
                     let store = athanor_store_surrealdb::SurrealKnowledgeStore::connect(&uri)
                         .await
                         .map_err(|e| anyhow::anyhow!("failed to connect to SurrealDB: {}", e))?;
-                    Ok(AthanorStore::new(store))
+                    Ok(AthanorStore::new_with_latest_pointer(store))
                 }
                 #[cfg(not(feature = "store-surreal"))]
                 {
@@ -139,7 +139,7 @@ fn default_store<'a>(
                         .map_err(|e| {
                             anyhow::anyhow!("failed to connect to SurrealDB in-memory: {}", e)
                         })?;
-                    Ok(AthanorStore::new(store))
+                    Ok(AthanorStore::new_with_latest_pointer(store))
                 }
                 #[cfg(not(feature = "store-surreal"))]
                 {
@@ -260,19 +260,8 @@ pub fn resolve_builtin_adapter(
                 Box::new(JsTsImportLinker)
             }),
         ),
-        (AdapterPluginKind::Linker, "builtin.linker.rust") => {
-            Some(registry.register_linker_id("builtin.linker.rust", || Box::new(RustLinker)))
-        }
-        (AdapterPluginKind::Linker, "builtin.linker.rustok_ffa") => Some(
-            registry.register_linker_id("builtin.linker.rustok_ffa", || Box::new(RustokFfaLinker)),
-        ),
-        (AdapterPluginKind::Linker, "builtin.linker.rustok_fba") => Some(
-            registry.register_linker_id("builtin.linker.rustok_fba", || Box::new(RustokFbaLinker)),
-        ),
-        (AdapterPluginKind::Linker, "builtin.linker.rustok_page_builder") => Some(
-            registry.register_linker_id("builtin.linker.rustok_page_builder", || {
-                Box::new(RustokPageBuilderLinker)
-            }),
+        (AdapterPluginKind::Linker, "builtin.linker.rust") => Some(
+            registry.register_linker_id("builtin.linker.rust", || Box::new(RustLinker)),
         ),
         (AdapterPluginKind::Checker, "builtin.checker.markdown_structure") => Some(
             registry.register_checker_id("builtin.checker.markdown_structure", || {
@@ -302,19 +291,7 @@ pub fn resolve_builtin_adapter(
                 Box::new(RunbookConsistencyChecker)
             }),
         ),
-        (AdapterPluginKind::Checker, "builtin.checker.rustok_ffa") => Some(
-            registry
-                .register_checker_id("builtin.checker.rustok_ffa", || Box::new(RustokFfaChecker)),
-        ),
-        (AdapterPluginKind::Checker, "builtin.checker.rustok_fba") => Some(
-            registry
-                .register_checker_id("builtin.checker.rustok_fba", || Box::new(RustokFbaChecker)),
-        ),
-        (AdapterPluginKind::Checker, "builtin.checker.rustok_page_builder") => Some(
-            registry.register_checker_id("builtin.checker.rustok_page_builder", || {
-                Box::new(RustokPageBuilderChecker)
-            }),
-        ),
-        _ => None,
+        (AdapterPluginKind::Extractor, _) | (AdapterPluginKind::Source, _) => None,
+        (AdapterPluginKind::Linker, _) | (AdapterPluginKind::Checker, _) => None,
     }
 }
