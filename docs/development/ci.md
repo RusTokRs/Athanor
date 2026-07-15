@@ -54,6 +54,22 @@ The shared contracts cover committed query isolation, prepared lifecycle, and co
 marker publication. Backend regressions additionally cover JSONL marker corruption/latest-pointer
 failure, SurrealDB transaction rollback, and SurrealDB allocation recovery.
 
+### Generation identity checks
+
+```bash
+cargo test -p athanor-domain generation --locked
+cargo test -p athanor-app index_publication_journal --locked
+cargo test -p athanor-app read_model --locked
+cargo test -p athanor-app index_state --locked
+cargo test -p athanor-app index_publication_atomic_tests --locked
+cargo test -p athanor-store-jsonl --test atomic_publication --locked
+```
+
+Every new publication derives `GenerationId` deterministically from `SnapshotId`. JSONL canonical
+marker v2, SurrealDB committed snapshot record, read-model manifest, index state, and recovery journal
+v3 must carry the same identity. JSONL marker v1, journal v1/v2, and index state without generation
+remain readable during the migration window. A present mismatched generation fails closed.
+
 ### Allocation recovery expectations
 
 The SurrealDB allocation suite requires:
@@ -87,21 +103,22 @@ cargo test -p athanor-app index_publication_combined_error_tests --locked
 
 The application facade buffers context-aware full batches process-locally. Deferred execution must not
 create canonical rows, an exact JSONL generation, or a prepared directory before the durable
-publication journal. The active coordinator stages read model/state, publishes the explicit complete
-batch through `AtomicSnapshotPublication`, and exact-probes the journal snapshot after errors.
+publication journal. The active coordinator writes journal v3, stages generation-bearing read
+model/state, publishes the explicit complete batch through `AtomicSnapshotPublication`, and
+exact-probes the journal snapshot after errors.
 
 ## JSONL policy
 
-Atomic JSONL manifests declare `commit_marker_schema: athanor.canonical_commit.v1`. Exact/latest loads
-require a parseable marker with matching schema and snapshot identity. Legacy manifests without the
-declaration remain readable. A failed `latest.json` update after exact rename must leave the exact
-generation readable and non-abortable.
+Atomic JSONL manifests declare `commit_marker_schema: athanor.canonical_commit.v2`. Exact/latest loads
+require a parseable marker with matching schema, snapshot, and generation identity. Legacy v1 markers
+and manifests without the declaration remain readable during the migration window. A failed
+`latest.json` update after exact rename must leave the exact generation readable and non-abortable.
 
 ## SurrealDB policy
 
 SurrealDB atomic publication deletes old rows, inserts the complete replacement batch, and updates
-`prepared = true, committed = true` in one transaction. Statement failure must roll back rows and
-marker. Only classified conflicts map to retryable `Busy`.
+`prepared = true`, `committed = true`, and deterministic `generation` in one transaction. Statement
+failure must roll back rows and marker. Only classified conflicts map to retryable `Busy`.
 
 Remote tests remain isolated:
 
