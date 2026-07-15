@@ -2,7 +2,7 @@
 
 > Репозиторий: `RusTokRs/Athanor`  
 > Базовая ветка: `main`  
-> Точка сверки: `a55729512b85af5ffa6a735216992f2a0a469c62`  
+> Точка сверки: `5cc794a32511be6af694fc8212013c0a0e72dddc`  
 > Дата актуализации: 2026-07-15  
 > Статус: active implementation plan
 
@@ -25,11 +25,11 @@
 6. Journal v1 обязан читаться после перехода writer на v2.
 7. Recovery не может изменять paths вне ожидаемых `.athanor` artifacts.
 8. Recovery fail-closed проверяет type/schema/snapshot identity до destructive mutation.
-9. Historical index-state backup может использовать валидную предыдущую `athanor.index_state.vN` schema.
-10. Backend-neutral facts читаются только из committed canonical snapshot.
-11. Data и committed marker считаются atomic только при одном backend-specific boundary.
-12. Successful durable publish нельзя превращать в cancellation error повторной post-commit проверкой.
-13. Backend atomic data+marker ещё не означает один generation pointer для canonical/read-model/state.
+9. Backend-neutral facts читаются только из committed canonical snapshot.
+10. Data и committed marker считаются atomic только при одном backend-specific boundary.
+11. Successful durable publish нельзя превращать в cancellation error повторной post-commit проверкой.
+12. Backend atomic data+marker ещё не означает один generation pointer для canonical/read-model/state.
+13. До durable application journal допустима allocation authority, но не canonical rows или prepared marker.
 14. Store-level typed publication contracts принадлежат `athanor-core`.
 
 ## 1. Текущий baseline
@@ -40,24 +40,25 @@
 - JSONL default backend и opt-in embedded/remote SurrealDB;
 - shared query/lifecycle/atomic conformance для Memory, JSONL и embedded SurrealDB;
 - core-owned `FactQuery`/`FactQueryStore` и committed-only blanket implementation;
-- core-owned additive `AtomicSnapshotPublication` capability;
+- core-owned `AtomicSnapshotPublication`;
 - Memory: complete batch + committed marker одной mutex-секцией;
-- JSONL: hidden staging, declared `commit.json`, exact directory rename и fail-closed exact/latest validation;
+- JSONL: hidden staging, declared `commit.json`, exact rename и fail-closed exact/latest validation;
 - legacy JSONL manifests без marker declaration читаются по explicit compatibility policy;
 - JSONL latest-pointer failure оставляет exact committed generation readable/non-abortable;
-- SurrealDB: complete replacement rows + `prepared/committed` marker одной SurrealQL transaction;
+- SurrealDB: replacement rows + `prepared/committed` marker одной SurrealQL transaction;
 - SurrealDB facade retry’ит entire atomic boundary только для classified `Busy`;
-- duplicate-record regression проверяет transaction rollback и valid retry;
 - configured remote reader использует atomic publication и public fact query;
 - `AthanorStore` передаёт atomic capability через production trait object;
-- active production coordinator после journal/staging собирает complete `SnapshotBatch` и вызывает atomic boundary;
+- context-aware full batch буферизуется process-local и не создаёт backend rows/prepared marker;
+- deferred `IndexPipeline` возвращает complete output без exact/prepared JSONL generation;
+- coordinator после journal/staging публикует explicit output batch и очищает pending compatibility batch;
 - publish-error и recovery exact-probe’ят journal snapshot вместо latest-only semantics;
-- exact JSONL commit + failed `latest.json` regression сохраняет journal/application artifacts и запрещает abort;
-- finalize и combined-error fault hooks перенесены на atomic boundary;
+- exact JSONL commit + failed `latest.json` regression сохраняет journal/application artifacts;
+- finalize и combined-error fault hooks работают через atomic boundary;
 - transient application store поддерживает atomic replacement;
 - atomic snapshot counter, numeric sequence, embedded ownership и bounded Busy retry;
 - operation cancellation lease и daemon bridge для index/generate/wiki/html;
-- `PreparedSnapshot`/`PreparedSnapshotPublication` остаются compatibility cleanup authority;
+- `PreparedSnapshot` остаётся compatibility publication/cleanup authority;
 - journal v2/v1 compatibility, atomic persistence и path validation;
 - focused production index runtime и publication/recovery fault matrix;
 - recovery content/type/schema/identity preflight и repeated-recovery idempotence;
@@ -78,8 +79,6 @@ cargo fmt --all -- --check
 cargo test --workspace --quiet --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings
 
-cargo test -p athanor-core fact_query --locked
-cargo test -p athanor-app fact_query --locked
 cargo test -p athanor-store-memory --test atomic_publication --locked
 cargo test -p athanor-store-jsonl --test atomic_publication --locked
 cargo test -p athanor-store-surrealdb --test atomic_publication --locked
@@ -87,6 +86,8 @@ cargo test -p athanor-store-memory --test conformance --locked
 cargo test -p athanor-store-jsonl --test conformance --locked
 cargo test -p athanor-store-surrealdb --test conformance --locked
 
+cargo test -p athanor-app --test prepared_publication --locked
+cargo test -p athanor-app --test deferred_canonical_buffer --locked
 cargo test -p athanor-app index_runtime_tests --locked
 cargo test -p athanor-app index_publication --locked
 cargo test -p athanor-app index_publication_atomic_tests --locked
@@ -95,7 +96,6 @@ cargo test -p athanor-app index_publication_finalize_tests --locked
 cargo test -p athanor-app index_publication_recovery_fault_tests --locked
 cargo test -p athanor-app index_publication_content_tests --locked
 cargo test -p athanor-app index_publication_combined_error_tests --locked
-cargo test -p athanor-app --test prepared_publication --locked
 
 ATHANOR_SURREAL_REMOTE_URI=ws://127.0.0.1:8000 \
   cargo test -p athanor-store-surrealdb --features remote --test remote --locked -- --ignored
@@ -109,12 +109,12 @@ cargo run -p ath --quiet --locked -- docs check
 | Область | Статус | Подтверждено | Остаётся |
 | --- | --- | --- | --- |
 | Query/snapshot isolation | `[-]` | committed entity/fact/relation/diagnostic exact/latest contracts | Hosted remote evidence, generation visibility |
-| Atomic publication | `[-]` | three backend boundaries, shared conformance, active atomic coordinator, exact recovery | Remove pre-journal canonical mutation, one generation pointer |
-| Recovery safety | `[-]` | v1/v2 journal, content/type preflight, exact canonical probe, idempotence | Cryptographic integrity, one pointer |
+| Atomic publication | `[-]` | three backend boundaries, no data/prepare prewrite, active coordinator, exact recovery | Pre-journal allocation ownership, one generation pointer |
+| Recovery safety | `[-]` | v1/v2 journal, content/type preflight, exact canonical probe, idempotence | Orphan allocation cleanup, cryptographic integrity, one pointer |
 | Concurrent writers | `[-]` | JSONL lock, atomic counter, embedded ownership | Hosted remote conflict evidence |
 | Operation context | `[-]` | deadline/cancellation lease, atomic Busy retry, daemon write path | Reads, CLI/MCP, ambiguous in-flight SDK outcome |
-| Store transaction boundary | `[-]` | atomic data+marker for three backends and production final boundary | Eliminate deferred prewrite, one generation pointer |
-| Runtime maintainability | `[-]` | focused runtime, active atomic coordinator, isolated compatibility modules | Remove transition layer, further daemon/CLI decomposition |
+| Store transaction boundary | `[-]` | atomic data+marker for three backends and production final boundary | Allocation recovery, one generation pointer |
+| Runtime maintainability | `[-]` | focused runtime, active atomic coordinator, isolated compatibility modules | Remove transition handle/layer, further daemon/CLI decomposition |
 | Hosted CI governance | `[!]` | workflow-файлы существуют | Enable Actions, runs, branch protection, required checks |
 | AppSec | `[-]` | configured CodeQL/dependency/Gitleaks/Zizmor/SBOM | Hosted evidence, push protection |
 | Release integrity | `[-]` | fail-closed installers, signed assets/SBOM configured | Hosted/tag evidence |
@@ -156,7 +156,7 @@ cargo run -p ath --quiet --locked -- docs check
 
 ### P0.4. Store conformance и transactional publication
 
-**Статус:** `[-]` — backend matrix и active final coordinator atomic; deferred pipeline всё ещё пишет/prepare’ит canonical snapshot до durable journal.
+**Статус:** `[-]` — backend matrix, deferred data barrier и final coordinator atomic; snapshot allocation пока происходит до durable journal.
 
 #### Shared backend contract
 
@@ -196,27 +196,22 @@ cargo run -p ath --quiet --locked -- docs check
 - [x] Recovery использует exact canonical load/marker, не только `LatestCommitted`.
 - [x] Exact commit + failed JSONL latest pointer + recovery regression.
 - [x] Finalize sabotage и combined-error fixtures работают через atomic boundary.
-- [x] Recovery preflight проверяет type/schema/snapshot identity и matching previous backups.
-- [x] Repeated committed/uncommitted recovery после cleanup — no-op.
+- [x] Recovery preflight и repeated recovery покрыты.
 - [-] Legacy guard/inner coordinator остаются transition/journal compatibility layer.
 - [!] Hosted compile/test/fmt/Clippy evidence отсутствует.
 
-#### Canonical data + commit marker
+#### Deferred canonical data barrier
 
-- [x] Core additive capability без non-atomic fallback.
-- [x] Memory atomic replacement.
-- [x] JSONL hidden staging + marker + exact rename + validation + legacy policy.
-- [x] JSONL pointer failure сохраняет exact generation non-abortable.
-- [x] SurrealDB rows+marker одной transaction; statement failure откатывает всё.
-- [x] Three-backend shared atomic conformance.
-- [-] Remote atomic regression configured, hosted run отсутствует.
-- [x] Production final coordinator передаёт complete batch в atomic capability.
-- [x] Recovery exact-probes canonical commit.
-- [x] Pointer-failure application recovery fault regression.
-- [ ] Deferred pipeline не должен вызывать `put_snapshot_with_context` до journal.
-- [ ] Deferred pipeline не должен вызывать `prepare_publication` до journal.
-- [ ] Snapshot allocation/cleanup authority должны иметь crash-safe pre-journal semantics.
-- [ ] После удаления prewrite убрать production dependence от prepared compatibility handle.
+- [x] `AthanorStore::put_snapshot_with_context` сохраняет complete batch только process-local.
+- [x] `prepare_snapshot_with_context` при pending batch не создаёт durable prepared marker.
+- [x] Deferred `IndexPipeline` не создаёт exact JSONL generation/prepared directory до coordinator boundary.
+- [x] Coordinator explicit output batch очищает pending compatibility batch и полностью его заменяет.
+- [x] Compatibility `commit_snapshot[_with_context]` умеет atomic flush pending batch.
+- [x] Abort очищает pending batch и делегирует cancellation-independent backend cleanup.
+- [x] Recording-store и JSONL pipeline regressions добавлены.
+- [ ] Snapshot allocation/cleanup authority должна иметь crash-safe pre-journal semantics.
+- [ ] SurrealDB orphan uncommitted snapshot record должен обнаруживаться и безопасно удаляться.
+- [ ] После allocation cutover убрать production dependence от prepared compatibility handle.
 
 #### Следующий transactional layer
 
@@ -232,14 +227,12 @@ cargo run -p ath --quiet --locked -- docs check
 - `ccd20127d77c59719f3bafc040552efd584be058` / `1fc5290e061ddb8dd13a79bba64b99cdd8514555` — JSONL marker validation/regressions;
 - `ad9b662998f79006d3d3aef2b109e0a847bb4326` / `4de437bf0120ea156197e52e0d50308fecc1a48f` — SurrealDB transaction/facade;
 - `753aa0bf1412f030a54723b4bc2bb797abe54d43` — shared atomic conformance;
-- `8676713cb01cd637dca4796332fdd7d0a67f1b0e` — application atomic trait-object boundary;
-- `75e7b108bc9b9591b0cb980bdb67c95c1841631f` — active atomic coordinator и exact recovery;
-- `68a867eedb06726452af39fe3962ed718ed6e77f` — production alias cutover;
-- `d4d8d1e7caeefb02f272edf192e4b1bff66d7cff` / `22d87a9cf6d97f7d2ae7bf33ee132e95c34dd72a` — pointer-failure regression/registration;
-- `a7a4058dd6b57b237c9b05dccf61998d7eeaca6a` — combined-error atomic fixture;
-- `f0b256ce47db2220aca63a4bebe5d8feb33158ad` — finalize fault injection preserved;
-- `e166fc9bea564c656a94b4a33ec8a0061b4ff3eb` — transient atomic store;
-- `5325edcf515a6b0d6ba6890848f924e1397acf2f` — transition dead-code policy.
+- `75e7b108bc9b9591b0cb980bdb67c95c1841631f` / `68a867eedb06726452af39fe3962ed718ed6e77f` — active coordinator/cutover;
+- `d4d8d1e7caeefb02f272edf192e4b1bff66d7cff` — exact commit/latest-pointer recovery regression;
+- `e24564674837706da0de903efc6e9ad883be3900` — process-local deferred batch barrier;
+- `60841a523619199128d63aeb30c22cd066aae37e` — facade routing regression;
+- `2d86b3d7758b60271479f0f7b9389b487308287d` / `a8f2ab4ab86808318a7eed4014d45511e77fec23` — JSONL facade/pipeline regressions;
+- `76bad31b875d01a03c85633de92d6053921aebb1` — prepared authority contract clarification.
 
 ## 4. P1 — execution safety и maintainability
 
@@ -311,28 +304,27 @@ cargo run -p ath --quiet --locked -- docs check
 ## 6. Порядок реализации
 
 1. `[!]` Включить/проверить GitHub Actions и получить compile/test/fmt/Clippy evidence.
-2. P0.4 — убрать canonical put/prepare из deferred pipeline до durable journal.
-3. P0.4 — crash-safe snapshot allocation/abort authority без prepared pre-journal data.
-4. P0.4 — удалить production dependence от transition prepared coordinator.
-5. P0.4 — immutable generation id и один current pointer.
-6. P0.4 — remote conflict evidence и pointer-switch fault injection.
-7. P1.5 — read-only daemon/CLI/MCP cancellation.
-8. Hosted AppSec/matrices/installers/tag evidence.
-9. Sandbox, daemon/CLI decomposition, performance budgets и P2 governance.
+2. P0.4 — crash-safe snapshot allocation/orphan cleanup до journal.
+3. P0.4 — удалить production dependence от transition prepared authority.
+4. P0.4 — immutable generation id и один current pointer.
+5. P0.4 — remote conflict evidence и pointer-switch fault injection.
+6. P1.5 — read-only daemon/CLI/MCP cancellation.
+7. Hosted AppSec/matrices/installers/tag evidence.
+8. Sandbox, daemon/CLI decomposition, performance budgets и P2 governance.
 
 ## 7. Текущий рабочий пакет
 
 **Активный blocker:** `GitHub Actions activation/visibility`.
 
-**Текущий безопасный кодовый срез:** `P0.4 remove deferred canonical prewrite`.
+**Текущий безопасный кодовый срез:** `P0.4 crash-safe snapshot allocation authority`.
 
-1. Разделить snapshot allocation от записи canonical rows и prepare lifecycle.
-2. Deferred pipeline возвращает complete batch и cleanup authority без `put_snapshot_with_context`.
-3. До durable journal разрешены только allocation и полностью обратимое metadata state.
-4. После journal/staging coordinator выполняет единственную data+marker mutation.
-5. Ошибка до journal удаляет allocated empty snapshot.
-6. Crash между extraction и journal не оставляет prepared/staged canonical generation.
-7. Обновить pipeline/runtime regressions и удалить compatibility calls из production path.
+1. Определить backend-neutral allocation token/lease для begun, но ещё не journaled snapshot.
+2. JSONL: consumed sequence допустим, exact/prepared generation отсутствует; cleanup должен быть idempotent.
+3. SurrealDB: uncommitted snapshot record должен иметь ownership/created-at metadata или recoverable lease.
+4. Startup/recovery не должны удалять активную allocation другого writer.
+5. Ошибка pipeline до journal обязана явно abort’ить allocated snapshot.
+6. Crash orphan cleanup должен быть bounded и fail-closed при ambiguous ownership.
+7. После этого удалить production dependence от `PreparedSnapshot` до journal.
 8. Не считать package hosted-подтверждённым без Actions/remote run.
 
 ## 8. Definition of Done проекта
@@ -352,14 +344,20 @@ cargo run -p ath --quiet --locked -- docs check
 
 ## 9. Журнал актуализаций
 
+### 2026-07-15 — deferred canonical data barrier
+
+- Context-aware full batch перенесён в shared process-local `AthanorStore` buffer.
+- Deferred pipeline больше не создаёт canonical rows или prepared marker до durable journal.
+- Coordinator explicit output batch полностью заменяет pending compatibility contents.
+- Добавлены recording-store и JSONL facade/pipeline regressions.
+- Следующий открытый crash-window — snapshot allocation/orphan ownership до journal.
+
 ### 2026-07-15 — production atomic coordinator и exact recovery
 
-- `AthanorStore` и transient store получили atomic capability.
 - Active coordinator пишет journal/stages artifacts, затем публикует complete batch atomic boundary.
 - Publish errors и recovery используют exact journal snapshot probe.
 - Failed JSONL latest pointer не делает exact commit abortable; recovery сохраняет application artifacts.
 - Finalize/combined-error injections перенесены на atomic path.
-- Deferred canonical put/prepare до journal остаётся следующим crash-safety пакетом.
 
 ### 2026-07-15 — backend atomic publication matrix
 
