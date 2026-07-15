@@ -209,14 +209,18 @@ pub(crate) fn validate_commit_marker(
             path.display()
         ))
     })?;
-    let schema = value.get("schema").and_then(Value::as_str).ok_or_else(|| {
-        CoreError::AdapterProtocol(format!(
-            "snapshot commit marker {} has no schema",
-            path.display()
-        ))
-    })?;
+    let schema = value
+        .get("schema")
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned)
+        .ok_or_else(|| {
+            CoreError::AdapterProtocol(format!(
+                "snapshot commit marker {} has no schema",
+                path.display()
+            ))
+        })?;
 
-    match schema {
+    match schema.as_str() {
         SNAPSHOT_COMMIT_SCHEMA => {
             let marker: SnapshotCommitV2 = serde_json::from_value(value).map_err(|error| {
                 CoreError::AdapterProtocol(format!(
@@ -257,7 +261,7 @@ fn validate_snapshot_identity(
     snapshot: &SnapshotId,
     actual: &str,
 ) -> CoreResult<()> {
-    if actual != snapshot.0 {
+    if actual != snapshot.0.as_str() {
         return Err(CoreError::AdapterProtocol(format!(
             "snapshot commit marker {} identifies `{actual}`, expected `{}`",
             path.display(),
