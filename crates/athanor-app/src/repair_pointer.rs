@@ -32,6 +32,10 @@ struct PointerDocument {
     snapshot: String,
     read_model: String,
     index_state: String,
+    #[serde(default)]
+    read_model_manifest_sha256: Option<String>,
+    #[serde(default)]
+    index_state_sha256: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -172,13 +176,34 @@ fn inspect_pointer(
     latest_snapshot: Option<&str>,
     issues: &mut Vec<RepairIssue>,
 ) {
-    if pointer.schema != crate::index_current::INDEX_CURRENT_SCHEMA {
+    let schema_is_v1 = pointer.schema == crate::index_current::INDEX_CURRENT_SCHEMA_V1;
+    let schema_is_v2 = pointer.schema == crate::index_current::INDEX_CURRENT_SCHEMA;
+    if !schema_is_v1 && !schema_is_v2 {
         issues.push(issue(
             "invalid_index_current_schema",
             path.to_path_buf(),
             format!("unsupported index current schema {}", pointer.schema),
         ));
     }
+    if schema_is_v1
+        && (pointer.read_model_manifest_sha256.is_some() || pointer.index_state_sha256.is_some())
+    {
+        issues.push(issue(
+            "invalid_index_current_checksum_contract",
+            path.to_path_buf(),
+            "legacy index current pointer must not contain checksum fields".to_string(),
+        ));
+    }
+    if schema_is_v2
+        && (pointer.read_model_manifest_sha256.is_none() || pointer.index_state_sha256.is_none())
+    {
+        issues.push(issue(
+            "missing_index_current_checksums",
+            path.to_path_buf(),
+            "checksummed index current pointer is missing required digests".to_string(),
+        ));
+    }
+
     let expected = GenerationId::for_snapshot(&SnapshotId(pointer.snapshot.clone()));
     if pointer.generation != expected.as_str() {
         issues.push(issue(
@@ -222,8 +247,10 @@ fn inspect_pointer(
         ));
     }
 
+    let manifest_path = root.join(&expected_read).join("manifest.json");
+    let state_path = root.join(&expected_state);
     inspect_identity(
-        &root.join(&expected_read).join("manifest.json"),
+        &manifest_path,
         crate::read_model::JSONL_MANIFEST_SCHEMA,
         &pointer.snapshot,
         &pointer.generation,
@@ -231,13 +258,43 @@ fn inspect_pointer(
         issues,
     );
     inspect_identity(
-        &root.join(&expected_state),
+        &state_path,
         crate::index_state::INDEX_STATE_SCHEMA,
         &pointer.snapshot,
         &pointer.generation,
         "index_current_state",
         issues,
     );
+
+    if schema_is_v2 {
+        let checksum_result = pointer
+            .read_model_manifest_sha256
+            .as_deref()
+            .context("missing manifest checksum")
+            .and_then(|digest| {
+                crate::artifact_checksum::validate_read_model(
+                    &root.join(&expected_read),
+                    digest,
+                )
+            })
+            .and_then(|_| {
+                crate::artifact_checksum::validate_file_digest(
+                    &state_path,
+                    pointer
+                        .index_state_sha256
+                        .as_deref()
+                        .context("missing state checksum")?,
+                    "immutable index state",
+                )
+            });
+        if let Err(error) = checksum_result {
+            issues.push(issue(
+                "index_current_checksum_mismatch",
+                path.to_path_buf(),
+                error.to_string(),
+            ));
+        }
+    }
 }
 
 fn inspect_journal(path: &Path, journal: &JournalDocument, issues: &mut Vec<RepairIssue>) {
@@ -483,7 +540,7 @@ mod tests {
             fs::write(
                 root.join(POINTER_PATH),
                 serde_json::to_vec_pretty(&serde_json::json!({
-                    "schema": crate::index_current::INDEX_CURRENT_SCHEMA,
+                    "schema": crate::index_current::INDEX_CURRENT_SCHEMA_V1,
                     "generation": format!("gen_{snapshot}"),
                     "snapshot": snapshot,
                     "read_model": format!(
