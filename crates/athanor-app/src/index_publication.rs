@@ -44,14 +44,12 @@ impl IndexCurrentPublicationJournal {
         if !path.exists() {
             return Ok(None);
         }
-        let journal: Self = serde_json::from_slice(
-            &fs::read(&path).with_context(|| {
-                format!(
-                    "failed to read index current publication journal {}",
-                    path.display()
-                )
-            })?,
-        )
+        let journal: Self = serde_json::from_slice(&fs::read(&path).with_context(|| {
+            format!(
+                "failed to read index current publication journal {}",
+                path.display()
+            )
+        })?)
         .with_context(|| {
             format!(
                 "failed to parse index current publication journal {}",
@@ -218,10 +216,7 @@ fn uses_legacy_runtime_layout(
         && output_dir == root.join(LEGACY_READ_MODEL_PATH)
 }
 
-fn publish_current_generation(
-    root: &Path,
-    journal: &IndexCurrentPublicationJournal,
-) -> Result<()> {
+fn publish_current_generation(root: &Path, journal: &IndexCurrentPublicationJournal) -> Result<()> {
     journal.validate()?;
     let current = IndexCurrent::for_snapshot(journal.snapshot.clone());
     if current.generation() != &journal.generation {
@@ -259,7 +254,10 @@ fn publish_immutable_directory(source: &Path, target: &Path) -> Result<()> {
         if target.is_dir() {
             return Ok(());
         }
-        bail!("immutable index generation path is not a directory: {}", target.display());
+        bail!(
+            "immutable index generation path is not a directory: {}",
+            target.display()
+        );
     }
     let parent = target.parent().ok_or_else(|| {
         anyhow::anyhow!(
@@ -267,8 +265,7 @@ fn publish_immutable_directory(source: &Path, target: &Path) -> Result<()> {
             target.display()
         )
     })?;
-    fs::create_dir_all(parent)
-        .with_context(|| format!("failed to create {}", parent.display()))?;
+    fs::create_dir_all(parent).with_context(|| format!("failed to create {}", parent.display()))?;
     let name = target
         .file_name()
         .and_then(|name| name.to_str())
@@ -305,7 +302,10 @@ fn copy_directory_contents(source: &Path, target: &Path) -> Result<()> {
     {
         let entry = entry.with_context(|| format!("failed to inspect {}", source.display()))?;
         let file_type = entry.file_type().with_context(|| {
-            format!("failed to inspect source artifact {}", entry.path().display())
+            format!(
+                "failed to inspect source artifact {}",
+                entry.path().display()
+            )
         })?;
         let destination = target.join(entry.file_name());
         if file_type.is_symlink() {
@@ -316,7 +316,10 @@ fn copy_directory_contents(source: &Path, target: &Path) -> Result<()> {
         }
         if file_type.is_dir() {
             fs::create_dir(&destination).with_context(|| {
-                format!("failed to create generation directory {}", destination.display())
+                format!(
+                    "failed to create generation directory {}",
+                    destination.display()
+                )
             })?;
             copy_directory_contents(&entry.path(), &destination)?;
         } else if file_type.is_file() {
@@ -342,13 +345,15 @@ fn publish_immutable_file(source: &Path, target: &Path) -> Result<()> {
         if target.is_file() {
             return Ok(());
         }
-        bail!("immutable index state path is not a file: {}", target.display());
+        bail!(
+            "immutable index state path is not a file: {}",
+            target.display()
+        );
     }
     let parent = target.parent().ok_or_else(|| {
         anyhow::anyhow!("immutable index state has no parent: {}", target.display())
     })?;
-    fs::create_dir_all(parent)
-        .with_context(|| format!("failed to create {}", parent.display()))?;
+    fs::create_dir_all(parent).with_context(|| format!("failed to create {}", parent.display()))?;
     let name = target
         .file_name()
         .and_then(|name| name.to_str())
@@ -371,7 +376,10 @@ fn publish_immutable_file(source: &Path, target: &Path) -> Result<()> {
         Err(error) => {
             let _ = fs::remove_file(&staging);
             Err(error).with_context(|| {
-                format!("failed to publish immutable index state {}", target.display())
+                format!(
+                    "failed to publish immutable index state {}",
+                    target.display()
+                )
             })
         }
     }
@@ -388,18 +396,20 @@ fn validate_artifact_identity(
         &fs::read(path).with_context(|| format!("failed to read {label} {}", path.display()))?,
     )
     .with_context(|| format!("failed to parse {label} {}", path.display()))?;
-    let schema = value.get("schema").and_then(Value::as_str).ok_or_else(|| {
-        anyhow::anyhow!("{label} {} has no schema", path.display())
-    })?;
+    let schema = value
+        .get("schema")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow::anyhow!("{label} {} has no schema", path.display()))?;
     if schema != expected_schema {
         bail!(
             "{label} {} has schema `{schema}`, expected `{expected_schema}`",
             path.display()
         );
     }
-    let snapshot = value.get("snapshot").and_then(Value::as_str).ok_or_else(|| {
-        anyhow::anyhow!("{label} {} has no snapshot identity", path.display())
-    })?;
+    let snapshot = value
+        .get("snapshot")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow::anyhow!("{label} {} has no snapshot identity", path.display()))?;
     if snapshot != expected_snapshot.0.as_str() {
         bail!(
             "{label} {} identifies snapshot `{snapshot}`, expected `{}`",
@@ -442,14 +452,13 @@ async fn exact_snapshot_is_committed(store: &AthanorStore, snapshot: &SnapshotId
     }
 }
 
-async fn abort_uncommitted_snapshot(
-    store: &AthanorStore,
-    snapshot: &SnapshotId,
-) -> Result<()> {
+async fn abort_uncommitted_snapshot(store: &AthanorStore, snapshot: &SnapshotId) -> Result<()> {
     match store.abort_snapshot(snapshot.clone()).await {
         Ok(()) | Err(CoreError::NotFound(_)) => Ok(()),
-        Err(error) => Err(anyhow::Error::new(error)
-            .context(format!("failed to abort uncommitted snapshot {}", snapshot.0))),
+        Err(error) => Err(anyhow::Error::new(error).context(format!(
+            "failed to abort uncommitted snapshot {}",
+            snapshot.0
+        ))),
     }
 }
 
@@ -502,8 +511,7 @@ mod tests {
                 .unwrap()
                 .as_nanos()
         ));
-        let journal =
-            IndexCurrentPublicationJournal::new(SnapshotId("snap_test".to_string()));
+        let journal = IndexCurrentPublicationJournal::new(SnapshotId("snap_test".to_string()));
 
         journal.write(&root).unwrap();
         assert_eq!(
