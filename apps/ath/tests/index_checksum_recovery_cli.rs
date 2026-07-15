@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Command, Output};
 
 use serde_json::{Value, json};
@@ -149,6 +149,3 @@ fn temp_root(label: &str) -> PathBuf {
         .as_nanos();
     std::env::temp_dir().join(format!("athanor-cli-checksum-{label}-{nonce}"))
 }
-
-#[allow(dead_code)]
-fn _assert_path(_: &Path) {}
