@@ -47,6 +47,7 @@ mod index_publication_legacy;
 #[allow(dead_code)]
 #[path = "index_publication.rs"]
 mod index_publication_inner;
+#[allow(dead_code)]
 mod index_publication_journal;
 #[cfg(test)]
 mod index_publication_atomic_tests;
