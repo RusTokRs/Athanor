@@ -2,8 +2,9 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
 use athanor_app::{
-    IndexGenerationCleanupOptions, IndexGenerationCleanupReport, RepairRecoverIndexOptions,
-    RepairRecoverIndexReport, cleanup_index_generations, recover_index_publication,
+    IndexGenerationCleanupOptions, IndexGenerationCleanupReport, RepairRecoverIndexCleanupOptions,
+    RepairRecoverIndexCleanupReport, RepairRecoverIndexOptions, RepairRecoverIndexReport,
+    cleanup_index_generations, recover_index_cleanup, recover_index_publication,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -21,6 +22,11 @@ pub(crate) enum Command {
         dry_run: bool,
         json: bool,
     },
+    RecoverIndexCleanup {
+        path: PathBuf,
+        dry_run: bool,
+        json: bool,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -28,6 +34,7 @@ pub(crate) enum HelpTopic {
     Repair,
     IndexRetention,
     RecoverIndex,
+    RecoverIndexCleanup,
 }
 
 pub(crate) fn parse(args: &[String]) -> Result<Option<Command>> {
@@ -44,6 +51,7 @@ pub(crate) fn parse(args: &[String]) -> Result<Option<Command>> {
         "--help" | "-h" => Ok(Some(Command::Help(HelpTopic::Repair))),
         "index-retention" | "cleanup-index" => parse_index_retention(&args[2..]).map(Some),
         "recover-index" => parse_recover_index(&args[2..]).map(Some),
+        "recover-index-cleanup" => parse_recover_index_cleanup(&args[2..]).map(Some),
         _ => Ok(None),
     }
 }
@@ -109,8 +117,35 @@ fn parse_index_retention(args: &[String]) -> Result<Command> {
 }
 
 fn parse_recover_index(args: &[String]) -> Result<Command> {
-    if args.iter().any(|arg| arg == "--help" || arg == "-h") {
+    let (path, dry_run, json, help) = parse_recovery_flags(args, "recover-index")?;
+    if help {
         return Ok(Command::Help(HelpTopic::RecoverIndex));
+    }
+    Ok(Command::RecoverIndex {
+        path,
+        dry_run,
+        json,
+    })
+}
+
+fn parse_recover_index_cleanup(args: &[String]) -> Result<Command> {
+    let (path, dry_run, json, help) = parse_recovery_flags(args, "recover-index-cleanup")?;
+    if help {
+        return Ok(Command::Help(HelpTopic::RecoverIndexCleanup));
+    }
+    Ok(Command::RecoverIndexCleanup {
+        path,
+        dry_run,
+        json,
+    })
+}
+
+fn parse_recovery_flags(
+    args: &[String],
+    command: &str,
+) -> Result<(PathBuf, bool, bool, bool)> {
+    if args.iter().any(|arg| arg == "--help" || arg == "-h") {
+        return Ok((PathBuf::from("."), false, false, true));
     }
     let mut path = None;
     let mut dry_run = false;
@@ -119,19 +154,20 @@ fn parse_recover_index(args: &[String]) -> Result<Command> {
         match arg.as_str() {
             "--dry-run" => dry_run = true,
             "--json" => json = true,
-            value if value.starts_with('-') => bail!("unknown recover-index option `{value}`"),
+            value if value.starts_with('-') => bail!("unknown {command} option `{value}`"),
             value => {
                 if path.replace(PathBuf::from(value)).is_some() {
-                    bail!("recover-index accepts at most one project path");
+                    bail!("{command} accepts at most one project path");
                 }
             }
         }
     }
-    Ok(Command::RecoverIndex {
-        path: path.unwrap_or_else(|| PathBuf::from(".")),
+    Ok((
+        path.unwrap_or_else(|| PathBuf::from(".")),
         dry_run,
         json,
-    })
+        false,
+    ))
 }
 
 pub(crate) async fn run(command: Command) -> Result<()> {
@@ -177,6 +213,22 @@ pub(crate) async fn run(command: Command) -> Result<()> {
             }
             Ok(())
         }
+        Command::RecoverIndexCleanup {
+            path,
+            dry_run,
+            json,
+        } => {
+            let report = recover_index_cleanup(RepairRecoverIndexCleanupOptions {
+                root: path,
+                dry_run,
+            })?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                print_recover_index_cleanup(&report);
+            }
+            Ok(())
+        }
     }
 }
 
@@ -184,8 +236,9 @@ fn print_help(topic: HelpTopic) {
     match topic {
         HelpTopic::Repair => {
             println!("Transactional repair commands:");
-            println!("  index-retention  Plan or apply immutable index-generation retention");
-            println!("  recover-index    Recover a pending transactional index publication");
+            println!("  index-retention       Plan or apply immutable index-generation retention");
+            println!("  recover-index         Recover a pending transactional index publication");
+            println!("  recover-index-cleanup Finish an interrupted confirmed index cleanup");
             println!();
             println!("Existing commands remain available: inspect, cleanup, regenerate, recover-canonical, apply");
         }
@@ -202,6 +255,11 @@ fn print_help(topic: HelpTopic) {
             println!("Recover a pending transactional index publication without running the indexing pipeline");
             println!();
             println!("Usage: ath repair recover-index [PATH] [--dry-run] [--json]");
+        }
+        HelpTopic::RecoverIndexCleanup => {
+            println!("Finish an interrupted confirmed index-generation cleanup");
+            println!();
+            println!("Usage: ath repair recover-index-cleanup [PATH] [--dry-run] [--json]");
         }
     }
 }
@@ -229,6 +287,16 @@ fn print_recover_index(report: &RepairRecoverIndexReport) {
     }
     if let Some(generation) = &report.generation {
         println!("  generation: {generation}");
+    }
+    println!("  remaining issues: {}", report.remaining_issues.len());
+}
+
+fn print_recover_index_cleanup(report: &RepairRecoverIndexCleanupReport) {
+    println!("index cleanup recovery at {}", report.root.display());
+    println!("  needed: {}", report.needed);
+    println!("  recovered: {}", report.recovered);
+    for tombstone in &report.tombstones {
+        println!("  staged: {} ({})", tombstone.generation, tombstone.token);
     }
     println!("  remaining issues: {}", report.remaining_issues.len());
 }
@@ -289,6 +357,20 @@ mod tests {
                 path: PathBuf::from("project"),
                 dry_run: true,
                 json: false,
+            })
+        );
+        assert_eq!(
+            parse(&args(&[
+                "repair",
+                "recover-index-cleanup",
+                "project",
+                "--json",
+            ]))
+            .unwrap(),
+            Some(Command::RecoverIndexCleanup {
+                path: PathBuf::from("project"),
+                dry_run: false,
+                json: true,
             })
         );
         assert_eq!(
