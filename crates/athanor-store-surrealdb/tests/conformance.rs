@@ -4,7 +4,8 @@ use std::sync::Arc;
 use athanor_core::KnowledgeStore;
 use athanor_domain::{RepoId, SnapshotBase};
 use athanor_store_conformance::{
-    verify_query_contract, verify_snapshot_lifecycle_contract,
+    verify_atomic_publication_contract, verify_query_contract,
+    verify_snapshot_lifecycle_contract,
 };
 use athanor_store_surrealdb::SurrealKnowledgeStore;
 use tokio::task::JoinSet;
@@ -23,6 +24,14 @@ async fn satisfies_shared_snapshot_lifecycle_contract() {
         .await
         .expect("connect in-memory SurrealDB");
     verify_snapshot_lifecycle_contract(&store).await;
+}
+
+#[tokio::test]
+async fn satisfies_shared_atomic_publication_contract() {
+    let store = SurrealKnowledgeStore::connect("mem://")
+        .await
+        .expect("connect in-memory SurrealDB");
+    verify_atomic_publication_contract(&store).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
