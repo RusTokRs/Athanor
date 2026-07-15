@@ -6,14 +6,14 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use async_trait::async_trait;
 use athanor_core::{
     AtomicSnapshotPublication, CanonicalSnapshot, CanonicalSnapshotStore, CoreError, CoreResult,
-    DiagnosticQuery, EntityQuery, EntityResolver, KnowledgeStore, OperationContext, PreparedSnapshot,
-    RelationQuery, SnapshotBatch, SnapshotSelector,
+    DiagnosticQuery, EntityQuery, EntityResolver, KnowledgeStore, OperationContext, RelationQuery,
+    SnapshotBatch, SnapshotSelector,
 };
 use athanor_domain::{
     Diagnostic, Entity, EntityId, Fact, Relation, RepoId, SnapshotBase, SnapshotId, StableKey,
 };
 
-use crate::index_publication::publish_prepared_index;
+use crate::index_publication::publish_index_snapshot;
 use crate::{
     AffectedFileSet, AthanorStore, IndexPipelineMetrics, IndexPipelineOutput, IndexStateStore,
 };
@@ -25,13 +25,12 @@ async fn publication_preserves_publish_rollback_and_abort_errors() {
     let abort_count = backend.abort_count.clone();
     let store = AthanorStore::new(backend);
     let snapshot = SnapshotId("snap_combined_error".to_string());
-    let prepared = PreparedSnapshot::new(snapshot.clone());
     let operation = OperationContext::new("test.publication.combined-error");
     let output_dir = root.join(".athanor/generated/current/jsonl");
     let state_path = root.join(".athanor/state/index-state.json");
     let state_store = IndexStateStore::new(&state_path);
     let output = IndexPipelineOutput {
-        snapshot,
+        snapshot: snapshot.clone(),
         files: Vec::new(),
         entities: Vec::new(),
         facts: Vec::new(),
@@ -41,13 +40,13 @@ async fn publication_preserves_publish_rollback_and_abort_errors() {
         metrics: IndexPipelineMetrics::default(),
     };
 
-    let error = publish_prepared_index(
+    let error = publish_index_snapshot(
         &root,
         &store,
         &state_store,
         &output_dir,
         &output,
-        prepared,
+        snapshot,
         &operation,
     )
     .await
