@@ -31,6 +31,7 @@ async fn exact_commit_survives_latest_pointer_failure_and_recovery() {
         )
         .await
         .expect("begin coordinator snapshot");
+    let generation = format!("gen_{}", snapshot.0);
     let committed = entity("ent_atomic_coordinator", "coordinator.md");
     store
         .put_snapshot(
@@ -82,8 +83,9 @@ async fn exact_commit_survives_latest_pointer_failure_and_recovery() {
     assert!(journal_path.exists());
     let journal: Value = serde_json::from_slice(&fs::read(&journal_path).expect("read journal"))
         .expect("parse journal");
-    assert_eq!(journal["schema"], "athanor.index_publication.v2");
+    assert_eq!(journal["schema"], "athanor.index_publication.v3");
     assert_eq!(journal["prepared"].as_str(), Some(snapshot.0.as_str()));
+    assert_eq!(journal["generation"].as_str(), Some(generation.as_str()));
     assert!(journal.get("snapshot").is_none());
 
     let exact = store
@@ -99,13 +101,10 @@ async fn exact_commit_survives_latest_pointer_failure_and_recovery() {
             .expect_err("exact committed snapshot must not be aborted"),
         CoreError::Conflict(_)
     ));
+    assert_eq!(artifact_identity(&output_dir.join("manifest.json")), (&snapshot.0, &generation));
     assert_eq!(
-        artifact_snapshot(&output_dir.join("manifest.json")),
-        snapshot.0
-    );
-    assert_eq!(
-        artifact_snapshot(&root.join(".athanor/state/index-state.json")),
-        snapshot.0
+        artifact_identity(&root.join(".athanor/state/index-state.json")),
+        (&snapshot.0, &generation)
     );
 
     fs::remove_file(canonical_root.join("latest.json")).expect("remove pointer fault");
@@ -113,13 +112,10 @@ async fn exact_commit_survives_latest_pointer_failure_and_recovery() {
         .await
         .expect("recover committed exact generation");
     assert!(!publication_journal(&root).exists());
+    assert_eq!(artifact_identity(&output_dir.join("manifest.json")), (&snapshot.0, &generation));
     assert_eq!(
-        artifact_snapshot(&output_dir.join("manifest.json")),
-        snapshot.0
-    );
-    assert_eq!(
-        artifact_snapshot(&root.join(".athanor/state/index-state.json")),
-        snapshot.0
+        artifact_identity(&root.join(".athanor/state/index-state.json")),
+        (&snapshot.0, &generation)
     );
     assert!(
         store
@@ -150,13 +146,19 @@ fn entity(id: &str, path: &str) -> Entity {
     }
 }
 
-fn artifact_snapshot(path: &Path) -> String {
+fn artifact_identity(path: &Path) -> (String, String) {
     let value: Value = serde_json::from_slice(&fs::read(path).expect("read artifact"))
         .expect("parse artifact JSON");
-    value["snapshot"]
-        .as_str()
-        .expect("artifact snapshot identity")
-        .to_string()
+    (
+        value["snapshot"]
+            .as_str()
+            .expect("artifact snapshot identity")
+            .to_string(),
+        value["generation"]
+            .as_str()
+            .expect("artifact generation identity")
+            .to_string(),
+    )
 }
 
 fn publication_journal(root: &Path) -> PathBuf {
