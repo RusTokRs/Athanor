@@ -5,6 +5,7 @@ use anyhow::{Context, Result, bail};
 use athanor_domain::{GenerationId, SnapshotId};
 use athanor_projector_support::replace_output_file;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 pub(crate) const INDEX_CURRENT_SCHEMA: &str = "athanor.index_current.v1";
 
@@ -40,12 +41,12 @@ impl IndexCurrent {
             .with_context(|| format!("failed to read index current pointer {}", path.display()))?;
         let current: Self = serde_json::from_str(&content)
             .with_context(|| format!("failed to parse index current pointer {}", path.display()))?;
-        current.validate()?;
+        current.validate_artifacts(root)?;
         Ok(Some(current))
     }
 
     pub(crate) fn write(&self, root: &Path) -> Result<()> {
-        self.validate()?;
+        self.validate_artifacts(root)?;
         let path = Self::path(root);
         let content = serde_json::to_string_pretty(self)
             .context("failed to serialize index current pointer")?;
@@ -84,6 +85,14 @@ impl IndexCurrent {
                 read_model.display()
             );
         }
+        validate_artifact_identity(
+            &manifest,
+            crate::read_model::JSONL_MANIFEST_SCHEMA,
+            &self.snapshot,
+            &self.generation,
+            "read-model manifest",
+        )?;
+
         let state = self.index_state_path(root);
         if !state.is_file() {
             bail!(
@@ -92,7 +101,13 @@ impl IndexCurrent {
                 state.display()
             );
         }
-        Ok(())
+        validate_artifact_identity(
+            &state,
+            crate::index_state::INDEX_STATE_SCHEMA,
+            &self.snapshot,
+            &self.generation,
+            "index state",
+        )
     }
 
     fn validate(&self) -> Result<()> {
@@ -155,8 +170,53 @@ fn index_state_relative(generation: &GenerationId) -> String {
     )
 }
 
+fn validate_artifact_identity(
+    path: &Path,
+    expected_schema: &str,
+    expected_snapshot: &SnapshotId,
+    expected_generation: &GenerationId,
+    label: &str,
+) -> Result<()> {
+    let value: Value = serde_json::from_slice(
+        &fs::read(path).with_context(|| format!("failed to read {label} {}", path.display()))?,
+    )
+    .with_context(|| format!("failed to parse {label} {}", path.display()))?;
+    let schema = value.get("schema").and_then(Value::as_str).ok_or_else(|| {
+        anyhow::anyhow!("{label} {} has no schema", path.display())
+    })?;
+    if schema != expected_schema {
+        bail!(
+            "{label} {} has schema `{schema}`, expected `{expected_schema}`",
+            path.display()
+        );
+    }
+    let snapshot = value.get("snapshot").and_then(Value::as_str).ok_or_else(|| {
+        anyhow::anyhow!("{label} {} has no snapshot identity", path.display())
+    })?;
+    if snapshot != expected_snapshot.0 {
+        bail!(
+            "{label} {} identifies snapshot `{snapshot}`, expected `{}`",
+            path.display(),
+            expected_snapshot.0
+        );
+    }
+    let generation = value
+        .get("generation")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow::anyhow!("{label} {} has no generation identity", path.display()))?;
+    if generation != expected_generation.as_str() {
+        bail!(
+            "{label} {} identifies generation `{generation}`, expected `{expected_generation}`",
+            path.display()
+        );
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
+
     use super::*;
 
     #[test]
@@ -192,5 +252,47 @@ mod tests {
         let value = serde_json::to_value(&current).unwrap();
         let decoded: IndexCurrent = serde_json::from_value(value).unwrap();
         assert_eq!(decoded, current);
+    }
+
+    #[test]
+    fn pointer_write_and_load_require_matching_complete_artifacts() {
+        let root = std::env::temp_dir().join(format!(
+            "athanor-index-current-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let current = IndexCurrent::for_snapshot(SnapshotId("snap_test".to_string()));
+        let read_model = current.read_model_path(&root);
+        fs::create_dir_all(&read_model).unwrap();
+        fs::write(
+            read_model.join("manifest.json"),
+            serde_json::to_vec_pretty(&json!({
+                "schema": crate::read_model::JSONL_MANIFEST_SCHEMA,
+                "snapshot": "snap_test",
+                "generation": "gen_snap_test"
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let state = current.index_state_path(&root);
+        fs::create_dir_all(state.parent().unwrap()).unwrap();
+        fs::write(
+            &state,
+            serde_json::to_vec_pretty(&json!({
+                "schema": crate::index_state::INDEX_STATE_SCHEMA,
+                "snapshot": "snap_test",
+                "generation": "gen_snap_test",
+                "files": {}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        current.write(&root).unwrap();
+        assert_eq!(IndexCurrent::load(&root).unwrap(), Some(current));
+
+        fs::remove_dir_all(root).unwrap();
     }
 }
