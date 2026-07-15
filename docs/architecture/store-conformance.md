@@ -134,15 +134,41 @@ idempotent, while a different token with the same live id fails closed.
 
 ## Prepared publication compatibility
 
-`athanor-core` still owns `PreparedSnapshot` and `PreparedSnapshotPublication`. Journal v1/v2 and
-existing cleanup/fault fixtures retain this typed handle as an abort authority.
+`athanor-core` still owns `PreparedSnapshot` and `PreparedSnapshotPublication`. The handle represents
+the store-specific publication and cleanup authority for one uncommitted snapshot. A backend may
+have durable prepared data, while an application composition facade may retain a complete batch only
+in process memory until a durable application journal exists.
 
-The production coordinator no longer uses `publish_prepared` as its final canonical boundary. It
-constructs a complete `SnapshotBatch` from `IndexPipelineOutput` and invokes
+Journal v1/v2 and existing cleanup/fault fixtures retain this typed handle as an abort authority. The
+production coordinator does not use `publish_prepared` as its final canonical boundary. It constructs
+a complete `SnapshotBatch` from `IndexPipelineOutput` and invokes
 `publish_snapshot_batch_with_context` after the durable journal and application staging exist.
-Prepared handles remain useful before that boundary: a journal-write, read-model prepare, state
-prepare, cancellation, or uncommitted atomic failure can still abort the snapshot through the plain
-cancellation-independent cleanup path.
+
+## Deferred canonical buffering
+
+`AthanorStore` intercepts context-aware full-batch writes used by `IndexPipeline`. The complete batch
+is stored in a mutex-protected process-local map shared by facade clones. While that entry exists:
+
+- `put_snapshot_with_context` does not write canonical rows to the backend;
+- `prepare_snapshot_with_context` checks cancellation/deadline but does not create a durable prepared
+  marker or filesystem directory;
+- exact canonical reads remain absent or uncommitted;
+- `commit_snapshot[_with_context]` can flush the pending batch through the atomic capability for
+  compatibility callers;
+- direct `publish_snapshot_batch[_with_context]` clears the pending entry and publishes the explicit
+  coordinator batch;
+- abort clears the pending entry and delegates cancellation-independent snapshot cleanup.
+
+The pending map is a safety barrier, not the coordinator source of truth. The coordinator always
+rebuilds the final batch from `IndexPipelineOutput`, so a stale or partial compatibility batch cannot
+replace the validated output. Dedicated facade and JSONL pipeline regressions require no exact or
+prepared generation before the atomic boundary and require the coordinator batch to replace pending
+contents completely.
+
+This removes canonical data and prepared-marker mutation from the pre-journal interval. Snapshot
+allocation itself still happens before the journal. JSONL may consume a sequence number, and
+SurrealDB may retain an uncommitted snapshot record after a process crash. Allocation ownership and
+orphan cleanup therefore remain a separate open crash-recovery layer.
 
 ## Production atomic index coordinator
 
@@ -173,11 +199,6 @@ return the pointer error while retaining the journal, exact generation, read-mod
 index state. Abort must fail with `Conflict`; after removing the transient pointer fault, recovery
 cleans the journal without reverting application artefacts, and repeated recovery is a no-op.
 
-The remaining crash window is earlier: the deferred pipeline still writes and prepares uncommitted
-canonical rows before the durable publication journal is created. A process crash in that interval
-can strand prepared state without a journal. The next cutover must make deferred execution return the
-complete batch without calling `put_snapshot_with_context` or `prepare_publication` first.
-
 ## Recovery preflight and fault matrix
 
 Recovery validates every controlled application artifact before any delete or rename:
@@ -199,13 +220,15 @@ journal and current artifacts remain present for diagnosis and repair.
 
 Deterministic regressions cover journal/prepare/atomic-publish/finalize/clear failures, malformed
 artifact types, schema and identity mismatches, mixed backup generations, absent backups, repeated
-recovery, exact-commit/latest-pointer failure, and simultaneous publish/rollback/abort failures.
+recovery, exact-commit/latest-pointer failure, deferred pre-journal buffering, and simultaneous
+publish/rollback/abort failures.
 
 ## Guarantees not claimed yet
 
 The current implementation does not claim:
 
-- zero canonical mutation before the durable application publication journal;
+- crash-safe ownership and automatic cleanup of a snapshot allocated before the durable application
+  journal;
 - one immutable generation pointer covering canonical data, state, and read models;
 - automatic repair of a failed JSONL `latest.json` pointer from the backend-neutral recovery API;
 - cryptographic content integrity for application artifacts;
@@ -215,6 +238,6 @@ The current implementation does not claim:
 - hosted compile, test, formatting, Clippy, AppSec, installer, or release evidence while Actions runs
   remain unavailable.
 
-P0.4 remains incomplete until deferred prewrite is removed, hosted evidence exists, one generation
-pointer is introduced, remote conflict behavior is evidenced, and pointer-level fault injection is
-complete.
+P0.4 remains incomplete until pre-journal allocation ownership is crash-safe, hosted evidence exists,
+one generation pointer is introduced, remote conflict behavior is evidenced, and pointer-level fault
+injection is complete.
