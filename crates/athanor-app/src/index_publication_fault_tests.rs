@@ -3,12 +3,12 @@ use std::path::{Path, PathBuf};
 
 use athanor_core::{
     CanonicalSnapshotStore, KnowledgeStore, OperationContext, OperationContextCancellation,
-    PreparedSnapshot, PreparedSnapshotPublication, SnapshotBatch,
+    SnapshotBatch,
 };
 use athanor_domain::{RepoId, SnapshotBase, SnapshotId};
 use athanor_store_jsonl::JsonlKnowledgeStore;
 
-use crate::index_publication::publish_prepared_index;
+use crate::index_publication::publish_index_snapshot;
 use crate::{
     AffectedFileSet, AthanorStore, IndexPipelineMetrics, IndexPipelineOutput, IndexStateStore,
 };
@@ -20,17 +20,17 @@ async fn read_model_prepare_failure_rolls_back_journal_and_snapshot() {
     fs::create_dir_all(root.join(".athanor/generated")).expect("create generated directory");
     fs::write(root.join(".athanor/generated/current"), "blocked")
         .expect("block read-model parent directory");
-    let fixture = prepared_fixture(&root, "test.publication.read-model-prepare").await;
+    let fixture = snapshot_fixture(&root, "test.publication.read-model-prepare").await;
     let state_store = IndexStateStore::new(root.join(".athanor/state/index-state.json"));
     let output_dir = root.join(".athanor/generated/current/jsonl");
 
-    let error = publish_prepared_index(
+    let error = publish_index_snapshot(
         &root,
         &fixture.store,
         &state_store,
         &output_dir,
         &fixture.output,
-        fixture.prepared,
+        fixture.snapshot.clone(),
         &fixture.operation,
     )
     .await
@@ -53,17 +53,17 @@ async fn index_state_prepare_failure_rolls_back_read_model_journal_and_snapshot(
     fs::create_dir_all(root.join(".athanor/state")).expect("create journal directory");
     let blocked_parent = root.join(".athanor/blocked-state");
     fs::write(&blocked_parent, "blocked").expect("block index-state parent directory");
-    let fixture = prepared_fixture(&root, "test.publication.index-state-prepare").await;
+    let fixture = snapshot_fixture(&root, "test.publication.index-state-prepare").await;
     let state_store = IndexStateStore::new(blocked_parent.join("index-state.json"));
     let output_dir = root.join(".athanor/generated/current/jsonl");
 
-    let error = publish_prepared_index(
+    let error = publish_index_snapshot(
         &root,
         &fixture.store,
         &state_store,
         &output_dir,
         &fixture.output,
-        fixture.prepared,
+        fixture.snapshot.clone(),
         &fixture.operation,
     )
     .await
@@ -84,7 +84,7 @@ async fn index_state_prepare_failure_rolls_back_read_model_journal_and_snapshot(
 #[tokio::test]
 async fn cancelled_canonical_publish_restores_previous_artifacts_and_aborts_snapshot() {
     let root = test_root("canonical-publish-cancelled");
-    let fixture = prepared_fixture(&root, "test.publication.canonical-publish").await;
+    let fixture = snapshot_fixture(&root, "test.publication.canonical-publish").await;
     let output_dir = root.join(".athanor/generated/current/jsonl");
     let state_path = root.join(".athanor/state/index-state.json");
     fs::create_dir_all(&output_dir).expect("create previous read model");
@@ -103,13 +103,13 @@ async fn cancelled_canonical_publish_restores_previous_artifacts_and_aborts_snap
     cancellation.cancel();
     let state_store = IndexStateStore::new(&state_path);
 
-    let error = publish_prepared_index(
+    let error = publish_index_snapshot(
         &root,
         &fixture.store,
         &state_store,
         &output_dir,
         &fixture.output,
-        fixture.prepared,
+        fixture.snapshot.clone(),
         &fixture.operation,
     )
     .await
@@ -135,15 +135,14 @@ async fn cancelled_canonical_publish_restores_previous_artifacts_and_aborts_snap
     fs::remove_dir_all(root).expect("remove canonical publish fixture");
 }
 
-struct PreparedFixture {
+struct SnapshotFixture {
     store: AthanorStore,
     snapshot: SnapshotId,
-    prepared: PreparedSnapshot,
     output: IndexPipelineOutput,
     operation: OperationContext,
 }
 
-async fn prepared_fixture(root: &Path, operation_id: &str) -> PreparedFixture {
+async fn snapshot_fixture(root: &Path, operation_id: &str) -> SnapshotFixture {
     let store = AthanorStore::new(JsonlKnowledgeStore::new(
         root.join(".athanor/store/canonical/jsonl"),
     ));
@@ -164,10 +163,6 @@ async fn prepared_fixture(root: &Path, operation_id: &str) -> PreparedFixture {
         .await
         .expect("write snapshot batch");
     let operation = OperationContext::new(operation_id);
-    let prepared = store
-        .prepare_publication(snapshot.clone(), &operation)
-        .await
-        .expect("prepare snapshot");
     let output = IndexPipelineOutput {
         snapshot: snapshot.clone(),
         files: Vec::new(),
@@ -179,10 +174,9 @@ async fn prepared_fixture(root: &Path, operation_id: &str) -> PreparedFixture {
         metrics: IndexPipelineMetrics::default(),
     };
 
-    PreparedFixture {
+    SnapshotFixture {
         store,
         snapshot,
-        prepared,
         output,
         operation,
     }
@@ -195,7 +189,7 @@ async fn assert_snapshot_aborted(store: &AthanorStore, snapshot: &SnapshotId) {
             .await
             .expect("load snapshot after rollback")
             .is_none(),
-        "prepared canonical snapshot must be removed"
+        "canonical snapshot allocation must be removed"
     );
     assert!(
         store
