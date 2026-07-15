@@ -3,7 +3,7 @@ use std::fs;
 use async_trait::async_trait;
 use athanor_core::{AtomicSnapshotPublication, CoreError, CoreResult, SnapshotBatch};
 use athanor_domain::SnapshotId;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::{
     JsonlKnowledgeStore, SnapshotData, unique_suffix, write_latest, write_snapshot_contents,
@@ -11,7 +11,8 @@ use super::{
 
 pub(crate) const SNAPSHOT_COMMIT_SCHEMA: &str = "athanor.canonical_commit.v1";
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct SnapshotCommit {
     pub(crate) schema: String,
     pub(crate) snapshot: String,
@@ -127,4 +128,42 @@ pub(crate) fn write_commit_marker(
     .map_err(|error| {
         CoreError::Adapter(format!("failed to write snapshot commit marker: {error}"))
     })
+}
+
+pub(crate) fn validate_commit_marker(
+    snapshot_dir: &std::path::Path,
+    snapshot: &SnapshotId,
+) -> CoreResult<()> {
+    let path = snapshot_dir.join("commit.json");
+    let marker: SnapshotCommit = serde_json::from_slice(
+        &fs::read(&path).map_err(|error| {
+            CoreError::Adapter(format!(
+                "failed to read snapshot commit marker {}: {error}",
+                path.display()
+            ))
+        })?,
+    )
+    .map_err(|error| {
+        CoreError::AdapterProtocol(format!(
+            "failed to parse snapshot commit marker {}: {error}",
+            path.display()
+        ))
+    })?;
+    if marker.schema != SNAPSHOT_COMMIT_SCHEMA {
+        return Err(CoreError::AdapterProtocol(format!(
+            "snapshot commit marker {} has schema `{}`, expected `{}`",
+            path.display(),
+            marker.schema,
+            SNAPSHOT_COMMIT_SCHEMA
+        )));
+    }
+    if marker.snapshot != snapshot.0 {
+        return Err(CoreError::AdapterProtocol(format!(
+            "snapshot commit marker {} identifies `{}`, expected `{}`",
+            path.display(),
+            marker.snapshot,
+            snapshot.0
+        )));
+    }
+    Ok(())
 }
