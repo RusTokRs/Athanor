@@ -194,6 +194,7 @@ impl JsonlReadModelWriter {
             let _ = fs::remove_dir_all(&staging);
             return Err(error).context("failed to stage JSONL read model");
         }
+        // The manifest is written last and is the staged completeness marker.
         if !staging.join("manifest.json").is_file() {
             let _ = fs::remove_dir_all(&staging);
             anyhow::bail!(
@@ -291,19 +292,21 @@ fn write_manifest(path: &Path, report: &JsonlReadModelReport) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use athanor_domain::SnapshotId;
+    use athanor_domain::{Entity, EntityId, SnapshotId, StableKey};
 
     use super::*;
+    use crate::IndexPipelineOutput;
 
     #[test]
-    fn manifest_joins_snapshot_to_immutable_generation() {
-        let root = std::env::temp_dir().join(format!(
-            "athanor-jsonl-generation-test-{}",
+    fn writes_empty_jsonl_read_model_with_generation_identity() {
+        let output_dir = std::env::temp_dir().join(format!(
+            "athanor-jsonl-read-model-test-{}",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_nanos()
         ));
+
         let output = IndexPipelineOutput {
             snapshot: SnapshotId("snap_test".to_string()),
             files: Vec::new(),
@@ -315,13 +318,138 @@ mod tests {
             metrics: crate::IndexPipelineMetrics::default(),
         };
 
-        let report = JsonlReadModelWriter::new(&root).write(&output).unwrap();
-        let manifest: serde_json::Value =
-            serde_json::from_slice(&fs::read(root.join("manifest.json")).unwrap()).unwrap();
+        let report = JsonlReadModelWriter::new(&output_dir)
+            .write(&output)
+            .unwrap();
 
+        assert_eq!(report.snapshot, "snap_test");
         assert_eq!(report.generation, "gen_snap_test");
-        assert_eq!(manifest["snapshot"], "snap_test");
-        assert_eq!(manifest["generation"], "gen_snap_test");
-        fs::remove_dir_all(root).unwrap();
+        assert_eq!(report.files_indexed, 0);
+        assert!(output_dir.join("entities.jsonl").is_file());
+        assert!(output_dir.join("facts.jsonl").is_file());
+        assert!(output_dir.join("relations.jsonl").is_file());
+        assert!(output_dir.join("diagnostics.jsonl").is_file());
+
+        let manifest = fs::read_to_string(output_dir.join("manifest.json")).unwrap();
+        assert!(manifest.contains(JSONL_MANIFEST_SCHEMA));
+        assert!(manifest.contains("\"snapshot\": \"snap_test\""));
+        assert!(manifest.contains("\"generation\": \"gen_snap_test\""));
+
+        fs::remove_dir_all(output_dir).unwrap();
+    }
+
+    #[test]
+    fn writes_loaded_canonical_snapshot_deterministically() {
+        let output_dir = std::env::temp_dir().join(format!(
+            "athanor-canonical-jsonl-read-model-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let snapshot = CanonicalSnapshot {
+            snapshot: Some(SnapshotId("snap_test".to_string())),
+            entities: vec![Entity {
+                id: EntityId("ent_file".to_string()),
+                stable_key: StableKey("file://README.md".to_string()),
+                kind: EntityKind::File,
+                name: "README.md".to_string(),
+                title: None,
+                source: None,
+                language: None,
+                aliases: Vec::new(),
+                ownership: Vec::new(),
+                payload: json!({}),
+            }],
+            facts: Vec::new(),
+            relations: Vec::new(),
+            diagnostics: Vec::new(),
+        };
+
+        let report = JsonlReadModelWriter::new(&output_dir)
+            .write_canonical_snapshot(&snapshot)
+            .unwrap();
+
+        assert_eq!(report.snapshot, "snap_test");
+        assert_eq!(report.generation, "gen_snap_test");
+        assert_eq!(report.files_indexed, 1);
+        assert_eq!(report.unchanged_files, 1);
+        assert!(
+            fs::read_to_string(output_dir.join("entities.jsonl"))
+                .unwrap()
+                .contains("file://README.md")
+        );
+        fs::remove_dir_all(output_dir).unwrap();
+    }
+
+    #[test]
+    fn replaces_the_entire_previous_read_model_generation() {
+        let output_dir = std::env::temp_dir().join(format!(
+            "athanor-jsonl-read-model-replace-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&output_dir).unwrap();
+        fs::write(output_dir.join("obsolete.jsonl"), "obsolete\n").unwrap();
+        let output = IndexPipelineOutput {
+            snapshot: SnapshotId("snap_replace".to_string()),
+            files: Vec::new(),
+            entities: Vec::new(),
+            facts: Vec::new(),
+            relations: Vec::new(),
+            diagnostics: Vec::new(),
+            affected_files: crate::AffectedFileSet::default(),
+            metrics: crate::IndexPipelineMetrics::default(),
+        };
+
+        JsonlReadModelWriter::new(&output_dir)
+            .write(&output)
+            .unwrap();
+
+        assert!(!output_dir.join("obsolete.jsonl").exists());
+        assert!(output_dir.join("manifest.json").is_file());
+        fs::remove_dir_all(output_dir).unwrap();
+    }
+
+    #[test]
+    fn prepared_publication_rolls_back_to_the_previous_generation() {
+        let output_dir = std::env::temp_dir().join(format!(
+            "athanor-jsonl-read-model-rollback-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&output_dir).unwrap();
+        fs::write(
+            output_dir.join("manifest.json"),
+            r#"{"snapshot":"snap_old"}"#,
+        )
+        .unwrap();
+        let output = IndexPipelineOutput {
+            snapshot: SnapshotId("snap_new".to_string()),
+            files: Vec::new(),
+            entities: Vec::new(),
+            facts: Vec::new(),
+            relations: Vec::new(),
+            diagnostics: Vec::new(),
+            affected_files: crate::AffectedFileSet::default(),
+            metrics: crate::IndexPipelineMetrics::default(),
+        };
+
+        JsonlReadModelWriter::new(&output_dir)
+            .prepare(&output)
+            .unwrap()
+            .rollback()
+            .unwrap();
+
+        assert!(
+            fs::read_to_string(output_dir.join("manifest.json"))
+                .unwrap()
+                .contains("snap_old")
+        );
+        fs::remove_dir_all(output_dir).unwrap();
     }
 }
