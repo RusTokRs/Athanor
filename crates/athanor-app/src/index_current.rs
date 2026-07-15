@@ -8,7 +8,8 @@ use athanor_projector_support::replace_output_file;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub(crate) const INDEX_CURRENT_SCHEMA: &str = "athanor.index_current.v1";
+pub(crate) const INDEX_CURRENT_SCHEMA: &str = "athanor.index_current.v2";
+pub(crate) const INDEX_CURRENT_SCHEMA_V1: &str = "athanor.index_current.v1";
 const LEGACY_READ_MODEL_PATH: &str = ".athanor/generated/current/jsonl";
 const LEGACY_INDEX_STATE_PATH: &str = ".athanor/state/index-state.json";
 
@@ -21,17 +22,46 @@ pub(crate) struct IndexCurrent {
     snapshot: SnapshotId,
     read_model: String,
     index_state: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    read_model_manifest_sha256: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    index_state_sha256: Option<String>,
 }
 
 impl IndexCurrent {
+    /// Builds a legacy migration pointer without checksum binding.
     pub(crate) fn for_snapshot(snapshot: SnapshotId) -> Self {
+        Self::new(snapshot, INDEX_CURRENT_SCHEMA_V1, None, None)
+    }
+
+    pub(crate) fn for_snapshot_with_checksums(
+        snapshot: SnapshotId,
+        read_model_manifest_sha256: String,
+        index_state_sha256: String,
+    ) -> Self {
+        Self::new(
+            snapshot,
+            INDEX_CURRENT_SCHEMA,
+            Some(read_model_manifest_sha256),
+            Some(index_state_sha256),
+        )
+    }
+
+    fn new(
+        snapshot: SnapshotId,
+        schema: &str,
+        read_model_manifest_sha256: Option<String>,
+        index_state_sha256: Option<String>,
+    ) -> Self {
         let generation = GenerationId::for_snapshot(&snapshot);
         Self {
-            schema: INDEX_CURRENT_SCHEMA.to_string(),
+            schema: schema.to_string(),
             read_model: read_model_relative(&generation),
             index_state: index_state_relative(&generation),
             generation,
             snapshot,
+            read_model_manifest_sha256,
+            index_state_sha256,
         }
     }
 
@@ -71,9 +101,23 @@ impl IndexCurrent {
         }
     }
 
+    pub(crate) fn is_checksum_bound(&self) -> bool {
+        self.schema == INDEX_CURRENT_SCHEMA
+    }
+
     #[cfg(test)]
     pub(crate) fn snapshot(&self) -> &SnapshotId {
         &self.snapshot
+    }
+
+    #[cfg(test)]
+    pub(crate) fn read_model_manifest_sha256(&self) -> Option<&str> {
+        self.read_model_manifest_sha256.as_deref()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn index_state_sha256(&self) -> Option<&str> {
+        self.index_state_sha256.as_deref()
     }
 
     pub(crate) fn read_model_path(&self, root: &Path) -> PathBuf {
@@ -117,12 +161,39 @@ impl IndexCurrent {
             &self.snapshot,
             &self.generation,
             "index state",
-        )
+        )?;
+
+        if self.is_checksum_bound() {
+            crate::artifact_checksum::validate_read_model(
+                &read_model,
+                self.read_model_manifest_sha256
+                    .as_deref()
+                    .context("checksummed index current pointer has no manifest digest")?,
+            )?;
+            crate::artifact_checksum::validate_file_digest(
+                &state,
+                self.index_state_sha256
+                    .as_deref()
+                    .context("checksummed index current pointer has no state digest")?,
+                "immutable index state",
+            )?;
+        }
+        Ok(())
     }
 
     fn validate(&self) -> Result<()> {
-        if self.schema != INDEX_CURRENT_SCHEMA {
-            bail!("unsupported index current pointer schema `{}`", self.schema);
+        match self.schema.as_str() {
+            INDEX_CURRENT_SCHEMA_V1 => {
+                if self.read_model_manifest_sha256.is_some() || self.index_state_sha256.is_some() {
+                    bail!("legacy index current pointer must not contain checksum fields");
+                }
+            }
+            INDEX_CURRENT_SCHEMA => {
+                if self.read_model_manifest_sha256.is_none() || self.index_state_sha256.is_none() {
+                    bail!("checksummed index current pointer is missing required digests");
+                }
+            }
+            _ => bail!("unsupported index current pointer schema `{}`", self.schema),
         }
         if self.snapshot.0.trim().is_empty() {
             bail!("index current pointer has an empty snapshot identity");
@@ -166,8 +237,8 @@ pub fn resolve_read_model_path(root: &Path) -> Result<PathBuf> {
     }
 }
 
-/// Resolves the validated immutable index-state file, or the legacy path when no pointer has been
-/// published yet. A present invalid pointer never falls back.
+/// Resolves the validated immutable index-state file, or the legacy path when no pointer
+/// has been published yet. A present invalid pointer never falls back.
 pub fn resolve_index_state_path(root: &Path) -> Result<PathBuf> {
     match IndexCurrent::load(root)
         .context("failed to resolve index current pointer for index state")?
@@ -256,11 +327,12 @@ mod tests {
             current.canonical_identity(),
             CanonicalLatestIdentity::for_snapshot(SnapshotId("snap_test".to_string()))
         );
+        assert!(!current.is_checksum_bound());
         current.validate().unwrap();
     }
 
     #[test]
-    fn pointer_rejects_foreign_generation_and_paths() {
+    fn pointer_rejects_foreign_generation_paths_and_checksum_contracts() {
         let mut current = IndexCurrent::for_snapshot(SnapshotId("snap_test".to_string()));
         current.generation = GenerationId("gen_foreign".to_string());
         assert!(
@@ -280,6 +352,10 @@ mod tests {
                 .to_string()
                 .contains("read-model path")
         );
+
+        let mut current = IndexCurrent::for_snapshot(SnapshotId("snap_test".to_string()));
+        current.schema = INDEX_CURRENT_SCHEMA.to_string();
+        assert!(current.validate().is_err());
     }
 
     #[test]
@@ -297,6 +373,35 @@ mod tests {
 
         current.write(&root).unwrap();
         assert_eq!(IndexCurrent::load(&root).unwrap(), Some(current));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn checksum_bound_pointer_detects_tampering() {
+        let root = test_root("checksum");
+        let legacy = write_complete_current(&root, "snap_checksum");
+        write_read_model_files(&legacy.read_model_path(&root));
+        let manifest_digest =
+            crate::artifact_checksum::seal_read_model(&legacy.read_model_path(&root)).unwrap();
+        let state_digest =
+            crate::artifact_checksum::sha256_file(&legacy.index_state_path(&root)).unwrap();
+        let current = IndexCurrent::for_snapshot_with_checksums(
+            SnapshotId("snap_checksum".to_string()),
+            manifest_digest,
+            state_digest,
+        );
+
+        current.write(&root).unwrap();
+        assert!(current.is_checksum_bound());
+        assert!(current.read_model_manifest_sha256().is_some());
+        assert!(current.index_state_sha256().is_some());
+        fs::write(
+            current.read_model_path(&root).join("entities.jsonl"),
+            "tampered\n",
+        )
+        .unwrap();
+        assert!(IndexCurrent::load(&root).is_err());
 
         fs::remove_dir_all(root).unwrap();
     }
@@ -356,6 +461,17 @@ mod tests {
         )
         .unwrap();
         current
+    }
+
+    fn write_read_model_files(read_model: &Path) {
+        for name in [
+            "diagnostics.jsonl",
+            "entities.jsonl",
+            "facts.jsonl",
+            "relations.jsonl",
+        ] {
+            fs::write(read_model.join(name), "").unwrap();
+        }
     }
 
     fn test_root(label: &str) -> PathBuf {
