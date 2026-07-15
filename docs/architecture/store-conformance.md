@@ -52,10 +52,20 @@ staged contents with the complete batch and marks the snapshot committed. Before
 exact reads fail with `SnapshotNotCommitted`; after it, exact and latest reads expose only the new
 complete generation. Republish and abort of the committed snapshot fail closed.
 
+JSONL implements the same capability with a filesystem boundary. It writes all JSONL data, indexes,
+manifest, and `athanor.canonical_commit.v1` marker into a hidden staging directory. One directory
+rename publishes the exact committed generation. Any previous prepared directory is removed before
+this boundary, and the in-memory snapshot becomes committed immediately after the rename.
+
+`latest.json` remains a separate pointer layer. A pointer finalization error may be returned after the
+exact generation is already committed, but that snapshot remains readable by exact id and cannot be
+aborted. This prevents a post-commit pointer error from being misclassified as an uncommitted
+canonical generation. Exact-load validation of marker schema/identity remains an explicit open item.
+
 This capability deliberately does not claim that the latest-generation pointer or application read
-models move in the same atomic operation. JSONL, SurrealDB, and the production index coordinator
-still need backend-specific implementations and cutover before the project can claim data-plus-marker
-atomicity outside the Memory reference store.
+models move in the same atomic operation. SurrealDB and the production index coordinator still need
+backend-specific implementation and cutover before the project can claim full production
+ data-plus-marker publication.
 
 ## SurrealDB transaction boundary
 
@@ -201,7 +211,8 @@ publish error together with rollback and abort causes.
 
 The current implementation does not claim:
 
-- production JSONL or SurrealDB implementation of `AtomicSnapshotPublication`;
+- exact-load fail-closed validation of the JSONL commit marker;
+- SurrealDB implementation of `AtomicSnapshotPublication`;
 - production index-coordinator cutover to the atomic data-plus-marker capability;
 - one immutable generation pointer covering canonical data, state, and read models;
 - cryptographic content integrity for application artifacts;
@@ -211,6 +222,6 @@ The current implementation does not claim:
 - hosted compile, test, formatting, Clippy, AppSec, installer, or release evidence while Actions runs
   remain unavailable.
 
-P0.4 remains incomplete until hosted evidence, JSONL/SurrealDB data-plus-marker publication,
-production coordinator cutover, generation-pointer switching, remote conflict evidence, and
-pointer-level fault injection are complete.
+P0.4 remains incomplete until hosted evidence, JSONL marker validation, SurrealDB data-plus-marker
+publication, production coordinator cutover, generation-pointer switching, remote conflict evidence,
+and pointer-level fault injection are complete.
