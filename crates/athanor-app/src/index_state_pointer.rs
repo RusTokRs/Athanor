@@ -6,9 +6,7 @@ mod legacy {
     include!("index_state.rs");
 }
 
-pub use legacy::{
-    AffectedFileSet, FileState, INDEX_STATE_SCHEMA, IndexState, PreparedIndexState,
-};
+pub use legacy::{AffectedFileSet, FileState, INDEX_STATE_SCHEMA, IndexState, PreparedIndexState};
 
 /// Index-state store with pointer-first reads and compatibility writes to the configured path.
 #[derive(Debug, Clone)]
@@ -154,7 +152,11 @@ mod tests {
             .load()
             .expect_err("present corrupt pointer must fail closed");
 
-        assert!(error.to_string().contains("failed to resolve index current pointer"));
+        assert!(
+            error
+                .to_string()
+                .contains("failed to resolve index current pointer")
+        );
         fs::remove_dir_all(root).unwrap();
     }
 
