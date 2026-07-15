@@ -32,6 +32,7 @@ async fn exact_commit_survives_latest_pointer_failure_and_recovery() {
         .await
         .expect("begin coordinator snapshot");
     let generation = format!("gen_{}", snapshot.0);
+    let expected_identity = (snapshot.0.clone(), generation.clone());
     let committed = entity("ent_atomic_coordinator", "coordinator.md");
     store
         .put_snapshot(
@@ -101,10 +102,13 @@ async fn exact_commit_survives_latest_pointer_failure_and_recovery() {
             .expect_err("exact committed snapshot must not be aborted"),
         CoreError::Conflict(_)
     ));
-    assert_eq!(artifact_identity(&output_dir.join("manifest.json")), (&snapshot.0, &generation));
+    assert_eq!(
+        artifact_identity(&output_dir.join("manifest.json")),
+        expected_identity
+    );
     assert_eq!(
         artifact_identity(&root.join(".athanor/state/index-state.json")),
-        (&snapshot.0, &generation)
+        expected_identity
     );
 
     fs::remove_file(canonical_root.join("latest.json")).expect("remove pointer fault");
@@ -112,10 +116,13 @@ async fn exact_commit_survives_latest_pointer_failure_and_recovery() {
         .await
         .expect("recover committed exact generation");
     assert!(!publication_journal(&root).exists());
-    assert_eq!(artifact_identity(&output_dir.join("manifest.json")), (&snapshot.0, &generation));
+    assert_eq!(
+        artifact_identity(&output_dir.join("manifest.json")),
+        expected_identity
+    );
     assert_eq!(
         artifact_identity(&root.join(".athanor/state/index-state.json")),
-        (&snapshot.0, &generation)
+        expected_identity
     );
     assert!(
         store
