@@ -263,6 +263,17 @@ pub fn resolve_builtin_adapter(
         (AdapterPluginKind::Linker, "builtin.linker.rust") => Some(
             registry.register_linker_id("builtin.linker.rust", || Box::new(RustLinker)),
         ),
+        (AdapterPluginKind::Linker, "builtin.linker.rustok_ffa") => Some(
+            registry.register_linker_id("builtin.linker.rustok_ffa", || Box::new(RustokFfaLinker)),
+        ),
+        (AdapterPluginKind::Linker, "builtin.linker.rustok_fba") => Some(
+            registry.register_linker_id("builtin.linker.rustok_fba", || Box::new(RustokFbaLinker)),
+        ),
+        (AdapterPluginKind::Linker, "builtin.linker.rustok_page_builder") => Some(
+            registry.register_linker_id("builtin.linker.rustok_page_builder", || {
+                Box::new(RustokPageBuilderLinker)
+            }),
+        ),
         (AdapterPluginKind::Checker, "builtin.checker.markdown_structure") => Some(
             registry.register_checker_id("builtin.checker.markdown_structure", || {
                 Box::new(MarkdownStructureChecker)
@@ -291,7 +302,19 @@ pub fn resolve_builtin_adapter(
                 Box::new(RunbookConsistencyChecker)
             }),
         ),
-        (AdapterPluginKind::Extractor, _) | (AdapterPluginKind::Source, _) => None,
-        (AdapterPluginKind::Linker, _) | (AdapterPluginKind::Checker, _) => None,
+        (AdapterPluginKind::Checker, "builtin.checker.rustok_ffa") => Some(
+            registry
+                .register_checker_id("builtin.checker.rustok_ffa", || Box::new(RustokFfaChecker)),
+        ),
+        (AdapterPluginKind::Checker, "builtin.checker.rustok_fba") => Some(
+            registry
+                .register_checker_id("builtin.checker.rustok_fba", || Box::new(RustokFbaChecker)),
+        ),
+        (AdapterPluginKind::Checker, "builtin.checker.rustok_page_builder") => Some(
+            registry.register_checker_id("builtin.checker.rustok_page_builder", || {
+                Box::new(RustokPageBuilderChecker)
+            }),
+        ),
+        _ => None,
     }
 }
