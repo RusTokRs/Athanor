@@ -2,8 +2,8 @@ use std::fs;
 use std::path::PathBuf;
 
 use athanor_core::{
-    AtomicSnapshotPublication, CanonicalSnapshotStore, CoreError, KnowledgeStore, OperationContext,
-    SnapshotBatch,
+    AtomicSnapshotPublication, CanonicalSnapshotStore, CoreError, EntityQuery, KnowledgeStore,
+    OperationContext, SnapshotBatch, SnapshotSelector,
 };
 use athanor_domain::{Entity, EntityId, EntityKind, RepoId, SnapshotBase, StableKey};
 use athanor_store_jsonl::JsonlKnowledgeStore;
@@ -19,6 +19,14 @@ async fn publishes_complete_exact_generation_with_commit_marker() {
         .put_entities(snapshot.clone(), vec![entity("ent_partial", "partial.md")])
         .await
         .expect("stage partial contents");
+    let error = store
+        .query_entities(
+            SnapshotSelector::Exact(snapshot.clone()),
+            EntityQuery::default(),
+        )
+        .await
+        .expect_err("partial staged contents must remain uncommitted");
+    assert!(matches!(error, CoreError::SnapshotNotCommitted(_)));
 
     let committed = entity("ent_committed", "committed.md");
     store
@@ -47,8 +55,11 @@ async fn publishes_complete_exact_generation_with_commit_marker() {
         .join("commit.json");
     let marker: Value = serde_json::from_slice(&fs::read(marker_path).expect("read commit marker"))
         .expect("parse commit marker");
-    assert_eq!(marker["schema"], "athanor.canonical_commit.v1");
-    assert_eq!(marker["snapshot"], snapshot.0);
+    assert_eq!(
+        marker["schema"].as_str(),
+        Some("athanor.canonical_commit.v1")
+    );
+    assert_eq!(marker["snapshot"].as_str(), Some(snapshot.0.as_str()));
 
     let latest = store
         .load_latest_snapshot()
