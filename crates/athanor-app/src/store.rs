@@ -7,9 +7,10 @@ use crate::config::ProjectConfig;
 use anyhow::{Result, bail};
 use async_trait::async_trait;
 use athanor_core::{
-    AtomicSnapshotPublication, CanonicalSnapshot, CanonicalSnapshotStore, CoreResult,
-    DiagnosticQuery, EntityQuery, EntityResolver, KnowledgeStore, OperationContext,
-    OperationContextCancellation, RelationQuery, SnapshotBatch, SnapshotSelector,
+    AtomicSnapshotPublication, CanonicalLatestIdentity, CanonicalLatestPointer, CanonicalSnapshot,
+    CanonicalSnapshotStore, CoreError, CoreResult, DiagnosticQuery, EntityQuery, EntityResolver,
+    KnowledgeStore, OperationContext, OperationContextCancellation, RelationQuery, SnapshotBatch,
+    SnapshotSelector,
 };
 use athanor_domain::{
     Diagnostic, Entity, EntityId, Fact, Relation, RepoId, SnapshotBase, SnapshotId, StableKey,
@@ -39,13 +40,32 @@ struct PendingSnapshotBatch {
 #[derive(Clone)]
 pub struct AthanorStore {
     inner: Arc<dyn AthanorStoreBackend>,
+    latest_pointer: Arc<dyn CanonicalLatestPointer>,
     pending_batches: Arc<Mutex<Vec<PendingSnapshotBatch>>>,
 }
 
 impl AthanorStore {
     pub fn new(store: impl AthanorStoreBackend + 'static) -> Self {
+        let inner: Arc<dyn AthanorStoreBackend> = Arc::new(store);
         Self {
-            inner: Arc::new(store),
+            latest_pointer: Arc::new(DerivedLatestPointer {
+                inner: inner.clone(),
+            }),
+            inner,
+            pending_batches: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    pub fn new_with_latest_pointer<T>(store: T) -> Self
+    where
+        T: AthanorStoreBackend + CanonicalLatestPointer + 'static,
+    {
+        let store = Arc::new(store);
+        let inner: Arc<dyn AthanorStoreBackend> = store.clone();
+        let latest_pointer: Arc<dyn CanonicalLatestPointer> = store;
+        Self {
+            inner,
+            latest_pointer,
             pending_batches: Arc::new(Mutex::new(Vec::new())),
         }
     }
@@ -86,6 +106,52 @@ impl AthanorStore {
 
     fn clear_pending_batch(&self, snapshot: &SnapshotId) {
         let _ = self.take_pending_batch(snapshot);
+    }
+}
+
+#[derive(Clone)]
+struct DerivedLatestPointer {
+    inner: Arc<dyn AthanorStoreBackend>,
+}
+
+#[async_trait]
+impl CanonicalLatestPointer for DerivedLatestPointer {
+    async fn load_latest_identity(&self) -> CoreResult<Option<CanonicalLatestIdentity>> {
+        let Some(latest) = self.inner.load_latest_snapshot().await? else {
+            return Ok(None);
+        };
+        let snapshot = latest.snapshot.ok_or_else(|| {
+            CoreError::AdapterProtocol("latest canonical snapshot has no identity".to_string())
+        })?;
+        Ok(Some(CanonicalLatestIdentity::for_snapshot(snapshot)))
+    }
+
+    async fn repair_latest_identity(&self, identity: CanonicalLatestIdentity) -> CoreResult<()> {
+        identity.validate()?;
+        let exact = self
+            .inner
+            .load_snapshot(&identity.snapshot)
+            .await?
+            .ok_or_else(|| CoreError::NotFound(format!("snapshot {}", identity.snapshot.0)))?;
+        if exact.snapshot.as_ref() != Some(&identity.snapshot) {
+            return Err(CoreError::AdapterProtocol(format!(
+                "exact canonical snapshot returned identity {:?}, expected {}",
+                exact.snapshot, identity.snapshot.0
+            )));
+        }
+        let latest = self.load_latest_identity().await?.ok_or_else(|| {
+            CoreError::NotFound("canonical store has no committed latest snapshot".to_string())
+        })?;
+        if latest != identity {
+            return Err(CoreError::Conflict(format!(
+                "derived latest is {} / {}, requested {} / {}",
+                latest.snapshot.0,
+                latest.generation,
+                identity.snapshot.0,
+                identity.generation
+            )));
+        }
+        Ok(())
     }
 }
 
@@ -349,6 +415,17 @@ impl CanonicalSnapshotStore for AthanorStore {
 
     async fn load_latest_snapshot(&self) -> CoreResult<Option<CanonicalSnapshot>> {
         self.inner.load_latest_snapshot().await
+    }
+}
+
+#[async_trait]
+impl CanonicalLatestPointer for AthanorStore {
+    async fn load_latest_identity(&self) -> CoreResult<Option<CanonicalLatestIdentity>> {
+        self.latest_pointer.load_latest_identity().await
+    }
+
+    async fn repair_latest_identity(&self, identity: CanonicalLatestIdentity) -> CoreResult<()> {
+        self.latest_pointer.repair_latest_identity(identity).await
     }
 }
 
