@@ -2,6 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
+use athanor_core::CanonicalLatestIdentity;
 use athanor_domain::{GenerationId, SnapshotId};
 use athanor_projector_support::replace_output_file;
 use serde::{Deserialize, Serialize};
@@ -61,6 +62,13 @@ impl IndexCurrent {
 
     pub(crate) fn generation(&self) -> &GenerationId {
         &self.generation
+    }
+
+    pub(crate) fn canonical_identity(&self) -> CanonicalLatestIdentity {
+        CanonicalLatestIdentity {
+            snapshot: self.snapshot.clone(),
+            generation: self.generation.clone(),
+        }
     }
 
     #[cfg(test)]
@@ -243,6 +251,10 @@ mod tests {
         assert_eq!(
             current.index_state,
             ".athanor/state/index-state-gen_snap_test.json"
+        );
+        assert_eq!(
+            current.canonical_identity(),
+            CanonicalLatestIdentity::for_snapshot(SnapshotId("snap_test".to_string()))
         );
         current.validate().unwrap();
     }
