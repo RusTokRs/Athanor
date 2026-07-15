@@ -1,4 +1,5 @@
 use anyhow::Result;
+use athanor_core::CoreError;
 use serde_json::Value;
 
 use crate::daemon::{DaemonJobKind, DaemonJobStatus, DaemonState};
@@ -47,9 +48,13 @@ pub(crate) fn finish_cancellable_error(
     job_id: &str,
     error: anyhow::Error,
 ) -> Result<()> {
-    let cancelled = error
-        .chain()
-        .any(|cause| cause.to_string().contains("operation cancelled"));
+    let cancelled = error.chain().any(|cause| {
+        matches!(cause.downcast_ref::<CoreError>(), Some(CoreError::Cancelled(_)))
+            || cause
+                .to_string()
+                .to_ascii_lowercase()
+                .contains("operation cancelled")
+    });
     let (status, message) = if cancelled {
         (
             DaemonJobStatus::Cancelled,
