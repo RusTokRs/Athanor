@@ -150,7 +150,7 @@ fn read_model_relative(generation: &GenerationId) -> String {
 
 fn index_state_relative(generation: &GenerationId) -> String {
     format!(
-        ".athanor/state/index-generations/{}/index-state.json",
+        ".athanor/state/index-state-{}.json",
         generation.as_str()
     )
 }
@@ -170,7 +170,7 @@ mod tests {
         );
         assert_eq!(
             current.index_state,
-            ".athanor/state/index-generations/gen_snap_test/index-state.json"
+            ".athanor/state/index-state-gen_snap_test.json"
         );
         current.validate().unwrap();
     }
