@@ -78,7 +78,7 @@ mod project_path;
 pub mod project_registry;
 mod projection;
 pub mod read_model;
-#[path = "repair_cleanup_recovery.rs"]
+#[path = "repair_latest.rs"]
 pub mod repair;
 pub mod report;
 pub mod runtime;
