@@ -1,6 +1,5 @@
 use std::future::Future;
 use std::sync::Arc;
-use std::time::Duration;
 
 use anyhow::Result;
 use athanor_core::{CoreError, OperationContext, OperationContextCancellation};
@@ -155,14 +154,7 @@ pub(crate) async fn execute(
             .await;
             finish_read(&state, &request_id, &job_id, result)
         }
-        _ => crate::daemon::execute_request(
-            state,
-            DaemonRequest {
-                request_id,
-                ..request
-            },
-        )
-        .await,
+        _ => unreachable!("context-aware read predicate and dispatch match diverged"),
     }
 }
 
