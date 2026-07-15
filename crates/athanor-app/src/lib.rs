@@ -85,6 +85,7 @@ pub mod report;
 pub mod runtime;
 pub mod rustok_architecture;
 pub mod search;
+pub mod search_operation;
 pub mod store;
 #[cfg(test)]
 mod test_runtime;
@@ -125,6 +126,7 @@ pub mod query {
     pub use crate::impact::*;
     pub use crate::overview::*;
     pub use crate::search::*;
+    pub use crate::search_operation::*;
 }
 
 /// Project registration and repository identity APIs.
@@ -165,6 +167,7 @@ pub use report::*;
 pub use runtime::*;
 pub use rustok_architecture::*;
 pub use search::*;
+pub use search_operation::*;
 pub use store::*;
 pub use validate_changed::*;
 pub use wiki::*;
