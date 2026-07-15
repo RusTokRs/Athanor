@@ -242,6 +242,10 @@ impl CanonicalLatestPointer for JsonlKnowledgeStore {
         Ok(Some(identity))
     }
 
+    async fn discover_latest_identity(&self) -> CoreResult<Option<CanonicalLatestIdentity>> {
+        discover_latest_identity(self.root())
+    }
+
     async fn validate_latest_identity(&self, identity: &CanonicalLatestIdentity) -> CoreResult<()> {
         identity.validate()?;
         let snapshot_dir = self.root().join("snapshots").join(&identity.snapshot.0);
@@ -253,6 +257,18 @@ impl CanonicalLatestPointer for JsonlKnowledgeStore {
             return Err(CoreError::AdapterProtocol(format!(
                 "exact JSONL snapshot returned identity {:?}, expected {}",
                 exact.snapshot, identity.snapshot.0
+            )));
+        }
+        let authoritative = self.discover_latest_identity().await?.ok_or_else(|| {
+            CoreError::NotFound("JSONL store has no repairable committed generation".to_string())
+        })?;
+        if &authoritative != identity {
+            return Err(CoreError::Conflict(format!(
+                "authoritative JSONL latest is {} / {}, requested {} / {}",
+                authoritative.snapshot.0,
+                authoritative.generation,
+                identity.snapshot.0,
+                identity.generation
             )));
         }
         Ok(())
@@ -349,6 +365,48 @@ fn validate_repair_target(snapshot_dir: &Path, snapshot: &SnapshotId) -> CoreRes
     )
 }
 
+fn discover_latest_identity(root: &Path) -> CoreResult<Option<CanonicalLatestIdentity>> {
+    let snapshots = root.join("snapshots");
+    let entries = match fs::read_dir(&snapshots) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(CoreError::Adapter(format!(
+                "failed to inspect canonical snapshots {}: {error}",
+                snapshots.display()
+            )));
+        }
+    };
+    let mut latest = None;
+    for entry in entries {
+        let entry = entry.map_err(|error| {
+            CoreError::Adapter(format!("failed to inspect canonical snapshot entry: {error}"))
+        })?;
+        if !entry
+            .file_type()
+            .map_err(|error| CoreError::Adapter(format!("failed to inspect snapshot type: {error}")))?
+            .is_dir()
+        {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.starts_with('.') {
+            continue;
+        }
+        let snapshot = SnapshotId(name);
+        if validate_repair_target(&entry.path(), &snapshot).is_err() {
+            continue;
+        }
+        if latest
+            .as_ref()
+            .is_none_or(|current: &SnapshotId| snapshot.0 > current.0)
+        {
+            latest = Some(snapshot);
+        }
+    }
+    Ok(latest.map(CanonicalLatestIdentity::for_snapshot))
+}
+
 fn acquire_pointer_lock(root: &Path) -> CoreResult<File> {
     fs::create_dir_all(root)
         .map_err(|error| CoreError::Adapter(format!("failed to create store dir: {error}")))?;
@@ -442,6 +500,10 @@ mod latest_pointer_tests {
             serde_json::to_vec_pretty(&serde_json::json!({ "snapshot": first.0 })).unwrap(),
         )
         .unwrap();
+        assert_eq!(
+            store.discover_latest_identity().await.unwrap().unwrap(),
+            CanonicalLatestIdentity::for_snapshot(second.clone())
+        );
         store
             .validate_latest_identity(&CanonicalLatestIdentity::for_snapshot(second.clone()))
             .await
@@ -454,6 +516,11 @@ mod latest_pointer_tests {
             store.load_latest_identity().await.unwrap().unwrap(),
             CanonicalLatestIdentity::for_snapshot(second.clone())
         );
+        let error = store
+            .validate_latest_identity(&CanonicalLatestIdentity::for_snapshot(first))
+            .await
+            .expect_err("repair must not rewind canonical latest");
+        assert!(matches!(error, CoreError::Conflict(_)));
 
         store
             .repair_latest_identity(CanonicalLatestIdentity::for_snapshot(second))
