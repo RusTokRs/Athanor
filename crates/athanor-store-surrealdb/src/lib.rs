@@ -25,7 +25,7 @@ impl CanonicalLatestPointer for SurrealKnowledgeStore {
         Ok(Some(CanonicalLatestIdentity::for_snapshot(snapshot)))
     }
 
-    async fn repair_latest_identity(&self, identity: CanonicalLatestIdentity) -> CoreResult<()> {
+    async fn validate_latest_identity(&self, identity: &CanonicalLatestIdentity) -> CoreResult<()> {
         identity.validate()?;
         let exact = self
             .load_snapshot(&identity.snapshot)
@@ -40,7 +40,7 @@ impl CanonicalLatestPointer for SurrealKnowledgeStore {
         let latest = self.load_latest_identity().await?.ok_or_else(|| {
             CoreError::NotFound("SurrealDB has no committed latest snapshot".to_string())
         })?;
-        if latest != identity {
+        if &latest != identity {
             return Err(CoreError::Conflict(format!(
                 "SurrealDB derives latest as {} / {}, requested {} / {}",
                 latest.snapshot.0,
@@ -50,5 +50,9 @@ impl CanonicalLatestPointer for SurrealKnowledgeStore {
             )));
         }
         Ok(())
+    }
+
+    async fn repair_latest_identity(&self, identity: CanonicalLatestIdentity) -> CoreResult<()> {
+        self.validate_latest_identity(&identity).await
     }
 }
