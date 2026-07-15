@@ -11,21 +11,23 @@ status: verified
 ## Status
 
 Writer-side migration bridge, pointer-first index-state readers, repair inspection, explicit
-index-generation retention, and standalone publication recovery are implemented on `main`. New successful
-production indexing runs retain the legacy mutable application artifacts for compatibility, publish an
-immutable application generation, and atomically select it through a separate index pointer.
+index-generation retention, standalone publication recovery, repair CLI wiring, and interrupted cleanup
+recovery are implemented on `main`. New successful production indexing runs retain the legacy mutable
+application artifacts for compatibility, publish an immutable application generation, and atomically
+select it through a separate index pointer.
 
-All standard `IndexStateStore::load()` callers now resolve the validated pointer-selected immutable
-state. The application also exports validated read-model and index-state path resolvers through
-`athanor_app::publication`. A present invalid pointer fails closed; the legacy paths are used only when
-no index pointer exists.
+All standard `IndexStateStore::load()` callers resolve the validated pointer-selected immutable state.
+The application also exports validated read-model and index-state path resolvers through
+`athanor_app::publication`. A present invalid pointer fails closed; legacy paths are used only when no
+index pointer exists.
 
 `repair inspect` augments the established canonical and `ath generate` inspection with validation of
 `index-current.json`, its selected artifacts, pending bridge-journal state, incomplete index generations,
-and unpointed immutable index generations. The public `cleanup_index_generations` API provides a separate
-two-step retention protocol; the existing `keep_generated` counter never selects transactional index
-generations. `recover_index_publication` runs the same coordinator recovery under the same project lock
-without starting source discovery or the indexing pipeline.
+and unpointed immutable index generations. `cleanup_index_generations` provides a separate two-step
+retention protocol; the existing `keep_generated` counter never selects transactional index generations.
+`recover_index_publication` runs coordinator recovery without source discovery, while
+`recover_index_cleanup` finishes or rolls back cleanup tombstones under the same project publication
+lock.
 
 This pointer is intentionally independent from `.athanor/generated/current.json`, which belongs to the
 on-demand `ath generate` command and coordinates JSONL, wiki, and HTML projection generations.
@@ -59,17 +61,19 @@ remain readable only at explicitly documented migration boundaries.
     current/jsonl/                         # legacy mutable compatibility output
     index-generations/
       gen_<snapshot>/jsonl/                # immutable transactional read model
+      .cleanup-gen_<snapshot>-<pid>-<ns>/  # staged confirmed cleanup
   state/
     index-state.json                       # legacy mutable compatibility state
     index-state-gen_<snapshot>.json        # immutable transactional state
+    .cleanup-gen_<snapshot>-<pid>-<ns>.json
     index-current.json                     # single atomic application pointer
     index-publication.json                 # canonical/read-model/state coordinator journal
     index-current-publication.json         # immutable-copy/pointer bridge journal
-    index-publication.lock                 # shared index and repair recovery lock
+    index-publication.lock                 # shared index and repair mutation lock
 ```
 
 `index-current.json` uses schema `athanor.index_current.v1` and contains deterministic relative paths.
-Loading or writing the pointer requires both target artifacts to exist and to match the pointer schema,
+Loading or writing the pointer requires both target artifacts to exist and match the pointer schema,
 snapshot, and generation identities.
 
 ## Publication Ordering
@@ -86,8 +90,8 @@ The migration bridge preserves the established coordinator and adds a second dur
 8. Atomically replace `index-current.json`.
 9. Clear `index-current-publication.json`.
 
-Readers using `index-current.json` therefore observe either the previous complete generation or the new
-complete generation. They never need to infer coherence by comparing two mutable paths.
+Readers using `index-current.json` observe either the previous complete generation or the new complete
+generation. They never infer coherence by comparing two mutable paths.
 
 ## Reader Resolution
 
@@ -104,8 +108,8 @@ or identity mismatches.
 
 `IndexStateStore` keeps compatibility writes directed at its configured path, but its standard project
 layout read path is resolved through `resolve_index_state_path`. This migrates coverage, impact,
-change-map, context, check, capabilities, validate-changed, and incremental indexing state reads
-without duplicating pointer logic in each service.
+change-map, context, check, capabilities, validate-changed, and incremental indexing state reads without
+duplicating pointer logic in each service.
 
 The repository currently has no production service that parses the exported JSONL read model directly;
 canonical query services read through `CanonicalSnapshotStore`. The read-model resolver is exported for
@@ -114,18 +118,20 @@ external consumers, repair, and future application read models.
 ## Recovery Rules
 
 Recovery always runs under `.athanor/state/index-publication.lock` before a new index pipeline or an
-explicit repair recovery mutates publication state.
+explicit repair command mutates publication state.
 
-- If `index-publication.json` exists, the original coordinator first finalizes a committed canonical
-  publication or restores previous mutable artifacts and aborts the unfinished snapshot.
-- If `index-current-publication.json` then identifies a committed exact canonical snapshot, recovery
-  recreates or reuses the immutable artifacts, validates them, rewrites the pointer, and clears the
-  bridge journal.
-- If only the bridge journal exists and the exact snapshot is not committed, recovery aborts that
-  orphaned snapshot before clearing the journal. This covers a crash between the two journal writes.
+- If `index-publication.json` exists, the coordinator first finalizes a committed canonical publication or
+  restores previous mutable artifacts and aborts the unfinished snapshot.
+- If `index-current-publication.json` identifies a committed exact canonical snapshot, recovery recreates
+  or reuses the immutable artifacts, validates them, rewrites the pointer, and clears the bridge journal.
+- If only the bridge journal exists and the exact snapshot is not committed, recovery aborts that orphaned
+  snapshot before clearing the journal.
 - Existing immutable paths are never overwritten. A conflicting path is validated and rejected rather
   than repaired in place.
 - Symlinks and unsupported filesystem entries are rejected while materializing an immutable read model.
+- Cleanup tombstones are recovered separately: a fully staged pair is deleted, a state-only tombstone is
+  finalized, and a read-only tombstone with the original live state is rolled back to the live read-model
+  path. Live/tombstone conflicts fail closed.
 
 ## Repair Inspection And Retention Safety
 
@@ -147,7 +153,7 @@ Inspection verifies:
 - an unpointed generation matching canonical latest is classified as `recoverable_index_generation`, not
   as a removable orphan.
 
-Current retention policy is fail-closed:
+Retention is fail-closed:
 
 - the pointed generation is always protected;
 - a generation referenced by a pending bridge journal is always protected;
@@ -181,38 +187,33 @@ cleanup_index_generations(IndexGenerationCleanupOptions {
 })?;
 ```
 
-## Standalone Publication Recovery
+## Standalone Repair Commands
 
-The repair recovery contract is:
+The CLI routes only the new transactional repair commands through a small entry wrapper; every existing
+Clap command is delegated unchanged to the established CLI module.
 
-```rust
-use athanor_app::{recover_index_publication, RepairRecoverIndexOptions};
+```bash
+ath repair index-retention . --dry-run --keep 1 --json
+ath repair index-retention . --keep 1 --confirmation-token 'sha256:...'
 
-let plan = recover_index_publication(RepairRecoverIndexOptions {
-    root: root.clone(),
-    dry_run: true,
-}).await?;
+ath repair recover-index . --dry-run --json
+ath repair recover-index .
 
-if plan.needed {
-    recover_index_publication(RepairRecoverIndexOptions {
-        root,
-        dry_run: false,
-    }).await?;
-}
+ath repair recover-index-cleanup . --dry-run --json
+ath repair recover-index-cleanup .
 ```
 
-Dry-run reads journal identity and inspection state without acquiring the mutation lock or initializing a
-backend. Apply acquires `index-publication.lock`, rechecks pending journals under the lock, initializes the
-configured store, invokes the established coordinator recovery, and performs a fresh repair inspection.
-This closes committed pending bridge journals without running the indexing pipeline.
+`recover-index` reads journal identity in dry-run mode without backend initialization. Apply acquires
+`index-publication.lock`, rechecks pending journals under the lock, initializes the configured store,
+invokes coordinator recovery, and performs a fresh repair inspection.
 
-CLI wiring remains an isolated follow-up because `apps/ath/src/main.rs` is still a large monolithic
-dispatch file and must be changed from a complete verified source snapshot.
+`recover-index-cleanup` never selects a live generation for deletion. It only processes tombstones that
+were already created by a confirmed retention call. Repeated recovery is idempotent.
 
 ## Compatibility Window
 
-The legacy paths remain published because existing external readers may still consume them. They are
-source artifacts for the immutable bridge, not the long-term selection contract.
+Legacy paths remain published because existing external readers may still consume them. They are source
+artifacts for the immutable bridge, not the long-term selection contract.
 
 During this window:
 
@@ -229,57 +230,57 @@ Targeted checks:
 ```bash
 cargo test -p athanor-app index_current --locked
 cargo test -p athanor-app index_state --locked
-cargo test -p athanor-app valid_pointer_generation_is_clean --locked
-cargo test -p athanor-app pointer_without_canonical_latest_blocks_cleanup --locked
 cargo test -p athanor-app dry_run_token_is_required_for_the_exact_plan --locked
 cargo test -p athanor-app corruption_matrix_fails_closed --locked
 cargo test -p athanor-app canonical_latest_generation_is_recoverable_not_removable --locked
 cargo test -p athanor-app standalone_recovery_publishes_committed_pending_pointer --locked
 cargo test -p athanor-app dry_run_reports_pending_identity_without_mutation --locked
+cargo test -p athanor-app recovers_both_staged_tombstones_idempotently --locked
+cargo test -p athanor-app rolls_back_read_tombstone_before_state_staging --locked
+cargo test -p athanor-app recovers_state_tombstone_after_read_removal_fault --locked
+cargo test -p athanor-app live_generation_conflict_fails_closed --locked
+cargo test -p ath --test repair_cli --locked
 cargo test -p athanor-app index_current_runtime_tests --locked
 cargo test -p athanor-app index_publication_atomic_tests --locked
 cargo test -p athanor-app index_publication_recovery_fault_tests --locked
 cargo clippy -p athanor-app --all-targets -- -D warnings
+cargo clippy -p ath --all-targets -- -D warnings
 ```
 
-The runtime coverage verifies:
+The regression coverage verifies:
 
-- a normal production index writes a valid immutable generation and pointer;
-- a committed bridge journal recreates missing immutable artifacts and the pointer;
-- a bridge journal written before the legacy journal aborts an uncommitted orphan snapshot;
-- a no-change index keeps the existing pointer stable;
+- normal production indexing writes a valid immutable generation and pointer;
+- committed bridge journals recreate missing immutable artifacts and the pointer;
+- a bridge journal before the legacy journal aborts an uncommitted orphan snapshot;
+- no-change indexing keeps the existing pointer stable;
 - standard state reads prefer pointed immutable state;
-- no pointer falls back to legacy state;
-- a present pointer with incomplete artifacts fails closed;
-- repair considers a complete pointed generation clean;
-- repair reports but retains an unpointed generation;
-- a pending bridge journal blocks cleanup;
-- a present index pointer without a valid canonical latest snapshot blocks cleanup;
-- the corruption matrix covers unsupported pointer schema, path mismatch, stale snapshot, generation
-  mismatch, missing manifest, missing state, malformed journal, and half-published generations;
+- pointer corruption and incomplete artifacts fail closed;
+- corruption tests cover schema, path, stale snapshot, generation, missing artifacts, malformed journal,
+  and half-published generations;
 - destructive retention requires a token from the exact dry-run plan;
 - canonical-latest generations without a pointer are treated as recoverable;
-- standalone recovery publishes a committed pending pointer and public dry-run leaves journals untouched.
+- standalone publication recovery does not run the indexing pipeline;
+- process-level CLI tests cover help, JSON reports, and failure exit codes;
+- tombstone recovery covers full staging, read-only rollback, state-only finalization, live conflicts, and
+  repeated idempotent execution.
 
-## Next Slice: CLI Wiring And Cleanup Fault Injection
+## Next Slice: Backend Latest-Pointer Repair
 
 The next implementation slice must:
 
-1. Expose index retention plan/apply and standalone recovery through `ath repair` without reusing
-   `--keep-generated`.
-2. Add CLI help, JSON, token mismatch, exit-code, and text-rendering tests.
-3. Add fault injection around the pair-rename/tombstone cleanup boundary and idempotent tombstone cleanup.
-4. Update the main P0.4 checklist after CLI and cleanup fault paths are verified.
-5. After all external consumers have a compatibility release using the resolvers, stop writing the
-   mutable compatibility paths and collapse publication to one immutable coordinator.
+1. Define a backend-neutral repair contract for canonical latest identity using `SnapshotId + GenerationId`.
+2. Repair JSONL `latest.json` only from a validated committed marker/generation pair.
+3. Repair SurrealDB latest visibility without weakening exact committed-generation checks.
+4. Add stale, missing, conflicting, and repeated-repair regressions for JSONL and embedded SurrealDB.
+5. Keep remote/backend hosted evidence separate from code completion.
+6. After all external consumers have a compatibility release using the resolvers, stop writing mutable
+   compatibility paths and collapse publication to one immutable coordinator.
 
 ## Definition of Done for Migration Completion
 
-- Every application reader resolves one validated `IndexCurrent` before opening state or read-model
-  files.
-- Canonical exact/latest identity and application pointer identity agree in tests for JSONL and
-  SurrealDB backends.
-- Recovery is idempotent at every journal and pointer fault point.
-- Repair can distinguish current, recoverable, stale, incomplete, and orphaned index generations.
+- Every application reader resolves one validated `IndexCurrent` before opening state or read-model files.
+- Canonical exact/latest identity and application pointer identity agree in JSONL and SurrealDB tests.
+- Recovery is idempotent at every journal, pointer, and cleanup fault point.
+- Repair distinguishes current, recoverable, stale, incomplete, orphaned, and staged-cleanup generations.
 - Legacy mutable read-model and state writes are removed only after the fallback has no remaining
   in-repository consumers.
