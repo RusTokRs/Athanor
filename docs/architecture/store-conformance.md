@@ -23,70 +23,75 @@ publish, and abort.
 - invisibility of uncommitted and prepared snapshots;
 - complete observable publication after commit;
 - rejection of abort after commit;
-- removal of aborted snapshots without changing `LatestCommitted`.
+- removal of aborted snapshots without changing `LatestCommitted`;
+- atomic replacement of partial staged canonical data by one complete committed batch.
 
 The core-owned `FactQuery` and `FactQueryStore` are additive to `KnowledgeStore`. Every
 `CanonicalSnapshotStore` receives the same blanket committed-only implementation, so canonical
 backends cannot silently diverge on filter or limit semantics. `athanor-app::query` re-exports the
 request and trait as part of its stable read-only surface.
 
-Memory now implements `CanonicalSnapshotStore`; JSONL and SurrealDB already expose canonical
-snapshots. The shared conformance suite therefore exercises exact/latest fact queries for all three
-backends. Dedicated backend tests additionally cover subject/object/kind/extractor filters and the
-uncommitted visibility boundary. The remote two-client suite queries a committed fact through the
-public contract from the independent reader connection.
-
-The dedicated `Store Conformance` workflow is configured for Memory, JSONL, and embedded SurrealDB.
-Server-dependent remote tests remain isolated from the normal workspace and `--all-features` graph.
+Memory, JSONL, and embedded SurrealDB run the same query, lifecycle, and atomic-publication
+conformance functions. Dedicated backend regressions additionally cover filesystem marker behavior,
+transaction rollback, and remote independent-reader visibility. Server-dependent remote tests remain
+isolated from the normal workspace and `--all-features` graph.
 
 ## Atomic canonical data and commit marker
 
 `athanor-core::AtomicSnapshotPublication` is an additive capability for stores that can publish a
 complete `SnapshotBatch` and its committed marker through one backend-specific atomic boundary.
-The context-aware method checks cancellation and deadline before entering that boundary and does not
+The context-aware default checks cancellation and deadline before entering that boundary and does not
 re-check them after success, because durable publication has already happened and must not be
 mistaken for a rollback candidate.
+
+### Memory
 
 Memory provides the reference implementation. One mutex critical section replaces any partial
 staged contents with the complete batch and marks the snapshot committed. Before that section,
 exact reads fail with `SnapshotNotCommitted`; after it, exact and latest reads expose only the new
 complete generation. Republish and abort of the committed snapshot fail closed.
 
-JSONL implements the same capability with a filesystem boundary. It writes all JSONL data, indexes,
-manifest, and `athanor.canonical_commit.v1` marker into a hidden staging directory. One directory
-rename publishes the exact committed generation. Any previous prepared directory is removed before
-this boundary, and the in-memory snapshot becomes committed immediately after the rename.
+### JSONL
+
+JSONL writes all JSONL data, indexes, manifest, and `athanor.canonical_commit.v1` marker into a
+hidden staging directory. One directory rename publishes the exact committed generation. Any
+previous prepared directory is removed before this boundary, and process state becomes committed
+immediately after the rename.
+
+Atomic manifests declare `commit_marker_schema`. Exact and latest reads validate the canonical
+manifest schema and snapshot identity. When the declaration is present, missing, malformed,
+wrong-schema, or foreign-snapshot `commit.json` fails closed. A legacy manifest without the
+declaration remains readable; if an undeclared marker is present it is still validated rather than
+ignored.
 
 `latest.json` remains a separate pointer layer. A pointer finalization error may be returned after the
 exact generation is already committed, but that snapshot remains readable by exact id and cannot be
 aborted. This prevents a post-commit pointer error from being misclassified as an uncommitted
-canonical generation. Exact-load validation of marker schema/identity remains an explicit open item.
+canonical generation.
 
-This capability deliberately does not claim that the latest-generation pointer or application read
-models move in the same atomic operation. SurrealDB and the production index coordinator still need
-backend-specific implementation and cutover before the project can claim full production
- data-plus-marker publication.
+### SurrealDB
 
-## SurrealDB transaction boundary
+SurrealDB replaces all rows for one snapshot and sets the snapshot record to
+`prepared = true, committed = true` inside one `BEGIN ... COMMIT` query. The transaction deletes old
+entity/fact/relation/diagnostic rows, inserts the complete replacement batch, and updates the marker.
+The response is passed through `check()`, so any statement error rolls back both rows and marker.
 
-The locked backend is SurrealDB `2.6.5`. Athanor uses one SurrealQL query containing `BEGIN`, bulk
-`INSERT` statements, and `COMMIT` for a complete `SnapshotBatch`. The response is passed through
-`check()` so statement-level errors cannot be mistaken for success.
+The public facade classifies only confirmed transaction conflicts as `CoreError::Busy` and retries
+the complete atomic boundary with the existing bounded `10/25/50/100 ms` schedule. Non-conflict
+data or serialization failures remain non-retryable. Embedded regressions require duplicate-record
+failure to leave the snapshot uncommitted and permit a later valid atomic publication.
 
-The batch contains entities, facts, relations, and diagnostics. A duplicate-record regression
-requires the transaction to fail without partial rows, then retries the same identifiers
-successfully. Snapshot sequence allocation uses one atomic `UPDATE ONLY`; latest selection orders by
-the numeric sequence before the historical record-id fallback.
+The configured remote two-client test performs the same atomic publication through one connection,
+then loads the committed entity/fact data and executes `FactQueryStore` through the independent
+reader. This becomes evidence only after a successful hosted run.
 
-Counter allocation, snapshot-record creation, batch insertion, and the later commit marker are still
-separate backend requests. The batch transaction is therefore not yet an atomic generation
-publication protocol.
+## SurrealDB writer safety
 
-## Embedded persistent ownership
-
-SurrealKV protects a persistent database directory with an operating-system exclusive lock. Athanor
-treats embedded persistent storage as a single-owner process model. A second independent connection
-to the same `surrealkv://` directory must fail closed.
+The locked backend is SurrealDB `2.6.5`. Snapshot sequence allocation uses one atomic
+`UPDATE ONLY`; latest selection orders by numeric sequence before the historical record-id fallback.
+SurrealKV protects a persistent database directory with an operating-system exclusive lock, so
+embedded persistent storage remains a single-owner process model. A second independent connection
+to the same directory must fail closed.
 
 Confirmed ownership and transaction-conflict messages map to retryable `CoreError::Busy`. Data
 validation, duplicate records, serialization failures, and unrelated statement errors remain
@@ -101,17 +106,18 @@ Remote support is opt-in through the `remote` crate feature. The configured host
 The remote suite uses two independent SDK connections and checks:
 
 - 32 concurrent snapshot allocations produce unique identifiers;
-- one connection can publish a snapshot loaded by the other;
-- entity records are visible across clients after commit;
-- the independent reader can retrieve the committed fact through `FactQueryStore`.
+- one connection atomically publishes a complete snapshot batch and marker;
+- the independent connection loads the committed entity/fact data;
+- the independent reader retrieves the committed fact through `FactQueryStore`.
 
 These checks become evidence only after a successful hosted run. They do not deterministically force
-a real server write conflict.
+a real server write conflict or resolve the semantics of a request whose outcome becomes ambiguous
+after transport failure.
 
 ## Deadline- and cancellation-bounded retry
 
 Only context-aware write and publication methods retry `CoreError::Busy`. The delay schedule is
-10, 25, 50, and 100 milliseconds. Every attempt checks deadline and process-local cancellation
+10, 25, 50, and 100 milliseconds. Every retry attempt checks deadline and process-local cancellation
 state. Backoff polling uses intervals no larger than five milliseconds.
 
 `CancellationHandle` registration acts as an exclusive process-local lease for one
@@ -138,20 +144,21 @@ The protocol is:
 A cancellation race immediately after successful prepare must still return the typed handle. Losing
 that handle would strand durable prepared state without cleanup authority.
 
-Memory, JSONL, and embedded SurrealDB regressions require publish to advance the latest committed
-view and require aborting a later prepared snapshot to preserve the previous latest generation.
+This compatibility protocol remains active in the production index coordinator. The next cutover
+must pass the complete `SnapshotBatch` into `AtomicSnapshotPublication` instead of writing canonical
+rows before the durable application journal exists.
 
 ## Typed index publication coordinator
 
-Production indexing is routed through `index_runtime.rs`. The deferred pipeline prepares canonical
-data first, then the runtime constructs `PreparedSnapshot` and calls the guarded
+Production indexing is routed through `index_runtime.rs`. The current deferred pipeline writes and
+prepares canonical data first, then constructs `PreparedSnapshot` and calls the guarded
 `publish_prepared_index` boundary.
 
 The coordinator:
 
 1. writes `athanor.index_publication.v2`;
 2. stages the JSONL read model and index state;
-3. publishes canonical data through `publish_prepared`;
+3. publishes the previously prepared canonical snapshot;
 4. finalizes application backups;
 5. clears the durable journal.
 
@@ -162,10 +169,9 @@ cannot contain path separators.
 Startup calls guarded `recover_interrupted_publication` before loading previous state. A committed
 journal keeps the new generation and removes stale staging/backups. An uncommitted journal restores
 available backups, removes matching uncommitted current artifacts, and calls `abort_prepared`.
-
-The public `index` API remains stable. The former monolithic `crates/athanor-app/src/index.rs` has
-been deleted after its incremental, validation, cancellation, and equivalence tests were migrated to
-focused production-runtime modules.
+Recovery currently determines canonical commit by the latest committed snapshot. The atomic cutover
+must add exact-snapshot commit probing so a committed exact generation is recognized even if a
+separate latest pointer failed.
 
 ## Recovery preflight and fault matrix
 
@@ -186,42 +192,29 @@ The guard validates every recovery-controlled artifact before any delete or rena
 A type, schema, parse, or identity mismatch fails closed before destructive mutation. The durable
 journal and current artifacts remain present for diagnosis and repair.
 
-Deterministic regressions cover:
+Deterministic regressions cover journal/prepare/publish/finalize/clear failures, malformed artifact
+types, schema and identity mismatches, mixed backup generations, absent backups, repeated recovery,
+and simultaneous publish/rollback/abort failures.
 
-- journal persistence failure before a recovery record exists;
-- read-model prepare failure;
-- index-state prepare failure;
-- cancellation immediately before canonical publish;
-- read-model finalize failure after canonical commit;
-- index-state finalize failure after canonical commit;
-- journal clear failure after canonical commit;
-- malformed read-model and index-state backup types;
-- committed and uncommitted current identity mismatches;
-- mixed read-model/index-state backup generations;
-- recovery with no backups for an uncommitted generation;
-- repeated committed and uncommitted recovery after cleanup;
-- simultaneous canonical publish, application rollback, and canonical abort failures.
-
-For post-commit finalize failures, the canonical snapshot remains latest committed. After the
-transient filesystem fault is repaired, recovery finalizes the same generation instead of reverting
-it. A second recovery call after journal cleanup is a no-op. Combined failures preserve the original
+For post-commit finalize failures, the canonical snapshot remains committed. After the transient
+filesystem fault is repaired, recovery finalizes the same generation instead of reverting it. A
+second recovery call after journal cleanup is a no-op. Combined failures preserve the original
 publish error together with rollback and abort causes.
 
 ## Guarantees not claimed yet
 
 The current implementation does not claim:
 
-- exact-load fail-closed validation of the JSONL commit marker;
-- SurrealDB implementation of `AtomicSnapshotPublication`;
-- production index-coordinator cutover to the atomic data-plus-marker capability;
+- production index-coordinator cutover to `AtomicSnapshotPublication`;
+- exact canonical commit probing during publication recovery;
 - one immutable generation pointer covering canonical data, state, and read models;
 - cryptographic content integrity for application artifacts;
 - deterministic remote write-conflict evidence;
-- force interruption of an SDK request already executing;
+- force interruption or outcome recovery for an SDK request already executing;
 - complete cancellation propagation for read-only daemon, CLI, and MCP operations;
 - hosted compile, test, formatting, Clippy, AppSec, installer, or release evidence while Actions runs
   remain unavailable.
 
-P0.4 remains incomplete until hosted evidence, JSONL marker validation, SurrealDB data-plus-marker
-publication, production coordinator cutover, generation-pointer switching, remote conflict evidence,
-and pointer-level fault injection are complete.
+P0.4 remains incomplete until hosted evidence, production coordinator cutover, exact-marker recovery,
+generation-pointer switching, remote conflict evidence, and pointer-level fault injection are
+complete.
