@@ -4,6 +4,9 @@ use std::path::{Path, PathBuf};
 
 use crate::docs::{DriftedDocument, build_docs_drift_report};
 use crate::index_state::{AffectedFileSet, IndexStateStore};
+use crate::json_contract::{
+    AFFECTED_CHECK_SCHEMA_V1, DIAGNOSTIC_CHECK_SCHEMA_V1, OPERATIONS_DOCS_CHECK_SCHEMA_V1,
+};
 use crate::repair::{RepairInspectOptions, RepairIssue, inspect_repair};
 use crate::store::init_store;
 use anyhow::{Context, Result};
@@ -232,7 +235,7 @@ async fn check_affected_inner(
     let counts = diagnostic_counts(&diagnostics);
 
     Ok(AffectedCheckReport {
-        schema: "athanor.affected_check.v1".to_string(),
+        schema: AFFECTED_CHECK_SCHEMA_V1.to_string(),
         stale_artifacts: affected_artifact_statuses(&root, &snapshot_id)?,
         documentation_drift: affected_documentation_drift(
             snapshot_id.clone(),
@@ -321,7 +324,7 @@ async fn check_operations_docs_inner(
     );
 
     Ok(OperationsDocsCheckReport {
-        schema: "athanor.operations_docs_check.v1".to_string(),
+        schema: OPERATIONS_DOCS_CHECK_SCHEMA_V1.to_string(),
         snapshot: snapshot_id,
         counts: sum_counts([&env, &scripts, &deployment, &runbooks]),
         env,
@@ -422,7 +425,7 @@ pub fn build_check_report(
     }
 
     DiagnosticCheckReport {
-        schema: "athanor.diagnostic_check.v1".to_string(),
+        schema: DIAGNOSTIC_CHECK_SCHEMA_V1.to_string(),
         snapshot,
         scope,
         counts,
@@ -780,7 +783,7 @@ mod tests {
             &ApiConfig::default(),
         );
 
-        assert_eq!(report.schema, "athanor.diagnostic_check.v1");
+        assert_eq!(report.schema, DIAGNOSTIC_CHECK_SCHEMA_V1);
         assert_eq!(report.counts.total, 2);
         assert_eq!(report.counts.high, 1);
         assert_eq!(report.counts.medium, 1);
