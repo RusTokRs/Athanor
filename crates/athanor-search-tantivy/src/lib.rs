@@ -10,7 +10,6 @@ use athanor_core::{
 };
 use serde_json::Value;
 use tantivy::{
-    Index, IndexReader, IndexWriter, TantivyDocument, TantivyError,
     collector::TopDocs,
     doc,
     indexer::NoMergePolicy,
@@ -19,6 +18,7 @@ use tantivy::{
         Field, IndexRecordOption, STORED, STRING, Schema, TextFieldIndexing, TextOptions,
         Value as TantivyValue,
     },
+    Index, IndexReader, IndexWriter, TantivyDocument, TantivyError,
 };
 
 const COMMIT_PERMISSION_RETRIES: usize = 3;
@@ -230,7 +230,10 @@ impl SearchIndex for TantivySearchIndex {
         let mut writer = self.writer.lock().map_err(|error| {
             CoreError::Adapter(format!("Failed to acquire Tantivy writer lock: {error}"))
         })?;
-        writer.delete_term(tantivy::Term::from_field_text(self.id_field, &document.id));
+        writer.delete_term(tantivy::Term::from_field_text(
+            self.id_field,
+            &document.id,
+        ));
         writer
             .add_document(doc!(
                 self.id_field => document.id,
@@ -275,9 +278,9 @@ impl SearchIndex for TantivySearchIndex {
             .map_err(|error| CoreError::Adapter(format!("Tantivy search error: {error}")))?;
         let mut results = Vec::new();
         for (score, address) in top_docs {
-            let document: TantivyDocument = searcher
-                .doc(address)
-                .map_err(|error| CoreError::Adapter(format!("Tantivy doc retrieval error: {error}")))?;
+            let document: TantivyDocument = searcher.doc(address).map_err(|error| {
+                CoreError::Adapter(format!("Tantivy doc retrieval error: {error}"))
+            })?;
             let id = document
                 .get_first(self.id_field)
                 .and_then(|value| value.as_str())
@@ -287,8 +290,9 @@ impl SearchIndex for TantivySearchIndex {
                 .get_first(self.payload_field)
                 .and_then(|value| value.as_str())
                 .unwrap_or("{}");
-            let payload: Value = serde_json::from_str(payload)
-                .map_err(|error| CoreError::Adapter(format!("Tantivy payload parse error: {error}")))?;
+            let payload: Value = serde_json::from_str(payload).map_err(|error| {
+                CoreError::Adapter(format!("Tantivy payload parse error: {error}"))
+            })?;
             results.push(SearchResult { id, score, payload });
         }
         Ok(results)
@@ -317,13 +321,41 @@ mod tests {
         let root = test_root("basic");
         std::fs::create_dir_all(&root).unwrap();
         let index = TantivySearchIndex::open_or_create(&root).unwrap();
-        index.index_document(document("doc1", "Authentication Module", "login authentication", "auth")).await.unwrap();
-        index.index_document(document("doc2", "User Profile", "profile settings", "profile")).await.unwrap();
-        let results = index.search(SearchQuery { query: "login".to_string(), limit: 5 }).await.unwrap();
+        index
+            .index_document(document(
+                "doc1",
+                "Authentication Module",
+                "login authentication",
+                "auth",
+            ))
+            .await
+            .unwrap();
+        index
+            .index_document(document(
+                "doc2",
+                "User Profile",
+                "profile settings",
+                "profile",
+            ))
+            .await
+            .unwrap();
+        let results = index
+            .search(SearchQuery {
+                query: "login".to_string(),
+                limit: 5,
+            })
+            .await
+            .unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "doc1");
         index.remove_document("doc1").await.unwrap();
-        let results = index.search(SearchQuery { query: "login".to_string(), limit: 5 }).await.unwrap();
+        let results = index
+            .search(SearchQuery {
+                query: "login".to_string(),
+                limit: 5,
+            })
+            .await
+            .unwrap();
         assert!(results.is_empty());
         let _ = std::fs::remove_dir_all(root);
     }
@@ -332,40 +364,83 @@ mod tests {
     async fn rebuild_indexes_documents_with_one_commit() {
         let root = test_root("rebuild");
         let documents = (0..2_500)
-            .map(|index| document(&format!("doc-{index}"), &format!("API retention {index}"), "snapshot cleanup retention", "retention"))
+            .map(|index| {
+                document(
+                    &format!("doc-{index}"),
+                    &format!("API retention {index}"),
+                    "snapshot cleanup retention",
+                    "retention",
+                )
+            })
             .collect();
         let index = TantivySearchIndex::rebuild(&root, documents).unwrap();
-        let results = index.search(SearchQuery { query: "retention".to_string(), limit: 3 }).await.unwrap();
+        let results = index
+            .search(SearchQuery {
+                query: "retention".to_string(),
+                limit: 3,
+            })
+            .await
+            .unwrap();
         assert_eq!(results.len(), 3);
         drop(index);
         let _ = std::fs::remove_dir_all(root);
     }
 
     #[tokio::test]
-    async fn cancelled_staged_rebuild_preserves_current_index() {
+    async fn cancellation_after_multiple_batches_preserves_current_index() {
         let root = test_root("cancelled-rebuild");
         let current = TantivySearchIndex::rebuild(
             &root,
-            vec![document("current", "Current index", "stable marker", "current")],
+            vec![document(
+                "current",
+                "Current index",
+                "stable marker",
+                "current",
+            )],
         )
         .unwrap();
         drop(current);
-        let operation = OperationContext::new("tantivy-rebuild-cancelled");
-        let cancellation = operation.cancellation_handle().unwrap();
-        cancellation.cancel();
 
-        let error = match TantivySearchIndex::rebuild_with_operation_context(
-            &root,
-            vec![document("replacement", "Replacement", "new marker", "replacement")],
-            &operation,
-        ) {
+        let operation = OperationContext::new("tantivy-rebuild-mid-cancelled");
+        let cancellation = operation.cancellation_handle().unwrap();
+        let mut checkpoints = 0;
+        let documents = (0..700)
+            .map(|index| {
+                document(
+                    &format!("replacement-{index}"),
+                    "Replacement",
+                    "new marker",
+                    "replacement",
+                )
+            })
+            .collect();
+
+        let error = match rebuild_with_checkpoint(&root, documents, || {
+            checkpoints += 1;
+            if checkpoints == 3 {
+                cancellation.cancel();
+            }
+            operation.check_active().map_err(anyhow::Error::new)
+        }) {
             Ok(_) => panic!("cancelled rebuild must fail before replacing current index"),
             Err(error) => error,
         };
-        assert!(error.chain().any(|cause| matches!(cause.downcast_ref::<CoreError>(), Some(CoreError::Cancelled(_)))));
+
+        assert!(checkpoints >= 3);
+        assert!(error.chain().any(|cause| matches!(
+            cause.downcast_ref::<CoreError>(),
+            Some(CoreError::Cancelled(_))
+        )));
+        assert!(!staging_path(&root).exists());
 
         let index = TantivySearchIndex::open_or_create(&root).unwrap();
-        let results = index.search(SearchQuery { query: "stable".to_string(), limit: 5 }).await.unwrap();
+        let results = index
+            .search(SearchQuery {
+                query: "stable".to_string(),
+                limit: 5,
+            })
+            .await
+            .unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "current");
         drop(index);
