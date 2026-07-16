@@ -70,10 +70,11 @@ fn discover_files(root: &Path, operation: Option<&OperationContext>) -> CoreResu
                 let relative = path.strip_prefix(&root).map_err(|err| {
                     CoreError::Adapter(format!("failed to strip root prefix: {err}"))
                 })?;
-                files.push(
+                if let Some(source) =
                     read_source_file_at_with_poller(&root, relative, &mut poller)?
-                        .expect("path is a file"),
-                );
+                {
+                    files.push(source);
+                }
             }
         }
 
