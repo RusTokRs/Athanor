@@ -11,6 +11,7 @@ use athanor_domain::{Entity, EntityId, Ownership, SourceLocation};
 use serde::{Deserialize, Serialize};
 
 use crate::config::load_config;
+use crate::json_contract::SEARCH_SCHEMA_V1;
 use crate::project_path::normalize_canonical_path;
 use crate::store::init_store;
 use crate::RuntimeComposition;
@@ -295,7 +296,7 @@ async fn search_snapshot_with_index_inner(
     let returned = search_items.len();
 
     Ok(SearchReport {
-        schema: "athanor.search.v1".to_string(),
+        schema: SEARCH_SCHEMA_V1.to_string(),
         root: root.to_path_buf(),
         snapshot: snapshot_id,
         query,
