@@ -37,23 +37,27 @@ pub(crate) async fn check(
             "running checker"
         );
         let started = std::time::Instant::now();
-        let output = crate::runtime::with_process_cancellation(cancellation.clone(), async {
-            within_operation_deadline(
-                operation,
-                checker_name,
-                checker.check_with_context(
-                    CheckInput {
-                        snapshot: snapshot.clone(),
-                        entities: entities.clone(),
-                        facts: facts.clone(),
-                        relations: relations.clone(),
-                        affected: affected.clone(),
-                    },
+        let output = crate::runtime::with_process_execution_context(
+            operation.clone(),
+            cancellation.clone(),
+            async {
+                within_operation_deadline(
                     operation,
-                ),
-            )
-            .await
-        })
+                    checker_name,
+                    checker.check_with_context(
+                        CheckInput {
+                            snapshot: snapshot.clone(),
+                            entities: entities.clone(),
+                            facts: facts.clone(),
+                            relations: relations.clone(),
+                            affected: affected.clone(),
+                        },
+                        operation,
+                    ),
+                )
+                .await
+            },
+        )
         .instrument(span)
         .await
         .inspect_err(|error| error!(checker = checker.name(), %error, "checker failed"))
