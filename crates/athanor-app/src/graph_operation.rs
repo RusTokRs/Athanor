@@ -1,4 +1,3 @@
-use std::future::Future;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -218,7 +217,8 @@ mod tests {
     #[tokio::test]
     async fn cancellation_drains_blocking_worker_before_returning() {
         let operation = OperationContext::new("graph-worker-cancelled");
-        let cancellation = operation.cancellation_handle().unwrap();
+        let cancellation_lease = operation.cancellation_handle().unwrap();
+        let cancellation = cancellation_lease.clone();
         let started = Arc::new(AtomicBool::new(false));
         let completed = Arc::new(AtomicBool::new(false));
         let worker_started = Arc::clone(&started);
@@ -241,6 +241,7 @@ mod tests {
         .expect_err("cancelled worker must not return success");
         cancel_task.await.unwrap();
 
+        assert!(cancellation_lease.is_cancelled());
         assert!(completed.load(Ordering::Acquire));
         assert!(error.chain().any(|cause| matches!(
             cause.downcast_ref::<CoreError>(),
