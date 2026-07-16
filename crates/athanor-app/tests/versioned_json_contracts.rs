@@ -4,13 +4,9 @@ use athanor_app::{
     ApiOverview, DocsOverview, OperationsOverview, OVERVIEW_SCHEMA_V1, OverviewTotals,
     RepositoryOverview, SEARCH_SCHEMA_V1, SearchOmissions, SearchReport, VersionedJsonContract,
 };
-use serde::Serialize;
 use serde_json::Value;
 
-fn assert_matches_fixture<T>(document: &T, fixture: &str)
-where
-    T: VersionedJsonContract + Serialize,
-{
+fn assert_matches_fixture<T: VersionedJsonContract>(document: &T, fixture: &str) {
     document
         .validate_contract()
         .expect("fixture document must satisfy its registered JSON contract");
