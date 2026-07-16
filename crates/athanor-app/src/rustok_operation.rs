@@ -25,9 +25,8 @@ use crate::graph::{
     build_rustok_page_builder_provider_graph, build_rustok_page_builder_violations_graph,
 };
 use crate::project_path::normalize_canonical_path;
-use crate::rustok_architecture::{
-    RustokArchitectureContext, RustokArchitectureContextOptions, build_rustok_architecture_context,
-};
+use crate::rustok_architecture::{RustokArchitectureContext, RustokArchitectureContextOptions};
+use crate::rustok_architecture_cooperative::build_rustok_architecture_context_with_operation_context;
 use crate::store::init_store;
 
 pub async fn rustok_architecture_context_with_operation_context(
@@ -71,12 +70,14 @@ pub async fn rustok_architecture_context_with_operation_context(
     let snapshot = load_latest_snapshot(root.clone(), operation).await?;
     options.root = root;
     let context_entities = context.entities;
+    let operation_for_worker = operation.clone();
     run_rustok_worker(operation, move || {
-        Ok(build_rustok_architecture_context(
+        build_rustok_architecture_context_with_operation_context(
             &snapshot,
             &options,
             &context_entities,
-        ))
+            &operation_for_worker,
+        )
     })
     .await
 }
