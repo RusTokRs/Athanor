@@ -4,9 +4,10 @@ use anyhow::Result;
 use athanor_core::{OperationContext, OperationContextCancellation};
 use athanor_domain::ContextPack;
 
+use crate::context_operation::context_project_with_operation_context_impl;
 use crate::{
     ChangeMapOptions, ChangeMapReport, ContextOptions, RuntimeComposition, change_map_project,
-    change_map_project_with_composition, context_project, context_project_with_composition,
+    change_map_project_with_composition,
 };
 
 /// Builds a diff-aware context pack under the shared cancellation/deadline contract.
@@ -14,7 +15,7 @@ pub async fn context_project_with_operation_context(
     options: ContextOptions,
     operation: &OperationContext,
 ) -> Result<ContextPack> {
-    run_with_operation_context(operation, context_project(options)).await
+    context_project_with_operation_context_impl(options, None, operation).await
 }
 
 /// Builds a diff-aware context pack with explicit runtime dependencies and operation metadata.
@@ -23,11 +24,7 @@ pub async fn context_project_with_composition_and_operation_context(
     composition: &RuntimeComposition,
     operation: &OperationContext,
 ) -> Result<ContextPack> {
-    run_with_operation_context(
-        operation,
-        context_project_with_composition(options, composition),
-    )
-    .await
+    context_project_with_operation_context_impl(options, Some(composition), operation).await
 }
 
 /// Builds a change map under the shared cancellation/deadline contract.
