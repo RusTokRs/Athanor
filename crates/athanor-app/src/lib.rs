@@ -11,6 +11,7 @@ pub mod check;
 pub mod composition;
 pub mod config;
 pub mod context;
+mod context_operation;
 pub mod coverage;
 pub mod daemon;
 mod daemon_client;
