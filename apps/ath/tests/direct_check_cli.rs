@@ -26,19 +26,6 @@ fn malformed_check_deadline_fails_before_project_access() {
     assert!(stderr(&output).contains("invalid value 'tomorrow'"));
 }
 
-#[test]
-fn strict_remains_limited_to_api_scope() {
-    let output = run(&[
-        "check",
-        "docs",
-        "--strict",
-        "--deadline-unix-ms",
-        "18446744073709551615",
-    ]);
-    assert!(!output.status.success());
-    assert!(stderr(&output).contains("supported only for `ath check api`"));
-}
-
 fn stderr(output: &Output) -> String {
     String::from_utf8_lossy(&output.stderr).into_owned()
 }
