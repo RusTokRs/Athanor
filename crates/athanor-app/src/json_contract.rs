@@ -53,6 +53,19 @@ pub const RUSTOK_FFA_SURFACE_GRAPH_SCHEMA_V1: &str =
 /// Stable schema identifier for RusTok FFA violations graph reports.
 pub const RUSTOK_FFA_VIOLATIONS_GRAPH_SCHEMA_V1: &str =
     crate::graph::RUSTOK_FFA_VIOLATIONS_GRAPH_SCHEMA;
+/// Stable schema identifier for RusTok FBA audit reports.
+pub const RUSTOK_FBA_AUDIT_SCHEMA_V1: &str = crate::graph::RUSTOK_FBA_AUDIT_SCHEMA;
+/// Stable schema identifier for RusTok FBA module graph reports.
+pub const RUSTOK_FBA_MODULE_GRAPH_SCHEMA_V1: &str =
+    crate::graph::RUSTOK_FBA_MODULE_GRAPH_SCHEMA;
+/// Stable schema identifier for RusTok FBA port graph reports.
+pub const RUSTOK_FBA_PORT_GRAPH_SCHEMA_V1: &str = crate::graph::RUSTOK_FBA_PORT_GRAPH_SCHEMA;
+/// Stable schema identifier for RusTok FBA dependencies graph reports.
+pub const RUSTOK_FBA_DEPENDENCIES_GRAPH_SCHEMA_V1: &str =
+    crate::graph::RUSTOK_FBA_DEPENDENCIES_GRAPH_SCHEMA;
+/// Stable schema identifier for RusTok FBA violations graph reports.
+pub const RUSTOK_FBA_VIOLATIONS_GRAPH_SCHEMA_V1: &str =
+    crate::graph::RUSTOK_FBA_VIOLATIONS_GRAPH_SCHEMA;
 /// Stable schema identifier for public project-registry reports.
 pub const PROJECT_REGISTRY_REPORT_SCHEMA_V1: &str =
     crate::project_registry::PROJECT_REGISTRY_REPORT_SCHEMA;
@@ -150,6 +163,26 @@ pub const VERSIONED_JSON_CONTRACTS: &[JsonContractDescriptor] = &[
         rust_type: "RustokFfaViolationsGraphReport",
     },
     JsonContractDescriptor {
+        schema: RUSTOK_FBA_AUDIT_SCHEMA_V1,
+        rust_type: "RustokFbaAudit",
+    },
+    JsonContractDescriptor {
+        schema: RUSTOK_FBA_MODULE_GRAPH_SCHEMA_V1,
+        rust_type: "RustokFbaModuleGraphReport",
+    },
+    JsonContractDescriptor {
+        schema: RUSTOK_FBA_PORT_GRAPH_SCHEMA_V1,
+        rust_type: "RustokFbaPortGraphReport",
+    },
+    JsonContractDescriptor {
+        schema: RUSTOK_FBA_DEPENDENCIES_GRAPH_SCHEMA_V1,
+        rust_type: "RustokFbaDependenciesGraphReport",
+    },
+    JsonContractDescriptor {
+        schema: RUSTOK_FBA_VIOLATIONS_GRAPH_SCHEMA_V1,
+        rust_type: "RustokFbaViolationsGraphReport",
+    },
+    JsonContractDescriptor {
         schema: PROJECT_REGISTRY_REPORT_SCHEMA_V1,
         rust_type: "ProjectRegistryReport",
     },
@@ -228,6 +261,23 @@ impl_owned_schema_contract!(
 impl_owned_schema_contract!(
     crate::rustok_json_contract::RustokFfaViolationsGraphReport,
     RUSTOK_FFA_VIOLATIONS_GRAPH_SCHEMA_V1
+);
+impl_owned_schema_contract!(crate::graph::RustokFbaAudit, RUSTOK_FBA_AUDIT_SCHEMA_V1);
+impl_owned_schema_contract!(
+    crate::rustok_json_contract::RustokFbaModuleGraphReport,
+    RUSTOK_FBA_MODULE_GRAPH_SCHEMA_V1
+);
+impl_owned_schema_contract!(
+    crate::rustok_json_contract::RustokFbaPortGraphReport,
+    RUSTOK_FBA_PORT_GRAPH_SCHEMA_V1
+);
+impl_owned_schema_contract!(
+    crate::rustok_json_contract::RustokFbaDependenciesGraphReport,
+    RUSTOK_FBA_DEPENDENCIES_GRAPH_SCHEMA_V1
+);
+impl_owned_schema_contract!(
+    crate::rustok_json_contract::RustokFbaViolationsGraphReport,
+    RUSTOK_FBA_VIOLATIONS_GRAPH_SCHEMA_V1
 );
 impl_owned_schema_contract!(
     crate::project_registry::ProjectRegistryReport,
@@ -478,7 +528,7 @@ mod tests {
     #[test]
     fn registry_contains_unique_valid_schema_and_type_owners() {
         assert_eq!(validate_contract_registry(VERSIONED_JSON_CONTRACTS), Ok(()));
-        assert_eq!(VERSIONED_JSON_CONTRACTS.len(), 22);
+        assert_eq!(VERSIONED_JSON_CONTRACTS.len(), 27);
         assert_eq!(crate::overview::OVERVIEW_SCHEMA, OVERVIEW_SCHEMA_V1);
         assert_eq!(crate::coverage::COVERAGE_REPORT_SCHEMA, COVERAGE_SCHEMA_V1);
         assert_eq!(
@@ -499,6 +549,23 @@ mod tests {
         assert_eq!(
             crate::graph::RUSTOK_FFA_VIOLATIONS_GRAPH_SCHEMA,
             RUSTOK_FFA_VIOLATIONS_GRAPH_SCHEMA_V1
+        );
+        assert_eq!(crate::graph::RUSTOK_FBA_AUDIT_SCHEMA, RUSTOK_FBA_AUDIT_SCHEMA_V1);
+        assert_eq!(
+            crate::graph::RUSTOK_FBA_MODULE_GRAPH_SCHEMA,
+            RUSTOK_FBA_MODULE_GRAPH_SCHEMA_V1
+        );
+        assert_eq!(
+            crate::graph::RUSTOK_FBA_PORT_GRAPH_SCHEMA,
+            RUSTOK_FBA_PORT_GRAPH_SCHEMA_V1
+        );
+        assert_eq!(
+            crate::graph::RUSTOK_FBA_DEPENDENCIES_GRAPH_SCHEMA,
+            RUSTOK_FBA_DEPENDENCIES_GRAPH_SCHEMA_V1
+        );
+        assert_eq!(
+            crate::graph::RUSTOK_FBA_VIOLATIONS_GRAPH_SCHEMA,
+            RUSTOK_FBA_VIOLATIONS_GRAPH_SCHEMA_V1
         );
         assert_eq!(
             crate::project_registry::PROJECT_REGISTRY_REPORT_SCHEMA,
