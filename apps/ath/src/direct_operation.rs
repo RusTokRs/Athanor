@@ -136,18 +136,23 @@ mod tests {
         let operation = OperationContext::new("direct-operation-blocking");
         let cancellation_lease = operation.cancellation_handle().unwrap();
         let cancellation = cancellation_lease.clone();
+        let started = Arc::new(AtomicBool::new(false));
         let completed = Arc::new(AtomicBool::new(false));
+        let started_in_worker = Arc::clone(&started);
         let completed_in_worker = Arc::clone(&completed);
         let operation_for_worker = operation.clone();
         let task = tokio::spawn(async move {
             run_blocking_operation(operation_for_worker, move || {
+                started_in_worker.store(true, Ordering::Release);
                 std::thread::sleep(Duration::from_millis(25));
                 completed_in_worker.store(true, Ordering::Release);
                 Ok(42_u8)
             })
             .await
         });
-        tokio::task::yield_now().await;
+        while !started.load(Ordering::Acquire) {
+            tokio::task::yield_now().await;
+        }
         cancellation.cancel();
 
         let error = task
