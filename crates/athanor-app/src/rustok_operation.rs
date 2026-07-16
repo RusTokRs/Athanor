@@ -17,16 +17,19 @@ use crate::graph::{
     GraphPageBuilderConsumerOptions, GraphPageBuilderProviderOptions,
     GraphPageBuilderViolationsOptions, RustokFbaAudit, RustokFbaAuditOptions, RustokFbaGraph,
     RustokFfaAudit, RustokFfaAuditOptions, RustokFfaGraph, RustokPageBuilderAudit,
-    RustokPageBuilderAuditOptions, RustokPageBuilderGraph, build_rustok_fba_audit,
-    build_rustok_fba_dependencies_graph, build_rustok_fba_module_graph,
-    build_rustok_fba_port_graph, build_rustok_fba_violations_graph, build_rustok_ffa_audit,
-    build_rustok_ffa_surface_graph, build_rustok_ffa_violations_graph,
-    build_rustok_page_builder_audit, build_rustok_page_builder_consumer_graph,
+    RustokPageBuilderAuditOptions, RustokPageBuilderGraph, build_rustok_fba_dependencies_graph,
+    build_rustok_fba_module_graph, build_rustok_fba_port_graph,
+    build_rustok_fba_violations_graph, build_rustok_ffa_surface_graph,
+    build_rustok_ffa_violations_graph, build_rustok_page_builder_consumer_graph,
     build_rustok_page_builder_provider_graph, build_rustok_page_builder_violations_graph,
 };
 use crate::project_path::normalize_canonical_path;
 use crate::rustok_architecture::{RustokArchitectureContext, RustokArchitectureContextOptions};
 use crate::rustok_architecture_cooperative::build_rustok_architecture_context_with_operation_context;
+use crate::rustok_audit_cooperative::{
+    build_rustok_fba_audit_with_operation_context, build_rustok_ffa_audit_with_operation_context,
+    build_rustok_page_builder_audit_with_operation_context,
+};
 use crate::store::init_store;
 
 pub async fn rustok_architecture_context_with_operation_context(
@@ -87,7 +90,11 @@ pub async fn rustok_ffa_audit_with_operation_context(
     operation: &OperationContext,
 ) -> Result<RustokFfaAudit> {
     let snapshot = load_latest_snapshot(options.root, operation).await?;
-    run_rustok_worker(operation, move || Ok(build_rustok_ffa_audit(&snapshot))).await
+    let operation_for_worker = operation.clone();
+    run_rustok_worker(operation, move || {
+        build_rustok_ffa_audit_with_operation_context(&snapshot, &operation_for_worker)
+    })
+    .await
 }
 
 pub async fn rustok_fba_audit_with_operation_context(
@@ -95,7 +102,11 @@ pub async fn rustok_fba_audit_with_operation_context(
     operation: &OperationContext,
 ) -> Result<RustokFbaAudit> {
     let snapshot = load_latest_snapshot(options.root, operation).await?;
-    run_rustok_worker(operation, move || Ok(build_rustok_fba_audit(&snapshot))).await
+    let operation_for_worker = operation.clone();
+    run_rustok_worker(operation, move || {
+        build_rustok_fba_audit_with_operation_context(&snapshot, &operation_for_worker)
+    })
+    .await
 }
 
 pub async fn rustok_page_builder_audit_with_operation_context(
@@ -103,8 +114,9 @@ pub async fn rustok_page_builder_audit_with_operation_context(
     operation: &OperationContext,
 ) -> Result<RustokPageBuilderAudit> {
     let snapshot = load_latest_snapshot(options.root, operation).await?;
+    let operation_for_worker = operation.clone();
     run_rustok_worker(operation, move || {
-        Ok(build_rustok_page_builder_audit(&snapshot))
+        build_rustok_page_builder_audit_with_operation_context(&snapshot, &operation_for_worker)
     })
     .await
 }
