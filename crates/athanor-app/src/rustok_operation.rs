@@ -15,7 +15,7 @@ use crate::graph::{
     GraphFbaDependenciesOptions, GraphFbaModuleOptions, GraphFbaPortOptions,
     GraphFbaViolationsOptions, GraphFfaSurfaceOptions, GraphFfaViolationsOptions,
     GraphPageBuilderConsumerOptions, GraphPageBuilderProviderOptions,
-    GraphPageBuilderViolationsOptions, RustokFbaAudit, RustokFbaAuditOptions, RustokFbaGraph,
+    GraphPageBuilderViolationsOptions, RustokFbaAudit, RustokFbaAuditOptions,
     RustokFfaAudit, RustokFfaAuditOptions, RustokPageBuilderAudit,
     RustokPageBuilderAuditOptions, RustokPageBuilderGraph,
 };
@@ -38,7 +38,8 @@ use crate::rustok_graph_cooperative::{
     build_rustok_page_builder_violations_graph_with_operation_context,
 };
 use crate::rustok_json_contract::{
-    RustokFfaSurfaceGraphReport, RustokFfaViolationsGraphReport,
+    RustokFbaDependenciesGraphReport, RustokFbaModuleGraphReport, RustokFbaPortGraphReport,
+    RustokFbaViolationsGraphReport, RustokFfaSurfaceGraphReport, RustokFfaViolationsGraphReport,
 };
 use crate::store::init_store;
 
@@ -176,7 +177,7 @@ pub async fn graph_ffa_violations_with_operation_context(
 pub async fn graph_fba_module_with_operation_context(
     options: GraphFbaModuleOptions,
     operation: &OperationContext,
-) -> Result<RustokFbaGraph> {
+) -> Result<RustokFbaModuleGraphReport> {
     validate_graph_limits(options.max_nodes, options.max_edges, "FBA")?;
     let snapshot = load_latest_snapshot(options.root, operation).await?;
     let operation_for_worker = operation.clone();
@@ -190,12 +191,13 @@ pub async fn graph_fba_module_with_operation_context(
         )
     })
     .await
+    .map(RustokFbaModuleGraphReport::new)
 }
 
 pub async fn graph_fba_port_with_operation_context(
     options: GraphFbaPortOptions,
     operation: &OperationContext,
-) -> Result<RustokFbaGraph> {
+) -> Result<RustokFbaPortGraphReport> {
     validate_graph_limits(options.max_nodes, options.max_edges, "FBA")?;
     let snapshot = load_latest_snapshot(options.root, operation).await?;
     let operation_for_worker = operation.clone();
@@ -210,12 +212,13 @@ pub async fn graph_fba_port_with_operation_context(
         )
     })
     .await
+    .map(RustokFbaPortGraphReport::new)
 }
 
 pub async fn graph_fba_dependencies_with_operation_context(
     options: GraphFbaDependenciesOptions,
     operation: &OperationContext,
-) -> Result<RustokFbaGraph> {
+) -> Result<RustokFbaDependenciesGraphReport> {
     validate_graph_limits(options.max_nodes, options.max_edges, "FBA")?;
     let snapshot = load_latest_snapshot(options.root, operation).await?;
     let operation_for_worker = operation.clone();
@@ -229,12 +232,13 @@ pub async fn graph_fba_dependencies_with_operation_context(
         )
     })
     .await
+    .map(RustokFbaDependenciesGraphReport::new)
 }
 
 pub async fn graph_fba_violations_with_operation_context(
     options: GraphFbaViolationsOptions,
     operation: &OperationContext,
-) -> Result<RustokFbaGraph> {
+) -> Result<RustokFbaViolationsGraphReport> {
     validate_graph_limits(options.max_nodes, options.max_edges, "FBA")?;
     let snapshot = load_latest_snapshot(options.root, operation).await?;
     let operation_for_worker = operation.clone();
@@ -248,6 +252,7 @@ pub async fn graph_fba_violations_with_operation_context(
         )
     })
     .await
+    .map(RustokFbaViolationsGraphReport::new)
 }
 
 pub async fn graph_page_builder_provider_with_operation_context(
