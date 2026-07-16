@@ -17,6 +17,7 @@ const AGENT_FACING_SOURCE_FILES: &[&str] = &[
     "src/context_report.rs",
     "src/graph.rs",
     "src/project_registry.rs",
+    "src/rustok_architecture.rs",
     "src/rustok_json_contract.rs",
 ];
 
