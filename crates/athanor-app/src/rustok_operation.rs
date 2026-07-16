@@ -16,7 +16,7 @@ use crate::graph::{
     GraphFbaViolationsOptions, GraphFfaSurfaceOptions, GraphFfaViolationsOptions,
     GraphPageBuilderConsumerOptions, GraphPageBuilderProviderOptions,
     GraphPageBuilderViolationsOptions, RustokFbaAudit, RustokFbaAuditOptions, RustokFbaGraph,
-    RustokFfaAudit, RustokFfaAuditOptions, RustokFfaGraph, RustokPageBuilderAudit,
+    RustokFfaAudit, RustokFfaAuditOptions, RustokPageBuilderAudit,
     RustokPageBuilderAuditOptions, RustokPageBuilderGraph,
 };
 use crate::project_path::normalize_canonical_path;
@@ -36,6 +36,9 @@ use crate::rustok_graph_cooperative::{
     build_rustok_page_builder_consumer_graph_with_operation_context,
     build_rustok_page_builder_provider_graph_with_operation_context,
     build_rustok_page_builder_violations_graph_with_operation_context,
+};
+use crate::rustok_json_contract::{
+    RustokFfaSurfaceGraphReport, RustokFfaViolationsGraphReport,
 };
 use crate::store::init_store;
 
@@ -131,7 +134,7 @@ pub async fn rustok_page_builder_audit_with_operation_context(
 pub async fn graph_ffa_surface_with_operation_context(
     options: GraphFfaSurfaceOptions,
     operation: &OperationContext,
-) -> Result<RustokFfaGraph> {
+) -> Result<RustokFfaSurfaceGraphReport> {
     validate_graph_limits(options.max_nodes, options.max_edges, "FFA")?;
     let snapshot = load_latest_snapshot(options.root, operation).await?;
     let operation_for_worker = operation.clone();
@@ -146,12 +149,13 @@ pub async fn graph_ffa_surface_with_operation_context(
         )
     })
     .await
+    .map(RustokFfaSurfaceGraphReport::new)
 }
 
 pub async fn graph_ffa_violations_with_operation_context(
     options: GraphFfaViolationsOptions,
     operation: &OperationContext,
-) -> Result<RustokFfaGraph> {
+) -> Result<RustokFfaViolationsGraphReport> {
     validate_graph_limits(options.max_nodes, options.max_edges, "FFA")?;
     let snapshot = load_latest_snapshot(options.root, operation).await?;
     let operation_for_worker = operation.clone();
@@ -166,6 +170,7 @@ pub async fn graph_ffa_violations_with_operation_context(
         )
     })
     .await
+    .map(RustokFfaViolationsGraphReport::new)
 }
 
 pub async fn graph_fba_module_with_operation_context(
