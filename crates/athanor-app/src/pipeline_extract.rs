@@ -84,22 +84,26 @@ pub(crate) async fn extract(
                 let started = std::time::Instant::now();
                 let span =
                     debug_span!("extract_source", extractor = extractor_name, file = %source.path);
-                let output = crate::runtime::with_process_cancellation(cancellation, async {
-                    within_operation_deadline(
-                        &operation,
-                        extractor_name,
-                        extractor.extract_with_context(
-                            ExtractInput {
-                                repo: repo.clone(),
-                                snapshot: snapshot.clone(),
-                                source,
-                            },
+                let output = crate::runtime::with_process_execution_context(
+                    operation.clone(),
+                    cancellation,
+                    async {
+                        within_operation_deadline(
                             &operation,
-                        ),
-                    )
-                    .await
-                    .with_context(|| format!("extractor {} failed", extractor_name))
-                })
+                            extractor_name,
+                            extractor.extract_with_context(
+                                ExtractInput {
+                                    repo: repo.clone(),
+                                    snapshot: snapshot.clone(),
+                                    source,
+                                },
+                                &operation,
+                            ),
+                        )
+                        .await
+                        .with_context(|| format!("extractor {} failed", extractor_name))
+                    },
+                )
                 .instrument(span)
                 .await?;
                 validate_entities(extractor_name, &output.entities)?;
