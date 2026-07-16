@@ -177,7 +177,9 @@ pub use invalidation::*;
 pub use overview::*;
 pub use pipeline::*;
 pub use prepared_publication::*;
-pub use process_execution_scope::*;
+pub use process_execution_scope::{
+    CancellableProcessRunner, SharedProcessRunner, default_process_runner, with_process_runner,
+};
 pub use project_registry::*;
 pub use projection::{install_html_projector_factory, install_wiki_projector_factory};
 pub use read_model::*;
