@@ -81,6 +81,7 @@ mod pipeline_ownership;
 mod pipeline_source;
 mod pipeline_support;
 mod prepared_publication;
+mod process_execution_scope;
 mod project_path;
 pub mod project_registry;
 mod projection;
@@ -88,7 +89,6 @@ pub mod read_model;
 #[path = "repair_latest.rs"]
 pub mod repair;
 pub mod report;
-#[path = "runtime/mod.rs"]
 pub mod runtime;
 pub mod rustok_architecture;
 mod rustok_architecture_cooperative;
@@ -177,6 +177,7 @@ pub use invalidation::*;
 pub use overview::*;
 pub use pipeline::*;
 pub use prepared_publication::*;
+pub use process_execution_scope::*;
 pub use project_registry::*;
 pub use projection::{install_html_projector_factory, install_wiki_projector_factory};
 pub use read_model::*;
