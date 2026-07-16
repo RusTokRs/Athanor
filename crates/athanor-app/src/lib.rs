@@ -12,6 +12,7 @@ pub mod composition;
 pub mod config;
 pub mod context;
 mod context_operation;
+pub mod context_report;
 pub mod coverage;
 pub mod daemon;
 mod daemon_client;
@@ -133,6 +134,7 @@ pub mod query {
     pub use athanor_core::{FactQuery, FactQueryStore};
 
     pub use crate::context::*;
+    pub use crate::context_report::*;
     pub use crate::derived_read_operation::*;
     pub use crate::explain::*;
     pub use crate::graph::*;
@@ -160,6 +162,7 @@ pub use check::*;
 pub use composition::*;
 pub use config::*;
 pub use context::*;
+pub use context_report::*;
 pub use coverage::*;
 pub use daemon::*;
 pub use daemon_runtime::*;
