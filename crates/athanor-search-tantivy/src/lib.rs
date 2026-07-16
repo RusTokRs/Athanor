@@ -109,7 +109,6 @@ fn rebuild_with_checkpoint(
         commit_writer_with_checkpoint(&mut writer, &mut checkpoint)?;
         drop(writer);
         checkpoint()?;
-
         replace_directory(path, &staging)?;
         TantivySearchIndex::open_or_create(path)
     })();
@@ -155,12 +154,8 @@ fn sibling_path(path: &Path, suffix: &str) -> PathBuf {
     path.with_file_name(format!(".{name}.{suffix}-{}", std::process::id()))
 }
 
-fn commit_writer(writer: &mut IndexWriter) -> tantivy::Result<()> {
-    commit_writer_with_checkpoint(writer, &mut || Ok(())).map_err(|error| {
-        error
-            .downcast::<TantivyError>()
-            .unwrap_or_else(|error| TantivyError::InvalidArgument(error.to_string()))
-    })
+fn commit_writer(writer: &mut IndexWriter) -> anyhow::Result<()> {
+    commit_writer_with_checkpoint(writer, &mut || Ok(()))
 }
 
 fn commit_writer_with_checkpoint(
@@ -359,12 +354,14 @@ mod tests {
         let cancellation = operation.cancellation_handle().unwrap();
         cancellation.cancel();
 
-        let error = TantivySearchIndex::rebuild_with_operation_context(
+        let error = match TantivySearchIndex::rebuild_with_operation_context(
             &root,
             vec![document("replacement", "Replacement", "new marker", "replacement")],
             &operation,
-        )
-        .expect_err("cancelled rebuild must fail before replacing current index");
+        ) {
+            Ok(_) => panic!("cancelled rebuild must fail before replacing current index"),
+            Err(error) => error,
+        };
         assert!(error.chain().any(|cause| matches!(cause.downcast_ref::<CoreError>(), Some(CoreError::Cancelled(_)))));
 
         let index = TantivySearchIndex::open_or_create(&root).unwrap();
