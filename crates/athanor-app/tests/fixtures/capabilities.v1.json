@@ -1,0 +1,30 @@
+{
+  "schema": "athanor.capabilities.v1",
+  "snapshot": "snap_fixture",
+  "root": "repo",
+  "baseline_adapter": "file",
+  "limits": {
+    "limit": 50,
+    "confidence_threshold": 1.0
+  },
+  "totals": {
+    "tracked_files": 0,
+    "processed_files": 0,
+    "unprocessed_files": 0,
+    "processed_ratio_percent": 0,
+    "languages": 0,
+    "adapters": 0,
+    "facts": 0,
+    "low_confidence_facts": 0
+  },
+  "languages": [],
+  "adapters": [],
+  "low_confidence_facts": [],
+  "unprocessed_files": [],
+  "omitted": {
+    "languages": 0,
+    "adapters": 0,
+    "low_confidence_facts": 0,
+    "unprocessed_files": 0
+  }
+}
