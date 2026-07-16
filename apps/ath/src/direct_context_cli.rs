@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use athanor_app::{ContextLimitOverrides, ContextOptions};
+use athanor_app::{ContextLimitOverrides, ContextOptions, ContextReport};
 use athanor_domain::ContextLevel;
 use clap::error::ErrorKind;
 use clap::{Parser, Subcommand, ValueEnum};
@@ -122,7 +122,10 @@ pub(crate) async fn run(command: Command) -> Result<()> {
             )
             .await?;
             if json {
-                println!("{}", serde_json::to_string_pretty(&pack)?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&ContextReport::from(pack))?
+                );
             } else {
                 println!("{}", pack.summary);
                 for file in &pack.files {
