@@ -25,6 +25,10 @@ pub const DIAGNOSTIC_CHECK_SCHEMA_V1: &str = "athanor.diagnostic_check.v1";
 pub const AFFECTED_CHECK_SCHEMA_V1: &str = "athanor.affected_check.v1";
 /// Stable schema identifier for aggregated operations documentation check reports.
 pub const OPERATIONS_DOCS_CHECK_SCHEMA_V1: &str = "athanor.operations_docs_check.v1";
+/// Stable schema identifier for analysis coverage reports.
+pub const COVERAGE_SCHEMA_V1: &str = "athanor.coverage.v1";
+/// Stable schema identifier for analysis capability reports.
+pub const CAPABILITIES_SCHEMA_V1: &str = "athanor.capabilities.v1";
 
 /// One registered, externally consumable JSON document contract.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,6 +66,14 @@ pub const VERSIONED_JSON_CONTRACTS: &[JsonContractDescriptor] = &[
     JsonContractDescriptor {
         schema: OPERATIONS_DOCS_CHECK_SCHEMA_V1,
         rust_type: "OperationsDocsCheckReport",
+    },
+    JsonContractDescriptor {
+        schema: COVERAGE_SCHEMA_V1,
+        rust_type: "CoverageReport",
+    },
+    JsonContractDescriptor {
+        schema: CAPABILITIES_SCHEMA_V1,
+        rust_type: "CapabilitiesReport",
     },
 ];
 
@@ -143,6 +155,22 @@ impl VersionedJsonContract for crate::check::OperationsDocsCheckReport {
 
     fn schema(&self) -> &str {
         &self.schema
+    }
+}
+
+impl VersionedJsonContract for crate::coverage::CoverageReport {
+    const SCHEMA: &'static str = COVERAGE_SCHEMA_V1;
+
+    fn schema(&self) -> &str {
+        self.schema
+    }
+}
+
+impl VersionedJsonContract for crate::capabilities::CapabilitiesReport {
+    const SCHEMA: &'static str = CAPABILITIES_SCHEMA_V1;
+
+    fn schema(&self) -> &str {
+        self.schema
     }
 }
 
@@ -371,6 +399,11 @@ mod tests {
     fn registry_contains_unique_valid_schema_and_type_owners() {
         assert_eq!(validate_contract_registry(VERSIONED_JSON_CONTRACTS), Ok(()));
         assert_eq!(crate::overview::OVERVIEW_SCHEMA, OVERVIEW_SCHEMA_V1);
+        assert_eq!(crate::coverage::COVERAGE_REPORT_SCHEMA, COVERAGE_SCHEMA_V1);
+        assert_eq!(
+            crate::capabilities::CAPABILITIES_REPORT_SCHEMA,
+            CAPABILITIES_SCHEMA_V1
+        );
     }
 
     #[test]
