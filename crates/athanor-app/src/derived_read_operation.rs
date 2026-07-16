@@ -2,29 +2,32 @@ use std::future::Future;
 
 use anyhow::Result;
 use athanor_core::{OperationContext, OperationContextCancellation};
-use athanor_domain::ContextPack;
 
 use crate::context_operation::context_project_with_operation_context_impl;
 use crate::{
-    ChangeMapOptions, ChangeMapReport, ContextOptions, RuntimeComposition, change_map_project,
-    change_map_project_with_composition,
+    ChangeMapOptions, ChangeMapReport, ContextOptions, ContextReport, RuntimeComposition,
+    change_map_project, change_map_project_with_composition,
 };
 
-/// Builds a diff-aware context pack under the shared cancellation/deadline contract.
+/// Builds a diff-aware context report under the shared cancellation/deadline contract.
 pub async fn context_project_with_operation_context(
     options: ContextOptions,
     operation: &OperationContext,
-) -> Result<ContextPack> {
-    context_project_with_operation_context_impl(options, None, operation).await
+) -> Result<ContextReport> {
+    context_project_with_operation_context_impl(options, None, operation)
+        .await
+        .map(ContextReport::from)
 }
 
-/// Builds a diff-aware context pack with explicit runtime dependencies and operation metadata.
+/// Builds a diff-aware context report with explicit runtime dependencies and operation metadata.
 pub async fn context_project_with_composition_and_operation_context(
     options: ContextOptions,
     composition: &RuntimeComposition,
     operation: &OperationContext,
-) -> Result<ContextPack> {
-    context_project_with_operation_context_impl(options, Some(composition), operation).await
+) -> Result<ContextReport> {
+    context_project_with_operation_context_impl(options, Some(composition), operation)
+        .await
+        .map(ContextReport::from)
 }
 
 /// Builds a change map under the shared cancellation/deadline contract.
