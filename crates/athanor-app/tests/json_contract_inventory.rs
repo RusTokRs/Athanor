@@ -35,6 +35,11 @@ const KNOWN_UNREGISTERED_AGENT_FACING_SCHEMAS: &[&str] = &[
     "athanor.rustok_page_builder_violations_graph.v1",
 ];
 
+const MIGRATED_SHARED_SCHEMA_BUILDERS: &[(&str, &str)] = &[
+    ("src/search.rs", "athanor.search.v1"),
+    ("src/impact.rs", "athanor.impact_analysis.v1"),
+];
+
 #[test]
 fn known_agent_facing_schema_literals_are_registered_or_explicitly_tracked() {
     validate_contract_registry(VERSIONED_JSON_CONTRACTS)
@@ -81,6 +86,30 @@ fn known_agent_facing_schema_literals_are_registered_or_explicitly_tracked() {
         tracked.into_iter().map(str::to_string).collect(),
         "migration allowlist and observed agent-facing schema literals diverged"
     );
+}
+
+#[test]
+fn migrated_builders_use_shared_registry_constants() {
+    let registered = VERSIONED_JSON_CONTRACTS
+        .iter()
+        .map(|contract| contract.schema)
+        .collect::<BTreeSet<_>>();
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+
+    for (relative_path, schema) in MIGRATED_SHARED_SCHEMA_BUILDERS {
+        assert!(
+            registered.contains(schema),
+            "migrated builder schema `{schema}` must remain registered"
+        );
+        let path = manifest_dir.join(relative_path);
+        let source = fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
+        let quoted_literal = format!("\"{schema}\"");
+        assert!(
+            !source.contains(&quoted_literal),
+            "migrated builder `{relative_path}` embeds schema literal `{schema}` instead of using the shared registry constant"
+        );
+    }
 }
 
 fn extract_schema_ids(source: &str) -> BTreeSet<String> {
