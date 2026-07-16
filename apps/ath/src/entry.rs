@@ -5,6 +5,7 @@ mod direct_graph_cli;
 mod direct_operation;
 mod direct_read_cli;
 mod direct_rustok_cli;
+mod direct_rustok_help;
 mod repair_cli;
 
 mod legacy {
@@ -113,6 +114,9 @@ mod legacy {
 
 fn main() -> Result<()> {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
+    if direct_rustok_help::print_if_requested(&args) {
+        return Ok(());
+    }
     if let Some(command) = repair_cli::parse(&args)? {
         #[allow(deprecated)]
         {
