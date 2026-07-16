@@ -1,5 +1,7 @@
 //! Default runtime composition for Athanor.
 
+mod projector_operation;
+
 use athanor_adapter_rustok_fba::{RustokFbaChecker, RustokFbaExtractor, RustokFbaLinker};
 use athanor_adapter_rustok_ffa::{RustokFfaChecker, RustokFfaExtractor, RustokFfaLinker};
 use athanor_adapter_rustok_page_builder::{
@@ -29,6 +31,8 @@ use athanor_linker_js_ts::JsTsImportLinker;
 use athanor_linker_markdown::MarkdownContainmentLinker;
 use athanor_linker_rust::RustLinker;
 use athanor_source_fs::LocalFileSystemSource;
+
+use crate::projector_operation::publish_projector_output_cancellable;
 
 /// Builds the standard Athanor runtime without mutating process-global state.
 pub fn production() -> RuntimeComposition {
@@ -64,13 +68,15 @@ fn default_wiki_projector(
     is_cancelled: &dyn Fn() -> bool,
 ) -> anyhow::Result<()> {
     let payload = serde_json::from_value(payload)?;
-    athanor_projector_wiki::project_wiki_payload_cancellable(
-        target,
-        snapshot,
-        payload,
-        is_cancelled,
-    )?;
-    Ok(())
+    publish_projector_output_cancellable(target, "wiki", is_cancelled, |staging| {
+        athanor_projector_wiki::project_wiki_payload_cancellable(
+            staging,
+            snapshot,
+            payload,
+            is_cancelled,
+        )?;
+        Ok(())
+    })
 }
 
 fn default_html_projector(
@@ -80,13 +86,15 @@ fn default_html_projector(
     is_cancelled: &dyn Fn() -> bool,
 ) -> anyhow::Result<()> {
     let payload = serde_json::from_value(payload)?;
-    athanor_projector_html::project_html_report_payload_cancellable(
-        target.to_path_buf(),
-        snapshot,
-        payload,
-        is_cancelled,
-    )?;
-    Ok(())
+    publish_projector_output_cancellable(target, "HTML report", is_cancelled, |staging| {
+        athanor_projector_html::project_html_report_payload_cancellable(
+            staging.to_path_buf(),
+            snapshot,
+            payload,
+            is_cancelled,
+        )?;
+        Ok(())
+    })
 }
 
 fn default_search_index(
