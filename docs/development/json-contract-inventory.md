@@ -8,7 +8,7 @@ status: active
 
 This inventory records JSON documents that cross CLI, daemon, MCP, persisted-state, or process-adapter boundaries. A document may enter `VERSIONED_JSON_CONTRACTS` only when one Rust type owns one top-level schema id and its current payload shape is protected by a regression fixture.
 
-Audit baseline: `main` at `d78a759d558bf37704fbf0008e12d008bf5c7cce`.
+Audit baseline: `main` at `2799620347941ac9c55062fc3005c21321d0a3cd`.
 
 ## Registered contracts
 
@@ -66,9 +66,9 @@ Extractor/linker/checker process payloads, daemon envelopes, MCP envelopes, inde
 
 ## Shared-constant migration
 
-`SearchReport` and `ImpactAnalysis` builders now import their schema ids from `json_contract` instead of embedding quoted schema literals. Impact covers both the normal report path and the empty-diff early return.
+The registered Search, Impact, Diagnostic Check, Affected Check, Operations Docs Check, and ChangeMap builders now import their schema ids from `json_contract` instead of embedding quoted schema literals. Impact covers both the normal report path and the empty-diff early return.
 
-`json_contract_inventory.rs` protects the migrated files with a source-level regression: each schema must remain registered and its quoted literal must not reappear in the builder source. Check-family and ChangeMap builders remain the next migration slice.
+`json_contract_inventory.rs` protects all six migrated schema ids with a source-level regression: each schema must remain registered and its quoted literal must not reappear in the owner source. Unit assertions for Check and ChangeMap also use the shared constants.
 
 ## Enforcement implementation
 
