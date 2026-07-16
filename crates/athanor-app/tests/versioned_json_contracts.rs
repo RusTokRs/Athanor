@@ -1,9 +1,12 @@
 use std::path::PathBuf;
 
 use athanor_app::{
-    ApiOverview, DocsOverview, ENTITY_EXPLANATION_SCHEMA_V1, IMPACT_ANALYSIS_SCHEMA_V1,
-    OperationsOverview, OVERVIEW_SCHEMA_V1, OverviewTotals, RepositoryOverview, SEARCH_SCHEMA_V1,
-    SearchOmissions, SearchReport, VersionedJsonContract, explain_snapshot, impact_snapshot,
+    AFFECTED_CHECK_SCHEMA_V1, AffectedCheckReport, AffectedFileCounts, ApiOverview,
+    DIAGNOSTIC_CHECK_SCHEMA_V1, DiagnosticCheckReport, DiagnosticCounts, DiagnosticScope,
+    DocsOverview, ENTITY_EXPLANATION_SCHEMA_V1, IMPACT_ANALYSIS_SCHEMA_V1,
+    OPERATIONS_DOCS_CHECK_SCHEMA_V1, OperationsDocsCheckReport, OperationsOverview,
+    OVERVIEW_SCHEMA_V1, OverviewTotals, RepositoryOverview, SEARCH_SCHEMA_V1, SearchOmissions,
+    SearchReport, VersionedJsonContract, explain_snapshot, impact_snapshot,
 };
 use athanor_core::CanonicalSnapshot;
 use athanor_domain::{
@@ -81,6 +84,60 @@ fn impact_analysis_v1_matches_golden_fixture() {
 
     assert_eq!(report.schema, IMPACT_ANALYSIS_SCHEMA_V1);
     assert_matches_fixture(&report, include_str!("fixtures/impact_analysis.v1.json"));
+}
+
+#[test]
+fn diagnostic_check_v1_matches_golden_fixture() {
+    let report = diagnostic_report(DiagnosticScope::Api);
+
+    assert_matches_fixture(&report, include_str!("fixtures/diagnostic_check.v1.json"));
+}
+
+#[test]
+fn affected_check_v1_matches_golden_fixture() {
+    let report = AffectedCheckReport {
+        schema: AFFECTED_CHECK_SCHEMA_V1.to_string(),
+        snapshot: "snap_fixture".to_string(),
+        affected_files: AffectedFileCounts {
+            changed: 1,
+            unchanged: 2,
+            removed: 0,
+        },
+        stale_artifacts: Vec::new(),
+        documentation_drift: Vec::new(),
+        counts: DiagnosticCounts::default(),
+        diagnostics: Vec::new(),
+    };
+
+    assert_matches_fixture(&report, include_str!("fixtures/affected_check.v1.json"));
+}
+
+#[test]
+fn operations_docs_check_v1_matches_golden_fixture() {
+    let report = OperationsDocsCheckReport {
+        schema: OPERATIONS_DOCS_CHECK_SCHEMA_V1.to_string(),
+        snapshot: "snap_fixture".to_string(),
+        counts: DiagnosticCounts::default(),
+        env: diagnostic_report(DiagnosticScope::Env),
+        scripts: diagnostic_report(DiagnosticScope::Scripts),
+        deployment: diagnostic_report(DiagnosticScope::Deployment),
+        runbooks: diagnostic_report(DiagnosticScope::Runbooks),
+    };
+
+    assert_matches_fixture(
+        &report,
+        include_str!("fixtures/operations_docs_check.v1.json"),
+    );
+}
+
+fn diagnostic_report(scope: DiagnosticScope) -> DiagnosticCheckReport {
+    DiagnosticCheckReport {
+        schema: DIAGNOSTIC_CHECK_SCHEMA_V1.to_string(),
+        snapshot: "snap_fixture".to_string(),
+        scope,
+        counts: DiagnosticCounts::default(),
+        diagnostics: Vec::new(),
+    }
 }
 
 fn contract_snapshot() -> CanonicalSnapshot {
