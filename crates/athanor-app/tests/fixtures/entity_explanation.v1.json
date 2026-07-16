@@ -1,0 +1,32 @@
+{
+  "schema": "athanor.entity_explanation.v1",
+  "snapshot": "snap_fixture",
+  "entity": {
+    "id": "ent_contract",
+    "stable_key": "api://GET:/contract",
+    "kind": "api_endpoint",
+    "name": "GET /contract",
+    "title": "Contract endpoint",
+    "source": {
+      "path": "openapi.yaml",
+      "line_start": 10,
+      "line_end": 20
+    },
+    "language": null,
+    "aliases": [
+      "contract"
+    ],
+    "ownership": [
+      {
+        "source_file": "openapi.yaml"
+      }
+    ],
+    "payload": {
+      "method": "GET"
+    }
+  },
+  "facts": [],
+  "outgoing_relations": [],
+  "incoming_relations": [],
+  "diagnostics": []
+}
