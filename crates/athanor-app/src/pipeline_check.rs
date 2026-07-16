@@ -37,7 +37,7 @@ pub(crate) async fn check(
             "running checker"
         );
         let started = std::time::Instant::now();
-        let output = crate::runtime::with_process_execution_context(
+        let output = crate::with_process_execution_context(
             operation.clone(),
             cancellation.clone(),
             async {
