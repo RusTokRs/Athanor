@@ -1,7 +1,6 @@
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
 use std::process::Stdio;
-use std::sync::Arc;
 use std::time::Duration;
 
 use athanor_core::{
@@ -11,25 +10,7 @@ use athanor_core::{
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
 
-use crate::CancellationToken;
-
-/// Application process-runner extension that carries cancellation and operation deadlines through
-/// an external adapter lifecycle.
-#[async_trait::async_trait]
-pub trait CancellableProcessRunner: ProcessRunner {
-    async fn run_with_operation_context(
-        &self,
-        request: ProcessRequest,
-        operation: Option<&OperationContext>,
-        cancellation: Option<&CancellationToken>,
-    ) -> CoreResult<ProcessOutput>;
-}
-
-pub type SharedProcessRunner = Arc<dyn CancellableProcessRunner>;
-
-pub fn default_process_runner() -> SharedProcessRunner {
-    Arc::new(TokioProcessRunner)
-}
+use crate::{CancellationToken, CancellableProcessRunner};
 
 /// Tokio implementation of the transport-neutral [`ProcessRunner`] port.
 #[derive(Debug, Default, Clone, Copy)]
@@ -109,7 +90,7 @@ async fn execute_process(
     let deadline = tokio::time::Instant::now() + Duration::from_millis(request.limits.timeout_ms);
 
     let write_result = tokio::select! {
-        result = stdin.write_all(&request.stdin) => Some(result),
+        result = stdin.write_all(&request.stdin) => result,
         _ = tokio::time::sleep_until(deadline) => {
             terminate_external_process_tree(&mut child).await;
             let _ = (&mut stdout_reader).await;
@@ -123,7 +104,7 @@ async fn execute_process(
             return Err(terminal);
         }
     };
-    if let Some(Err(error)) = write_result
+    if let Err(error) = write_result
         && error.kind() != std::io::ErrorKind::BrokenPipe
     {
         terminate_external_process_tree(&mut child).await;
@@ -273,7 +254,7 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use athanor_core::{OperationContextCancellation, ProcessLimits};
+    use athanor_core::ProcessLimits;
 
     use super::*;
 
