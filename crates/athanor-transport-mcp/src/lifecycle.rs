@@ -74,7 +74,7 @@ pub async fn run_mcp_server(root: PathBuf) -> Result<()> {
     cancel_all(&active_reads).await;
     while let Some(joined) = requests.join_next().await {
         if let Err(error) = joined {
-            tracing::warn!(error = %error, "MCP request task terminated unexpectedly");
+            eprintln!("MCP request task terminated unexpectedly: {error}");
         }
     }
     drop(responses_tx);
@@ -174,9 +174,10 @@ async fn run_registered_read<T>(
         .map_err(anyhow::Error::new)?;
     {
         let mut active = active_reads.lock().await;
-        if active.insert(request_key.clone(), cancellation).is_some() {
+        if active.contains_key(&request_key) {
             bail!("MCP request id `{request_key}` is already active");
         }
+        active.insert(request_key.clone(), cancellation);
     }
 
     let result = await_read_operation(&operation, future).await;
@@ -219,7 +220,7 @@ fn parse_deadline(arguments: &Value) -> Result<Option<u64>> {
 }
 
 fn request_key(id: &Value) -> Result<String> {
-    if id.is_null() || id.is_array() || id.is_object() {
+    if !id.is_string() && !id.is_number() {
         bail!("MCP request id must be a string or number");
     }
     serde_json::to_string(id).context("failed to encode MCP request id")
@@ -390,5 +391,13 @@ mod tests {
         assert!(is_read_tool("search"));
         assert!(is_read_tool("change_map"));
         assert!(!is_read_tool("index"));
+    }
+
+    #[test]
+    fn request_ids_are_limited_to_json_rpc_string_or_number() {
+        assert_eq!(request_key(&json!(7)).unwrap(), "7");
+        assert_eq!(request_key(&json!("seven")).unwrap(), "\"seven\"");
+        assert!(request_key(&json!(true)).is_err());
+        assert!(request_key(&Value::Null).is_err());
     }
 }
