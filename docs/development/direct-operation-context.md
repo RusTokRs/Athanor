@@ -127,8 +127,9 @@ staged writer commits and the operation is still active. The previous directory 
 new index reopens successfully; failed or cancelled rebuilds remove staging and preserve the current index.
 
 The production composition and legacy global installation both register the operation-aware Tantivy factory.
-Direct Search, direct Context, Context diff, and daemon Search/Context use it. A daemon releases a stale cached
-index handle before directory replacement so Windows does not retain an open handle to the old directory.
+Direct Search, direct Context, Context diff, daemon Search/Context, and MCP Search/Context use it. A daemon
+releases a stale cached index handle before directory replacement so Windows does not retain an open handle to
+the old directory.
 
 `ath check --strict` uses the same non-orphaning blocking boundary for synchronous API contract diffing. The
 normal diagnostic query remains an async operation-aware read. Strict non-API scope behavior and exit codes
@@ -143,13 +144,18 @@ The server continues reading input while tool requests are active. Read requests
 JSON-RPC string or numeric id. The operation id is `mcp:<serialized-request-id>`, so duplicate active request
 identities fail closed through the core cancellation lease.
 
-For read tools, the lifecycle loop polls the tool future every 25 ms together with cancellation and deadline
-checks. Cancellation drops the read future and returns a structured operation error instead of a late tool
-success. Normal tool failures retain the existing MCP `isError` content response. Transactional tools retain
-the compatibility path.
+Compatibility read tools retain the 25 ms lifecycle poller. Their future is dropped when cancellation or a
+deadline becomes terminal, and postflight checks reject late success.
 
-When stdin closes, every registered read lease is cancelled and request tasks are drained before the response
-writer exits.
+Search and Context are different because they can own a blocking search-index rebuild. They are dispatched to
+operation-aware application APIs and use a drained registry path. Cancellation marks the shared operation but
+does not release the request lease or emit a response until the future has observed termination and completed
+cleanup. Terminal cancellation/deadline state takes precedence over a simultaneous worker error, and the lease
+is removed for every returned result.
+
+Normal tool failures retain the existing MCP `isError` content response. Transactional tools retain the
+compatibility path. When stdin closes, every registered read lease is cancelled and request tasks are drained
+before the response writer exits.
 
 ## Compatibility
 
@@ -210,6 +216,8 @@ Required regressions:
 - PageRank, cycle search, graph traversal, filesystem hashing, and search rebuild observe bounded checkpoints;
 - cancellation after multiple search-document batches leaves the current index readable and removes staging;
 - cancellation rejects a would-be late successful legacy future;
+- MCP Search/Context cancellation waits for operation-aware future cleanup before releasing the lease;
+- MCP terminal operation state overrides simultaneous worker errors after drain;
 - MCP cancellation notification terminates a registered read and releases its lease;
 - MCP deadline termination releases the request registry entry;
 - transactional `index` remains outside the cancellable read scope;
