@@ -26,13 +26,14 @@
 8. Read-only operation проверяет active state до работы, внутри поддерживаемых hot loops и перед success.
 9. Derived rebuild выполняется через staging; current artifact меняется только после готовности staged artifact.
 10. Rebuild-capable transport держит cancellation lease до worker/future cleanup.
-11. Transactional MCP cancellation остаётся запрещённой без отдельного rollback review.
-12. Queries читают только committed canonical snapshots.
-13. Backend atomic publication не считается единым application generation pointer.
-14. Recovery fail-closed проверяет path/type/schema/snapshot/generation/checksum identity до mutation.
-15. `GenerationId` детерминированно выводится из уникального `SnapshotId`.
-16. Canonical latest repair не может перемотать visibility на более старый committed snapshot.
-17. Destructive retention требует token от точного dry-run plan.
+11. Projector publication проверяет cancellation после полного staging и до mutation current output.
+12. Transactional MCP cancellation остаётся запрещённой без отдельного rollback review.
+13. Queries читают только committed canonical snapshots.
+14. Backend atomic publication не считается единым application generation pointer.
+15. Recovery fail-closed проверяет path/type/schema/snapshot/generation/checksum identity до mutation.
+16. `GenerationId` детерминированно выводится из уникального `SnapshotId`.
+17. Canonical latest repair не может перемотать visibility на более старый committed snapshot.
+18. Destructive retention требует token от точного dry-run plan.
 
 ## 1. Текущий baseline
 
@@ -53,6 +54,8 @@
 - cooperative checkpoints внутри related/path/PageRank/cycle algorithms;
 - cooperative filesystem discovery и file hashing в built-in source и diff scanner;
 - staged operation-aware Tantivy rebuild с backup/rollback и bounded document checkpoints;
+- outer staged publication guard для runtime wiki/html projectors;
+- cooperative operation-aware Rustok architecture-context builder;
 - feature, coverage, AppSec, installer и release workflows.
 
 Платформенное состояние:
@@ -81,8 +84,10 @@ cargo test -p ath direct_rustok_help --locked
 
 cargo test -p athanor-source-fs --locked
 cargo test -p athanor-search-tantivy --locked
+cargo test -p athanor-runtime-defaults projector_operation --locked
 cargo test -p athanor-app graph_operation --locked
 cargo test -p athanor-app graph_cooperative --locked
+cargo test -p athanor-app rustok_architecture_cooperative --locked
 cargo test -p athanor-app rustok_operation --locked
 cargo test -p athanor-app derived_read_operation --locked
 cargo test -p athanor-app search_operation --locked
@@ -102,7 +107,7 @@ cargo test -p athanor-store-surrealdb --test conformance --locked
 | Transactional publication | `[-]` | generation layer code complete, repair/checksums/fault regressions | Hosted backend/OS evidence |
 | Allocation recovery | `[-]` | metadata, cutoff, bounded cleanup | Legacy untagged policy, hosted evidence |
 | Concurrent writers | `[-]` | JSONL/application locks, embedded ownership | Hosted remote conflict evidence |
-| Operation context | `[-]` | daemon, focused CLI, manual Rustok, MCP reads, graph/discovery/search polling, worker/future drain | Projector/Rustok report polling, hosted evidence |
+| Operation context | `[-]` | daemon, focused CLI, MCP, graph/discovery/search polling, projector guard, architecture polling, drain | Rustok audit/graph polling, hosted evidence |
 | Runtime maintainability | `[-]` | focused coordinator/read/graph/check/Rustok/Context/Search modules | Remaining legacy CLI/runtime decomposition |
 | Hosted CI | `[!]` | workflow files | Actions runs, artifacts, required checks |
 | AppSec | `[-]` | configured gates/SBOM/signing | Hosted evidence, push protection |
@@ -199,7 +204,8 @@ cargo test -p athanor-store-surrealdb --test conformance --locked
 - [x] Publication coordinator focused; transition modules удалены.
 - [-] Focused daemon read/write dispatchers и concurrent MCP lifecycle добавлены.
 - [x] Graph, strict API diff, Rustok reports и search rebuild имеют non-orphaning blocking boundary.
-- [-] Graph, discovery и search rebuild имеют cooperative polling; projectors/report builders ещё нет.
+- [-] Graph, discovery, search и architecture context имеют cooperative polling; остальные Rustok builders ещё нет.
+- [x] Wiki/html runtime projector publication имеет final cancellation guard до current-output swap.
 - [x] Operation-aware search factory добавлен без изменения legacy `RuntimeComposition::new`.
 - [x] Diff Context не использует drop-on-timeout вокруг operation-aware rebuild.
 - [x] MCP Search/Context используют drained operation dispatch вместо compatibility future drop.
@@ -231,10 +237,16 @@ cargo test -p athanor-store-surrealdb --test conformance --locked
 - [x] MCP Search/Context держат registry lease до operation-aware cleanup.
 - [x] MCP terminal cancellation/deadline имеет приоритет над simultaneous worker error после drain.
 - [x] MCP concurrent read cancellation, EOF cleanup и stable structured errors.
+- [x] Runtime wiki/html projectors строят output во внешнем staging и проверяют late cancellation до swap.
+- [x] Failed projector swap восстанавливает предыдущий output; post-swap backup cleanup не отменяет durable success.
+- [x] Operation-aware Rustok architecture context проверяет active state между bounded work batches.
+- [x] Architecture parity regression сохраняет legacy output schema и selection semantics.
+- [x] Deterministic architecture regression отменяет builder после нескольких batches.
 - [x] Parser/process/worker regressions для help, malformed/expired deadline, preflight, drain и success.
 - [x] Deterministic search regression отменяет rebuild после нескольких batches.
 - [!] Hosted fmt/test/Clippy/stdio/Ctrl-C/disconnect/directory-swap/worker evidence отсутствует.
-- [ ] Cooperative polling внутри projectors и Rustok-specific pure report loops.
+- [ ] Cooperative polling внутри FFA/FBA/Page Builder audit builders.
+- [ ] Cooperative polling внутри Rustok FFA/FBA/Page Builder graph builders.
 - [ ] Transactional MCP notification cancellation — только после rollback review.
 
 ### P1.6. Performance budgets
@@ -254,19 +266,19 @@ cargo test -p athanor-store-surrealdb --test conformance --locked
 
 Оценка остаётся диапазоном, а не release assertion:
 
-- весь roadmap: ориентировочно `81–85%`;
+- весь roadmap: ориентировочно `82–86%`;
 - generation-layer код P0.4: `100%` по текущему scope;
-- P1.5 operation lifecycle: ориентировочно `95–98%` на уровне кода;
+- P1.5 operation lifecycle: ориентировочно `96–98%` на уровне кода;
 - release-grade P0.4/P1.5 остаются `[-]` до hosted evidence;
 - до release-grade P0 остаются пять hosted/platform evidence packages и policy work;
-- после P0 остаются sandbox, projector/report polling, decomposition, performance и P2.
+- после P0 остаются sandbox, оставшиеся Rustok builder checkpoints, decomposition, performance и P2.
 
 ## 7. Порядок реализации
 
 1. `[!]` Включить Actions и получить compile/test/fmt/Clippy evidence.
 2. Получить P0 hosted JSONL/embedded/remote conflict/latest/checksum evidence.
 3. Получить hosted AppSec/matrix/installer/tag evidence и включить required checks.
-4. P1.5 — cooperative projector и Rustok report polling.
+4. P1.5 — cooperative FFA/FBA/Page Builder audit и graph builders.
 5. P1.1 — OS-level sandbox и resource limits.
 6. Остальная CLI/runtime decomposition.
 7. Performance budgets.
@@ -276,32 +288,46 @@ cargo test -p athanor-store-surrealdb --test conformance --locked
 
 **Активный внешний blocker:** `GitHub Actions activation/visibility`.
 
-**Завершённый кодовый срез:** `P1.5 cooperative filesystem discovery and search-index polling`.
+**Завершённый кодовый срез:** `P1.5 projector publication guard and cooperative Rustok architecture context`.
 
 Завершённый результат:
 
-- built-in `SourceProvider` и application diff scanner проверяют active state между bounded traversal/hash batches;
-- legacy discovery и search factory APIs сохраняют source compatibility;
-- Search и Context используют focused drained CLI interceptors;
-- operation-aware Context, direct Search, daemon Search/Context и MCP Search/Context используют cancellable search factory;
-- Tantivy rebuild строит staged index и переключает directory только после commit/active check;
-- current index сохраняется при cancellation/error, backup удаляется только после successful reopen;
-- stale daemon index handle освобождается до swap для Windows compatibility;
-- daemon diff Context и MCP Search/Context дожидаются operation-aware cleanup вместо drop-on-timeout/drop-on-cancel;
-- MCP lease освобождается при любом terminal result, а cancellation/deadline имеет postflight priority;
-- deterministic regression отменяет rebuild на третьем checkpoint после нескольких document batches.
+- runtime wiki/html projector factories строят output в operation-specific outer staging;
+- final cancellation check выполняется после полного inner projection и до mutation current target;
+- late cancellation сохраняет предыдущий output и удаляет staging;
+- failed directory swap восстанавливает backup;
+- cleanup backup после успешного swap не превращает durable success в ошибку;
+- public projector factories, payload schemas и legacy projector APIs не изменены;
+- operation-aware Rustok architecture context использует bounded checkpoints при обходе entities, relations, diagnostics и evidence;
+- legacy pure architecture builder остаётся public/source-compatible;
+- parity regression сравнивает cooperative и legacy reports;
+- deterministic regression отменяет architecture build после нескольких batches;
+- outer Rustok worker drain остаётся обязательным terminal boundary.
 
-**Следующий безопасный кодовый срез:** `P1.5 cooperative projector and Rustok report polling`.
+**Следующий безопасный кодовый срез:** `P1.5 cooperative Rustok audit and graph builders`.
 
 Целевой результат следующего среза:
 
-- wiki/html projector loops проверяют active state между bounded entity/diagnostic batches;
-- Rustok architecture/audit/graph pure builders получают cooperative checkpoints без изменения schemas;
-- staged projector output не заменяет current artifact после cancellation;
-- legacy non-operation projector/report APIs остаются source-compatible;
-- regressions отменяют работу после нескольких emitted pages/nodes.
+- FFA, FBA и Page Builder audit builders проверяют active state между bounded module/entity/diagnostic batches;
+- FFA, FBA и Page Builder graph builders проверяют active state при selection, edge construction и report compaction;
+- operation-aware wrappers используют cooperative variants;
+- legacy pure builder APIs и output schemas остаются source-compatible;
+- parity regressions подтверждают эквивалентный output;
+- cancellation regressions завершаются после нескольких nodes/edges, а outer worker drain предотвращает orphan.
 
 ## 9. Журнал актуализаций
+
+### 2026-07-16 — projector publication guard и cooperative architecture context
+
+- Runtime wiki/html projectors обёрнуты во внешний staged publication guard.
+- Late cancellation проверяется после inner build и до current-output swap.
+- Previous output сохраняется при cancel и swap failure.
+- Post-swap cleanup не может превратить durable success в operation error.
+- Добавлен cooperative Rustok architecture-context builder с bounded checkpoints.
+- Operation-aware architecture wrapper переключён на cooperative variant.
+- Legacy projector и architecture APIs сохранены.
+- Добавлены late-cancel, parity и multi-batch cancellation regressions.
+- Hosted build/fmt/test/Clippy evidence не заявлено.
 
 ### 2026-07-16 — cooperative discovery и search-index polling
 
