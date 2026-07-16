@@ -1,10 +1,15 @@
 use std::path::PathBuf;
 
 use athanor_app::{
-    ApiOverview, DocsOverview, OperationsOverview, OVERVIEW_SCHEMA_V1, OverviewTotals,
-    RepositoryOverview, SEARCH_SCHEMA_V1, SearchOmissions, SearchReport, VersionedJsonContract,
+    ApiOverview, DocsOverview, ENTITY_EXPLANATION_SCHEMA_V1, IMPACT_ANALYSIS_SCHEMA_V1,
+    OperationsOverview, OVERVIEW_SCHEMA_V1, OverviewTotals, RepositoryOverview, SEARCH_SCHEMA_V1,
+    SearchOmissions, SearchReport, VersionedJsonContract, explain_snapshot, impact_snapshot,
 };
-use serde_json::Value;
+use athanor_core::CanonicalSnapshot;
+use athanor_domain::{
+    Entity, EntityId, EntityKind, Ownership, SnapshotId, SourceLocation, StableKey,
+};
+use serde_json::{Value, json};
 
 fn assert_matches_fixture<T: VersionedJsonContract>(document: &T, fixture: &str) {
     document
@@ -54,4 +59,51 @@ fn search_report_v1_matches_golden_fixture() {
     };
 
     assert_matches_fixture(&report, include_str!("fixtures/search.v1.json"));
+}
+
+#[test]
+fn entity_explanation_v1_matches_golden_fixture() {
+    let snapshot = contract_snapshot();
+    let report = explain_snapshot(&snapshot, "api://GET:/contract")
+        .expect("fixture entity must be explainable");
+
+    assert_eq!(report.schema, ENTITY_EXPLANATION_SCHEMA_V1);
+    assert_matches_fixture(
+        &report,
+        include_str!("fixtures/entity_explanation.v1.json"),
+    );
+}
+
+#[test]
+fn impact_analysis_v1_matches_golden_fixture() {
+    let snapshot = contract_snapshot();
+    let report = impact_snapshot(&snapshot, snapshot.entities.clone(), 1);
+
+    assert_eq!(report.schema, IMPACT_ANALYSIS_SCHEMA_V1);
+    assert_matches_fixture(&report, include_str!("fixtures/impact_analysis.v1.json"));
+}
+
+fn contract_snapshot() -> CanonicalSnapshot {
+    CanonicalSnapshot {
+        snapshot: Some(SnapshotId("snap_fixture".to_string())),
+        entities: vec![Entity {
+            id: EntityId("ent_contract".to_string()),
+            stable_key: StableKey("api://GET:/contract".to_string()),
+            kind: EntityKind::ApiEndpoint,
+            name: "GET /contract".to_string(),
+            title: Some("Contract endpoint".to_string()),
+            source: Some(SourceLocation {
+                path: "openapi.yaml".to_string(),
+                line_start: Some(10),
+                line_end: Some(20),
+            }),
+            language: None,
+            aliases: vec!["contract".to_string()],
+            ownership: vec![Ownership {
+                source_file: "openapi.yaml".to_string(),
+            }],
+            payload: json!({ "method": "GET" }),
+        }],
+        ..CanonicalSnapshot::default()
+    }
 }
