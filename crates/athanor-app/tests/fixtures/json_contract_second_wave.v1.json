@@ -1,0 +1,125 @@
+{
+  "change_map": {
+    "schema": "athanor.change_map.v1",
+    "snapshot": "snap_fixture",
+    "query": {
+      "task": "contract",
+      "target": null,
+      "diff": false,
+      "changed_files": []
+    },
+    "limits": {
+      "max_entities": 10,
+      "max_files": 10,
+      "max_diagnostics": 10,
+      "max_depth": 2
+    },
+    "returned": {
+      "entities": 0,
+      "files": 0,
+      "diagnostics": 0
+    },
+    "omitted": {
+      "entities": 0,
+      "files": 0,
+      "diagnostics": 0
+    },
+    "items": [],
+    "files": [],
+    "diagnostics": [],
+    "completeness": {
+      "candidate_limit_reached": false,
+      "candidate_limit": 5000,
+      "note": "fixture",
+      "suggested_command": "ath coverage --json"
+    }
+  },
+  "graph_export": {
+    "schema": "athanor.graph_export.v1",
+    "snapshot": "snap_fixture",
+    "nodes": [],
+    "edges": [],
+    "omitted": {
+      "nodes": 0,
+      "edges": 0,
+      "reason": "limit"
+    }
+  },
+  "graph_related": {
+    "schema": "athanor.graph_related.v1",
+    "snapshot": "snap_fixture",
+    "root": {
+      "id": "ent_root",
+      "stable_key": "module://root",
+      "kind": "module",
+      "name": "root",
+      "source": null,
+      "degree": 0,
+      "distance": 0
+    },
+    "nodes": [],
+    "edges": [],
+    "truncated": false
+  },
+  "graph_path": {
+    "schema": "athanor.graph_path.v1",
+    "snapshot": "snap_fixture",
+    "from": {
+      "id": "ent_from",
+      "stable_key": "module://from",
+      "kind": "module",
+      "name": "from",
+      "source": null,
+      "degree": 0
+    },
+    "to": {
+      "id": "ent_to",
+      "stable_key": "module://to",
+      "kind": "module",
+      "name": "to",
+      "source": null,
+      "degree": 0
+    },
+    "found": false,
+    "hops": null,
+    "nodes": [],
+    "edges": [],
+    "visited": 2,
+    "truncated": false
+  },
+  "graph_hubs": {
+    "schema": "athanor.graph_hubs.v1",
+    "snapshot": "snap_fixture",
+    "kind": null,
+    "hubs": [],
+    "omitted": 0
+  },
+  "graph_pagerank": {
+    "schema": "athanor.graph_pagerank.v1",
+    "snapshot": "snap_fixture",
+    "kind": null,
+    "damping": 0.85,
+    "iterations": 0,
+    "converged": true,
+    "entity_count": 0,
+    "relation_count": 0,
+    "ranks": [],
+    "omitted": 0
+  },
+  "graph_cycles": {
+    "schema": "athanor.graph_cycles.v1",
+    "snapshot": "snap_fixture",
+    "cycles": [],
+    "start_entities": 0,
+    "omitted_start_entities": 0,
+    "truncated": false
+  },
+  "project_resolution": {
+    "schema": "athanor.project_resolution.v1",
+    "registry_path": "registry.json",
+    "project": {
+      "project_id": "fixture",
+      "root": "project"
+    }
+  }
+}
