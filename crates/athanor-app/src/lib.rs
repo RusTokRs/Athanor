@@ -30,6 +30,7 @@ mod daemon_recovery;
 pub mod daemon_runtime;
 mod daemon_watcher;
 mod daemon_write_jobs;
+pub mod derived_read_operation;
 pub mod docs;
 pub mod explain;
 #[cfg(test)]
@@ -122,6 +123,7 @@ pub mod query {
     pub use athanor_core::{FactQuery, FactQueryStore};
 
     pub use crate::context::*;
+    pub use crate::derived_read_operation::*;
     pub use crate::explain::*;
     pub use crate::graph::*;
     pub use crate::impact::*;
@@ -148,6 +150,7 @@ pub use context::*;
 pub use coverage::*;
 pub use daemon::*;
 pub use daemon_runtime::*;
+pub use derived_read_operation::*;
 pub use docs::*;
 pub use explain::*;
 pub use generation::*;
