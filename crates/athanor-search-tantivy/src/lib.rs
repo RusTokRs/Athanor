@@ -36,29 +36,16 @@ pub struct TantivySearchIndex {
 
 impl TantivySearchIndex {
     pub fn open_or_create(path: &Path) -> anyhow::Result<Self> {
-        let (schema, fields) = search_schema();
-        let index = match Index::open_in_dir(path) {
-            Ok(index) => index,
+        match Self::open_existing(path) {
+            Ok(index) => Ok(index),
             Err(_) => {
                 let _ = std::fs::remove_dir_all(path);
                 std::fs::create_dir_all(path)?;
-                Index::create_in_dir(path, schema.clone())?
+                let (schema, _) = search_schema();
+                Index::create_in_dir(path, schema)?;
+                Self::open_existing(path)
             }
-        };
-        register_tokenizer(&index);
-        let writer = index.writer(50_000_000)?;
-        writer.set_merge_policy(Box::new(NoMergePolicy));
-        let reader = index.reader()?;
-
-        Ok(Self {
-            index,
-            reader,
-            writer: Arc::new(Mutex::new(writer)),
-            id_field: fields.id,
-            title_field: fields.title,
-            body_field: fields.body,
-            payload_field: fields.payload,
-        })
+        }
     }
 
     pub fn rebuild(path: &Path, documents: Vec<SearchDocument>) -> anyhow::Result<Self> {
@@ -73,6 +60,25 @@ impl TantivySearchIndex {
         operation.check_active().map_err(anyhow::Error::new)?;
         rebuild_with_checkpoint(path, documents, || {
             operation.check_active().map_err(anyhow::Error::new)
+        })
+    }
+
+    fn open_existing(path: &Path) -> anyhow::Result<Self> {
+        let (_, fields) = search_schema();
+        let index = Index::open_in_dir(path)?;
+        register_tokenizer(&index);
+        let writer = index.writer(50_000_000)?;
+        writer.set_merge_policy(Box::new(NoMergePolicy));
+        let reader = index.reader()?;
+
+        Ok(Self {
+            index,
+            reader,
+            writer: Arc::new(Mutex::new(writer)),
+            id_field: fields.id,
+            title_field: fields.title,
+            body_field: fields.body,
+            payload_field: fields.payload,
         })
     }
 }
@@ -109,8 +115,23 @@ fn rebuild_with_checkpoint(
         commit_writer_with_checkpoint(&mut writer, &mut checkpoint)?;
         drop(writer);
         checkpoint()?;
-        replace_directory(path, &staging)?;
-        TantivySearchIndex::open_or_create(path)
+
+        let backup = install_staging(path, &staging)?;
+        match TantivySearchIndex::open_existing(path) {
+            Ok(index) => {
+                if let Some(backup) = backup {
+                    let _ = std::fs::remove_dir_all(backup);
+                }
+                Ok(index)
+            }
+            Err(error) => {
+                let _ = std::fs::remove_dir_all(path);
+                if let Some(backup) = backup {
+                    let _ = std::fs::rename(backup, path);
+                }
+                Err(error)
+            }
+        }
     })();
 
     if result.is_err() {
@@ -119,7 +140,7 @@ fn rebuild_with_checkpoint(
     result
 }
 
-fn replace_directory(path: &Path, staging: &Path) -> anyhow::Result<()> {
+fn install_staging(path: &Path, staging: &Path) -> anyhow::Result<Option<PathBuf>> {
     let backup = backup_path(path);
     let _ = std::fs::remove_dir_all(&backup);
     let had_existing = path.exists();
@@ -132,10 +153,7 @@ fn replace_directory(path: &Path, staging: &Path) -> anyhow::Result<()> {
         }
         return Err(error.into());
     }
-    if had_existing {
-        let _ = std::fs::remove_dir_all(backup);
-    }
-    Ok(())
+    Ok(had_existing.then_some(backup))
 }
 
 fn staging_path(path: &Path) -> PathBuf {
