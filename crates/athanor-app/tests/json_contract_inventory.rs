@@ -20,12 +20,7 @@ const AGENT_FACING_SOURCE_FILES: &[&str] = &[
     "src/rustok_json_contract.rs",
 ];
 
-const KNOWN_UNREGISTERED_AGENT_FACING_SCHEMAS: &[&str] = &[
-    "athanor.rustok_page_builder_audit.v1",
-    "athanor.rustok_page_builder_provider_graph.v1",
-    "athanor.rustok_page_builder_consumer_graph.v1",
-    "athanor.rustok_page_builder_violations_graph.v1",
-];
+const KNOWN_UNREGISTERED_AGENT_FACING_SCHEMAS: &[&str] = &[];
 
 const KNOWN_PERSISTED_SCHEMAS: &[&str] = &["athanor.project_registry_state.v1"];
 
