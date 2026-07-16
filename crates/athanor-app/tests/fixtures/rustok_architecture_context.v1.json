@@ -1,0 +1,70 @@
+{
+  "schema": "athanor.rustok_architecture_context.v1",
+  "snapshot": "snap-architecture",
+  "intent": "change catalog product rendering",
+  "resolution": {
+    "status": "resolved",
+    "primary_module": "catalog",
+    "candidates": [
+      "catalog"
+    ],
+    "summary": "Resolved catalog as the primary module"
+  },
+  "modules": [
+    {
+      "slug": "catalog",
+      "score": 104,
+      "reasons": [
+        "explicit module selector",
+        "context entity ownership"
+      ]
+    }
+  ],
+  "contracts": [
+    {
+      "stable_key": "rustok-fba://catalog/read",
+      "kind": "rustok_fba_port",
+      "module": "catalog",
+      "source": "contracts/catalog.json"
+    }
+  ],
+  "interactions": [
+    {
+      "consumer": "catalog-page",
+      "provider": "catalog-provider",
+      "profile": "catalog-products",
+      "stable_key": "rustok-page-builder://catalog/products",
+      "source": "src/catalog/page.rs"
+    }
+  ],
+  "tests": [
+    {
+      "stable_key": "rust-test://catalog/products",
+      "name": "catalog products contract",
+      "source": "tests/catalog_products.rs"
+    }
+  ],
+  "diagnostics": [
+    {
+      "kind": "missing_documentation",
+      "severity": "medium",
+      "message": "Document the catalog fallback profile",
+      "source": "src/catalog/page.rs"
+    }
+  ],
+  "evidence": [
+    {
+      "stable_key": "rustok-fba://catalog/read",
+      "source": "contracts/catalog.json"
+    }
+  ],
+  "guidance": [
+    "Update the catalog port contract before its consumers."
+  ],
+  "omitted": {
+    "modules": 0,
+    "contracts": 0,
+    "interactions": 0,
+    "evidence": 0
+  }
+}
