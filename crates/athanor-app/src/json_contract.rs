@@ -4,6 +4,7 @@
 //! the cross-cutting rules that make those payloads safe to consume across CLI,
 //! daemon, and MCP boundaries without duplicating schema-version validation.
 
+use std::collections::BTreeSet;
 use std::error::Error;
 use std::fmt;
 
@@ -14,6 +15,10 @@ use serde_json::Value;
 pub const OVERVIEW_SCHEMA_V1: &str = "athanor.overview.v1";
 /// Stable schema identifier for lexical search reports.
 pub const SEARCH_SCHEMA_V1: &str = "athanor.search.v1";
+/// Stable schema identifier for canonical entity explanation reports.
+pub const ENTITY_EXPLANATION_SCHEMA_V1: &str = "athanor.entity_explanation.v1";
+/// Stable schema identifier for code impact analysis reports.
+pub const IMPACT_ANALYSIS_SCHEMA_V1: &str = "athanor.impact_analysis.v1";
 
 /// One registered, externally consumable JSON document contract.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -22,7 +27,7 @@ pub struct JsonContractDescriptor {
     pub rust_type: &'static str,
 }
 
-/// Initial registry of application JSON contracts migrated to the shared rules.
+/// Application JSON contracts migrated to the shared ownership and validation rules.
 pub const VERSIONED_JSON_CONTRACTS: &[JsonContractDescriptor] = &[
     JsonContractDescriptor {
         schema: OVERVIEW_SCHEMA_V1,
@@ -31,6 +36,14 @@ pub const VERSIONED_JSON_CONTRACTS: &[JsonContractDescriptor] = &[
     JsonContractDescriptor {
         schema: SEARCH_SCHEMA_V1,
         rust_type: "SearchReport",
+    },
+    JsonContractDescriptor {
+        schema: ENTITY_EXPLANATION_SCHEMA_V1,
+        rust_type: "EntityExplanation",
+    },
+    JsonContractDescriptor {
+        schema: IMPACT_ANALYSIS_SCHEMA_V1,
+        rust_type: "ImpactAnalysis",
     },
 ];
 
@@ -69,6 +82,22 @@ impl VersionedJsonContract for crate::overview::RepositoryOverview {
 
 impl VersionedJsonContract for crate::search::SearchReport {
     const SCHEMA: &'static str = SEARCH_SCHEMA_V1;
+
+    fn schema(&self) -> &str {
+        &self.schema
+    }
+}
+
+impl VersionedJsonContract for crate::explain::EntityExplanation {
+    const SCHEMA: &'static str = ENTITY_EXPLANATION_SCHEMA_V1;
+
+    fn schema(&self) -> &str {
+        &self.schema
+    }
+}
+
+impl VersionedJsonContract for crate::impact::ImpactAnalysis {
+    const SCHEMA: &'static str = IMPACT_ANALYSIS_SCHEMA_V1;
 
     fn schema(&self) -> &str {
         &self.schema
@@ -118,6 +147,30 @@ pub fn validate_schema_id(schema: &str) -> Result<u32, JsonContractError> {
     Ok(major)
 }
 
+/// Validates that every registered schema and Rust owner is unique.
+pub fn validate_contract_registry(
+    contracts: &[JsonContractDescriptor],
+) -> Result<(), JsonContractError> {
+    let mut schemas = BTreeSet::new();
+    let mut rust_types = BTreeSet::new();
+
+    for contract in contracts {
+        validate_schema_id(contract.schema)?;
+        if !schemas.insert(contract.schema) {
+            return Err(JsonContractError::DuplicateSchemaId {
+                schema: contract.schema.to_string(),
+            });
+        }
+        if !rust_types.insert(contract.rust_type) {
+            return Err(JsonContractError::DuplicateRustTypeOwner {
+                rust_type: contract.rust_type.to_string(),
+            });
+        }
+    }
+
+    Ok(())
+}
+
 /// Validates the top-level `schema` field of a serialized JSON document.
 pub fn validate_contract_value(
     expected_schema: &str,
@@ -150,6 +203,12 @@ pub enum JsonContractError {
         schema: String,
         reason: &'static str,
     },
+    DuplicateSchemaId {
+        schema: String,
+    },
+    DuplicateRustTypeOwner {
+        rust_type: String,
+    },
     TopLevelDocumentRequired,
     MissingSchemaField,
     NonStringSchemaField,
@@ -165,6 +224,12 @@ impl fmt::Display for JsonContractError {
         match self {
             Self::InvalidSchemaId { schema, reason } => {
                 write!(formatter, "invalid JSON contract schema `{schema}`: {reason}")
+            }
+            Self::DuplicateSchemaId { schema } => {
+                write!(formatter, "duplicate JSON contract schema owner for `{schema}`")
+            }
+            Self::DuplicateRustTypeOwner { rust_type } => {
+                write!(formatter, "duplicate JSON contract Rust type owner `{rust_type}`")
             }
             Self::TopLevelDocumentRequired => {
                 formatter.write_str("versioned JSON contract must serialize as an object")
@@ -261,17 +326,45 @@ mod tests {
     }
 
     #[test]
-    fn registry_contains_unique_valid_schema_ids() {
-        let mut schemas = VERSIONED_JSON_CONTRACTS
-            .iter()
-            .map(|contract| contract.schema)
-            .collect::<Vec<_>>();
-        for schema in &schemas {
-            validate_schema_id(schema).expect("registered schema id must be valid");
-        }
-        schemas.sort_unstable();
-        schemas.dedup();
-        assert_eq!(schemas.len(), VERSIONED_JSON_CONTRACTS.len());
+    fn registry_contains_unique_valid_schema_and_type_owners() {
+        assert_eq!(validate_contract_registry(VERSIONED_JSON_CONTRACTS), Ok(()));
         assert_eq!(crate::overview::OVERVIEW_SCHEMA, OVERVIEW_SCHEMA_V1);
+    }
+
+    #[test]
+    fn registry_rejects_duplicate_schema_and_type_owners() {
+        let duplicate_schema = [
+            JsonContractDescriptor {
+                schema: "athanor.example.v1",
+                rust_type: "ExampleV1",
+            },
+            JsonContractDescriptor {
+                schema: "athanor.example.v1",
+                rust_type: "ExampleAlias",
+            },
+        ];
+        assert_eq!(
+            validate_contract_registry(&duplicate_schema),
+            Err(JsonContractError::DuplicateSchemaId {
+                schema: "athanor.example.v1".to_string(),
+            })
+        );
+
+        let duplicate_type = [
+            JsonContractDescriptor {
+                schema: "athanor.example.v1",
+                rust_type: "Example",
+            },
+            JsonContractDescriptor {
+                schema: "athanor.example.v2",
+                rust_type: "Example",
+            },
+        ];
+        assert_eq!(
+            validate_contract_registry(&duplicate_type),
+            Err(JsonContractError::DuplicateRustTypeOwner {
+                rust_type: "Example".to_string(),
+            })
+        );
     }
 }
