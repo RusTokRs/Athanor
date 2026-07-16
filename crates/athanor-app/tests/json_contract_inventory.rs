@@ -38,6 +38,10 @@ const KNOWN_UNREGISTERED_AGENT_FACING_SCHEMAS: &[&str] = &[
 const MIGRATED_SHARED_SCHEMA_BUILDERS: &[(&str, &str)] = &[
     ("src/search.rs", "athanor.search.v1"),
     ("src/impact.rs", "athanor.impact_analysis.v1"),
+    ("src/check.rs", "athanor.diagnostic_check.v1"),
+    ("src/check.rs", "athanor.affected_check.v1"),
+    ("src/check.rs", "athanor.operations_docs_check.v1"),
+    ("src/change_map.rs", "athanor.change_map.v1"),
 ];
 
 #[test]
