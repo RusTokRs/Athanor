@@ -17,11 +17,7 @@ use crate::graph::{
     GraphPageBuilderConsumerOptions, GraphPageBuilderProviderOptions,
     GraphPageBuilderViolationsOptions, RustokFbaAudit, RustokFbaAuditOptions, RustokFbaGraph,
     RustokFfaAudit, RustokFfaAuditOptions, RustokFfaGraph, RustokPageBuilderAudit,
-    RustokPageBuilderAuditOptions, RustokPageBuilderGraph, build_rustok_fba_dependencies_graph,
-    build_rustok_fba_module_graph, build_rustok_fba_port_graph,
-    build_rustok_fba_violations_graph, build_rustok_ffa_surface_graph,
-    build_rustok_ffa_violations_graph, build_rustok_page_builder_consumer_graph,
-    build_rustok_page_builder_provider_graph, build_rustok_page_builder_violations_graph,
+    RustokPageBuilderAuditOptions, RustokPageBuilderGraph,
 };
 use crate::project_path::normalize_canonical_path;
 use crate::rustok_architecture::{RustokArchitectureContext, RustokArchitectureContextOptions};
@@ -29,6 +25,17 @@ use crate::rustok_architecture_cooperative::build_rustok_architecture_context_wi
 use crate::rustok_audit_cooperative::{
     build_rustok_fba_audit_with_operation_context, build_rustok_ffa_audit_with_operation_context,
     build_rustok_page_builder_audit_with_operation_context,
+};
+use crate::rustok_graph_cooperative::{
+    build_rustok_fba_dependencies_graph_with_operation_context,
+    build_rustok_fba_module_graph_with_operation_context,
+    build_rustok_fba_port_graph_with_operation_context,
+    build_rustok_fba_violations_graph_with_operation_context,
+    build_rustok_ffa_surface_graph_with_operation_context,
+    build_rustok_ffa_violations_graph_with_operation_context,
+    build_rustok_page_builder_consumer_graph_with_operation_context,
+    build_rustok_page_builder_provider_graph_with_operation_context,
+    build_rustok_page_builder_violations_graph_with_operation_context,
 };
 use crate::store::init_store;
 
@@ -127,13 +134,15 @@ pub async fn graph_ffa_surface_with_operation_context(
 ) -> Result<RustokFfaGraph> {
     validate_graph_limits(options.max_nodes, options.max_edges, "FFA")?;
     let snapshot = load_latest_snapshot(options.root, operation).await?;
+    let operation_for_worker = operation.clone();
     run_rustok_worker(operation, move || {
-        build_rustok_ffa_surface_graph(
+        build_rustok_ffa_surface_graph_with_operation_context(
             &snapshot,
             &options.module,
             &options.surface,
             options.max_nodes,
             options.max_edges,
+            &operation_for_worker,
         )
     })
     .await
@@ -145,14 +154,16 @@ pub async fn graph_ffa_violations_with_operation_context(
 ) -> Result<RustokFfaGraph> {
     validate_graph_limits(options.max_nodes, options.max_edges, "FFA")?;
     let snapshot = load_latest_snapshot(options.root, operation).await?;
+    let operation_for_worker = operation.clone();
     run_rustok_worker(operation, move || {
-        Ok(build_rustok_ffa_violations_graph(
+        build_rustok_ffa_violations_graph_with_operation_context(
             &snapshot,
             options.module.as_deref(),
             options.surface.as_deref(),
             options.max_nodes,
             options.max_edges,
-        ))
+            &operation_for_worker,
+        )
     })
     .await
 }
@@ -163,12 +174,14 @@ pub async fn graph_fba_module_with_operation_context(
 ) -> Result<RustokFbaGraph> {
     validate_graph_limits(options.max_nodes, options.max_edges, "FBA")?;
     let snapshot = load_latest_snapshot(options.root, operation).await?;
+    let operation_for_worker = operation.clone();
     run_rustok_worker(operation, move || {
-        build_rustok_fba_module_graph(
+        build_rustok_fba_module_graph_with_operation_context(
             &snapshot,
             &options.module,
             options.max_nodes,
             options.max_edges,
+            &operation_for_worker,
         )
     })
     .await
@@ -180,13 +193,15 @@ pub async fn graph_fba_port_with_operation_context(
 ) -> Result<RustokFbaGraph> {
     validate_graph_limits(options.max_nodes, options.max_edges, "FBA")?;
     let snapshot = load_latest_snapshot(options.root, operation).await?;
+    let operation_for_worker = operation.clone();
     run_rustok_worker(operation, move || {
-        build_rustok_fba_port_graph(
+        build_rustok_fba_port_graph_with_operation_context(
             &snapshot,
             &options.module,
             &options.port,
             options.max_nodes,
             options.max_edges,
+            &operation_for_worker,
         )
     })
     .await
@@ -198,12 +213,14 @@ pub async fn graph_fba_dependencies_with_operation_context(
 ) -> Result<RustokFbaGraph> {
     validate_graph_limits(options.max_nodes, options.max_edges, "FBA")?;
     let snapshot = load_latest_snapshot(options.root, operation).await?;
+    let operation_for_worker = operation.clone();
     run_rustok_worker(operation, move || {
-        build_rustok_fba_dependencies_graph(
+        build_rustok_fba_dependencies_graph_with_operation_context(
             &snapshot,
             &options.module,
             options.max_nodes,
             options.max_edges,
+            &operation_for_worker,
         )
     })
     .await
@@ -215,13 +232,15 @@ pub async fn graph_fba_violations_with_operation_context(
 ) -> Result<RustokFbaGraph> {
     validate_graph_limits(options.max_nodes, options.max_edges, "FBA")?;
     let snapshot = load_latest_snapshot(options.root, operation).await?;
+    let operation_for_worker = operation.clone();
     run_rustok_worker(operation, move || {
-        Ok(build_rustok_fba_violations_graph(
+        build_rustok_fba_violations_graph_with_operation_context(
             &snapshot,
             options.module.as_deref(),
             options.max_nodes,
             options.max_edges,
-        ))
+            &operation_for_worker,
+        )
     })
     .await
 }
@@ -232,11 +251,13 @@ pub async fn graph_page_builder_provider_with_operation_context(
 ) -> Result<RustokPageBuilderGraph> {
     validate_graph_limits(options.max_nodes, options.max_edges, "Page Builder")?;
     let snapshot = load_latest_snapshot(options.root, operation).await?;
+    let operation_for_worker = operation.clone();
     run_rustok_worker(operation, move || {
-        build_rustok_page_builder_provider_graph(
+        build_rustok_page_builder_provider_graph_with_operation_context(
             &snapshot,
             options.max_nodes,
             options.max_edges,
+            &operation_for_worker,
         )
     })
     .await
@@ -248,12 +269,14 @@ pub async fn graph_page_builder_consumer_with_operation_context(
 ) -> Result<RustokPageBuilderGraph> {
     validate_graph_limits(options.max_nodes, options.max_edges, "Page Builder")?;
     let snapshot = load_latest_snapshot(options.root, operation).await?;
+    let operation_for_worker = operation.clone();
     run_rustok_worker(operation, move || {
-        build_rustok_page_builder_consumer_graph(
+        build_rustok_page_builder_consumer_graph_with_operation_context(
             &snapshot,
             &options.module,
             options.max_nodes,
             options.max_edges,
+            &operation_for_worker,
         )
     })
     .await
@@ -265,13 +288,15 @@ pub async fn graph_page_builder_violations_with_operation_context(
 ) -> Result<RustokPageBuilderGraph> {
     validate_graph_limits(options.max_nodes, options.max_edges, "Page Builder")?;
     let snapshot = load_latest_snapshot(options.root, operation).await?;
+    let operation_for_worker = operation.clone();
     run_rustok_worker(operation, move || {
-        Ok(build_rustok_page_builder_violations_graph(
+        build_rustok_page_builder_violations_graph_with_operation_context(
             &snapshot,
             options.module.as_deref(),
             options.max_nodes,
             options.max_edges,
-        ))
+            &operation_for_worker,
+        )
     })
     .await
 }
