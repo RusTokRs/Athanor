@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 
 mod direct_check_cli;
+mod direct_context_cli;
 mod direct_graph_cli;
 mod direct_operation;
 mod direct_read_cli;
@@ -134,6 +135,10 @@ fn main() -> Result<()> {
     }
     if let Some(command) = direct_graph_cli::parse(&args)? {
         return runtime("Athanor direct graph runtime")?.block_on(direct_graph_cli::run(command));
+    }
+    if let Some(command) = direct_context_cli::parse(&args)? {
+        return runtime("Athanor direct context runtime")?
+            .block_on(direct_context_cli::run(command));
     }
     if let Some(command) = direct_search_cli::parse(&args)? {
         return runtime("Athanor direct search runtime")?.block_on(direct_search_cli::run(command));
