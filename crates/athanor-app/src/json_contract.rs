@@ -254,22 +254,6 @@ impl VersionedJsonContract for crate::capabilities::CapabilitiesReport {
     }
 }
 
-impl VersionedJsonContract for crate::rustok_json_contract::RustokFfaSurfaceGraphReport {
-    const SCHEMA: &'static str = RUSTOK_FFA_SURFACE_GRAPH_SCHEMA_V1;
-
-    fn schema(&self) -> &str {
-        &self.as_ref().schema
-    }
-}
-
-impl VersionedJsonContract for crate::rustok_json_contract::RustokFfaViolationsGraphReport {
-    const SCHEMA: &'static str = RUSTOK_FFA_VIOLATIONS_GRAPH_SCHEMA_V1;
-
-    fn schema(&self) -> &str {
-        &self.as_ref().schema
-    }
-}
-
 /// Validates an Athanor schema id and returns its positive major version.
 ///
 /// Accepted identifiers follow `athanor.<name>[.<name>...].v<major>`, where
