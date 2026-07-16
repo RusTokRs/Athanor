@@ -4,6 +4,7 @@ mod direct_check_cli;
 mod direct_graph_cli;
 mod direct_operation;
 mod direct_read_cli;
+mod direct_rustok_cli;
 mod repair_cli;
 
 mod legacy {
@@ -57,6 +58,40 @@ mod legacy {
         print_graph_cycles(report);
     }
 
+    pub(crate) fn print_rustok_architecture_context_bridge(
+        report: &athanor_app::RustokArchitectureContext,
+    ) {
+        print_rustok_architecture_context(report);
+    }
+
+    pub(crate) fn print_rustok_ffa_audit_bridge(report: &athanor_app::RustokFfaAudit) {
+        print_rustok_ffa_audit(report);
+    }
+
+    pub(crate) fn print_rustok_ffa_graph_bridge(report: &athanor_app::RustokFfaGraph) {
+        print_rustok_ffa_graph(report);
+    }
+
+    pub(crate) fn print_rustok_fba_audit_bridge(report: &athanor_app::RustokFbaAudit) {
+        print_rustok_fba_audit(report);
+    }
+
+    pub(crate) fn print_rustok_fba_graph_bridge(report: &athanor_app::RustokFbaGraph) {
+        print_rustok_fba_graph(report);
+    }
+
+    pub(crate) fn print_rustok_page_builder_audit_bridge(
+        report: &athanor_app::RustokPageBuilderAudit,
+    ) {
+        print_rustok_page_builder_audit(report);
+    }
+
+    pub(crate) fn print_rustok_page_builder_graph_bridge(
+        report: &athanor_app::RustokPageBuilderGraph,
+    ) {
+        print_rustok_page_builder_graph(report);
+    }
+
     pub(crate) fn print_affected_check_bridge(
         report: &athanor_app::AffectedCheckReport,
     ) -> anyhow::Result<()> {
@@ -87,6 +122,10 @@ fn main() -> Result<()> {
     }
     if let Some(command) = direct_check_cli::parse(&args)? {
         return runtime("Athanor direct check runtime")?.block_on(direct_check_cli::run(command));
+    }
+    if let Some(command) = direct_rustok_cli::parse(&args)? {
+        return runtime("Athanor direct Rustok runtime")?
+            .block_on(direct_rustok_cli::run(command));
     }
     if let Some(command) = direct_graph_cli::parse(&args)? {
         return runtime("Athanor direct graph runtime")?.block_on(direct_graph_cli::run(command));
