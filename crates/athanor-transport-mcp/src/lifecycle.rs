@@ -153,13 +153,109 @@ async fn call_read_tool(
     if let Some(deadline_unix_ms) = deadline_unix_ms {
         operation = operation.with_deadline_unix_ms(deadline_unix_ms);
     }
-    run_registered_read(
-        active_reads,
-        request_key,
-        operation,
-        legacy::call_tool_inner_bridge(root, tool_name, arguments),
-    )
-    .await
+
+    if is_drained_operation_tool(tool_name) {
+        let root = root.to_path_buf();
+        let tool_name = tool_name.to_string();
+        let execution_operation = operation.clone();
+        run_registered_drained_read(
+            active_reads,
+            request_key,
+            operation,
+            async move {
+                call_operation_read_tool(
+                    &root,
+                    &tool_name,
+                    arguments,
+                    &execution_operation,
+                )
+                .await
+            },
+        )
+        .await
+    } else {
+        run_registered_read(
+            active_reads,
+            request_key,
+            operation,
+            legacy::call_tool_inner_bridge(root, tool_name, arguments),
+        )
+        .await
+    }
+}
+
+async fn call_operation_read_tool(
+    root: &Path,
+    tool_name: &str,
+    arguments: Value,
+    operation: &OperationContext,
+) -> Result<String> {
+    match tool_name {
+        "search" => {
+            let query = arguments
+                .get("query")
+                .and_then(Value::as_str)
+                .context("missing query")?
+                .to_string();
+            let limit = arguments
+                .get("limit")
+                .and_then(Value::as_u64)
+                .map(|value| value as usize)
+                .unwrap_or(10);
+            let report = athanor_app::search_project_with_operation_context(
+                athanor_app::SearchOptions {
+                    root: root.to_path_buf(),
+                    query,
+                    limit,
+                },
+                operation,
+            )
+            .await?;
+            Ok(serde_json::to_string_pretty(&report)?)
+        }
+        "context" => {
+            let task = arguments
+                .get("task")
+                .and_then(Value::as_str)
+                .context("missing task")?
+                .to_string();
+            let level = match arguments
+                .get("level")
+                .and_then(Value::as_str)
+                .unwrap_or("normal")
+            {
+                "summary" => athanor_domain::ContextLevel::Summary,
+                "deep" => athanor_domain::ContextLevel::Deep,
+                "full" => athanor_domain::ContextLevel::Full,
+                _ => athanor_domain::ContextLevel::Normal,
+            };
+            let optional_limit = |name: &str| {
+                arguments
+                    .get(name)
+                    .and_then(Value::as_u64)
+                    .map(|value| value as usize)
+            };
+            let report = athanor_app::context_project_with_operation_context(
+                athanor_app::ContextOptions {
+                    root: root.to_path_buf(),
+                    task,
+                    diff: false,
+                    level,
+                    limits: athanor_app::ContextLimitOverrides {
+                        max_tokens: optional_limit("max_tokens"),
+                        max_files: optional_limit("max_files"),
+                        max_entities: optional_limit("max_entities"),
+                        max_diagnostics: optional_limit("max_diagnostics"),
+                        max_depth: optional_limit("max_depth"),
+                    },
+                },
+                operation,
+            )
+            .await?;
+            Ok(serde_json::to_string_pretty(&report)?)
+        }
+        other => bail!("operation-aware MCP read is not implemented for `{other}`"),
+    }
 }
 
 async fn run_registered_read<T>(
@@ -168,21 +264,46 @@ async fn run_registered_read<T>(
     operation: OperationContext,
     future: impl Future<Output = Result<T>>,
 ) -> Result<T> {
+    register_read(active_reads, &request_key, &operation).await?;
+    let result = await_read_operation(&operation, future).await;
+    active_reads.lock().await.remove(&request_key);
+    result
+}
+
+async fn run_registered_drained_read<T>(
+    active_reads: &ActiveReads,
+    request_key: String,
+    operation: OperationContext,
+    future: impl Future<Output = Result<T>>,
+) -> Result<T> {
+    register_read(active_reads, &request_key, &operation).await?;
+    let result = future.await;
+    let result = match result {
+        Ok(value) => {
+            operation.check_active().map_err(anyhow::Error::new)?;
+            Ok(value)
+        }
+        Err(error) => Err(error),
+    };
+    active_reads.lock().await.remove(&request_key);
+    result
+}
+
+async fn register_read(
+    active_reads: &ActiveReads,
+    request_key: &str,
+    operation: &OperationContext,
+) -> Result<()> {
     operation.check_active().map_err(anyhow::Error::new)?;
     let cancellation = operation
         .cancellation_handle()
         .map_err(anyhow::Error::new)?;
-    {
-        let mut active = active_reads.lock().await;
-        if active.contains_key(&request_key) {
-            bail!("MCP request id `{request_key}` is already active");
-        }
-        active.insert(request_key.clone(), cancellation);
+    let mut active = active_reads.lock().await;
+    if active.contains_key(request_key) {
+        bail!("MCP request id `{request_key}` is already active");
     }
-
-    let result = await_read_operation(&operation, future).await;
-    active_reads.lock().await.remove(&request_key);
-    result
+    active.insert(request_key.to_string(), cancellation);
+    Ok(())
 }
 
 async fn await_read_operation<T>(
@@ -237,6 +358,10 @@ fn is_read_tool(tool_name: &str) -> bool {
             | "rustok_architecture_context"
             | "check"
     )
+}
+
+fn is_drained_operation_tool(tool_name: &str) -> bool {
+    matches!(tool_name, "search" | "context")
 }
 
 fn is_cancel_notification(method: &str) -> bool {
@@ -313,6 +438,7 @@ fn parse_error_response(error: &serde_json::Error) -> String {
 #[cfg(test)]
 mod tests {
     use std::future::pending;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     use super::*;
 
@@ -359,6 +485,57 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn drained_read_waits_for_operation_future_cleanup() {
+        let active_reads = ActiveReads::default();
+        let operation = OperationContext::new("mcp:\"drained\"");
+        let execution_operation = operation.clone();
+        let completed = Arc::new(AtomicBool::new(false));
+        let completed_in_future = Arc::clone(&completed);
+        let task_active = Arc::clone(&active_reads);
+        let task = tokio::spawn(async move {
+            run_registered_drained_read(
+                &task_active,
+                "\"drained\"".to_string(),
+                operation,
+                async move {
+                    while !execution_operation.is_cancelled() {
+                        tokio::task::yield_now().await;
+                    }
+                    completed_in_future.store(true, Ordering::Release);
+                    execution_operation
+                        .check_active()
+                        .map_err(anyhow::Error::new)?;
+                    Ok::<_, anyhow::Error>(())
+                },
+            )
+            .await
+        });
+        tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                if active_reads.lock().await.contains_key("\"drained\"") {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("drained read registered");
+
+        cancel_notification(&active_reads, Some(&json!({ "requestId": "drained" }))).await;
+        let error = task
+            .await
+            .expect("drained read task joined")
+            .expect_err("cancelled drained read must fail");
+
+        assert!(completed.load(Ordering::Acquire));
+        assert!(error.chain().any(|cause| matches!(
+            cause.downcast_ref::<CoreError>(),
+            Some(CoreError::Cancelled(_))
+        )));
+        assert!(active_reads.lock().await.is_empty());
+    }
+
+    #[tokio::test]
     async fn deadline_terminates_registered_read_and_releases_lease() {
         let active_reads = ActiveReads::default();
         let operation = OperationContext::new("mcp:7").with_deadline_unix_ms(0);
@@ -391,6 +568,13 @@ mod tests {
         assert!(is_read_tool("search"));
         assert!(is_read_tool("change_map"));
         assert!(!is_read_tool("index"));
+    }
+
+    #[test]
+    fn rebuild_capable_tools_use_drained_operation_dispatch() {
+        assert!(is_drained_operation_tool("search"));
+        assert!(is_drained_operation_tool("context"));
+        assert!(!is_drained_operation_tool("impact"));
     }
 
     #[test]
