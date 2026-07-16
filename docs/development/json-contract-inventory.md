@@ -8,7 +8,7 @@ status: active
 
 This inventory records JSON documents that cross CLI, daemon, MCP, persisted-state, or process-adapter boundaries. A document may enter `VERSIONED_JSON_CONTRACTS` only when one Rust type owns one top-level schema id and its current payload shape is protected by a regression fixture.
 
-Audit baseline: `main` at `9cb7dec05eb268f1113b38bd11da02389832ef0d`.
+Audit baseline: `main` at `d78a759d558bf37704fbf0008e12d008bf5c7cce`.
 
 ## Registered contracts
 
@@ -64,6 +64,12 @@ Until that decision is implemented, neither type is registered as the unique own
 
 Extractor/linker/checker process payloads, daemon envelopes, MCP envelopes, index state, publication journals, generation pointers, and read-model manifests require a separate inventory pass. Internal persistence documents must not be mixed with public report schemas merely because both serialize as JSON.
 
+## Shared-constant migration
+
+`SearchReport` and `ImpactAnalysis` builders now import their schema ids from `json_contract` instead of embedding quoted schema literals. Impact covers both the normal report path and the empty-diff early return.
+
+`json_contract_inventory.rs` protects the migrated files with a source-level regression: each schema must remain registered and its quoted literal must not reappear in the builder source. Check-family and ChangeMap builders remain the next migration slice.
+
 ## Enforcement implementation
 
 `crates/athanor-app/tests/json_contract_inventory.rs` scans the currently identified app-layer agent-facing owner modules. Every canonical schema literal found there must either be present in `VERSIONED_JSON_CONTRACTS` or in the explicit migration allowlist.
@@ -78,6 +84,7 @@ This is a bounded first enforcement slice. Daemon/MCP envelopes, process protoco
 - Every registered Rust owner is unique.
 - The owner implements `VersionedJsonContract`.
 - A golden regression exercises serialization and `validate_contract()`.
+- Migrated builders must import their schema id from the shared registry module and must not embed the quoted literal.
 - Local schema constants must equal the shared registry constant until literals are fully migrated.
 - A schema id must never describe two materially different top-level shapes.
 - Removing, renaming, retyping, or semantically changing a field requires a new major schema id.
