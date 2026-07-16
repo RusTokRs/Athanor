@@ -1,0 +1,113 @@
+{
+  "audit": {
+    "schema": "athanor.rustok_ffa_audit.v1",
+    "snapshot": "snap-ffa",
+    "summary": {
+      "observed_surfaces": 1,
+      "surfaces_total": 1,
+      "core_transport_ui": 1,
+      "incomplete": 0,
+      "requirements_met": 4,
+      "requirements_total": 4,
+      "completion_percent": 100,
+      "missing_core": 0,
+      "missing_transport": 0,
+      "missing_ui_adapter": 0,
+      "scaffold_surfaces": 0,
+      "host_wiring_surfaces": 1,
+      "diagnostics_open": 0
+    },
+    "surfaces": [
+      {
+        "id": "ffa_surface://catalog/products",
+        "module": "catalog",
+        "surface": "products",
+        "shape": "core_transport_ui",
+        "actionable": true,
+        "requirements_met": 4,
+        "requirements_total": 4,
+        "completion_percent": 100,
+        "core_present": true,
+        "transport_present": true,
+        "ui_adapter_present": true,
+        "host_wiring_present": true,
+        "diagnostics_open": 0,
+        "layers": [
+          "core",
+          "transport",
+          "ui_adapter"
+        ],
+        "files": [
+          "src/catalog/core.rs",
+          "src/catalog/transport.rs",
+          "src/catalog/ui.rs"
+        ],
+        "diagnostics": []
+      }
+    ]
+  },
+  "surface_graph": {
+    "schema": "athanor.rustok_ffa_surface_graph.v1",
+    "snapshot": "snap-ffa",
+    "surface": "products",
+    "nodes": [
+      {
+        "id": "core",
+        "kind": "rustok_ffa_layer",
+        "name": "Catalog core",
+        "source": "src/catalog/core.rs"
+      },
+      {
+        "id": "transport",
+        "kind": "rustok_ffa_layer",
+        "name": "Catalog transport",
+        "source": "src/catalog/transport.rs"
+      }
+    ],
+    "edges": [
+      {
+        "from": "core",
+        "to": "transport",
+        "kind": "rustok_ffa_layer_link",
+        "evidence": [
+          "src/catalog/transport.rs:12"
+        ]
+      }
+    ],
+    "diagnostics": [],
+    "omitted": {
+      "nodes": 0,
+      "edges": 0,
+      "reason": "limits"
+    }
+  },
+  "violations_graph": {
+    "schema": "athanor.rustok_ffa_violations_graph.v1",
+    "snapshot": "snap-ffa",
+    "surface": null,
+    "nodes": [
+      {
+        "id": "missing-ui",
+        "kind": "rustok_ffa_violation",
+        "name": "Missing UI adapter",
+        "source": "src/catalog/core.rs"
+      }
+    ],
+    "edges": [
+      {
+        "from": "missing-ui",
+        "to": "core",
+        "kind": "rustok_ffa_violation_for",
+        "evidence": [
+          "src/catalog/core.rs:4"
+        ]
+      }
+    ],
+    "diagnostics": [],
+    "omitted": {
+      "nodes": 0,
+      "edges": 0,
+      "reason": "limits"
+    }
+  }
+}
