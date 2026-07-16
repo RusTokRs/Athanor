@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 
+mod direct_check_cli;
 mod direct_graph_cli;
 mod direct_operation;
 mod direct_read_cli;
@@ -55,6 +56,24 @@ mod legacy {
     pub(crate) fn print_graph_cycles_bridge(report: &athanor_app::GraphCycles) {
         print_graph_cycles(report);
     }
+
+    pub(crate) fn print_affected_check_bridge(
+        report: &athanor_app::AffectedCheckReport,
+    ) -> anyhow::Result<()> {
+        print_affected_check_report(report)
+    }
+
+    pub(crate) fn print_check_bridge(
+        report: &athanor_app::DiagnosticCheckReport,
+    ) -> anyhow::Result<()> {
+        print_check_report(report)
+    }
+
+    pub(crate) fn print_api_contract_diff_bridge(
+        report: &athanor_app::ApiContractDiff,
+    ) -> anyhow::Result<()> {
+        print_api_contract_diff(report)
+    }
 }
 
 fn main() -> Result<()> {
@@ -65,6 +84,9 @@ fn main() -> Result<()> {
             athanor_runtime_defaults::install();
         }
         return runtime("Athanor repair runtime")?.block_on(repair_cli::run(command));
+    }
+    if let Some(command) = direct_check_cli::parse(&args)? {
+        return runtime("Athanor direct check runtime")?.block_on(direct_check_cli::run(command));
     }
     if let Some(command) = direct_graph_cli::parse(&args)? {
         return runtime("Athanor direct graph runtime")?.block_on(direct_graph_cli::run(command));
