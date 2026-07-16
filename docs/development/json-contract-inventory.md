@@ -8,7 +8,7 @@ status: active
 
 This inventory records JSON documents that cross CLI, daemon, MCP, persisted-state, or process-adapter boundaries. A document may enter `VERSIONED_JSON_CONTRACTS` only when one Rust type owns one top-level schema id and its current payload shape is protected by a regression fixture.
 
-Audit baseline: `main` at `2799620347941ac9c55062fc3005c21321d0a3cd`.
+Audit baseline: `main` at `fe4b22ef28ac7d0c17058eb05db556e467128264`.
 
 ## Registered contracts
 
@@ -24,6 +24,7 @@ Audit baseline: `main` at `2799620347941ac9c55062fc3005c21321d0a3cd`.
 | `athanor.coverage.v1` | `CoverageReport` | CLI/daemon/MCP read | dedicated golden |
 | `athanor.capabilities.v1` | `CapabilitiesReport` | CLI/daemon/MCP read | dedicated golden |
 | `athanor.change_map.v1` | `ChangeMapReport` | CLI/daemon/MCP read | second-wave golden |
+| `athanor.context_pack.v1` | `ContextReport` | direct CLI/daemon/active MCP read | dedicated golden |
 | `athanor.graph_export.v1` | `GraphExport` | CLI/daemon/MCP read | second-wave golden |
 | `athanor.graph_related.v1` | `GraphRelated` | CLI/daemon/MCP read | second-wave golden |
 | `athanor.graph_path.v1` | `GraphPath` | CLI/daemon/MCP read | second-wave golden |
@@ -32,17 +33,19 @@ Audit baseline: `main` at `2799620347941ac9c55062fc3005c21321d0a3cd`.
 | `athanor.graph_cycles.v1` | `GraphCycles` | CLI/daemon/MCP read | second-wave golden |
 | `athanor.project_resolution.v1` | `ProjectResolutionReport` | CLI project resolution | second-wave golden |
 
-## Discovered contracts requiring migration decisions
+## Resolved migration decisions
 
 ### Context pack
 
-`ContextPack` has no top-level `schema` field. The identifier `athanor.context_pack.v1` is nested inside its arbitrary `payload` value. It cannot implement `VersionedJsonContract` without one of these explicit decisions:
+`ContextPack` remains the internal domain value and still carries detailed evidence in its nested `payload`. Public JSON boundaries now serialize `ContextReport`, which adds the required top-level `schema` field and flattens the existing context-pack fields rather than introducing a new `pack` nesting level.
 
-1. introduce a typed top-level context response wrapper;
-2. introduce a separate nested-payload contract abstraction;
-3. promote the schema field into the domain type in a versioned compatibility change.
+This preserves the established `id`, `task`, `scope`, `level`, `summary`, entity, file, diagnostic, confidence, and payload fields while making `athanor.context_pack.v1` valid under `VersionedJsonContract`.
 
-Do not register `ContextPack` by bypassing top-level validation.
+The registered owner is `ContextReport`. A dedicated golden fixture protects both the new top-level schema and the unchanged nested payload schema. The migration allowlist no longer contains `athanor.context_pack.v1`.
+
+The direct CLI JSON path, cached and operation-aware daemon context paths, and the active lifecycle-based MCP context path now serialize the wrapper. Internal context generation and daemon caching continue to use `ContextPack`.
+
+## Discovered contracts requiring migration decisions
 
 ### Project registry schema collision
 
@@ -74,7 +77,7 @@ The registered Search, Impact, Diagnostic Check, Affected Check, Operations Docs
 
 `crates/athanor-app/tests/json_contract_inventory.rs` scans the currently identified app-layer agent-facing owner modules. Every canonical schema literal found there must either be present in `VERSIONED_JSON_CONTRACTS` or in the explicit migration allowlist.
 
-The allowlist currently contains only the Context and Project Registry blockers plus the specialized Rustok graph/audit family. The test also fails when an allowlisted schema disappears or becomes registered without removing the stale exception.
+The allowlist now contains only the Project Registry collision and the specialized Rustok graph/audit family. The test also fails when an allowlisted schema disappears or becomes registered without removing the stale exception.
 
 This is a bounded first enforcement slice. Daemon/MCP envelopes, process protocols, persistence documents, and newly discovered source modules must be added after their inventory classification is complete.
 
