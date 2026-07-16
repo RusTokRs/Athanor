@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use athanor_app::{ContextLimitOverrides, ContextOptions, ContextReport};
+use athanor_app::{ContextLimitOverrides, ContextOptions};
 use athanor_domain::ContextLevel;
 use clap::error::ErrorKind;
 use clap::{Parser, Subcommand, ValueEnum};
@@ -100,7 +100,7 @@ pub(crate) async fn run(command: Command) -> Result<()> {
             deadline_unix_ms,
         } => {
             let (operation, cancellation) = operation("context", deadline_unix_ms)?;
-            let pack = await_drained_operation(
+            let report = await_drained_operation(
                 cancellation,
                 athanor_app::context_project_with_composition_and_operation_context(
                     ContextOptions {
@@ -122,19 +122,16 @@ pub(crate) async fn run(command: Command) -> Result<()> {
             )
             .await?;
             if json {
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&ContextReport::from(pack))?
-                );
+                println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
-                println!("{}", pack.summary);
-                for file in &pack.files {
+                println!("{}", report.summary);
+                for file in &report.files {
                     println!("file: {file}");
                 }
-                for scope in &pack.scope {
+                for scope in &report.scope {
                     println!("entity: {scope}");
                 }
-                for diagnostic in &pack.diagnostics {
+                for diagnostic in &report.diagnostics {
                     println!("diagnostic: {}", diagnostic.0);
                 }
             }
