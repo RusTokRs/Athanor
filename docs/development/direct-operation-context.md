@@ -131,6 +131,41 @@ Direct Search, direct Context, Context diff, daemon Search/Context, and MCP Sear
 releases a stale cached index handle before directory replacement so Windows does not retain an open handle to
 the old directory.
 
+## Cooperative Projector Publication
+
+The existing wiki and HTML projectors already check their cancellation callback while rendering entity,
+diagnostic, and page batches. Runtime defaults now add an outer publication transaction around those
+projectors:
+
+- the inner projector writes a complete result into an operation-specific sibling staging directory;
+- cancellation is checked again after all inner files exist and before the current target is touched;
+- a late cancellation removes the outer staging directory and preserves the previous target;
+- the current directory is renamed to a backup only after the final active check;
+- a failed staging-to-target rename restores the previous directory;
+- backup cleanup after a successful swap is best-effort and cannot convert durable success into an error.
+
+This outer guard closes the cancellation window between the inner projector's final check and directory
+replacement. Existing projector traits, factory signatures, payload schemas, and direct projector APIs remain
+source-compatible.
+
+## Cooperative Rustok Architecture Context
+
+The operation-aware Rustok architecture-context path uses a dedicated cooperative builder. It preserves the
+legacy output schema and selection rules while polling active state at bounded intervals during:
+
+- context-id and entity-index construction;
+- module scoring and ownership-reason collection;
+- contract, interaction, and relevant-entity selection;
+- test and relation traversal;
+- diagnostic selection;
+- source and relation evidence collection;
+- sorting and final report assembly boundaries.
+
+The legacy pure `build_rustok_architecture_context` function remains public and unchanged. A parity regression
+compares both builders on the same canonical fixture. A deterministic cancellation regression terminates the
+cooperative builder after several work batches. The outer Rustok worker drain remains the final protection
+against detached blocking tasks and late successful responses.
+
 `ath check --strict` uses the same non-orphaning blocking boundary for synchronous API contract diffing. The
 normal diagnostic query remains an async operation-aware read. Strict non-API scope behavior and exit codes
 remain compatible with the legacy CLI.
@@ -161,21 +196,23 @@ before the response writer exits.
 
 - Existing direct CLI flags and rendering are preserved for covered commands.
 - Unknown commands and non-read commands continue through the legacy dispatcher.
-- Existing `SearchIndexFactory` and `RuntimeComposition::new` call sites remain source-compatible.
+- Existing `SearchIndexFactory`, projector factories, and `RuntimeComposition::new` call sites remain
+  source-compatible.
 - Existing MCP tool schemas and names are reused.
 - JSON-RPC responses may complete out of input order because request ids provide correlation.
 - Notifications without an id remain response-free.
 - Request ids used for cancellable reads must be strings or numbers.
-- Legacy pure graph builders and non-operation search APIs remain public.
+- Legacy pure graph, Rustok architecture, and non-operation search APIs remain public.
 
 ## Remaining Work
 
 The following remain outside this code slice:
 
-- cooperative cancellation inside projectors and Rustok-specific pure report loops;
+- cooperative polling inside FFA/FBA/Page Builder audit builders;
+- cooperative polling inside Rustok-specific FFA/FBA/Page Builder graph builders;
 - transactional MCP notification cancellation;
 - hosted Linux/Windows formatting, test, Clippy, stdio, Ctrl-C, disconnect, directory-swap, and worker-drain
-evidence.
+  evidence.
 
 ## Verification
 
@@ -193,8 +230,10 @@ cargo test -p ath direct_rustok_help --locked
 cargo test -p ath direct_check_cli --locked
 cargo test -p athanor-source-fs --locked
 cargo test -p athanor-search-tantivy --locked
+cargo test -p athanor-runtime-defaults projector_operation --locked
 cargo test -p athanor-app graph_operation --locked
 cargo test -p athanor-app graph_cooperative --locked
+cargo test -p athanor-app rustok_architecture_cooperative --locked
 cargo test -p athanor-app rustok_operation --locked
 cargo test -p athanor-app derived_read_operation --locked
 cargo test -p athanor-app search_operation --locked
@@ -203,6 +242,7 @@ cargo test -p athanor-transport-mcp --locked
 cargo clippy -p ath --all-targets --locked -- -D warnings
 cargo clippy -p athanor-source-fs --all-targets --locked -- -D warnings
 cargo clippy -p athanor-search-tantivy --all-targets --locked -- -D warnings
+cargo clippy -p athanor-runtime-defaults --all-targets --locked -- -D warnings
 cargo clippy -p athanor-app --all-targets --locked -- -D warnings
 cargo clippy -p athanor-transport-mcp --all-targets --locked -- -D warnings
 ```
@@ -215,6 +255,9 @@ Required regressions:
 - cancellation drains graph, Rustok, API-diff, Context, and Search workers and rejects their results;
 - PageRank, cycle search, graph traversal, filesystem hashing, and search rebuild observe bounded checkpoints;
 - cancellation after multiple search-document batches leaves the current index readable and removes staging;
+- cancellation after several projector files preserves the current target and removes outer staging;
+- cooperative Rustok architecture output matches the legacy builder;
+- cancellation after several architecture batches stops the cooperative builder while the worker drains;
 - cancellation rejects a would-be late successful legacy future;
 - MCP Search/Context cancellation waits for operation-aware future cleanup before releasing the lease;
 - MCP terminal operation state overrides simultaneous worker errors after drain;
