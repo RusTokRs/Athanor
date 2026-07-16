@@ -8,15 +8,15 @@ use athanor_adapter_rustok_page_builder::{
 use athanor_app::{
     AdapterPluginKind, AdapterRegistry, AthanorStore, ProjectConfig, RuntimeComposition,
     StorageMode, install_builtin_adapter_resolver, install_default_adapter_registry,
-    install_html_projector_factory, install_search_index_factory, install_store_factory,
-    install_wiki_projector_factory,
+    install_html_projector_factory, install_search_index_factory,
+    install_search_index_operation_factory, install_store_factory, install_wiki_projector_factory,
 };
 use athanor_checker_api::{
     ApiConsistencyChecker, DeploymentDocsChecker, EnvDocsChecker, RunbookConsistencyChecker,
     ScriptDocsChecker,
 };
 use athanor_checker_markdown::MarkdownStructureChecker;
-use athanor_core::{SearchDocument, SearchIndex};
+use athanor_core::{OperationContext, SearchDocument, SearchIndex};
 use athanor_extractor_basic::FileExtractor;
 use athanor_extractor_graphql::GraphQlExtractor;
 use athanor_extractor_js_ts::JsTsExtractor;
@@ -40,6 +40,7 @@ pub fn production() -> RuntimeComposition {
         default_wiki_projector,
         default_html_projector,
     )
+    .with_search_index_operation_factory(default_search_index_with_operation_context)
 }
 
 /// Legacy process-global installation.
@@ -51,6 +52,7 @@ pub fn install() {
     install_builtin_adapter_resolver(resolve_builtin_adapter);
     install_store_factory(default_store);
     install_search_index_factory(default_search_index);
+    install_search_index_operation_factory(default_search_index_with_operation_context);
     install_wiki_projector_factory(default_wiki_projector);
     install_html_projector_factory(default_html_projector);
 }
@@ -96,7 +98,23 @@ fn default_search_index(
     } else {
         athanor_search_tantivy::TantivySearchIndex::open_or_create(index_dir)?
     };
+    Ok(std::sync::Arc::new(index))
+}
 
+fn default_search_index_with_operation_context(
+    index_dir: &std::path::Path,
+    documents: Option<Vec<SearchDocument>>,
+    operation: &OperationContext,
+) -> anyhow::Result<std::sync::Arc<dyn SearchIndex>> {
+    let index = if let Some(documents) = documents {
+        athanor_search_tantivy::TantivySearchIndex::rebuild_with_operation_context(
+            index_dir,
+            documents,
+            operation,
+        )?
+    } else {
+        athanor_search_tantivy::TantivySearchIndex::open_or_create(index_dir)?
+    };
     Ok(std::sync::Arc::new(index))
 }
 
