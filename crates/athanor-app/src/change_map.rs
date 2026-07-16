@@ -15,6 +15,7 @@ use crate::RuntimeComposition;
 use crate::config::load_config;
 use crate::impact::FlowDirection;
 use crate::index_state::IndexStateStore;
+use crate::json_contract::CHANGE_MAP_SCHEMA_V1;
 use crate::local_source::discover_source_files;
 use crate::project_path::normalize_canonical_path;
 use crate::search::search_snapshot;
@@ -524,7 +525,7 @@ fn build_change_map(
 
     let (files, file_omitted) = build_files(&items, limits.max_files);
     ChangeMapReport {
-        schema: "athanor.change_map.v1".to_string(),
+        schema: CHANGE_MAP_SCHEMA_V1.to_string(),
         snapshot: snapshot
             .snapshot
             .as_ref()
@@ -1063,7 +1064,7 @@ mod tests {
             },
         );
 
-        assert_eq!(report.schema, "athanor.change_map.v1");
+        assert_eq!(report.schema, CHANGE_MAP_SCHEMA_V1);
         let handler = report
             .items
             .iter()
