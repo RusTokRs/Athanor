@@ -12,11 +12,10 @@ use tracing::{debug, warn};
 use super::process_adapter_support::{
     ProcessCommand, ProcessLimits, normalize_extension, process_output_excerpt,
 };
-use super::{
-    CancellableProcessRunner, current_process_execution_context, current_process_runner,
-    default_process_runner,
+use crate::{
+    CancellationToken, CancellableProcessRunner, current_process_execution_context,
+    current_process_runner, default_process_runner,
 };
-use crate::CancellationToken;
 
 pub(super) fn source(
     id: String,
@@ -279,6 +278,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+    use crate::{SharedProcessRunner, with_process_runner};
 
     struct RecordingRunner {
         requests: Mutex<Vec<ProcessRequest>>,
@@ -326,8 +326,9 @@ mod tests {
     async fn scoped_runner_override_is_used_by_adapter_boundary() {
         let runner = Arc::new(RecordingRunner::new(output(br#"{"ok":true}"#.to_vec())));
         let observed = Arc::clone(&runner);
+        let scoped: SharedProcessRunner = runner;
 
-        let value: serde_json::Value = super::super::with_process_runner(runner, async {
+        let value: serde_json::Value = with_process_runner(scoped, async {
             run("extractor", "scoped", &command(), &json!({ "input": 7 })).await
         })
         .await
