@@ -1,0 +1,63 @@
+{
+  "schema": "athanor.operations_docs_check.v1",
+  "snapshot": "snap_fixture",
+  "counts": {
+    "total": 0,
+    "critical": 0,
+    "high": 0,
+    "medium": 0,
+    "low": 0
+  },
+  "env": {
+    "schema": "athanor.diagnostic_check.v1",
+    "snapshot": "snap_fixture",
+    "scope": "env",
+    "counts": {
+      "total": 0,
+      "critical": 0,
+      "high": 0,
+      "medium": 0,
+      "low": 0
+    },
+    "diagnostics": []
+  },
+  "scripts": {
+    "schema": "athanor.diagnostic_check.v1",
+    "snapshot": "snap_fixture",
+    "scope": "scripts",
+    "counts": {
+      "total": 0,
+      "critical": 0,
+      "high": 0,
+      "medium": 0,
+      "low": 0
+    },
+    "diagnostics": []
+  },
+  "deployment": {
+    "schema": "athanor.diagnostic_check.v1",
+    "snapshot": "snap_fixture",
+    "scope": "deployment",
+    "counts": {
+      "total": 0,
+      "critical": 0,
+      "high": 0,
+      "medium": 0,
+      "low": 0
+    },
+    "diagnostics": []
+  },
+  "runbooks": {
+    "schema": "athanor.diagnostic_check.v1",
+    "snapshot": "snap_fixture",
+    "scope": "runbooks",
+    "counts": {
+      "total": 0,
+      "critical": 0,
+      "high": 0,
+      "medium": 0,
+      "low": 0
+    },
+    "diagnostics": []
+  }
+}
