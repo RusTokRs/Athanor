@@ -8,7 +8,7 @@ status: active
 
 This inventory records JSON documents that cross CLI, daemon, MCP, persisted-state, or process-adapter boundaries. A document may enter `VERSIONED_JSON_CONTRACTS` only when one Rust type owns one top-level schema id and its current payload shape is protected by a regression fixture.
 
-Audit baseline: `main` at `fe4b22ef28ac7d0c17058eb05db556e467128264`.
+Audit baseline: `main` at `43e7b72e5bdc7f0c7d55c126777c1fb910086df2`.
 
 ## Registered contracts
 
@@ -31,7 +31,8 @@ Audit baseline: `main` at `fe4b22ef28ac7d0c17058eb05db556e467128264`.
 | `athanor.graph_hubs.v1` | `GraphHubs` | CLI/daemon/MCP read | second-wave golden |
 | `athanor.graph_pagerank.v1` | `GraphPageRank` | CLI/daemon/MCP read | second-wave golden |
 | `athanor.graph_cycles.v1` | `GraphCycles` | CLI/daemon/MCP read | second-wave golden |
-| `athanor.project_resolution.v1` | `ProjectResolutionReport` | CLI project resolution | second-wave golden |
+| `athanor.project_registry.v1` | `ProjectRegistryReport` | CLI project list/add/remove | dedicated golden |
+| `athanor.project_resolution.v1` | `ProjectResolutionReport` | CLI/daemon project resolution | second-wave golden |
 
 ## Resolved migration decisions
 
@@ -45,19 +46,17 @@ The registered owner is `ContextReport`. A dedicated golden fixture protects bot
 
 The direct CLI JSON path, cached and operation-aware daemon context paths, and the active lifecycle-based MCP context path now serialize the wrapper. Internal context generation and daemon caching continue to use `ContextPack`.
 
+### Project registry state and report
+
+The public `ProjectRegistryReport` keeps the existing `athanor.project_registry.v1` identifier, so CLI consumers do not receive a schema-id change. The persisted `ProjectRegistry` document now emits the distinct internal identifier `athanor.project_registry_state.v1`.
+
+Existing `projects.json` files that used `athanor.project_registry.v1` are accepted as legacy persisted input throughout the v1 compatibility window. Loading normalizes the in-memory state to `athanor.project_registry_state.v1`; the next add or remove operation atomically rewrites the file with the current state schema. Read-only list and resolve operations do not rewrite the file.
+
+Removing legacy persisted-state acceptance requires a new major compatibility decision. `PROJECT_REGISTRY_SCHEMA` remains as a deprecated Rust alias for the public report schema, while new code must choose `PROJECT_REGISTRY_REPORT_SCHEMA` or `PROJECT_REGISTRY_STATE_SCHEMA` explicitly.
+
+`ProjectRegistryReport` is the unique registered owner of `athanor.project_registry.v1` and is protected by a dedicated golden fixture. The persisted state schema is intentionally classified outside `VERSIONED_JSON_CONTRACTS`, and unit regressions cover current writes, legacy reads, migration-on-mutation, and unknown-schema rejection.
+
 ## Discovered contracts requiring migration decisions
-
-### Project registry schema collision
-
-`ProjectRegistry` and `ProjectRegistryReport` both emit `athanor.project_registry.v1`, but their shapes differ: the report adds `registry_path`. One schema id therefore describes two Rust document shapes.
-
-Required follow-up:
-
-- designate separate persisted-state and public-report schema ids;
-- preserve a documented compatibility window for existing files and CLI consumers;
-- add migration tests before changing either emitted identifier.
-
-Until that decision is implemented, neither type is registered as the unique owner of `athanor.project_registry.v1`.
 
 ### Specialized graph and Rustok reports
 
@@ -67,6 +66,8 @@ Until that decision is implemented, neither type is registered as the unique own
 
 Extractor/linker/checker process payloads, daemon envelopes, MCP envelopes, index state, publication journals, generation pointers, and read-model manifests require a separate inventory pass. Internal persistence documents must not be mixed with public report schemas merely because both serialize as JSON.
 
+`athanor.project_registry_state.v1` is the first explicitly classified persisted-state schema in the bounded source scanner. The broader persistence inventory remains pending.
+
 ## Shared-constant migration
 
 The registered Search, Impact, Diagnostic Check, Affected Check, Operations Docs Check, and ChangeMap builders now import their schema ids from `json_contract` instead of embedding quoted schema literals. Impact covers both the normal report path and the empty-diff early return.
@@ -75,9 +76,9 @@ The registered Search, Impact, Diagnostic Check, Affected Check, Operations Docs
 
 ## Enforcement implementation
 
-`crates/athanor-app/tests/json_contract_inventory.rs` scans the currently identified app-layer agent-facing owner modules. Every canonical schema literal found there must either be present in `VERSIONED_JSON_CONTRACTS` or in the explicit migration allowlist.
+`crates/athanor-app/tests/json_contract_inventory.rs` scans the currently identified app-layer owner modules. Every canonical schema literal found there must be registered, tracked as an unregistered public migration item, or classified as an internal persisted schema.
 
-The allowlist now contains only the Project Registry collision and the specialized Rustok graph/audit family. The test also fails when an allowlisted schema disappears or becomes registered without removing the stale exception.
+The public migration allowlist now contains only the specialized Rustok graph/audit family. The persisted classification currently contains `athanor.project_registry_state.v1`. Tests reject stale migration exceptions, public registration of internal persisted ids, duplicate classifications, and classified ids that disappear from the inventoried source set.
 
 This is a bounded first enforcement slice. Daemon/MCP envelopes, process protocols, persistence documents, and newly discovered source modules must be added after their inventory classification is complete.
 
@@ -89,6 +90,8 @@ This is a bounded first enforcement slice. Daemon/MCP envelopes, process protoco
 - A golden regression exercises serialization and `validate_contract()`.
 - Migrated builders must import their schema id from the shared registry module and must not embed the quoted literal.
 - Local schema constants must equal the shared registry constant until literals are fully migrated.
-- A schema id must never describe two materially different top-level shapes.
+- A schema id must never describe two current emitted top-level shapes.
+- Legacy input may be accepted only through a documented compatibility path that normalizes to a current schema before writing.
+- Internal persisted schemas must be classified separately from public report contracts.
 - Removing, renaming, retyping, or semantically changing a field requires a new major schema id.
-- New agent-facing schema literals in inventoried modules must be registered or explicitly tracked by the migration allowlist.
+- New schema literals in inventoried modules must be registered or explicitly classified.
