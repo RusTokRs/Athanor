@@ -16,14 +16,18 @@ pub(crate) async fn discover(
         let source_name = source.name();
         let span = debug_span!("discover_source", source = source_name);
         let started = std::time::Instant::now();
-        let discovered = crate::runtime::with_process_cancellation(cancellation.clone(), async {
-            crate::pipeline_support::within_operation_deadline(
-                operation,
-                source_name,
-                source.discover_with_context(operation),
-            )
-            .await
-        })
+        let discovered = crate::runtime::with_process_execution_context(
+            operation.clone(),
+            cancellation.clone(),
+            async {
+                crate::pipeline_support::within_operation_deadline(
+                    operation,
+                    source_name,
+                    source.discover_with_context(operation),
+                )
+                .await
+            },
+        )
         .instrument(span)
         .await
         .with_context(|| format!("source {} failed", source_name))?;
