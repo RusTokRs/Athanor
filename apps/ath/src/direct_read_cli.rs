@@ -385,18 +385,20 @@ fn operation(
     name: &str,
     deadline_unix_ms: Option<u64>,
 ) -> Result<(OperationContext, CancellationHandle)> {
-    let environment_deadline = match std::env::var("ATHANOR_DEADLINE_UNIX_MS") {
-        Ok(value) => Some(
-            value
-                .parse::<u64>()
-                .context("ATHANOR_DEADLINE_UNIX_MS must be an unsigned integer")?,
-        ),
-        Err(std::env::VarError::NotPresent) => None,
-        Err(std::env::VarError::NotUnicode(_)) => {
-            bail!("ATHANOR_DEADLINE_UNIX_MS must contain valid Unicode")
-        }
+    let deadline_unix_ms = match deadline_unix_ms {
+        Some(deadline_unix_ms) => Some(deadline_unix_ms),
+        None => match std::env::var("ATHANOR_DEADLINE_UNIX_MS") {
+            Ok(value) => Some(
+                value
+                    .parse::<u64>()
+                    .context("ATHANOR_DEADLINE_UNIX_MS must be an unsigned integer")?,
+            ),
+            Err(std::env::VarError::NotPresent) => None,
+            Err(std::env::VarError::NotUnicode(_)) => {
+                bail!("ATHANOR_DEADLINE_UNIX_MS must contain valid Unicode")
+            }
+        },
     };
-    let deadline_unix_ms = deadline_unix_ms.or(environment_deadline);
     let mut operation = OperationContext::new(format!("cli:{name}:{}", std::process::id()));
     if let Some(deadline_unix_ms) = deadline_unix_ms {
         operation = operation.with_deadline_unix_ms(deadline_unix_ms);
@@ -423,14 +425,15 @@ async fn await_cli_operation<T>(
             .map(|remaining| remaining.min(poll_interval))
             .unwrap_or(poll_interval);
         tokio::select! {
+            biased;
+            signal = &mut ctrl_c => {
+                signal.context("failed to listen for CLI cancellation")?;
+                cancellation.cancel();
+            }
             result = &mut future => {
                 let result = result?;
                 operation.check_active().map_err(anyhow::Error::new)?;
                 return Ok(result);
-            }
-            signal = &mut ctrl_c => {
-                signal.context("failed to listen for CLI cancellation")?;
-                cancellation.cancel();
             }
             _ = tokio::time::sleep(wait) => {}
         }
