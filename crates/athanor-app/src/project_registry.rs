@@ -6,8 +6,16 @@ use serde::{Deserialize, Serialize};
 
 use crate::project_path::normalize_canonical_path;
 
-pub const PROJECT_REGISTRY_SCHEMA: &str = "athanor.project_registry.v1";
+pub const PROJECT_REGISTRY_REPORT_SCHEMA: &str = "athanor.project_registry.v1";
+pub const PROJECT_REGISTRY_STATE_SCHEMA: &str = "athanor.project_registry_state.v1";
+pub const LEGACY_PROJECT_REGISTRY_STATE_SCHEMA: &str = PROJECT_REGISTRY_REPORT_SCHEMA;
 pub const PROJECT_RESOLUTION_SCHEMA: &str = "athanor.project_resolution.v1";
+
+#[deprecated(
+    since = "0.1.0",
+    note = "use PROJECT_REGISTRY_REPORT_SCHEMA for CLI output or PROJECT_REGISTRY_STATE_SCHEMA for persisted state"
+)]
+pub const PROJECT_REGISTRY_SCHEMA: &str = PROJECT_REGISTRY_REPORT_SCHEMA;
 
 #[derive(Debug, Clone)]
 pub struct ProjectRegistryOptions {
@@ -152,7 +160,7 @@ pub fn resolve_registered_project(
 fn load_registry(path: &Path) -> Result<ProjectRegistry> {
     if !path.exists() {
         return Ok(ProjectRegistry {
-            schema: PROJECT_REGISTRY_SCHEMA.to_string(),
+            schema: PROJECT_REGISTRY_STATE_SCHEMA.to_string(),
             projects: Vec::new(),
         });
     }
@@ -160,11 +168,15 @@ fn load_registry(path: &Path) -> Result<ProjectRegistry> {
         fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
     let mut registry: ProjectRegistry = serde_json::from_str(&content)
         .with_context(|| format!("failed to parse {}", path.display()))?;
-    if registry.schema != PROJECT_REGISTRY_SCHEMA {
+    if registry.schema != PROJECT_REGISTRY_STATE_SCHEMA
+        && registry.schema != LEGACY_PROJECT_REGISTRY_STATE_SCHEMA
+    {
         bail!(
-            "unsupported project registry schema `{}` in {}",
+            "unsupported project registry state schema `{}` in {}; expected `{}` or legacy `{}`",
             registry.schema,
-            path.display()
+            path.display(),
+            PROJECT_REGISTRY_STATE_SCHEMA,
+            LEGACY_PROJECT_REGISTRY_STATE_SCHEMA
         );
     }
     for project in &registry.projects {
@@ -178,10 +190,18 @@ fn load_registry(path: &Path) -> Result<ProjectRegistry> {
         }
     }
     sort_projects(&mut registry.projects);
+    registry.schema = PROJECT_REGISTRY_STATE_SCHEMA.to_string();
     Ok(registry)
 }
 
 fn write_registry(path: &Path, registry: &ProjectRegistry) -> Result<()> {
+    if registry.schema != PROJECT_REGISTRY_STATE_SCHEMA {
+        bail!(
+            "refusing to write project registry with schema `{}`; expected `{}`",
+            registry.schema,
+            PROJECT_REGISTRY_STATE_SCHEMA
+        );
+    }
     let parent = path.parent().ok_or_else(|| {
         anyhow::anyhow!("project registry path has no parent: {}", path.display())
     })?;
@@ -247,7 +267,7 @@ fn sort_projects(projects: &mut [ProjectRegistration]) {
 
 fn report(registry_path: PathBuf, registry: ProjectRegistry) -> ProjectRegistryReport {
     ProjectRegistryReport {
-        schema: PROJECT_REGISTRY_SCHEMA.to_string(),
+        schema: PROJECT_REGISTRY_REPORT_SCHEMA.to_string(),
         registry_path,
         projects: registry.projects,
     }
@@ -279,6 +299,7 @@ mod tests {
         })
         .unwrap();
 
+        assert_eq!(report.schema, PROJECT_REGISTRY_REPORT_SCHEMA);
         assert_eq!(
             report
                 .projects
@@ -287,6 +308,9 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["alpha", "beta"]
         );
+        let persisted: ProjectRegistry =
+            serde_json::from_str(&fs::read_to_string(&registry_path).unwrap()).unwrap();
+        assert_eq!(persisted.schema, PROJECT_REGISTRY_STATE_SCHEMA);
         assert_eq!(
             resolve_registered_project(
                 ProjectRegistryOptions {
@@ -305,8 +329,60 @@ mod tests {
             project_id: "alpha".to_string(),
         })
         .unwrap();
+        assert_eq!(report.schema, PROJECT_REGISTRY_REPORT_SCHEMA);
         assert_eq!(report.projects.len(), 1);
         assert_eq!(report.projects[0].project_id, "beta");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn accepts_legacy_state_and_migrates_on_mutation() {
+        let root = temp_root("legacy-migration");
+        let registry_path = root.join("state/projects.json");
+        let alpha = root.join("alpha");
+        let beta = root.join("beta");
+        fs::create_dir_all(&alpha).unwrap();
+        fs::create_dir_all(&beta).unwrap();
+        fs::create_dir_all(registry_path.parent().unwrap()).unwrap();
+
+        let legacy = ProjectRegistry {
+            schema: LEGACY_PROJECT_REGISTRY_STATE_SCHEMA.to_string(),
+            projects: vec![ProjectRegistration {
+                project_id: "alpha".to_string(),
+                root: normalize_canonical_path(alpha.canonicalize().unwrap()),
+            }],
+        };
+        fs::write(
+            &registry_path,
+            format!("{}\n", serde_json::to_string_pretty(&legacy).unwrap()),
+        )
+        .unwrap();
+
+        let report = list_registered_projects(ProjectRegistryOptions {
+            registry_path: registry_path.clone(),
+        })
+        .unwrap();
+        assert_eq!(report.schema, PROJECT_REGISTRY_REPORT_SCHEMA);
+        assert_eq!(report.projects.len(), 1);
+
+        register_project(ProjectRegisterOptions {
+            registry_path: registry_path.clone(),
+            project_id: "beta".to_string(),
+            root: beta,
+        })
+        .unwrap();
+
+        let migrated: ProjectRegistry =
+            serde_json::from_str(&fs::read_to_string(&registry_path).unwrap()).unwrap();
+        assert_eq!(migrated.schema, PROJECT_REGISTRY_STATE_SCHEMA);
+        assert_eq!(
+            migrated
+                .projects
+                .iter()
+                .map(|project| project.project_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["alpha", "beta"]
+        );
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -358,7 +434,7 @@ mod tests {
         assert!(
             error
                 .to_string()
-                .contains("unsupported project registry schema")
+                .contains("unsupported project registry state schema")
         );
         fs::remove_dir_all(root).unwrap();
     }
