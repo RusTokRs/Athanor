@@ -45,6 +45,9 @@ pub const GRAPH_HUBS_SCHEMA_V1: &str = crate::graph::GRAPH_HUBS_SCHEMA;
 pub const GRAPH_PAGERANK_SCHEMA_V1: &str = crate::graph::GRAPH_PAGERANK_SCHEMA;
 /// Stable schema identifier for graph cycle reports.
 pub const GRAPH_CYCLES_SCHEMA_V1: &str = crate::graph::GRAPH_CYCLES_SCHEMA;
+/// Stable schema identifier for RusTok architecture context reports.
+pub const RUSTOK_ARCHITECTURE_CONTEXT_SCHEMA_V1: &str =
+    crate::rustok_architecture::RUSTOK_ARCHITECTURE_CONTEXT_SCHEMA;
 /// Stable schema identifier for RusTok FFA audit reports.
 pub const RUSTOK_FFA_AUDIT_SCHEMA_V1: &str = crate::graph::RUSTOK_FFA_AUDIT_SCHEMA;
 /// Stable schema identifier for RusTok FFA surface graph reports.
@@ -161,6 +164,10 @@ pub const VERSIONED_JSON_CONTRACTS: &[JsonContractDescriptor] = &[
     JsonContractDescriptor {
         schema: GRAPH_CYCLES_SCHEMA_V1,
         rust_type: "GraphCycles",
+    },
+    JsonContractDescriptor {
+        schema: RUSTOK_ARCHITECTURE_CONTEXT_SCHEMA_V1,
+        rust_type: "RustokArchitectureContext",
     },
     JsonContractDescriptor {
         schema: RUSTOK_FFA_AUDIT_SCHEMA_V1,
@@ -293,6 +300,10 @@ impl_owned_schema_contract!(crate::graph::GraphPath, GRAPH_PATH_SCHEMA_V1);
 impl_owned_schema_contract!(crate::graph::GraphHubs, GRAPH_HUBS_SCHEMA_V1);
 impl_owned_schema_contract!(crate::graph::GraphPageRank, GRAPH_PAGERANK_SCHEMA_V1);
 impl_owned_schema_contract!(crate::graph::GraphCycles, GRAPH_CYCLES_SCHEMA_V1);
+impl_owned_schema_contract!(
+    crate::rustok_architecture::RustokArchitectureContext,
+    RUSTOK_ARCHITECTURE_CONTEXT_SCHEMA_V1
+);
 impl_owned_schema_contract!(crate::graph::RustokFfaAudit, RUSTOK_FFA_AUDIT_SCHEMA_V1);
 impl_transparent_schema_contract!(
     crate::rustok_json_contract::RustokFfaSurfaceGraphReport,
@@ -584,7 +595,7 @@ mod tests {
     #[test]
     fn registry_contains_unique_valid_schema_and_type_owners() {
         assert_eq!(validate_contract_registry(VERSIONED_JSON_CONTRACTS), Ok(()));
-        assert_eq!(VERSIONED_JSON_CONTRACTS.len(), 31);
+        assert_eq!(VERSIONED_JSON_CONTRACTS.len(), 32);
         assert_eq!(crate::overview::OVERVIEW_SCHEMA, OVERVIEW_SCHEMA_V1);
         assert_eq!(crate::coverage::COVERAGE_REPORT_SCHEMA, COVERAGE_SCHEMA_V1);
         assert_eq!(
@@ -597,6 +608,10 @@ mod tests {
         assert_eq!(crate::graph::GRAPH_HUBS_SCHEMA, GRAPH_HUBS_SCHEMA_V1);
         assert_eq!(crate::graph::GRAPH_PAGERANK_SCHEMA, GRAPH_PAGERANK_SCHEMA_V1);
         assert_eq!(crate::graph::GRAPH_CYCLES_SCHEMA, GRAPH_CYCLES_SCHEMA_V1);
+        assert_eq!(
+            crate::rustok_architecture::RUSTOK_ARCHITECTURE_CONTEXT_SCHEMA,
+            RUSTOK_ARCHITECTURE_CONTEXT_SCHEMA_V1
+        );
         assert_eq!(crate::graph::RUSTOK_FFA_AUDIT_SCHEMA, RUSTOK_FFA_AUDIT_SCHEMA_V1);
         assert_eq!(
             crate::graph::RUSTOK_FFA_SURFACE_GRAPH_SCHEMA,
