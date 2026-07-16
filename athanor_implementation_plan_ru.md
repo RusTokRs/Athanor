@@ -2,8 +2,8 @@
 
 > Репозиторий: `RusTokRs/Athanor`  
 > Базовая ветка: `main`  
-> Точка сверки кода: `f5f5076208c6ae3fafd23f1f0413fa5c8930819e`  
-> Дата актуализации: 2026-07-15  
+> Точка сверки кода: `5d95167b7c1d7cec4ed0ca939e47e5b059784a02`  
+> Дата актуализации: 2026-07-16  
 > Статус: active implementation plan
 
 ## 0. Правила исполнения
@@ -34,6 +34,8 @@
 15. Destructive index retention требует token от точного dry-run plan.
 16. `index-current.v2` выдаёт selected paths только после проверки manifest/state и полного checksum chain.
 17. Existing immutable generation не seal’ится recovery без совпадения с validated compatibility source.
+18. Read-only compatibility service проверяет `OperationContext` до работы и перед выдачей success.
+19. Daemon read request получает cancellable job lease и hard deadline независимо от cache/legacy path.
 
 ## 1. Baseline
 
@@ -43,6 +45,7 @@
 - JSONL default и opt-in embedded/remote SurrealDB;
 - shared Memory/JSONL/SurrealDB query/lifecycle/atomic conformance;
 - backend-neutral `FactQuery`, `AtomicSnapshotPublication` и `CanonicalLatestPointer`;
+- backend-neutral read operation extension traits;
 - backend atomic data+marker boundaries;
 - process-local deferred canonical batch barrier;
 - snapshot-native runtime publisher и recovery;
@@ -54,6 +57,7 @@
 - pointer-first index-state readers с legacy fallback только при отсутствии pointer;
 - repair inspect/retention/publication recovery/cleanup recovery;
 - backend-neutral canonical latest discovery, validation и repair;
+- daemon Overview/Explain/Search/Context/ChangeMap с operation-aware cancellation/deadline routing;
 - SurrealDB context-owned allocation metadata и bounded orphan cleanup;
 - feature, coverage, AppSec, installer и release workflows.
 
@@ -74,6 +78,7 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 
 cargo test -p athanor-domain generation --locked
 cargo test -p athanor-core latest_pointer --locked
+cargo test -p athanor-core read_operation --locked
 cargo test -p athanor-app artifact_checksum --locked
 cargo test -p athanor-app index_current --locked
 cargo test -p athanor-app index_state --locked
@@ -82,6 +87,10 @@ cargo test -p athanor-app index_publication_atomic_tests --locked
 cargo test -p athanor-app index_publication_recovery_fault_tests --locked
 cargo test -p athanor-app repair_latest --locked
 cargo test -p athanor-app repair_cleanup_recovery --locked
+cargo test -p athanor-app search_operation --locked
+cargo test -p athanor-app derived_read_operation --locked
+cargo test -p athanor-app daemon_read_dispatch --locked
+cargo test -p athanor-app daemon_derived_read_dispatch --locked
 cargo test -p ath --test repair_cli --locked
 cargo test -p ath --test index_checksum_cli --locked
 cargo test -p ath --test index_checksum_recovery_cli --locked
@@ -110,8 +119,8 @@ ATHANOR_SURREAL_REMOTE_URI=ws://127.0.0.1:8000 \
 | Allocation recovery | `[-]` | metadata, 24h cutoff, bounded conditional cleanup, tests | Legacy untagged policy, hosted evidence |
 | Recovery safety | `[-]` | journals, checksummed pointer recovery, cleanup recovery, idempotence | Hosted/Windows fault evidence |
 | Concurrent writers | `[-]` | JSONL/application locks, embedded ownership | Remote conflict evidence |
-| Operation context | `[-]` | cancellation lease, Busy retry, daemon writes | Reads, CLI/MCP, ambiguous in-flight request |
-| Runtime maintainability | `[-]` | focused runtime/coordinator, repair command wrapper | Other runtime/daemon decomposition |
+| Operation context | `[-]` | cancellation lease, Busy retry, daemon writes, daemon read jobs/queries | CLI/MCP, synchronous worker boundary, hosted evidence |
+| Runtime maintainability | `[-]` | focused runtime/coordinator, focused read dispatchers, repair command wrapper | Other runtime/daemon decomposition |
 | Hosted CI | `[!]` | workflow files | Enable Actions, runs, required checks |
 | AppSec | `[-]` | configured gates/SBOM | Hosted evidence, push protection |
 | Release integrity | `[-]` | fail-closed installers/signing configured | Hosted/tag evidence |
@@ -272,7 +281,8 @@ ATHANOR_SURREAL_REMOTE_URI=ws://127.0.0.1:8000 \
 
 - [x] Index runtime отделён, legacy index god-file удалён.
 - [x] Publication coordinator focused, transition modules удалены.
-- [ ] Focused daemon contracts и injected cancellable ProcessRunner.
+- [-] Focused daemon write/read dispatchers добавлены; legacy dispatcher ещё содержит остальные команды.
+- [ ] Injected cancellable ProcessRunner для synchronous/adapter boundaries.
 - [ ] Удалить остальные global registries.
 
 ### P1.4. Installer verification
@@ -285,9 +295,15 @@ ATHANOR_SURREAL_REMOTE_URI=ws://127.0.0.1:8000 \
 
 - [x] Cancellation identity lease и stable error contract.
 - [x] Busy retry, daemon writes, atomic boundary.
-- [ ] Read-only daemon jobs/queries.
+- [x] Core read extension traits с preflight/postflight active checks.
+- [x] Overview/Explain/Search/cached Context получают explicit daemon `OperationContext`.
+- [x] `Context --diff` и `ChangeMap` проходят через compatible operation wrappers.
+- [x] Read jobs получают cancellable registry token и hard deadline.
+- [x] Mid-flight cancel/expired deadline не возвращают ложный successful response.
+- [x] Structured `cancelled`/`deadline_exceeded` daemon errors и terminal job status.
+- [!] Hosted fmt/test/Clippy/transport evidence отсутствует.
 - [ ] CLI/MCP cancellation lifecycle.
-- [ ] Synchronous projector cancellation semantics.
+- [ ] Synchronous worker/projector cancellation semantics.
 
 ### P1.6. Performance budgets
 
@@ -306,18 +322,19 @@ ATHANOR_SURREAL_REMOTE_URI=ws://127.0.0.1:8000 \
 
 Оценка остаётся диапазоном, а не release assertion:
 
-- весь roadmap: ориентировочно `73–77%`;
+- весь roadmap: ориентировочно `75–79%`;
 - generation-layer код P0.4: `100%` по текущему scope;
-- release-grade P0.4 остаётся `[-]` до hosted feature/OS/backend evidence;
+- daemon read-only operation context: code complete по текущему command scope;
+- release-grade P0.4 и P1.5 остаются `[-]` до hosted evidence;
 - до release-grade P0 остаются 5 hosted/platform evidence packages и policy work;
-- после P0 остаются 17 крупных P1-пунктов и 4 P2-пункта.
+- после P0 остаются CLI/MCP, sandbox, synchronous worker boundary, decomposition, performance и P2.
 
 ## 7. Порядок реализации
 
 1. `[!]` Включить Actions и получить compile/test/fmt/Clippy evidence.
 2. P0.4 — hosted JSONL/embedded/remote conflict/latest/checksum evidence.
 3. Hosted AppSec/matrix/installer/tag evidence и required checks.
-4. P1.5 — read-only daemon jobs/queries и CLI/MCP cancellation lifecycle.
+4. P1.5 — CLI/MCP cancellation lifecycle и synchronous worker boundary.
 5. P1.1 — OS-level sandbox и resource limits.
 6. Остальная decomposition, performance и P2.
 
@@ -325,20 +342,30 @@ ATHANOR_SURREAL_REMOTE_URI=ws://127.0.0.1:8000 \
 
 **Активный blocker:** `GitHub Actions activation/visibility`.
 
-**Завершённый кодовый срез:** `P0.4 application artifact checksums`; generation-layer code complete.
+**Завершённый кодовый срез:** `P1.5 daemon read-only operation context` для Overview, Explain, Search, Context и ChangeMap.
 
-**Следующий безопасный кодовый срез:** `P1.5 read-only operation context propagation`.
+**Следующий безопасный кодовый срез:** `P1.5 direct CLI/MCP operation context lifecycle`.
 
 Целевой результат следующего среза:
 
-- read-only daemon jobs и queries получают explicit `OperationContext`;
-- cancellation/deadline проверяются до и после потенциально долгих backend/search операций;
-- ambiguous in-flight request не превращается в ложный successful response;
-- CLI/MCP lifecycle использует тот же stable cancellation contract;
-- существующие synchronous projectors получают документированную cooperative cancellation boundary;
+- direct CLI read commands создают stable operation identity и optional deadline;
+- cancellation/deadline используют те же `CoreError` codes, что daemon;
+- MCP request lifecycle не теряет cancellation authority до terminal response;
+- client disconnect/cancel не превращается в поздний successful response;
+- synchronous derived/projector work получает явную cooperative boundary либо worker isolation;
 - regressions покрывают pre-cancel, mid-flight cancel, deadline и successful completion.
 
 ## 9. Журнал актуализаций
+
+### 2026-07-16 — read-only operation context
+
+- Добавлены backend-neutral extension traits для context-aware canonical/query/search reads.
+- Daemon Overview, Explain, Search и cached Context переведены на explicit `OperationContext`.
+- `Context --diff` и `ChangeMap` обёрнуты совместимыми preflight/postflight operation boundaries.
+- Read jobs регистрируют cancellation lease, используют hard deadline и stable structured errors.
+- Cancellation/deadline больше не проглатываются search fallback’ом и не возвращают ложный success.
+- Добавлены core, search и daemon regressions для pre-cancel, mid-flight cancel и deadline.
+- Hosted fmt/test/Clippy evidence остаётся внешним blocker.
 
 ### 2026-07-15 — application artifact checksums
 
