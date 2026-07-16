@@ -2,16 +2,15 @@ use std::future::Future;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use athanor_app::{
     ChangeMapOptions, ContextLimitOverrides, ContextOptions, ExplainOptions, ImpactOptions,
     OverviewOptions, SearchOptions,
 };
-use athanor_core::{
-    CancellationHandle, CoreError, OperationContext, OperationContextCancellation,
-};
+use athanor_core::{CancellationHandle, OperationContext, OperationContextCancellation};
 use athanor_domain::ContextLevel;
-use clap::{Parser, Subcommand, ValueEnum, error::ErrorKind};
+use clap::error::ErrorKind;
+use clap::{Parser, Subcommand, ValueEnum};
 
 use crate::legacy;
 
@@ -114,7 +113,7 @@ pub(crate) enum Command {
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
-enum ContextLevelArg {
+pub(crate) enum ContextLevelArg {
     Summary,
     Normal,
     Deep,
@@ -386,11 +385,18 @@ fn operation(
     name: &str,
     deadline_unix_ms: Option<u64>,
 ) -> Result<(OperationContext, CancellationHandle)> {
-    let deadline_unix_ms = deadline_unix_ms.or_else(|| {
-        std::env::var("ATHANOR_DEADLINE_UNIX_MS")
-            .ok()
-            .and_then(|value| value.parse::<u64>().ok())
-    });
+    let environment_deadline = match std::env::var("ATHANOR_DEADLINE_UNIX_MS") {
+        Ok(value) => Some(
+            value
+                .parse::<u64>()
+                .context("ATHANOR_DEADLINE_UNIX_MS must be an unsigned integer")?,
+        ),
+        Err(std::env::VarError::NotPresent) => None,
+        Err(std::env::VarError::NotUnicode(_)) => {
+            bail!("ATHANOR_DEADLINE_UNIX_MS must contain valid Unicode")
+        }
+    };
+    let deadline_unix_ms = deadline_unix_ms.or(environment_deadline);
     let mut operation = OperationContext::new(format!("cli:{name}:{}", std::process::id()));
     if let Some(deadline_unix_ms) = deadline_unix_ms {
         operation = operation.with_deadline_unix_ms(deadline_unix_ms);
@@ -438,6 +444,8 @@ mod tests {
         Arc,
         atomic::{AtomicBool, Ordering},
     };
+
+    use athanor_core::CoreError;
 
     use super::*;
 
