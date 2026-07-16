@@ -1,0 +1,193 @@
+{
+  "audit": {
+    "schema": "athanor.rustok_fba_audit.v1",
+    "snapshot": "snap-fba",
+    "summary": {
+      "modules_total": 1,
+      "registered_modules": 1,
+      "dependency_only_modules": 0,
+      "in_progress_modules": 0,
+      "status_unknown_modules": 0,
+      "requirements_met": 10,
+      "requirements_total": 10,
+      "completion_percent": 100,
+      "modules_with_port_code": 1,
+      "modules_with_complete_operations": 1,
+      "modules_with_evidence": 1,
+      "dependency_edges_resolved": 1,
+      "dependency_edges_total": 1,
+      "provider_modules": 1,
+      "consumer_modules": 1,
+      "ports_total": 1,
+      "operations_total": 1,
+      "diagnostics_open": 0
+    },
+    "modules": [
+      {
+        "id": "fba_module://catalog",
+        "module": "catalog",
+        "role": "provider_consumer",
+        "status": "active",
+        "registry_present": true,
+        "requirements_met": 10,
+        "requirements_total": 10,
+        "completion_percent": 100,
+        "port_code_present": true,
+        "port_traits_present": true,
+        "operations_implemented": true,
+        "context_present": true,
+        "error_present": true,
+        "policy_present": true,
+        "evidence_present": true,
+        "contract_tests_present": true,
+        "write_idempotency_present": true,
+        "dependencies_resolved": true,
+        "contract_version": "1.0.0",
+        "ports": [
+          "catalog.read"
+        ],
+        "operations": [
+          "get_product"
+        ],
+        "dependencies": [
+          "inventory"
+        ],
+        "diagnostics": []
+      }
+    ]
+  },
+  "module_graph": {
+    "schema": "athanor.rustok_fba_module_graph.v1",
+    "snapshot": "snap-fba",
+    "root": "catalog",
+    "nodes": [
+      {
+        "id": "catalog",
+        "kind": "rustok_fba_module",
+        "name": "Catalog",
+        "source": "contracts/catalog.json"
+      },
+      {
+        "id": "catalog.read",
+        "kind": "rustok_fba_port",
+        "name": "Catalog read port",
+        "source": "src/catalog/port.rs"
+      }
+    ],
+    "edges": [
+      {
+        "from": "catalog",
+        "to": "catalog.read",
+        "kind": "rustok_fba_declares_port",
+        "evidence": [
+          "contracts/catalog.json:4"
+        ]
+      }
+    ],
+    "diagnostics": [],
+    "omitted": {
+      "nodes": 0,
+      "edges": 0,
+      "reason": "limits"
+    }
+  },
+  "port_graph": {
+    "schema": "athanor.rustok_fba_port_graph.v1",
+    "snapshot": "snap-fba",
+    "root": "catalog.read",
+    "nodes": [
+      {
+        "id": "catalog.read",
+        "kind": "rustok_fba_port",
+        "name": "Catalog read port",
+        "source": "src/catalog/port.rs"
+      },
+      {
+        "id": "get_product",
+        "kind": "rustok_fba_operation",
+        "name": "Get product",
+        "source": "src/catalog/service.rs"
+      }
+    ],
+    "edges": [
+      {
+        "from": "catalog.read",
+        "to": "get_product",
+        "kind": "rustok_fba_declares_operation",
+        "evidence": [
+          "src/catalog/port.rs:8"
+        ]
+      }
+    ],
+    "diagnostics": [],
+    "omitted": {
+      "nodes": 0,
+      "edges": 0,
+      "reason": "limits"
+    }
+  },
+  "dependencies_graph": {
+    "schema": "athanor.rustok_fba_dependencies_graph.v1",
+    "snapshot": "snap-fba",
+    "root": "catalog",
+    "nodes": [
+      {
+        "id": "catalog",
+        "kind": "rustok_fba_module",
+        "name": "Catalog",
+        "source": "contracts/catalog.json"
+      },
+      {
+        "id": "inventory",
+        "kind": "rustok_fba_module",
+        "name": "Inventory",
+        "source": "contracts/inventory.json"
+      }
+    ],
+    "edges": [
+      {
+        "from": "catalog",
+        "to": "inventory",
+        "kind": "rustok_fba_depends_on",
+        "evidence": [
+          "contracts/catalog.json:12"
+        ]
+      }
+    ],
+    "diagnostics": [],
+    "omitted": {
+      "nodes": 0,
+      "edges": 0,
+      "reason": "limits"
+    }
+  },
+  "violations_graph": {
+    "schema": "athanor.rustok_fba_violations_graph.v1",
+    "snapshot": "snap-fba",
+    "root": null,
+    "nodes": [
+      {
+        "id": "missing-policy",
+        "kind": "rustok_fba_violation",
+        "name": "Missing policy",
+        "source": "src/catalog/service.rs"
+      }
+    ],
+    "edges": [
+      {
+        "from": "missing-policy",
+        "to": "catalog",
+        "kind": "rustok_fba_violation_for",
+        "evidence": [
+          "src/catalog/service.rs:20"
+        ]
+      }
+    ],
+    "diagnostics": [],
+    "omitted": {
+      "nodes": 0,
+      "edges": 0,
+      "reason": "limits"
+    }
+  }
+}
