@@ -19,6 +19,7 @@ path = "src/entry.rs"
 [dependencies]
 anyhow.workspace = true
 athanor-app = { path = "../../crates/athanor-app" }
+athanor-core = { path = "../../crates/athanor-core" }
 athanor-domain = { path = "../../crates/athanor-domain" }
 athanor-runtime-defaults = { path = "../../crates/athanor-runtime-defaults" }
 athanor-transport-mcp = { path = "../../crates/athanor-transport-mcp" }
