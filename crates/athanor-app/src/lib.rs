@@ -15,6 +15,7 @@ pub mod coverage;
 pub mod daemon;
 mod daemon_client;
 mod daemon_connection;
+mod daemon_derived_read_dispatch;
 mod daemon_endpoint;
 mod daemon_job_cancellation;
 mod daemon_job_registry;
