@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use athanor_domain::ContextPack;
 use serde::{Deserialize, Serialize};
 
@@ -32,6 +34,14 @@ impl From<ContextPack> for ContextReport {
 
 impl AsRef<ContextPack> for ContextReport {
     fn as_ref(&self) -> &ContextPack {
+        &self.pack
+    }
+}
+
+impl Deref for ContextReport {
+    type Target = ContextPack;
+
+    fn deref(&self) -> &Self::Target {
         &self.pack
     }
 }
