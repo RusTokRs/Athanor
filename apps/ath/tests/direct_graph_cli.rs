@@ -36,9 +36,23 @@ fn malformed_graph_deadline_fails_before_project_access() {
 }
 
 #[test]
-fn manual_rustok_graph_help_remains_on_legacy_dispatcher() {
+fn manual_rustok_graph_help_exposes_deadline() {
     let output = run(&["graph", "ffa", "violations", "--help"]);
-    assert!(!String::from_utf8_lossy(&output.stdout).contains("--deadline-unix-ms"));
+    assert!(output.status.success(), "Rustok graph help failed");
+    assert!(String::from_utf8_lossy(&output.stdout).contains("--deadline-unix-ms"));
+}
+
+#[test]
+fn malformed_rustok_deadline_fails_before_project_access() {
+    let output = run(&[
+        "rustok",
+        "ffa",
+        "audit",
+        "--deadline-unix-ms",
+        "tomorrow",
+    ]);
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("--deadline-unix-ms must be an unsigned integer"));
 }
 
 fn stderr(output: &Output) -> String {
