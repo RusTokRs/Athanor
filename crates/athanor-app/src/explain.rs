@@ -10,6 +10,9 @@ use serde::Serialize;
 use crate::RuntimeComposition;
 use crate::project_path::normalize_canonical_path;
 
+pub const ENTITY_EXPLANATION_SCHEMA: &str =
+    crate::json_contract::ENTITY_EXPLANATION_SCHEMA_V1;
+
 #[derive(Debug, Clone)]
 pub struct ExplainOptions {
     pub root: PathBuf,
@@ -124,7 +127,7 @@ pub fn explain_snapshot(
     diagnostics.sort_by(|left, right| left.id.0.cmp(&right.id.0));
 
     Ok(EntityExplanation {
-        schema: "athanor.entity_explanation.v1".to_string(),
+        schema: ENTITY_EXPLANATION_SCHEMA.to_string(),
         snapshot: snapshot
             .snapshot
             .as_ref()
@@ -223,7 +226,7 @@ mod tests {
 
         let explanation = explain_snapshot(&snapshot, "api://POST:/login").unwrap();
 
-        assert_eq!(explanation.schema, "athanor.entity_explanation.v1");
+        assert_eq!(explanation.schema, ENTITY_EXPLANATION_SCHEMA);
         assert_eq!(explanation.snapshot, "snap_test");
         assert_eq!(explanation.facts.len(), 1);
         assert_eq!(explanation.outgoing_relations.len(), 1);
