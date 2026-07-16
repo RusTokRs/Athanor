@@ -71,17 +71,6 @@ pub(crate) fn read_source_file_at(root: &Path, relative: &Path) -> Result<Option
     read_source_file_at_with_poller(root, relative, &mut poller)
 }
 
-pub(crate) fn read_source_file_at_with_operation_context(
-    root: &Path,
-    relative: &Path,
-    operation: &OperationContext,
-) -> Result<Option<SourceFile>> {
-    let mut poller = DiscoveryPoller::new(Some(operation), DISCOVERY_POLL_INTERVAL)?;
-    let source = read_source_file_at_with_poller(root, relative, &mut poller)?;
-    poller.finish()?;
-    Ok(source)
-}
-
 fn read_source_file_at_with_poller(
     root: &Path,
     relative: &Path,
