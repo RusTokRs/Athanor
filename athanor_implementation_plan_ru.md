@@ -28,13 +28,14 @@
 10. Rebuild-capable transport держит cancellation lease до worker/future cleanup.
 11. Projector publication проверяет cancellation после полного staging и до mutation current output.
 12. Operation-aware CPU builders используют bounded cooperative checkpoints; legacy pure APIs сохраняются.
-13. Transactional MCP cancellation остаётся запрещённой без отдельного rollback review.
-14. Queries читают только committed canonical snapshots.
-15. Backend atomic publication не считается единым application generation pointer.
-16. Recovery fail-closed проверяет path/type/schema/snapshot/generation/checksum identity до mutation.
-17. `GenerationId` детерминированно выводится из уникального `SnapshotId`.
-18. Canonical latest repair не может перемотать visibility на более старый committed snapshot.
-19. Destructive retention требует token от точного dry-run plan.
+13. External process adapter запускается только через injected runner с bounded I/O, deadline/cancellation и process-tree cleanup.
+14. Transactional MCP cancellation остаётся запрещённой без отдельного rollback review.
+15. Queries читают только committed canonical snapshots.
+16. Backend atomic publication не считается единым application generation pointer.
+17. Recovery fail-closed проверяет path/type/schema/snapshot/generation/checksum identity до mutation.
+18. `GenerationId` детерминированно выводится из уникального `SnapshotId`.
+19. Canonical latest repair не может перемотать visibility на более старый committed snapshot.
+20. Destructive retention требует token от точного dry-run plan.
 
 ## 1. Текущий baseline
 
@@ -59,6 +60,9 @@
 - cooperative operation-aware Rustok architecture-context builder;
 - cooperative FFA/FBA/Page Builder audit builders;
 - cooperative FFA/FBA/Page Builder graph builders;
+- injected task-local `CancellableProcessRunner` для external adapters;
+- operation/deadline/cancellation propagation через source/extract/link/check process phases;
+- bounded stdin/stdout/stderr, timeout/cancel process-tree termination и stable process errors;
 - feature, coverage, AppSec, installer и release workflows.
 
 Платформенное состояние:
@@ -93,6 +97,9 @@ cargo test -p athanor-app graph_cooperative --locked
 cargo test -p athanor-app rustok_architecture_cooperative --locked
 cargo test -p athanor-app rustok_audit_cooperative --locked
 cargo test -p athanor-app rustok_graph_cooperative --locked
+cargo test -p athanor-app process_runner --locked
+cargo test -p athanor-app process_adapter --locked
+cargo test -p athanor-app process_runner_scope --locked
 cargo test -p athanor-app rustok_operation --locked
 cargo test -p athanor-app derived_read_operation --locked
 cargo test -p athanor-app search_operation --locked
@@ -112,8 +119,9 @@ cargo test -p athanor-store-surrealdb --test conformance --locked
 | Transactional publication | `[-]` | generation layer code complete, repair/checksums/fault regressions | Hosted backend/OS evidence |
 | Allocation recovery | `[-]` | metadata, cutoff, bounded cleanup | Legacy untagged policy, hosted evidence |
 | Concurrent writers | `[-]` | JSONL/application locks, embedded ownership | Hosted remote conflict evidence |
-| Operation context | `[-]` | daemon, CLI, MCP reads, graph/discovery/search/projector/Rustok polling, worker/future drain | Hosted evidence, transactional MCP review |
-| Runtime maintainability | `[-]` | focused coordinator/read/graph/check/Rustok/Context/Search modules | ProcessRunner, remaining legacy decomposition |
+| Operation context | `[-]` | daemon, CLI, MCP reads, graph/discovery/search/projector/Rustok/process polling, worker/future/process drain | Hosted evidence, transactional MCP review |
+| Runtime maintainability | `[-]` | focused modules, injected ProcessRunner, scoped dependency override | Remaining global registries and legacy decomposition |
+| External process safety | `[-]` | explicit paths/trust/allowlist, bounded I/O, timeout/cancel tree cleanup, fake runner | OS sandbox, Job Objects/rlimits, hosted platform evidence |
 | Hosted CI | `[!]` | workflow files | Actions runs, artifacts, required checks |
 | AppSec | `[-]` | configured gates/SBOM/signing | Hosted evidence, push protection |
 | Release integrity | `[-]` | fail-closed installers/provenance | Hosted/tag evidence |
@@ -192,9 +200,14 @@ cargo test -p athanor-store-surrealdb --test conformance --locked
 
 ### P1.1. External process sandbox
 
+- [x] Transport-neutral `ProcessRequest`/`ProcessLimits`/`ProcessOutput` и app-layer injected `CancellableProcessRunner`.
+- [x] Explicit executable/working directory, trust hash, allowlist, bounded stdin/stdout/stderr и timeout.
+- [x] Operation deadline/cancellation передаются в source/extract/link/check process lifecycle.
+- [x] Timeout/cancel завершают process tree и drain’ят reader tasks до terminal response.
+- [x] Fake runner и concurrent task-local isolation не используют mutable global registry.
 - [ ] OS-level filesystem/network/CPU/memory/process limits.
 - [ ] Windows Job Objects и Linux launcher/sandbox.
-- [ ] Timeout/cancellation/orphan/limit platform tests.
+- [ ] Hosted timeout/cancellation/orphan/limit platform tests.
 
 ### P1.2. CLI decomposition
 
@@ -214,7 +227,8 @@ cargo test -p athanor-store-surrealdb --test conformance --locked
 - [x] Operation-aware search factory добавлен без изменения legacy `RuntimeComposition::new`.
 - [x] Diff Context не использует drop-on-timeout вокруг operation-aware rebuild.
 - [x] MCP Search/Context используют drained operation dispatch вместо compatibility future drop.
-- [ ] Injected cancellable `ProcessRunner` для adapter boundaries.
+- [x] Injected cancellable `ProcessRunner` foundation для external adapter boundary.
+- [x] Production Tokio runner и test fake runner выбираются через immutable task-local scope.
 - [ ] Удалить остальные global registries.
 
 ### P1.4. Installer verification
@@ -251,9 +265,11 @@ cargo test -p athanor-store-surrealdb --test conformance --locked
 - [x] Audit parity regressions сохраняют legacy schemas, sorting и completion calculations.
 - [x] Graph parity regression покрывает все девять Rustok graph builders.
 - [x] Deterministic architecture/audit/graph cancellation regressions останавливают работу после нескольких batches.
+- [x] External adapter runner проверяет operation active state до spawn, во время stdin/wait и перед success.
+- [x] Process timeout/cancellation regression отклоняет delayed side effect после tree cleanup.
 - [x] Parser/process/worker regressions для help, malformed/expired deadline, preflight, drain и success.
 - [x] Deterministic search regression отменяет rebuild после нескольких batches.
-- [!] Hosted fmt/test/Clippy/stdio/Ctrl-C/disconnect/directory-swap/worker evidence отсутствует.
+- [!] Hosted fmt/test/Clippy/stdio/Ctrl-C/disconnect/directory-swap/process-tree/worker evidence отсутствует.
 - [ ] Transactional MCP notification cancellation — только после rollback review.
 
 ### P1.6. Performance budgets
@@ -273,58 +289,71 @@ cargo test -p athanor-store-surrealdb --test conformance --locked
 
 Оценка остаётся диапазоном, а не release assertion:
 
-- весь roadmap: ориентировочно `83–87%`;
+- весь roadmap: ориентировочно `84–88%`;
 - generation-layer код P0.4: `100%` по текущему scope;
-- P1.5 operation lifecycle: ориентировочно `98–99%` на уровне кода;
+- P1.5 operation lifecycle: ориентировочно `99%` на уровне кода;
+- P1.1 external-process boundary: foundation complete, OS isolation остаётся открытой;
 - release-grade P0.4/P1.5 остаются `[-]` до hosted evidence;
 - до release-grade P0 остаются пять hosted/platform evidence packages и policy work;
-- после P0 остаются ProcessRunner/sandbox, decomposition, performance и P2;
-- transactional MCP notification cancellation остаётся отдельным review-gated решением, а не автоматическим следующим изменением.
+- после P0 остаются OS sandbox, legacy decomposition, performance и P2;
+- transactional MCP notification cancellation остаётся отдельным review-gated решением.
 
 ## 7. Порядок реализации
 
 1. `[!]` Включить Actions и получить compile/test/fmt/Clippy evidence.
 2. Получить P0 hosted JSONL/embedded/remote conflict/latest/checksum evidence.
 3. Получить hosted AppSec/matrix/installer/tag evidence и включить required checks.
-4. P1.3/P1.1 — injectable cancellable `ProcessRunner` и безопасная external-process boundary.
-5. P1.1 — OS-level sandbox и resource limits поверх ProcessRunner.
-6. Остальная CLI/runtime decomposition.
-7. Performance budgets.
-8. P2 governance.
-9. Transactional MCP cancellation — только после отдельного rollback/durable-success review.
+4. P1.1 — OS sandbox policy/launcher, Linux resource limits и Windows Job Objects.
+5. P1.2/P1.3 — остальная CLI/runtime decomposition и удаление global registries.
+6. Performance budgets.
+7. P2 governance.
+8. Transactional MCP cancellation — только после отдельного rollback/durable-success review.
 
 ## 8. Текущий рабочий пакет
 
 **Активный внешний blocker:** `GitHub Actions activation/visibility`.
 
-**Завершённый кодовый срез:** `P1.5 cooperative Rustok audit and graph builders`.
+**Завершённый кодовый срез:** `P1.3 injectable cancellable ProcessRunner foundation`.
 
 Завершённый результат:
 
-- operation-aware FFA/FBA/Page Builder audit paths используют dedicated cooperative builders;
-- checkpoints добавлены в entity/relation/fact/diagnostic/module aggregation loops;
-- FBA dependency resolution и completion summary считаются с bounded polling;
-- operation-aware FFA, FBA и Page Builder graph paths используют cooperative variants;
-- checkpoints добавлены в root lookup, selection, evidence extraction, edge assembly и final compaction;
-- legacy pure audit/graph APIs и output schemas не изменены;
-- audit parity regressions сравнивают три cooperative reports с legacy builders;
-- graph parity regression сравнивает все девять cooperative graphs с legacy builders;
-- deterministic cancellation regressions останавливают audit и graph builders после нескольких batches;
-- outer Rustok worker drain остаётся обязательной terminal boundary.
+- добавлен app-layer `CancellableProcessRunner`, расширяющий существующий core `ProcessRunner`;
+- production default остаётся `TokioProcessRunner`;
+- external adapter protocol больше не создаёт runner напрямую;
+- runner override передаётся через immutable Tokio task-local scope без mutable global registry;
+- source/extract/link/check phases передают одинаковые operation/cancellation данные в process lifecycle;
+- operation deadline проверяется до spawn, во время stdin/write wait, child wait и перед success;
+- timeout/cancel завершают process group/tree и drain’ят stdout/stderr readers;
+- bounded stdout/stderr, non-zero exit и protocol error classifications сохранены;
+- fake runner regressions подтверждают request/limits/context propagation и task-local isolation;
+- platform regressions проверяют spawn failure, timeout, cancellation, output limit и delayed side-effect suppression;
+- legacy `ProcessRunner::run`, `TokioProcessRunner::run_cancellable`, manifests и payload schemas сохранены.
 
-**Следующий безопасный кодовый срез:** `P1.3 injectable cancellable ProcessRunner foundation`.
+**Следующий безопасный кодовый срез:** `P1.1 external process sandbox policy contract`.
 
 Целевой результат следующего среза:
 
-- external adapter process запуск инкапсулирован за injected `ProcessRunner`;
-- operation deadline и cancellation передаются в process lifecycle;
-- timeout/cancel завершает process tree, а runner дожидается cleanup;
-- stdout/stderr имеют bounded capture и стабильную error classification;
-- production default и test fake runner не требуют global mutable registry;
-- legacy adapter behavior и command arguments сохраняются;
-- regressions покрывают success, spawn failure, timeout, cancellation, output limit и orphan prevention.
+- sandbox policy отделена от adapter manifest и process protocol;
+- policy явно описывает filesystem, network, CPU, memory и descendant-process ограничения;
+- unsupported platform policy fail-closed, а не silently degrades;
+- Linux launcher boundary допускает rlimit/cgroup/seccomp implementation без изменения adapters;
+- Windows boundary допускает Job Object implementation;
+- clean-environment остаётся отдельным частичным profile;
+- compatibility mode явно маркируется как отсутствие OS isolation;
+- unit regressions проверяют policy validation и platform capability selection без ложных hosted claims.
 
 ## 9. Журнал актуализаций
+
+### 2026-07-16 — injectable cancellable ProcessRunner foundation
+
+- Добавлен app-layer operation-aware process runner contract поверх core `ProcessRunner`.
+- External source/extractor/linker/checker adapters используют injected scoped runner.
+- Pipeline передаёт operation и cancellation во все process adapter phases.
+- Tokio runner проверяет active state до spawn, во время stdin/wait и перед success.
+- Timeout/cancel завершают process tree и drain’ят output readers.
+- Добавлены fake-runner, concurrent-scope, timeout, cancellation, output-limit и orphan-prevention regressions.
+- Legacy core runner API, manifests, trust/allowlist и JSON protocols сохранены.
+- Hosted Linux/Windows build/fmt/test/Clippy evidence не заявлено.
 
 ### 2026-07-16 — cooperative Rustok audit и graph builders
 
