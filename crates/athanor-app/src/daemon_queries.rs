@@ -307,6 +307,9 @@ fn search_index_with_operation_context(
         check_active(operation)?;
         return Ok(Arc::clone(&cached.index));
     }
+
+    let stale = cache.take();
+    drop(stale);
     let index_dir = state
         .endpoint
         .root
