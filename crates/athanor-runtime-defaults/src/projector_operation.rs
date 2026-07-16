@@ -60,7 +60,7 @@ pub(crate) fn publish_projector_output_cancellable(
         });
     }
     if had_existing {
-        remove_path_if_exists(&backup)?;
+        let _ = remove_path_if_exists(&backup);
     }
     Ok(())
 }
@@ -123,7 +123,7 @@ mod tests {
         assert_eq!(
             fs::read_dir(&root)
                 .unwrap()
-                .filter_map(Result::ok)
+                .filter_map(|entry| entry.ok())
                 .filter(|entry| entry.file_name().to_string_lossy().contains("operation-"))
                 .count(),
             0
