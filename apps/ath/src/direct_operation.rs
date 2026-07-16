@@ -64,6 +64,22 @@ pub(crate) async fn await_operation<T>(
     }
 }
 
+/// Runs synchronous work on the blocking pool and rejects late success after operation termination.
+pub(crate) async fn run_blocking_operation<T>(
+    operation: OperationContext,
+    work: impl FnOnce() -> Result<T> + Send + 'static,
+) -> Result<T>
+where
+    T: Send + 'static,
+{
+    operation.check_active().map_err(anyhow::Error::new)?;
+    let result = tokio::task::spawn_blocking(work)
+        .await
+        .context("direct blocking worker terminated unexpectedly")??;
+    operation.check_active().map_err(anyhow::Error::new)?;
+    Ok(result)
+}
+
 /// Cancels on Ctrl-C but keeps polling the operation-aware future until it drains its worker.
 pub(crate) async fn await_drained_operation<T>(
     cancellation: CancellationHandle,
@@ -109,6 +125,37 @@ mod tests {
         .await
         .expect_err("cancelled operation must reject late success");
 
+        assert!(error.chain().any(|cause| matches!(
+            cause.downcast_ref::<CoreError>(),
+            Some(CoreError::Cancelled(_))
+        )));
+    }
+
+    #[tokio::test]
+    async fn blocking_operation_rejects_late_success_after_worker_completion() {
+        let operation = OperationContext::new("direct-operation-blocking");
+        let cancellation_lease = operation.cancellation_handle().unwrap();
+        let cancellation = cancellation_lease.clone();
+        let completed = Arc::new(AtomicBool::new(false));
+        let completed_in_worker = Arc::clone(&completed);
+        let operation_for_worker = operation.clone();
+        let task = tokio::spawn(async move {
+            run_blocking_operation(operation_for_worker, move || {
+                std::thread::sleep(Duration::from_millis(25));
+                completed_in_worker.store(true, Ordering::Release);
+                Ok(42_u8)
+            })
+            .await
+        });
+        tokio::task::yield_now().await;
+        cancellation.cancel();
+
+        let error = task
+            .await
+            .unwrap()
+            .expect_err("cancelled blocking operation must reject success");
+        assert!(cancellation_lease.is_cancelled());
+        assert!(completed.load(Ordering::Acquire));
         assert!(error.chain().any(|cause| matches!(
             cause.downcast_ref::<CoreError>(),
             Some(CoreError::Cancelled(_))
