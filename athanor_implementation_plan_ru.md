@@ -2,141 +2,101 @@
 
 > Репозиторий: `RusTokRs/Athanor`  
 > Базовая ветка: `main`  
-> Точка сверки кода: `fcbb861c32143c9ec74396d6195cc987770fc434`  
 > Дата актуализации: 2026-07-16  
-> Статус: active implementation plan
+> Статус: active consolidated implementation plan
 
 ## 0. Правила исполнения
 
 Статусы:
 
-- `[x]` — реализация и воспроизводимая проверка добавлены;
-- `[-]` — реализация частичная либо отсутствует hosted evidence;
+- `[x]` — код и воспроизводимые regressions добавлены;
+- `[-]` — реализация частичная либо отсутствует hosted/platform evidence;
 - `[ ]` — не начато;
 - `[!]` — внешний blocker.
 
 Правила:
 
-1. Все коммиты идут напрямую в `main`, пока пользователь явно не изменит режим.
+1. Все изменения коммитятся напрямую в `main`, пока пользователь явно не изменит режим.
 2. Один коммит — одна логически завершённая часть.
-3. Hosted/platform пункт не выполнен без run/status evidence.
-4. Coverage threshold не назначается без измерения.
-5. Cancellation/deadline не блокируют rollback/recovery.
-6. Journal v1/v2 читается после перехода writer на v3.
-7. Recovery fail-closed проверяет path/type/schema/snapshot/generation identity до mutation.
-8. Queries читают только committed canonical snapshots.
-9. Data+marker atomic только внутри одного backend boundary.
-10. Durable success не превращается в post-commit cancellation error.
-11. До durable application journal допустима allocation authority, но не rows/prepared marker.
-12. Backend atomic publication ещё не равна одному application generation pointer.
-13. `GenerationId` детерминированно выводится из уникального `SnapshotId` и не имеет отдельного allocator/counter.
+3. Hosted/platform пункт не закрывается без run/status/artifact evidence.
+4. Coverage threshold не назначается без фактического измерения.
+5. Cancellation/deadline не блокируют rollback и recovery.
+6. Durable success не превращается в post-commit cancellation error.
+7. Blocking worker не detach’ится: terminal error возвращается только после drain.
+8. Read-only operation проверяет active state до работы, внутри поддерживаемых hot loops и перед success.
+9. Transactional MCP cancellation остаётся запрещённой без отдельного rollback review.
+10. Queries читают только committed canonical snapshots.
+11. Backend atomic publication не считается единым application generation pointer.
+12. Recovery fail-closed проверяет path/type/schema/snapshot/generation/checksum identity до mutation.
+13. `GenerationId` детерминированно выводится из уникального `SnapshotId`.
 14. Canonical latest repair не может перемотать visibility на более старый committed snapshot.
-15. Destructive index retention требует token от точного dry-run plan.
-16. `index-current.v2` выдаёт selected paths только после проверки manifest/state и полного checksum chain.
-17. Existing immutable generation не seal’ится recovery без совпадения с validated compatibility source.
-18. Read-only compatibility service проверяет `OperationContext` до работы и перед выдачей success.
-19. Daemon read request получает cancellable job lease и hard deadline независимо от cache/legacy path.
-20. Direct CLI read command удерживает cancellation lease до terminal output и не выдаёт late success после Ctrl-C/deadline.
-21. MCP notification cancellation применяется только к read tools; transactional tools не отменяются без отдельного rollback review.
-22. Blocking read worker не detach’ится при cancel/deadline: terminal error возвращается только после worker drain.
+15. Destructive retention требует token от точного dry-run plan.
 
-## 1. Baseline
+## 1. Текущий baseline
 
-Реализовано:
+На уровне кода реализованы:
 
 - Rust workspace с `ath`, `athd`, adapters, stores, search и projectors;
 - JSONL default и opt-in embedded/remote SurrealDB;
 - shared Memory/JSONL/SurrealDB query/lifecycle/atomic conformance;
-- backend-neutral `FactQuery`, `AtomicSnapshotPublication` и `CanonicalLatestPointer`;
-- backend-neutral read operation extension traits;
-- backend atomic data+marker boundaries;
-- process-local deferred canonical batch barrier;
-- snapshot-native runtime publisher и recovery;
-- journal v3 с чтением v2/v1;
-- backend-neutral immutable `GenerationId`;
-- generation identity в canonical marker/record, read-model manifest, index state и recovery journal;
-- один checksum-bound `index-current.v2` для application artifacts;
-- exact four-file JSONL digest map и immutable state digest;
-- pointer-first index-state readers с legacy fallback только при отсутствии pointer;
-- repair inspect/retention/publication recovery/cleanup recovery;
-- backend-neutral canonical latest discovery, validation и repair;
-- daemon Overview/Explain/Search/Context/ChangeMap с operation-aware cancellation/deadline routing;
-- focused direct CLI lifecycle для Context/Explain/Overview/Impact/ChangeMap/Search/Check;
-- standard Graph export/related/path/hubs/PageRank/cycles через non-orphaning blocking worker;
-- strict API diff через non-orphaning blocking worker;
-- concurrent MCP read lifecycle с request registry и cancellation notifications;
-- SurrealDB context-owned allocation metadata и bounded orphan cleanup;
+- backend-neutral `FactQuery`, `AtomicSnapshotPublication`, `CanonicalLatestPointer`;
+- immutable `GenerationId` во всех publication artifacts;
+- checksum-bound `index-current.v2` и immutable application generations;
+- transactional recovery, cleanup tombstones, retention и backend latest repair;
+- daemon read/write operation context и stable typed errors;
+- focused direct CLI lifecycle для стандартных reads, check, standard graph и manual Rustok surfaces;
+- concurrent MCP read lifecycle с request cancellation registry;
+- non-orphaning blocking workers для graph, strict API diff и Rustok report builds;
+- cooperative checkpoints внутри related/path/PageRank/cycle algorithms;
 - feature, coverage, AppSec, installer и release workflows.
 
 Платформенное состояние:
 
-- [!] GitHub Actions page показывает onboarding вместо runs;
+- [!] GitHub Actions page/run visibility не подтверждена;
 - [!] connector не возвращает push-run/status evidence;
-- [!] DNS clone и локальный Rust toolchain недоступны в рабочей среде;
-- [ ] проверить/включить Actions;
+- [!] DNS checkout и локальный Rust toolchain недоступны в рабочей среде;
+- [ ] включить/подтвердить Actions;
 - [ ] получить hosted run и исправить реальные findings.
 
-Verification commands:
+Основные verification commands:
 
 ```bash
 cargo fmt --all -- --check
 cargo test --workspace --quiet --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings
 
-cargo test -p athanor-domain generation --locked
-cargo test -p athanor-core latest_pointer --locked
-cargo test -p athanor-core read_operation --locked
-cargo test -p athanor-app artifact_checksum --locked
-cargo test -p athanor-app index_current --locked
-cargo test -p athanor-app index_state --locked
-cargo test -p athanor-app index_current_runtime_tests --locked
-cargo test -p athanor-app index_publication_atomic_tests --locked
-cargo test -p athanor-app index_publication_recovery_fault_tests --locked
-cargo test -p athanor-app repair_latest --locked
-cargo test -p athanor-app repair_cleanup_recovery --locked
-cargo test -p athanor-app search_operation --locked
-cargo test -p athanor-app derived_read_operation --locked
-cargo test -p athanor-app daemon_read_dispatch --locked
-cargo test -p athanor-app daemon_derived_read_dispatch --locked
-cargo test -p athanor-app graph_operation --locked
-cargo test -p ath --test repair_cli --locked
 cargo test -p ath --test direct_read_cli --locked
 cargo test -p ath --test direct_graph_cli --locked
 cargo test -p ath --test direct_check_cli --locked
-cargo test -p ath --test index_checksum_cli --locked
-cargo test -p ath --test index_checksum_recovery_cli --locked
 cargo test -p ath direct_operation --locked
-cargo test -p athanor-transport-mcp lifecycle --locked
+cargo test -p ath direct_rustok_cli --locked
+cargo test -p ath direct_rustok_help --locked
 
-cargo test -p athanor-store-memory latest_pointer --locked
-cargo test -p athanor-store-jsonl latest --locked
-cargo test -p athanor-store-jsonl --test atomic_publication --locked
-cargo test -p athanor-store-surrealdb latest_pointer --locked
-cargo test -p athanor-store-surrealdb --test atomic_publication --locked
+cargo test -p athanor-app graph_operation --locked
+cargo test -p athanor-app graph_cooperative --locked
+cargo test -p athanor-app rustok_operation --locked
+cargo test -p athanor-app derived_read_operation --locked
+cargo test -p athanor-app search_operation --locked
+cargo test -p athanor-transport-mcp lifecycle --locked
 
 cargo test -p athanor-store-memory --test conformance --locked
 cargo test -p athanor-store-jsonl --test conformance --locked
 cargo test -p athanor-store-surrealdb --test conformance --locked
-cargo test -p athanor-store-surrealdb --test allocation_recovery --locked
-
-ATHANOR_SURREAL_REMOTE_URI=ws://127.0.0.1:8000 \
-  cargo test -p athanor-store-surrealdb --features remote --test remote --locked -- --ignored
 ```
 
 ## 2. Сводный статус
 
-| Область | Статус | Подтверждено | Остаётся |
+| Область | Статус | Подтверждено кодом | Остаётся |
 | --- | --- | --- | --- |
-| Query isolation | `[-]` | committed exact/latest contracts, generation identity | Hosted remote evidence |
-| Atomic publication | `[-]` | backend boundaries, v2 application pointer, checksum chain, repair protocol | Hosted compile/test/Clippy evidence |
-| Allocation recovery | `[-]` | metadata, 24h cutoff, bounded conditional cleanup, tests | Legacy untagged policy, hosted evidence |
-| Recovery safety | `[-]` | journals, checksummed pointer recovery, cleanup recovery, idempotence | Hosted/Windows fault evidence |
-| Concurrent writers | `[-]` | JSONL/application locks, embedded ownership | Remote conflict evidence |
-| Operation context | `[-]` | daemon reads/writes, focused CLI reads/check/standard graph, concurrent MCP read cancellation, worker drain | Manual Rustok surfaces, finer cooperative polling, hosted evidence |
-| Runtime maintainability | `[-]` | focused runtime/coordinator, focused read dispatchers, repair/read/graph/check entry wrappers | Other runtime/daemon decomposition |
-| Hosted CI | `[!]` | workflow files | Enable Actions, runs, required checks |
-| AppSec | `[-]` | configured gates/SBOM | Hosted evidence, push protection |
-| Release integrity | `[-]` | fail-closed installers/signing configured | Hosted/tag evidence |
+| Query isolation | `[-]` | committed exact/latest, generation identity | Hosted remote evidence |
+| Transactional publication | `[-]` | generation layer code complete, repair/checksums/fault regressions | Hosted backend/OS evidence |
+| Allocation recovery | `[-]` | metadata, cutoff, bounded cleanup | Legacy untagged policy, hosted evidence |
+| Concurrent writers | `[-]` | JSONL/application locks, embedded ownership | Hosted remote conflict evidence |
+| Operation context | `[-]` | daemon, focused CLI, manual Rustok, MCP reads, graph polling, worker drain | Discovery/search-index/projector polling, hosted evidence |
+| Runtime maintainability | `[-]` | focused coordinator/read/graph/check/Rustok modules | Remaining legacy CLI/runtime decomposition |
+| Hosted CI | `[!]` | workflow files | Actions runs, artifacts, required checks |
+| AppSec | `[-]` | configured gates/SBOM/signing | Hosted evidence, push protection |
+| Release integrity | `[-]` | fail-closed installers/provenance | Hosted/tag evidence |
 | Default build | `[x]` | remote SurrealDB opt-in | Maintain boundary |
 
 ## 3. P0 — release-blocking quality and security
@@ -151,15 +111,16 @@ ATHANOR_SURREAL_REMOTE_URI=ws://127.0.0.1:8000 \
 ### P0.2. Coverage
 
 - [x] Pinned `cargo-llvm-cov 0.8.7`.
-- [x] LCOV/JSON/HTML artifact.
+- [x] LCOV/JSON/HTML artifacts.
 - [!] Получить hosted artifact.
-- [ ] Выбрать floor по измерению.
+- [ ] Выбрать baseline/floor по измерению.
+- [ ] Включить no-regression и changed-lines gate.
 
-### P0.3. AppSec/supply chain
+### P0.3. AppSec и supply chain
 
 - [x] Dependency review, CodeQL, Gitleaks, blocking Zizmor.
-- [x] Immutable pins, SBOM, checksum, Sigstore, provenance.
-- [x] Release verify блокирует publish.
+- [x] Immutable action pins, SBOM, checksums, Sigstore, provenance.
+- [x] Release verification блокирует publish.
 - [!] Hosted AppSec/tag evidence.
 - [ ] Secret push protection.
 
@@ -170,160 +131,92 @@ ATHANOR_SURREAL_REMOTE_URI=ws://127.0.0.1:8000 \
 #### Shared backend contract
 
 - [x] Query/lifecycle/atomic suites для Memory/JSONL/SurrealDB.
-- [x] Uncommitted/prepared невидимы.
+- [x] Uncommitted/prepared snapshots невидимы.
 - [x] Commit exact/latest visible; abort не меняет latest.
-- [x] Backend-neutral `FactQuery`.
-- [x] Backend-neutral `CanonicalLatestIdentity` и `CanonicalLatestPointer`.
-- [x] Memory и SurrealDB derived-latest validation запрещает rewind.
-- [x] JSONL authoritative discovery не доверяет mutable `latest.json`.
-- [x] JSONL repair target обязан иметь marker v2 и корректный `GenerationId`.
-- [-] Remote reader configured, hosted evidence отсутствует.
+- [x] Backend-neutral `FactQuery` и latest pointer contracts.
+- [x] JSONL authoritative discovery не доверяет mutable latest pointer.
+- [x] Memory/SurrealDB derived-latest validation запрещает rewind.
+- [-] Remote reader configured; hosted evidence отсутствует.
 
 #### Atomic coordinator/recovery
 
-- [x] Journal v3/v2/v1 compatibility и atomic persistence.
-- [x] Active publisher и runtime используют direct `SnapshotId` API.
-- [x] Journal/staging предшествуют final canonical data mutation.
+- [x] Journal v3 с v2/v1 compatibility.
+- [x] Journal/staging предшествуют final canonical mutation.
 - [x] Explicit complete batch через atomic capability.
 - [x] Exact probe перед rollback/abort.
 - [x] Exact committed generation не abort’ится.
-- [x] Recovery использует plain `abort_snapshot`.
 - [x] Recovery path/type/schema/snapshot/generation preflight.
 - [x] Pointer/finalize/clear/combined-error regressions.
 - [x] Repeated recovery идемпотентен.
-- [x] Compatibility publisher и legacy coordinator modules удалены.
 - [!] Hosted compile/test/fmt/Clippy отсутствует.
-
-#### Deferred canonical barrier
-
-- [x] Context batch process-local.
-- [x] Pending prepare не создаёт marker.
-- [x] Deferred pipeline без exact/prepared JSONL generation.
-- [x] Coordinator batch заменяет pending contents.
-- [x] Compatibility commit atomic-flush’ит pending batch.
-- [x] Abort очищает pending batch/allocation.
-- [x] Facade и pipeline regressions.
-
-#### Snapshot allocation recovery
-
-- [x] Core context-allocation/bounded-recovery capability.
-- [x] Application trait-object routing.
-- [x] JSONL/Memory no-op без durable empty record.
-- [x] SurrealDB operation id + timestamp allocation metadata.
-- [x] Automatic same-repo sweep до новой context allocation.
-- [x] Minimum age 24h; cap 128.
-- [x] Destructive delete повторяет repo/age/committed/prepared.
-- [x] Prepared/committed защищены.
-- [x] Explicit cutoff/limit и embedded regressions.
-- [x] Idempotence.
-- [-] Legacy untagged records не удаляются автоматически.
-- [!] Hosted embedded/remote evidence отсутствует.
-
-#### Immutable generation identity — завершено
-
-- [x] Domain newtype `GenerationId` не зависит от backend.
-- [x] Identity детерминированно выводится как `gen_<SnapshotId>`.
-- [x] JSONL canonical commit marker writer использует schema v2 с `generation`.
-- [x] JSONL reader продолжает принимать legacy marker v1.
-- [x] Surreal atomic commit сохраняет generation в snapshot record.
-- [x] Read-model manifest и persisted index state содержат snapshot + generation.
-- [x] Index state fail-closed отклоняет несовпадающую пару.
-- [x] Recovery journal writer v3; v1/v2 читаются и нормализуются.
-
-#### One current pointer, repair и retention — завершено на уровне кода
-
-- [x] Immutable read-model/state generations.
-- [x] Один atomic `index-current.json` после готовности обоих artifacts.
-- [x] Pointer-first state readers; present invalid pointer не скрывается fallback’ом.
-- [x] Durable bridge journal и standalone publication recovery.
-- [x] `repair inspect` различает current/recoverable/stale/incomplete/orphaned generations.
-- [x] Explicit index retention с exact dry-run confirmation token.
-- [x] Pointed и journal-referenced generations не удаляются.
-- [x] Cleanup tombstone recovery: finalize, rollback, conflict, idempotence.
-- [x] CLI help/JSON/exit-code tests для transactional repair commands.
-
-#### Backend latest-pointer repair — завершено на уровне кода
-
-- [x] Authoritative backend discovery отделён от mutable latest selection.
-- [x] Explicit target обязан совпадать с newest committed generation.
-- [x] JSONL `latest.json` writer использует schema/snapshot/generation.
-- [x] Legacy snapshot-only pointer остаётся query-compatible, но repair-port требует normalization.
-- [x] Missing/corrupt/stale pointer ремонтируется только из validated marker v2 generation.
-- [x] Memory/SurrealDB validation-only repair сохраняет derived-latest semantics.
-- [x] Repeated repair идемпотентен; rewind отклоняется `Conflict`.
-- [x] CLI `ath repair repair-latest` поддерживает dry-run, JSON и explicit snapshot.
-- [!] Hosted JSONL/embedded/remote evidence отсутствует.
-
-#### Application artifact checksums — завершено на уровне кода
-
-- [x] `index-current.v2` связывает generation с manifest/state SHA-256 digests.
-- [x] Manifest содержит exact map четырёх JSONL файлов.
-- [x] Readers проверяют manifest digest, exact file set, каждый data digest и state digest.
-- [x] Missing/extra/nested/symlink/non-regular entries fail closed.
-- [x] Repair сообщает `index_current_checksum_mismatch`; cleanup блокируется.
-- [x] Bridge recovery обновляет v1/pre-checksum generation до v2 идемпотентно.
-- [x] Existing immutable target обязан совпадать с compatibility source до sealing.
-- [x] Tamper, missing-file, extra-file, state corruption и repeated recovery regressions.
-- [x] `index-current.v1` остаётся временно readable только как identity-only migration format.
-- [!] Hosted Linux/Windows compile/test/Clippy evidence отсутствует.
 
 #### Generation layer — code complete
 
 - [x] Immutable generation id для canonical/read-model/state/journal.
-- [x] Один current pointer после подготовки artifacts.
+- [x] Один atomic application current pointer после подготовки artifacts.
 - [x] Backend latest-pointer repair через generation protocol.
 - [x] Pointer switch/cleanup fault injection и recovery.
 - [x] Checksums application artifacts.
+- [x] Explicit retention и checksum confirmation token.
+- [x] Tamper/missing/extra/state corruption regressions.
+
+#### Release-grade P0 evidence packages
+
+- [ ] Hosted feature matrix.
+- [ ] Hosted coverage artifact и выбранный floor.
+- [ ] Hosted AppSec/SBOM/signing verification.
+- [ ] Hosted installer/tag smoke.
+- [ ] Hosted JSONL/embedded/remote transactional evidence.
 
 ## 4. P1 — execution safety и maintainability
 
 ### P1.1. External process sandbox
 
 - [ ] OS-level filesystem/network/CPU/memory/process limits.
-- [ ] Windows Job Objects; Linux launcher/sandbox.
-- [ ] Timeout/cancellation/orphan/limit tests.
+- [ ] Windows Job Objects и Linux launcher/sandbox.
+- [ ] Timeout/cancellation/orphan/limit platform tests.
 
 ### P1.2. CLI decomposition
 
-- [-] Transactional repair, focused direct reads, standard graph и check вынесены в entry/parser modules.
-- [ ] Bootstrap/parse/dispatch only в legacy `main.rs`.
-- [ ] Остальные handlers/rendering modules.
+- [-] Transactional repair, focused reads, check, standard graph и manual Rustok вынесены в entry/parser modules.
+- [ ] Оставить в legacy `main.rs` только bootstrap/parse/dispatch compatibility.
+- [ ] Вынести остальные handlers и rendering modules.
 - [ ] Полная help/exit-code/JSON matrix.
 
 ### P1.3. Runtime decomposition
 
-- [x] Index runtime отделён, legacy index god-file удалён.
-- [x] Publication coordinator focused, transition modules удалены.
-- [-] Focused daemon write/read dispatchers и concurrent MCP lifecycle добавлены; legacy dispatchers ещё содержат остальные команды.
-- [-] Graph build и strict API diff вынесены за non-orphaning blocking boundary; finer cooperative polling отсутствует.
-- [ ] Injected cancellable ProcessRunner для adapter boundaries.
+- [x] Index runtime отделён; legacy index god-file удалён.
+- [x] Publication coordinator focused; transition modules удалены.
+- [-] Focused daemon read/write dispatchers и concurrent MCP lifecycle добавлены.
+- [x] Graph, strict API diff и Rustok report builds имеют non-orphaning blocking boundary.
+- [-] Related/path/PageRank/cycle loops имеют cooperative polling; другие алгоритмы ещё нет.
+- [ ] Injected cancellable `ProcessRunner` для adapter boundaries.
 - [ ] Удалить остальные global registries.
 
 ### P1.4. Installer verification
 
-- [x] Checksums/fail-closed/tamper/Sigstore/provenance configured.
-- [!] Hosted smoke зависит от Actions.
+- [x] Checksums, fail-closed tamper detection, Sigstore и provenance configured.
+- [!] Hosted Linux/Windows smoke зависит от Actions.
 - [ ] Подтвердить version tag.
 
 ### P1.5. Operation context E2E
 
-- [x] Cancellation identity lease и stable error contract.
-- [x] Busy retry, daemon writes, atomic boundary.
-- [x] Core read extension traits с preflight/postflight active checks.
-- [x] Overview/Explain/Search/cached Context получают explicit daemon `OperationContext`.
-- [x] `Context --diff` и `ChangeMap` проходят через compatible operation wrappers.
-- [x] Read jobs получают cancellable registry token и hard deadline.
-- [x] Mid-flight cancel/expired deadline не возвращают ложный successful response.
-- [x] Structured `cancelled`/`deadline_exceeded` daemon errors и terminal job status.
-- [x] Direct CLI Context/Explain/Overview/Impact/ChangeMap/Search получают stable operation id, optional deadline и Ctrl-C cancellation.
-- [x] Direct CLI `check` использует operation lifecycle; strict API diff выполняется non-orphaning worker’ом.
-- [x] Standard graph export/related/path/hubs/PageRank/cycles используют operation-aware snapshot read и blocking worker drain.
-- [x] MCP читает requests concurrently, удерживает read cancellation lease до terminal response и принимает cancellation notifications.
-- [x] MCP EOF отменяет outstanding reads; transactional `index` остаётся вне notification cancellation scope.
-- [x] CLI/MCP/worker regressions покрывают help, malformed deadline, preflight, postflight, registry и drain.
-- [!] Hosted fmt/test/Clippy/stdio/Ctrl-C/worker evidence отсутствует.
-- [ ] Direct CLI lifecycle для manual Rustok read commands и architecture graph commands.
-- [ ] Finer-grained cooperative cancellation внутри graph/discovery/search-index/projector work.
+- [x] Exclusive cancellation identity lease и stable error contract.
+- [x] Daemon writes/reads, busy retry и atomic boundary.
+- [x] Backend-neutral read extension traits с preflight/postflight.
+- [x] Direct Context/Explain/Overview/Impact/ChangeMap/Search/Check lifecycle.
+- [x] Standard graph export/related/path/hubs/PageRank/cycles lifecycle.
+- [x] Manual Rustok audit/context/FFA/FBA/Page Builder graph lifecycle.
+- [x] `--deadline-unix-ms`, environment deadline и Ctrl-C cancellation.
+- [x] Graph/strict API/Rustok blocking workers drained before terminal response.
+- [x] Cooperative checkpoints внутри related BFS, shortest-path BFS, PageRank и cycle DFS.
+- [x] MCP concurrent read cancellation, EOF cleanup и stable structured errors.
+- [x] Parser/process/worker regressions для help, malformed/expired deadline, preflight, drain и success.
+- [!] Hosted fmt/test/Clippy/stdio/Ctrl-C/disconnect/worker evidence отсутствует.
+- [ ] Cooperative polling внутри filesystem discovery.
+- [ ] Cooperative polling внутри search-index rebuild.
+- [ ] Cooperative polling внутри projectors и Rustok-specific pure report loops.
+- [ ] Transactional MCP notification cancellation — только после rollback review.
 
 ### P1.6. Performance budgets
 
@@ -333,98 +226,84 @@ ATHANOR_SURREAL_REMOTE_URI=ws://127.0.0.1:8000 \
 
 ## 5. P2 — governance
 
-- [ ] Branch protection/required checks/secret push protection.
-- [ ] Issues and acceptance criteria for open P0/P1 packages.
-- [ ] Conventional commit lint/changelog/version consistency.
+- [ ] Branch protection, required checks и secret push protection.
+- [ ] Issues/acceptance criteria для открытых P0/P1 packages.
+- [ ] Conventional commit lint, changelog и version consistency.
 - [ ] `justfile`, `xtask` или unified verification entrypoint.
 
 ## 6. Оценка готовности
 
 Оценка остаётся диапазоном, а не release assertion:
 
-- весь roadmap: ориентировочно `79–83%`;
+- весь roadmap: ориентировочно `80–84%`;
 - generation-layer код P0.4: `100%` по текущему scope;
-- daemon read-only operation context: code complete по текущему command scope;
-- focused direct CLI/MCP/check/standard graph lifecycle: code complete по текущему scope;
-- release-grade P0.4 и P1.5 остаются `[-]` до hosted evidence;
-- до release-grade P0 остаются 5 hosted/platform evidence packages и policy work;
-- после P0 остаются manual Rustok surfaces, finer worker cancellation, sandbox, decomposition, performance и P2.
+- P1.5 operation lifecycle: ориентировочно `88–92%` на уровне кода;
+- release-grade P0.4/P1.5 остаются `[-]` до hosted evidence;
+- до release-grade P0 остаются пять hosted/platform evidence packages и policy work;
+- после P0 остаются sandbox, оставшийся cooperative polling, decomposition, performance и P2.
 
 ## 7. Порядок реализации
 
 1. `[!]` Включить Actions и получить compile/test/fmt/Clippy evidence.
-2. P0.4 — hosted JSONL/embedded/remote conflict/latest/checksum evidence.
-3. Hosted AppSec/matrix/installer/tag evidence и required checks.
-4. P1.5 — manual Rustok lifecycle и finer cooperative worker cancellation.
+2. Получить P0 hosted JSONL/embedded/remote conflict/latest/checksum evidence.
+3. Получить hosted AppSec/matrix/installer/tag evidence и включить required checks.
+4. P1.5 — cooperative discovery/search-index/projector polling.
 5. P1.1 — OS-level sandbox и resource limits.
-6. Остальная decomposition, performance и P2.
+6. Остальная CLI/runtime decomposition.
+7. Performance budgets.
+8. P2 governance.
 
 ## 8. Текущий рабочий пакет
 
-**Активный blocker:** `GitHub Actions activation/visibility`.
+**Активный внешний blocker:** `GitHub Actions activation/visibility`.
 
-**Завершённый кодовый срез:** `P1.5 direct check and standard graph worker lifecycle`.
+**Завершённый кодовый срез:** `P1.5 manual Rustok read lifecycle and cooperative graph polling`.
 
-**Следующий безопасный кодовый срез:** `P1.5 manual Rustok read lifecycle and cooperative graph polling`.
+Завершённый результат:
+
+- manual Rustok audits/context/architecture graph commands используют direct operation lifecycle;
+- focused help и parser поддерживают explicit deadline;
+- snapshot reads проходят context-aware store API;
+- synchronous Rustok builds выполняются на blocking worker с drain;
+- PageRank/cycle/related/path loops имеют bounded `check_active()` checkpoints;
+- transactional MCP cancellation остаётся запрещённой;
+- regressions покрывают malformed/expired deadline, pre-cancel, worker drain и successful path.
+
+**Следующий безопасный кодовый срез:** `P1.5 cooperative discovery and search-index polling`.
 
 Целевой результат следующего среза:
 
-- manual Rustok audit/context/architecture graph commands используют тот же direct operation lifecycle;
-- PageRank/cycle/traversal loops получают bounded cooperative `check_active()` points;
-- worker cancellation latency перестаёт зависеть от полного graph build;
-- transactional MCP cancellation остаётся запрещённой до explicit rollback review;
-- regressions покрывают mid-algorithm cancel, deadline, worker drain и successful completion.
+- filesystem discovery проверяет active state между bounded batches;
+- search-index rebuild проверяет active state между document batches;
+- cancellation latency не зависит от полного repository scan/rebuild;
+- legacy non-operation APIs сохраняют source compatibility;
+- regressions детерминированно отменяют работу после нескольких batches.
 
 ## 9. Журнал актуализаций
 
+### 2026-07-16 — manual Rustok lifecycle и cooperative graph polling
+
+- Добавлены operation-aware wrappers для Rustok architecture context, FFA/FBA/Page Builder audits и graphs.
+- Manual Rustok CLI surfaces вынесены в focused interceptor с deadline, environment fallback и Ctrl-C lifecycle.
+- Legacy text/JSON rendering и существующие arguments сохранены.
+- Related/path/PageRank/cycle algorithms получили bounded cooperative checkpoints.
+- Outer worker drain сохранён как защита от orphan и late success.
+- Help/process/unit regressions обновлены под новый direct contract.
+- Hosted build/fmt/test/Clippy evidence не заявлено.
+
 ### 2026-07-16 — graph/check worker lifecycle
 
-- Standard graph export/related/path/hubs/PageRank/cycles вынесены в operation-aware application module.
-- Canonical snapshot загружается через context-aware store read, CPU build выполняется в `spawn_blocking`.
-- Cancel/deadline не detach’ит worker: wrapper дожидается completion и отклоняет late success.
-- Direct CLI graph parser сохраняет legacy flags/rendering и добавляет `--deadline-unix-ms`.
-- `ath check` переведён в focused lifecycle; strict API diff выполняется через тот же non-orphaning boundary.
-- Добавлены parser/process/worker regressions и исправлены cancellation lease/test synchronization races.
-- Hosted fmt/test/Clippy evidence остаётся внешним blocker.
+- Standard graph commands и strict API diff вынесены в operation-aware non-orphaning workers.
+- Canonical snapshot загружается через context-aware store read.
+- Cancel/deadline отклоняет late success только после worker drain.
 
 ### 2026-07-16 — direct CLI и MCP operation lifecycle
 
-- MCP stdio loop переведён на concurrent request tasks и единый response writer.
-- Read requests регистрируются по JSON-RPC id и отменяются через `notifications/cancelled`/`$/cancelRequest`.
-- EOF отменяет все outstanding read leases и дожидается terminal task cleanup.
-- Direct CLI Context/Explain/Overview/Impact/ChangeMap/Search вынесены в focused parser/runner.
-- Добавлены `--deadline-unix-ms`, `ATHANOR_DEADLINE_UNIX_MS` и Ctrl-C cancellation.
-- Legacy text/JSON rendering и non-read dispatcher сохранены.
-- Transactional MCP tools намеренно не включены в notification cancellation.
-- Добавлены unit/process regressions; hosted evidence остаётся внешним blocker.
+- MCP stdio loop переведён на concurrent request tasks и cancellation notifications.
+- Direct standard reads вынесены в focused parser/runner.
+- Transactional MCP tools намеренно исключены из notification cancellation.
 
-### 2026-07-16 — read-only operation context
+### 2026-07-15 — generation layer
 
-- Добавлены backend-neutral extension traits для context-aware canonical/query/search reads.
-- Daemon Overview, Explain, Search и cached Context переведены на explicit `OperationContext`.
-- `Context --diff` и `ChangeMap` обёрнуты совместимыми preflight/postflight operation boundaries.
-- Read jobs регистрируют cancellation lease, используют hard deadline и stable structured errors.
-- Cancellation/deadline больше не проглатываются search fallback’ом и не возвращают ложный success.
-- Добавлены core, search и daemon regressions для pre-cancel, mid-flight cancel и deadline.
-- Hosted fmt/test/Clippy evidence остаётся внешним blocker.
-
-### 2026-07-15 — application artifact checksums
-
-- Writer `index-current` переведён на schema v2 с manifest/state SHA-256 digests.
-- Immutable manifest содержит deterministic exact map четырёх JSONL data files.
-- Reader и repair проверяют полный checksum chain до выдачи selected paths.
-- Missing, extra, nested, symlinked и modified artifacts отклоняются fail-closed.
-- Bridge recovery сравнивает reused generation с compatibility source, seal’ит и обновляет v1 до v2.
-- Добавлены CLI regressions для tamper, missing/extra files, state corruption и repeated migration recovery.
+- Завершены immutable generations, единый current pointer, backend latest repair, fault recovery и checksums.
 - Generation-layer backlog закрыт на уровне кода; hosted evidence остаётся открытым.
-
-### 2026-07-15 — backend latest repair и transactional repair CLI
-
-- Реализованы immutable application generations и один validated `index-current.json`.
-- Добавлены bridge journal, standalone publication recovery и cleanup tombstone recovery.
-- Добавлен explicit retention protocol с SHA-256 confirmation token.
-- CLI получил `index-retention`, `recover-index`, `recover-index-cleanup`, `repair-latest`.
-- Добавлен backend-neutral `CanonicalLatestPointer`.
-- JSONL latest writer перешёл на generation-bearing schema; legacy pointer query-compatible.
-- Authoritative discovery не доверяет mutable pointer и не откатывается к старому generation.
-- Memory и SurrealDB сохраняют derived-latest semantics.
