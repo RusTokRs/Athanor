@@ -1,0 +1,14 @@
+{
+  "schema": "athanor.project_registry.v1",
+  "registry_path": "state/projects.json",
+  "projects": [
+    {
+      "project_id": "alpha",
+      "root": "/workspace/alpha"
+    },
+    {
+      "project_id": "beta",
+      "root": "/workspace/beta"
+    }
+  ]
+}
