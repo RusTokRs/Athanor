@@ -98,14 +98,16 @@ mod tests {
     async fn cancellation_after_legacy_work_rejects_false_success() {
         let operation = OperationContext::new("derived-read-post-cancelled");
         let cancellation = operation.cancellation_handle().unwrap();
+        let cancellation_in_future = cancellation.clone();
 
         let error = run_with_operation_context(&operation, async move {
-            cancellation.cancel();
+            cancellation_in_future.cancel();
             Ok::<_, anyhow::Error>(42_u8)
         })
         .await
         .expect_err("postflight cancellation must reject legacy success");
 
+        assert!(cancellation.is_cancelled());
         assert!(error.chain().any(|cause| matches!(
             cause.downcast_ref::<CoreError>(),
             Some(CoreError::Cancelled(_))
