@@ -191,12 +191,12 @@ pub async fn search_snapshot_with_composition_and_operation_context(
     operation.check_active().map_err(anyhow::Error::new)?;
     let snapshot_id = required_snapshot_id(snapshot)?;
     let index_dir = root.join(".athanor/generated/current/search");
-    let snapshot = snapshot.clone();
+    let snapshot_for_worker = snapshot.clone();
     let composition = composition.clone();
     let operation_for_worker = operation.clone();
     let index = tokio::task::spawn_blocking(move || {
         get_or_build_search_index_with_factory_and_operation(
-            &snapshot,
+            &snapshot_for_worker,
             &snapshot_id,
             &index_dir,
             &operation_for_worker,
@@ -211,7 +211,8 @@ pub async fn search_snapshot_with_composition_and_operation_context(
     })
     .await
     .context("search index rebuild worker terminated unexpectedly")??;
-    search_snapshot_with_index_inner(root, snapshot.as_ref(), query, limit, index.as_ref(), Some(operation)).await
+    search_snapshot_with_index_inner(root, snapshot, query, limit, index.as_ref(), Some(operation))
+        .await
 }
 
 pub async fn search_snapshot(
@@ -250,7 +251,8 @@ pub async fn search_snapshot_with_operation_context(
     })
     .await
     .context("search index rebuild worker terminated unexpectedly")??;
-    search_snapshot_with_index_inner(root, snapshot, query, limit, index.as_ref(), Some(operation)).await
+    search_snapshot_with_index_inner(root, snapshot, query, limit, index.as_ref(), Some(operation))
+        .await
 }
 
 pub async fn search_snapshot_with_index(
