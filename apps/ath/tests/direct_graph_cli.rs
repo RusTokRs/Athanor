@@ -55,6 +55,22 @@ fn malformed_rustok_deadline_fails_before_project_access() {
     assert!(stderr(&output).contains("--deadline-unix-ms must be an unsigned integer"));
 }
 
+#[test]
+fn expired_rustok_deadline_fails_before_project_access() {
+    let output = run(&[
+        "rustok",
+        "ffa",
+        "audit",
+        "/definitely/missing/athanor-project",
+        "--deadline-unix-ms",
+        "0",
+    ]);
+    assert!(!output.status.success());
+    let error = stderr(&output);
+    assert!(error.contains("deadline exceeded"), "unexpected error: {error}");
+    assert!(!error.contains("failed to canonicalize"));
+}
+
 fn stderr(output: &Output) -> String {
     String::from_utf8_lossy(&output.stderr).into_owned()
 }
