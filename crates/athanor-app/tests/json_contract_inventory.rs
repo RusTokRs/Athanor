@@ -21,11 +21,6 @@ const AGENT_FACING_SOURCE_FILES: &[&str] = &[
 ];
 
 const KNOWN_UNREGISTERED_AGENT_FACING_SCHEMAS: &[&str] = &[
-    "athanor.rustok_fba_audit.v1",
-    "athanor.rustok_fba_module_graph.v1",
-    "athanor.rustok_fba_port_graph.v1",
-    "athanor.rustok_fba_dependencies_graph.v1",
-    "athanor.rustok_fba_violations_graph.v1",
     "athanor.rustok_page_builder_audit.v1",
     "athanor.rustok_page_builder_provider_graph.v1",
     "athanor.rustok_page_builder_consumer_graph.v1",
