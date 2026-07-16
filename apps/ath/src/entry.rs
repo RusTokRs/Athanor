@@ -6,6 +6,7 @@ mod direct_operation;
 mod direct_read_cli;
 mod direct_rustok_cli;
 mod direct_rustok_help;
+mod direct_search_cli;
 mod repair_cli;
 
 mod legacy {
@@ -133,6 +134,9 @@ fn main() -> Result<()> {
     }
     if let Some(command) = direct_graph_cli::parse(&args)? {
         return runtime("Athanor direct graph runtime")?.block_on(direct_graph_cli::run(command));
+    }
+    if let Some(command) = direct_search_cli::parse(&args)? {
+        return runtime("Athanor direct search runtime")?.block_on(direct_search_cli::run(command));
     }
     if let Some(command) = direct_read_cli::parse(&args)? {
         return runtime("Athanor direct read runtime")?.block_on(direct_read_cli::run(command));
