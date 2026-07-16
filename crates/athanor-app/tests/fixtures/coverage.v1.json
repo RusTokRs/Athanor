@@ -1,0 +1,31 @@
+{
+  "schema": "athanor.coverage.v1",
+  "snapshot": "snap_fixture",
+  "root": "repo",
+  "filters": {
+    "adapter": null,
+    "file": null
+  },
+  "limits": {
+    "limit": 50
+  },
+  "totals": {
+    "tracked_files": 0,
+    "files_with_canonical_objects": 0,
+    "files_with_open_diagnostics": 0,
+    "entities": 0,
+    "facts": 0,
+    "relations": 0,
+    "diagnostics": 0,
+    "open_diagnostics": 0,
+    "adapter_count": 0
+  },
+  "files": [],
+  "adapters": [],
+  "diagnostics": [],
+  "omitted": {
+    "files": 0,
+    "adapters": 0,
+    "diagnostics": 0
+  }
+}
