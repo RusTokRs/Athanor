@@ -2,6 +2,9 @@ include!("../runtime.rs");
 
 pub use process_runner::{CancellableProcessRunner, SharedProcessRunner, default_process_runner};
 
+#[cfg(test)]
+mod process_runner_scope_tests;
+
 tokio::task_local! {
     static PROCESS_OPERATION: Option<athanor_core::OperationContext>;
     static PROCESS_RUNNER_OVERRIDE: Option<SharedProcessRunner>;
