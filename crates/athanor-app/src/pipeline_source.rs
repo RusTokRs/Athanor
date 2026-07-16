@@ -16,7 +16,7 @@ pub(crate) async fn discover(
         let source_name = source.name();
         let span = debug_span!("discover_source", source = source_name);
         let started = std::time::Instant::now();
-        let discovered = crate::runtime::with_process_execution_context(
+        let discovered = crate::with_process_execution_context(
             operation.clone(),
             cancellation.clone(),
             async {
