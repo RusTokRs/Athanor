@@ -64,23 +64,14 @@ pub(crate) async fn execute(
             };
             let result = match crate::daemon_queries::composition(&state) {
                 Some(composition) => {
-                    within_operation_deadline(
+                    context_project_with_composition_and_operation_context(
+                        options,
+                        &composition,
                         &operation,
-                        context_project_with_composition_and_operation_context(
-                            options,
-                            &composition,
-                            &operation,
-                        ),
                     )
                     .await
                 }
-                None => {
-                    within_operation_deadline(
-                        &operation,
-                        context_project_with_operation_context(options, &operation),
-                    )
-                    .await
-                }
+                None => context_project_with_operation_context(options, &operation).await,
             };
             finish_read(&state, &request_id, &job_id, result)
         }
