@@ -2,7 +2,7 @@
 
 > Репозиторий: `RusTokRs/Athanor`  
 > Базовая ветка: `main`  
-> Точка сверки кода: `c45659488d3175ac73ab4d914fb6b14d0048f291`  
+> Точка сверки кода: `fcbb861c32143c9ec74396d6195cc987770fc434`  
 > Дата актуализации: 2026-07-16  
 > Статус: active implementation plan
 
@@ -38,6 +38,7 @@
 19. Daemon read request получает cancellable job lease и hard deadline независимо от cache/legacy path.
 20. Direct CLI read command удерживает cancellation lease до terminal output и не выдаёт late success после Ctrl-C/deadline.
 21. MCP notification cancellation применяется только к read tools; transactional tools не отменяются без отдельного rollback review.
+22. Blocking read worker не detach’ится при cancel/deadline: terminal error возвращается только после worker drain.
 
 ## 1. Baseline
 
@@ -60,7 +61,9 @@
 - repair inspect/retention/publication recovery/cleanup recovery;
 - backend-neutral canonical latest discovery, validation и repair;
 - daemon Overview/Explain/Search/Context/ChangeMap с operation-aware cancellation/deadline routing;
-- focused direct CLI lifecycle для Context/Explain/Overview/Impact/ChangeMap/Search;
+- focused direct CLI lifecycle для Context/Explain/Overview/Impact/ChangeMap/Search/Check;
+- standard Graph export/related/path/hubs/PageRank/cycles через non-orphaning blocking worker;
+- strict API diff через non-orphaning blocking worker;
 - concurrent MCP read lifecycle с request registry и cancellation notifications;
 - SurrealDB context-owned allocation metadata и bounded orphan cleanup;
 - feature, coverage, AppSec, installer и release workflows.
@@ -95,10 +98,14 @@ cargo test -p athanor-app search_operation --locked
 cargo test -p athanor-app derived_read_operation --locked
 cargo test -p athanor-app daemon_read_dispatch --locked
 cargo test -p athanor-app daemon_derived_read_dispatch --locked
+cargo test -p athanor-app graph_operation --locked
 cargo test -p ath --test repair_cli --locked
 cargo test -p ath --test direct_read_cli --locked
+cargo test -p ath --test direct_graph_cli --locked
+cargo test -p ath --test direct_check_cli --locked
 cargo test -p ath --test index_checksum_cli --locked
 cargo test -p ath --test index_checksum_recovery_cli --locked
+cargo test -p ath direct_operation --locked
 cargo test -p athanor-transport-mcp lifecycle --locked
 
 cargo test -p athanor-store-memory latest_pointer --locked
@@ -125,8 +132,8 @@ ATHANOR_SURREAL_REMOTE_URI=ws://127.0.0.1:8000 \
 | Allocation recovery | `[-]` | metadata, 24h cutoff, bounded conditional cleanup, tests | Legacy untagged policy, hosted evidence |
 | Recovery safety | `[-]` | journals, checksummed pointer recovery, cleanup recovery, idempotence | Hosted/Windows fault evidence |
 | Concurrent writers | `[-]` | JSONL/application locks, embedded ownership | Remote conflict evidence |
-| Operation context | `[-]` | daemon reads/writes, focused direct CLI reads, concurrent MCP read cancellation | Remaining CLI surfaces, synchronous worker boundary, hosted evidence |
-| Runtime maintainability | `[-]` | focused runtime/coordinator, focused read dispatchers, repair/direct-read entry wrappers | Other runtime/daemon decomposition |
+| Operation context | `[-]` | daemon reads/writes, focused CLI reads/check/standard graph, concurrent MCP read cancellation, worker drain | Manual Rustok surfaces, finer cooperative polling, hosted evidence |
+| Runtime maintainability | `[-]` | focused runtime/coordinator, focused read dispatchers, repair/read/graph/check entry wrappers | Other runtime/daemon decomposition |
 | Hosted CI | `[!]` | workflow files | Enable Actions, runs, required checks |
 | AppSec | `[-]` | configured gates/SBOM | Hosted evidence, push protection |
 | Release integrity | `[-]` | fail-closed installers/signing configured | Hosted/tag evidence |
@@ -278,7 +285,7 @@ ATHANOR_SURREAL_REMOTE_URI=ws://127.0.0.1:8000 \
 
 ### P1.2. CLI decomposition
 
-- [-] Transactional repair и direct read команды вынесены в focused entry/parser modules.
+- [-] Transactional repair, focused direct reads, standard graph и check вынесены в entry/parser modules.
 - [ ] Bootstrap/parse/dispatch only в legacy `main.rs`.
 - [ ] Остальные handlers/rendering modules.
 - [ ] Полная help/exit-code/JSON matrix.
@@ -288,7 +295,8 @@ ATHANOR_SURREAL_REMOTE_URI=ws://127.0.0.1:8000 \
 - [x] Index runtime отделён, legacy index god-file удалён.
 - [x] Publication coordinator focused, transition modules удалены.
 - [-] Focused daemon write/read dispatchers и concurrent MCP lifecycle добавлены; legacy dispatchers ещё содержат остальные команды.
-- [ ] Injected cancellable ProcessRunner для synchronous/adapter boundaries.
+- [-] Graph build и strict API diff вынесены за non-orphaning blocking boundary; finer cooperative polling отсутствует.
+- [ ] Injected cancellable ProcessRunner для adapter boundaries.
 - [ ] Удалить остальные global registries.
 
 ### P1.4. Installer verification
@@ -308,12 +316,14 @@ ATHANOR_SURREAL_REMOTE_URI=ws://127.0.0.1:8000 \
 - [x] Mid-flight cancel/expired deadline не возвращают ложный successful response.
 - [x] Structured `cancelled`/`deadline_exceeded` daemon errors и terminal job status.
 - [x] Direct CLI Context/Explain/Overview/Impact/ChangeMap/Search получают stable operation id, optional deadline и Ctrl-C cancellation.
+- [x] Direct CLI `check` использует operation lifecycle; strict API diff выполняется non-orphaning worker’ом.
+- [x] Standard graph export/related/path/hubs/PageRank/cycles используют operation-aware snapshot read и blocking worker drain.
 - [x] MCP читает requests concurrently, удерживает read cancellation lease до terminal response и принимает cancellation notifications.
 - [x] MCP EOF отменяет outstanding reads; transactional `index` остаётся вне notification cancellation scope.
-- [x] CLI/MCP regressions покрывают help, malformed deadline, preflight, postflight, cancellation registry и lease cleanup.
-- [!] Hosted fmt/test/Clippy/stdio/Ctrl-C evidence отсутствует.
-- [ ] Direct CLI lifecycle для `check`, graph queries и manual Rustok read commands.
-- [ ] Synchronous worker/projector cancellation semantics.
+- [x] CLI/MCP/worker regressions покрывают help, malformed deadline, preflight, postflight, registry и drain.
+- [!] Hosted fmt/test/Clippy/stdio/Ctrl-C/worker evidence отсутствует.
+- [ ] Direct CLI lifecycle для manual Rustok read commands и architecture graph commands.
+- [ ] Finer-grained cooperative cancellation внутри graph/discovery/search-index/projector work.
 
 ### P1.6. Performance budgets
 
@@ -332,20 +342,20 @@ ATHANOR_SURREAL_REMOTE_URI=ws://127.0.0.1:8000 \
 
 Оценка остаётся диапазоном, а не release assertion:
 
-- весь roadmap: ориентировочно `77–81%`;
+- весь roadmap: ориентировочно `79–83%`;
 - generation-layer код P0.4: `100%` по текущему scope;
 - daemon read-only operation context: code complete по текущему command scope;
-- direct CLI/MCP read lifecycle: code complete по первому focused scope;
+- focused direct CLI/MCP/check/standard graph lifecycle: code complete по текущему scope;
 - release-grade P0.4 и P1.5 остаются `[-]` до hosted evidence;
 - до release-grade P0 остаются 5 hosted/platform evidence packages и policy work;
-- после P0 остаются remaining CLI surfaces, sandbox, synchronous worker boundary, decomposition, performance и P2.
+- после P0 остаются manual Rustok surfaces, finer worker cancellation, sandbox, decomposition, performance и P2.
 
 ## 7. Порядок реализации
 
 1. `[!]` Включить Actions и получить compile/test/fmt/Clippy evidence.
 2. P0.4 — hosted JSONL/embedded/remote conflict/latest/checksum evidence.
 3. Hosted AppSec/matrix/installer/tag evidence и required checks.
-4. P1.5 — remaining direct CLI read surfaces и synchronous worker boundary.
+4. P1.5 — manual Rustok lifecycle и finer cooperative worker cancellation.
 5. P1.1 — OS-level sandbox и resource limits.
 6. Остальная decomposition, performance и P2.
 
@@ -353,19 +363,29 @@ ATHANOR_SURREAL_REMOTE_URI=ws://127.0.0.1:8000 \
 
 **Активный blocker:** `GitHub Actions activation/visibility`.
 
-**Завершённый кодовый срез:** `P1.5 focused direct CLI and MCP read operation lifecycle`.
+**Завершённый кодовый срез:** `P1.5 direct check and standard graph worker lifecycle`.
 
-**Следующий безопасный кодовый срез:** `P1.5 remaining direct read surfaces and synchronous worker isolation`.
+**Следующий безопасный кодовый срез:** `P1.5 manual Rustok read lifecycle and cooperative graph polling`.
 
 Целевой результат следующего среза:
 
-- `check`, graph queries и manual Rustok read commands используют тот же direct CLI operation lifecycle;
-- expensive synchronous discovery/search-index/graph work переносится за cancellable worker boundary либо получает bounded polling points;
+- manual Rustok audit/context/architecture graph commands используют тот же direct operation lifecycle;
+- PageRank/cycle/traversal loops получают bounded cooperative `check_active()` points;
+- worker cancellation latency перестаёт зависеть от полного graph build;
 - transactional MCP cancellation остаётся запрещённой до explicit rollback review;
-- structured cancellation/deadline contract сохраняется во всех entrypoints;
-- regressions покрывают worker cancel, deadline, orphan prevention и successful completion.
+- regressions покрывают mid-algorithm cancel, deadline, worker drain и successful completion.
 
 ## 9. Журнал актуализаций
+
+### 2026-07-16 — graph/check worker lifecycle
+
+- Standard graph export/related/path/hubs/PageRank/cycles вынесены в operation-aware application module.
+- Canonical snapshot загружается через context-aware store read, CPU build выполняется в `spawn_blocking`.
+- Cancel/deadline не detach’ит worker: wrapper дожидается completion и отклоняет late success.
+- Direct CLI graph parser сохраняет legacy flags/rendering и добавляет `--deadline-unix-ms`.
+- `ath check` переведён в focused lifecycle; strict API diff выполняется через тот же non-orphaning boundary.
+- Добавлены parser/process/worker regressions и исправлены cancellation lease/test synchronization races.
+- Hosted fmt/test/Clippy evidence остаётся внешним blocker.
 
 ### 2026-07-16 — direct CLI и MCP operation lifecycle
 
