@@ -70,24 +70,28 @@ Legacy async reads are polled together with the operation deadline, the shared c
 `tokio::signal::ctrl_c()`. Preflight checks prevent already-expired work; postflight checks reject late success
 after cancellation.
 
-Manual RusTok commands now use a focused parser before the legacy dispatcher. Their old positional paths,
-filters, limits, JSON output, and text rendering are preserved. Focused help exposes the deadline contract for
-Rustok audits and FFA/FBA/Page Builder architecture graphs.
+Manual RusTok commands use a focused parser before the legacy dispatcher. Their old positional paths, filters,
+limits, JSON output, and text rendering are preserved. Focused help exposes the deadline contract for Rustok
+audits and FFA/FBA/Page Builder architecture graphs.
+
+`context` and `search` use dedicated drained interceptors because either command may build a search index on a
+blocking worker. The terminal response is delayed until that worker has completed or cooperatively observed
+operation termination.
 
 ## Blocking Worker Boundary
 
-Graph builders and synchronous Rustok report builders run on Tokio's blocking pool after the committed
-snapshot has been loaded through a context-aware store read. The operation wrapper polls cancellation and
-deadline state while a builder runs.
+Graph builders, synchronous Rustok report builders, and search-index rebuilds run on Tokio's blocking pool
+after the committed snapshot has been loaded through a context-aware store read. The operation wrapper polls
+cancellation and deadline state while a builder runs.
 
 A blocking task cannot be force-stopped safely. Therefore cancellation records a terminal operation error but
 the wrapper drains the worker before returning. The completed value is discarded and cannot become a late
 successful response. This provides:
 
-- no detached graph or Rustok report worker after command termination;
-- no CPU-bound graph construction on an async runtime worker;
+- no detached graph, Rustok report, or search rebuild worker after command termination;
+- no CPU-bound graph or index construction on an async runtime worker;
 - stable `cancelled`/`deadline_exceeded` output;
-- bounded resource ownership when cancellation occurs during report construction.
+- bounded resource ownership when cancellation occurs during report or index construction.
 
 ## Cooperative Graph Polling
 
@@ -102,6 +106,29 @@ cycle search poll `OperationContext::check_active()` at bounded work intervals. 
 The outer non-orphaning worker boundary remains in place. Cooperative cancellation reduces latency, while the
 outer drain guarantee prevents a cancellation race from detaching a blocking task. Legacy pure builders remain
 available for source compatibility; direct CLI and operation-aware callers use the cooperative variants.
+
+## Cooperative Discovery And Search Rebuild
+
+The built-in filesystem source overrides `SourceProvider::discover_with_context`. Both the adapter scanner and
+the application-local diff scanner use iterative traversal and poll active state while:
+
+- dequeuing directories;
+- reading directory entries;
+- reading source files;
+- hashing file content in bounded chunks.
+
+Legacy `discover()` and single-file read APIs remain available. Indexing already calls
+`discover_with_context`, while operation-aware diff context uses the application scanner directly.
+
+Search-index rebuild has a separate operation-aware factory contract. The application polls while converting
+canonical entities to search documents, and Tantivy polls every bounded document batch and between commit
+retries. A rebuild is written to a sibling staging directory. The current index is switched only after the
+staged writer commits and the operation is still active. The previous directory remains as a backup until the
+new index reopens successfully; failed or cancelled rebuilds remove staging and preserve the current index.
+
+The production composition and legacy global installation both register the operation-aware Tantivy factory.
+Direct Search, direct Context, Context diff, and daemon Search/Context use it. A daemon releases a stale cached
+index handle before directory replacement so Windows does not retain an open handle to the old directory.
 
 `ath check --strict` uses the same non-orphaning blocking boundary for synchronous API contract diffing. The
 normal diagnostic query remains an async operation-aware read. Strict non-API scope behavior and exit codes
@@ -128,20 +155,21 @@ writer exits.
 
 - Existing direct CLI flags and rendering are preserved for covered commands.
 - Unknown commands and non-read commands continue through the legacy dispatcher.
+- Existing `SearchIndexFactory` and `RuntimeComposition::new` call sites remain source-compatible.
 - Existing MCP tool schemas and names are reused.
 - JSON-RPC responses may complete out of input order because request ids provide correlation.
 - Notifications without an id remain response-free.
 - Request ids used for cancellable reads must be strings or numbers.
-- Legacy pure graph builders remain public; operation-aware callers opt into cooperative variants.
+- Legacy pure graph builders and non-operation search APIs remain public.
 
 ## Remaining Work
 
 The following remain outside this code slice:
 
-- finer-grained cooperative cancellation inside filesystem discovery, search-index rebuild, projectors, and
-  Rustok-specific pure report loops;
+- cooperative cancellation inside projectors and Rustok-specific pure report loops;
 - transactional MCP notification cancellation;
-- hosted Linux/Windows formatting, test, Clippy, stdio, Ctrl-C, disconnect, and worker-drain evidence.
+- hosted Linux/Windows formatting, test, Clippy, stdio, Ctrl-C, disconnect, directory-swap, and worker-drain
+evidence.
 
 ## Verification
 
@@ -151,16 +179,24 @@ cargo test -p ath --test direct_read_cli --locked
 cargo test -p ath --test direct_graph_cli --locked
 cargo test -p ath --test direct_check_cli --locked
 cargo test -p ath direct_operation --locked
+cargo test -p ath direct_context_cli --locked
+cargo test -p ath direct_search_cli --locked
 cargo test -p ath direct_graph_cli --locked
 cargo test -p ath direct_rustok_cli --locked
 cargo test -p ath direct_rustok_help --locked
 cargo test -p ath direct_check_cli --locked
+cargo test -p athanor-source-fs --locked
+cargo test -p athanor-search-tantivy --locked
 cargo test -p athanor-app graph_operation --locked
 cargo test -p athanor-app graph_cooperative --locked
 cargo test -p athanor-app rustok_operation --locked
+cargo test -p athanor-app derived_read_operation --locked
+cargo test -p athanor-app search_operation --locked
 cargo test -p athanor-transport-mcp lifecycle --locked
 cargo test -p athanor-transport-mcp --locked
 cargo clippy -p ath --all-targets --locked -- -D warnings
+cargo clippy -p athanor-source-fs --all-targets --locked -- -D warnings
+cargo clippy -p athanor-search-tantivy --all-targets --locked -- -D warnings
 cargo clippy -p athanor-app --all-targets --locked -- -D warnings
 cargo clippy -p athanor-transport-mcp --all-targets --locked -- -D warnings
 ```
@@ -170,8 +206,9 @@ Required regressions:
 - every focused direct read, graph, check, and manual Rustok help page exposes `--deadline-unix-ms`;
 - malformed CLI and environment deadlines fail before project access;
 - an expired deadline does not spawn a blocking worker;
-- cancellation drains graph, Rustok, and API-diff workers and rejects their results;
-- PageRank, cycle search, and graph traversal observe bounded cooperative checkpoints;
+- cancellation drains graph, Rustok, API-diff, Context, and Search workers and rejects their results;
+- PageRank, cycle search, graph traversal, filesystem hashing, and search rebuild observe bounded checkpoints;
+- cancellation after multiple search-document batches leaves the current index readable and removes staging;
 - cancellation rejects a would-be late successful legacy future;
 - MCP cancellation notification terminates a registered read and releases its lease;
 - MCP deadline termination releases the request registry entry;
