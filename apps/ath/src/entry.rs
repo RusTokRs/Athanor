@@ -1,5 +1,7 @@
 use anyhow::{Context, Result};
 
+mod direct_graph_cli;
+mod direct_operation;
 mod direct_read_cli;
 mod repair_cli;
 
@@ -33,6 +35,26 @@ mod legacy {
     ) -> anyhow::Result<()> {
         print_change_map(report)
     }
+
+    pub(crate) fn print_related_graph_bridge(report: &athanor_app::GraphRelated) {
+        print_related_graph(report);
+    }
+
+    pub(crate) fn print_graph_path_bridge(report: &athanor_app::GraphPath) {
+        print_graph_path(report);
+    }
+
+    pub(crate) fn print_graph_hubs_bridge(report: &athanor_app::GraphHubs) {
+        print_graph_hubs(report);
+    }
+
+    pub(crate) fn print_graph_pagerank_bridge(report: &athanor_app::GraphPageRank) {
+        print_graph_pagerank(report);
+    }
+
+    pub(crate) fn print_graph_cycles_bridge(report: &athanor_app::GraphCycles) {
+        print_graph_cycles(report);
+    }
 }
 
 fn main() -> Result<()> {
@@ -43,6 +65,9 @@ fn main() -> Result<()> {
             athanor_runtime_defaults::install();
         }
         return runtime("Athanor repair runtime")?.block_on(repair_cli::run(command));
+    }
+    if let Some(command) = direct_graph_cli::parse(&args)? {
+        return runtime("Athanor direct graph runtime")?.block_on(direct_graph_cli::run(command));
     }
     if let Some(command) = direct_read_cli::parse(&args)? {
         return runtime("Athanor direct read runtime")?.block_on(direct_read_cli::run(command));
