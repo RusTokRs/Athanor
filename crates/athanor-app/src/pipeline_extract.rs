@@ -84,7 +84,7 @@ pub(crate) async fn extract(
                 let started = std::time::Instant::now();
                 let span =
                     debug_span!("extract_source", extractor = extractor_name, file = %source.path);
-                let output = crate::runtime::with_process_execution_context(
+                let output = crate::with_process_execution_context(
                     operation.clone(),
                     cancellation,
                     async {
