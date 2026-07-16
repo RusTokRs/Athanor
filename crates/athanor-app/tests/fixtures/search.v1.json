@@ -1,0 +1,14 @@
+{
+  "schema": "athanor.search.v1",
+  "root": "repo",
+  "snapshot": "snap_fixture",
+  "query": "contract",
+  "limit": 5,
+  "returned": 0,
+  "truncated": false,
+  "omitted": {
+    "results_lower_bound": 0,
+    "reason": null
+  },
+  "results": []
+}
