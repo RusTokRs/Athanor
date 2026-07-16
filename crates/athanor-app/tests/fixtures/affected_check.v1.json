@@ -1,0 +1,19 @@
+{
+  "schema": "athanor.affected_check.v1",
+  "snapshot": "snap_fixture",
+  "affected_files": {
+    "changed": 1,
+    "unchanged": 2,
+    "removed": 0
+  },
+  "stale_artifacts": [],
+  "documentation_drift": [],
+  "counts": {
+    "total": 0,
+    "critical": 0,
+    "high": 0,
+    "medium": 0,
+    "low": 0
+  },
+  "diagnostics": []
+}
