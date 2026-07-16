@@ -2,11 +2,13 @@ use std::path::PathBuf;
 
 use athanor_app::{
     AFFECTED_CHECK_SCHEMA_V1, AffectedCheckReport, AffectedFileCounts, ApiOverview,
-    DIAGNOSTIC_CHECK_SCHEMA_V1, DiagnosticCheckReport, DiagnosticCounts, DiagnosticScope,
-    DocsOverview, ENTITY_EXPLANATION_SCHEMA_V1, IMPACT_ANALYSIS_SCHEMA_V1,
-    OPERATIONS_DOCS_CHECK_SCHEMA_V1, OperationsDocsCheckReport, OperationsOverview,
-    OVERVIEW_SCHEMA_V1, OverviewTotals, RepositoryOverview, SEARCH_SCHEMA_V1, SearchOmissions,
-    SearchReport, VersionedJsonContract, explain_snapshot, impact_snapshot,
+    CAPABILITIES_SCHEMA_V1, COVERAGE_SCHEMA_V1, CapabilitiesLimits, CapabilitiesOmitted,
+    CapabilitiesReport, CapabilitiesTotals, CoverageFilters, CoverageLimits, CoverageOmitted,
+    CoverageReport, CoverageTotals, DIAGNOSTIC_CHECK_SCHEMA_V1, DiagnosticCheckReport,
+    DiagnosticCounts, DiagnosticScope, DocsOverview, ENTITY_EXPLANATION_SCHEMA_V1,
+    IMPACT_ANALYSIS_SCHEMA_V1, OPERATIONS_DOCS_CHECK_SCHEMA_V1, OperationsDocsCheckReport,
+    OperationsOverview, OVERVIEW_SCHEMA_V1, OverviewTotals, RepositoryOverview, SEARCH_SCHEMA_V1,
+    SearchOmissions, SearchReport, VersionedJsonContract, explain_snapshot, impact_snapshot,
 };
 use athanor_core::CanonicalSnapshot;
 use athanor_domain::{
@@ -128,6 +130,49 @@ fn operations_docs_check_v1_matches_golden_fixture() {
         &report,
         include_str!("fixtures/operations_docs_check.v1.json"),
     );
+}
+
+#[test]
+fn coverage_v1_matches_golden_fixture() {
+    let report = CoverageReport {
+        schema: COVERAGE_SCHEMA_V1,
+        snapshot: "snap_fixture".to_string(),
+        root: PathBuf::from("repo"),
+        filters: CoverageFilters {
+            adapter: None,
+            file: None,
+        },
+        limits: CoverageLimits { limit: 50 },
+        totals: CoverageTotals::default(),
+        files: Vec::new(),
+        adapters: Vec::new(),
+        diagnostics: Vec::new(),
+        omitted: CoverageOmitted::default(),
+    };
+
+    assert_matches_fixture(&report, include_str!("fixtures/coverage.v1.json"));
+}
+
+#[test]
+fn capabilities_v1_matches_golden_fixture() {
+    let report = CapabilitiesReport {
+        schema: CAPABILITIES_SCHEMA_V1,
+        snapshot: "snap_fixture".to_string(),
+        root: PathBuf::from("repo"),
+        baseline_adapter: "file",
+        limits: CapabilitiesLimits {
+            limit: 50,
+            confidence_threshold: 1.0,
+        },
+        totals: CapabilitiesTotals::default(),
+        languages: Vec::new(),
+        adapters: Vec::new(),
+        low_confidence_facts: Vec::new(),
+        unprocessed_files: Vec::new(),
+        omitted: CapabilitiesOmitted::default(),
+    };
+
+    assert_matches_fixture(&report, include_str!("fixtures/capabilities.v1.json"));
 }
 
 fn diagnostic_report(scope: DiagnosticScope) -> DiagnosticCheckReport {
