@@ -1,0 +1,41 @@
+{
+  "schema": "athanor.overview.v1",
+  "snapshot": "snap_fixture",
+  "totals": {
+    "entities": 0,
+    "facts": 0,
+    "relations": 0,
+    "diagnostics": 0,
+    "open_diagnostics": 0,
+    "source_files": 0
+  },
+  "entity_kinds": [],
+  "relation_kinds": [],
+  "source_roots": [],
+  "api": {
+    "endpoints": 0,
+    "schemas": 0,
+    "examples": 0,
+    "documented_endpoints": 0,
+    "implemented_endpoints": 0
+  },
+  "docs": {
+    "pages": 0,
+    "sections": 0,
+    "runbooks": 0,
+    "operation_steps": 0,
+    "operations_pages": 0
+  },
+  "operations": {
+    "environment_variables": 0,
+    "script_commands": 0,
+    "deployment_resources": 0,
+    "database_migrations": 0,
+    "packages": 0,
+    "dependencies": 0
+  },
+  "module_structure": [],
+  "integration_boundaries": [],
+  "graph_hubs": [],
+  "open_diagnostics": []
+}
