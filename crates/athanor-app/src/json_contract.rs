@@ -19,6 +19,12 @@ pub const SEARCH_SCHEMA_V1: &str = "athanor.search.v1";
 pub const ENTITY_EXPLANATION_SCHEMA_V1: &str = "athanor.entity_explanation.v1";
 /// Stable schema identifier for code impact analysis reports.
 pub const IMPACT_ANALYSIS_SCHEMA_V1: &str = "athanor.impact_analysis.v1";
+/// Stable schema identifier for scoped diagnostic check reports.
+pub const DIAGNOSTIC_CHECK_SCHEMA_V1: &str = "athanor.diagnostic_check.v1";
+/// Stable schema identifier for affected-file check reports.
+pub const AFFECTED_CHECK_SCHEMA_V1: &str = "athanor.affected_check.v1";
+/// Stable schema identifier for aggregated operations documentation check reports.
+pub const OPERATIONS_DOCS_CHECK_SCHEMA_V1: &str = "athanor.operations_docs_check.v1";
 
 /// One registered, externally consumable JSON document contract.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,6 +50,18 @@ pub const VERSIONED_JSON_CONTRACTS: &[JsonContractDescriptor] = &[
     JsonContractDescriptor {
         schema: IMPACT_ANALYSIS_SCHEMA_V1,
         rust_type: "ImpactAnalysis",
+    },
+    JsonContractDescriptor {
+        schema: DIAGNOSTIC_CHECK_SCHEMA_V1,
+        rust_type: "DiagnosticCheckReport",
+    },
+    JsonContractDescriptor {
+        schema: AFFECTED_CHECK_SCHEMA_V1,
+        rust_type: "AffectedCheckReport",
+    },
+    JsonContractDescriptor {
+        schema: OPERATIONS_DOCS_CHECK_SCHEMA_V1,
+        rust_type: "OperationsDocsCheckReport",
     },
 ];
 
@@ -98,6 +116,30 @@ impl VersionedJsonContract for crate::explain::EntityExplanation {
 
 impl VersionedJsonContract for crate::impact::ImpactAnalysis {
     const SCHEMA: &'static str = IMPACT_ANALYSIS_SCHEMA_V1;
+
+    fn schema(&self) -> &str {
+        &self.schema
+    }
+}
+
+impl VersionedJsonContract for crate::check::DiagnosticCheckReport {
+    const SCHEMA: &'static str = DIAGNOSTIC_CHECK_SCHEMA_V1;
+
+    fn schema(&self) -> &str {
+        &self.schema
+    }
+}
+
+impl VersionedJsonContract for crate::check::AffectedCheckReport {
+    const SCHEMA: &'static str = AFFECTED_CHECK_SCHEMA_V1;
+
+    fn schema(&self) -> &str {
+        &self.schema
+    }
+}
+
+impl VersionedJsonContract for crate::check::OperationsDocsCheckReport {
+    const SCHEMA: &'static str = OPERATIONS_DOCS_CHECK_SCHEMA_V1;
 
     fn schema(&self) -> &str {
         &self.schema
