@@ -13,7 +13,7 @@ use super::process_adapter_support::{
     ProcessCommand, ProcessLimits, normalize_extension, process_output_excerpt,
 };
 use super::{
-    CancellableProcessRunner, SharedProcessRunner, current_process_execution_context,
+    CancellableProcessRunner, current_process_execution_context, current_process_runner,
     default_process_runner,
 };
 use crate::CancellationToken;
@@ -22,66 +22,40 @@ pub(super) fn source(
     id: String,
     command: ProcessCommand,
     root: PathBuf,
-    runner: SharedProcessRunner,
 ) -> Box<dyn SourceProvider> {
-    Box::new(ProcessSource {
-        id,
-        command,
-        root,
-        runner,
-    })
+    Box::new(ProcessSource { id, command, root })
 }
 
 pub(super) fn extractor(
     id: String,
     command: ProcessCommand,
     supports_extensions: BTreeSet<String>,
-    runner: SharedProcessRunner,
 ) -> Box<dyn Extractor> {
     Box::new(ProcessExtractor {
         id,
         command,
         supports_extensions,
-        runner,
     })
 }
 
-pub(super) fn linker(
-    id: String,
-    command: ProcessCommand,
-    runner: SharedProcessRunner,
-) -> Box<dyn Linker> {
-    Box::new(ProcessLinker {
-        id,
-        command,
-        runner,
-    })
+pub(super) fn linker(id: String, command: ProcessCommand) -> Box<dyn Linker> {
+    Box::new(ProcessLinker { id, command })
 }
 
-pub(super) fn checker(
-    id: String,
-    command: ProcessCommand,
-    runner: SharedProcessRunner,
-) -> Box<dyn Checker> {
-    Box::new(ProcessChecker {
-        id,
-        command,
-        runner,
-    })
+pub(super) fn checker(id: String, command: ProcessCommand) -> Box<dyn Checker> {
+    Box::new(ProcessChecker { id, command })
 }
 
 struct ProcessExtractor {
     id: String,
     command: ProcessCommand,
     supports_extensions: BTreeSet<String>,
-    runner: SharedProcessRunner,
 }
 
 struct ProcessSource {
     id: String,
     command: ProcessCommand,
     root: PathBuf,
-    runner: SharedProcessRunner,
 }
 
 #[derive(Serialize)]
@@ -92,13 +66,11 @@ struct SourceDiscoverInput<'a> {
 struct ProcessLinker {
     id: String,
     command: ProcessCommand,
-    runner: SharedProcessRunner,
 }
 
 struct ProcessChecker {
     id: String,
     command: ProcessCommand,
-    runner: SharedProcessRunner,
 }
 
 #[async_trait::async_trait]
@@ -109,7 +81,6 @@ impl SourceProvider for ProcessSource {
 
     async fn discover(&self) -> CoreResult<Vec<SourceFile>> {
         run(
-            self.runner.as_ref(),
             "source",
             &self.id,
             &self.command,
@@ -135,14 +106,7 @@ impl Extractor for ProcessExtractor {
     }
 
     async fn extract(&self, input: ExtractInput) -> CoreResult<ExtractOutput> {
-        run(
-            self.runner.as_ref(),
-            "extractor",
-            &self.id,
-            &self.command,
-            &input,
-        )
-        .await
+        run("extractor", &self.id, &self.command, &input).await
     }
 }
 
@@ -153,14 +117,7 @@ impl Linker for ProcessLinker {
     }
 
     async fn link(&self, input: LinkInput) -> CoreResult<Vec<athanor_domain::Relation>> {
-        run(
-            self.runner.as_ref(),
-            "linker",
-            &self.id,
-            &self.command,
-            &input,
-        )
-        .await
+        run("linker", &self.id, &self.command, &input).await
     }
 }
 
@@ -171,19 +128,11 @@ impl Checker for ProcessChecker {
     }
 
     async fn check(&self, input: CheckInput) -> CoreResult<Vec<athanor_domain::Diagnostic>> {
-        run(
-            self.runner.as_ref(),
-            "checker",
-            &self.id,
-            &self.command,
-            &input,
-        )
-        .await
+        run("checker", &self.id, &self.command, &input).await
     }
 }
 
 async fn run<I, O>(
-    runner: &dyn CancellableProcessRunner,
     adapter_kind: &str,
     adapter_id: &str,
     command: &ProcessCommand,
@@ -193,20 +142,17 @@ where
     I: Serialize,
     O: for<'de> Deserialize<'de>,
 {
+    let runner = current_process_runner();
     let context = current_process_execution_context();
-    let operation = context.as_ref().map(|context| &context.operation);
-    let cancellation = context
-        .as_ref()
-        .and_then(|context| context.cancellation.as_ref());
     run_with_limits_using(
-        runner,
+        runner.as_ref(),
         adapter_kind,
         adapter_id,
         command,
         input,
         ProcessLimits::default(),
-        operation,
-        cancellation,
+        context.operation.as_ref(),
+        context.cancellation.as_ref(),
     )
     .await
 }
@@ -324,7 +270,7 @@ where
 #[cfg(test)]
 mod tests {
     use std::sync::{
-        Mutex,
+        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     };
     use std::time::Duration;
@@ -374,6 +320,21 @@ mod tests {
                 .store(cancellation.is_some(), Ordering::Release);
             self.run(request).await
         }
+    }
+
+    #[tokio::test]
+    async fn scoped_runner_override_is_used_by_adapter_boundary() {
+        let runner = Arc::new(RecordingRunner::new(output(br#"{"ok":true}"#.to_vec())));
+        let observed = Arc::clone(&runner);
+
+        let value: serde_json::Value = super::super::with_process_runner(runner, async {
+            run("extractor", "scoped", &command(), &json!({ "input": 7 })).await
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(value, json!({ "ok": true }));
+        assert_eq!(observed.requests.lock().unwrap().len(), 1);
     }
 
     #[tokio::test]
