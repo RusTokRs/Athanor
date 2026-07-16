@@ -8,7 +8,7 @@ status: active
 
 This inventory records JSON documents that cross CLI, daemon, MCP, persisted-state, or process-adapter boundaries. A document may enter `VERSIONED_JSON_CONTRACTS` only when one Rust type owns one top-level schema id and its current payload shape is protected by a regression fixture.
 
-Audit baseline: `main` at `43e7b72e5bdc7f0c7d55c126777c1fb910086df2`.
+Audit baseline: `main` at `243a7ec059f321f663877fb41e4246da46b5ebb7`.
 
 ## Registered contracts
 
@@ -31,6 +31,9 @@ Audit baseline: `main` at `43e7b72e5bdc7f0c7d55c126777c1fb910086df2`.
 | `athanor.graph_hubs.v1` | `GraphHubs` | CLI/daemon/MCP read | second-wave golden |
 | `athanor.graph_pagerank.v1` | `GraphPageRank` | CLI/daemon/MCP read | second-wave golden |
 | `athanor.graph_cycles.v1` | `GraphCycles` | CLI/daemon/MCP read | second-wave golden |
+| `athanor.rustok_ffa_audit.v1` | `RustokFfaAudit` | direct CLI Rustok audit | representative family golden |
+| `athanor.rustok_ffa_surface_graph.v1` | `RustokFfaSurfaceGraphReport` | direct CLI FFA graph | representative family golden |
+| `athanor.rustok_ffa_violations_graph.v1` | `RustokFfaViolationsGraphReport` | direct CLI FFA graph | representative family golden |
 | `athanor.project_registry.v1` | `ProjectRegistryReport` | CLI project list/add/remove | dedicated golden |
 | `athanor.project_resolution.v1` | `ProjectResolutionReport` | CLI/daemon project resolution | second-wave golden |
 
@@ -56,11 +59,17 @@ Removing legacy persisted-state acceptance requires a new major compatibility de
 
 `ProjectRegistryReport` is the unique registered owner of `athanor.project_registry.v1` and is protected by a dedicated golden fixture. The persisted state schema is intentionally classified outside `VERSIONED_JSON_CONTRACTS`, and unit regressions cover current writes, legacy reads, migration-on-mutation, and unknown-schema rejection.
 
+### RusTok FFA graph owners
+
+The surface and violations commands share the internal calculation type `RustokFfaGraph`, but one Rust owner cannot implement two associated schema constants. Public operation-aware APIs now return transparent `RustokFfaSurfaceGraphReport` and `RustokFfaViolationsGraphReport` wrappers.
+
+The wrappers reset the internal graph schema to the command-specific constant, serialize transparently without a new nesting level, and dereference to `RustokFfaGraph` for existing text renderers. `RustokFfaAudit` remains a unique direct owner. One representative fixture protects a non-empty audit surface plus non-empty surface and violations graph nodes and edges.
+
 ## Discovered contracts requiring migration decisions
 
-### Specialized graph and Rustok reports
+### Remaining specialized graph and Rustok reports
 
-`graph.rs` also exposes Rustok FFA, FBA, and page-builder audit/graph schemas. They remain outside this wave because the family is large and should be registered together with representative non-empty fixtures and transport parity coverage.
+FBA currently shares `RustokFbaGraph` across module, port, dependencies, and violations schema ids. Page Builder similarly shares `RustokPageBuilderGraph` across provider, consumer, and violations ids. They require the same unique transparent-owner treatment used for FFA before registry inclusion.
 
 ### Process-adapter protocols and persisted state
 
@@ -78,7 +87,7 @@ The registered Search, Impact, Diagnostic Check, Affected Check, Operations Docs
 
 `crates/athanor-app/tests/json_contract_inventory.rs` scans the currently identified app-layer owner modules. Every canonical schema literal found there must be registered, tracked as an unregistered public migration item, or classified as an internal persisted schema.
 
-The public migration allowlist now contains only the specialized Rustok graph/audit family. The persisted classification currently contains `athanor.project_registry_state.v1`. Tests reject stale migration exceptions, public registration of internal persisted ids, duplicate classifications, and classified ids that disappear from the inventoried source set.
+The public migration allowlist now contains only FBA and Page Builder graph/audit contracts. The persisted classification currently contains `athanor.project_registry_state.v1`. Tests reject stale migration exceptions, public registration of internal persisted ids, duplicate classifications, and classified ids that disappear from the inventoried source set.
 
 This is a bounded first enforcement slice. Daemon/MCP envelopes, process protocols, persistence documents, and newly discovered source modules must be added after their inventory classification is complete.
 
@@ -88,6 +97,7 @@ This is a bounded first enforcement slice. Daemon/MCP envelopes, process protoco
 - Every registered Rust owner is unique.
 - The owner implements `VersionedJsonContract`.
 - A golden regression exercises serialization and `validate_contract()`.
+- Shared internal calculation types with multiple public schema ids require distinct transparent public owner types.
 - Migrated builders must import their schema id from the shared registry module and must not embed the quoted literal.
 - Local schema constants must equal the shared registry constant until literals are fully migrated.
 - A schema id must never describe two current emitted top-level shapes.
