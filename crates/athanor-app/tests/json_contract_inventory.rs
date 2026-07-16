@@ -20,7 +20,6 @@ const AGENT_FACING_SOURCE_FILES: &[&str] = &[
 ];
 
 const KNOWN_UNREGISTERED_AGENT_FACING_SCHEMAS: &[&str] = &[
-    "athanor.project_registry.v1",
     "athanor.rustok_ffa_audit.v1",
     "athanor.rustok_ffa_surface_graph.v1",
     "athanor.rustok_ffa_violations_graph.v1",
@@ -35,6 +34,8 @@ const KNOWN_UNREGISTERED_AGENT_FACING_SCHEMAS: &[&str] = &[
     "athanor.rustok_page_builder_violations_graph.v1",
 ];
 
+const KNOWN_PERSISTED_SCHEMAS: &[&str] = &["athanor.project_registry_state.v1"];
+
 const MIGRATED_SHARED_SCHEMA_BUILDERS: &[(&str, &str)] = &[
     ("src/search.rs", "athanor.search.v1"),
     ("src/impact.rs", "athanor.impact_analysis.v1"),
@@ -45,7 +46,7 @@ const MIGRATED_SHARED_SCHEMA_BUILDERS: &[(&str, &str)] = &[
 ];
 
 #[test]
-fn known_agent_facing_schema_literals_are_registered_or_explicitly_tracked() {
+fn known_schema_literals_are_registered_or_explicitly_classified() {
     validate_contract_registry(VERSIONED_JSON_CONTRACTS)
         .expect("shared JSON contract registry must remain valid");
 
@@ -57,6 +58,10 @@ fn known_agent_facing_schema_literals_are_registered_or_explicitly_tracked() {
         .iter()
         .copied()
         .collect::<BTreeSet<_>>();
+    let persisted = KNOWN_PERSISTED_SCHEMAS
+        .iter()
+        .copied()
+        .collect::<BTreeSet<_>>();
 
     for schema in &tracked {
         validate_schema_id(schema).expect("tracked schema ids must remain canonical");
@@ -65,9 +70,21 @@ fn known_agent_facing_schema_literals_are_registered_or_explicitly_tracked() {
             "tracked schema `{schema}` is registered now; remove it from the migration allowlist"
         );
     }
+    for schema in &persisted {
+        validate_schema_id(schema).expect("persisted schema ids must remain canonical");
+        assert!(
+            !registered.contains(schema),
+            "persisted schema `{schema}` must not be mixed into the public report registry"
+        );
+        assert!(
+            !tracked.contains(schema),
+            "persisted schema `{schema}` must not also be a migration exception"
+        );
+    }
 
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let mut observed_tracked = BTreeSet::new();
+    let mut observed_persisted = BTreeSet::new();
 
     for relative_path in AGENT_FACING_SOURCE_FILES {
         let path = manifest_dir.join(relative_path);
@@ -78,9 +95,14 @@ fn known_agent_facing_schema_literals_are_registered_or_explicitly_tracked() {
             if tracked.contains(schema.as_str()) {
                 observed_tracked.insert(schema.clone());
             }
+            if persisted.contains(schema.as_str()) {
+                observed_persisted.insert(schema.clone());
+            }
             assert!(
-                registered.contains(schema.as_str()) || tracked.contains(schema.as_str()),
-                "agent-facing schema `{schema}` in `{relative_path}` is neither registered nor explicitly tracked"
+                registered.contains(schema.as_str())
+                    || tracked.contains(schema.as_str())
+                    || persisted.contains(schema.as_str()),
+                "schema `{schema}` in `{relative_path}` is neither registered nor explicitly classified"
             );
         }
     }
@@ -89,6 +111,11 @@ fn known_agent_facing_schema_literals_are_registered_or_explicitly_tracked() {
         observed_tracked,
         tracked.into_iter().map(str::to_string).collect(),
         "migration allowlist and observed agent-facing schema literals diverged"
+    );
+    assert_eq!(
+        observed_persisted,
+        persisted.into_iter().map(str::to_string).collect(),
+        "persisted schema classification and observed literals diverged"
     );
 }
 
