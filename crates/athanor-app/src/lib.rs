@@ -88,6 +88,7 @@ pub mod read_model;
 #[path = "repair_latest.rs"]
 pub mod repair;
 pub mod report;
+#[path = "runtime/mod.rs"]
 pub mod runtime;
 pub mod rustok_architecture;
 mod rustok_architecture_cooperative;
