@@ -15,6 +15,12 @@ use crate::daemon_job_state::{begin_or_finish_failed, finish, finish_cancellable
 use crate::daemon_lifecycle::current as lifecycle;
 use crate::daemon_operation::context as operation_context;
 use crate::daemon_protocol::{error_response_from_anyhow, success_response, validate_request};
+use crate::derived_read_operation::{
+    change_map_project_with_composition_and_operation_context,
+    change_map_project_with_operation_context,
+    context_project_with_composition_and_operation_context,
+    context_project_with_operation_context,
+};
 
 /// Intercepts derived read commands that still execute through compatibility application services.
 /// Every other request is delegated to the established operation-aware read dispatcher.
@@ -60,7 +66,7 @@ pub(crate) async fn execute(
                 Some(composition) => {
                     within_operation_deadline(
                         &operation,
-                        crate::derived_read_operation::context_project_with_composition_and_operation_context(
+                        context_project_with_composition_and_operation_context(
                             options,
                             &composition,
                             &operation,
@@ -71,10 +77,7 @@ pub(crate) async fn execute(
                 None => {
                     within_operation_deadline(
                         &operation,
-                        crate::derived_read_operation::context_project_with_operation_context(
-                            options,
-                            &operation,
-                        ),
+                        context_project_with_operation_context(options, &operation),
                     )
                     .await
                 }
@@ -115,7 +118,7 @@ pub(crate) async fn execute(
                 Some(composition) => {
                     within_operation_deadline(
                         &operation,
-                        crate::derived_read_operation::change_map_project_with_composition_and_operation_context(
+                        change_map_project_with_composition_and_operation_context(
                             options,
                             &composition,
                             &operation,
@@ -126,10 +129,7 @@ pub(crate) async fn execute(
                 None => {
                     within_operation_deadline(
                         &operation,
-                        crate::derived_read_operation::change_map_project_with_operation_context(
-                            options,
-                            &operation,
-                        ),
+                        change_map_project_with_operation_context(options, &operation),
                     )
                     .await
                 }
@@ -180,7 +180,10 @@ async fn within_operation_deadline<T>(
 }
 
 fn deadline_error(operation: &OperationContext) -> anyhow::Error {
-    let identity = operation.operation_id.as_deref().unwrap_or("daemon derived read");
+    let identity = operation
+        .operation_id
+        .as_deref()
+        .unwrap_or("daemon derived read");
     anyhow::Error::new(CoreError::DeadlineExceeded(format!(
         "{identity} exceeded its configured deadline"
     )))
