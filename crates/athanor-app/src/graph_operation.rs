@@ -11,8 +11,11 @@ use crate::config::load_config;
 use crate::graph::{
     GraphCycles, GraphCyclesOptions, GraphExport, GraphExportOptions, GraphHubs, GraphHubsOptions,
     GraphPageRank, GraphPageRankOptions, GraphPath, GraphPathOptions, GraphRelated,
-    GraphRelatedOptions, build_graph_cycles, build_graph_export, build_graph_hubs,
-    build_graph_pagerank, build_related_graph, build_shortest_graph_path,
+    GraphRelatedOptions, build_graph_export, build_graph_hubs,
+};
+use crate::graph_cooperative::{
+    build_graph_cycles_with_operation_context, build_graph_pagerank_with_operation_context,
+    build_related_graph_with_operation_context, build_shortest_graph_path_with_operation_context,
 };
 use crate::project_path::normalize_canonical_path;
 use crate::store::init_store;
@@ -45,13 +48,15 @@ pub async fn related_graph_with_operation_context(
         bail!("graph related entity and relation limits must be greater than zero");
     }
     let snapshot = load_latest_snapshot(options.root, operation).await?;
+    let worker_operation = operation.clone();
     run_graph_worker(operation, move || {
-        build_related_graph(
+        build_related_graph_with_operation_context(
             &snapshot,
             &options.stable_key,
             options.depth,
             options.max_entities,
             options.max_relations,
+            &worker_operation,
         )
     })
     .await
@@ -66,13 +71,15 @@ pub async fn shortest_graph_path_with_operation_context(
         bail!("graph path max visited limit must be greater than zero");
     }
     let snapshot = load_latest_snapshot(options.root, operation).await?;
+    let worker_operation = operation.clone();
     run_graph_worker(operation, move || {
-        build_shortest_graph_path(
+        build_shortest_graph_path_with_operation_context(
             &snapshot,
             &options.from_stable_key,
             &options.to_stable_key,
             options.max_depth,
             options.max_visited,
+            &worker_operation,
         )
     })
     .await
@@ -98,7 +105,7 @@ pub async fn graph_hubs_with_operation_context(
     .await
 }
 
-/// Computes PageRank on a blocking worker.
+/// Computes PageRank on a blocking worker with cooperative cancellation checkpoints.
 pub async fn graph_pagerank_with_operation_context(
     options: GraphPageRankOptions,
     operation: &OperationContext,
@@ -115,8 +122,9 @@ pub async fn graph_pagerank_with_operation_context(
         );
     }
     let snapshot = load_latest_snapshot(options.root, operation).await?;
+    let worker_operation = operation.clone();
     run_graph_worker(operation, move || {
-        build_graph_pagerank(
+        build_graph_pagerank_with_operation_context(
             &snapshot,
             options.limit,
             options.kind.as_deref(),
@@ -124,12 +132,13 @@ pub async fn graph_pagerank_with_operation_context(
             options.max_iterations,
             options.tolerance,
             options.max_relation_ids,
+            &worker_operation,
         )
     })
     .await
 }
 
-/// Finds bounded directed cycles on a blocking worker.
+/// Finds bounded directed cycles on a blocking worker with cooperative cancellation checkpoints.
 pub async fn graph_cycles_with_operation_context(
     options: GraphCyclesOptions,
     operation: &OperationContext,
@@ -138,12 +147,14 @@ pub async fn graph_cycles_with_operation_context(
         bail!("graph cycle limits must be greater than zero");
     }
     let snapshot = load_latest_snapshot(options.root, operation).await?;
+    let worker_operation = operation.clone();
     run_graph_worker(operation, move || {
-        build_graph_cycles(
+        build_graph_cycles_with_operation_context(
             &snapshot,
             options.limit,
             options.max_depth,
             options.max_starts,
+            &worker_operation,
         )
     })
     .await
