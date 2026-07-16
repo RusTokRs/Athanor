@@ -279,10 +279,10 @@ async fn run_registered_drained_read<T>(
     register_read(active_reads, &request_key, &operation).await?;
     let result = future.await;
     let result = match result {
-        Ok(value) => {
-            operation.check_active().map_err(anyhow::Error::new)?;
-            Ok(value)
-        }
+        Ok(value) => operation
+            .check_active()
+            .map(|()| value)
+            .map_err(anyhow::Error::new),
         Err(error) => Err(error),
     };
     active_reads.lock().await.remove(&request_key);
