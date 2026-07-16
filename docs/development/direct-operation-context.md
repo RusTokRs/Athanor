@@ -26,7 +26,14 @@ Covered direct CLI commands:
 - `ath graph path`;
 - `ath graph hubs`;
 - `ath graph pagerank`;
-- `ath graph cycles`.
+- `ath graph cycles`;
+- `ath rustok architecture context`;
+- `ath rustok ffa audit`;
+- `ath rustok fba audit`;
+- `ath rustok page-builder audit`;
+- `ath graph ffa surface|violations`;
+- `ath graph fba module|port|dependencies|violations`;
+- `ath graph page-builder provider|consumer|violations`.
 
 Covered MCP lifecycle:
 
@@ -63,22 +70,38 @@ Legacy async reads are polled together with the operation deadline, the shared c
 `tokio::signal::ctrl_c()`. Preflight checks prevent already-expired work; postflight checks reject late success
 after cancellation.
 
+Manual RusTok commands now use a focused parser before the legacy dispatcher. Their old positional paths,
+filters, limits, JSON output, and text rendering are preserved. Focused help exposes the deadline contract for
+Rustok audits and FFA/FBA/Page Builder architecture graphs.
+
 ## Blocking Worker Boundary
 
-Standard graph builders run on Tokio's blocking pool after the committed snapshot has been loaded through a
-context-aware store read. The operation wrapper polls cancellation and deadline state while the builder runs.
+Graph builders and synchronous Rustok report builders run on Tokio's blocking pool after the committed
+snapshot has been loaded through a context-aware store read. The operation wrapper polls cancellation and
+deadline state while a builder runs.
 
 A blocking task cannot be force-stopped safely. Therefore cancellation records a terminal operation error but
-the wrapper drains the worker before returning. The completed graph value is discarded and cannot become a
-late successful response. This provides:
+the wrapper drains the worker before returning. The completed value is discarded and cannot become a late
+successful response. This provides:
 
-- no detached graph worker after command termination;
+- no detached graph or Rustok report worker after command termination;
 - no CPU-bound graph construction on an async runtime worker;
 - stable `cancelled`/`deadline_exceeded` output;
-- bounded resource ownership even when cancellation occurs during PageRank or traversal.
+- bounded resource ownership when cancellation occurs during report construction.
 
-Cancellation latency is currently limited by one graph build. Finer-grained cooperative checks inside graph
-algorithms remain future work.
+## Cooperative Graph Polling
+
+The operation-aware implementations of related traversal, shortest-path traversal, PageRank, and directed
+cycle search poll `OperationContext::check_active()` at bounded work intervals. Checkpoints exist while:
+
+- constructing relation adjacency;
+- visiting BFS queues and neighboring entities;
+- iterating PageRank nodes, edges, contributions, and convergence deltas;
+- traversing recursive cycle paths and roots.
+
+The outer non-orphaning worker boundary remains in place. Cooperative cancellation reduces latency, while the
+outer drain guarantee prevents a cancellation race from detaching a blocking task. Legacy pure builders remain
+available for source compatibility; direct CLI and operation-aware callers use the cooperative variants.
 
 `ath check --strict` uses the same non-orphaning blocking boundary for synchronous API contract diffing. The
 normal diagnostic query remains an async operation-aware read. Strict non-API scope behavior and exit codes
@@ -104,19 +127,19 @@ writer exits.
 ## Compatibility
 
 - Existing direct CLI flags and rendering are preserved for covered commands.
-- Unsupported graph subcommands and manual Rustok commands continue through the legacy dispatcher.
+- Unknown commands and non-read commands continue through the legacy dispatcher.
 - Existing MCP tool schemas and names are reused.
 - JSON-RPC responses may complete out of input order because request ids provide correlation.
 - Notifications without an id remain response-free.
 - Request ids used for cancellable reads must be strings or numbers.
+- Legacy pure graph builders remain public; operation-aware callers opt into cooperative variants.
 
 ## Remaining Work
 
 The following remain outside this code slice:
 
-- direct CLI operation lifecycle for manual Rustok read commands and architecture graph commands;
-- finer-grained cooperative cancellation inside graph algorithms, filesystem discovery, and search-index
-  rebuild work;
+- finer-grained cooperative cancellation inside filesystem discovery, search-index rebuild, projectors, and
+  Rustok-specific pure report loops;
 - transactional MCP notification cancellation;
 - hosted Linux/Windows formatting, test, Clippy, stdio, Ctrl-C, disconnect, and worker-drain evidence.
 
@@ -129,8 +152,12 @@ cargo test -p ath --test direct_graph_cli --locked
 cargo test -p ath --test direct_check_cli --locked
 cargo test -p ath direct_operation --locked
 cargo test -p ath direct_graph_cli --locked
+cargo test -p ath direct_rustok_cli --locked
+cargo test -p ath direct_rustok_help --locked
 cargo test -p ath direct_check_cli --locked
 cargo test -p athanor-app graph_operation --locked
+cargo test -p athanor-app graph_cooperative --locked
+cargo test -p athanor-app rustok_operation --locked
 cargo test -p athanor-transport-mcp lifecycle --locked
 cargo test -p athanor-transport-mcp --locked
 cargo clippy -p ath --all-targets --locked -- -D warnings
@@ -140,14 +167,15 @@ cargo clippy -p athanor-transport-mcp --all-targets --locked -- -D warnings
 
 Required regressions:
 
-- every focused direct read, graph, and check help page exposes `--deadline-unix-ms`;
+- every focused direct read, graph, check, and manual Rustok help page exposes `--deadline-unix-ms`;
 - malformed CLI and environment deadlines fail before project access;
 - an expired deadline does not spawn a blocking worker;
-- cancellation drains the graph/API-diff worker and rejects its result;
+- cancellation drains graph, Rustok, and API-diff workers and rejects their results;
+- PageRank, cycle search, and graph traversal observe bounded cooperative checkpoints;
 - cancellation rejects a would-be late successful legacy future;
 - MCP cancellation notification terminates a registered read and releases its lease;
 - MCP deadline termination releases the request registry entry;
 - transactional `index` remains outside the cancellable read scope;
-- unsupported graph and non-read commands continue through the legacy dispatcher.
+- unsupported and non-read commands continue through the legacy dispatcher.
 
 Hosted verification remains separate and is not claimed without recorded workflow or local toolchain evidence.
