@@ -45,6 +45,9 @@ pub const GRAPH_HUBS_SCHEMA_V1: &str = crate::graph::GRAPH_HUBS_SCHEMA;
 pub const GRAPH_PAGERANK_SCHEMA_V1: &str = crate::graph::GRAPH_PAGERANK_SCHEMA;
 /// Stable schema identifier for graph cycle reports.
 pub const GRAPH_CYCLES_SCHEMA_V1: &str = crate::graph::GRAPH_CYCLES_SCHEMA;
+/// Stable schema identifier for public project-registry reports.
+pub const PROJECT_REGISTRY_REPORT_SCHEMA_V1: &str =
+    crate::project_registry::PROJECT_REGISTRY_REPORT_SCHEMA;
 /// Stable schema identifier for project resolution reports.
 pub const PROJECT_RESOLUTION_SCHEMA_V1: &str =
     crate::project_registry::PROJECT_RESOLUTION_SCHEMA;
@@ -127,6 +130,10 @@ pub const VERSIONED_JSON_CONTRACTS: &[JsonContractDescriptor] = &[
         rust_type: "GraphCycles",
     },
     JsonContractDescriptor {
+        schema: PROJECT_REGISTRY_REPORT_SCHEMA_V1,
+        rust_type: "ProjectRegistryReport",
+    },
+    JsonContractDescriptor {
         schema: PROJECT_RESOLUTION_SCHEMA_V1,
         rust_type: "ProjectResolutionReport",
     },
@@ -193,6 +200,10 @@ impl_owned_schema_contract!(crate::graph::GraphPath, GRAPH_PATH_SCHEMA_V1);
 impl_owned_schema_contract!(crate::graph::GraphHubs, GRAPH_HUBS_SCHEMA_V1);
 impl_owned_schema_contract!(crate::graph::GraphPageRank, GRAPH_PAGERANK_SCHEMA_V1);
 impl_owned_schema_contract!(crate::graph::GraphCycles, GRAPH_CYCLES_SCHEMA_V1);
+impl_owned_schema_contract!(
+    crate::project_registry::ProjectRegistryReport,
+    PROJECT_REGISTRY_REPORT_SCHEMA_V1
+);
 impl_owned_schema_contract!(
     crate::project_registry::ProjectResolutionReport,
     PROJECT_RESOLUTION_SCHEMA_V1
@@ -438,7 +449,7 @@ mod tests {
     #[test]
     fn registry_contains_unique_valid_schema_and_type_owners() {
         assert_eq!(validate_contract_registry(VERSIONED_JSON_CONTRACTS), Ok(()));
-        assert_eq!(VERSIONED_JSON_CONTRACTS.len(), 18);
+        assert_eq!(VERSIONED_JSON_CONTRACTS.len(), 19);
         assert_eq!(crate::overview::OVERVIEW_SCHEMA, OVERVIEW_SCHEMA_V1);
         assert_eq!(crate::coverage::COVERAGE_REPORT_SCHEMA, COVERAGE_SCHEMA_V1);
         assert_eq!(
@@ -451,6 +462,10 @@ mod tests {
         assert_eq!(crate::graph::GRAPH_HUBS_SCHEMA, GRAPH_HUBS_SCHEMA_V1);
         assert_eq!(crate::graph::GRAPH_PAGERANK_SCHEMA, GRAPH_PAGERANK_SCHEMA_V1);
         assert_eq!(crate::graph::GRAPH_CYCLES_SCHEMA, GRAPH_CYCLES_SCHEMA_V1);
+        assert_eq!(
+            crate::project_registry::PROJECT_REGISTRY_REPORT_SCHEMA,
+            PROJECT_REGISTRY_REPORT_SCHEMA_V1
+        );
         assert_eq!(
             crate::project_registry::PROJECT_RESOLUTION_SCHEMA,
             PROJECT_RESOLUTION_SCHEMA_V1
