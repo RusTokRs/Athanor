@@ -25,13 +25,14 @@
 7. Blocking worker не detach’ится: terminal error возвращается только после drain.
 8. Read-only operation проверяет active state до работы, внутри поддерживаемых hot loops и перед success.
 9. Derived rebuild выполняется через staging; current artifact меняется только после готовности staged artifact.
-10. Transactional MCP cancellation остаётся запрещённой без отдельного rollback review.
-11. Queries читают только committed canonical snapshots.
-12. Backend atomic publication не считается единым application generation pointer.
-13. Recovery fail-closed проверяет path/type/schema/snapshot/generation/checksum identity до mutation.
-14. `GenerationId` детерминированно выводится из уникального `SnapshotId`.
-15. Canonical latest repair не может перемотать visibility на более старый committed snapshot.
-16. Destructive retention требует token от точного dry-run plan.
+10. Rebuild-capable transport держит cancellation lease до worker/future cleanup.
+11. Transactional MCP cancellation остаётся запрещённой без отдельного rollback review.
+12. Queries читают только committed canonical snapshots.
+13. Backend atomic publication не считается единым application generation pointer.
+14. Recovery fail-closed проверяет path/type/schema/snapshot/generation/checksum identity до mutation.
+15. `GenerationId` детерминированно выводится из уникального `SnapshotId`.
+16. Canonical latest repair не может перемотать visibility на более старый committed snapshot.
+17. Destructive retention требует token от точного dry-run plan.
 
 ## 1. Текущий baseline
 
@@ -47,6 +48,7 @@
 - daemon read/write operation context и stable typed errors;
 - focused direct CLI lifecycle для стандартных reads, check, standard graph и manual Rustok surfaces;
 - concurrent MCP read lifecycle с request cancellation registry;
+- operation-aware drained MCP Search/Context routing;
 - non-orphaning blocking workers для graph, strict API diff, Rustok reports, Context и Search rebuild;
 - cooperative checkpoints внутри related/path/PageRank/cycle algorithms;
 - cooperative filesystem discovery и file hashing в built-in source и diff scanner;
@@ -84,6 +86,7 @@ cargo test -p athanor-app graph_cooperative --locked
 cargo test -p athanor-app rustok_operation --locked
 cargo test -p athanor-app derived_read_operation --locked
 cargo test -p athanor-app search_operation --locked
+cargo test -p athanor-app daemon_derived_read_dispatch --locked
 cargo test -p athanor-transport-mcp lifecycle --locked
 
 cargo test -p athanor-store-memory --test conformance --locked
@@ -99,7 +102,7 @@ cargo test -p athanor-store-surrealdb --test conformance --locked
 | Transactional publication | `[-]` | generation layer code complete, repair/checksums/fault regressions | Hosted backend/OS evidence |
 | Allocation recovery | `[-]` | metadata, cutoff, bounded cleanup | Legacy untagged policy, hosted evidence |
 | Concurrent writers | `[-]` | JSONL/application locks, embedded ownership | Hosted remote conflict evidence |
-| Operation context | `[-]` | daemon, focused CLI, manual Rustok, MCP reads, graph/discovery/search polling, worker drain | Projector/Rustok report polling, hosted evidence |
+| Operation context | `[-]` | daemon, focused CLI, manual Rustok, MCP reads, graph/discovery/search polling, worker/future drain | Projector/Rustok report polling, hosted evidence |
 | Runtime maintainability | `[-]` | focused coordinator/read/graph/check/Rustok/Context/Search modules | Remaining legacy CLI/runtime decomposition |
 | Hosted CI | `[!]` | workflow files | Actions runs, artifacts, required checks |
 | AppSec | `[-]` | configured gates/SBOM/signing | Hosted evidence, push protection |
@@ -198,6 +201,8 @@ cargo test -p athanor-store-surrealdb --test conformance --locked
 - [x] Graph, strict API diff, Rustok reports и search rebuild имеют non-orphaning blocking boundary.
 - [-] Graph, discovery и search rebuild имеют cooperative polling; projectors/report builders ещё нет.
 - [x] Operation-aware search factory добавлен без изменения legacy `RuntimeComposition::new`.
+- [x] Diff Context не использует drop-on-timeout вокруг operation-aware rebuild.
+- [x] MCP Search/Context используют drained operation dispatch вместо compatibility future drop.
 - [ ] Injected cancellable `ProcessRunner` для adapter boundaries.
 - [ ] Удалить остальные global registries.
 
@@ -222,6 +227,9 @@ cargo test -p athanor-store-surrealdb --test conformance --locked
 - [x] Cooperative polling внутри search document conversion и Tantivy rebuild batches.
 - [x] Staged search rebuild сохраняет current index при cancel/error и удерживает backup до successful reopen.
 - [x] Daemon освобождает stale cached index handle до directory swap.
+- [x] Diff Context deadline не drop’ит search rebuild future до cleanup.
+- [x] MCP Search/Context держат registry lease до operation-aware cleanup.
+- [x] MCP terminal cancellation/deadline имеет приоритет над simultaneous worker error после drain.
 - [x] MCP concurrent read cancellation, EOF cleanup и stable structured errors.
 - [x] Parser/process/worker regressions для help, malformed/expired deadline, preflight, drain и success.
 - [x] Deterministic search regression отменяет rebuild после нескольких batches.
@@ -248,7 +256,7 @@ cargo test -p athanor-store-surrealdb --test conformance --locked
 
 - весь roadmap: ориентировочно `81–85%`;
 - generation-layer код P0.4: `100%` по текущему scope;
-- P1.5 operation lifecycle: ориентировочно `94–97%` на уровне кода;
+- P1.5 operation lifecycle: ориентировочно `95–98%` на уровне кода;
 - release-grade P0.4/P1.5 остаются `[-]` до hosted evidence;
 - до release-grade P0 остаются пять hosted/platform evidence packages и policy work;
 - после P0 остаются sandbox, projector/report polling, decomposition, performance и P2.
@@ -275,10 +283,12 @@ cargo test -p athanor-store-surrealdb --test conformance --locked
 - built-in `SourceProvider` и application diff scanner проверяют active state между bounded traversal/hash batches;
 - legacy discovery и search factory APIs сохраняют source compatibility;
 - Search и Context используют focused drained CLI interceptors;
-- operation-aware Context, direct Search и daemon Search/Context используют cancellable search factory;
+- operation-aware Context, direct Search, daemon Search/Context и MCP Search/Context используют cancellable search factory;
 - Tantivy rebuild строит staged index и переключает directory только после commit/active check;
 - current index сохраняется при cancellation/error, backup удаляется только после successful reopen;
 - stale daemon index handle освобождается до swap для Windows compatibility;
+- daemon diff Context и MCP Search/Context дожидаются operation-aware cleanup вместо drop-on-timeout/drop-on-cancel;
+- MCP lease освобождается при любом terminal result, а cancellation/deadline имеет postflight priority;
 - deterministic regression отменяет rebuild на третьем checkpoint после нескольких document batches.
 
 **Следующий безопасный кодовый срез:** `P1.5 cooperative projector and Rustok report polling`.
@@ -301,8 +311,10 @@ cargo test -p athanor-store-surrealdb --test conformance --locked
 - Добавлен optional operation-aware `SearchIndexFactory` без изменения legacy constructor.
 - Production и legacy runtime регистрируют cancellable Tantivy rebuild.
 - Direct Context/Search вынесены в focused drained interceptors.
-- Context и daemon cache paths используют operation-aware rebuild.
+- Context, daemon cache и MCP Search/Context paths используют operation-aware rebuild.
 - Tantivy rebuild выполняется через staging/backup/rollback; stale daemon handle освобождается до swap.
+- Daemon diff Context больше не drop’ит rebuild future через outer timeout.
+- MCP Search/Context держат cancellation lease до cleanup и применяют terminal-state precedence.
 - Mid-batch cancellation regression сохраняет current index и удаляет staging.
 - Hosted build/fmt/test/Clippy evidence не заявлено.
 
