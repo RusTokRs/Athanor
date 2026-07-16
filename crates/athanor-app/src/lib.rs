@@ -91,6 +91,7 @@ pub mod report;
 pub mod runtime;
 pub mod rustok_architecture;
 mod rustok_architecture_cooperative;
+mod rustok_audit_cooperative;
 pub mod rustok_operation;
 pub mod search;
 pub mod search_operation;
