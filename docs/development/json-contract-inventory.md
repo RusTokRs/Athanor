@@ -8,7 +8,7 @@ status: active
 
 This inventory records JSON documents that cross CLI, daemon, MCP, persisted-state, or process-adapter boundaries. A document may enter `VERSIONED_JSON_CONTRACTS` only when one Rust type owns one top-level schema id and its current payload shape is protected by a regression fixture.
 
-Audit baseline: `main` at `1bba05c4ed9948e2a283744331594fa75a3b8d90`.
+Audit baseline: `main` at `9cb7dec05eb268f1113b38bd11da02389832ef0d`.
 
 ## Registered contracts
 
@@ -64,6 +64,14 @@ Until that decision is implemented, neither type is registered as the unique own
 
 Extractor/linker/checker process payloads, daemon envelopes, MCP envelopes, index state, publication journals, generation pointers, and read-model manifests require a separate inventory pass. Internal persistence documents must not be mixed with public report schemas merely because both serialize as JSON.
 
+## Enforcement implementation
+
+`crates/athanor-app/tests/json_contract_inventory.rs` scans the currently identified app-layer agent-facing owner modules. Every canonical schema literal found there must either be present in `VERSIONED_JSON_CONTRACTS` or in the explicit migration allowlist.
+
+The allowlist currently contains only the Context and Project Registry blockers plus the specialized Rustok graph/audit family. The test also fails when an allowlisted schema disappears or becomes registered without removing the stale exception.
+
+This is a bounded first enforcement slice. Daemon/MCP envelopes, process protocols, persistence documents, and newly discovered source modules must be added after their inventory classification is complete.
+
 ## Enforcement rules
 
 - Every registered schema id is valid and unique.
@@ -73,3 +81,4 @@ Extractor/linker/checker process payloads, daemon envelopes, MCP envelopes, inde
 - Local schema constants must equal the shared registry constant until literals are fully migrated.
 - A schema id must never describe two materially different top-level shapes.
 - Removing, renaming, retyping, or semantically changing a field requires a new major schema id.
+- New agent-facing schema literals in inventoried modules must be registered or explicitly tracked by the migration allowlist.
