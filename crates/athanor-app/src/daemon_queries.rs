@@ -18,7 +18,7 @@ use crate::search::{
 use crate::search_operation::search_snapshot_with_index_and_operation_context;
 use crate::store::init_store;
 use crate::{
-    ContextLimitOverrides, ContextLimits, RepositoryOverview, RuntimeComposition,
+    ContextLimitOverrides, ContextLimits, ContextReport, RepositoryOverview, RuntimeComposition,
     build_repository_overview, generate_context_pack,
 };
 
@@ -76,7 +76,7 @@ pub(crate) async fn context(
     task: &str,
     level: ContextLevel,
     overrides: &ContextLimitOverrides,
-) -> Result<athanor_domain::ContextPack> {
+) -> Result<ContextReport> {
     context_with_operation_context(
         state,
         task,
@@ -93,7 +93,7 @@ pub(crate) async fn context_with_operation_context(
     level: ContextLevel,
     overrides: &ContextLimitOverrides,
     operation: &OperationContext,
-) -> Result<athanor_domain::ContextPack> {
+) -> Result<ContextReport> {
     check_active(operation)?;
     let mut limits = ContextLimits::for_level(level);
     overrides.apply(&mut limits);
@@ -118,7 +118,7 @@ pub(crate) async fn context_with_operation_context(
         .get(&cache_key)
     {
         check_active(operation)?;
-        return Ok(pack);
+        return Ok(ContextReport::from(pack));
     }
     let direct_matches = match search_index_with_operation_context(state, &snapshot, operation) {
         Ok(index) => match index
@@ -153,7 +153,7 @@ pub(crate) async fn context_with_operation_context(
         .lock()
         .map_err(|_| anyhow::anyhow!("daemon context cache lock is poisoned"))?
         .insert(cache_key, pack.clone());
-    Ok(pack)
+    Ok(ContextReport::from(pack))
 }
 
 pub(crate) async fn overview(state: &Arc<DaemonState>, top: usize) -> Result<RepositoryOverview> {
