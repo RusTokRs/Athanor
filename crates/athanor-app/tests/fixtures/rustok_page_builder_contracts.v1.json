@@ -1,0 +1,137 @@
+{
+  "audit": {
+    "schema": "athanor.rustok_page_builder_audit.v1",
+    "snapshot": "snap-page-builder",
+    "summary": {
+      "providers_total": 1,
+      "consumers_total": 1,
+      "contracts_total": 1,
+      "capabilities_total": 1,
+      "fallback_profiles_total": 1,
+      "wave_evidence_total": 1,
+      "diagnostics_open": 0
+    },
+    "providers": [
+      "catalog_provider"
+    ],
+    "consumers": [
+      {
+        "id": "page_builder_consumer://catalog",
+        "module": "catalog",
+        "diagnostics": []
+      }
+    ],
+    "contracts": [
+      "page_builder.contract.catalog.v1"
+    ],
+    "capabilities": [
+      "catalog.products"
+    ],
+    "fallback_profiles": [
+      "catalog-safe"
+    ],
+    "wave_evidence": [
+      "docs/waves/catalog.md"
+    ],
+    "diagnostics": []
+  },
+  "provider_graph": {
+    "schema": "athanor.rustok_page_builder_provider_graph.v1",
+    "snapshot": "snap-page-builder",
+    "root": "catalog_provider",
+    "nodes": [
+      {
+        "id": "catalog_provider",
+        "kind": "rustok_page_builder_provider",
+        "name": "Catalog provider",
+        "source": "src/catalog/provider.rs"
+      },
+      {
+        "id": "catalog.products",
+        "kind": "rustok_page_builder_capability",
+        "name": "Catalog products",
+        "source": "contracts/catalog.json"
+      }
+    ],
+    "edges": [
+      {
+        "from": "catalog_provider",
+        "to": "catalog.products",
+        "kind": "rustok_page_builder_provides",
+        "evidence": [
+          "src/catalog/provider.rs:10"
+        ]
+      }
+    ],
+    "diagnostics": [],
+    "omitted": {
+      "nodes": 0,
+      "edges": 0,
+      "reason": "limits"
+    }
+  },
+  "consumer_graph": {
+    "schema": "athanor.rustok_page_builder_consumer_graph.v1",
+    "snapshot": "snap-page-builder",
+    "root": "catalog",
+    "nodes": [
+      {
+        "id": "catalog",
+        "kind": "rustok_page_builder_consumer",
+        "name": "Catalog page",
+        "source": "src/catalog/page.rs"
+      },
+      {
+        "id": "catalog.products",
+        "kind": "rustok_page_builder_capability",
+        "name": "Catalog products",
+        "source": "contracts/catalog.json"
+      }
+    ],
+    "edges": [
+      {
+        "from": "catalog",
+        "to": "catalog.products",
+        "kind": "rustok_page_builder_consumes",
+        "evidence": [
+          "src/catalog/page.rs:14"
+        ]
+      }
+    ],
+    "diagnostics": [],
+    "omitted": {
+      "nodes": 0,
+      "edges": 0,
+      "reason": "limits"
+    }
+  },
+  "violations_graph": {
+    "schema": "athanor.rustok_page_builder_violations_graph.v1",
+    "snapshot": "snap-page-builder",
+    "root": null,
+    "nodes": [
+      {
+        "id": "missing-fallback",
+        "kind": "rustok_page_builder_violation",
+        "name": "Missing fallback profile",
+        "source": "src/catalog/page.rs"
+      }
+    ],
+    "edges": [
+      {
+        "from": "missing-fallback",
+        "to": "catalog",
+        "kind": "rustok_page_builder_violation_for",
+        "evidence": [
+          "src/catalog/page.rs:28"
+        ]
+      }
+    ],
+    "diagnostics": [],
+    "omitted": {
+      "nodes": 0,
+      "edges": 0,
+      "reason": "limits"
+    }
+  }
+}
