@@ -1,0 +1,29 @@
+{
+  "schema": "athanor.context_pack.v1",
+  "id": "ctx_fixture",
+  "task": "contract migration",
+  "scope": [
+    "module://contract"
+  ],
+  "level": "normal",
+  "language": null,
+  "summary": "Fixture context pack",
+  "entities": [
+    "ent_contract"
+  ],
+  "files": [
+    "src/lib.rs"
+  ],
+  "diagnostics": [
+    "diag_contract"
+  ],
+  "suggested_checks": [
+    "cargo test"
+  ],
+  "confidence": 1.0,
+  "payload": {
+    "schema": "athanor.context_pack.v1",
+    "snapshot": "snap_fixture",
+    "estimated_tokens": 42
+  }
+}
