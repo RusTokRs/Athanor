@@ -11,6 +11,9 @@ publish.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
+[lib]
+path = "src/runtime.rs"
+
 [dependencies]
 anyhow.workspace = true
 async-trait.workspace = true
