@@ -52,7 +52,7 @@ where
                     DAEMON_RESPONSE_SCHEMA_V3
                 };
                 let (mut response, shutdown) =
-                    crate::daemon_read_dispatch::execute(Arc::clone(&state), request).await;
+                    crate::daemon_derived_read_dispatch::execute(Arc::clone(&state), request).await;
                 response.schema = response_schema.to_string();
                 (response, shutdown)
             }
