@@ -31,6 +31,8 @@ pub const COVERAGE_SCHEMA_V1: &str = "athanor.coverage.v1";
 pub const CAPABILITIES_SCHEMA_V1: &str = "athanor.capabilities.v1";
 /// Stable schema identifier for bounded change-map reports.
 pub const CHANGE_MAP_SCHEMA_V1: &str = "athanor.change_map.v1";
+/// Stable schema identifier for task-focused context reports.
+pub const CONTEXT_PACK_SCHEMA_V1: &str = "athanor.context_pack.v1";
 /// Stable schema identifier for graph export reports.
 pub const GRAPH_EXPORT_SCHEMA_V1: &str = crate::graph::GRAPH_EXPORT_SCHEMA;
 /// Stable schema identifier for graph related-entity reports.
@@ -95,6 +97,10 @@ pub const VERSIONED_JSON_CONTRACTS: &[JsonContractDescriptor] = &[
     JsonContractDescriptor {
         schema: CHANGE_MAP_SCHEMA_V1,
         rust_type: "ChangeMapReport",
+    },
+    JsonContractDescriptor {
+        schema: CONTEXT_PACK_SCHEMA_V1,
+        rust_type: "ContextReport",
     },
     JsonContractDescriptor {
         schema: GRAPH_EXPORT_SCHEMA_V1,
@@ -180,6 +186,7 @@ impl_owned_schema_contract!(
     OPERATIONS_DOCS_CHECK_SCHEMA_V1
 );
 impl_owned_schema_contract!(crate::change_map::ChangeMapReport, CHANGE_MAP_SCHEMA_V1);
+impl_owned_schema_contract!(crate::context_report::ContextReport, CONTEXT_PACK_SCHEMA_V1);
 impl_owned_schema_contract!(crate::graph::GraphExport, GRAPH_EXPORT_SCHEMA_V1);
 impl_owned_schema_contract!(crate::graph::GraphRelated, GRAPH_RELATED_SCHEMA_V1);
 impl_owned_schema_contract!(crate::graph::GraphPath, GRAPH_PATH_SCHEMA_V1);
@@ -431,7 +438,7 @@ mod tests {
     #[test]
     fn registry_contains_unique_valid_schema_and_type_owners() {
         assert_eq!(validate_contract_registry(VERSIONED_JSON_CONTRACTS), Ok(()));
-        assert_eq!(VERSIONED_JSON_CONTRACTS.len(), 17);
+        assert_eq!(VERSIONED_JSON_CONTRACTS.len(), 18);
         assert_eq!(crate::overview::OVERVIEW_SCHEMA, OVERVIEW_SCHEMA_V1);
         assert_eq!(crate::coverage::COVERAGE_REPORT_SCHEMA, COVERAGE_SCHEMA_V1);
         assert_eq!(
