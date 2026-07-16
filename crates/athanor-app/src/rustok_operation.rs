@@ -17,7 +17,7 @@ use crate::graph::{
     GraphPageBuilderConsumerOptions, GraphPageBuilderProviderOptions,
     GraphPageBuilderViolationsOptions, RustokFbaAudit, RustokFbaAuditOptions,
     RustokFfaAudit, RustokFfaAuditOptions, RustokPageBuilderAudit,
-    RustokPageBuilderAuditOptions, RustokPageBuilderGraph,
+    RustokPageBuilderAuditOptions,
 };
 use crate::project_path::normalize_canonical_path;
 use crate::rustok_architecture::{RustokArchitectureContext, RustokArchitectureContextOptions};
@@ -40,6 +40,8 @@ use crate::rustok_graph_cooperative::{
 use crate::rustok_json_contract::{
     RustokFbaDependenciesGraphReport, RustokFbaModuleGraphReport, RustokFbaPortGraphReport,
     RustokFbaViolationsGraphReport, RustokFfaSurfaceGraphReport, RustokFfaViolationsGraphReport,
+    RustokPageBuilderConsumerGraphReport, RustokPageBuilderProviderGraphReport,
+    RustokPageBuilderViolationsGraphReport,
 };
 use crate::store::init_store;
 
@@ -258,7 +260,7 @@ pub async fn graph_fba_violations_with_operation_context(
 pub async fn graph_page_builder_provider_with_operation_context(
     options: GraphPageBuilderProviderOptions,
     operation: &OperationContext,
-) -> Result<RustokPageBuilderGraph> {
+) -> Result<RustokPageBuilderProviderGraphReport> {
     validate_graph_limits(options.max_nodes, options.max_edges, "Page Builder")?;
     let snapshot = load_latest_snapshot(options.root, operation).await?;
     let operation_for_worker = operation.clone();
@@ -271,12 +273,13 @@ pub async fn graph_page_builder_provider_with_operation_context(
         )
     })
     .await
+    .map(RustokPageBuilderProviderGraphReport::new)
 }
 
 pub async fn graph_page_builder_consumer_with_operation_context(
     options: GraphPageBuilderConsumerOptions,
     operation: &OperationContext,
-) -> Result<RustokPageBuilderGraph> {
+) -> Result<RustokPageBuilderConsumerGraphReport> {
     validate_graph_limits(options.max_nodes, options.max_edges, "Page Builder")?;
     let snapshot = load_latest_snapshot(options.root, operation).await?;
     let operation_for_worker = operation.clone();
@@ -290,12 +293,13 @@ pub async fn graph_page_builder_consumer_with_operation_context(
         )
     })
     .await
+    .map(RustokPageBuilderConsumerGraphReport::new)
 }
 
 pub async fn graph_page_builder_violations_with_operation_context(
     options: GraphPageBuilderViolationsOptions,
     operation: &OperationContext,
-) -> Result<RustokPageBuilderGraph> {
+) -> Result<RustokPageBuilderViolationsGraphReport> {
     validate_graph_limits(options.max_nodes, options.max_edges, "Page Builder")?;
     let snapshot = load_latest_snapshot(options.root, operation).await?;
     let operation_for_worker = operation.clone();
@@ -309,6 +313,7 @@ pub async fn graph_page_builder_violations_with_operation_context(
         )
     })
     .await
+    .map(RustokPageBuilderViolationsGraphReport::new)
 }
 
 fn validate_architecture_limits(options: &RustokArchitectureContextOptions) -> Result<()> {
