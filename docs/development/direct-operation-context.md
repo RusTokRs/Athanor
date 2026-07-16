@@ -166,6 +166,33 @@ compares both builders on the same canonical fixture. A deterministic cancellati
 cooperative builder after several work batches. The outer Rustok worker drain remains the final protection
 against detached blocking tasks and late successful responses.
 
+## Cooperative Rustok Audit And Graph Builders
+
+The operation-aware FFA, FBA, and Page Builder audit paths use dedicated cooperative builders. They preserve
+legacy report schemas, completion calculations, sorting, diagnostics, and omission semantics while checking
+active state during:
+
+- entity, relation, fact, and diagnostic indexing;
+- surface and module aggregation;
+- requirement and completion calculation;
+- dependency-resolution counting;
+- Page Builder consumer and contract classification.
+
+The nine operation-aware Rustok graph paths also use cooperative builders: FFA surface and violations; FBA
+module, port, dependencies, and violations; and Page Builder provider, consumer, and violations. Bounded
+checkpoints cover:
+
+- entity and stable-key index construction;
+- graph-root lookup and relation selection;
+- evidence extraction and edge assembly;
+- diagnostic filtering;
+- node materialization, sorting, retention, and final compaction.
+
+All legacy pure audit and graph builder functions remain public and unchanged. Parity regressions compare the
+cooperative outputs with the legacy outputs for the same canonical fixture. Deterministic cancellation
+regressions terminate audit and graph construction after several batches. The outer blocking-worker drain
+continues to prevent orphaned work and late success.
+
 `ath check --strict` uses the same non-orphaning blocking boundary for synchronous API contract diffing. The
 normal diagnostic query remains an async operation-aware read. Strict non-API scope behavior and exit codes
 remain compatible with the legacy CLI.
@@ -202,15 +229,13 @@ before the response writer exits.
 - JSON-RPC responses may complete out of input order because request ids provide correlation.
 - Notifications without an id remain response-free.
 - Request ids used for cancellable reads must be strings or numbers.
-- Legacy pure graph, Rustok architecture, and non-operation search APIs remain public.
+- Legacy pure graph, Rustok architecture/audit/graph, and non-operation search APIs remain public.
 
 ## Remaining Work
 
 The following remain outside this code slice:
 
-- cooperative polling inside FFA/FBA/Page Builder audit builders;
-- cooperative polling inside Rustok-specific FFA/FBA/Page Builder graph builders;
-- transactional MCP notification cancellation;
+- transactional MCP notification cancellation, pending an explicit rollback and durable-success review;
 - hosted Linux/Windows formatting, test, Clippy, stdio, Ctrl-C, disconnect, directory-swap, and worker-drain
   evidence.
 
@@ -234,6 +259,8 @@ cargo test -p athanor-runtime-defaults projector_operation --locked
 cargo test -p athanor-app graph_operation --locked
 cargo test -p athanor-app graph_cooperative --locked
 cargo test -p athanor-app rustok_architecture_cooperative --locked
+cargo test -p athanor-app rustok_audit_cooperative --locked
+cargo test -p athanor-app rustok_graph_cooperative --locked
 cargo test -p athanor-app rustok_operation --locked
 cargo test -p athanor-app derived_read_operation --locked
 cargo test -p athanor-app search_operation --locked
@@ -258,6 +285,9 @@ Required regressions:
 - cancellation after several projector files preserves the current target and removes outer staging;
 - cooperative Rustok architecture output matches the legacy builder;
 - cancellation after several architecture batches stops the cooperative builder while the worker drains;
+- cooperative FFA/FBA/Page Builder audit outputs match the legacy builders;
+- cooperative FFA/FBA/Page Builder graph outputs match all nine legacy builders;
+- cancellation after several audit or graph batches stops the cooperative builder while the worker drains;
 - cancellation rejects a would-be late successful legacy future;
 - MCP Search/Context cancellation waits for operation-aware future cleanup before releasing the lease;
 - MCP terminal operation state overrides simultaneous worker errors after drain;
