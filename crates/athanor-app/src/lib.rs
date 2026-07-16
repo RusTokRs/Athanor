@@ -38,6 +38,7 @@ pub mod explain;
 mod fact_query_tests;
 pub mod generation;
 pub mod graph;
+pub mod graph_operation;
 mod hash;
 pub mod impact;
 #[path = "index_runtime.rs"]
@@ -127,6 +128,7 @@ pub mod query {
     pub use crate::derived_read_operation::*;
     pub use crate::explain::*;
     pub use crate::graph::*;
+    pub use crate::graph_operation::*;
     pub use crate::impact::*;
     pub use crate::overview::*;
     pub use crate::search::*;
@@ -156,6 +158,7 @@ pub use docs::*;
 pub use explain::*;
 pub use generation::*;
 pub use graph::*;
+pub use graph_operation::*;
 pub use impact::*;
 pub use index::*;
 pub use index_state::*;
