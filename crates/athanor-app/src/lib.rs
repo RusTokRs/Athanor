@@ -89,6 +89,7 @@ pub mod repair;
 pub mod report;
 pub mod runtime;
 pub mod rustok_architecture;
+pub mod rustok_operation;
 pub mod search;
 pub mod search_operation;
 pub mod store;
@@ -133,6 +134,7 @@ pub mod query {
     pub use crate::graph_operation::*;
     pub use crate::impact::*;
     pub use crate::overview::*;
+    pub use crate::rustok_operation::*;
     pub use crate::search::*;
     pub use crate::search_operation::*;
 }
@@ -177,6 +179,7 @@ pub use repair::*;
 pub use report::*;
 pub use runtime::*;
 pub use rustok_architecture::*;
+pub use rustok_operation::*;
 pub use search::*;
 pub use search_operation::*;
 pub use store::*;
