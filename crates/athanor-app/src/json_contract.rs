@@ -29,6 +29,23 @@ pub const OPERATIONS_DOCS_CHECK_SCHEMA_V1: &str = "athanor.operations_docs_check
 pub const COVERAGE_SCHEMA_V1: &str = "athanor.coverage.v1";
 /// Stable schema identifier for analysis capability reports.
 pub const CAPABILITIES_SCHEMA_V1: &str = "athanor.capabilities.v1";
+/// Stable schema identifier for bounded change-map reports.
+pub const CHANGE_MAP_SCHEMA_V1: &str = "athanor.change_map.v1";
+/// Stable schema identifier for graph export reports.
+pub const GRAPH_EXPORT_SCHEMA_V1: &str = crate::graph::GRAPH_EXPORT_SCHEMA;
+/// Stable schema identifier for graph related-entity reports.
+pub const GRAPH_RELATED_SCHEMA_V1: &str = crate::graph::GRAPH_RELATED_SCHEMA;
+/// Stable schema identifier for graph path reports.
+pub const GRAPH_PATH_SCHEMA_V1: &str = crate::graph::GRAPH_PATH_SCHEMA;
+/// Stable schema identifier for graph hub reports.
+pub const GRAPH_HUBS_SCHEMA_V1: &str = crate::graph::GRAPH_HUBS_SCHEMA;
+/// Stable schema identifier for graph PageRank reports.
+pub const GRAPH_PAGERANK_SCHEMA_V1: &str = crate::graph::GRAPH_PAGERANK_SCHEMA;
+/// Stable schema identifier for graph cycle reports.
+pub const GRAPH_CYCLES_SCHEMA_V1: &str = crate::graph::GRAPH_CYCLES_SCHEMA;
+/// Stable schema identifier for project resolution reports.
+pub const PROJECT_RESOLUTION_SCHEMA_V1: &str =
+    crate::project_registry::PROJECT_RESOLUTION_SCHEMA;
 
 /// One registered, externally consumable JSON document contract.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -75,6 +92,38 @@ pub const VERSIONED_JSON_CONTRACTS: &[JsonContractDescriptor] = &[
         schema: CAPABILITIES_SCHEMA_V1,
         rust_type: "CapabilitiesReport",
     },
+    JsonContractDescriptor {
+        schema: CHANGE_MAP_SCHEMA_V1,
+        rust_type: "ChangeMapReport",
+    },
+    JsonContractDescriptor {
+        schema: GRAPH_EXPORT_SCHEMA_V1,
+        rust_type: "GraphExport",
+    },
+    JsonContractDescriptor {
+        schema: GRAPH_RELATED_SCHEMA_V1,
+        rust_type: "GraphRelated",
+    },
+    JsonContractDescriptor {
+        schema: GRAPH_PATH_SCHEMA_V1,
+        rust_type: "GraphPath",
+    },
+    JsonContractDescriptor {
+        schema: GRAPH_HUBS_SCHEMA_V1,
+        rust_type: "GraphHubs",
+    },
+    JsonContractDescriptor {
+        schema: GRAPH_PAGERANK_SCHEMA_V1,
+        rust_type: "GraphPageRank",
+    },
+    JsonContractDescriptor {
+        schema: GRAPH_CYCLES_SCHEMA_V1,
+        rust_type: "GraphCycles",
+    },
+    JsonContractDescriptor {
+        schema: PROJECT_RESOLUTION_SCHEMA_V1,
+        rust_type: "ProjectResolutionReport",
+    },
 ];
 
 /// A serializable document whose top-level `schema` field is a stable contract.
@@ -102,61 +151,45 @@ pub trait VersionedJsonContract: Serialize {
     }
 }
 
-impl VersionedJsonContract for crate::overview::RepositoryOverview {
-    const SCHEMA: &'static str = OVERVIEW_SCHEMA_V1;
+macro_rules! impl_owned_schema_contract {
+    ($type:path, $schema:ident) => {
+        impl VersionedJsonContract for $type {
+            const SCHEMA: &'static str = $schema;
 
-    fn schema(&self) -> &str {
-        &self.schema
-    }
+            fn schema(&self) -> &str {
+                &self.schema
+            }
+        }
+    };
 }
 
-impl VersionedJsonContract for crate::search::SearchReport {
-    const SCHEMA: &'static str = SEARCH_SCHEMA_V1;
-
-    fn schema(&self) -> &str {
-        &self.schema
-    }
-}
-
-impl VersionedJsonContract for crate::explain::EntityExplanation {
-    const SCHEMA: &'static str = ENTITY_EXPLANATION_SCHEMA_V1;
-
-    fn schema(&self) -> &str {
-        &self.schema
-    }
-}
-
-impl VersionedJsonContract for crate::impact::ImpactAnalysis {
-    const SCHEMA: &'static str = IMPACT_ANALYSIS_SCHEMA_V1;
-
-    fn schema(&self) -> &str {
-        &self.schema
-    }
-}
-
-impl VersionedJsonContract for crate::check::DiagnosticCheckReport {
-    const SCHEMA: &'static str = DIAGNOSTIC_CHECK_SCHEMA_V1;
-
-    fn schema(&self) -> &str {
-        &self.schema
-    }
-}
-
-impl VersionedJsonContract for crate::check::AffectedCheckReport {
-    const SCHEMA: &'static str = AFFECTED_CHECK_SCHEMA_V1;
-
-    fn schema(&self) -> &str {
-        &self.schema
-    }
-}
-
-impl VersionedJsonContract for crate::check::OperationsDocsCheckReport {
-    const SCHEMA: &'static str = OPERATIONS_DOCS_CHECK_SCHEMA_V1;
-
-    fn schema(&self) -> &str {
-        &self.schema
-    }
-}
+impl_owned_schema_contract!(crate::overview::RepositoryOverview, OVERVIEW_SCHEMA_V1);
+impl_owned_schema_contract!(crate::search::SearchReport, SEARCH_SCHEMA_V1);
+impl_owned_schema_contract!(
+    crate::explain::EntityExplanation,
+    ENTITY_EXPLANATION_SCHEMA_V1
+);
+impl_owned_schema_contract!(crate::impact::ImpactAnalysis, IMPACT_ANALYSIS_SCHEMA_V1);
+impl_owned_schema_contract!(
+    crate::check::DiagnosticCheckReport,
+    DIAGNOSTIC_CHECK_SCHEMA_V1
+);
+impl_owned_schema_contract!(crate::check::AffectedCheckReport, AFFECTED_CHECK_SCHEMA_V1);
+impl_owned_schema_contract!(
+    crate::check::OperationsDocsCheckReport,
+    OPERATIONS_DOCS_CHECK_SCHEMA_V1
+);
+impl_owned_schema_contract!(crate::change_map::ChangeMapReport, CHANGE_MAP_SCHEMA_V1);
+impl_owned_schema_contract!(crate::graph::GraphExport, GRAPH_EXPORT_SCHEMA_V1);
+impl_owned_schema_contract!(crate::graph::GraphRelated, GRAPH_RELATED_SCHEMA_V1);
+impl_owned_schema_contract!(crate::graph::GraphPath, GRAPH_PATH_SCHEMA_V1);
+impl_owned_schema_contract!(crate::graph::GraphHubs, GRAPH_HUBS_SCHEMA_V1);
+impl_owned_schema_contract!(crate::graph::GraphPageRank, GRAPH_PAGERANK_SCHEMA_V1);
+impl_owned_schema_contract!(crate::graph::GraphCycles, GRAPH_CYCLES_SCHEMA_V1);
+impl_owned_schema_contract!(
+    crate::project_registry::ProjectResolutionReport,
+    PROJECT_RESOLUTION_SCHEMA_V1
+);
 
 impl VersionedJsonContract for crate::coverage::CoverageReport {
     const SCHEMA: &'static str = COVERAGE_SCHEMA_V1;
@@ -398,11 +431,22 @@ mod tests {
     #[test]
     fn registry_contains_unique_valid_schema_and_type_owners() {
         assert_eq!(validate_contract_registry(VERSIONED_JSON_CONTRACTS), Ok(()));
+        assert_eq!(VERSIONED_JSON_CONTRACTS.len(), 17);
         assert_eq!(crate::overview::OVERVIEW_SCHEMA, OVERVIEW_SCHEMA_V1);
         assert_eq!(crate::coverage::COVERAGE_REPORT_SCHEMA, COVERAGE_SCHEMA_V1);
         assert_eq!(
             crate::capabilities::CAPABILITIES_REPORT_SCHEMA,
             CAPABILITIES_SCHEMA_V1
+        );
+        assert_eq!(crate::graph::GRAPH_EXPORT_SCHEMA, GRAPH_EXPORT_SCHEMA_V1);
+        assert_eq!(crate::graph::GRAPH_RELATED_SCHEMA, GRAPH_RELATED_SCHEMA_V1);
+        assert_eq!(crate::graph::GRAPH_PATH_SCHEMA, GRAPH_PATH_SCHEMA_V1);
+        assert_eq!(crate::graph::GRAPH_HUBS_SCHEMA, GRAPH_HUBS_SCHEMA_V1);
+        assert_eq!(crate::graph::GRAPH_PAGERANK_SCHEMA, GRAPH_PAGERANK_SCHEMA_V1);
+        assert_eq!(crate::graph::GRAPH_CYCLES_SCHEMA, GRAPH_CYCLES_SCHEMA_V1);
+        assert_eq!(
+            crate::project_registry::PROJECT_RESOLUTION_SCHEMA,
+            PROJECT_RESOLUTION_SCHEMA_V1
         );
     }
 
