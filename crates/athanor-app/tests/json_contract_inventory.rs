@@ -13,13 +13,13 @@ const AGENT_FACING_SOURCE_FILES: &[&str] = &[
     "src/coverage.rs",
     "src/capabilities.rs",
     "src/change_map.rs",
-    "src/graph.rs",
     "src/context.rs",
+    "src/context_report.rs",
+    "src/graph.rs",
     "src/project_registry.rs",
 ];
 
 const KNOWN_UNREGISTERED_AGENT_FACING_SCHEMAS: &[&str] = &[
-    "athanor.context_pack.v1",
     "athanor.project_registry.v1",
     "athanor.rustok_ffa_audit.v1",
     "athanor.rustok_ffa_surface_graph.v1",
