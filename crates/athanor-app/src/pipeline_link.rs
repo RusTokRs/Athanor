@@ -34,22 +34,26 @@ pub(crate) async fn link(
             "running linker"
         );
         let started = std::time::Instant::now();
-        let output = crate::runtime::with_process_cancellation(cancellation.clone(), async {
-            within_operation_deadline(
-                operation,
-                linker_name,
-                linker.link_with_context(
-                    LinkInput {
-                        snapshot: snapshot.clone(),
-                        entities: entities.clone(),
-                        facts: facts.clone(),
-                        affected: affected.clone(),
-                    },
+        let output = crate::runtime::with_process_execution_context(
+            operation.clone(),
+            cancellation.clone(),
+            async {
+                within_operation_deadline(
                     operation,
-                ),
-            )
-            .await
-        })
+                    linker_name,
+                    linker.link_with_context(
+                        LinkInput {
+                            snapshot: snapshot.clone(),
+                            entities: entities.clone(),
+                            facts: facts.clone(),
+                            affected: affected.clone(),
+                        },
+                        operation,
+                    ),
+                )
+                .await
+            },
+        )
         .instrument(span)
         .await
         .inspect_err(|error| error!(linker = linker.name(), %error, "linker failed"))
