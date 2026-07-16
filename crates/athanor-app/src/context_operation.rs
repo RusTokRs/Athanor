@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
 use athanor_core::{
-    CanonicalSnapshot, CanonicalSnapshotStore, CanonicalSnapshotStoreOperationExt, CoreError,
-    OperationContext, OperationContextCancellation, SearchIndex, SearchIndexOperationExt, SearchQuery,
+    CanonicalSnapshot, CanonicalSnapshotStoreOperationExt, CoreError, OperationContext,
+    OperationContextCancellation, SearchIndex, SearchIndexOperationExt, SearchQuery,
 };
 use athanor_domain::{ContextPack, EntityId};
 use serde_json::json;
