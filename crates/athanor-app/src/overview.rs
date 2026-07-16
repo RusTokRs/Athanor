@@ -10,7 +10,7 @@ use athanor_core::{CanonicalSnapshot, CanonicalSnapshotStore};
 use athanor_domain::{DiagnosticStatus, Entity, EntityKind, RelationKind, Severity};
 use serde::Serialize;
 
-pub const OVERVIEW_SCHEMA: &str = "athanor.overview.v1";
+pub const OVERVIEW_SCHEMA: &str = crate::json_contract::OVERVIEW_SCHEMA_V1;
 
 #[derive(Debug, Clone)]
 pub struct OverviewOptions {
@@ -414,10 +414,9 @@ fn diagnostic_overviews(snapshot: &CanonicalSnapshot, top: usize) -> Vec<Diagnos
             severity: severity_rank_name(diagnostic.severity).to_string(),
             title: diagnostic.title.clone(),
             source: diagnostic.evidence.iter().find_map(|evidence| {
-                evidence.source_file.as_ref().map(|path| {
-                    evidence
-                        .line_start
-                        .map_or_else(|| path.clone(), |line| format!("{path}:{line}"))
+                evidence.source_file.as_ref().map(|path| match evidence.line_start {
+                    Some(line) => format!("{path}:{line}"),
+                    None => path.clone(),
                 })
             }),
         })
@@ -425,51 +424,11 @@ fn diagnostic_overviews(snapshot: &CanonicalSnapshot, top: usize) -> Vec<Diagnos
     diagnostics.sort_by(|left, right| {
         severity_rank(&right.severity)
             .cmp(&severity_rank(&left.severity))
+            .then_with(|| left.kind.cmp(&right.kind))
             .then_with(|| left.id.cmp(&right.id))
     });
     diagnostics.truncate(top);
     diagnostics
-}
-
-fn entity_overview(entity: &Entity, degree: usize) -> EntityOverview {
-    EntityOverview {
-        stable_key: entity.stable_key.0.clone(),
-        kind: serialized_name(&entity.kind),
-        name: entity.name.clone(),
-        source: entity.source.as_ref().map(|source| {
-            source.line_start.map_or_else(
-                || source.path.clone(),
-                |line| format!("{}:{line}", source.path),
-            )
-        }),
-        degree,
-    }
-}
-
-fn entity_source_anchor(entity: &Entity) -> Option<String> {
-    entity.source.as_ref().map(|source| {
-        source.line_start.map_or_else(
-            || source.path.clone(),
-            |line| format!("{}:{line}", source.path),
-        )
-    })
-}
-
-fn count_kind(snapshot: &CanonicalSnapshot, kind: EntityKind) -> usize {
-    snapshot
-        .entities
-        .iter()
-        .filter(|entity| entity.kind == kind)
-        .count()
-}
-
-fn relation_sources(snapshot: &CanonicalSnapshot, kinds: &[RelationKind]) -> BTreeSet<String> {
-    snapshot
-        .relations
-        .iter()
-        .filter(|relation| kinds.contains(&relation.kind))
-        .map(|relation| relation.from.0.clone())
-        .collect()
 }
 
 fn relation_targets(snapshot: &CanonicalSnapshot, kinds: &[RelationKind]) -> BTreeSet<String> {
@@ -481,8 +440,42 @@ fn relation_targets(snapshot: &CanonicalSnapshot, kinds: &[RelationKind]) -> BTr
         .collect()
 }
 
-fn top_counts(values: impl Iterator<Item = String>, top: usize) -> Vec<NamedCount> {
-    let mut counts = BTreeMap::<String, usize>::new();
+fn relation_sources(snapshot: &CanonicalSnapshot, kinds: &[RelationKind]) -> BTreeSet<String> {
+    snapshot
+        .relations
+        .iter()
+        .filter(|relation| kinds.contains(&relation.kind))
+        .map(|relation| relation.from.0.clone())
+        .collect()
+}
+
+fn count_kind(snapshot: &CanonicalSnapshot, kind: EntityKind) -> usize {
+    snapshot
+        .entities
+        .iter()
+        .filter(|entity| entity.kind == kind)
+        .count()
+}
+
+fn entity_overview(entity: &Entity, degree: usize) -> EntityOverview {
+    EntityOverview {
+        stable_key: entity.stable_key.0.clone(),
+        kind: serialized_name(&entity.kind),
+        name: entity.name.clone(),
+        source: entity_source_anchor(entity),
+        degree,
+    }
+}
+
+fn entity_source_anchor(entity: &Entity) -> Option<String> {
+    entity.source.as_ref().map(|source| match source.line_start {
+        Some(line) => format!("{}:{line}", source.path),
+        None => source.path.clone(),
+    })
+}
+
+fn top_counts(values: impl IntoIterator<Item = String>, top: usize) -> Vec<NamedCount> {
+    let mut counts = HashMap::<String, usize>::new();
     for value in values {
         *counts.entry(value).or_default() += 1;
     }
