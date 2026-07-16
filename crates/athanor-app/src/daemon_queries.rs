@@ -12,7 +12,8 @@ use crate::config::load_config;
 use crate::daemon::{CachedSearchIndex, ContextCacheKey, DaemonState, OverviewCacheKey};
 use crate::explain::explain_snapshot;
 use crate::search::{
-    get_or_build_search_index_sync, get_or_build_search_index_with_factory,
+    get_or_build_search_index_with_factory_and_operation,
+    get_or_build_search_index_with_operation_context,
 };
 use crate::search_operation::search_snapshot_with_index_and_operation_context;
 use crate::store::init_store;
@@ -311,13 +312,25 @@ fn search_index_with_operation_context(
         .root
         .join(".athanor/generated/current/search");
     let index = match composition(state) {
-        Some(composition) => get_or_build_search_index_with_factory(
+        Some(composition) => get_or_build_search_index_with_factory_and_operation(
             snapshot,
             &snapshot_id,
             &index_dir,
-            |directory, documents| composition.build_search_index(directory, documents),
+            operation,
+            |directory, documents, operation| {
+                composition.build_search_index_with_operation_context(
+                    directory,
+                    documents,
+                    operation,
+                )
+            },
         )?,
-        None => get_or_build_search_index_sync(snapshot, &snapshot_id, &index_dir)?,
+        None => get_or_build_search_index_with_operation_context(
+            snapshot,
+            &snapshot_id,
+            &index_dir,
+            operation,
+        )?,
     };
     check_active(operation)?;
     *cache = Some(CachedSearchIndex {
@@ -333,13 +346,8 @@ fn check_active(operation: &OperationContext) -> Result<()> {
 
 fn is_operation_termination(error: &anyhow::Error) -> bool {
     error.chain().any(|cause| {
-        cause
-            .downcast_ref::<CoreError>()
-            .is_some_and(|error| {
-                matches!(
-                    error,
-                    CoreError::Cancelled(_) | CoreError::DeadlineExceeded(_)
-                )
-            })
+        cause.downcast_ref::<CoreError>().is_some_and(|error| {
+            matches!(error, CoreError::Cancelled(_) | CoreError::DeadlineExceeded(_))
+        })
     })
 }
