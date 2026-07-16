@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::RuntimeComposition;
 use crate::index_state::IndexStateStore;
+use crate::json_contract::IMPACT_ANALYSIS_SCHEMA_V1;
 use crate::local_source::discover_source_files;
 use crate::project_path::normalize_canonical_path;
 
@@ -126,7 +127,7 @@ async fn impact_project_inner(
                 "No changed files detected in the working tree compared to the last index run."
             );
             return Ok(ImpactAnalysis {
-                schema: "athanor.impact_analysis.v1".to_string(),
+                schema: IMPACT_ANALYSIS_SCHEMA_V1.to_string(),
                 snapshot: snapshot
                     .snapshot
                     .as_ref()
@@ -305,7 +306,7 @@ pub fn impact_snapshot(
     impacted_files.sort();
 
     ImpactAnalysis {
-        schema: "athanor.impact_analysis.v1".to_string(),
+        schema: IMPACT_ANALYSIS_SCHEMA_V1.to_string(),
         snapshot: snapshot
             .snapshot
             .as_ref()
