@@ -17,12 +17,10 @@ const AGENT_FACING_SOURCE_FILES: &[&str] = &[
     "src/context_report.rs",
     "src/graph.rs",
     "src/project_registry.rs",
+    "src/rustok_json_contract.rs",
 ];
 
 const KNOWN_UNREGISTERED_AGENT_FACING_SCHEMAS: &[&str] = &[
-    "athanor.rustok_ffa_audit.v1",
-    "athanor.rustok_ffa_surface_graph.v1",
-    "athanor.rustok_ffa_violations_graph.v1",
     "athanor.rustok_fba_audit.v1",
     "athanor.rustok_fba_module_graph.v1",
     "athanor.rustok_fba_port_graph.v1",
