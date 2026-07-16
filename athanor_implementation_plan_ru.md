@@ -24,13 +24,14 @@
 6. Durable success не превращается в post-commit cancellation error.
 7. Blocking worker не detach’ится: terminal error возвращается только после drain.
 8. Read-only operation проверяет active state до работы, внутри поддерживаемых hot loops и перед success.
-9. Transactional MCP cancellation остаётся запрещённой без отдельного rollback review.
-10. Queries читают только committed canonical snapshots.
-11. Backend atomic publication не считается единым application generation pointer.
-12. Recovery fail-closed проверяет path/type/schema/snapshot/generation/checksum identity до mutation.
-13. `GenerationId` детерминированно выводится из уникального `SnapshotId`.
-14. Canonical latest repair не может перемотать visibility на более старый committed snapshot.
-15. Destructive retention требует token от точного dry-run plan.
+9. Derived rebuild выполняется через staging; current artifact меняется только после готовности staged artifact.
+10. Transactional MCP cancellation остаётся запрещённой без отдельного rollback review.
+11. Queries читают только committed canonical snapshots.
+12. Backend atomic publication не считается единым application generation pointer.
+13. Recovery fail-closed проверяет path/type/schema/snapshot/generation/checksum identity до mutation.
+14. `GenerationId` детерминированно выводится из уникального `SnapshotId`.
+15. Canonical latest repair не может перемотать visibility на более старый committed snapshot.
+16. Destructive retention требует token от точного dry-run plan.
 
 ## 1. Текущий baseline
 
@@ -46,8 +47,10 @@
 - daemon read/write operation context и stable typed errors;
 - focused direct CLI lifecycle для стандартных reads, check, standard graph и manual Rustok surfaces;
 - concurrent MCP read lifecycle с request cancellation registry;
-- non-orphaning blocking workers для graph, strict API diff и Rustok report builds;
+- non-orphaning blocking workers для graph, strict API diff, Rustok reports, Context и Search rebuild;
 - cooperative checkpoints внутри related/path/PageRank/cycle algorithms;
+- cooperative filesystem discovery и file hashing в built-in source и diff scanner;
+- staged operation-aware Tantivy rebuild с backup/rollback и bounded document checkpoints;
 - feature, coverage, AppSec, installer и release workflows.
 
 Платформенное состояние:
@@ -69,9 +72,13 @@ cargo test -p ath --test direct_read_cli --locked
 cargo test -p ath --test direct_graph_cli --locked
 cargo test -p ath --test direct_check_cli --locked
 cargo test -p ath direct_operation --locked
+cargo test -p ath direct_context_cli --locked
+cargo test -p ath direct_search_cli --locked
 cargo test -p ath direct_rustok_cli --locked
 cargo test -p ath direct_rustok_help --locked
 
+cargo test -p athanor-source-fs --locked
+cargo test -p athanor-search-tantivy --locked
 cargo test -p athanor-app graph_operation --locked
 cargo test -p athanor-app graph_cooperative --locked
 cargo test -p athanor-app rustok_operation --locked
@@ -92,8 +99,8 @@ cargo test -p athanor-store-surrealdb --test conformance --locked
 | Transactional publication | `[-]` | generation layer code complete, repair/checksums/fault regressions | Hosted backend/OS evidence |
 | Allocation recovery | `[-]` | metadata, cutoff, bounded cleanup | Legacy untagged policy, hosted evidence |
 | Concurrent writers | `[-]` | JSONL/application locks, embedded ownership | Hosted remote conflict evidence |
-| Operation context | `[-]` | daemon, focused CLI, manual Rustok, MCP reads, graph polling, worker drain | Discovery/search-index/projector polling, hosted evidence |
-| Runtime maintainability | `[-]` | focused coordinator/read/graph/check/Rustok modules | Remaining legacy CLI/runtime decomposition |
+| Operation context | `[-]` | daemon, focused CLI, manual Rustok, MCP reads, graph/discovery/search polling, worker drain | Projector/Rustok report polling, hosted evidence |
+| Runtime maintainability | `[-]` | focused coordinator/read/graph/check/Rustok/Context/Search modules | Remaining legacy CLI/runtime decomposition |
 | Hosted CI | `[!]` | workflow files | Actions runs, artifacts, required checks |
 | AppSec | `[-]` | configured gates/SBOM/signing | Hosted evidence, push protection |
 | Release integrity | `[-]` | fail-closed installers/provenance | Hosted/tag evidence |
@@ -178,7 +185,7 @@ cargo test -p athanor-store-surrealdb --test conformance --locked
 
 ### P1.2. CLI decomposition
 
-- [-] Transactional repair, focused reads, check, standard graph и manual Rustok вынесены в entry/parser modules.
+- [-] Transactional repair, focused reads, Context, Search, check, standard graph и manual Rustok вынесены в entry/parser modules.
 - [ ] Оставить в legacy `main.rs` только bootstrap/parse/dispatch compatibility.
 - [ ] Вынести остальные handlers и rendering modules.
 - [ ] Полная help/exit-code/JSON matrix.
@@ -188,8 +195,9 @@ cargo test -p athanor-store-surrealdb --test conformance --locked
 - [x] Index runtime отделён; legacy index god-file удалён.
 - [x] Publication coordinator focused; transition modules удалены.
 - [-] Focused daemon read/write dispatchers и concurrent MCP lifecycle добавлены.
-- [x] Graph, strict API diff и Rustok report builds имеют non-orphaning blocking boundary.
-- [-] Related/path/PageRank/cycle loops имеют cooperative polling; другие алгоритмы ещё нет.
+- [x] Graph, strict API diff, Rustok reports и search rebuild имеют non-orphaning blocking boundary.
+- [-] Graph, discovery и search rebuild имеют cooperative polling; projectors/report builders ещё нет.
+- [x] Operation-aware search factory добавлен без изменения legacy `RuntimeComposition::new`.
 - [ ] Injected cancellable `ProcessRunner` для adapter boundaries.
 - [ ] Удалить остальные global registries.
 
@@ -208,13 +216,16 @@ cargo test -p athanor-store-surrealdb --test conformance --locked
 - [x] Standard graph export/related/path/hubs/PageRank/cycles lifecycle.
 - [x] Manual Rustok audit/context/FFA/FBA/Page Builder graph lifecycle.
 - [x] `--deadline-unix-ms`, environment deadline и Ctrl-C cancellation.
-- [x] Graph/strict API/Rustok blocking workers drained before terminal response.
+- [x] Graph/strict API/Rustok/Context/Search blocking workers drained before terminal response.
 - [x] Cooperative checkpoints внутри related BFS, shortest-path BFS, PageRank и cycle DFS.
+- [x] Cooperative polling внутри filesystem traversal, file reads и hash chunks.
+- [x] Cooperative polling внутри search document conversion и Tantivy rebuild batches.
+- [x] Staged search rebuild сохраняет current index при cancel/error и удерживает backup до successful reopen.
+- [x] Daemon освобождает stale cached index handle до directory swap.
 - [x] MCP concurrent read cancellation, EOF cleanup и stable structured errors.
 - [x] Parser/process/worker regressions для help, malformed/expired deadline, preflight, drain и success.
-- [!] Hosted fmt/test/Clippy/stdio/Ctrl-C/disconnect/worker evidence отсутствует.
-- [ ] Cooperative polling внутри filesystem discovery.
-- [ ] Cooperative polling внутри search-index rebuild.
+- [x] Deterministic search regression отменяет rebuild после нескольких batches.
+- [!] Hosted fmt/test/Clippy/stdio/Ctrl-C/disconnect/directory-swap/worker evidence отсутствует.
 - [ ] Cooperative polling внутри projectors и Rustok-specific pure report loops.
 - [ ] Transactional MCP notification cancellation — только после rollback review.
 
@@ -235,19 +246,19 @@ cargo test -p athanor-store-surrealdb --test conformance --locked
 
 Оценка остаётся диапазоном, а не release assertion:
 
-- весь roadmap: ориентировочно `80–84%`;
+- весь roadmap: ориентировочно `81–85%`;
 - generation-layer код P0.4: `100%` по текущему scope;
-- P1.5 operation lifecycle: ориентировочно `88–92%` на уровне кода;
+- P1.5 operation lifecycle: ориентировочно `94–97%` на уровне кода;
 - release-grade P0.4/P1.5 остаются `[-]` до hosted evidence;
 - до release-grade P0 остаются пять hosted/platform evidence packages и policy work;
-- после P0 остаются sandbox, оставшийся cooperative polling, decomposition, performance и P2.
+- после P0 остаются sandbox, projector/report polling, decomposition, performance и P2.
 
 ## 7. Порядок реализации
 
 1. `[!]` Включить Actions и получить compile/test/fmt/Clippy evidence.
 2. Получить P0 hosted JSONL/embedded/remote conflict/latest/checksum evidence.
 3. Получить hosted AppSec/matrix/installer/tag evidence и включить required checks.
-4. P1.5 — cooperative discovery/search-index/projector polling.
+4. P1.5 — cooperative projector и Rustok report polling.
 5. P1.1 — OS-level sandbox и resource limits.
 6. Остальная CLI/runtime decomposition.
 7. Performance budgets.
@@ -257,29 +268,43 @@ cargo test -p athanor-store-surrealdb --test conformance --locked
 
 **Активный внешний blocker:** `GitHub Actions activation/visibility`.
 
-**Завершённый кодовый срез:** `P1.5 manual Rustok read lifecycle and cooperative graph polling`.
+**Завершённый кодовый срез:** `P1.5 cooperative filesystem discovery and search-index polling`.
 
 Завершённый результат:
 
-- manual Rustok audits/context/architecture graph commands используют direct operation lifecycle;
-- focused help и parser поддерживают explicit deadline;
-- snapshot reads проходят context-aware store API;
-- synchronous Rustok builds выполняются на blocking worker с drain;
-- PageRank/cycle/related/path loops имеют bounded `check_active()` checkpoints;
-- transactional MCP cancellation остаётся запрещённой;
-- regressions покрывают malformed/expired deadline, pre-cancel, worker drain и successful path.
+- built-in `SourceProvider` и application diff scanner проверяют active state между bounded traversal/hash batches;
+- legacy discovery и search factory APIs сохраняют source compatibility;
+- Search и Context используют focused drained CLI interceptors;
+- operation-aware Context, direct Search и daemon Search/Context используют cancellable search factory;
+- Tantivy rebuild строит staged index и переключает directory только после commit/active check;
+- current index сохраняется при cancellation/error, backup удаляется только после successful reopen;
+- stale daemon index handle освобождается до swap для Windows compatibility;
+- deterministic regression отменяет rebuild на третьем checkpoint после нескольких document batches.
 
-**Следующий безопасный кодовый срез:** `P1.5 cooperative discovery and search-index polling`.
+**Следующий безопасный кодовый срез:** `P1.5 cooperative projector and Rustok report polling`.
 
 Целевой результат следующего среза:
 
-- filesystem discovery проверяет active state между bounded batches;
-- search-index rebuild проверяет active state между document batches;
-- cancellation latency не зависит от полного repository scan/rebuild;
-- legacy non-operation APIs сохраняют source compatibility;
-- regressions детерминированно отменяют работу после нескольких batches.
+- wiki/html projector loops проверяют active state между bounded entity/diagnostic batches;
+- Rustok architecture/audit/graph pure builders получают cooperative checkpoints без изменения schemas;
+- staged projector output не заменяет current artifact после cancellation;
+- legacy non-operation projector/report APIs остаются source-compatible;
+- regressions отменяют работу после нескольких emitted pages/nodes.
 
 ## 9. Журнал актуализаций
+
+### 2026-07-16 — cooperative discovery и search-index polling
+
+- Built-in filesystem source реализует настоящий `discover_with_context`.
+- Directory traversal переведён на iterative stack с checkpoints на entries, reads и hash chunks.
+- Application diff Context использует отдельный operation-aware scanner.
+- Добавлен optional operation-aware `SearchIndexFactory` без изменения legacy constructor.
+- Production и legacy runtime регистрируют cancellable Tantivy rebuild.
+- Direct Context/Search вынесены в focused drained interceptors.
+- Context и daemon cache paths используют operation-aware rebuild.
+- Tantivy rebuild выполняется через staging/backup/rollback; stale daemon handle освобождается до swap.
+- Mid-batch cancellation regression сохраняет current index и удаляет staging.
+- Hosted build/fmt/test/Clippy evidence не заявлено.
 
 ### 2026-07-16 — manual Rustok lifecycle и cooperative graph polling
 
