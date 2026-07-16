@@ -9,8 +9,8 @@ status: verified
 
 ## Scope
 
-This slice extends the shared cancellation and deadline contract from daemon reads to direct user-facing
-read execution.
+This work extends the shared cancellation and deadline contract from daemon reads to direct user-facing read
+execution.
 
 Covered direct CLI commands:
 
@@ -19,7 +19,14 @@ Covered direct CLI commands:
 - `ath overview`;
 - `ath impact`;
 - `ath change-map`;
-- `ath search`.
+- `ath search`;
+- `ath check`;
+- `ath graph export`;
+- `ath graph related`;
+- `ath graph path`;
+- `ath graph hubs`;
+- `ath graph pagerank`;
+- `ath graph cycles`.
 
 Covered MCP lifecycle:
 
@@ -36,7 +43,7 @@ durable-success semantics are reviewed independently.
 
 ## Direct CLI Contract
 
-The focused entry parser preserves the established command arguments and text/JSON rendering. It adds:
+Focused entry parsers preserve the established command arguments and text/JSON rendering. They add:
 
 ```text
 --deadline-unix-ms <UNIX_MILLISECONDS>
@@ -48,20 +55,34 @@ A default may also be supplied through:
 ATHANOR_DEADLINE_UNIX_MS=<UNIX_MILLISECONDS>
 ```
 
-The command-line option takes the request deadline role; malformed environment values fail closed before
+The explicit command-line deadline has precedence over the environment. Malformed values fail closed before
 project access. Each intercepted command owns a process-local operation id of the form
 `cli:<command>:<pid>` and one live `CancellationHandle`.
 
-The CLI read future is polled together with:
+Legacy async reads are polled together with the operation deadline, the shared cancellation flag, and
+`tokio::signal::ctrl_c()`. Preflight checks prevent already-expired work; postflight checks reject late success
+after cancellation.
 
-- the operation deadline;
-- the shared cancellation flag;
-- `tokio::signal::ctrl_c()`.
+## Blocking Worker Boundary
 
-Ctrl-C cancels the lease. A preflight check prevents work after an already-expired deadline, and a postflight
-check prevents a completed legacy future from returning a late successful result after cancellation.
+Standard graph builders run on Tokio's blocking pool after the committed snapshot has been loaded through a
+context-aware store read. The operation wrapper polls cancellation and deadline state while the builder runs.
 
-Commands outside the focused read set continue through the legacy CLI dispatcher unchanged.
+A blocking task cannot be force-stopped safely. Therefore cancellation records a terminal operation error but
+the wrapper drains the worker before returning. The completed graph value is discarded and cannot become a
+late successful response. This provides:
+
+- no detached graph worker after command termination;
+- no CPU-bound graph construction on an async runtime worker;
+- stable `cancelled`/`deadline_exceeded` output;
+- bounded resource ownership even when cancellation occurs during PageRank or traversal.
+
+Cancellation latency is currently limited by one graph build. Finer-grained cooperative checks inside graph
+algorithms remain future work.
+
+`ath check --strict` uses the same non-orphaning blocking boundary for synchronous API contract diffing. The
+normal diagnostic query remains an async operation-aware read. Strict non-API scope behavior and exit codes
+remain compatible with the legacy CLI.
 
 ## MCP Contract
 
@@ -82,10 +103,10 @@ writer exits.
 
 ## Compatibility
 
-- Existing direct CLI flags and rendering are preserved for the covered commands.
-- Existing MCP tool schemas are reused from the legacy dispatcher.
-- Existing MCP tools remain available under the same names.
-- JSON-RPC responses may complete out of input order, which is valid because request ids provide correlation.
+- Existing direct CLI flags and rendering are preserved for covered commands.
+- Unsupported graph subcommands and manual Rustok commands continue through the legacy dispatcher.
+- Existing MCP tool schemas and names are reused.
+- JSON-RPC responses may complete out of input order because request ids provide correlation.
 - Notifications without an id remain response-free.
 - Request ids used for cancellable reads must be strings or numbers.
 
@@ -93,34 +114,40 @@ writer exits.
 
 The following remain outside this code slice:
 
-- direct CLI operation lifecycle for `check`, graph queries, and manual Rustok read commands;
-- cancellation propagation inside synchronous filesystem discovery, graph construction, and search-index
+- direct CLI operation lifecycle for manual Rustok read commands and architecture graph commands;
+- finer-grained cooperative cancellation inside graph algorithms, filesystem discovery, and search-index
   rebuild work;
 - transactional MCP notification cancellation;
-- hosted Linux/Windows formatting, test, Clippy, stdio, Ctrl-C, and disconnect evidence.
+- hosted Linux/Windows formatting, test, Clippy, stdio, Ctrl-C, disconnect, and worker-drain evidence.
 
 ## Verification
 
 ```bash
 cargo fmt --all -- --check
 cargo test -p ath --test direct_read_cli --locked
-cargo test -p ath direct_read_cli --locked
+cargo test -p ath --test direct_graph_cli --locked
+cargo test -p ath --test direct_check_cli --locked
+cargo test -p ath direct_operation --locked
+cargo test -p ath direct_graph_cli --locked
+cargo test -p ath direct_check_cli --locked
+cargo test -p athanor-app graph_operation --locked
 cargo test -p athanor-transport-mcp lifecycle --locked
 cargo test -p athanor-transport-mcp --locked
 cargo clippy -p ath --all-targets --locked -- -D warnings
+cargo clippy -p athanor-app --all-targets --locked -- -D warnings
 cargo clippy -p athanor-transport-mcp --all-targets --locked -- -D warnings
 ```
 
 Required regressions:
 
-- each focused direct read help page exposes `--deadline-unix-ms`;
+- every focused direct read, graph, and check help page exposes `--deadline-unix-ms`;
 - malformed CLI and environment deadlines fail before project access;
-- an expired deadline does not poll the application future;
-- cancellation rejects a would-be late successful result;
-- a pending direct read is bounded by its operation deadline;
+- an expired deadline does not spawn a blocking worker;
+- cancellation drains the graph/API-diff worker and rejects its result;
+- cancellation rejects a would-be late successful legacy future;
 - MCP cancellation notification terminates a registered read and releases its lease;
 - MCP deadline termination releases the request registry entry;
 - transactional `index` remains outside the cancellable read scope;
-- non-read direct CLI commands continue through the legacy dispatcher.
+- unsupported graph and non-read commands continue through the legacy dispatcher.
 
 Hosted verification remains separate and is not claimed without recorded workflow or local toolchain evidence.
