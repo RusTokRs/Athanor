@@ -8,7 +8,7 @@ use crate::daemon_job_scheduler::start_cancellable_with_operation;
 use crate::daemon_job_state::{begin_or_finish_failed, finish, finish_cancellable_error};
 use crate::daemon_operation::context as operation_context;
 use crate::{
-    GenerationOptions, HtmlReportOptions, IndexOptions, WikiOptions,
+    GenerationOptions, HtmlReportOptions, IndexOptions, IndexReport, WikiOptions,
     generate_project_cancellable_with_composition_and_operation_context,
     generate_project_cancellable_with_operation_context,
     index_project_cancellable_with_composition_and_operation_context,
@@ -85,21 +85,26 @@ pub(crate) fn start_index(
                         files_indexed = report.files_indexed,
                         "daemon index job completed"
                     );
-                    let _ = finish(
-                        &job_state,
-                        &job_id_for_task,
-                        DaemonJobStatus::Succeeded,
-                        Some(serde_json::json!({
-                            "snapshot": report.snapshot,
-                            "files_indexed": report.files_indexed,
-                            "changed_files": report.changed_files,
-                            "unchanged_files": report.unchanged_files,
-                            "removed_files": report.removed_files,
-                            "output_dir": report.output_dir,
-                            "metrics": report.metrics,
-                        })),
-                        None,
-                    );
+                    match index_job_result(&report) {
+                        Ok(result) => {
+                            let _ = finish(
+                                &job_state,
+                                &job_id_for_task,
+                                DaemonJobStatus::Succeeded,
+                                Some(result),
+                                None,
+                            );
+                        }
+                        Err(error) => {
+                            let _ = finish(
+                                &job_state,
+                                &job_id_for_task,
+                                DaemonJobStatus::Failed,
+                                None,
+                                Some(error.to_string()),
+                            );
+                        }
+                    }
                 }
                 Err(error) => {
                     let _ = finish_cancellable_error(&job_state, &job_id_for_task, error);
@@ -118,6 +123,10 @@ pub(crate) fn start_index(
         job = get_daemon_job(state, &job_id)?;
     }
     Ok(job)
+}
+
+fn index_job_result(report: &IndexReport) -> Result<serde_json::Value> {
+    serde_json::to_value(report).map_err(anyhow::Error::from)
 }
 
 pub(crate) fn start_generate(
@@ -393,4 +402,52 @@ pub(crate) fn start_wiki(
         );
     }
     Ok(job)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use crate::{
+        INDEX_METRICS_SCHEMA, INDEX_REPORT_METRICS_SCHEMA, INDEX_REPORT_SCHEMA,
+        IndexPipelineMetrics, IndexReportMetrics,
+    };
+
+    use super::*;
+
+    #[test]
+    fn daemon_index_result_matches_public_index_report_shape() {
+        let report = IndexReport {
+            root: PathBuf::from("project"),
+            snapshot: "snap-index".to_string(),
+            files_indexed: 3,
+            output_dir: PathBuf::from("jsonl"),
+            changed_files: 2,
+            unchanged_files: 1,
+            removed_files: 0,
+            validation_report: PathBuf::from("validation-report.json"),
+            validation_result: None,
+            validate_only: false,
+            metrics: IndexReportMetrics {
+                schema: INDEX_REPORT_METRICS_SCHEMA,
+                total_ms: 10,
+                pipeline: IndexPipelineMetrics {
+                    schema: INDEX_METRICS_SCHEMA,
+                    ..IndexPipelineMetrics::default()
+                },
+                read_model_write_ms: 2,
+                validation_result_write_ms: 0,
+                index_state_write_ms: 1,
+            },
+        };
+
+        let direct = serde_json::to_value(&report).expect("serialize direct IndexReport");
+        let daemon = index_job_result(&report).expect("serialize daemon IndexReport result");
+
+        assert_eq!(daemon, direct);
+        assert_eq!(daemon["schema"], INDEX_REPORT_SCHEMA);
+        assert_eq!(daemon["validation_report"], "validation-report.json");
+        assert_eq!(daemon["validate_only"], false);
+        assert!(daemon.get("metrics").is_some());
+    }
 }
