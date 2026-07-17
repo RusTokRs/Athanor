@@ -76,7 +76,7 @@ pub(super) fn api_example(endpoint: &Entity) -> Entity {
         "openapi.yaml",
     );
     entity.payload = json!({
-        "endpoint": endpoint.stable_key.0,
+        "endpoint": endpoint.stable_key.0.clone(),
         "direction": "response",
         "status_code": "200",
         "media_type": "application/json",
@@ -110,7 +110,7 @@ pub(super) fn missing_api_diagnostic(endpoint: &Entity) -> Diagnostic {
         "diag_missing_api",
         DiagnosticKind::ApiEndpointImplementedButNotDocumented,
         vec![endpoint.id.clone()],
-        json!({"endpoint": endpoint.stable_key.0}),
+        json!({"endpoint": endpoint.stable_key.0.clone()}),
     )
 }
 
@@ -119,7 +119,7 @@ pub(super) fn missing_env_diagnostic(env: &Entity) -> Diagnostic {
         "diag_missing_env",
         DiagnosticKind::MissingEnvVar,
         vec![env.id.clone()],
-        json!({"env_var": env.stable_key.0}),
+        json!({"env_var": env.stable_key.0.clone()}),
     )
 }
 
@@ -128,7 +128,7 @@ pub(super) fn missing_script_diagnostic(script: &Entity) -> Diagnostic {
         "diag_missing_script",
         DiagnosticKind::MissingDocumentation,
         vec![script.id.clone()],
-        json!({"script_command": script.stable_key.0, "scope": "scripts"}),
+        json!({"script_command": script.stable_key.0.clone(), "scope": "scripts"}),
     )
 }
 
