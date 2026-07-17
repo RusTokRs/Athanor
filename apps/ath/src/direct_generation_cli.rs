@@ -118,10 +118,6 @@ pub(crate) fn parse(args: &[String]) -> Result<Option<Command>> {
 }
 
 pub(crate) async fn run(command: Command) -> Result<()> {
-    #[allow(deprecated)]
-    {
-        athanor_runtime_defaults::install();
-    }
     let composition = athanor_runtime_defaults::production();
 
     match command {
