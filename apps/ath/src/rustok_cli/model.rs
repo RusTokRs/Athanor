@@ -37,7 +37,7 @@ pub(crate) enum Command {
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct ArchitectureContextFlags {
+pub(crate) struct ArchitectureContextFlags {
     pub(super) path: PathBuf,
     pub(super) module: Option<String>,
     pub(super) max_modules: usize,
@@ -49,7 +49,7 @@ pub(super) struct ArchitectureContextFlags {
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct ManualFlags {
+pub(crate) struct ManualFlags {
     pub(super) path: PathBuf,
     pub(super) json: bool,
     pub(super) max_nodes: usize,
