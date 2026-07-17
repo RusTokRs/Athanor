@@ -5,7 +5,8 @@ use std::path::{Path, PathBuf};
 use athanor_app::{
     BenchmarkReport, BenchmarkSize, CHANGED_VALIDATION_SCHEMA_V1, ChangedValidationReport,
     INDEX_BENCHMARK_SCHEMA_V1, INDEX_METRICS_SCHEMA, INDEX_REPORT_METRICS_SCHEMA,
-    IndexPipelineMetrics, IndexReport, IndexReportMetrics, VersionedJsonContract,
+    INDEX_REPORT_SCHEMA_V1, IndexPipelineMetrics, IndexReport, IndexReportMetrics,
+    VersionedJsonContract,
 };
 use serde_json::Value;
 
@@ -51,6 +52,10 @@ fn application_output_contracts_match_golden_fixture() {
     };
 
     benchmark
+        .index
+        .validate_contract()
+        .expect("valid index report contract");
+    benchmark
         .validate_contract()
         .expect("valid benchmark contract");
     changed_validation
@@ -58,6 +63,7 @@ fn application_output_contracts_match_golden_fixture() {
         .expect("valid changed validation contract");
 
     let fixture = read_fixture("application_output_contracts.v1.json");
+    assert_eq!(benchmark.index.schema(), INDEX_REPORT_SCHEMA_V1);
     assert_eq!(
         serde_json::to_value(benchmark).unwrap(),
         fixture["benchmark"]
