@@ -7,8 +7,9 @@ use athanor_transport_mcp::{
 };
 use serde_json::Value;
 
-const LEGACY_RUNTIME_SOURCE: &str = include_str!("../src/lib.rs");
+const RUNTIME_SOURCE: &str = include_str!("../src/runtime.rs");
 const SERVER_SOURCE: &str = include_str!("../src/server.rs");
+const TOOLS_SOURCE: &str = include_str!("../src/tools.rs");
 const FIXTURE: &str = include_str!("fixtures/mcp_transport_contracts.v1.json");
 
 #[test]
@@ -44,14 +45,13 @@ fn mcp_transport_registry_is_unique_and_separate_from_athanor_schema_registry() 
         contract.version == JSON_RPC_VERSION || contract.version == MCP_PROTOCOL_VERSION
     }));
 
-    assert!(LEGACY_RUNTIME_SOURCE.contains("struct JsonRpcRequest"));
-    assert!(LEGACY_RUNTIME_SOURCE.contains("struct JsonRpcResponse"));
-    assert!(LEGACY_RUNTIME_SOURCE.contains("struct JsonRpcError"));
-    assert!(LEGACY_RUNTIME_SOURCE.contains("\"protocolVersion\": \"2024-11-05\""));
-    assert!(LEGACY_RUNTIME_SOURCE.contains("\"isError\": true"));
-    assert!(LEGACY_RUNTIME_SOURCE.contains("\"type\": \"text\""));
+    assert!(SERVER_SOURCE.contains("struct JsonRpcRequest"));
+    assert!(SERVER_SOURCE.contains("struct RpcError"));
+    assert!(SERVER_SOURCE.contains("MCP_PROTOCOL_VERSION"));
+    assert!(SERVER_SOURCE.contains("\"isError\": true"));
+    assert!(SERVER_SOURCE.contains("\"type\": \"text\""));
     assert!(
-        !LEGACY_RUNTIME_SOURCE.contains("athanor.mcp_"),
+        !SERVER_SOURCE.contains("athanor.mcp_") && !TOOLS_SOURCE.contains("athanor.mcp_"),
         "standard MCP envelopes must not acquire an Athanor schema id"
     );
 }
@@ -80,6 +80,20 @@ fn active_mcp_server_enforces_protocol_and_session_semantics() {
     assert!(SERVER_SOURCE.contains("code: -32602"));
     assert!(SERVER_SOURCE.contains("code: -32002"));
     assert!(SERVER_SOURCE.contains("explicit_null_receives_response"));
+}
+
+#[test]
+fn active_mcp_dispatch_is_explicitly_composed() {
+    assert!(RUNTIME_SOURCE.contains("run_mcp_server_with_composition"));
+    assert!(!RUNTIME_SOURCE.contains("include!("));
+    assert!(SERVER_SOURCE.contains("Arc<RuntimeComposition>"));
+    assert!(SERVER_SOURCE.contains("Arc::clone(composition)"));
+    assert!(TOOLS_SOURCE.contains("index_project_with_composition"));
+    assert!(TOOLS_SOURCE.contains("search_project_with_composition_and_operation_context"));
+    assert!(TOOLS_SOURCE.contains(
+        "rustok_architecture_context_with_composition_and_operation_context"
+    ));
+    assert!(!TOOLS_SOURCE.contains("athanor_runtime_defaults::install()"));
 }
 
 #[test]
