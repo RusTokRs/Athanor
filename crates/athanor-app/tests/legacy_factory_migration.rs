@@ -16,6 +16,13 @@ const APP_LIB_SOURCE: &str = include_str!("../src/lib.rs");
 const VALIDATE_CHANGED_SOURCE: &str = include_str!("../src/validate_changed.rs");
 const CLI_ENTRY_SOURCE: &str = include_str!("../../../apps/ath/src/entry.rs");
 const ROOT_COMMAND_SOURCE: &str = include_str!("../../../apps/ath/src/root_command.rs");
+const ANALYSIS_SOURCE: &str = include_str!("../../../apps/ath/src/analysis_cli.rs");
+const API_SOURCE: &str = include_str!("../../../apps/ath/src/api_cli.rs");
+const DOCS_SOURCE: &str = include_str!("../../../apps/ath/src/docs_cli.rs");
+const INDEX_SOURCE: &str = include_str!("../../../apps/ath/src/index_cli.rs");
+const MCP_SOURCE: &str = include_str!("../../../apps/ath/src/mcp_cli.rs");
+const PROJECTION_CLI_SOURCE: &str = include_str!("../../../apps/ath/src/projection_cli.rs");
+const PROJECTS_SOURCE: &str = include_str!("../../../apps/ath/src/projects_cli.rs");
 const DIRECT_SEARCH_SOURCE: &str = include_str!("../../../apps/ath/src/direct_search_cli.rs");
 const DIRECT_CONTEXT_SOURCE: &str = include_str!("../../../apps/ath/src/direct_context_cli.rs");
 const DIRECT_CHECK_SOURCE: &str = include_str!("../../../apps/ath/src/direct_check_cli.rs");
@@ -43,8 +50,6 @@ const DIRECT_READ_CHANGE_RENDER_SOURCE: &str =
     include_str!("../../../apps/ath/src/direct_read/render/change.rs");
 const DIRECT_READ_RENDER_SUPPORT_SOURCE: &str =
     include_str!("../../../apps/ath/src/direct_read/render/support.rs");
-const DIRECT_APPLICATION_REPORT_SOURCE: &str =
-    include_str!("../../../apps/ath/src/direct_application_report_cli.rs");
 const REPAIR_ROOT_SOURCE: &str = include_str!("../../../apps/ath/src/repair/mod.rs");
 const REPAIR_MODEL_SOURCE: &str = include_str!("../../../apps/ath/src/repair/model.rs");
 const REPAIR_RUN_SOURCE: &str = include_str!("../../../apps/ath/src/repair/run.rs");
@@ -72,13 +77,11 @@ fn store_and_search_globals_are_quarantined_behind_guarded_facades() {
     assert!(STORE_FACADE_SOURCE.contains("SCOPED_STORE_COMPOSITION"));
     assert!(STORE_FACADE_SOURCE.contains("with_store_composition"));
     assert!(!STORE_FACADE_SOURCE.contains("let _ = STORE_FACTORY"));
-
     assert!(SEARCH_FACADE_SOURCE.contains("try_install_search_index_factory"));
     assert!(SEARCH_FACADE_SOURCE.contains("try_install_search_index_operation_factory"));
     assert!(SEARCH_FACADE_SOURCE.contains("require_any_search_factory"));
     assert!(!SEARCH_FACADE_SOURCE.contains("let _ = SEARCH_INDEX_FACTORY"));
     assert!(!SEARCH_FACADE_SOURCE.contains("let _ = SEARCH_INDEX_OPERATION_FACTORY"));
-
     assert!(APP_LIB_SOURCE.contains("#[path = \"store_facade.rs\"]"));
     assert!(APP_LIB_SOURCE.contains("#[path = \"search_facade.rs\"]"));
 }
@@ -88,19 +91,23 @@ fn changed_validation_has_an_explicit_composition_path() {
     assert!(VALIDATE_CHANGED_SOURCE.contains("validate_changed_with_composition"));
     assert!(VALIDATE_CHANGED_SOURCE.contains("RuntimeBuilder::from_composition"));
     assert!(CLI_ENTRY_SOURCE.contains("direct_validate_changed_cli"));
-    assert!(CLI_ENTRY_SOURCE.contains("Athanor direct changed validation runtime"));
+    assert!(CLI_ENTRY_SOURCE.contains("Athanor changed validation runtime"));
     assert!(DIRECT_VALIDATE_CHANGED_SOURCE.contains("athanor_runtime_defaults::production()"));
     assert!(!DIRECT_VALIDATE_CHANGED_SOURCE.contains("athanor_runtime_defaults::install()"));
 }
 
 #[test]
 fn graph_operations_have_an_explicit_composition_path() {
-    assert!(GRAPH_OPERATION_SOURCE.contains("export_graph_with_composition_and_operation_context"));
-    assert!(GRAPH_OPERATION_SOURCE.contains("related_graph_with_composition_and_operation_context"));
-    assert!(GRAPH_OPERATION_SOURCE.contains("shortest_graph_path_with_composition_and_operation_context"));
-    assert!(GRAPH_OPERATION_SOURCE.contains("graph_hubs_with_composition_and_operation_context"));
-    assert!(GRAPH_OPERATION_SOURCE.contains("graph_pagerank_with_composition_and_operation_context"));
-    assert!(GRAPH_OPERATION_SOURCE.contains("graph_cycles_with_composition_and_operation_context"));
+    for operation in [
+        "export_graph_with_composition_and_operation_context",
+        "related_graph_with_composition_and_operation_context",
+        "shortest_graph_path_with_composition_and_operation_context",
+        "graph_hubs_with_composition_and_operation_context",
+        "graph_pagerank_with_composition_and_operation_context",
+        "graph_cycles_with_composition_and_operation_context",
+    ] {
+        assert!(GRAPH_OPERATION_SOURCE.contains(operation));
+    }
 }
 
 #[test]
@@ -139,6 +146,12 @@ fn application_reports_have_an_explicit_composition_path() {
     ));
     assert!(APPLICATION_REPORT_COMPOSITION_SOURCE.contains("with_store_composition"));
     assert!(APP_LIB_SOURCE.contains("pub mod application_report_composition"));
+    assert!(API_SOURCE.contains("snapshot_api_contract_with_composition"));
+    assert!(DOCS_SOURCE.contains("docs_propose_fix_with_composition"));
+    assert!(API_SOURCE.contains("athanor_runtime_defaults::production()"));
+    assert!(DOCS_SOURCE.contains("athanor_runtime_defaults::production()"));
+    assert!(!API_SOURCE.contains("athanor_runtime_defaults::install()"));
+    assert!(!DOCS_SOURCE.contains("athanor_runtime_defaults::install()"));
 }
 
 #[test]
@@ -154,7 +167,7 @@ fn repair_operations_have_an_explicit_composition_path() {
 }
 
 #[test]
-fn focused_composition_reads_do_not_install_global_runtime() {
+fn focused_composition_paths_do_not_install_global_runtime() {
     for source in [
         DIRECT_SEARCH_SOURCE,
         DIRECT_CONTEXT_SOURCE,
@@ -163,55 +176,31 @@ fn focused_composition_reads_do_not_install_global_runtime() {
         RUSTOK_RUN_SOURCE,
         DIRECT_GENERATION_SOURCE,
         DIRECT_READ_RUN_SOURCE,
+        INDEX_SOURCE,
+        ANALYSIS_SOURCE,
+        API_SOURCE,
+        DOCS_SOURCE,
     ] {
         assert!(source.contains("athanor_runtime_defaults::production()"));
         assert!(!source.contains("athanor_runtime_defaults::install()"));
     }
-    assert!(CLI_ENTRY_SOURCE.contains("mod direct_read;"));
-    assert!(!CLI_ENTRY_SOURCE.contains("direct_read_composed_cli"));
-    assert!(!CLI_ENTRY_SOURCE.contains("mod direct_read_cli;"));
-    assert!(CLI_ENTRY_SOURCE.contains("mod rustok_cli;"));
-    assert!(!CLI_ENTRY_SOURCE.contains("direct_rustok_composed_cli"));
-    assert!(!CLI_ENTRY_SOURCE.contains("mod direct_rustok_cli;"));
-}
-
-#[test]
-fn focused_application_reports_do_not_install_global_runtime() {
-    assert!(DIRECT_APPLICATION_REPORT_SOURCE.contains(
-        "snapshot_api_contract_with_composition"
-    ));
-    assert!(DIRECT_APPLICATION_REPORT_SOURCE.contains(
-        "docs_propose_fix_with_composition"
-    ));
-    assert!(DIRECT_APPLICATION_REPORT_SOURCE.contains(
-        "athanor_runtime_defaults::production()"
-    ));
-    assert!(!DIRECT_APPLICATION_REPORT_SOURCE.contains(
-        "athanor_runtime_defaults::install()"
-    ));
-    assert!(CLI_ENTRY_SOURCE.contains("mod direct_application_report_cli;"));
-    assert!(!CLI_ENTRY_SOURCE.contains("direct_application_report_composed_cli"));
-}
-
-#[test]
-fn focused_repairs_do_not_install_global_runtime() {
-    assert!(REPAIR_RUN_SOURCE.contains(
-        "recover_index_publication_with_composition"
-    ));
-    assert!(REPAIR_RUN_SOURCE.contains(
-        "repair_canonical_latest_with_composition"
-    ));
     assert!(REPAIR_RUN_SOURCE.contains("athanor_runtime_defaults::production()"));
     assert!(!REPAIR_RUN_SOURCE.contains("athanor_runtime_defaults::install()"));
-    assert!(CLI_ENTRY_SOURCE.contains("mod repair;"));
-    assert!(!CLI_ENTRY_SOURCE.contains("repair_composed_cli"));
-    assert!(!CLI_ENTRY_SOURCE.contains("mod repair_cli;"));
     assert!(!CLI_ENTRY_SOURCE.contains("athanor_runtime_defaults::install()"));
 }
 
 #[test]
-fn focused_cli_families_have_no_compatibility_includes_or_namespace_shadowing() {
+fn cli_has_no_compatibility_includes_namespace_shadowing_or_legacy_root() {
     for source in [
+        CLI_ENTRY_SOURCE,
+        ROOT_COMMAND_SOURCE,
+        ANALYSIS_SOURCE,
+        API_SOURCE,
+        DOCS_SOURCE,
+        INDEX_SOURCE,
+        MCP_SOURCE,
+        PROJECTION_CLI_SOURCE,
+        PROJECTS_SOURCE,
         DIRECT_READ_ROOT_SOURCE,
         DIRECT_READ_MODEL_SOURCE,
         DIRECT_READ_OPERATION_SOURCE,
@@ -220,7 +209,6 @@ fn focused_cli_families_have_no_compatibility_includes_or_namespace_shadowing() 
         DIRECT_READ_ENTITY_RENDER_SOURCE,
         DIRECT_READ_CHANGE_RENDER_SOURCE,
         DIRECT_READ_RENDER_SUPPORT_SOURCE,
-        DIRECT_APPLICATION_REPORT_SOURCE,
         REPAIR_ROOT_SOURCE,
         REPAIR_MODEL_SOURCE,
         REPAIR_RUN_SOURCE,
@@ -233,31 +221,24 @@ fn focused_cli_families_have_no_compatibility_includes_or_namespace_shadowing() 
         RUSTOK_RENDER_SOURCE,
         CHECK_RENDER_SOURCE,
         API_RENDER_SOURCE,
-        ROOT_COMMAND_SOURCE,
     ] {
         assert!(!source.contains("include!("));
         assert!(!source.contains("mod athanor_app {"));
         assert!(!source.contains("mod athanor_runtime_defaults {"));
     }
-    for removed in [
-        "direct_read_cli.rs",
-        "direct_read_composed_cli.rs",
-        "direct_application_report_composed_cli.rs",
-        "direct_rustok_composed_cli.rs",
-        "repair_cli.rs",
-        "repair_composed_cli.rs",
-    ] {
-        assert!(!CLI_ENTRY_SOURCE.contains(removed));
-    }
+    assert!(!CLI_ENTRY_SOURCE.contains("mod legacy"));
+    assert!(!CLI_ENTRY_SOURCE.contains("main.rs"));
+    assert!(!ROOT_COMMAND_SOURCE.contains("Command::Legacy"));
+    assert!(!CLI_ENTRY_SOURCE.contains("direct_application_report_cli"));
+    assert!(!CLI_ENTRY_SOURCE.contains("_bridge"));
 }
 
 #[test]
-fn root_command_model_owns_focused_routing_without_renderer_bridges() {
+fn root_command_model_owns_every_command_family() {
     for route in [
         "Command::Plugin",
         "Command::ValidateChanged",
         "Command::Repair",
-        "Command::ApplicationReport",
         "Command::Generation",
         "Command::Config",
         "Command::Check",
@@ -266,13 +247,18 @@ fn root_command_model_owns_focused_routing_without_renderer_bridges() {
         "Command::Context",
         "Command::Search",
         "Command::Read",
-        "Command::Legacy",
+        "Command::Index",
+        "Command::Docs",
+        "Command::Api",
+        "Command::Projection",
+        "Command::Projects",
+        "Command::Analysis",
+        "Command::Mcp",
     ] {
         assert!(ROOT_COMMAND_SOURCE.contains(route));
     }
     assert!(CLI_ENTRY_SOURCE.contains("root_command::parse(&args)"));
     assert!(CLI_ENTRY_SOURCE.contains("mod render;"));
-    assert!(!CLI_ENTRY_SOURCE.contains("_bridge"));
     assert!(!DIRECT_GRAPH_SOURCE.contains("crate::legacy"));
     assert!(!DIRECT_CHECK_SOURCE.contains("crate::legacy"));
     assert!(!RUSTOK_RUN_SOURCE.contains("crate::legacy"));
@@ -281,12 +267,20 @@ fn root_command_model_owns_focused_routing_without_renderer_bridges() {
 #[test]
 fn focused_cli_production_modules_remain_bounded() {
     for (name, source, max_lines) in [
+        ("entry", CLI_ENTRY_SOURCE, 110),
+        ("root_command", ROOT_COMMAND_SOURCE, 220),
+        ("analysis", ANALYSIS_SOURCE, 330),
+        ("api", API_SOURCE, 360),
+        ("docs", DOCS_SOURCE, 320),
+        ("index", INDEX_SOURCE, 280),
+        ("mcp", MCP_SOURCE, 80),
+        ("projection", PROJECTION_CLI_SOURCE, 120),
+        ("projects", PROJECTS_SOURCE, 210),
         ("direct_read/model", DIRECT_READ_MODEL_SOURCE, 240),
         ("direct_read/operation", DIRECT_READ_OPERATION_SOURCE, 180),
         ("direct_read/run", DIRECT_READ_RUN_SOURCE, 260),
         ("direct_read/render/entity", DIRECT_READ_ENTITY_RENDER_SOURCE, 220),
         ("direct_read/render/change", DIRECT_READ_CHANGE_RENDER_SOURCE, 220),
-        ("direct_application_report", DIRECT_APPLICATION_REPORT_SOURCE, 300),
         ("repair/model", REPAIR_MODEL_SOURCE, 260),
         ("repair/run", REPAIR_RUN_SOURCE, 140),
         ("repair/render", REPAIR_RENDER_SOURCE, 180),
@@ -296,7 +290,6 @@ fn focused_cli_production_modules_remain_bounded() {
         ("render/rustok", RUSTOK_RENDER_SOURCE, 320),
         ("render/check", CHECK_RENDER_SOURCE, 180),
         ("render/api", API_RENDER_SOURCE, 80),
-        ("root_command", ROOT_COMMAND_SOURCE, 120),
     ] {
         let lines = source.lines().count();
         assert!(lines <= max_lines, "{name} grew to {lines} lines");
