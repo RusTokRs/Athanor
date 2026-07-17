@@ -72,7 +72,8 @@ fn config_doctor_json_matches_typed_report_shape() {
 #[test]
 fn config_validate_rejects_unknown_fields_before_output() {
     let root = temp_root("invalid");
-    fs::write(root.join("athanor.toml"), "unknown = true\n").expect("write invalid config");
+    fs::write(root.join("athanor.toml"), "unknown = true\n")
+        .expect("write invalid config");
     let output = run(&[
         "config",
         "validate",
