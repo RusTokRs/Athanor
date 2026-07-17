@@ -30,6 +30,32 @@ fn failed_build_preserves_previous_directory_and_removes_staging() {
 }
 
 #[test]
+fn failed_commit_restores_previous_directory_and_removes_backup() {
+    let root = test_root("commit-rollback");
+    let target = root.join("report");
+    fs::create_dir_all(&target).unwrap();
+    fs::write(target.join("previous.txt"), "previous").unwrap();
+
+    let error = publish_staged_directory(&target, "test report", |staging| {
+        write_output_file(&staging.join("candidate.txt"), "candidate")?;
+        fs::remove_dir_all(staging).map_err(|error| {
+            CoreError::Adapter(format!("failed to inject missing staged candidate: {error}"))
+        })?;
+        Ok(())
+    })
+    .expect_err("a missing staged candidate must fail the commit rename");
+
+    assert!(error.to_string().contains("replace test report directory"));
+    assert_eq!(
+        fs::read_to_string(target.join("previous.txt")).unwrap(),
+        "previous"
+    );
+    assert!(!target.join("candidate.txt").exists());
+    assert_no_publication_siblings(&root, "report");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn unpublished_immutable_candidate_is_removed_on_drop() {
     let root = test_root("drop-cleanup");
     let target = root.join("generations/one");
