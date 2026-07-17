@@ -2,6 +2,8 @@ const APPLICATION_FACADE_SOURCE: &str =
     include_str!("../src/application_report_composition.rs");
 const API_DIRECT_SOURCE: &str =
     include_str!("../src/application_report_composition/api_direct.rs");
+const DOCS_DIRECT_SOURCE: &str =
+    include_str!("../src/application_report_composition/docs_direct.rs");
 const REPAIR_FACADE_SOURCE: &str = include_str!("../src/repair_composition.rs");
 const REPAIR_DIRECT_SOURCE: &str = include_str!("../src/repair_composition/direct.rs");
 
@@ -25,21 +27,36 @@ fn repair_services_initialize_store_directly_from_composition() {
 }
 
 #[test]
-fn docs_are_the_only_remaining_task_local_service_bridge() {
+fn docs_check_drift_and_apply_initialize_store_directly() {
+    for operation in [
+        "docs_direct::check",
+        "docs_direct::drift",
+        "docs_direct::apply",
+    ] {
+        assert!(APPLICATION_FACADE_SOURCE.contains(operation));
+    }
+    assert!(DOCS_DIRECT_SOURCE.contains("composition.init_store"));
+    assert!(DOCS_DIRECT_SOURCE.contains("build_docs_drift_report"));
+    assert!(!DOCS_DIRECT_SOURCE.contains("with_store_composition"));
+    assert!(!DOCS_DIRECT_SOURCE.contains("crate::store::init_store"));
+}
+
+#[test]
+fn docs_propose_fix_is_the_only_remaining_task_local_service_bridge() {
     assert_eq!(
         APPLICATION_FACADE_SOURCE
             .matches("with_store_composition")
             .count(),
-        5,
-        "one import plus four Docs operations should remain"
+        2,
+        "one import plus docs propose-fix should remain"
     );
-    for operation in [
+    assert!(APPLICATION_FACADE_SOURCE.contains("docs_propose_fix(options)"));
+    for removed in [
         "check_docs(options)",
         "docs_drift(options)",
-        "docs_propose_fix(options)",
         "docs_apply_patch(options)",
     ] {
-        assert!(APPLICATION_FACADE_SOURCE.contains(operation));
+        assert!(!APPLICATION_FACADE_SOURCE.contains(removed));
     }
 }
 
@@ -48,6 +65,7 @@ fn direct_service_composition_modules_remain_bounded() {
     for (name, source, max_lines) in [
         ("application facade", APPLICATION_FACADE_SOURCE, 80),
         ("API direct", API_DIRECT_SOURCE, 280),
+        ("Docs direct", DOCS_DIRECT_SOURCE, 390),
         ("repair facade", REPAIR_FACADE_SOURCE, 40),
         ("repair direct", REPAIR_DIRECT_SOURCE, 280),
     ] {
