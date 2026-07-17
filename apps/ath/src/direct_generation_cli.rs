@@ -80,8 +80,13 @@ pub(crate) enum Command {
 }
 
 pub(crate) fn parse(args: &[String]) -> Result<Option<Command>> {
-    let selected = matches!(args.first().map(String::as_str), Some("wiki" | "generate"))
-        || matches!(args.get(0..2), Some([root, command]) if root == "report" && command == "html");
+    let selected = matches!(
+        args.first().map(String::as_str),
+        Some("wiki") | Some("generate")
+    ) || matches!(
+        args.get(0..2),
+        Some([root, command]) if root == "report" && command == "html"
+    );
     if !selected {
         return Ok(None);
     }
