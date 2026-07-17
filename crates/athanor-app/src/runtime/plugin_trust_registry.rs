@@ -2,13 +2,17 @@ use std::fs;
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
+use tracing::warn;
 
-use super::{ADAPTER_TRUST_SCHEMA, AdapterTrustRegistry, TrustedAdapterPlugin};
+use super::{AdapterTrustRegistry, TrustedAdapterPlugin};
+use crate::adapter_contract::{
+    ADAPTER_TRUST_REGISTRY_SCHEMA_V2, normalize_adapter_trust_registry_schema,
+};
 
 pub(super) fn load(path: &Path) -> Result<AdapterTrustRegistry> {
     if !path.exists() {
         return Ok(AdapterTrustRegistry {
-            schema: ADAPTER_TRUST_SCHEMA.to_string(),
+            schema: ADAPTER_TRUST_REGISTRY_SCHEMA_V2.to_string(),
             trusted_plugins: Vec::new(),
         });
     }
@@ -17,13 +21,9 @@ pub(super) fn load(path: &Path) -> Result<AdapterTrustRegistry> {
         fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
     let mut registry: AdapterTrustRegistry = serde_json::from_str(&content)
         .with_context(|| format!("failed to parse {}", path.display()))?;
-    if registry.schema != ADAPTER_TRUST_SCHEMA {
-        bail!(
-            "unsupported adapter trust schema `{}` in {}",
-            registry.schema,
-            path.display()
-        );
-    }
+    normalize_adapter_trust_registry_schema(&mut registry).with_context(|| {
+        format!("unsupported adapter trust registry in {}", path.display())
+    })?;
     for entry in &registry.trusted_plugins {
         if !entry.manifest_path.is_absolute() || entry.content_hash.trim().is_empty() {
             bail!(
@@ -45,6 +45,13 @@ pub(super) fn load(path: &Path) -> Result<AdapterTrustRegistry> {
 }
 
 pub(super) fn write(path: &Path, registry: &AdapterTrustRegistry) -> Result<()> {
+    if registry.schema != ADAPTER_TRUST_REGISTRY_SCHEMA_V2 {
+        bail!(
+            "refusing to write adapter trust registry with schema `{}`; expected `{}`",
+            registry.schema,
+            ADAPTER_TRUST_REGISTRY_SCHEMA_V2
+        );
+    }
     let parent = path
         .parent()
         .ok_or_else(|| anyhow::anyhow!("adapter trust path has no parent: {}", path.display()))?;
@@ -80,9 +87,14 @@ pub(super) fn write(path: &Path, registry: &AdapterTrustRegistry) -> Result<()> 
         return Err(error)
             .with_context(|| format!("failed to publish adapter trust {}", path.display()));
     }
-    if backup.exists() {
-        fs::remove_file(&backup)
-            .with_context(|| format!("failed to remove backup {}", backup.display()))?;
+    if backup.exists()
+        && let Err(error) = fs::remove_file(&backup)
+    {
+        warn!(
+            backup = %backup.display(),
+            error = %error,
+            "adapter trust registry was published but backup cleanup failed"
+        );
     }
     Ok(())
 }
