@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 
-mod direct_application_report_composed_cli;
+mod direct_application_report_cli;
 mod direct_check_cli;
 mod direct_config_cli;
 mod direct_context_cli;
@@ -8,42 +8,18 @@ mod direct_generation_cli;
 mod direct_graph_cli;
 mod direct_operation;
 mod direct_plugin_cli;
-mod direct_read_composed_cli;
+mod direct_read;
 mod direct_rustok_composed_cli;
 mod direct_rustok_help;
 mod direct_search_cli;
 mod direct_validate_changed_cli;
-mod repair_composed_cli;
+mod repair;
 
 mod legacy {
     include!("main.rs");
 
     pub(crate) fn run() -> anyhow::Result<()> {
         main()
-    }
-
-    pub(crate) fn print_explanation_bridge(
-        report: &athanor_app::EntityExplanation,
-    ) -> anyhow::Result<()> {
-        print_explanation(report)
-    }
-
-    pub(crate) fn print_overview_bridge(
-        report: &athanor_app::RepositoryOverview,
-    ) -> anyhow::Result<()> {
-        print_overview(report)
-    }
-
-    pub(crate) fn print_impact_bridge(
-        report: &athanor_app::ImpactAnalysis,
-    ) -> anyhow::Result<()> {
-        print_impact_analysis(report)
-    }
-
-    pub(crate) fn print_change_map_bridge(
-        report: &athanor_app::ChangeMapReport,
-    ) -> anyhow::Result<()> {
-        print_change_map(report)
     }
 
     pub(crate) fn print_related_graph_bridge(report: &athanor_app::GraphRelated) {
@@ -131,12 +107,12 @@ fn main() -> Result<()> {
         return runtime("Athanor direct changed validation runtime")?
             .block_on(direct_validate_changed_cli::run(command));
     }
-    if let Some(command) = repair_composed_cli::parse(&args)? {
-        return runtime("Athanor repair runtime")?.block_on(repair_composed_cli::run(command));
+    if let Some(command) = repair::parse(&args)? {
+        return runtime("Athanor repair runtime")?.block_on(repair::run(command));
     }
-    if let Some(command) = direct_application_report_composed_cli::parse(&args)? {
+    if let Some(command) = direct_application_report_cli::parse(&args)? {
         return runtime("Athanor versioned application report runtime")?
-            .block_on(direct_application_report_composed_cli::run(command));
+            .block_on(direct_application_report_cli::run(command));
     }
     if let Some(command) = direct_generation_cli::parse(&args)? {
         return runtime("Athanor direct generation report runtime")?
@@ -163,9 +139,8 @@ fn main() -> Result<()> {
         return runtime("Athanor direct search runtime")?
             .block_on(direct_search_cli::run(command));
     }
-    if let Some(command) = direct_read_composed_cli::parse(&args)? {
-        return runtime("Athanor direct read runtime")?
-            .block_on(direct_read_composed_cli::run(command));
+    if let Some(command) = direct_read::parse(&args)? {
+        return runtime("Athanor direct read runtime")?.block_on(direct_read::run(command));
     }
     legacy::run()
 }
