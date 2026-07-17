@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::Result;
+use serde::Serialize;
 
 use crate::daemon::{DaemonJob, DaemonJobKind, DaemonJobStatus, DaemonState};
 use crate::daemon_job_registry::get as get_daemon_job;
@@ -8,8 +9,8 @@ use crate::daemon_job_scheduler::start_cancellable_with_operation;
 use crate::daemon_job_state::{begin_or_finish_failed, finish, finish_cancellable_error};
 use crate::daemon_operation::context as operation_context;
 use crate::{
-    GenerationOptions, GenerationReport, HtmlReportOptions, IndexOptions, IndexReport, WikiOptions,
-    generate_project_cancellable_with_composition_and_operation_context,
+    GenerationOptions, GenerationReport, HtmlReport, HtmlReportOptions, IndexOptions, IndexReport,
+    WikiOptions, WikiReport, generate_project_cancellable_with_composition_and_operation_context,
     generate_project_cancellable_with_operation_context,
     index_project_cancellable_with_composition_and_operation_context,
     index_project_cancellable_with_operation_context,
@@ -85,26 +86,7 @@ pub(crate) fn start_index(
                         files_indexed = report.files_indexed,
                         "daemon index job completed"
                     );
-                    match index_job_result(&report) {
-                        Ok(result) => {
-                            let _ = finish(
-                                &job_state,
-                                &job_id_for_task,
-                                DaemonJobStatus::Succeeded,
-                                Some(result),
-                                None,
-                            );
-                        }
-                        Err(error) => {
-                            let _ = finish(
-                                &job_state,
-                                &job_id_for_task,
-                                DaemonJobStatus::Failed,
-                                None,
-                                Some(error.to_string()),
-                            );
-                        }
-                    }
+                    finish_serialized_report(&job_state, &job_id_for_task, &report);
                 }
                 Err(error) => {
                     let _ = finish_cancellable_error(&job_state, &job_id_for_task, error);
@@ -126,7 +108,7 @@ pub(crate) fn start_index(
 }
 
 fn index_job_result(report: &IndexReport) -> Result<serde_json::Value> {
-    serde_json::to_value(report).map_err(anyhow::Error::from)
+    serialize_job_result(report)
 }
 
 pub(crate) fn start_generate(
@@ -188,26 +170,7 @@ pub(crate) fn start_generate(
                         snapshot = %report.snapshot,
                         "daemon generate job completed"
                     );
-                    match generation_job_result(&report) {
-                        Ok(result) => {
-                            let _ = finish(
-                                &job_state,
-                                &job_id_for_task,
-                                DaemonJobStatus::Succeeded,
-                                Some(result),
-                                None,
-                            );
-                        }
-                        Err(error) => {
-                            let _ = finish(
-                                &job_state,
-                                &job_id_for_task,
-                                DaemonJobStatus::Failed,
-                                None,
-                                Some(error.to_string()),
-                            );
-                        }
-                    }
+                    finish_serialized_report(&job_state, &job_id_for_task, &report);
                 }
                 Err(error) => {
                     let _ = finish_cancellable_error(&job_state, &job_id_for_task, error);
@@ -227,7 +190,7 @@ pub(crate) fn start_generate(
 }
 
 fn generation_job_result(report: &GenerationReport) -> Result<serde_json::Value> {
-    serde_json::to_value(report).map_err(anyhow::Error::from)
+    serialize_job_result(report)
 }
 
 pub(crate) fn start_html_report(
@@ -289,20 +252,7 @@ pub(crate) fn start_html_report(
                         output = %report.output_dir.display(),
                         "daemon HTML report job completed"
                     );
-                    let _ = finish(
-                        &job_state,
-                        &job_id_for_task,
-                        DaemonJobStatus::Succeeded,
-                        Some(serde_json::json!({
-                            "snapshot": report.snapshot,
-                            "output_dir": report.output_dir,
-                            "entities": report.entities,
-                            "facts": report.facts,
-                            "relations": report.relations,
-                            "open_diagnostics": report.open_diagnostics,
-                        })),
-                        None,
-                    );
+                    finish_serialized_report(&job_state, &job_id_for_task, &report);
                 }
                 Err(error) => {
                     let _ = finish_cancellable_error(&job_state, &job_id_for_task, error);
@@ -319,6 +269,10 @@ pub(crate) fn start_html_report(
         );
     }
     Ok(job)
+}
+
+fn html_report_job_result(report: &HtmlReport) -> Result<serde_json::Value> {
+    serialize_job_result(report)
 }
 
 pub(crate) fn start_wiki(
@@ -380,20 +334,7 @@ pub(crate) fn start_wiki(
                         output = %report.output_dir.display(),
                         "daemon wiki job completed"
                     );
-                    let _ = finish(
-                        &job_state,
-                        &job_id_for_task,
-                        DaemonJobStatus::Succeeded,
-                        Some(serde_json::json!({
-                            "snapshot": report.snapshot,
-                            "output_dir": report.output_dir,
-                            "entities": report.entities,
-                            "facts": report.facts,
-                            "relations": report.relations,
-                            "open_diagnostics": report.open_diagnostics,
-                        })),
-                        None,
-                    );
+                    finish_serialized_report(&job_state, &job_id_for_task, &report);
                 }
                 Err(error) => {
                     let _ = finish_cancellable_error(&job_state, &job_id_for_task, error);
@@ -412,14 +353,49 @@ pub(crate) fn start_wiki(
     Ok(job)
 }
 
+fn wiki_job_result(report: &WikiReport) -> Result<serde_json::Value> {
+    serialize_job_result(report)
+}
+
+fn serialize_job_result<T: Serialize>(report: &T) -> Result<serde_json::Value> {
+    serde_json::to_value(report).map_err(anyhow::Error::from)
+}
+
+fn finish_serialized_report<T: Serialize>(
+    state: &DaemonState,
+    job_id: &str,
+    report: &T,
+) {
+    match serialize_job_result(report) {
+        Ok(result) => {
+            let _ = finish(
+                state,
+                job_id,
+                DaemonJobStatus::Succeeded,
+                Some(result),
+                None,
+            );
+        }
+        Err(error) => {
+            let _ = finish(
+                state,
+                job_id,
+                DaemonJobStatus::Failed,
+                None,
+                Some(error.to_string()),
+            );
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
 
     use crate::{
-        GENERATION_SCHEMA_V1, INDEX_METRICS_SCHEMA, INDEX_REPORT_METRICS_SCHEMA,
-        INDEX_REPORT_SCHEMA, GenerationMetrics, GenerationStatus, IndexPipelineMetrics,
-        IndexReportMetrics,
+        GENERATION_SCHEMA_V1, HTML_REPORT_SCHEMA_V1, INDEX_METRICS_SCHEMA,
+        INDEX_REPORT_METRICS_SCHEMA, INDEX_REPORT_SCHEMA, WIKI_REPORT_SCHEMA_V1, GenerationMetrics,
+        GenerationStatus, IndexPipelineMetrics, IndexReportMetrics,
     };
 
     use super::*;
@@ -494,5 +470,47 @@ mod tests {
         assert_eq!(daemon["status"], "published");
         assert_eq!(daemon["root"], "project");
         assert!(daemon.get("metrics").is_some());
+    }
+
+    #[test]
+    fn daemon_html_result_matches_public_html_report_shape() {
+        let report = HtmlReport {
+            schema: HTML_REPORT_SCHEMA_V1,
+            root: PathBuf::from("project"),
+            output_dir: PathBuf::from("project/.athanor/generated/current/html"),
+            snapshot: "snap-html".to_string(),
+            entities: 12,
+            facts: 18,
+            relations: 7,
+            open_diagnostics: 2,
+        };
+
+        let direct = serde_json::to_value(&report).expect("serialize direct HtmlReport");
+        let daemon = html_report_job_result(&report).expect("serialize daemon HtmlReport result");
+
+        assert_eq!(daemon, direct);
+        assert_eq!(daemon["schema"], HTML_REPORT_SCHEMA_V1);
+        assert_eq!(daemon["root"], "project");
+    }
+
+    #[test]
+    fn daemon_wiki_result_matches_public_wiki_report_shape() {
+        let report = WikiReport {
+            schema: WIKI_REPORT_SCHEMA_V1,
+            root: PathBuf::from("project"),
+            output_dir: PathBuf::from("project/.athanor/generated/current/wiki"),
+            snapshot: "snap-wiki".to_string(),
+            entities: 12,
+            facts: 18,
+            relations: 7,
+            open_diagnostics: 2,
+        };
+
+        let direct = serde_json::to_value(&report).expect("serialize direct WikiReport");
+        let daemon = wiki_job_result(&report).expect("serialize daemon WikiReport result");
+
+        assert_eq!(daemon, direct);
+        assert_eq!(daemon["schema"], WIKI_REPORT_SCHEMA_V1);
+        assert_eq!(daemon["root"], "project");
     }
 }
