@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 
-mod direct_application_report_cli;
+mod direct_application_report_composed_cli;
 mod direct_check_cli;
 mod direct_config_cli;
 mod direct_context_cli;
@@ -138,9 +138,9 @@ fn main() -> Result<()> {
         }
         return runtime("Athanor repair runtime")?.block_on(repair_cli::run(command));
     }
-    if let Some(command) = direct_application_report_cli::parse(&args)? {
+    if let Some(command) = direct_application_report_composed_cli::parse(&args)? {
         return runtime("Athanor versioned application report runtime")?
-            .block_on(direct_application_report_cli::run(command));
+            .block_on(direct_application_report_composed_cli::run(command));
     }
     if let Some(command) = direct_generation_cli::parse(&args)? {
         return runtime("Athanor direct generation report runtime")?
