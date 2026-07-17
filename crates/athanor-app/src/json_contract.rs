@@ -47,6 +47,10 @@ pub const DOCS_CHECK_SCHEMA_V1: &str = crate::docs::DOCS_CHECK_SCHEMA;
 pub const DOCS_DRIFT_SCHEMA_V1: &str = crate::docs::DOCS_DRIFT_SCHEMA;
 /// Stable schema identifier for applied documentation patch reports.
 pub const DOCS_APPLY_PATCH_SCHEMA_V1: &str = "athanor.docs_apply_patch.v1";
+/// Stable schema identifier for public API contract diffs.
+pub const API_CONTRACT_DIFF_SCHEMA_V2: &str = crate::api::API_CONTRACT_DIFF_SCHEMA;
+/// Stable schema identifier for public API artifact cleanup reports.
+pub const API_CLEANUP_SCHEMA_V1: &str = "athanor.api_cleanup.v1";
 /// Stable schema identifier for graph export reports.
 pub const GRAPH_EXPORT_SCHEMA_V1: &str = crate::graph::GRAPH_EXPORT_SCHEMA;
 /// Stable schema identifier for graph related-entity reports.
@@ -182,6 +186,14 @@ pub const VERSIONED_JSON_CONTRACTS: &[JsonContractDescriptor] = &[
     JsonContractDescriptor {
         schema: DOCS_APPLY_PATCH_SCHEMA_V1,
         rust_type: "DocsApplyPatchReport",
+    },
+    JsonContractDescriptor {
+        schema: API_CONTRACT_DIFF_SCHEMA_V2,
+        rust_type: "ApiContractDiff",
+    },
+    JsonContractDescriptor {
+        schema: API_CLEANUP_SCHEMA_V1,
+        rust_type: "ApiCleanupReport",
     },
     JsonContractDescriptor {
         schema: GRAPH_EXPORT_SCHEMA_V1,
@@ -367,6 +379,8 @@ impl_owned_schema_contract!(
     crate::docs::DocsApplyPatchReport,
     DOCS_APPLY_PATCH_SCHEMA_V1
 );
+impl_owned_schema_contract!(crate::api::ApiContractDiff, API_CONTRACT_DIFF_SCHEMA_V2);
+impl_owned_schema_contract!(crate::api::ApiCleanupReport, API_CLEANUP_SCHEMA_V1);
 impl_owned_schema_contract!(crate::graph::GraphExport, GRAPH_EXPORT_SCHEMA_V1);
 impl_owned_schema_contract!(crate::graph::GraphRelated, GRAPH_RELATED_SCHEMA_V1);
 impl_owned_schema_contract!(crate::graph::GraphPath, GRAPH_PATH_SCHEMA_V1);
@@ -654,7 +668,7 @@ mod tests {
     #[test]
     fn registry_contains_unique_valid_schema_and_type_owners() {
         assert_eq!(validate_contract_registry(VERSIONED_JSON_CONTRACTS), Ok(()));
-        assert_eq!(VERSIONED_JSON_CONTRACTS.len(), 39);
+        assert_eq!(VERSIONED_JSON_CONTRACTS.len(), 41);
         assert_eq!(crate::overview::OVERVIEW_SCHEMA, OVERVIEW_SCHEMA_V1);
         assert_eq!(crate::coverage::COVERAGE_REPORT_SCHEMA, COVERAGE_SCHEMA_V1);
         assert_eq!(
@@ -669,6 +683,10 @@ mod tests {
         );
         assert_eq!(crate::docs::DOCS_CHECK_SCHEMA, DOCS_CHECK_SCHEMA_V1);
         assert_eq!(crate::docs::DOCS_DRIFT_SCHEMA, DOCS_DRIFT_SCHEMA_V1);
+        assert_eq!(
+            crate::api::API_CONTRACT_DIFF_SCHEMA,
+            API_CONTRACT_DIFF_SCHEMA_V2
+        );
         assert_eq!(crate::graph::GRAPH_EXPORT_SCHEMA, GRAPH_EXPORT_SCHEMA_V1);
         assert_eq!(crate::graph::GRAPH_RELATED_SCHEMA, GRAPH_RELATED_SCHEMA_V1);
         assert_eq!(crate::graph::GRAPH_PATH_SCHEMA, GRAPH_PATH_SCHEMA_V1);
