@@ -55,6 +55,10 @@ where
     SCOPED_STORE_COMPOSITION.scope(composition, future).await
 }
 
+fn has_scoped_store_composition() -> bool {
+    SCOPED_STORE_COMPOSITION.try_with(|_| ()).is_ok()
+}
+
 pub async fn init_store(root: &Path, config: &ProjectConfig) -> Result<AthanorStore> {
     #[cfg(test)]
     crate::ensure_test_runtime();
@@ -81,5 +85,24 @@ mod tests {
         let slot = OnceLock::<StoreFactory>::new();
         let error = require_installed(&slot, "store").unwrap_err();
         assert_eq!(error.factory(), "store");
+    }
+
+    #[tokio::test]
+    async fn concurrent_store_composition_scopes_do_not_leak() {
+        assert!(!has_scoped_store_composition());
+        let composition = crate::test_runtime::composition();
+
+        let first = tokio::spawn(with_store_composition(composition.clone(), async {
+            tokio::task::yield_now().await;
+            has_scoped_store_composition()
+        }));
+        let second = tokio::spawn(with_store_composition(composition, async {
+            tokio::task::yield_now().await;
+            has_scoped_store_composition()
+        }));
+
+        assert!(first.await.unwrap());
+        assert!(second.await.unwrap());
+        assert!(!has_scoped_store_composition());
     }
 }
