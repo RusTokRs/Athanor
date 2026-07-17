@@ -16,6 +16,8 @@ const INVENTORIED_SOURCE_FILES: &[&str] = &[
     "src/change_map.rs",
     "src/context.rs",
     "src/context_report.rs",
+    "src/docs.rs",
+    "src/generation.rs",
     "src/graph.rs",
     "src/index_runtime.rs",
     "src/pipeline.rs",
@@ -27,11 +29,17 @@ const INVENTORIED_SOURCE_FILES: &[&str] = &[
 
 const KNOWN_UNREGISTERED_PUBLIC_SCHEMAS: &[&str] = &[];
 const KNOWN_PERSISTED_SCHEMAS: &[&str] = &["athanor.project_registry_state.v1"];
-const KNOWN_GENERATED_SCHEMAS: &[&str] = &["athanor.validation_result.v1"];
+const KNOWN_GENERATED_SCHEMAS: &[&str] = &[
+    "athanor.generated_current.v1",
+    "athanor.generated_generation.v1",
+    "athanor.validation_result.v1",
+];
 const KNOWN_EMBEDDED_SCHEMAS: &[&str] = &[
+    "athanor.generation_metrics.v1",
     "athanor.index_metrics.v1",
     "athanor.index_report_metrics.v1",
 ];
+const KNOWN_INTERCHANGE_SCHEMAS: &[&str] = &["athanor.docs_patch.v1"];
 
 const MIGRATED_SHARED_SCHEMA_BUILDERS: &[(&str, &str)] = &[
     ("src/search.rs", "athanor.search.v1"),
@@ -55,12 +63,14 @@ fn known_schema_literals_are_registered_or_explicitly_classified() {
     let persisted = schema_set(KNOWN_PERSISTED_SCHEMAS);
     let generated = schema_set(KNOWN_GENERATED_SCHEMAS);
     let embedded = schema_set(KNOWN_EMBEDDED_SCHEMAS);
+    let interchange = schema_set(KNOWN_INTERCHANGE_SCHEMAS);
 
     for (label, schemas) in [
         ("public migration", &public_migration),
         ("persisted", &persisted),
         ("generated", &generated),
         ("embedded", &embedded),
+        ("interchange", &interchange),
     ] {
         for schema in schemas {
             validate_schema_id(schema).expect("classified schema ids must remain canonical");
@@ -71,7 +81,13 @@ fn known_schema_literals_are_registered_or_explicitly_classified() {
         }
     }
 
-    let classified_sets = [&public_migration, &persisted, &generated, &embedded];
+    let classified_sets = [
+        &public_migration,
+        &persisted,
+        &generated,
+        &embedded,
+        &interchange,
+    ];
     for (index, left) in classified_sets.iter().enumerate() {
         for right in classified_sets.iter().skip(index + 1) {
             assert!(
@@ -86,6 +102,7 @@ fn known_schema_literals_are_registered_or_explicitly_classified() {
     let mut observed_persisted = BTreeSet::new();
     let mut observed_generated = BTreeSet::new();
     let mut observed_embedded = BTreeSet::new();
+    let mut observed_interchange = BTreeSet::new();
 
     for relative_path in INVENTORIED_SOURCE_FILES {
         let path = manifest_dir.join(relative_path);
@@ -105,12 +122,16 @@ fn known_schema_literals_are_registered_or_explicitly_classified() {
             if embedded.contains(schema.as_str()) {
                 observed_embedded.insert(schema.clone());
             }
+            if interchange.contains(schema.as_str()) {
+                observed_interchange.insert(schema.clone());
+            }
             assert!(
                 registered.contains(schema.as_str())
                     || public_migration.contains(schema.as_str())
                     || persisted.contains(schema.as_str())
                     || generated.contains(schema.as_str())
-                    || embedded.contains(schema.as_str()),
+                    || embedded.contains(schema.as_str())
+                    || interchange.contains(schema.as_str()),
                 "schema `{schema}` in `{relative_path}` is neither registered nor explicitly classified"
             );
         }
@@ -124,6 +145,7 @@ fn known_schema_literals_are_registered_or_explicitly_classified() {
     assert_observed_matches("persisted", observed_persisted, persisted);
     assert_observed_matches("generated", observed_generated, generated);
     assert_observed_matches("embedded", observed_embedded, embedded);
+    assert_observed_matches("interchange", observed_interchange, interchange);
 }
 
 #[test]
