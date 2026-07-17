@@ -1,0 +1,17 @@
+{
+  "current_manifest": {
+    "schema": "athanor.adapter_manifest.v1",
+    "name": "fixture-plugin",
+    "version": "1.0.0",
+    "adapters": []
+  },
+  "current_trust_registry": {
+    "schema": "athanor.adapter_trust_registry.v2",
+    "trusted_plugins": []
+  },
+  "current_trust_report": {
+    "schema": "athanor.adapter_trust_report.v1",
+    "trust_path": "adapter-trust.json",
+    "plugins": []
+  }
+}
