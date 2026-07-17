@@ -11,6 +11,7 @@ const GRAPH_OPERATION_SOURCE: &str = include_str!("../src/graph_operation.rs");
 const RUSTOK_COMPOSITION_SOURCE: &str = include_str!("../src/rustok_composition_operation.rs");
 const APPLICATION_REPORT_COMPOSITION_SOURCE: &str =
     include_str!("../src/application_report_composition.rs");
+const BENCH_SOURCE: &str = include_str!("../src/bench.rs");
 const REPAIR_COMPOSITION_SOURCE: &str = include_str!("../src/repair_composition.rs");
 const APP_LIB_SOURCE: &str = include_str!("../src/lib.rs");
 const VALIDATE_CHANGED_SOURCE: &str = include_str!("../src/validate_changed.rs");
@@ -21,7 +22,6 @@ const API_SOURCE: &str = include_str!("../../../apps/ath/src/api_cli.rs");
 const DOCS_SOURCE: &str = include_str!("../../../apps/ath/src/docs_cli.rs");
 const INDEX_SOURCE: &str = include_str!("../../../apps/ath/src/index_cli.rs");
 const MCP_SOURCE: &str = include_str!("../../../apps/ath/src/mcp_cli.rs");
-const PROJECTION_CLI_SOURCE: &str = include_str!("../../../apps/ath/src/projection_cli.rs");
 const PROJECTS_SOURCE: &str = include_str!("../../../apps/ath/src/projects_cli.rs");
 const DIRECT_SEARCH_SOURCE: &str = include_str!("../../../apps/ath/src/direct_search_cli.rs");
 const DIRECT_CONTEXT_SOURCE: &str = include_str!("../../../apps/ath/src/direct_context_cli.rs");
@@ -137,21 +137,30 @@ fn rustok_operations_have_an_explicit_composition_path() {
 }
 
 #[test]
-fn application_reports_have_an_explicit_composition_path() {
-    assert!(APPLICATION_REPORT_COMPOSITION_SOURCE.contains(
-        "snapshot_api_contract_with_composition"
-    ));
-    assert!(APPLICATION_REPORT_COMPOSITION_SOURCE.contains(
-        "docs_propose_fix_with_composition"
-    ));
+fn application_and_docs_services_have_scoped_composition_paths() {
+    for operation in [
+        "snapshot_api_contract_with_composition",
+        "query_api_registry_with_composition",
+        "check_docs_with_composition",
+        "docs_drift_with_composition",
+        "docs_propose_fix_with_composition",
+        "docs_apply_patch_with_composition",
+    ] {
+        assert!(APPLICATION_REPORT_COMPOSITION_SOURCE.contains(operation));
+    }
     assert!(APPLICATION_REPORT_COMPOSITION_SOURCE.contains("with_store_composition"));
     assert!(APP_LIB_SOURCE.contains("pub mod application_report_composition"));
     assert!(API_SOURCE.contains("snapshot_api_contract_with_composition"));
-    assert!(DOCS_SOURCE.contains("docs_propose_fix_with_composition"));
-    assert!(API_SOURCE.contains("athanor_runtime_defaults::production()"));
-    assert!(DOCS_SOURCE.contains("athanor_runtime_defaults::production()"));
-    assert!(!API_SOURCE.contains("athanor_runtime_defaults::install()"));
-    assert!(!DOCS_SOURCE.contains("athanor_runtime_defaults::install()"));
+    assert!(API_SOURCE.contains("query_api_registry_with_composition"));
+    assert!(DOCS_SOURCE.contains("check_docs_with_composition"));
+    assert!(DOCS_SOURCE.contains("docs_apply_patch_with_composition"));
+}
+
+#[test]
+fn benchmark_has_a_direct_composition_path() {
+    assert!(BENCH_SOURCE.contains("benchmark_index_with_composition"));
+    assert!(BENCH_SOURCE.contains("index_project_with_composition"));
+    assert!(INDEX_SOURCE.contains("benchmark_index_with_composition"));
 }
 
 #[test]
@@ -199,7 +208,6 @@ fn cli_has_no_compatibility_includes_namespace_shadowing_or_legacy_root() {
         DOCS_SOURCE,
         INDEX_SOURCE,
         MCP_SOURCE,
-        PROJECTION_CLI_SOURCE,
         PROJECTS_SOURCE,
         DIRECT_READ_ROOT_SOURCE,
         DIRECT_READ_MODEL_SOURCE,
@@ -230,6 +238,7 @@ fn cli_has_no_compatibility_includes_namespace_shadowing_or_legacy_root() {
     assert!(!CLI_ENTRY_SOURCE.contains("main.rs"));
     assert!(!ROOT_COMMAND_SOURCE.contains("Command::Legacy"));
     assert!(!CLI_ENTRY_SOURCE.contains("direct_application_report_cli"));
+    assert!(!CLI_ENTRY_SOURCE.contains("projection_cli"));
     assert!(!CLI_ENTRY_SOURCE.contains("_bridge"));
 }
 
@@ -250,7 +259,6 @@ fn root_command_model_owns_every_command_family() {
         "Command::Index",
         "Command::Docs",
         "Command::Api",
-        "Command::Projection",
         "Command::Projects",
         "Command::Analysis",
         "Command::Mcp",
@@ -274,7 +282,6 @@ fn focused_cli_production_modules_remain_bounded() {
         ("docs", DOCS_SOURCE, 320),
         ("index", INDEX_SOURCE, 280),
         ("mcp", MCP_SOURCE, 80),
-        ("projection", PROJECTION_CLI_SOURCE, 120),
         ("projects", PROJECTS_SOURCE, 210),
         ("direct_read/model", DIRECT_READ_MODEL_SOURCE, 240),
         ("direct_read/operation", DIRECT_READ_OPERATION_SOURCE, 180),
