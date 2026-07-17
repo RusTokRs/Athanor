@@ -9,7 +9,7 @@ use clap::error::ErrorKind;
 use clap::{Parser, Subcommand, ValueEnum};
 
 use crate::direct_operation::{await_drained_operation, operation};
-use crate::legacy;
+use crate::render::graph;
 
 #[derive(Debug, Parser)]
 #[command(name = "ath", disable_version_flag = true)]
@@ -214,7 +214,7 @@ pub(crate) async fn run(command: Command) -> Result<()> {
             if json {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
-                legacy::print_related_graph_bridge(&report);
+                graph::print_related(&report);
             }
         }
         Command::Path {
@@ -245,7 +245,7 @@ pub(crate) async fn run(command: Command) -> Result<()> {
             if json {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
-                legacy::print_graph_path_bridge(&report);
+                graph::print_path(&report);
             }
         }
         Command::Hubs {
@@ -274,7 +274,7 @@ pub(crate) async fn run(command: Command) -> Result<()> {
             if json {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
-                legacy::print_graph_hubs_bridge(&report);
+                graph::print_hubs(&report);
             }
         }
         Command::Pagerank {
@@ -309,7 +309,7 @@ pub(crate) async fn run(command: Command) -> Result<()> {
             if json {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
-                legacy::print_graph_pagerank_bridge(&report);
+                graph::print_pagerank(&report);
             }
         }
         Command::Cycles {
@@ -338,7 +338,7 @@ pub(crate) async fn run(command: Command) -> Result<()> {
             if json {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
-                legacy::print_graph_cycles_bridge(&report);
+                graph::print_cycles(&report);
             }
         }
     }
@@ -367,12 +367,14 @@ mod tests {
             }
         ));
 
-        assert!(parse(&[
-            "graph".to_string(),
-            "ffa".to_string(),
-            "violations".to_string(),
-        ])
-        .unwrap()
-        .is_none());
+        assert!(
+            parse(&[
+                "graph".to_string(),
+                "ffa".to_string(),
+                "violations".to_string(),
+            ])
+            .unwrap()
+            .is_none()
+        );
     }
 }
