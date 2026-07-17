@@ -1,5 +1,6 @@
 //! Application services for Athanor.
 
+pub mod adapter_contract;
 pub mod api;
 pub mod api_registry;
 mod artifact_checksum;
@@ -155,6 +156,7 @@ pub mod projects {
     pub use crate::project_registry::*;
 }
 
+pub use adapter_contract::*;
 pub use api::*;
 pub use api_registry::*;
 pub use bench::*;
