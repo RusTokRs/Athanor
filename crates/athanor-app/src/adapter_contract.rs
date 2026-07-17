@@ -4,13 +4,20 @@
 //! The trust status report is a public application document. Legacy schema ids
 //! remain accepted only at read boundaries and are normalized before use.
 
+use std::collections::BTreeSet;
 use std::error::Error;
 use std::fmt;
 use std::path::PathBuf;
 
 use serde::Serialize;
+use serde_json::Value;
 
-use crate::json_contract::VersionedJsonContract;
+use crate::boundary_contract::{
+    BoundaryLifecycle, JsonBoundaryClass, NonPublicJsonContractDescriptor,
+};
+use crate::json_contract::{
+    JsonContractDescriptor, VersionedJsonContract, validate_schema_id,
+};
 use crate::runtime::{
     AdapterPluginManifest, AdapterTrustListOptions, AdapterTrustOptions, AdapterTrustRegistry,
     AdapterTrustReport, AdapterTrustStatus, list_adapter_plugin_trust, trust_adapter_plugin,
@@ -23,10 +30,42 @@ pub const ADAPTER_TRUST_REGISTRY_SCHEMA_V2: &str = "athanor.adapter_trust_regist
 pub const ADAPTER_TRUST_REGISTRY_SCHEMA_LEGACY_V2: &str = "athanor.adapter_trust.v2";
 pub const ADAPTER_TRUST_REPORT_SCHEMA_V1: &str = "athanor.adapter_trust_report.v1";
 
+pub const ADAPTER_NON_PUBLIC_JSON_CONTRACTS: &[NonPublicJsonContractDescriptor] = &[
+    NonPublicJsonContractDescriptor {
+        schema: ADAPTER_MANIFEST_SCHEMA_V1,
+        rust_owner: "AdapterPluginManifest",
+        class: JsonBoundaryClass::Interchange,
+        lifecycle: BoundaryLifecycle::Current,
+        required_fields: &["schema", "name", "adapters"],
+    },
+    NonPublicJsonContractDescriptor {
+        schema: ADAPTER_MANIFEST_SCHEMA_LEGACY,
+        rust_owner: "AdapterPluginManifest",
+        class: JsonBoundaryClass::Interchange,
+        lifecycle: BoundaryLifecycle::LegacyInput,
+        required_fields: &["schema"],
+    },
+    NonPublicJsonContractDescriptor {
+        schema: ADAPTER_TRUST_REGISTRY_SCHEMA_V2,
+        rust_owner: "AdapterTrustRegistry",
+        class: JsonBoundaryClass::Persisted,
+        lifecycle: BoundaryLifecycle::Current,
+        required_fields: &["schema", "trusted_plugins"],
+    },
+    NonPublicJsonContractDescriptor {
+        schema: ADAPTER_TRUST_REGISTRY_SCHEMA_LEGACY_V2,
+        rust_owner: "AdapterTrustRegistry",
+        class: JsonBoundaryClass::Persisted,
+        lifecycle: BoundaryLifecycle::LegacyInput,
+        required_fields: &["schema"],
+    },
+];
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AdapterContractError {
     UnsupportedManifestSchema(String),
     UnsupportedTrustRegistrySchema(String),
+    Inventory(String),
 }
 
 impl fmt::Display for AdapterContractError {
@@ -40,6 +79,7 @@ impl fmt::Display for AdapterContractError {
                 formatter,
                 "unsupported adapter trust registry schema `{schema}`; expected `{ADAPTER_TRUST_REGISTRY_SCHEMA_V2}`",
             ),
+            Self::Inventory(message) => formatter.write_str(message),
         }
     }
 }
@@ -83,6 +123,78 @@ pub fn normalize_adapter_trust_registry_schema(
             schema.to_string(),
         )),
     }
+}
+
+pub fn validate_adapter_contract_inventory(
+    public_contracts: &[JsonContractDescriptor],
+) -> Result<(), AdapterContractError> {
+    let public_schemas = public_contracts
+        .iter()
+        .map(|contract| contract.schema)
+        .collect::<BTreeSet<_>>();
+    let mut schemas = BTreeSet::new();
+
+    for descriptor in ADAPTER_NON_PUBLIC_JSON_CONTRACTS {
+        if descriptor.lifecycle == BoundaryLifecycle::Current {
+            validate_schema_id(descriptor.schema)
+                .map_err(|error| AdapterContractError::Inventory(error.to_string()))?;
+        } else if !descriptor.schema.starts_with("athanor.") {
+            return Err(AdapterContractError::Inventory(format!(
+                "legacy adapter schema {} is not an Athanor schema id",
+                descriptor.schema
+            )));
+        }
+        if public_schemas.contains(descriptor.schema) {
+            return Err(AdapterContractError::Inventory(format!(
+                "adapter non-public schema {} is also a public report",
+                descriptor.schema
+            )));
+        }
+        if !schemas.insert(descriptor.schema) {
+            return Err(AdapterContractError::Inventory(format!(
+                "duplicate adapter boundary schema {}",
+                descriptor.schema
+            )));
+        }
+        if descriptor.rust_owner.is_empty() || descriptor.required_fields.is_empty() {
+            return Err(AdapterContractError::Inventory(format!(
+                "adapter boundary schema {} has incomplete ownership metadata",
+                descriptor.schema
+            )));
+        }
+    }
+    Ok(())
+}
+
+pub fn validate_adapter_non_public_contract_value(
+    descriptor: &NonPublicJsonContractDescriptor,
+    value: &Value,
+) -> Result<(), AdapterContractError> {
+    let object = value.as_object().ok_or_else(|| {
+        AdapterContractError::Inventory(format!(
+            "{} document must be an object",
+            descriptor.schema
+        ))
+    })?;
+    let actual = object
+        .get("schema")
+        .and_then(Value::as_str)
+        .unwrap_or("<missing>");
+    if actual != descriptor.schema {
+        return Err(AdapterContractError::Inventory(format!(
+            "document schema {actual} does not match {}",
+            descriptor.schema
+        )));
+    }
+    for field in descriptor.required_fields {
+        if !object.contains_key(*field) {
+            return Err(AdapterContractError::Inventory(format!(
+                "{} document is missing required field {field}",
+                descriptor.schema
+            )));
+        }
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
