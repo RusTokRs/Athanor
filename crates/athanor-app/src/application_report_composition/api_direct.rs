@@ -101,21 +101,21 @@ pub(super) async fn registry(
             continue;
         }
         let mut handler = None;
-        let mut documentation = BTreeSet::new();
         for relation in &canonical.relations {
             if relation.kind == RelationKind::ImplementedBy
                 && relation.from == entity.id
                 && let Some(target) = entities_by_id.get(&relation.to)
             {
                 handler = Some(target.stable_key.0.clone());
+                break;
             }
+        }
+        let mut documentation = BTreeSet::new();
+        for relation in &canonical.relations {
             if relation.to == entity.id
-                && matches!(
-                    relation.kind,
-                    RelationKind::Documents
-                        | RelationKind::DocumentsApi
-                        | RelationKind::DocumentsOperation
-                )
+                && (relation.kind == RelationKind::Documents
+                    || relation.kind == RelationKind::DocumentsApi
+                    || relation.kind == RelationKind::DocumentsOperation)
                 && let Some(document) = entities_by_id.get(&relation.from)
             {
                 documentation.insert(document.stable_key.0.clone());
@@ -181,8 +181,10 @@ fn contract_items(entities: &[Entity], kind: EntityKind) -> Vec<ApiContractItem>
 fn write_immutable(path: &Path, content: &str) -> Result<bool> {
     match OpenOptions::new().write(true).create_new(true).open(path) {
         Ok(mut file) => {
-            file.write_all(content.as_bytes())?;
-            file.write_all(b"\n")?;
+            file.write_all(content.as_bytes())
+                .with_context(|| format!("failed to write {}", path.display()))?;
+            file.write_all(b"\n")
+                .with_context(|| format!("failed to finish {}", path.display()))?;
             Ok(true)
         }
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
