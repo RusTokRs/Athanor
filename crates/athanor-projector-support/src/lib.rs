@@ -5,6 +5,7 @@ use std::path::Path;
 use athanor_core::{CoreError, CoreResult};
 use athanor_domain::{Diagnostic, Entity, EntityId, Fact, Relation};
 use serde::{Deserialize, Serialize};
+use tracing::warn;
 
 #[derive(Debug)]
 pub struct NewDirectoryPublication {
@@ -198,7 +199,8 @@ pub fn publish_staged_directory(
             target.display()
         )));
     }
-    remove_path_if_exists(&backup)
+    cleanup_backup_after_publish(&backup, output_kind);
+    Ok(())
 }
 
 pub fn write_output_file(path: &Path, content: &str) -> CoreResult<()> {
@@ -249,7 +251,8 @@ pub fn replace_output_file(target: &Path, content: &str, output_kind: &str) -> C
             target.display()
         )));
     }
-    remove_path_if_exists(&backup)
+    cleanup_backup_after_publish(&backup, output_kind);
+    Ok(())
 }
 
 pub fn safe_filename(value: &str) -> String {
@@ -274,6 +277,17 @@ fn remove_path_if_exists(path: &Path) -> CoreResult<()> {
         fs::remove_file(path).map_err(io_error("remove output file", path))?;
     }
     Ok(())
+}
+
+fn cleanup_backup_after_publish(path: &Path, output_kind: &str) {
+    if let Err(error) = remove_path_if_exists(path) {
+        warn!(
+            backup = %path.display(),
+            error = %error,
+            output_kind,
+            "output was published but backup cleanup failed"
+        );
+    }
 }
 
 fn io_error<'a>(
