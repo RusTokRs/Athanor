@@ -20,7 +20,6 @@ async-trait.workspace = true
 athanor-app = { path = "../athanor-app" }
 athanor-core = { path = "../athanor-core" }
 athanor-domain = { path = "../athanor-domain" }
-athanor-runtime-defaults = { path = "../athanor-runtime-defaults" }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 tokio = { workspace = true, features = ["full"] }
