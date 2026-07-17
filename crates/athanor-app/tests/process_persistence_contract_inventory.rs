@@ -6,7 +6,7 @@ use athanor_app::{
     PROCESS_PROTOCOL_CONTRACTS, VERSIONED_JSON_CONTRACTS, validate_boundary_contract_inventory,
     validate_non_public_contract_value, validate_process_protocol_value,
 };
-use serde_json::Value;
+use serde_json::{Value, json};
 
 const FIXTURE: &str = include_str!("fixtures/boundary_contracts.v1.json");
 
@@ -58,6 +58,24 @@ fn non_public_json_boundaries_are_disjoint_and_fixture_protected() {
     assert_eq!(legacy_input, 5);
     assert_eq!(historical, 1);
     assert_eq!(documents.len(), current);
+}
+
+#[test]
+fn empty_index_state_may_omit_derived_generation() {
+    for schema in [
+        "athanor.index_state.v46",
+        "athanor.index_state.v46-js-ts-precision-v1",
+    ] {
+        let descriptor = NON_PUBLIC_JSON_CONTRACTS
+            .iter()
+            .find(|descriptor| descriptor.schema == schema)
+            .expect("index-state boundary descriptor");
+        validate_non_public_contract_value(
+            descriptor,
+            &json!({ "schema": schema, "snapshot": null, "files": {} }),
+        )
+        .expect("empty current index state may omit derived generation");
+    }
 }
 
 #[test]
@@ -125,6 +143,13 @@ fn inventory_schemas_and_process_framing_are_observable_in_runtime_sources() {
             descriptor.schema
         );
     }
+
+    let endpoint_reader = read_source(app_source(manifest_dir, "src/daemon_endpoint.rs"));
+    assert!(endpoint_reader.contains("DAEMON_ENDPOINT_SCHEMA_V2"));
+    assert!(
+        !endpoint_reader.contains("DAEMON_ENDPOINT_SCHEMA_V1"),
+        "historical daemon endpoint v1 unexpectedly became accepted input"
+    );
 
     let process_source = read_source(app_source(
         manifest_dir,
