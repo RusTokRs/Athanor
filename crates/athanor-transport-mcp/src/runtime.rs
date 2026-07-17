@@ -36,5 +36,7 @@ mod legacy {
 }
 
 mod lifecycle;
+pub mod transport_contract;
 
 pub use lifecycle::run_mcp_server;
+pub use transport_contract::*;

@@ -1,0 +1,65 @@
+{
+  "request": {
+    "jsonrpc": "2.0",
+    "id": 7,
+    "method": "tools/call",
+    "params": {
+      "name": "search",
+      "arguments": {
+        "query": "authentication",
+        "limit": 5
+      }
+    }
+  },
+  "success_response": {
+    "jsonrpc": "2.0",
+    "id": 7,
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"schema\":\"athanor.search.v1\",\"items\":[]}"
+        }
+      ]
+    }
+  },
+  "error_response": {
+    "jsonrpc": "2.0",
+    "id": 7,
+    "error": {
+      "code": -32603,
+      "message": "request deadline exceeded",
+      "data": {
+        "code": "deadline_exceeded",
+        "retryable": true
+      }
+    }
+  },
+  "tool_success": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"schema\":\"athanor.search.v1\",\"items\":[]}"
+      }
+    ]
+  },
+  "tool_error": {
+    "isError": true,
+    "content": [
+      {
+        "type": "text",
+        "text": "Error calling tool: invalid input"
+      }
+    ]
+  },
+  "initialize_result": {
+    "protocolVersion": "2024-11-05",
+    "capabilities": {
+      "tools": {}
+    },
+    "serverInfo": {
+      "name": "athanor",
+      "version": "0.1.0"
+    }
+  }
+}
