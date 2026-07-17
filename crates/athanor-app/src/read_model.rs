@@ -7,6 +7,7 @@ use athanor_core::CanonicalSnapshot;
 use athanor_domain::{EntityKind, GenerationId};
 use serde::Serialize;
 use serde_json::json;
+use tracing::warn;
 
 use crate::IndexPipelineOutput;
 
@@ -47,10 +48,14 @@ impl PreparedJsonlReadModel {
     }
 
     pub fn finalize(mut self) -> Result<JsonlReadModelReport> {
-        if let Some(backup) = self.backup.take() {
-            fs::remove_dir_all(&backup).with_context(|| {
-                format!("failed to remove read model backup {}", backup.display())
-            })?;
+        if let Some(backup) = self.backup.take()
+            && let Err(error) = fs::remove_dir_all(&backup)
+        {
+            warn!(
+                backup = %backup.display(),
+                error = %error,
+                "read model was published but backup cleanup failed"
+            );
         }
         Ok(self.report)
     }
