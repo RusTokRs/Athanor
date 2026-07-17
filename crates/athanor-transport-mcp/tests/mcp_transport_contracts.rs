@@ -1,12 +1,14 @@
 use std::collections::BTreeSet;
 
 use athanor_transport_mcp::{
-    JSON_RPC_VERSION, MCP_PROTOCOL_VERSION, MCP_TRANSPORT_CONTRACTS, validate_initialize_result,
+    DEFAULT_MAX_IN_FLIGHT_REQUESTS, DEFAULT_RESPONSE_QUEUE_CAPACITY, JSON_RPC_VERSION,
+    MCP_PROTOCOL_VERSION, MCP_TRANSPORT_CONTRACTS, validate_initialize_result,
     validate_json_rpc_request, validate_json_rpc_response, validate_tool_call_result,
 };
 use serde_json::Value;
 
 const LEGACY_RUNTIME_SOURCE: &str = include_str!("../src/lib.rs");
+const SERVER_SOURCE: &str = include_str!("../src/server.rs");
 const FIXTURE: &str = include_str!("fixtures/mcp_transport_contracts.v1.json");
 
 #[test]
@@ -52,6 +54,32 @@ fn mcp_transport_registry_is_unique_and_separate_from_athanor_schema_registry() 
         !LEGACY_RUNTIME_SOURCE.contains("athanor.mcp_"),
         "standard MCP envelopes must not acquire an Athanor schema id"
     );
+}
+
+#[test]
+fn active_mcp_server_is_bounded_and_reaps_request_tasks() {
+    assert!(DEFAULT_MAX_IN_FLIGHT_REQUESTS > 0);
+    assert!(DEFAULT_RESPONSE_QUEUE_CAPACITY > 0);
+    assert!(SERVER_SOURCE.contains("mpsc::channel::<String>"));
+    assert!(!SERVER_SOURCE.contains("unbounded_channel"));
+    assert!(SERVER_SOURCE.contains("requests.len() < limits.max_in_flight_requests"));
+    assert!(SERVER_SOURCE.contains("requests.join_next()"));
+    assert!(SERVER_SOURCE.contains("bounded_response_queue_applies_backpressure"));
+    assert!(SERVER_SOURCE.contains("completed_request_tasks_are_reaped"));
+}
+
+#[test]
+fn active_mcp_server_enforces_protocol_and_session_semantics() {
+    assert!(SERVER_SOURCE.contains("Some(JSON_RPC_VERSION)"));
+    assert!(SERVER_SOURCE.contains("McpSessionPhase::AwaitingInitialize"));
+    assert!(SERVER_SOURCE.contains("McpSessionPhase::AwaitingInitialized"));
+    assert!(SERVER_SOURCE.contains("McpSessionPhase::Ready"));
+    assert!(SERVER_SOURCE.contains("code: -32700"));
+    assert!(SERVER_SOURCE.contains("code: -32600"));
+    assert!(SERVER_SOURCE.contains("code: -32601"));
+    assert!(SERVER_SOURCE.contains("code: -32602"));
+    assert!(SERVER_SOURCE.contains("code: -32002"));
+    assert!(SERVER_SOURCE.contains("explicit_null_receives_response"));
 }
 
 #[test]
