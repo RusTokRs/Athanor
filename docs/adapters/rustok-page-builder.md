@@ -2,9 +2,8 @@
 id: doc://docs/adapters/rustok-page-builder.md
 kind: adapter
 language: en
-last_verified_snapshot: snap_jsonl_00000272
 source_language: en
-status: verified
+status: draft
 ---
 # RusTok Page Builder Adapter
 
@@ -26,7 +25,7 @@ Example RusTok manifest:
 
 ```json
 {
-  "schema": "athanor.adapter_manifest",
+  "schema": "athanor.adapter_manifest.v1",
   "name": "rustok-page-builder",
   "version": "0.1.0",
   "adapters": [
