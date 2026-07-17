@@ -1,6 +1,6 @@
 # Publication durability inventory
 
-Status: implementation in progress; execution evidence is pending.
+Status: implementation complete; execution evidence is pending.
 
 ## Invariant
 
@@ -43,6 +43,12 @@ Implemented in `publication_failure_semantics.rs`:
 - [x] an unpublished immutable candidate is removed by `Drop`;
 - [x] a target created after staging wins the race and the rejected candidate is removed.
 
+Implemented in `athanor-projector-support` unit tests:
+
+- [x] a deterministic `cfg(test)` fault hook injects backup cleanup failure after the commit rename;
+- [x] publication still returns success and exposes the new target;
+- [x] the previous target remains in backup for recovery and a warning is emitted.
+
 Implemented in `publication_recovery_matrix.rs`:
 
 - [x] failure while staging the second retention tombstone requires rollback of the first rename;
@@ -50,10 +56,9 @@ Implemented in `publication_recovery_matrix.rs`:
 - [x] complete, partial and conflicting cleanup-recovery states remain represented in the source matrix;
 - [x] recovery fails closed when live artifacts conflict with tombstones.
 
-Still required for `PUB-003`:
+Remaining verification work:
 
-- [ ] inject post-commit backup cleanup failure and prove that publication remains successful while emitting a warning;
-- [ ] execute the rollback, recovery and retention matrices against the same commit.
+- [ ] execute the rollback, post-commit cleanup, recovery and retention matrices against the same commit.
 
 ## Regression commands
 
