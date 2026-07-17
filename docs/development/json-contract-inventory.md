@@ -8,7 +8,7 @@ status: active
 
 This inventory records JSON documents that cross CLI, daemon, MCP, persisted-state, generated-artifact, interchange, or process-adapter boundaries. A document may enter `VERSIONED_JSON_CONTRACTS` only when one Rust type owns one top-level schema id and its current payload shape is protected by a regression fixture.
 
-Audit baseline: `main` at `92d15376b6e511433d512728720f180c936981f7`.
+Audit baseline: `main` at `bd740f52f128b1f7ca3fc98b7ae348f98826bab0`.
 
 ## Registered contracts
 
@@ -38,6 +38,15 @@ Audit baseline: `main` at `92d15376b6e511433d512728720f180c936981f7`.
 | `athanor.api_snapshot.v1` | `VersionedApiSnapshotReport` | direct CLI API snapshot summary | remaining-application golden plus direct help regression |
 | `athanor.api_contract_diff.v2` | `ApiContractDiff` | direct CLI diff plus persisted diff artifact | API golden |
 | `athanor.api_cleanup.v1` | `ApiCleanupReport` | direct CLI API retention cleanup | API golden |
+| `athanor.repair_inspect.v2` | `RepairInspectReport` | direct CLI repair inspection | Repair family golden |
+| `athanor.repair_cleanup.v2` | `RepairCleanupReport` | direct CLI legacy artifact cleanup | Repair family golden |
+| `athanor.repair_regenerate.v1` | `RepairRegenerateReport` | direct CLI generated-output repair | Repair family golden |
+| `athanor.repair_recover_canonical.v1` | `RepairRecoverCanonicalReport` | direct CLI canonical pointer recovery | Repair family golden |
+| `athanor.repair_apply.v2` | `RepairApplyReport` | direct CLI coordinated repair | Repair family golden |
+| `athanor.index_generation_cleanup.v1` | `IndexGenerationCleanupReport` | direct CLI transactional index retention | Repair family golden plus executable CLI regression |
+| `athanor.repair_recover_index.v1` | `RepairRecoverIndexReport` | direct CLI publication recovery | Repair family golden plus executable CLI regression |
+| `athanor.repair_recover_index_cleanup.v1` | `RepairRecoverIndexCleanupReport` | direct CLI cleanup-tombstone recovery | Repair family golden plus executable CLI regression |
+| `athanor.repair_canonical_latest.v1` | `RepairCanonicalLatestReport` | direct CLI backend latest repair | Repair family golden plus CLI help regression |
 | `athanor.wiki_report.v1` | `WikiReport` | application result and daemon Wiki job result | Wiki/HTML golden plus daemon parity regression |
 | `athanor.html_report.v1` | `HtmlReport` | application result and daemon HTML job result | Wiki/HTML golden plus daemon parity regression |
 | `athanor.graph_export.v1` | `GraphExport` | CLI/daemon/MCP read | second-wave golden |
@@ -70,25 +79,29 @@ Audit baseline: `main` at `92d15376b6e511433d512728720f180c936981f7`.
 
 ### Config reports
 
-`ConfigValidateReport` owns `athanor.config_validate.v1`. Its effective `ProjectConfig` remains flattened at the top level, while `schema` and `root` are additive fields. `ConfigDoctorReport` owns `athanor.config_doctor.v1` and preserves the existing `{ schema, root, config, checks }` shape with typed check entries.
-
-The direct CLI dispatcher routes both Config commands through the typed application functions. Human-readable output remains compatible. `apps/ath/tests/direct_config_cli.rs` protects the executable JSON shapes, help surface, and strict unknown-field failure path.
+`ConfigValidateReport` owns `athanor.config_validate.v1`; its effective config remains flattened. `ConfigDoctorReport` owns `athanor.config_doctor.v1` and preserves the existing `{ schema, root, config, checks }` shape. Direct CLI dispatch uses both typed owners.
 
 ### Documentation contracts
 
-`DocsCheckReport`, `DocsDriftReport`, and `DocsApplyPatchReport` remain direct public report owners. `DocsPatchProposal` remains a versioned interchange file under `athanor.docs_patch.v1`.
-
-`VersionedDocsProposeFixReport` now owns `athanor.docs_propose_fix.v1`. It adds only the top-level `schema` field and flattens the existing `{ proposal, path }` summary, so the proposal document and output path remain unchanged. The production entry dispatcher routes `ath docs propose-fix` through this wrapper.
+`DocsCheckReport`, `DocsDriftReport`, and `DocsApplyPatchReport` remain direct public owners. `DocsPatchProposal` remains a versioned interchange file under `athanor.docs_patch.v1`. `VersionedDocsProposeFixReport` owns `athanor.docs_propose_fix.v1`, adding only top-level `schema` around the existing flattened summary.
 
 ### API contracts
 
-`ApiContractDiff` owns `athanor.api_contract_diff.v2` for both the direct command result and persisted diff artifact. `ApiCleanupReport` owns `athanor.api_cleanup.v1`. Generated contract snapshots and latest pointers remain separate generated documents under `athanor.api_contract_snapshot.v2` and `athanor.api_contract_latest.v1`.
+`VersionedApiSnapshotReport` owns `athanor.api_snapshot.v1`, while generated immutable snapshots and latest pointers remain independent generated v2/v1 documents. `ApiContractDiff` and `ApiCleanupReport` retain their established public ownership.
 
-`VersionedApiSnapshotReport` now owns `athanor.api_snapshot.v1`. It adds only top-level `schema` and flattens the previous snapshot summary fields. `ath api snapshot` uses this wrapper while the generated immutable snapshot retains its independent v2 schema.
+### Repair reports and state
+
+Nine Repair report types are public top-level contracts. Existing CLI payloads already carried schemas, so registration adds ownership and validation without changing their shapes. Current public Inspect, Cleanup, and Apply reports use v2; Regenerate, canonical recovery, index recovery, cleanup recovery, index retention, and backend latest repair retain v1.
+
+`CanonicalRepairState`, `GeneratedRepairState`, `RepairIssue`, cleanup removal/retained rows, index cleanup rows, and cleanup tombstones are embedded fragments. They must not become independent registry owners.
+
+The source chain still contains historical internal v1 Inspect/Cleanup/Apply constructors. Public facade layers normalize those reports to the current v2 schema before returning them; the historical intermediate implementations are not external contracts.
+
+`athanor.index_current_publication.v1` is a persisted recovery journal, not a public report. Index-current pointers, immutable index state, read-model manifests, generated pointers, canonical manifests, and backend latest documents remain in the persisted/generated inventory package. Cleanup tombstones are a filesystem recovery protocol rather than JSON documents.
 
 ### Wiki and HTML reports
 
-`WikiReport` and `HtmlReport` own distinct public application schemas. App constructors set the schema, and daemon jobs serialize the complete typed report. Projector input documents remain separate generated boundaries.
+`WikiReport` and `HtmlReport` own distinct public application schemas. Daemon jobs serialize the complete typed reports. Projector input documents remain separate generated boundaries.
 
 ### Specialized RusTok owners
 
@@ -96,9 +109,9 @@ The architecture context has a dedicated owner. FFA, FBA, and Page Builder graph
 
 ## Classified non-public schemas
 
-- Persisted: `athanor.project_registry_state.v1`.
+- Persisted: `athanor.project_registry_state.v1`, `athanor.index_current_publication.v1`.
 - Generated: `athanor.validation_result.v1`, `athanor.generated_generation.v1`, `athanor.generated_current.v1`, `athanor.api_contract_snapshot.v2`, `athanor.api_contract_latest.v1`.
-- Embedded: `athanor.index_metrics.v1`, `athanor.index_report_metrics.v1`, `athanor.generation_metrics.v1`.
+- Embedded: `athanor.index_metrics.v1`, `athanor.index_report_metrics.v1`, `athanor.generation_metrics.v1`, plus schema-less Repair state/row/tombstone fragments.
 - Interchange: `athanor.docs_patch.v1`.
 
 The bounded public migration allowlist remains empty.
@@ -107,7 +120,7 @@ The bounded public migration allowlist remains empty.
 
 ### Remaining application outputs
 
-The remaining application pass covers Repair JSON reports and state. API Snapshot and Docs Propose Fix wrappers are no longer blockers.
+No known application-output blocker remains in the audited scope. New application reports must enter the shared registry with a fixture in the same change.
 
 ### Daemon and MCP envelopes
 
@@ -119,11 +132,11 @@ Extractor, linker, and checker process request/response documents require an exp
 
 ### Persisted and generated state
 
-Index state, publication journals, projector payloads/manifests, read-model manifests, repair journals/guards, and remaining pointer documents require a repository-wide persisted/generated pass.
+Index-current pointers, index state, publication journals, projector payloads/manifests, read-model manifests, repair guards, generated/canonical pointers, and remaining persisted documents require repository-wide enforcement.
 
 ## Enforcement implementation
 
-The legacy validation and owner implementations live in `json_contract_base.rs`; `json_contract.rs` is now the public facade and extends the canonical registry to 47 owners. `remaining_application_contracts.rs` and its golden fixture protect both additive wrappers. `remaining_application_contract_inventory.rs` verifies their registry ownership and schema literals. The production entry dispatcher routes only `api snapshot` and `docs propose-fix` through the new direct module, leaving unrelated API and Docs commands on the established dispatcher.
+The public facade registry now contains 56 owners. `repair_contract.rs` implements shared ownership for all nine Repair report types. `repair_contracts.rs` and its golden fixture protect the complete serialized family. `repair_contract_inventory.rs` verifies all public owners and fails if embedded repair types enter the registry. Existing executable Repair regressions protect transactional command schemas and failure behavior.
 
 Public, migration, persisted, generated, embedded, and interchange sets remain mutually exclusive.
 
