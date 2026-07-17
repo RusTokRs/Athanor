@@ -1,0 +1,35 @@
+{
+  "api_snapshot": {
+    "schema": "athanor.api_snapshot.v1",
+    "snapshot": "snap-api",
+    "path": "project/.athanor/api/snapshots/snap-api.json",
+    "created": true,
+    "endpoints": 3,
+    "schemas": 2,
+    "examples": 1
+  },
+  "docs_propose_fix": {
+    "schema": "athanor.docs_propose_fix.v1",
+    "proposal": {
+      "schema": "athanor.docs_patch.v1",
+      "id": "docs-patch-snap-docs",
+      "snapshot": "snap-docs",
+      "operations": [
+        {
+          "path": "docs/catalog.md",
+          "stable_key": "doc://docs/catalog.md",
+          "create": false,
+          "changes": [
+            {
+              "field": "last_verified_snapshot",
+              "old_value": "snap-old",
+              "new_value": "snap-docs",
+              "reason": "verified_against_older_snapshot"
+            }
+          ]
+        }
+      ]
+    },
+    "path": "project/.athanor/patches/docs/docs-patch-snap-docs.json"
+  }
+}
