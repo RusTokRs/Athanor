@@ -1,4 +1,5 @@
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
+use tracing_subscriber::{EnvFilter, fmt};
 
 mod analysis_cli;
 mod api_cli;
@@ -16,7 +17,6 @@ mod direct_validate_changed_cli;
 mod docs_cli;
 mod index_cli;
 mod mcp_cli;
-mod projection_cli;
 mod projects_cli;
 mod render;
 mod repair;
@@ -24,6 +24,17 @@ mod root_command;
 mod rustok_cli;
 
 fn main() -> Result<()> {
+    std::thread::Builder::new()
+        .name("athanor-cli".to_string())
+        .stack_size(8 * 1024 * 1024)
+        .spawn(run)
+        .context("failed to start Athanor CLI thread")?
+        .join()
+        .map_err(|_| anyhow!("Athanor CLI thread panicked"))?
+}
+
+fn run() -> Result<()> {
+    init_tracing();
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     match root_command::parse(&args)? {
         root_command::Command::Handled => Ok(()),
@@ -66,9 +77,6 @@ fn main() -> Result<()> {
         root_command::Command::Api(command) => {
             runtime("Athanor API contract runtime")?.block_on(api_cli::run(command))
         }
-        root_command::Command::Projection(command) => {
-            runtime("Athanor projection runtime")?.block_on(projection_cli::run(command))
-        }
         root_command::Command::Projects(command) => projects_cli::run(command),
         root_command::Command::Analysis(command) => {
             runtime("Athanor analysis runtime")?.block_on(analysis_cli::run(command))
@@ -84,4 +92,10 @@ fn runtime(label: &str) -> Result<tokio::runtime::Runtime> {
         .enable_all()
         .build()
         .with_context(|| format!("failed to start {label}"))
+}
+
+fn init_tracing() {
+    let filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    let _ = fmt().with_env_filter(filter).with_target(false).try_init();
 }
