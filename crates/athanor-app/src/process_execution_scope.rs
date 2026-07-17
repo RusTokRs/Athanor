@@ -53,14 +53,9 @@ pub(crate) async fn with_process_execution_context<T>(
 ) -> T {
     let context = ProcessExecutionContext {
         operation: Some(operation),
-        cancellation: cancellation.clone(),
+        cancellation,
     };
-    PROCESS_EXECUTION_CONTEXT
-        .scope(
-            Some(context),
-            crate::runtime::with_process_cancellation(cancellation, future),
-        )
-        .await
+    PROCESS_EXECUTION_CONTEXT.scope(Some(context), future).await
 }
 
 pub(crate) fn current_process_execution_context() -> ProcessExecutionContext {

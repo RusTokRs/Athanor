@@ -20,8 +20,7 @@ use crate::json_contract::{
 };
 use crate::runtime::{
     AdapterPluginManifest, AdapterTrustListOptions, AdapterTrustOptions, AdapterTrustRegistry,
-    AdapterTrustReport, AdapterTrustStatus, list_adapter_plugin_trust, trust_adapter_plugin,
-    untrust_adapter_plugin,
+    AdapterTrustStatus, list_adapter_plugin_trust, trust_adapter_plugin, untrust_adapter_plugin,
 };
 
 pub const ADAPTER_MANIFEST_SCHEMA_V1: &str = "athanor.adapter_manifest.v1";
@@ -204,16 +203,6 @@ pub struct VersionedAdapterTrustReport {
     pub plugins: Vec<AdapterTrustStatus>,
 }
 
-impl From<AdapterTrustReport> for VersionedAdapterTrustReport {
-    fn from(report: AdapterTrustReport) -> Self {
-        Self {
-            schema: ADAPTER_TRUST_REPORT_SCHEMA_V1.to_string(),
-            trust_path: report.trust_path,
-            plugins: report.plugins,
-        }
-    }
-}
-
 impl VersionedJsonContract for VersionedAdapterTrustReport {
     const SCHEMA: &'static str = ADAPTER_TRUST_REPORT_SCHEMA_V1;
 
@@ -225,19 +214,19 @@ impl VersionedJsonContract for VersionedAdapterTrustReport {
 pub fn list_adapter_plugin_trust_versioned(
     options: AdapterTrustListOptions,
 ) -> anyhow::Result<VersionedAdapterTrustReport> {
-    list_adapter_plugin_trust(options).map(Into::into)
+    list_adapter_plugin_trust(options)
 }
 
 pub fn trust_adapter_plugin_versioned(
     options: AdapterTrustOptions,
 ) -> anyhow::Result<VersionedAdapterTrustReport> {
-    trust_adapter_plugin(options).map(Into::into)
+    trust_adapter_plugin(options)
 }
 
 pub fn untrust_adapter_plugin_versioned(
     options: AdapterTrustOptions,
 ) -> anyhow::Result<VersionedAdapterTrustReport> {
-    untrust_adapter_plugin(options).map(Into::into)
+    untrust_adapter_plugin(options)
 }
 
 #[cfg(test)]
@@ -268,13 +257,12 @@ mod tests {
     }
 
     #[test]
-    fn trust_report_conversion_replaces_legacy_shared_schema() {
-        let report = VersionedAdapterTrustReport::from(AdapterTrustReport {
-            schema: ADAPTER_TRUST_REGISTRY_SCHEMA_LEGACY_V2.to_string(),
+    fn public_trust_report_has_only_the_current_schema() {
+        let report = VersionedAdapterTrustReport {
+            schema: ADAPTER_TRUST_REPORT_SCHEMA_V1.to_string(),
             trust_path: PathBuf::from("adapter-trust.json"),
             plugins: Vec::new(),
-        });
-        assert_eq!(report.schema, ADAPTER_TRUST_REPORT_SCHEMA_V1);
+        };
         report.validate_contract().unwrap();
     }
 }
