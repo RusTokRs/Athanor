@@ -4,6 +4,7 @@ mod direct_application_report_cli;
 mod direct_check_cli;
 mod direct_config_cli;
 mod direct_context_cli;
+mod direct_generation_cli;
 mod direct_graph_cli;
 mod direct_operation;
 mod direct_read_cli;
@@ -131,6 +132,10 @@ fn main() -> Result<()> {
     if let Some(command) = direct_application_report_cli::parse(&args)? {
         return runtime("Athanor versioned application report runtime")?
             .block_on(direct_application_report_cli::run(command));
+    }
+    if let Some(command) = direct_generation_cli::parse(&args)? {
+        return runtime("Athanor direct generation report runtime")?
+            .block_on(direct_generation_cli::run(command));
     }
     if let Some(command) = direct_config_cli::parse(&args)? {
         return direct_config_cli::run(command);
