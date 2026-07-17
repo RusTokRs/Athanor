@@ -31,7 +31,7 @@ pub(crate) enum Command {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum HelpTopic {
+pub(crate) enum HelpTopic {
     Repair,
     IndexRetention,
     RecoverIndex,
