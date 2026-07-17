@@ -16,7 +16,6 @@ pub(crate) enum Command {
     Index(crate::index_cli::Command),
     Docs(crate::docs_cli::Command),
     Api(crate::api_cli::Command),
-    Projection(crate::projection_cli::Command),
     Projects(crate::projects_cli::Command),
     Analysis(crate::analysis_cli::Command),
     Mcp(crate::mcp_cli::Command),
@@ -79,9 +78,6 @@ pub(crate) fn parse(args: &[String]) -> Result<Command> {
     }
     if let Some(command) = crate::api_cli::parse(args)? {
         return Ok(Command::Api(command));
-    }
-    if let Some(command) = crate::projection_cli::parse(args)? {
-        return Ok(Command::Projection(command));
     }
     if let Some(command) = crate::projects_cli::parse(args)? {
         return Ok(Command::Projects(command));
