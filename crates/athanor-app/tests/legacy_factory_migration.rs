@@ -137,7 +137,7 @@ fn rustok_operations_have_an_explicit_composition_path() {
 }
 
 #[test]
-fn application_and_docs_services_have_scoped_composition_paths() {
+fn application_and_docs_services_have_composition_paths() {
     for operation in [
         "snapshot_api_contract_with_composition",
         "query_api_registry_with_composition",
@@ -148,6 +148,8 @@ fn application_and_docs_services_have_scoped_composition_paths() {
     ] {
         assert!(APPLICATION_REPORT_COMPOSITION_SOURCE.contains(operation));
     }
+    assert!(APPLICATION_REPORT_COMPOSITION_SOURCE.contains("api_direct::snapshot"));
+    assert!(APPLICATION_REPORT_COMPOSITION_SOURCE.contains("api_direct::registry"));
     assert!(APPLICATION_REPORT_COMPOSITION_SOURCE.contains("with_store_composition"));
     assert!(APP_LIB_SOURCE.contains("pub mod application_report_composition"));
     assert!(API_SOURCE.contains("snapshot_api_contract_with_composition"));
@@ -164,14 +166,16 @@ fn benchmark_has_a_direct_composition_path() {
 }
 
 #[test]
-fn repair_operations_have_an_explicit_composition_path() {
+fn repair_operations_have_a_direct_composition_path() {
     assert!(REPAIR_COMPOSITION_SOURCE.contains(
         "recover_index_publication_with_composition"
     ));
     assert!(REPAIR_COMPOSITION_SOURCE.contains(
         "repair_canonical_latest_with_composition"
     ));
-    assert!(REPAIR_COMPOSITION_SOURCE.contains("with_store_composition"));
+    assert!(REPAIR_COMPOSITION_SOURCE.contains("direct::recover_index"));
+    assert!(REPAIR_COMPOSITION_SOURCE.contains("direct::repair_latest"));
+    assert!(!REPAIR_COMPOSITION_SOURCE.contains("with_store_composition"));
     assert!(APP_LIB_SOURCE.contains("pub mod repair_composition"));
 }
 
