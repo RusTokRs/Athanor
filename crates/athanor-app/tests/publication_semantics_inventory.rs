@@ -12,6 +12,10 @@ const READ_MODEL: &str = include_str!("../src/read_model.rs");
 const INDEX_STATE: &str = include_str!("../src/index_state.rs");
 const PROJECT_REGISTRY: &str = include_str!("../src/project_registry.rs");
 const PUBLICATION_JOURNAL: &str = include_str!("../src/index_publication_journal.rs");
+const JSONL_POINTER: &str =
+    include_str!("../../athanor-store-jsonl/src/pointer_publication.rs");
+const JSONL_LIB: &str = include_str!("../../athanor-store-jsonl/src/lib.rs");
+const JSONL_STORE: &str = include_str!("../../athanor-store-jsonl/src/store.rs");
 
 #[test]
 fn inventory_covers_every_confirmed_publication_owner() {
@@ -22,13 +26,12 @@ fn inventory_covers_every_confirmed_publication_owner() {
         "athanor-runtime-defaults/projector_operation.rs",
         "athanor-search-tantivy",
         "athanor-store-jsonl/atomic_publication.rs",
+        "athanor-store-jsonl/pointer_publication.rs",
         "athanor-app/index_publication.rs",
         "athanor-app/read_model.rs",
         "athanor-app/index_state.rs",
         "athanor-app/project_registry.rs",
         "athanor-app/index_publication_journal.rs",
-        "athanor-store-jsonl/lib.rs",
-        "athanor-store-jsonl/store.rs",
         "athanor-app/repair_retention.rs",
         "athanor-app/repair_cleanup_recovery.rs",
         "apps/athd",
@@ -94,6 +97,20 @@ fn app_publication_cleanup_is_non_fatal_after_commit() {
             "post-commit cleanup still propagates `{legacy_error}`"
         );
     }
+}
+
+#[test]
+fn jsonl_pointer_cleanup_is_shared_and_non_fatal_after_commit() {
+    assert!(JSONL_POINTER.contains("cleanup_backup_after_commit"));
+    assert!(JSONL_POINTER.contains("was published but backup cleanup failed"));
+    assert!(JSONL_POINTER.contains(
+        "post_commit_cleanup_failure_keeps_new_pointer_published"
+    ));
+    assert!(JSONL_POINTER.contains("existing target is not a file"));
+    assert!(!JSONL_POINTER.contains("failed to remove previous latest pointer"));
+    assert!(!JSONL_POINTER.contains("failed to remove previous latest identity"));
+    assert!(!JSONL_LIB.contains("include!("));
+    assert!(!JSONL_STORE.contains("include!("));
 }
 
 #[test]
