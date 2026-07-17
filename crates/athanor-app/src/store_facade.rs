@@ -10,8 +10,9 @@ use std::sync::OnceLock;
 use anyhow::Result;
 
 use crate::config::ProjectConfig;
-use crate::legacy_factory::{install_once, require_installed};
-use crate::{LegacyFactoryInstallError, LegacyFactoryUnavailableError};
+use crate::legacy_factory::{
+    LegacyFactoryInstallError, LegacyFactoryUnavailableError, install_once, require_installed,
+};
 
 #[path = "store.rs"]
 mod legacy;
@@ -28,7 +29,6 @@ pub fn try_install_store_factory(
     Ok(())
 }
 
-#[deprecated(note = "use RuntimeComposition or try_install_store_factory")]
 pub fn install_store_factory(factory: StoreFactory) {
     try_install_store_factory(factory)
         .expect("conflicting legacy store factory installation");
