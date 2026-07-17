@@ -86,7 +86,11 @@ pub(crate) fn start_index(
                         files_indexed = report.files_indexed,
                         "daemon index job completed"
                     );
-                    finish_serialized_report(&job_state, &job_id_for_task, &report);
+                    finish_serialization_result(
+                        &job_state,
+                        &job_id_for_task,
+                        index_job_result(&report),
+                    );
                 }
                 Err(error) => {
                     let _ = finish_cancellable_error(&job_state, &job_id_for_task, error);
@@ -170,7 +174,11 @@ pub(crate) fn start_generate(
                         snapshot = %report.snapshot,
                         "daemon generate job completed"
                     );
-                    finish_serialized_report(&job_state, &job_id_for_task, &report);
+                    finish_serialization_result(
+                        &job_state,
+                        &job_id_for_task,
+                        generation_job_result(&report),
+                    );
                 }
                 Err(error) => {
                     let _ = finish_cancellable_error(&job_state, &job_id_for_task, error);
@@ -252,7 +260,11 @@ pub(crate) fn start_html_report(
                         output = %report.output_dir.display(),
                         "daemon HTML report job completed"
                     );
-                    finish_serialized_report(&job_state, &job_id_for_task, &report);
+                    finish_serialization_result(
+                        &job_state,
+                        &job_id_for_task,
+                        html_report_job_result(&report),
+                    );
                 }
                 Err(error) => {
                     let _ = finish_cancellable_error(&job_state, &job_id_for_task, error);
@@ -334,7 +346,11 @@ pub(crate) fn start_wiki(
                         output = %report.output_dir.display(),
                         "daemon wiki job completed"
                     );
-                    finish_serialized_report(&job_state, &job_id_for_task, &report);
+                    finish_serialization_result(
+                        &job_state,
+                        &job_id_for_task,
+                        wiki_job_result(&report),
+                    );
                 }
                 Err(error) => {
                     let _ = finish_cancellable_error(&job_state, &job_id_for_task, error);
@@ -361,12 +377,12 @@ fn serialize_job_result<T: Serialize>(report: &T) -> Result<serde_json::Value> {
     serde_json::to_value(report).map_err(anyhow::Error::from)
 }
 
-fn finish_serialized_report<T: Serialize>(
+fn finish_serialization_result(
     state: &DaemonState,
     job_id: &str,
-    report: &T,
+    result: Result<serde_json::Value>,
 ) {
-    match serialize_job_result(report) {
+    match result {
         Ok(result) => {
             let _ = finish(
                 state,
