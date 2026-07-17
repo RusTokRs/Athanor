@@ -3,8 +3,9 @@ use std::path::PathBuf;
 use anyhow::{Context, Result, bail};
 use athanor_app::{
     DocsApplyPatchOptions, DocsApplyPatchReport, DocsCheckOptions, DocsCheckReport, DocsDriftOptions,
-    DocsDriftReport, OperationsDocsCheckOptions, OperationsDocsCheckReport, check_docs,
-    check_operations_docs_with_composition, docs_apply_patch, docs_drift,
+    DocsDriftReport, DocsProposeFixOptions, OperationsDocsCheckOptions, OperationsDocsCheckReport,
+    VersionedDocsProposeFixReport, check_docs, check_operations_docs_with_composition,
+    docs_apply_patch, docs_drift,
 };
 use clap::error::ErrorKind;
 use clap::{Parser, Subcommand};
@@ -40,6 +41,14 @@ pub(crate) enum Command {
         #[arg(long)]
         json: bool,
     },
+    ProposeFix {
+        #[arg(long, default_value = ".")]
+        path: PathBuf,
+        #[arg(long)]
+        output: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
     ApplyPatch {
         patch: String,
         #[arg(long, default_value = ".")]
@@ -64,13 +73,7 @@ pub(crate) enum OperationsCommand {
 }
 
 pub(crate) fn parse(args: &[String]) -> Result<Option<Command>> {
-    let selected = matches!(
-        args.get(0..2),
-        Some([root, command])
-            if root == "docs"
-                && matches!(command.as_str(), "check" | "drift" | "apply-patch" | "operations")
-    );
-    if !selected {
+    if args.first().map(String::as_str) != Some("docs") {
         return Ok(None);
     }
     let argv = std::iter::once("ath".to_string())
@@ -100,6 +103,16 @@ pub(crate) async fn run(command: Command) -> Result<()> {
         Command::Drift { path, json } => {
             let report = docs_drift(DocsDriftOptions { root: path }).await?;
             render_drift(&report, json)?;
+        }
+        Command::ProposeFix { path, output, json } => {
+            let composition = athanor_runtime_defaults::production();
+            let report = athanor_app::docs_propose_fix_with_composition(
+                DocsProposeFixOptions { root: path, output },
+                &composition,
+            )
+            .await?;
+            let report = VersionedDocsProposeFixReport::from(report);
+            render_proposal(&report, json)?;
         }
         Command::ApplyPatch { patch, path, json } => {
             let report = docs_apply_patch(DocsApplyPatchOptions { root: path, patch }).await?;
@@ -173,6 +186,38 @@ fn render_drift(report: &DocsDriftReport, json: bool) -> Result<()> {
             document.path,
             document.verified_snapshot.as_deref().unwrap_or("never")
         );
+    }
+    Ok(())
+}
+
+fn render_proposal(report: &VersionedDocsProposeFixReport, json: bool) -> Result<()> {
+    if json {
+        println!("{}", serde_json::to_string_pretty(report)?);
+        return Ok(());
+    }
+    let report = &report.report;
+    let changes = report
+        .proposal
+        .operations
+        .iter()
+        .map(|operation| operation.changes.len())
+        .sum::<usize>();
+    println!(
+        "created docs patch {} for snapshot {}: {} files, {} frontmatter changes",
+        report.proposal.id,
+        report.proposal.snapshot,
+        report.proposal.operations.len(),
+        changes
+    );
+    println!("wrote patch proposal to {}", report.path.display());
+    for operation in &report.proposal.operations {
+        println!("{} ({})", operation.path, operation.stable_key);
+        if operation.create {
+            println!("  create file");
+        }
+        for change in &operation.changes {
+            println!("  set {} = {}", change.field, change.new_value);
+        }
     }
     Ok(())
 }
