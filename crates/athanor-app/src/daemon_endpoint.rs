@@ -2,6 +2,7 @@ use std::fs;
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
+use athanor_projector_support::replace_output_file;
 
 use crate::daemon::{
     DAEMON_ENDPOINT_SCHEMA, DAEMON_ENDPOINT_SCHEMA_V2, DAEMON_PROTOCOL_VERSION,
@@ -28,15 +29,7 @@ pub(super) fn read(path: &Path) -> Result<DaemonEndpoint> {
 }
 
 pub(super) fn write(path: &Path, endpoint: &DaemonEndpoint) -> Result<()> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| anyhow::anyhow!("daemon endpoint has no parent"))?;
-    let staging = parent.join(format!(".endpoint.json.tmp-{}", std::process::id()));
     let content = serde_json::to_string_pretty(endpoint)?;
-    fs::write(&staging, format!("{content}\n"))
-        .with_context(|| format!("failed to write {}", staging.display()))?;
-    if path.exists() {
-        fs::remove_file(path).with_context(|| format!("failed to replace {}", path.display()))?;
-    }
-    fs::rename(&staging, path).with_context(|| format!("failed to publish {}", path.display()))
+    replace_output_file(path, &format!("{content}\n"), "daemon endpoint")
+        .map_err(anyhow::Error::new)
 }
