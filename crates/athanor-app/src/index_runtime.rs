@@ -6,7 +6,8 @@ use anyhow::{Context, Result};
 use athanor_core::{CanonicalSnapshotStore, CoreError, KnowledgeStore, OperationContext};
 use athanor_domain::{RepoId, SnapshotBase, SnapshotId};
 use fs2::FileExt;
-use serde::Serialize;
+use serde::ser::SerializeStruct;
+use serde::{Serialize, Serializer};
 
 use crate::hash::stable_hash;
 use crate::index_publication::{
@@ -28,7 +29,7 @@ pub struct IndexOptions {
     pub validate_only: bool,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct IndexReport {
     pub root: PathBuf,
     pub snapshot: String,
@@ -43,8 +44,31 @@ pub struct IndexReport {
     pub metrics: IndexReportMetrics,
 }
 
+pub const INDEX_REPORT_SCHEMA: &str = "athanor.index_report.v1";
 pub const VALIDATION_RESULT_SCHEMA: &str = "athanor.validation_result.v1";
 pub const INDEX_REPORT_METRICS_SCHEMA: &str = "athanor.index_report_metrics.v1";
+
+impl Serialize for IndexReport {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut report = serializer.serialize_struct("IndexReport", 12)?;
+        report.serialize_field("schema", INDEX_REPORT_SCHEMA)?;
+        report.serialize_field("root", &self.root)?;
+        report.serialize_field("snapshot", &self.snapshot)?;
+        report.serialize_field("files_indexed", &self.files_indexed)?;
+        report.serialize_field("output_dir", &self.output_dir)?;
+        report.serialize_field("changed_files", &self.changed_files)?;
+        report.serialize_field("unchanged_files", &self.unchanged_files)?;
+        report.serialize_field("removed_files", &self.removed_files)?;
+        report.serialize_field("validation_report", &self.validation_report)?;
+        report.serialize_field("validation_result", &self.validation_result)?;
+        report.serialize_field("validate_only", &self.validate_only)?;
+        report.serialize_field("metrics", &self.metrics)?;
+        report.end()
+    }
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct IndexReportMetrics {
