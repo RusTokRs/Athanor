@@ -26,6 +26,8 @@ pub const INDEX_REPORT_SCHEMA_V1: &str = crate::index::INDEX_REPORT_SCHEMA;
 pub const INDEX_BENCHMARK_SCHEMA_V1: &str = crate::bench::INDEX_BENCHMARK_SCHEMA;
 pub const CHANGED_VALIDATION_SCHEMA_V1: &str = crate::validate_changed::CHANGED_VALIDATION_SCHEMA;
 pub const GENERATION_SCHEMA_V1: &str = "athanor.generation.v1";
+pub const CONFIG_VALIDATE_SCHEMA_V1: &str = crate::config::CONFIG_VALIDATE_SCHEMA;
+pub const CONFIG_DOCTOR_SCHEMA_V1: &str = crate::config::CONFIG_DOCTOR_SCHEMA;
 pub const DOCS_CHECK_SCHEMA_V1: &str = crate::docs::DOCS_CHECK_SCHEMA;
 pub const DOCS_DRIFT_SCHEMA_V1: &str = crate::docs::DOCS_DRIFT_SCHEMA;
 pub const DOCS_APPLY_PATCH_SCHEMA_V1: &str = "athanor.docs_apply_patch.v1";
@@ -98,6 +100,8 @@ pub const VERSIONED_JSON_CONTRACTS: &[JsonContractDescriptor] = &[
     descriptor!(INDEX_BENCHMARK_SCHEMA_V1, "BenchmarkReport"),
     descriptor!(CHANGED_VALIDATION_SCHEMA_V1, "ChangedValidationReport"),
     descriptor!(GENERATION_SCHEMA_V1, "GenerationReport"),
+    descriptor!(CONFIG_VALIDATE_SCHEMA_V1, "ConfigValidateReport"),
+    descriptor!(CONFIG_DOCTOR_SCHEMA_V1, "ConfigDoctorReport"),
     descriptor!(DOCS_CHECK_SCHEMA_V1, "DocsCheckReport"),
     descriptor!(DOCS_DRIFT_SCHEMA_V1, "DocsDriftReport"),
     descriptor!(DOCS_APPLY_PATCH_SCHEMA_V1, "DocsApplyPatchReport"),
@@ -220,6 +224,8 @@ impl_static_schema_contract!(
     CHANGED_VALIDATION_SCHEMA_V1
 );
 impl_static_schema_contract!(crate::generation::GenerationReport, GENERATION_SCHEMA_V1);
+impl_static_schema_contract!(crate::config::ConfigValidateReport, CONFIG_VALIDATE_SCHEMA_V1);
+impl_static_schema_contract!(crate::config::ConfigDoctorReport, CONFIG_DOCTOR_SCHEMA_V1);
 impl_owned_schema_contract!(crate::docs::DocsCheckReport, DOCS_CHECK_SCHEMA_V1);
 impl_owned_schema_contract!(crate::docs::DocsDriftReport, DOCS_DRIFT_SCHEMA_V1);
 impl_owned_schema_contract!(crate::docs::DocsApplyPatchReport, DOCS_APPLY_PATCH_SCHEMA_V1);
@@ -504,7 +510,7 @@ mod tests {
     #[test]
     fn registry_contains_unique_valid_schema_and_type_owners() {
         assert_eq!(validate_contract_registry(VERSIONED_JSON_CONTRACTS), Ok(()));
-        assert_eq!(VERSIONED_JSON_CONTRACTS.len(), 43);
+        assert_eq!(VERSIONED_JSON_CONTRACTS.len(), 45);
         assert_eq!(crate::overview::OVERVIEW_SCHEMA, OVERVIEW_SCHEMA_V1);
         assert_eq!(crate::coverage::COVERAGE_REPORT_SCHEMA, COVERAGE_SCHEMA_V1);
         assert_eq!(
@@ -517,6 +523,8 @@ mod tests {
             crate::validate_changed::CHANGED_VALIDATION_SCHEMA,
             CHANGED_VALIDATION_SCHEMA_V1
         );
+        assert_eq!(crate::config::CONFIG_VALIDATE_SCHEMA, CONFIG_VALIDATE_SCHEMA_V1);
+        assert_eq!(crate::config::CONFIG_DOCTOR_SCHEMA, CONFIG_DOCTOR_SCHEMA_V1);
         assert_eq!(crate::docs::DOCS_CHECK_SCHEMA, DOCS_CHECK_SCHEMA_V1);
         assert_eq!(crate::docs::DOCS_DRIFT_SCHEMA, DOCS_DRIFT_SCHEMA_V1);
         assert_eq!(crate::api::API_CONTRACT_DIFF_SCHEMA, API_CONTRACT_DIFF_SCHEMA_V2);
