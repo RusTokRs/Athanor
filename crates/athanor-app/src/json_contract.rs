@@ -33,6 +33,10 @@ pub const CAPABILITIES_SCHEMA_V1: &str = "athanor.capabilities.v1";
 pub const CHANGE_MAP_SCHEMA_V1: &str = "athanor.change_map.v1";
 /// Stable schema identifier for task-focused context reports.
 pub const CONTEXT_PACK_SCHEMA_V1: &str = "athanor.context_pack.v1";
+/// Stable schema identifier for index benchmark reports.
+pub const INDEX_BENCHMARK_SCHEMA_V1: &str = crate::bench::INDEX_BENCHMARK_SCHEMA;
+/// Stable schema identifier for changed-file validation reports.
+pub const CHANGED_VALIDATION_SCHEMA_V1: &str = crate::validate_changed::CHANGED_VALIDATION_SCHEMA;
 /// Stable schema identifier for graph export reports.
 pub const GRAPH_EXPORT_SCHEMA_V1: &str = crate::graph::GRAPH_EXPORT_SCHEMA;
 /// Stable schema identifier for graph related-entity reports.
@@ -140,6 +144,14 @@ pub const VERSIONED_JSON_CONTRACTS: &[JsonContractDescriptor] = &[
     JsonContractDescriptor {
         schema: CONTEXT_PACK_SCHEMA_V1,
         rust_type: "ContextReport",
+    },
+    JsonContractDescriptor {
+        schema: INDEX_BENCHMARK_SCHEMA_V1,
+        rust_type: "BenchmarkReport",
+    },
+    JsonContractDescriptor {
+        schema: CHANGED_VALIDATION_SCHEMA_V1,
+        rust_type: "ChangedValidationReport",
     },
     JsonContractDescriptor {
         schema: GRAPH_EXPORT_SCHEMA_V1,
@@ -264,6 +276,18 @@ macro_rules! impl_owned_schema_contract {
     };
 }
 
+macro_rules! impl_static_schema_contract {
+    ($type:path, $schema:ident) => {
+        impl VersionedJsonContract for $type {
+            const SCHEMA: &'static str = $schema;
+
+            fn schema(&self) -> &str {
+                self.schema
+            }
+        }
+    };
+}
+
 macro_rules! impl_transparent_schema_contract {
     ($type:path, $schema:ident) => {
         impl VersionedJsonContract for $type {
@@ -294,6 +318,11 @@ impl_owned_schema_contract!(
 );
 impl_owned_schema_contract!(crate::change_map::ChangeMapReport, CHANGE_MAP_SCHEMA_V1);
 impl_owned_schema_contract!(crate::context_report::ContextReport, CONTEXT_PACK_SCHEMA_V1);
+impl_static_schema_contract!(crate::bench::BenchmarkReport, INDEX_BENCHMARK_SCHEMA_V1);
+impl_static_schema_contract!(
+    crate::validate_changed::ChangedValidationReport,
+    CHANGED_VALIDATION_SCHEMA_V1
+);
 impl_owned_schema_contract!(crate::graph::GraphExport, GRAPH_EXPORT_SCHEMA_V1);
 impl_owned_schema_contract!(crate::graph::GraphRelated, GRAPH_RELATED_SCHEMA_V1);
 impl_owned_schema_contract!(crate::graph::GraphPath, GRAPH_PATH_SCHEMA_V1);
@@ -354,22 +383,8 @@ impl_owned_schema_contract!(
     crate::project_registry::ProjectResolutionReport,
     PROJECT_RESOLUTION_SCHEMA_V1
 );
-
-impl VersionedJsonContract for crate::coverage::CoverageReport {
-    const SCHEMA: &'static str = COVERAGE_SCHEMA_V1;
-
-    fn schema(&self) -> &str {
-        self.schema
-    }
-}
-
-impl VersionedJsonContract for crate::capabilities::CapabilitiesReport {
-    const SCHEMA: &'static str = CAPABILITIES_SCHEMA_V1;
-
-    fn schema(&self) -> &str {
-        self.schema
-    }
-}
+impl_static_schema_contract!(crate::coverage::CoverageReport, COVERAGE_SCHEMA_V1);
+impl_static_schema_contract!(crate::capabilities::CapabilitiesReport, CAPABILITIES_SCHEMA_V1);
 
 /// Validates an Athanor schema id and returns its positive major version.
 ///
@@ -595,12 +610,17 @@ mod tests {
     #[test]
     fn registry_contains_unique_valid_schema_and_type_owners() {
         assert_eq!(validate_contract_registry(VERSIONED_JSON_CONTRACTS), Ok(()));
-        assert_eq!(VERSIONED_JSON_CONTRACTS.len(), 32);
+        assert_eq!(VERSIONED_JSON_CONTRACTS.len(), 34);
         assert_eq!(crate::overview::OVERVIEW_SCHEMA, OVERVIEW_SCHEMA_V1);
         assert_eq!(crate::coverage::COVERAGE_REPORT_SCHEMA, COVERAGE_SCHEMA_V1);
         assert_eq!(
             crate::capabilities::CAPABILITIES_REPORT_SCHEMA,
             CAPABILITIES_SCHEMA_V1
+        );
+        assert_eq!(crate::bench::INDEX_BENCHMARK_SCHEMA, INDEX_BENCHMARK_SCHEMA_V1);
+        assert_eq!(
+            crate::validate_changed::CHANGED_VALIDATION_SCHEMA,
+            CHANGED_VALIDATION_SCHEMA_V1
         );
         assert_eq!(crate::graph::GRAPH_EXPORT_SCHEMA, GRAPH_EXPORT_SCHEMA_V1);
         assert_eq!(crate::graph::GRAPH_RELATED_SCHEMA, GRAPH_RELATED_SCHEMA_V1);
