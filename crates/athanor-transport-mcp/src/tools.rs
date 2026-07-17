@@ -1,3 +1,4 @@
+use std::future::Future;
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
@@ -152,7 +153,18 @@ pub(crate) fn list() -> Value {
     response
 }
 
-pub(crate) async fn call(
+pub(crate) fn call<'a>(
+    root: &'a Path,
+    name: &'a str,
+    args: Value,
+    composition: &'a RuntimeComposition,
+    operation: &OperationContext,
+) -> impl Future<Output = Result<String>> + 'a {
+    let operation = operation.clone();
+    async move { call_inner(root, name, args, composition, &operation).await }
+}
+
+async fn call_inner(
     root: &Path,
     name: &str,
     args: Value,
