@@ -1,24 +1,25 @@
 //! Explicit-composition facades for repair operations that require canonical storage.
 
+mod direct;
+
 use anyhow::Result;
 
 use crate::composition::RuntimeComposition;
 use crate::repair::{
     RepairCanonicalLatestOptions, RepairCanonicalLatestReport, RepairRecoverIndexOptions,
-    RepairRecoverIndexReport, recover_index_publication, repair_canonical_latest,
+    RepairRecoverIndexReport,
 };
-use crate::store::with_store_composition;
 
 pub async fn recover_index_publication_with_composition(
     options: RepairRecoverIndexOptions,
     composition: &RuntimeComposition,
 ) -> Result<RepairRecoverIndexReport> {
-    with_store_composition(composition.clone(), recover_index_publication(options)).await
+    direct::recover_index(options, composition).await
 }
 
 pub async fn repair_canonical_latest_with_composition(
     options: RepairCanonicalLatestOptions,
     composition: &RuntimeComposition,
 ) -> Result<RepairCanonicalLatestReport> {
-    with_store_composition(composition.clone(), repair_canonical_latest(options)).await
+    direct::repair_latest(options, composition).await
 }
