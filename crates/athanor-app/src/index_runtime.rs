@@ -49,7 +49,7 @@ pub const VALIDATION_RESULT_SCHEMA: &str = "athanor.validation_result.v1";
 pub const INDEX_REPORT_METRICS_SCHEMA: &str = "athanor.index_report_metrics.v1";
 
 impl Serialize for IndexReport {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
