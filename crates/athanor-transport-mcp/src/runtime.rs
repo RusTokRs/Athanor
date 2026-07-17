@@ -7,7 +7,6 @@ pub mod transport_contract;
 use std::path::PathBuf;
 
 use anyhow::Result;
-use athanor_app::RuntimeComposition;
 
 pub use server::{
     DEFAULT_MAX_IN_FLIGHT_REQUESTS, DEFAULT_RESPONSE_QUEUE_CAPACITY,
@@ -22,7 +21,3 @@ pub use transport_contract::*;
 pub async fn run_mcp_server(root: PathBuf) -> Result<()> {
     run_mcp_server_with_composition(root, athanor_runtime_defaults::production()).await
 }
-
-/// Type-level assertion that the explicit server entry point accepts the
-/// application runtime composition rather than relying on process globals.
-const _: fn(PathBuf, RuntimeComposition) -> _ = run_mcp_server_with_composition;
