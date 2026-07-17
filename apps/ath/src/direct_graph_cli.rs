@@ -153,10 +153,7 @@ pub(crate) fn parse(args: &[String]) -> Result<Option<Command>> {
 }
 
 pub(crate) async fn run(command: Command) -> Result<()> {
-    #[allow(deprecated)]
-    {
-        athanor_runtime_defaults::install();
-    }
+    let composition = athanor_runtime_defaults::production();
 
     match command {
         Command::Export {
@@ -169,12 +166,13 @@ pub(crate) async fn run(command: Command) -> Result<()> {
             let (operation, cancellation) = operation("graph-export", deadline_unix_ms)?;
             let report = await_drained_operation(
                 cancellation,
-                athanor_app::export_graph_with_operation_context(
+                athanor_app::export_graph_with_composition_and_operation_context(
                     GraphExportOptions {
                         root: path,
                         max_entities,
                         max_relations,
                     },
+                    &composition,
                     &operation,
                 ),
             )
@@ -200,7 +198,7 @@ pub(crate) async fn run(command: Command) -> Result<()> {
             let (operation, cancellation) = operation("graph-related", deadline_unix_ms)?;
             let report = await_drained_operation(
                 cancellation,
-                athanor_app::related_graph_with_operation_context(
+                athanor_app::related_graph_with_composition_and_operation_context(
                     GraphRelatedOptions {
                         root: path,
                         stable_key,
@@ -208,6 +206,7 @@ pub(crate) async fn run(command: Command) -> Result<()> {
                         max_entities,
                         max_relations,
                     },
+                    &composition,
                     &operation,
                 ),
             )
@@ -230,7 +229,7 @@ pub(crate) async fn run(command: Command) -> Result<()> {
             let (operation, cancellation) = operation("graph-path", deadline_unix_ms)?;
             let report = await_drained_operation(
                 cancellation,
-                athanor_app::shortest_graph_path_with_operation_context(
+                athanor_app::shortest_graph_path_with_composition_and_operation_context(
                     GraphPathOptions {
                         root: path,
                         from_stable_key,
@@ -238,6 +237,7 @@ pub(crate) async fn run(command: Command) -> Result<()> {
                         max_depth,
                         max_visited,
                     },
+                    &composition,
                     &operation,
                 ),
             )
@@ -259,13 +259,14 @@ pub(crate) async fn run(command: Command) -> Result<()> {
             let (operation, cancellation) = operation("graph-hubs", deadline_unix_ms)?;
             let report = await_drained_operation(
                 cancellation,
-                athanor_app::graph_hubs_with_operation_context(
+                athanor_app::graph_hubs_with_composition_and_operation_context(
                     GraphHubsOptions {
                         root: path,
                         limit,
                         kind,
                         max_relation_ids,
                     },
+                    &composition,
                     &operation,
                 ),
             )
@@ -290,7 +291,7 @@ pub(crate) async fn run(command: Command) -> Result<()> {
             let (operation, cancellation) = operation("graph-pagerank", deadline_unix_ms)?;
             let report = await_drained_operation(
                 cancellation,
-                athanor_app::graph_pagerank_with_operation_context(
+                athanor_app::graph_pagerank_with_composition_and_operation_context(
                     GraphPageRankOptions {
                         root: path,
                         limit,
@@ -300,6 +301,7 @@ pub(crate) async fn run(command: Command) -> Result<()> {
                         tolerance,
                         max_relation_ids,
                     },
+                    &composition,
                     &operation,
                 ),
             )
@@ -321,13 +323,14 @@ pub(crate) async fn run(command: Command) -> Result<()> {
             let (operation, cancellation) = operation("graph-cycles", deadline_unix_ms)?;
             let report = await_drained_operation(
                 cancellation,
-                athanor_app::graph_cycles_with_operation_context(
+                athanor_app::graph_cycles_with_composition_and_operation_context(
                     GraphCyclesOptions {
                         root: path,
                         limit,
                         max_depth,
                         max_starts,
                     },
+                    &composition,
                     &operation,
                 ),
             )
