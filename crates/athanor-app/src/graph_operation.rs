@@ -7,6 +7,7 @@ use athanor_core::{
     OperationContextCancellation,
 };
 
+use crate::RuntimeComposition;
 use crate::config::load_config;
 use crate::graph::{
     GraphCycles, GraphCyclesOptions, GraphExport, GraphExportOptions, GraphHubs, GraphHubsOptions,
@@ -25,10 +26,26 @@ pub async fn export_graph_with_operation_context(
     options: GraphExportOptions,
     operation: &OperationContext,
 ) -> Result<GraphExport> {
+    export_graph_inner(options, None, operation).await
+}
+
+pub async fn export_graph_with_composition_and_operation_context(
+    options: GraphExportOptions,
+    composition: &RuntimeComposition,
+    operation: &OperationContext,
+) -> Result<GraphExport> {
+    export_graph_inner(options, Some(composition), operation).await
+}
+
+async fn export_graph_inner(
+    options: GraphExportOptions,
+    composition: Option<&RuntimeComposition>,
+    operation: &OperationContext,
+) -> Result<GraphExport> {
     if options.max_entities == 0 || options.max_relations == 0 {
         bail!("graph export entity and relation limits must be greater than zero");
     }
-    let snapshot = load_latest_snapshot(options.root, operation).await?;
+    let snapshot = load_latest_snapshot(options.root, composition, operation).await?;
     run_graph_worker(operation, move || {
         Ok(build_graph_export(
             &snapshot,
@@ -44,10 +61,26 @@ pub async fn related_graph_with_operation_context(
     options: GraphRelatedOptions,
     operation: &OperationContext,
 ) -> Result<GraphRelated> {
+    related_graph_inner(options, None, operation).await
+}
+
+pub async fn related_graph_with_composition_and_operation_context(
+    options: GraphRelatedOptions,
+    composition: &RuntimeComposition,
+    operation: &OperationContext,
+) -> Result<GraphRelated> {
+    related_graph_inner(options, Some(composition), operation).await
+}
+
+async fn related_graph_inner(
+    options: GraphRelatedOptions,
+    composition: Option<&RuntimeComposition>,
+    operation: &OperationContext,
+) -> Result<GraphRelated> {
     if options.max_entities == 0 || options.max_relations == 0 {
         bail!("graph related entity and relation limits must be greater than zero");
     }
-    let snapshot = load_latest_snapshot(options.root, operation).await?;
+    let snapshot = load_latest_snapshot(options.root, composition, operation).await?;
     let worker_operation = operation.clone();
     run_graph_worker(operation, move || {
         build_related_graph_with_operation_context(
@@ -67,10 +100,26 @@ pub async fn shortest_graph_path_with_operation_context(
     options: GraphPathOptions,
     operation: &OperationContext,
 ) -> Result<GraphPath> {
+    shortest_graph_path_inner(options, None, operation).await
+}
+
+pub async fn shortest_graph_path_with_composition_and_operation_context(
+    options: GraphPathOptions,
+    composition: &RuntimeComposition,
+    operation: &OperationContext,
+) -> Result<GraphPath> {
+    shortest_graph_path_inner(options, Some(composition), operation).await
+}
+
+async fn shortest_graph_path_inner(
+    options: GraphPathOptions,
+    composition: Option<&RuntimeComposition>,
+    operation: &OperationContext,
+) -> Result<GraphPath> {
     if options.max_visited == 0 {
         bail!("graph path max visited limit must be greater than zero");
     }
-    let snapshot = load_latest_snapshot(options.root, operation).await?;
+    let snapshot = load_latest_snapshot(options.root, composition, operation).await?;
     let worker_operation = operation.clone();
     run_graph_worker(operation, move || {
         build_shortest_graph_path_with_operation_context(
@@ -90,10 +139,26 @@ pub async fn graph_hubs_with_operation_context(
     options: GraphHubsOptions,
     operation: &OperationContext,
 ) -> Result<GraphHubs> {
+    graph_hubs_inner(options, None, operation).await
+}
+
+pub async fn graph_hubs_with_composition_and_operation_context(
+    options: GraphHubsOptions,
+    composition: &RuntimeComposition,
+    operation: &OperationContext,
+) -> Result<GraphHubs> {
+    graph_hubs_inner(options, Some(composition), operation).await
+}
+
+async fn graph_hubs_inner(
+    options: GraphHubsOptions,
+    composition: Option<&RuntimeComposition>,
+    operation: &OperationContext,
+) -> Result<GraphHubs> {
     if options.limit == 0 || options.max_relation_ids == 0 {
         bail!("graph hubs limits must be greater than zero");
     }
-    let snapshot = load_latest_snapshot(options.root, operation).await?;
+    let snapshot = load_latest_snapshot(options.root, composition, operation).await?;
     run_graph_worker(operation, move || {
         build_graph_hubs(
             &snapshot,
@@ -110,6 +175,22 @@ pub async fn graph_pagerank_with_operation_context(
     options: GraphPageRankOptions,
     operation: &OperationContext,
 ) -> Result<GraphPageRank> {
+    graph_pagerank_inner(options, None, operation).await
+}
+
+pub async fn graph_pagerank_with_composition_and_operation_context(
+    options: GraphPageRankOptions,
+    composition: &RuntimeComposition,
+    operation: &OperationContext,
+) -> Result<GraphPageRank> {
+    graph_pagerank_inner(options, Some(composition), operation).await
+}
+
+async fn graph_pagerank_inner(
+    options: GraphPageRankOptions,
+    composition: Option<&RuntimeComposition>,
+    operation: &OperationContext,
+) -> Result<GraphPageRank> {
     if options.limit == 0
         || options.max_iterations == 0
         || options.max_relation_ids == 0
@@ -121,7 +202,7 @@ pub async fn graph_pagerank_with_operation_context(
             "graph pagerank requires positive limits and tolerance, with damping between zero and one"
         );
     }
-    let snapshot = load_latest_snapshot(options.root, operation).await?;
+    let snapshot = load_latest_snapshot(options.root, composition, operation).await?;
     let worker_operation = operation.clone();
     run_graph_worker(operation, move || {
         build_graph_pagerank_with_operation_context(
@@ -143,10 +224,26 @@ pub async fn graph_cycles_with_operation_context(
     options: GraphCyclesOptions,
     operation: &OperationContext,
 ) -> Result<GraphCycles> {
+    graph_cycles_inner(options, None, operation).await
+}
+
+pub async fn graph_cycles_with_composition_and_operation_context(
+    options: GraphCyclesOptions,
+    composition: &RuntimeComposition,
+    operation: &OperationContext,
+) -> Result<GraphCycles> {
+    graph_cycles_inner(options, Some(composition), operation).await
+}
+
+async fn graph_cycles_inner(
+    options: GraphCyclesOptions,
+    composition: Option<&RuntimeComposition>,
+    operation: &OperationContext,
+) -> Result<GraphCycles> {
     if options.limit == 0 || options.max_depth == 0 || options.max_starts == 0 {
         bail!("graph cycle limits must be greater than zero");
     }
-    let snapshot = load_latest_snapshot(options.root, operation).await?;
+    let snapshot = load_latest_snapshot(options.root, composition, operation).await?;
     let worker_operation = operation.clone();
     run_graph_worker(operation, move || {
         build_graph_cycles_with_operation_context(
@@ -162,6 +259,7 @@ pub async fn graph_cycles_with_operation_context(
 
 async fn load_latest_snapshot(
     root: PathBuf,
+    composition: Option<&RuntimeComposition>,
     operation: &OperationContext,
 ) -> Result<CanonicalSnapshot> {
     operation.check_active().map_err(anyhow::Error::new)?;
@@ -170,7 +268,10 @@ async fn load_latest_snapshot(
             .with_context(|| format!("failed to canonicalize {}", root.display()))?,
     );
     let config = load_config(&root)?;
-    let store = init_store(&root, &config).await?;
+    let store = match composition {
+        Some(composition) => composition.init_store(&root, &config).await?,
+        None => init_store(&root, &config).await?,
+    };
     store
         .load_latest_snapshot_with_operation_context(operation)
         .await
