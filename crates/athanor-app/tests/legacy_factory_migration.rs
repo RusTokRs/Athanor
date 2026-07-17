@@ -5,8 +5,11 @@ use athanor_app::legacy_factory::{
 const LEGACY_FACTORY_SOURCE: &str = include_str!("../src/legacy_factory.rs");
 const ADAPTER_REGISTRY_SOURCE: &str = include_str!("../src/runtime/legacy_registry.rs");
 const PROJECTION_SOURCE: &str = include_str!("../src/projection.rs");
-const STORE_SOURCE: &str = include_str!("../src/store.rs");
-const SEARCH_SOURCE: &str = include_str!("../src/search.rs");
+const STORE_FACADE_SOURCE: &str = include_str!("../src/store_facade.rs");
+const SEARCH_FACADE_SOURCE: &str = include_str!("../src/search_facade.rs");
+const APP_LIB_SOURCE: &str = include_str!("../src/lib.rs");
+const VALIDATE_CHANGED_SOURCE: &str = include_str!("../src/validate_changed.rs");
+const CLI_ENTRY_SOURCE: &str = include_str!("../../../apps/ath/src/entry.rs");
 
 #[test]
 fn migrated_legacy_factories_fail_explicitly() {
@@ -22,10 +25,27 @@ fn migrated_legacy_factories_fail_explicitly() {
 }
 
 #[test]
-fn remaining_legacy_factory_targets_stay_visible_until_migrated() {
-    assert!(STORE_SOURCE.contains("let _ = STORE_FACTORY.set(factory)"));
-    assert!(SEARCH_SOURCE.contains("let _ = SEARCH_INDEX_FACTORY.set(factory)"));
-    assert!(SEARCH_SOURCE.contains("let _ = SEARCH_INDEX_OPERATION_FACTORY.set(factory)"));
+fn store_and_search_globals_are_quarantined_behind_guarded_facades() {
+    assert!(STORE_FACADE_SOURCE.contains("try_install_store_factory"));
+    assert!(STORE_FACADE_SOURCE.contains("require_installed(&STORE_FACTORY_GUARD"));
+    assert!(!STORE_FACADE_SOURCE.contains("let _ = STORE_FACTORY"));
+
+    assert!(SEARCH_FACADE_SOURCE.contains("try_install_search_index_factory"));
+    assert!(SEARCH_FACADE_SOURCE.contains("try_install_search_index_operation_factory"));
+    assert!(SEARCH_FACADE_SOURCE.contains("require_any_search_factory"));
+    assert!(!SEARCH_FACADE_SOURCE.contains("let _ = SEARCH_INDEX_FACTORY"));
+    assert!(!SEARCH_FACADE_SOURCE.contains("let _ = SEARCH_INDEX_OPERATION_FACTORY"));
+
+    assert!(APP_LIB_SOURCE.contains("#[path = \"store_facade.rs\"]"));
+    assert!(APP_LIB_SOURCE.contains("#[path = \"search_facade.rs\"]"));
+}
+
+#[test]
+fn changed_validation_has_an_explicit_composition_path() {
+    assert!(VALIDATE_CHANGED_SOURCE.contains("validate_changed_with_composition"));
+    assert!(VALIDATE_CHANGED_SOURCE.contains("RuntimeBuilder::from_composition"));
+    assert!(CLI_ENTRY_SOURCE.contains("direct_validate_changed_cli"));
+    assert!(CLI_ENTRY_SOURCE.contains("Athanor direct changed validation runtime"));
 }
 
 #[test]
