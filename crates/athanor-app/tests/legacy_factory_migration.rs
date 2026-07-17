@@ -18,6 +18,8 @@ const DIRECT_CHECK_SOURCE: &str = include_str!("../../../apps/ath/src/direct_che
 const DIRECT_GRAPH_SOURCE: &str = include_str!("../../../apps/ath/src/direct_graph_cli.rs");
 const DIRECT_RUSTOK_SOURCE: &str =
     include_str!("../../../apps/ath/src/direct_rustok_composed_cli.rs");
+const DIRECT_GENERATION_SOURCE: &str =
+    include_str!("../../../apps/ath/src/direct_generation_cli.rs");
 const DIRECT_VALIDATE_CHANGED_SOURCE: &str =
     include_str!("../../../apps/ath/src/direct_validate_changed_cli.rs");
 
@@ -104,6 +106,7 @@ fn focused_composition_reads_do_not_install_global_runtime() {
         DIRECT_CHECK_SOURCE,
         DIRECT_GRAPH_SOURCE,
         DIRECT_RUSTOK_SOURCE,
+        DIRECT_GENERATION_SOURCE,
     ] {
         assert!(source.contains("athanor_runtime_defaults::production()"));
         assert!(!source.contains("athanor_runtime_defaults::install()"));
