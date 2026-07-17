@@ -34,10 +34,25 @@ After the commit point succeeds, maintenance failure must not turn durable succe
 | `athanor-app/repair_cleanup_recovery.rs` | cleanup recovery | tombstones removed or restored | failures remain recovery-visible and retryable | intentional strict recovery |
 | `apps/athd` | log rotation | active log renamed into rotation chain | operational rotation, not durable state publication | out of PUB scope |
 
+## Failure regression coverage
+
+Implemented in `publication_failure_semantics.rs`:
+
+- [x] staged build failure preserves the previous visible directory and removes temporary siblings;
+- [x] an unpublished immutable candidate is removed by `Drop`;
+- [x] a target created after staging wins the race and the rejected candidate is removed.
+
+Still required for `PUB-003`:
+
+- [ ] failure after the previous target has moved to backup exercises rollback restoration;
+- [ ] injected post-commit backup cleanup failure proves that the operation remains successful and emits a warning;
+- [ ] recovery and retention fault matrices execute against the same commit.
+
 ## Regression commands
 
 ```bash
 cargo test -p athanor-app --test publication_semantics_inventory --locked
+cargo test -p athanor-projector-support --test publication_failure_semantics --locked
 cargo test -p athanor-projector-support --locked
 cargo test -p athanor-app index_publication --locked
 cargo test -p athanor-store-jsonl --locked
