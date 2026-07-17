@@ -23,6 +23,8 @@ ath mcp [path/to/project/root]
 
 By default, if the path is omitted, it uses the current working directory.
 
+The CLI composition root creates `athanor_runtime_defaults::production()` and passes the resulting `RuntimeComposition` to `run_mcp_server_with_composition`. The transport does not install process-global runtime factories.
+
 ## Integrating with LLM Clients
 
 ### Claude Desktop
@@ -95,6 +97,17 @@ JSON-RPC protocol failures use their standard numeric categories:
 
 Normal MCP tool execution failures remain successful JSON-RPC responses with an MCP tool result containing `isError: true`. Cancellation and deadline termination remain JSON-RPC errors and include stable Athanor error details where available.
 
+## Composition Boundary
+
+The active transport consists of conventional modules:
+
+- `runtime.rs` exports the transport contracts and explicit-composition server entry point;
+- `server.rs` owns JSON-RPC parsing, session state, request tasks, cancellation leases, response serialization, and stdio lifecycle;
+- `tools/schema.rs` owns the MCP tool schemas;
+- `tools/dispatch.rs` maps tools to composition-aware application APIs.
+
+`RuntimeComposition` is wrapped in `Arc` at server startup and cloned into each request task. Tool dispatch calls application APIs such as `index_project_with_composition`, `search_project_with_composition_and_operation_context`, and `rustok_architecture_context_with_composition_and_operation_context`. The removed legacy dispatcher and its textual `include!` path are not part of the active crate.
+
 ## Resource And Concurrency Contract
 
 The stdio lifecycle is intentionally bounded:
@@ -123,6 +136,8 @@ Every tool accepts an optional `deadline_unix_ms` field: a future Unix timestamp
 | `rustok_architecture_context` | Resolves compact RusTok ownership, contracts, interactions, tests, diagnostics, and evidence for an intent. | `intent: string`, `module?: string`, limits... |
 | `check` | Returns scoped diagnostic reports. | `scope: "api" | "docs" | "env" | "scripts" | "deployment" | "runbooks"` |
 
+Read tools are registered by serialized JSON-RPC request id so cancellation notifications can address their operation. Search, Context, Change Map, and RusTok architecture context use drained operation paths because they may own cooperative or blocking cleanup. `index` receives deadline state but remains excluded from notification-driven cancellation pending an explicit transactional rollback and durable-success review.
+
 ## Logging
 
 To avoid corrupting the stdio JSON-RPC stream, all startup messages, diagnostics, and request-task failures are written to `stderr`. Only protocol responses are written to `stdout`.
@@ -133,5 +148,6 @@ To avoid corrupting the stdio JSON-RPC stream, all startup messages, diagnostics
 cargo fmt --all -- --check
 cargo test -p athanor-transport-mcp --locked
 cargo test -p athanor-transport-mcp --test mcp_transport_contracts --locked
+cargo test -p athanor-app --test mcp_runtime_bootstrap_inventory --locked
 cargo clippy -p athanor-transport-mcp --all-targets --locked -- -D warnings
 ```
