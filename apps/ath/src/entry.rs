@@ -7,6 +7,7 @@ mod direct_context_cli;
 mod direct_generation_cli;
 mod direct_graph_cli;
 mod direct_operation;
+mod direct_plugin_cli;
 mod direct_read_cli;
 mod direct_rustok_cli;
 mod direct_rustok_help;
@@ -121,6 +122,9 @@ fn main() -> Result<()> {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     if direct_rustok_help::print_if_requested(&args) {
         return Ok(());
+    }
+    if let Some(command) = direct_plugin_cli::parse(&args)? {
+        return direct_plugin_cli::run(command);
     }
     if let Some(command) = repair_cli::parse(&args)? {
         #[allow(deprecated)]
