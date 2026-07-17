@@ -27,6 +27,7 @@ pub enum JsonBoundaryClass {
 pub enum BoundaryLifecycle {
     Current,
     LegacyInput,
+    Historical,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -106,7 +107,7 @@ pub const NON_PUBLIC_JSON_CONTRACTS: &[NonPublicJsonContractDescriptor] = &[
         crate::daemon::DAEMON_ENDPOINT_SCHEMA_V1,
         "DaemonEndpoint",
         Persisted,
-        LegacyInput,
+        Historical,
         ["schema"]
     ),
     boundary!(
