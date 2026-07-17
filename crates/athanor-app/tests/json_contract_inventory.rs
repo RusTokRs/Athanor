@@ -15,6 +15,7 @@ const INVENTORIED_SOURCE_FILES: &[&str] = &[
     "src/coverage.rs",
     "src/capabilities.rs",
     "src/change_map.rs",
+    "src/config.rs",
     "src/context.rs",
     "src/context_report.rs",
     "src/docs.rs",
