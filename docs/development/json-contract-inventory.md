@@ -8,7 +8,7 @@ status: active
 
 This inventory records JSON documents that cross CLI, daemon, MCP, persisted-state, generated-artifact, or process-adapter boundaries. A document may enter `VERSIONED_JSON_CONTRACTS` only when one Rust type owns one top-level schema id and its current payload shape is protected by a regression fixture.
 
-Audit baseline: `main` at `9f24615fb0b63f0cacb0eb0db71d611b532f47da`.
+Audit baseline: `main` at `1fa64eafe6b609c7655c7a6c08622be5ae40a1eb`.
 
 ## Registered contracts
 
@@ -25,6 +25,7 @@ Audit baseline: `main` at `9f24615fb0b63f0cacb0eb0db71d611b532f47da`.
 | `athanor.capabilities.v1` | `CapabilitiesReport` | CLI/daemon/MCP read | dedicated golden |
 | `athanor.change_map.v1` | `ChangeMapReport` | CLI/daemon/MCP read | second-wave golden |
 | `athanor.context_pack.v1` | `ContextReport` | direct CLI/daemon/active MCP read | dedicated golden |
+| `athanor.index_report.v1` | `IndexReport` | direct CLI index/update and daemon index job result | application-output golden plus daemon parity regression |
 | `athanor.index_benchmark.v1` | `BenchmarkReport` | direct CLI benchmark output | application-output golden |
 | `athanor.changed_validation.v1` | `ChangedValidationReport` | direct CLI changed-file validation | application-output golden |
 | `athanor.graph_export.v1` | `GraphExport` | CLI/daemon/MCP read | second-wave golden |
@@ -63,23 +64,29 @@ The public `ProjectRegistryReport` keeps `athanor.project_registry.v1`. Persiste
 
 The architecture context has a dedicated owner and non-empty fixture. FFA, FBA, and Page Builder graph commands use transparent command-specific wrappers over shared internal calculation types. The wrappers preserve JSON shape and text-renderer access while ensuring one Rust owner per schema id.
 
+### Index result parity
+
+`IndexReport` owns `athanor.index_report.v1`. A custom serializer prepends the top-level `schema` field while preserving every established direct-CLI field: root, snapshot, file counts, output and validation paths, validate-only state, and nested metrics.
+
+Direct `ath index --json` and `ath update --json` already serialize `IndexReport`, so they receive the versioned shape without call-site wrappers. Daemon index jobs now serialize the same `IndexReport` instead of constructing a reduced object. Existing daemon fields remain present and the previously omitted CLI fields are additive.
+
+The application-output golden fixture validates `IndexReport` directly and protects its nested metrics. A daemon unit regression asserts that the stored job result equals direct `IndexReport` serialization.
+
 ### Application output classification
 
-`BenchmarkReport` and `ChangedValidationReport` already carry valid top-level schema ids and are registered as public CLI documents. Their shared golden fixture protects a non-empty benchmark, the nested index report, index-report metrics, pipeline metrics, and changed-file validation counts.
+`BenchmarkReport` and `ChangedValidationReport` carry valid top-level schema ids and are registered as public CLI documents. The benchmark fixture contains the versioned nested index report.
 
-`IndexPipelineMetrics` (`athanor.index_metrics.v1`) and `IndexReportMetrics` (`athanor.index_report_metrics.v1`) are embedded fragments rather than independent top-level documents. They are explicitly classified outside `VERSIONED_JSON_CONTRACTS` and remain protected through the application-output golden fixture.
+`IndexPipelineMetrics` (`athanor.index_metrics.v1`) and `IndexReportMetrics` (`athanor.index_report_metrics.v1`) are embedded fragments rather than independent top-level documents. They are explicitly classified outside `VERSIONED_JSON_CONTRACTS`.
 
 `athanor.validation_result.v1` is a generated validation artifact written by validate-only indexing. It is classified as generated state, not as a public report contract.
 
-`IndexReport` remains an open compatibility blocker: direct `ath index --json` and `ath update --json` serialize it as a top-level object without a schema field, while daemon index jobs construct a different reduced result object. Registering the nested metrics type would not solve this. The next migration must introduce one versioned index result shape and map CLI and daemon outputs to it without removing established fields.
-
-The bounded public migration allowlist remains empty because the unversioned `IndexReport` has no schema id to classify. It is tracked as a structural blocker in the implementation plan.
+The bounded public migration allowlist is empty.
 
 ## Boundaries requiring the next inventory pass
 
 ### Remaining application outputs
 
-The next application pass starts with the versioned `IndexReport` migration, then inventories config doctor/validation, API, docs, generation, wiki, HTML report, repair, and other CLI JSON documents outside the current scanner.
+The next application pass inventories config doctor/validation, API, docs, generation, wiki, HTML report, repair, and other CLI JSON documents outside the current scanner.
 
 ### Daemon and MCP envelopes
 
@@ -95,16 +102,17 @@ Index state, publication journals, generation pointers, read-model manifests, an
 
 ## Enforcement implementation
 
-`crates/athanor-app/tests/json_contract_inventory.rs` scans identified public read, project, Rustok, benchmark, index-metrics, and changed-validation owner modules. Every canonical schema literal found there must be registered or classified as public migration, persisted, generated, or embedded.
+`crates/athanor-app/tests/json_contract_inventory.rs` scans identified public read, project, Rustok, benchmark, index, pipeline-metrics, and changed-validation owner modules. Every canonical schema literal found there must be registered or classified as public migration, persisted, generated, or embedded.
 
-The four classifications are mutually exclusive and checked against the observed source literals. The public migration set is empty; persisted contains `project_registry_state.v1`; generated contains `validation_result.v1`; embedded contains `index_metrics.v1` and `index_report_metrics.v1`.
+The classifications are mutually exclusive and checked against observed source literals. The public migration set is empty; persisted contains `project_registry_state.v1`; generated contains `validation_result.v1`; embedded contains `index_metrics.v1` and `index_report_metrics.v1`.
 
-This remains a bounded enforcement slice until the unversioned index result and remaining application, transport, process, persistence, and generated boundaries are classified.
+This remains a bounded enforcement slice until the remaining application, transport, process, persistence, and generated boundaries are classified.
 
 ## Enforcement rules
 
 - Every registered schema id and Rust owner is unique.
 - The owner implements `VersionedJsonContract` and has a golden regression.
+- Equivalent CLI and daemon application results serialize the same typed document.
 - Embedded schema-bearing fragments are not registered as top-level documents.
 - Generated and persisted schemas remain separate from public report contracts.
 - Shared calculation types with multiple public schema ids require distinct transparent owner types.
