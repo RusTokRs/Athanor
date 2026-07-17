@@ -617,7 +617,7 @@ mod tests {
             "athanor.search.vx",
             "athanor..v1",
         ] {
-            assert!(validate_schema_id(schema).is_err(), "accepted `{schema}");
+            assert!(validate_schema_id(schema).is_err(), "accepted `{schema}`");
         }
     }
 
