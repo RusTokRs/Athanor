@@ -2,13 +2,16 @@
 //!
 //! The implementation remains in `store.rs` while public installation and
 //! lookup paths expose typed conflict/unavailable failures. New production
-//! code should use `RuntimeComposition::init_store` instead.
+//! code should use `RuntimeComposition::init_store` directly. Compatibility
+//! application APIs may use the task-local composition scope while migrating.
 
+use std::future::Future;
 use std::path::Path;
 use std::sync::OnceLock;
 
 use anyhow::Result;
 
+use crate::composition::RuntimeComposition;
 use crate::config::ProjectConfig;
 use crate::legacy_factory::{
     LegacyFactoryInstallError, LegacyFactoryUnavailableError, install_once, require_installed,
@@ -20,6 +23,10 @@ mod legacy;
 pub use legacy::{AthanorStore, StoreFactory};
 
 static STORE_FACTORY_GUARD: OnceLock<StoreFactory> = OnceLock::new();
+
+tokio::task_local! {
+    static SCOPED_STORE_COMPOSITION: RuntimeComposition;
+}
 
 pub fn try_install_store_factory(
     factory: StoreFactory,
@@ -34,9 +41,27 @@ pub fn install_store_factory(factory: StoreFactory) {
         .expect("conflicting legacy store factory installation");
 }
 
+/// Runs a compatibility future with an explicit task-local store composition.
+///
+/// This bridge avoids process-global installation while legacy application
+/// functions are incrementally migrated to accept `RuntimeComposition`.
+pub async fn with_store_composition<F>(
+    composition: RuntimeComposition,
+    future: F,
+) -> F::Output
+where
+    F: Future,
+{
+    SCOPED_STORE_COMPOSITION.scope(composition, future).await
+}
+
 pub async fn init_store(root: &Path, config: &ProjectConfig) -> Result<AthanorStore> {
     #[cfg(test)]
     crate::ensure_test_runtime();
+
+    if let Ok(composition) = SCOPED_STORE_COMPOSITION.try_with(Clone::clone) {
+        return composition.init_store(root, config).await;
+    }
 
     require_installed(&STORE_FACTORY_GUARD, "store")
         .map_err(anyhow::Error::new)?;
