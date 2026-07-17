@@ -1,8 +1,8 @@
 //! Stable, versioned agent-facing JSON contract registry.
 //!
 //! The original implementation remains isolated in `json_contract_base.rs`.
-//! This facade extends the public registry with additive response wrappers
-//! without rewriting the established validation and ownership machinery.
+//! This facade extends the public registry with additive response wrappers and
+//! report families without rewriting the established validation machinery.
 
 #[path = "json_contract_base.rs"]
 mod base;
@@ -39,6 +39,17 @@ pub use response_contract::{
     VersionedDocsProposeFixReport,
 };
 
+#[path = "repair_contract.rs"]
+mod repair_contract;
+
+pub use repair_contract::{
+    INDEX_GENERATION_CLEANUP_SCHEMA_V1, REPAIR_APPLY_SCHEMA_V2,
+    REPAIR_CANONICAL_LATEST_SCHEMA_V1, REPAIR_CLEANUP_SCHEMA_V2,
+    REPAIR_INSPECT_SCHEMA_V2, REPAIR_RECOVER_CANONICAL_SCHEMA_V1,
+    REPAIR_RECOVER_INDEX_CLEANUP_SCHEMA_V1, REPAIR_RECOVER_INDEX_SCHEMA_V1,
+    REPAIR_REGENERATE_SCHEMA_V1,
+};
+
 macro_rules! descriptor {
     ($schema:ident, $rust_type:literal) => {
         JsonContractDescriptor {
@@ -73,6 +84,27 @@ pub const VERSIONED_JSON_CONTRACTS: &[JsonContractDescriptor] = &[
     descriptor!(API_SNAPSHOT_SCHEMA_V1, "VersionedApiSnapshotReport"),
     descriptor!(API_CONTRACT_DIFF_SCHEMA_V2, "ApiContractDiff"),
     descriptor!(API_CLEANUP_SCHEMA_V1, "ApiCleanupReport"),
+    descriptor!(REPAIR_INSPECT_SCHEMA_V2, "RepairInspectReport"),
+    descriptor!(REPAIR_CLEANUP_SCHEMA_V2, "RepairCleanupReport"),
+    descriptor!(REPAIR_REGENERATE_SCHEMA_V1, "RepairRegenerateReport"),
+    descriptor!(
+        REPAIR_RECOVER_CANONICAL_SCHEMA_V1,
+        "RepairRecoverCanonicalReport"
+    ),
+    descriptor!(REPAIR_APPLY_SCHEMA_V2, "RepairApplyReport"),
+    descriptor!(
+        INDEX_GENERATION_CLEANUP_SCHEMA_V1,
+        "IndexGenerationCleanupReport"
+    ),
+    descriptor!(REPAIR_RECOVER_INDEX_SCHEMA_V1, "RepairRecoverIndexReport"),
+    descriptor!(
+        REPAIR_RECOVER_INDEX_CLEANUP_SCHEMA_V1,
+        "RepairRecoverIndexCleanupReport"
+    ),
+    descriptor!(
+        REPAIR_CANONICAL_LATEST_SCHEMA_V1,
+        "RepairCanonicalLatestReport"
+    ),
     descriptor!(WIKI_REPORT_SCHEMA_V1, "WikiReport"),
     descriptor!(HTML_REPORT_SCHEMA_V1, "HtmlReport"),
     descriptor!(GRAPH_EXPORT_SCHEMA_V1, "GraphExport"),
@@ -118,14 +150,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn extended_registry_contains_remaining_application_wrappers() {
+    fn extended_registry_contains_all_application_report_owners() {
         validate_contract_registry(VERSIONED_JSON_CONTRACTS)
             .expect("extended JSON contract registry must remain valid");
-        assert_eq!(VERSIONED_JSON_CONTRACTS.len(), 47);
+        assert_eq!(VERSIONED_JSON_CONTRACTS.len(), 56);
         assert_eq!(API_SNAPSHOT_SCHEMA_V1, VersionedApiSnapshotReport::SCHEMA);
         assert_eq!(
             DOCS_PROPOSE_FIX_SCHEMA_V1,
             VersionedDocsProposeFixReport::SCHEMA
+        );
+        assert_eq!(
+            REPAIR_INSPECT_SCHEMA_V2,
+            crate::repair::RepairInspectReport::SCHEMA
+        );
+        assert_eq!(
+            REPAIR_CANONICAL_LATEST_SCHEMA_V1,
+            crate::repair::RepairCanonicalLatestReport::SCHEMA
         );
     }
 }
