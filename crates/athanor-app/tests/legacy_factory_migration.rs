@@ -15,12 +15,19 @@ const REPAIR_COMPOSITION_SOURCE: &str = include_str!("../src/repair_composition.
 const APP_LIB_SOURCE: &str = include_str!("../src/lib.rs");
 const VALIDATE_CHANGED_SOURCE: &str = include_str!("../src/validate_changed.rs");
 const CLI_ENTRY_SOURCE: &str = include_str!("../../../apps/ath/src/entry.rs");
+const ROOT_COMMAND_SOURCE: &str = include_str!("../../../apps/ath/src/root_command.rs");
 const DIRECT_SEARCH_SOURCE: &str = include_str!("../../../apps/ath/src/direct_search_cli.rs");
 const DIRECT_CONTEXT_SOURCE: &str = include_str!("../../../apps/ath/src/direct_context_cli.rs");
 const DIRECT_CHECK_SOURCE: &str = include_str!("../../../apps/ath/src/direct_check_cli.rs");
 const DIRECT_GRAPH_SOURCE: &str = include_str!("../../../apps/ath/src/direct_graph_cli.rs");
-const DIRECT_RUSTOK_SOURCE: &str =
-    include_str!("../../../apps/ath/src/direct_rustok_composed_cli.rs");
+const RUSTOK_ROOT_SOURCE: &str = include_str!("../../../apps/ath/src/rustok_cli/mod.rs");
+const RUSTOK_MODEL_SOURCE: &str = include_str!("../../../apps/ath/src/rustok_cli/model.rs");
+const RUSTOK_RUN_SOURCE: &str = include_str!("../../../apps/ath/src/rustok_cli/run.rs");
+const RENDER_ROOT_SOURCE: &str = include_str!("../../../apps/ath/src/render/mod.rs");
+const GRAPH_RENDER_SOURCE: &str = include_str!("../../../apps/ath/src/render/graph.rs");
+const RUSTOK_RENDER_SOURCE: &str = include_str!("../../../apps/ath/src/render/rustok.rs");
+const CHECK_RENDER_SOURCE: &str = include_str!("../../../apps/ath/src/render/check.rs");
+const API_RENDER_SOURCE: &str = include_str!("../../../apps/ath/src/render/api.rs");
 const DIRECT_GENERATION_SOURCE: &str =
     include_str!("../../../apps/ath/src/direct_generation_cli.rs");
 const DIRECT_READ_ROOT_SOURCE: &str = include_str!("../../../apps/ath/src/direct_read/mod.rs");
@@ -153,7 +160,7 @@ fn focused_composition_reads_do_not_install_global_runtime() {
         DIRECT_CONTEXT_SOURCE,
         DIRECT_CHECK_SOURCE,
         DIRECT_GRAPH_SOURCE,
-        DIRECT_RUSTOK_SOURCE,
+        RUSTOK_RUN_SOURCE,
         DIRECT_GENERATION_SOURCE,
         DIRECT_READ_RUN_SOURCE,
     ] {
@@ -163,7 +170,8 @@ fn focused_composition_reads_do_not_install_global_runtime() {
     assert!(CLI_ENTRY_SOURCE.contains("mod direct_read;"));
     assert!(!CLI_ENTRY_SOURCE.contains("direct_read_composed_cli"));
     assert!(!CLI_ENTRY_SOURCE.contains("mod direct_read_cli;"));
-    assert!(CLI_ENTRY_SOURCE.contains("direct_rustok_composed_cli"));
+    assert!(CLI_ENTRY_SOURCE.contains("mod rustok_cli;"));
+    assert!(!CLI_ENTRY_SOURCE.contains("direct_rustok_composed_cli"));
     assert!(!CLI_ENTRY_SOURCE.contains("mod direct_rustok_cli;"));
 }
 
@@ -217,6 +225,15 @@ fn focused_cli_families_have_no_compatibility_includes_or_namespace_shadowing() 
         REPAIR_MODEL_SOURCE,
         REPAIR_RUN_SOURCE,
         REPAIR_RENDER_SOURCE,
+        RUSTOK_ROOT_SOURCE,
+        RUSTOK_MODEL_SOURCE,
+        RUSTOK_RUN_SOURCE,
+        RENDER_ROOT_SOURCE,
+        GRAPH_RENDER_SOURCE,
+        RUSTOK_RENDER_SOURCE,
+        CHECK_RENDER_SOURCE,
+        API_RENDER_SOURCE,
+        ROOT_COMMAND_SOURCE,
     ] {
         assert!(!source.contains("include!("));
         assert!(!source.contains("mod athanor_app {"));
@@ -226,11 +243,39 @@ fn focused_cli_families_have_no_compatibility_includes_or_namespace_shadowing() 
         "direct_read_cli.rs",
         "direct_read_composed_cli.rs",
         "direct_application_report_composed_cli.rs",
+        "direct_rustok_composed_cli.rs",
         "repair_cli.rs",
         "repair_composed_cli.rs",
     ] {
         assert!(!CLI_ENTRY_SOURCE.contains(removed));
     }
+}
+
+#[test]
+fn root_command_model_owns_focused_routing_without_renderer_bridges() {
+    for route in [
+        "Command::Plugin",
+        "Command::ValidateChanged",
+        "Command::Repair",
+        "Command::ApplicationReport",
+        "Command::Generation",
+        "Command::Config",
+        "Command::Check",
+        "Command::Rustok",
+        "Command::Graph",
+        "Command::Context",
+        "Command::Search",
+        "Command::Read",
+        "Command::Legacy",
+    ] {
+        assert!(ROOT_COMMAND_SOURCE.contains(route));
+    }
+    assert!(CLI_ENTRY_SOURCE.contains("root_command::parse(&args)"));
+    assert!(CLI_ENTRY_SOURCE.contains("mod render;"));
+    assert!(!CLI_ENTRY_SOURCE.contains("_bridge"));
+    assert!(!DIRECT_GRAPH_SOURCE.contains("crate::legacy"));
+    assert!(!DIRECT_CHECK_SOURCE.contains("crate::legacy"));
+    assert!(!RUSTOK_RUN_SOURCE.contains("crate::legacy"));
 }
 
 #[test]
@@ -245,6 +290,13 @@ fn focused_cli_production_modules_remain_bounded() {
         ("repair/model", REPAIR_MODEL_SOURCE, 260),
         ("repair/run", REPAIR_RUN_SOURCE, 140),
         ("repair/render", REPAIR_RENDER_SOURCE, 180),
+        ("rustok/model", RUSTOK_MODEL_SOURCE, 390),
+        ("rustok/run", RUSTOK_RUN_SOURCE, 360),
+        ("render/graph", GRAPH_RENDER_SOURCE, 260),
+        ("render/rustok", RUSTOK_RENDER_SOURCE, 320),
+        ("render/check", CHECK_RENDER_SOURCE, 180),
+        ("render/api", API_RENDER_SOURCE, 80),
+        ("root_command", ROOT_COMMAND_SOURCE, 120),
     ] {
         let lines = source.lines().count();
         assert!(lines <= max_lines, "{name} grew to {lines} lines");
