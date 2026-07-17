@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result, bail};
 use athanor_app::{
     BenchmarkOptions, BenchmarkReport, BenchmarkSize, IndexOptions, IndexReport, InitOptions,
-    benchmark_index, index_project_with_composition, init_project,
+    benchmark_index_with_composition, index_project_with_composition, init_project,
 };
 use clap::error::ErrorKind;
 use clap::{Parser, Subcommand, ValueEnum};
@@ -125,11 +125,15 @@ pub(crate) async fn run(command: Command) -> Result<()> {
             keep_fixture,
             json,
         } => {
-            let report = benchmark_index(BenchmarkOptions {
-                size: size.into(),
-                root,
-                keep_fixture,
-            })
+            let composition = athanor_runtime_defaults::production();
+            let report = benchmark_index_with_composition(
+                BenchmarkOptions {
+                    size: size.into(),
+                    root,
+                    keep_fixture,
+                },
+                &composition,
+            )
             .await?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&report)?);
