@@ -1,0 +1,73 @@
+{
+  "snapshot": {
+    "schema": "athanor.api_contract_snapshot.v2",
+    "snapshot": "snap-api",
+    "endpoints": [
+      {
+        "entity_id": null,
+        "stable_key": "api://GET:/catalog",
+        "name": "List catalog",
+        "source": null,
+        "ownership": [],
+        "payload": {
+          "method": "GET",
+          "path": "/catalog"
+        }
+      }
+    ],
+    "schemas": [],
+    "examples": []
+  },
+  "latest": {
+    "schema": "athanor.api_contract_latest.v1",
+    "snapshot": "snap-api",
+    "path": "snapshots/snap-api.json"
+  },
+  "diff": {
+    "schema": "athanor.api_contract_diff.v2",
+    "from": "snap-api-old",
+    "to": "snap-api",
+    "breaking_changes": 1,
+    "changes": [
+      {
+        "kind": "endpoint_removed",
+        "stable_key": "api://DELETE:/catalog/{id}",
+        "breaking": true,
+        "reasons": [
+          "contract_item_removed"
+        ],
+        "entity_id": null,
+        "source": null,
+        "ownership": [],
+        "before": {
+          "method": "DELETE",
+          "path": "/catalog/{id}"
+        },
+        "after": null
+      }
+    ],
+    "diagnostics": [],
+    "artifact": "diffs/snap-api-old--snap-api.json"
+  },
+  "cleanup": {
+    "schema": "athanor.api_cleanup.v1",
+    "root": "project",
+    "dry_run": true,
+    "keep_snapshots": 2,
+    "keep_diffs": 1,
+    "removed": [
+      {
+        "kind": "snapshot",
+        "id": "snap-api-old",
+        "path": "project/.athanor/api/snapshots/snap-api-old.json"
+      }
+    ],
+    "retained": [
+      {
+        "kind": "diff",
+        "id": "snap-api-old--snap-api",
+        "path": "project/.athanor/api/diffs/snap-api-old--snap-api.json"
+      }
+    ]
+  }
+}
