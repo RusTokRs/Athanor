@@ -11,295 +11,148 @@ use std::fmt;
 use serde::Serialize;
 use serde_json::Value;
 
-/// Stable schema identifier for repository overview reports.
 pub const OVERVIEW_SCHEMA_V1: &str = "athanor.overview.v1";
-/// Stable schema identifier for lexical search reports.
 pub const SEARCH_SCHEMA_V1: &str = "athanor.search.v1";
-/// Stable schema identifier for canonical entity explanation reports.
 pub const ENTITY_EXPLANATION_SCHEMA_V1: &str = "athanor.entity_explanation.v1";
-/// Stable schema identifier for code impact analysis reports.
 pub const IMPACT_ANALYSIS_SCHEMA_V1: &str = "athanor.impact_analysis.v1";
-/// Stable schema identifier for scoped diagnostic check reports.
 pub const DIAGNOSTIC_CHECK_SCHEMA_V1: &str = "athanor.diagnostic_check.v1";
-/// Stable schema identifier for affected-file check reports.
 pub const AFFECTED_CHECK_SCHEMA_V1: &str = "athanor.affected_check.v1";
-/// Stable schema identifier for aggregated operations documentation check reports.
 pub const OPERATIONS_DOCS_CHECK_SCHEMA_V1: &str = "athanor.operations_docs_check.v1";
-/// Stable schema identifier for analysis coverage reports.
 pub const COVERAGE_SCHEMA_V1: &str = "athanor.coverage.v1";
-/// Stable schema identifier for analysis capability reports.
 pub const CAPABILITIES_SCHEMA_V1: &str = "athanor.capabilities.v1";
-/// Stable schema identifier for bounded change-map reports.
 pub const CHANGE_MAP_SCHEMA_V1: &str = "athanor.change_map.v1";
-/// Stable schema identifier for task-focused context reports.
 pub const CONTEXT_PACK_SCHEMA_V1: &str = "athanor.context_pack.v1";
-/// Stable schema identifier for index reports.
 pub const INDEX_REPORT_SCHEMA_V1: &str = crate::index::INDEX_REPORT_SCHEMA;
-/// Stable schema identifier for index benchmark reports.
 pub const INDEX_BENCHMARK_SCHEMA_V1: &str = crate::bench::INDEX_BENCHMARK_SCHEMA;
-/// Stable schema identifier for changed-file validation reports.
 pub const CHANGED_VALIDATION_SCHEMA_V1: &str = crate::validate_changed::CHANGED_VALIDATION_SCHEMA;
-/// Stable schema identifier for coordinated generation reports.
 pub const GENERATION_SCHEMA_V1: &str = "athanor.generation.v1";
-/// Stable schema identifier for documentation policy check reports.
 pub const DOCS_CHECK_SCHEMA_V1: &str = crate::docs::DOCS_CHECK_SCHEMA;
-/// Stable schema identifier for documentation drift reports.
 pub const DOCS_DRIFT_SCHEMA_V1: &str = crate::docs::DOCS_DRIFT_SCHEMA;
-/// Stable schema identifier for applied documentation patch reports.
 pub const DOCS_APPLY_PATCH_SCHEMA_V1: &str = "athanor.docs_apply_patch.v1";
-/// Stable schema identifier for public API contract diffs.
 pub const API_CONTRACT_DIFF_SCHEMA_V2: &str = crate::api::API_CONTRACT_DIFF_SCHEMA;
-/// Stable schema identifier for public API artifact cleanup reports.
 pub const API_CLEANUP_SCHEMA_V1: &str = "athanor.api_cleanup.v1";
-/// Stable schema identifier for graph export reports.
+pub const WIKI_REPORT_SCHEMA_V1: &str = crate::wiki::WIKI_REPORT_SCHEMA;
+pub const HTML_REPORT_SCHEMA_V1: &str = crate::report::HTML_REPORT_SCHEMA;
 pub const GRAPH_EXPORT_SCHEMA_V1: &str = crate::graph::GRAPH_EXPORT_SCHEMA;
-/// Stable schema identifier for graph related-entity reports.
 pub const GRAPH_RELATED_SCHEMA_V1: &str = crate::graph::GRAPH_RELATED_SCHEMA;
-/// Stable schema identifier for graph path reports.
 pub const GRAPH_PATH_SCHEMA_V1: &str = crate::graph::GRAPH_PATH_SCHEMA;
-/// Stable schema identifier for graph hub reports.
 pub const GRAPH_HUBS_SCHEMA_V1: &str = crate::graph::GRAPH_HUBS_SCHEMA;
-/// Stable schema identifier for graph PageRank reports.
 pub const GRAPH_PAGERANK_SCHEMA_V1: &str = crate::graph::GRAPH_PAGERANK_SCHEMA;
-/// Stable schema identifier for graph cycle reports.
 pub const GRAPH_CYCLES_SCHEMA_V1: &str = crate::graph::GRAPH_CYCLES_SCHEMA;
-/// Stable schema identifier for RusTok architecture context reports.
 pub const RUSTOK_ARCHITECTURE_CONTEXT_SCHEMA_V1: &str =
     crate::rustok_architecture::RUSTOK_ARCHITECTURE_CONTEXT_SCHEMA;
-/// Stable schema identifier for RusTok FFA audit reports.
 pub const RUSTOK_FFA_AUDIT_SCHEMA_V1: &str = crate::graph::RUSTOK_FFA_AUDIT_SCHEMA;
-/// Stable schema identifier for RusTok FFA surface graph reports.
 pub const RUSTOK_FFA_SURFACE_GRAPH_SCHEMA_V1: &str =
     crate::graph::RUSTOK_FFA_SURFACE_GRAPH_SCHEMA;
-/// Stable schema identifier for RusTok FFA violations graph reports.
 pub const RUSTOK_FFA_VIOLATIONS_GRAPH_SCHEMA_V1: &str =
     crate::graph::RUSTOK_FFA_VIOLATIONS_GRAPH_SCHEMA;
-/// Stable schema identifier for RusTok FBA audit reports.
 pub const RUSTOK_FBA_AUDIT_SCHEMA_V1: &str = crate::graph::RUSTOK_FBA_AUDIT_SCHEMA;
-/// Stable schema identifier for RusTok FBA module graph reports.
 pub const RUSTOK_FBA_MODULE_GRAPH_SCHEMA_V1: &str =
     crate::graph::RUSTOK_FBA_MODULE_GRAPH_SCHEMA;
-/// Stable schema identifier for RusTok FBA port graph reports.
 pub const RUSTOK_FBA_PORT_GRAPH_SCHEMA_V1: &str = crate::graph::RUSTOK_FBA_PORT_GRAPH_SCHEMA;
-/// Stable schema identifier for RusTok FBA dependencies graph reports.
 pub const RUSTOK_FBA_DEPENDENCIES_GRAPH_SCHEMA_V1: &str =
     crate::graph::RUSTOK_FBA_DEPENDENCIES_GRAPH_SCHEMA;
-/// Stable schema identifier for RusTok FBA violations graph reports.
 pub const RUSTOK_FBA_VIOLATIONS_GRAPH_SCHEMA_V1: &str =
     crate::graph::RUSTOK_FBA_VIOLATIONS_GRAPH_SCHEMA;
-/// Stable schema identifier for RusTok Page Builder audit reports.
 pub const RUSTOK_PAGE_BUILDER_AUDIT_SCHEMA_V1: &str =
     crate::graph::RUSTOK_PAGE_BUILDER_AUDIT_SCHEMA;
-/// Stable schema identifier for RusTok Page Builder provider graph reports.
 pub const RUSTOK_PAGE_BUILDER_PROVIDER_GRAPH_SCHEMA_V1: &str =
     crate::graph::RUSTOK_PAGE_BUILDER_PROVIDER_GRAPH_SCHEMA;
-/// Stable schema identifier for RusTok Page Builder consumer graph reports.
 pub const RUSTOK_PAGE_BUILDER_CONSUMER_GRAPH_SCHEMA_V1: &str =
     crate::graph::RUSTOK_PAGE_BUILDER_CONSUMER_GRAPH_SCHEMA;
-/// Stable schema identifier for RusTok Page Builder violations graph reports.
 pub const RUSTOK_PAGE_BUILDER_VIOLATIONS_GRAPH_SCHEMA_V1: &str =
     crate::graph::RUSTOK_PAGE_BUILDER_VIOLATIONS_GRAPH_SCHEMA;
-/// Stable schema identifier for public project-registry reports.
 pub const PROJECT_REGISTRY_REPORT_SCHEMA_V1: &str =
     crate::project_registry::PROJECT_REGISTRY_REPORT_SCHEMA;
-/// Stable schema identifier for project resolution reports.
 pub const PROJECT_RESOLUTION_SCHEMA_V1: &str =
     crate::project_registry::PROJECT_RESOLUTION_SCHEMA;
 
-/// One registered, externally consumable JSON document contract.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct JsonContractDescriptor {
     pub schema: &'static str,
     pub rust_type: &'static str,
 }
 
-/// Application JSON contracts migrated to the shared ownership and validation rules.
+macro_rules! descriptor {
+    ($schema:ident, $rust_type:literal) => {
+        JsonContractDescriptor {
+            schema: $schema,
+            rust_type: $rust_type,
+        }
+    };
+}
+
 pub const VERSIONED_JSON_CONTRACTS: &[JsonContractDescriptor] = &[
-    JsonContractDescriptor {
-        schema: OVERVIEW_SCHEMA_V1,
-        rust_type: "RepositoryOverview",
-    },
-    JsonContractDescriptor {
-        schema: SEARCH_SCHEMA_V1,
-        rust_type: "SearchReport",
-    },
-    JsonContractDescriptor {
-        schema: ENTITY_EXPLANATION_SCHEMA_V1,
-        rust_type: "EntityExplanation",
-    },
-    JsonContractDescriptor {
-        schema: IMPACT_ANALYSIS_SCHEMA_V1,
-        rust_type: "ImpactAnalysis",
-    },
-    JsonContractDescriptor {
-        schema: DIAGNOSTIC_CHECK_SCHEMA_V1,
-        rust_type: "DiagnosticCheckReport",
-    },
-    JsonContractDescriptor {
-        schema: AFFECTED_CHECK_SCHEMA_V1,
-        rust_type: "AffectedCheckReport",
-    },
-    JsonContractDescriptor {
-        schema: OPERATIONS_DOCS_CHECK_SCHEMA_V1,
-        rust_type: "OperationsDocsCheckReport",
-    },
-    JsonContractDescriptor {
-        schema: COVERAGE_SCHEMA_V1,
-        rust_type: "CoverageReport",
-    },
-    JsonContractDescriptor {
-        schema: CAPABILITIES_SCHEMA_V1,
-        rust_type: "CapabilitiesReport",
-    },
-    JsonContractDescriptor {
-        schema: CHANGE_MAP_SCHEMA_V1,
-        rust_type: "ChangeMapReport",
-    },
-    JsonContractDescriptor {
-        schema: CONTEXT_PACK_SCHEMA_V1,
-        rust_type: "ContextReport",
-    },
-    JsonContractDescriptor {
-        schema: INDEX_REPORT_SCHEMA_V1,
-        rust_type: "IndexReport",
-    },
-    JsonContractDescriptor {
-        schema: INDEX_BENCHMARK_SCHEMA_V1,
-        rust_type: "BenchmarkReport",
-    },
-    JsonContractDescriptor {
-        schema: CHANGED_VALIDATION_SCHEMA_V1,
-        rust_type: "ChangedValidationReport",
-    },
-    JsonContractDescriptor {
-        schema: GENERATION_SCHEMA_V1,
-        rust_type: "GenerationReport",
-    },
-    JsonContractDescriptor {
-        schema: DOCS_CHECK_SCHEMA_V1,
-        rust_type: "DocsCheckReport",
-    },
-    JsonContractDescriptor {
-        schema: DOCS_DRIFT_SCHEMA_V1,
-        rust_type: "DocsDriftReport",
-    },
-    JsonContractDescriptor {
-        schema: DOCS_APPLY_PATCH_SCHEMA_V1,
-        rust_type: "DocsApplyPatchReport",
-    },
-    JsonContractDescriptor {
-        schema: API_CONTRACT_DIFF_SCHEMA_V2,
-        rust_type: "ApiContractDiff",
-    },
-    JsonContractDescriptor {
-        schema: API_CLEANUP_SCHEMA_V1,
-        rust_type: "ApiCleanupReport",
-    },
-    JsonContractDescriptor {
-        schema: GRAPH_EXPORT_SCHEMA_V1,
-        rust_type: "GraphExport",
-    },
-    JsonContractDescriptor {
-        schema: GRAPH_RELATED_SCHEMA_V1,
-        rust_type: "GraphRelated",
-    },
-    JsonContractDescriptor {
-        schema: GRAPH_PATH_SCHEMA_V1,
-        rust_type: "GraphPath",
-    },
-    JsonContractDescriptor {
-        schema: GRAPH_HUBS_SCHEMA_V1,
-        rust_type: "GraphHubs",
-    },
-    JsonContractDescriptor {
-        schema: GRAPH_PAGERANK_SCHEMA_V1,
-        rust_type: "GraphPageRank",
-    },
-    JsonContractDescriptor {
-        schema: GRAPH_CYCLES_SCHEMA_V1,
-        rust_type: "GraphCycles",
-    },
-    JsonContractDescriptor {
-        schema: RUSTOK_ARCHITECTURE_CONTEXT_SCHEMA_V1,
-        rust_type: "RustokArchitectureContext",
-    },
-    JsonContractDescriptor {
-        schema: RUSTOK_FFA_AUDIT_SCHEMA_V1,
-        rust_type: "RustokFfaAudit",
-    },
-    JsonContractDescriptor {
-        schema: RUSTOK_FFA_SURFACE_GRAPH_SCHEMA_V1,
-        rust_type: "RustokFfaSurfaceGraphReport",
-    },
-    JsonContractDescriptor {
-        schema: RUSTOK_FFA_VIOLATIONS_GRAPH_SCHEMA_V1,
-        rust_type: "RustokFfaViolationsGraphReport",
-    },
-    JsonContractDescriptor {
-        schema: RUSTOK_FBA_AUDIT_SCHEMA_V1,
-        rust_type: "RustokFbaAudit",
-    },
-    JsonContractDescriptor {
-        schema: RUSTOK_FBA_MODULE_GRAPH_SCHEMA_V1,
-        rust_type: "RustokFbaModuleGraphReport",
-    },
-    JsonContractDescriptor {
-        schema: RUSTOK_FBA_PORT_GRAPH_SCHEMA_V1,
-        rust_type: "RustokFbaPortGraphReport",
-    },
-    JsonContractDescriptor {
-        schema: RUSTOK_FBA_DEPENDENCIES_GRAPH_SCHEMA_V1,
-        rust_type: "RustokFbaDependenciesGraphReport",
-    },
-    JsonContractDescriptor {
-        schema: RUSTOK_FBA_VIOLATIONS_GRAPH_SCHEMA_V1,
-        rust_type: "RustokFbaViolationsGraphReport",
-    },
-    JsonContractDescriptor {
-        schema: RUSTOK_PAGE_BUILDER_AUDIT_SCHEMA_V1,
-        rust_type: "RustokPageBuilderAudit",
-    },
-    JsonContractDescriptor {
-        schema: RUSTOK_PAGE_BUILDER_PROVIDER_GRAPH_SCHEMA_V1,
-        rust_type: "RustokPageBuilderProviderGraphReport",
-    },
-    JsonContractDescriptor {
-        schema: RUSTOK_PAGE_BUILDER_CONSUMER_GRAPH_SCHEMA_V1,
-        rust_type: "RustokPageBuilderConsumerGraphReport",
-    },
-    JsonContractDescriptor {
-        schema: RUSTOK_PAGE_BUILDER_VIOLATIONS_GRAPH_SCHEMA_V1,
-        rust_type: "RustokPageBuilderViolationsGraphReport",
-    },
-    JsonContractDescriptor {
-        schema: PROJECT_REGISTRY_REPORT_SCHEMA_V1,
-        rust_type: "ProjectRegistryReport",
-    },
-    JsonContractDescriptor {
-        schema: PROJECT_RESOLUTION_SCHEMA_V1,
-        rust_type: "ProjectResolutionReport",
-    },
+    descriptor!(OVERVIEW_SCHEMA_V1, "RepositoryOverview"),
+    descriptor!(SEARCH_SCHEMA_V1, "SearchReport"),
+    descriptor!(ENTITY_EXPLANATION_SCHEMA_V1, "EntityExplanation"),
+    descriptor!(IMPACT_ANALYSIS_SCHEMA_V1, "ImpactAnalysis"),
+    descriptor!(DIAGNOSTIC_CHECK_SCHEMA_V1, "DiagnosticCheckReport"),
+    descriptor!(AFFECTED_CHECK_SCHEMA_V1, "AffectedCheckReport"),
+    descriptor!(OPERATIONS_DOCS_CHECK_SCHEMA_V1, "OperationsDocsCheckReport"),
+    descriptor!(COVERAGE_SCHEMA_V1, "CoverageReport"),
+    descriptor!(CAPABILITIES_SCHEMA_V1, "CapabilitiesReport"),
+    descriptor!(CHANGE_MAP_SCHEMA_V1, "ChangeMapReport"),
+    descriptor!(CONTEXT_PACK_SCHEMA_V1, "ContextReport"),
+    descriptor!(INDEX_REPORT_SCHEMA_V1, "IndexReport"),
+    descriptor!(INDEX_BENCHMARK_SCHEMA_V1, "BenchmarkReport"),
+    descriptor!(CHANGED_VALIDATION_SCHEMA_V1, "ChangedValidationReport"),
+    descriptor!(GENERATION_SCHEMA_V1, "GenerationReport"),
+    descriptor!(DOCS_CHECK_SCHEMA_V1, "DocsCheckReport"),
+    descriptor!(DOCS_DRIFT_SCHEMA_V1, "DocsDriftReport"),
+    descriptor!(DOCS_APPLY_PATCH_SCHEMA_V1, "DocsApplyPatchReport"),
+    descriptor!(API_CONTRACT_DIFF_SCHEMA_V2, "ApiContractDiff"),
+    descriptor!(API_CLEANUP_SCHEMA_V1, "ApiCleanupReport"),
+    descriptor!(WIKI_REPORT_SCHEMA_V1, "WikiReport"),
+    descriptor!(HTML_REPORT_SCHEMA_V1, "HtmlReport"),
+    descriptor!(GRAPH_EXPORT_SCHEMA_V1, "GraphExport"),
+    descriptor!(GRAPH_RELATED_SCHEMA_V1, "GraphRelated"),
+    descriptor!(GRAPH_PATH_SCHEMA_V1, "GraphPath"),
+    descriptor!(GRAPH_HUBS_SCHEMA_V1, "GraphHubs"),
+    descriptor!(GRAPH_PAGERANK_SCHEMA_V1, "GraphPageRank"),
+    descriptor!(GRAPH_CYCLES_SCHEMA_V1, "GraphCycles"),
+    descriptor!(RUSTOK_ARCHITECTURE_CONTEXT_SCHEMA_V1, "RustokArchitectureContext"),
+    descriptor!(RUSTOK_FFA_AUDIT_SCHEMA_V1, "RustokFfaAudit"),
+    descriptor!(RUSTOK_FFA_SURFACE_GRAPH_SCHEMA_V1, "RustokFfaSurfaceGraphReport"),
+    descriptor!(RUSTOK_FFA_VIOLATIONS_GRAPH_SCHEMA_V1, "RustokFfaViolationsGraphReport"),
+    descriptor!(RUSTOK_FBA_AUDIT_SCHEMA_V1, "RustokFbaAudit"),
+    descriptor!(RUSTOK_FBA_MODULE_GRAPH_SCHEMA_V1, "RustokFbaModuleGraphReport"),
+    descriptor!(RUSTOK_FBA_PORT_GRAPH_SCHEMA_V1, "RustokFbaPortGraphReport"),
+    descriptor!(
+        RUSTOK_FBA_DEPENDENCIES_GRAPH_SCHEMA_V1,
+        "RustokFbaDependenciesGraphReport"
+    ),
+    descriptor!(RUSTOK_FBA_VIOLATIONS_GRAPH_SCHEMA_V1, "RustokFbaViolationsGraphReport"),
+    descriptor!(RUSTOK_PAGE_BUILDER_AUDIT_SCHEMA_V1, "RustokPageBuilderAudit"),
+    descriptor!(
+        RUSTOK_PAGE_BUILDER_PROVIDER_GRAPH_SCHEMA_V1,
+        "RustokPageBuilderProviderGraphReport"
+    ),
+    descriptor!(
+        RUSTOK_PAGE_BUILDER_CONSUMER_GRAPH_SCHEMA_V1,
+        "RustokPageBuilderConsumerGraphReport"
+    ),
+    descriptor!(
+        RUSTOK_PAGE_BUILDER_VIOLATIONS_GRAPH_SCHEMA_V1,
+        "RustokPageBuilderViolationsGraphReport"
+    ),
+    descriptor!(PROJECT_REGISTRY_REPORT_SCHEMA_V1, "ProjectRegistryReport"),
+    descriptor!(PROJECT_RESOLUTION_SCHEMA_V1, "ProjectResolutionReport"),
 ];
 
-/// A serializable document whose top-level `schema` field is a stable contract.
 pub trait VersionedJsonContract: Serialize {
-    /// Expected schema identifier for this Rust document type.
     const SCHEMA: &'static str;
 
-    /// Schema identifier carried by this document instance.
     fn schema(&self) -> &str;
 
-    /// Validates both the identifier format and the serialized top-level field.
     fn validate_contract(&self) -> Result<(), JsonContractError> {
         validate_schema_id(Self::SCHEMA)?;
-
         if self.schema() != Self::SCHEMA {
             return Err(JsonContractError::SchemaMismatch {
                 expected: Self::SCHEMA.to_string(),
                 actual: self.schema().to_string(),
             });
         }
-
         let value = serde_json::to_value(self)
             .map_err(|error| JsonContractError::Serialization(error.to_string()))?;
         validate_contract_value(Self::SCHEMA, &value)
@@ -344,15 +197,9 @@ macro_rules! impl_transparent_schema_contract {
 
 impl_owned_schema_contract!(crate::overview::RepositoryOverview, OVERVIEW_SCHEMA_V1);
 impl_owned_schema_contract!(crate::search::SearchReport, SEARCH_SCHEMA_V1);
-impl_owned_schema_contract!(
-    crate::explain::EntityExplanation,
-    ENTITY_EXPLANATION_SCHEMA_V1
-);
+impl_owned_schema_contract!(crate::explain::EntityExplanation, ENTITY_EXPLANATION_SCHEMA_V1);
 impl_owned_schema_contract!(crate::impact::ImpactAnalysis, IMPACT_ANALYSIS_SCHEMA_V1);
-impl_owned_schema_contract!(
-    crate::check::DiagnosticCheckReport,
-    DIAGNOSTIC_CHECK_SCHEMA_V1
-);
+impl_owned_schema_contract!(crate::check::DiagnosticCheckReport, DIAGNOSTIC_CHECK_SCHEMA_V1);
 impl_owned_schema_contract!(crate::check::AffectedCheckReport, AFFECTED_CHECK_SCHEMA_V1);
 impl_owned_schema_contract!(
     crate::check::OperationsDocsCheckReport,
@@ -375,12 +222,11 @@ impl_static_schema_contract!(
 impl_static_schema_contract!(crate::generation::GenerationReport, GENERATION_SCHEMA_V1);
 impl_owned_schema_contract!(crate::docs::DocsCheckReport, DOCS_CHECK_SCHEMA_V1);
 impl_owned_schema_contract!(crate::docs::DocsDriftReport, DOCS_DRIFT_SCHEMA_V1);
-impl_owned_schema_contract!(
-    crate::docs::DocsApplyPatchReport,
-    DOCS_APPLY_PATCH_SCHEMA_V1
-);
+impl_owned_schema_contract!(crate::docs::DocsApplyPatchReport, DOCS_APPLY_PATCH_SCHEMA_V1);
 impl_owned_schema_contract!(crate::api::ApiContractDiff, API_CONTRACT_DIFF_SCHEMA_V2);
 impl_owned_schema_contract!(crate::api::ApiCleanupReport, API_CLEANUP_SCHEMA_V1);
+impl_static_schema_contract!(crate::wiki::WikiReport, WIKI_REPORT_SCHEMA_V1);
+impl_static_schema_contract!(crate::report::HtmlReport, HTML_REPORT_SCHEMA_V1);
 impl_owned_schema_contract!(crate::graph::GraphExport, GRAPH_EXPORT_SCHEMA_V1);
 impl_owned_schema_contract!(crate::graph::GraphRelated, GRAPH_RELATED_SCHEMA_V1);
 impl_owned_schema_contract!(crate::graph::GraphPath, GRAPH_PATH_SCHEMA_V1);
@@ -444,10 +290,6 @@ impl_owned_schema_contract!(
 impl_static_schema_contract!(crate::coverage::CoverageReport, COVERAGE_SCHEMA_V1);
 impl_static_schema_contract!(crate::capabilities::CapabilitiesReport, CAPABILITIES_SCHEMA_V1);
 
-/// Validates an Athanor schema id and returns its positive major version.
-///
-/// Accepted identifiers follow `athanor.<name>[.<name>...].v<major>`, where
-/// name segments contain lowercase ASCII letters, digits, `_`, or `-`.
 pub fn validate_schema_id(schema: &str) -> Result<u32, JsonContractError> {
     let segments = schema.split('.').collect::<Vec<_>>();
     if segments.len() < 3 || segments.first() != Some(&"athanor") {
@@ -487,7 +329,6 @@ pub fn validate_schema_id(schema: &str) -> Result<u32, JsonContractError> {
     Ok(major)
 }
 
-/// Validates that every registered schema and Rust owner is unique.
 pub fn validate_contract_registry(
     contracts: &[JsonContractDescriptor],
 ) -> Result<(), JsonContractError> {
@@ -511,13 +352,11 @@ pub fn validate_contract_registry(
     Ok(())
 }
 
-/// Validates the top-level `schema` field of a serialized JSON document.
 pub fn validate_contract_value(
     expected_schema: &str,
     value: &Value,
 ) -> Result<(), JsonContractError> {
     validate_schema_id(expected_schema)?;
-
     let object = value
         .as_object()
         .ok_or(JsonContractError::TopLevelDocumentRequired)?;
@@ -533,7 +372,6 @@ pub fn validate_contract_value(
             actual: actual.to_string(),
         });
     }
-
     Ok(())
 }
 
@@ -641,7 +479,6 @@ mod tests {
             schema: ExampleContract::SCHEMA.to_string(),
             value: 7,
         };
-
         assert_eq!(contract.validate_contract(), Ok(()));
     }
 
@@ -658,7 +495,6 @@ mod tests {
                 actual: "athanor.example_contract.v1".to_string(),
             })
         );
-
         assert_eq!(
             validate_contract_value(ExampleContract::SCHEMA, &json!({ "value": 7 })),
             Err(JsonContractError::MissingSchemaField)
@@ -668,7 +504,7 @@ mod tests {
     #[test]
     fn registry_contains_unique_valid_schema_and_type_owners() {
         assert_eq!(validate_contract_registry(VERSIONED_JSON_CONTRACTS), Ok(()));
-        assert_eq!(VERSIONED_JSON_CONTRACTS.len(), 41);
+        assert_eq!(VERSIONED_JSON_CONTRACTS.len(), 43);
         assert_eq!(crate::overview::OVERVIEW_SCHEMA, OVERVIEW_SCHEMA_V1);
         assert_eq!(crate::coverage::COVERAGE_REPORT_SCHEMA, COVERAGE_SCHEMA_V1);
         assert_eq!(
@@ -683,10 +519,9 @@ mod tests {
         );
         assert_eq!(crate::docs::DOCS_CHECK_SCHEMA, DOCS_CHECK_SCHEMA_V1);
         assert_eq!(crate::docs::DOCS_DRIFT_SCHEMA, DOCS_DRIFT_SCHEMA_V1);
-        assert_eq!(
-            crate::api::API_CONTRACT_DIFF_SCHEMA,
-            API_CONTRACT_DIFF_SCHEMA_V2
-        );
+        assert_eq!(crate::api::API_CONTRACT_DIFF_SCHEMA, API_CONTRACT_DIFF_SCHEMA_V2);
+        assert_eq!(crate::wiki::WIKI_REPORT_SCHEMA, WIKI_REPORT_SCHEMA_V1);
+        assert_eq!(crate::report::HTML_REPORT_SCHEMA, HTML_REPORT_SCHEMA_V1);
         assert_eq!(crate::graph::GRAPH_EXPORT_SCHEMA, GRAPH_EXPORT_SCHEMA_V1);
         assert_eq!(crate::graph::GRAPH_RELATED_SCHEMA, GRAPH_RELATED_SCHEMA_V1);
         assert_eq!(crate::graph::GRAPH_PATH_SCHEMA, GRAPH_PATH_SCHEMA_V1);
