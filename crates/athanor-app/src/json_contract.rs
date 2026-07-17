@@ -33,6 +33,8 @@ pub const CAPABILITIES_SCHEMA_V1: &str = "athanor.capabilities.v1";
 pub const CHANGE_MAP_SCHEMA_V1: &str = "athanor.change_map.v1";
 /// Stable schema identifier for task-focused context reports.
 pub const CONTEXT_PACK_SCHEMA_V1: &str = "athanor.context_pack.v1";
+/// Stable schema identifier for index reports.
+pub const INDEX_REPORT_SCHEMA_V1: &str = crate::index::INDEX_REPORT_SCHEMA;
 /// Stable schema identifier for index benchmark reports.
 pub const INDEX_BENCHMARK_SCHEMA_V1: &str = crate::bench::INDEX_BENCHMARK_SCHEMA;
 /// Stable schema identifier for changed-file validation reports.
@@ -144,6 +146,10 @@ pub const VERSIONED_JSON_CONTRACTS: &[JsonContractDescriptor] = &[
     JsonContractDescriptor {
         schema: CONTEXT_PACK_SCHEMA_V1,
         rust_type: "ContextReport",
+    },
+    JsonContractDescriptor {
+        schema: INDEX_REPORT_SCHEMA_V1,
+        rust_type: "IndexReport",
     },
     JsonContractDescriptor {
         schema: INDEX_BENCHMARK_SCHEMA_V1,
@@ -318,6 +324,13 @@ impl_owned_schema_contract!(
 );
 impl_owned_schema_contract!(crate::change_map::ChangeMapReport, CHANGE_MAP_SCHEMA_V1);
 impl_owned_schema_contract!(crate::context_report::ContextReport, CONTEXT_PACK_SCHEMA_V1);
+impl VersionedJsonContract for crate::index::IndexReport {
+    const SCHEMA: &'static str = INDEX_REPORT_SCHEMA_V1;
+
+    fn schema(&self) -> &str {
+        Self::SCHEMA
+    }
+}
 impl_static_schema_contract!(crate::bench::BenchmarkReport, INDEX_BENCHMARK_SCHEMA_V1);
 impl_static_schema_contract!(
     crate::validate_changed::ChangedValidationReport,
@@ -610,13 +623,14 @@ mod tests {
     #[test]
     fn registry_contains_unique_valid_schema_and_type_owners() {
         assert_eq!(validate_contract_registry(VERSIONED_JSON_CONTRACTS), Ok(()));
-        assert_eq!(VERSIONED_JSON_CONTRACTS.len(), 34);
+        assert_eq!(VERSIONED_JSON_CONTRACTS.len(), 35);
         assert_eq!(crate::overview::OVERVIEW_SCHEMA, OVERVIEW_SCHEMA_V1);
         assert_eq!(crate::coverage::COVERAGE_REPORT_SCHEMA, COVERAGE_SCHEMA_V1);
         assert_eq!(
             crate::capabilities::CAPABILITIES_REPORT_SCHEMA,
             CAPABILITIES_SCHEMA_V1
         );
+        assert_eq!(crate::index::INDEX_REPORT_SCHEMA, INDEX_REPORT_SCHEMA_V1);
         assert_eq!(crate::bench::INDEX_BENCHMARK_SCHEMA, INDEX_BENCHMARK_SCHEMA_V1);
         assert_eq!(
             crate::validate_changed::CHANGED_VALIDATION_SCHEMA,
