@@ -59,7 +59,7 @@ fn executable_shared_reports_preserve_registered_shapes() {
 
     let generation = run_json(&["generate", root_arg, "--json"]);
     assert_eq!(generation["schema"], "athanor.generation.v1");
-    assert_eq!(generation["snapshot"], snapshot);
+    assert_eq!(generation["snapshot"].as_str(), Some(snapshot.as_str()));
     assert!(generation["metrics"].is_object());
 
     let wiki = run_json(&[
@@ -70,7 +70,7 @@ fn executable_shared_reports_preserve_registered_shapes() {
         "--json",
     ]);
     assert_eq!(wiki["schema"], "athanor.wiki_report.v1");
-    assert_eq!(wiki["snapshot"], snapshot);
+    assert_eq!(wiki["snapshot"].as_str(), Some(snapshot.as_str()));
     assert!(wiki["output_dir"]
         .as_str()
         .expect("wiki output directory")
@@ -85,7 +85,7 @@ fn executable_shared_reports_preserve_registered_shapes() {
         "--json",
     ]);
     assert_eq!(html["schema"], "athanor.html_report.v1");
-    assert_eq!(html["snapshot"], snapshot);
+    assert_eq!(html["snapshot"].as_str(), Some(snapshot.as_str()));
     assert!(html["output_dir"]
         .as_str()
         .expect("HTML output directory")
