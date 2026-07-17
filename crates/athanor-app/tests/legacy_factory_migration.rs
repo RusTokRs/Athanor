@@ -10,6 +10,10 @@ const SEARCH_FACADE_SOURCE: &str = include_str!("../src/search_facade.rs");
 const APP_LIB_SOURCE: &str = include_str!("../src/lib.rs");
 const VALIDATE_CHANGED_SOURCE: &str = include_str!("../src/validate_changed.rs");
 const CLI_ENTRY_SOURCE: &str = include_str!("../../../apps/ath/src/entry.rs");
+const DIRECT_SEARCH_SOURCE: &str = include_str!("../../../apps/ath/src/direct_search_cli.rs");
+const DIRECT_CONTEXT_SOURCE: &str = include_str!("../../../apps/ath/src/direct_context_cli.rs");
+const DIRECT_VALIDATE_CHANGED_SOURCE: &str =
+    include_str!("../../../apps/ath/src/direct_validate_changed_cli.rs");
 
 #[test]
 fn migrated_legacy_factories_fail_explicitly() {
@@ -46,6 +50,16 @@ fn changed_validation_has_an_explicit_composition_path() {
     assert!(VALIDATE_CHANGED_SOURCE.contains("RuntimeBuilder::from_composition"));
     assert!(CLI_ENTRY_SOURCE.contains("direct_validate_changed_cli"));
     assert!(CLI_ENTRY_SOURCE.contains("Athanor direct changed validation runtime"));
+    assert!(DIRECT_VALIDATE_CHANGED_SOURCE.contains("athanor_runtime_defaults::production()"));
+    assert!(!DIRECT_VALIDATE_CHANGED_SOURCE.contains("athanor_runtime_defaults::install()"));
+}
+
+#[test]
+fn focused_search_and_context_do_not_install_global_runtime() {
+    for source in [DIRECT_SEARCH_SOURCE, DIRECT_CONTEXT_SOURCE] {
+        assert!(source.contains("athanor_runtime_defaults::production()"));
+        assert!(!source.contains("athanor_runtime_defaults::install()"));
+    }
 }
 
 #[test]
