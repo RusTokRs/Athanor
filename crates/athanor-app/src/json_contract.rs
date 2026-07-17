@@ -39,6 +39,14 @@ pub const INDEX_REPORT_SCHEMA_V1: &str = crate::index::INDEX_REPORT_SCHEMA;
 pub const INDEX_BENCHMARK_SCHEMA_V1: &str = crate::bench::INDEX_BENCHMARK_SCHEMA;
 /// Stable schema identifier for changed-file validation reports.
 pub const CHANGED_VALIDATION_SCHEMA_V1: &str = crate::validate_changed::CHANGED_VALIDATION_SCHEMA;
+/// Stable schema identifier for coordinated generation reports.
+pub const GENERATION_SCHEMA_V1: &str = "athanor.generation.v1";
+/// Stable schema identifier for documentation policy check reports.
+pub const DOCS_CHECK_SCHEMA_V1: &str = crate::docs::DOCS_CHECK_SCHEMA;
+/// Stable schema identifier for documentation drift reports.
+pub const DOCS_DRIFT_SCHEMA_V1: &str = crate::docs::DOCS_DRIFT_SCHEMA;
+/// Stable schema identifier for applied documentation patch reports.
+pub const DOCS_APPLY_PATCH_SCHEMA_V1: &str = "athanor.docs_apply_patch.v1";
 /// Stable schema identifier for graph export reports.
 pub const GRAPH_EXPORT_SCHEMA_V1: &str = crate::graph::GRAPH_EXPORT_SCHEMA;
 /// Stable schema identifier for graph related-entity reports.
@@ -158,6 +166,22 @@ pub const VERSIONED_JSON_CONTRACTS: &[JsonContractDescriptor] = &[
     JsonContractDescriptor {
         schema: CHANGED_VALIDATION_SCHEMA_V1,
         rust_type: "ChangedValidationReport",
+    },
+    JsonContractDescriptor {
+        schema: GENERATION_SCHEMA_V1,
+        rust_type: "GenerationReport",
+    },
+    JsonContractDescriptor {
+        schema: DOCS_CHECK_SCHEMA_V1,
+        rust_type: "DocsCheckReport",
+    },
+    JsonContractDescriptor {
+        schema: DOCS_DRIFT_SCHEMA_V1,
+        rust_type: "DocsDriftReport",
+    },
+    JsonContractDescriptor {
+        schema: DOCS_APPLY_PATCH_SCHEMA_V1,
+        rust_type: "DocsApplyPatchReport",
     },
     JsonContractDescriptor {
         schema: GRAPH_EXPORT_SCHEMA_V1,
@@ -335,6 +359,13 @@ impl_static_schema_contract!(crate::bench::BenchmarkReport, INDEX_BENCHMARK_SCHE
 impl_static_schema_contract!(
     crate::validate_changed::ChangedValidationReport,
     CHANGED_VALIDATION_SCHEMA_V1
+);
+impl_static_schema_contract!(crate::generation::GenerationReport, GENERATION_SCHEMA_V1);
+impl_owned_schema_contract!(crate::docs::DocsCheckReport, DOCS_CHECK_SCHEMA_V1);
+impl_owned_schema_contract!(crate::docs::DocsDriftReport, DOCS_DRIFT_SCHEMA_V1);
+impl_owned_schema_contract!(
+    crate::docs::DocsApplyPatchReport,
+    DOCS_APPLY_PATCH_SCHEMA_V1
 );
 impl_owned_schema_contract!(crate::graph::GraphExport, GRAPH_EXPORT_SCHEMA_V1);
 impl_owned_schema_contract!(crate::graph::GraphRelated, GRAPH_RELATED_SCHEMA_V1);
@@ -586,7 +617,7 @@ mod tests {
             "athanor.search.vx",
             "athanor..v1",
         ] {
-            assert!(validate_schema_id(schema).is_err(), "accepted `{schema}`");
+            assert!(validate_schema_id(schema).is_err(), "accepted `{schema}");
         }
     }
 
@@ -623,7 +654,7 @@ mod tests {
     #[test]
     fn registry_contains_unique_valid_schema_and_type_owners() {
         assert_eq!(validate_contract_registry(VERSIONED_JSON_CONTRACTS), Ok(()));
-        assert_eq!(VERSIONED_JSON_CONTRACTS.len(), 35);
+        assert_eq!(VERSIONED_JSON_CONTRACTS.len(), 39);
         assert_eq!(crate::overview::OVERVIEW_SCHEMA, OVERVIEW_SCHEMA_V1);
         assert_eq!(crate::coverage::COVERAGE_REPORT_SCHEMA, COVERAGE_SCHEMA_V1);
         assert_eq!(
@@ -636,6 +667,8 @@ mod tests {
             crate::validate_changed::CHANGED_VALIDATION_SCHEMA,
             CHANGED_VALIDATION_SCHEMA_V1
         );
+        assert_eq!(crate::docs::DOCS_CHECK_SCHEMA, DOCS_CHECK_SCHEMA_V1);
+        assert_eq!(crate::docs::DOCS_DRIFT_SCHEMA, DOCS_DRIFT_SCHEMA_V1);
         assert_eq!(crate::graph::GRAPH_EXPORT_SCHEMA, GRAPH_EXPORT_SCHEMA_V1);
         assert_eq!(crate::graph::GRAPH_RELATED_SCHEMA, GRAPH_RELATED_SCHEMA_V1);
         assert_eq!(crate::graph::GRAPH_PATH_SCHEMA, GRAPH_PATH_SCHEMA_V1);
