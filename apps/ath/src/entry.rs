@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 
 mod direct_check_cli;
+mod direct_config_cli;
 mod direct_context_cli;
 mod direct_graph_cli;
 mod direct_operation;
@@ -125,6 +126,9 @@ fn main() -> Result<()> {
             athanor_runtime_defaults::install();
         }
         return runtime("Athanor repair runtime")?.block_on(repair_cli::run(command));
+    }
+    if let Some(command) = direct_config_cli::parse(&args)? {
+        return direct_config_cli::run(command);
     }
     if let Some(command) = direct_check_cli::parse(&args)? {
         return runtime("Athanor direct check runtime")?.block_on(direct_check_cli::run(command));
