@@ -12,6 +12,7 @@ mod direct_read_cli;
 mod direct_rustok_cli;
 mod direct_rustok_help;
 mod direct_search_cli;
+mod direct_validate_changed_cli;
 mod repair_cli;
 
 mod legacy {
@@ -125,6 +126,10 @@ fn main() -> Result<()> {
     }
     if let Some(command) = direct_plugin_cli::parse(&args)? {
         return direct_plugin_cli::run(command);
+    }
+    if let Some(command) = direct_validate_changed_cli::parse(&args)? {
+        return runtime("Athanor direct changed validation runtime")?
+            .block_on(direct_validate_changed_cli::run(command));
     }
     if let Some(command) = repair_cli::parse(&args)? {
         #[allow(deprecated)]
