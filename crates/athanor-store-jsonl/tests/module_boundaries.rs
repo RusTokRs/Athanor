@@ -44,4 +44,9 @@ fn all_pointer_writers_share_commit_then_best_effort_cleanup() {
     assert!(POINTER.contains("post_commit_cleanup_failure_keeps_new_pointer_published"));
     assert!(POINTER.contains("existing target is not a file"));
     assert!(!POINTER.contains("failed to remove previous latest pointer"));
+
+    assert!(LATEST.contains("publish_json("));
+    assert!(STORE.contains("publish_json("));
+    assert!(!LATEST.contains("fn replace_pointer"));
+    assert!(!STORE.contains("fn replace_file"));
 }
