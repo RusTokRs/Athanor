@@ -1,10 +1,13 @@
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use athanor_domain::Severity;
 use serde::{Deserialize, Serialize};
+
+pub const CONFIG_VALIDATE_SCHEMA: &str = "athanor.config_validate.v1";
+pub const CONFIG_DOCTOR_SCHEMA: &str = "athanor.config_doctor.v1";
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
@@ -14,6 +17,34 @@ pub struct ProjectConfig {
     pub storage: StorageConfig,
     pub adapters: AdaptersConfig,
     pub pipeline: PipelineConfig,
+}
+
+#[derive(Debug, Clone)]
+pub struct ConfigReportOptions {
+    pub root: PathBuf,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ConfigValidateReport {
+    pub schema: &'static str,
+    pub root: PathBuf,
+    #[serde(flatten)]
+    pub config: ProjectConfig,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ConfigDoctorCheck {
+    pub name: &'static str,
+    pub status: &'static str,
+    pub detail: &'static str,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ConfigDoctorReport {
+    pub schema: &'static str,
+    pub root: PathBuf,
+    pub config: ProjectConfig,
+    pub checks: Vec<ConfigDoctorCheck>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -214,9 +245,55 @@ pub fn load_config(root: &Path) -> Result<ProjectConfig> {
     Ok(config)
 }
 
+pub fn validate_project_config(options: ConfigReportOptions) -> Result<ConfigValidateReport> {
+    let config = load_config(&options.root)?;
+    Ok(ConfigValidateReport {
+        schema: CONFIG_VALIDATE_SCHEMA,
+        root: options.root,
+        config,
+    })
+}
+
+pub fn doctor_project_config(options: ConfigReportOptions) -> Result<ConfigDoctorReport> {
+    let config = load_config(&options.root)?;
+    let external_process_sandbox = match config.adapters.external_process_sandbox {
+        ExternalProcessSandboxProfile::Disabled => "disabled",
+        ExternalProcessSandboxProfile::CleanEnvironment => "clean_environment",
+    };
+
+    Ok(ConfigDoctorReport {
+        schema: CONFIG_DOCTOR_SCHEMA,
+        root: options.root,
+        config,
+        checks: vec![
+            ConfigDoctorCheck {
+                name: "storage_backend",
+                status: "available",
+                detail: "the configured storage mode is compiled into this build",
+            },
+            ConfigDoctorCheck {
+                name: "external_process_adapters",
+                status: "configured",
+                detail: "external process adapters require explicit enablement, trust, and allowlisting",
+            },
+            ConfigDoctorCheck {
+                name: "external_process_sandbox",
+                status: external_process_sandbox,
+                detail: "clean_environment clears inherited environment variables only; it is not OS-level filesystem, network, or CPU isolation",
+            },
+        ],
+    })
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{ExternalProcessSandboxProfile, ProjectConfig};
+    use std::path::PathBuf;
+
+    use super::{
+        CONFIG_DOCTOR_SCHEMA, CONFIG_VALIDATE_SCHEMA, ConfigReportOptions,
+        ExternalProcessSandboxProfile, ProjectConfig, doctor_project_config,
+        validate_project_config,
+    };
 
     #[test]
     fn rejects_unknown_top_level_field() {
@@ -262,6 +339,26 @@ mod tests {
             ProjectConfig::default().adapters.external_process_sandbox,
             ExternalProcessSandboxProfile::Disabled
         );
+    }
+
+    #[test]
+    fn reports_use_versioned_top_level_shapes() {
+        let root = PathBuf::from("project");
+        let validation = validate_project_config(ConfigReportOptions { root: root.clone() })
+            .expect("default validation report");
+        let doctor = doctor_project_config(ConfigReportOptions { root })
+            .expect("default doctor report");
+
+        let validation = serde_json::to_value(validation).expect("serialize validation report");
+        assert_eq!(validation["schema"], CONFIG_VALIDATE_SCHEMA);
+        assert_eq!(validation["root"], "project");
+        assert!(validation.get("config").is_none());
+        assert!(validation.get("storage").is_some());
+
+        let doctor = serde_json::to_value(doctor).expect("serialize doctor report");
+        assert_eq!(doctor["schema"], CONFIG_DOCTOR_SCHEMA);
+        assert_eq!(doctor["root"], "project");
+        assert_eq!(doctor["checks"].as_array().map(Vec::len), Some(3));
     }
 
     #[test]
