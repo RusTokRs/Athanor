@@ -46,6 +46,12 @@ pub(crate) fn replace_file(staging: &Path, target: &Path, subject: &str) -> Core
         return fs::rename(staging, target)
             .map_err(|error| CoreError::Adapter(format!("failed to publish {subject}: {error}")));
     }
+    if !target.is_file() {
+        return Err(CoreError::Adapter(format!(
+            "cannot replace {subject} {} because the existing target is not a file",
+            target.display()
+        )));
+    }
 
     let backup = target.with_extension(format!("json.backup-{}", unique_suffix()));
     fs::rename(target, &backup).map_err(|error| {
@@ -117,6 +123,24 @@ mod tests {
                 .to_str()
                 .is_some_and(|name| name.starts_with("latest.json.backup-"))
         }));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn non_file_target_fails_before_pointer_commit() {
+        let root = test_root("target-type");
+        fs::create_dir_all(&root).unwrap();
+        let target = root.join("latest.json");
+        let staging = root.join(".latest.json.staging-test");
+        fs::create_dir(&target).unwrap();
+        fs::write(&staging, "new").unwrap();
+
+        let error = replace_file(&staging, &target, "canonical latest pointer")
+            .expect_err("directory target must fail closed");
+
+        assert!(error.to_string().contains("not a file"));
+        assert!(target.is_dir());
+        assert!(staging.is_file());
         fs::remove_dir_all(root).unwrap();
     }
 
