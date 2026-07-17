@@ -4,7 +4,7 @@ use anyhow::{Context, Result, bail};
 use athanor_app::{
     ApiCleanupOptions, ApiCleanupReport, ApiDiffOptions, ApiRegistryOptions, ApiRegistryReport,
     ApiRetentionOverrides, ApiSnapshotOptions, VersionedApiSnapshotReport, cleanup_api_contracts,
-    diff_api_contracts, query_api_registry,
+    diff_api_contracts, query_api_registry_with_composition,
 };
 use clap::error::ErrorKind;
 use clap::{Parser, Subcommand};
@@ -110,6 +110,7 @@ pub(crate) fn parse(args: &[String]) -> Result<Option<Command>> {
 }
 
 pub(crate) async fn run(command: Command) -> Result<()> {
+    let composition = athanor_runtime_defaults::production();
     match command {
         Command::Snapshot {
             path,
@@ -119,7 +120,6 @@ pub(crate) async fn run(command: Command) -> Result<()> {
             keep_diffs,
             json,
         } => {
-            let composition = athanor_runtime_defaults::production();
             let report = athanor_app::snapshot_api_contract_with_composition(
                 ApiSnapshotOptions {
                     root: path,
@@ -191,7 +191,11 @@ pub(crate) async fn run(command: Command) -> Result<()> {
             }
         }
         Command::Registry { path, json } => {
-            let report = query_api_registry(ApiRegistryOptions { root: path }).await?;
+            let report = query_api_registry_with_composition(
+                ApiRegistryOptions { root: path },
+                &composition,
+            )
+            .await?;
             render_registry(&report, json)?;
         }
         Command::Cleanup {
