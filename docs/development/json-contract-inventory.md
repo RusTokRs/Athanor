@@ -8,7 +8,7 @@ status: active
 
 This inventory records JSON documents that cross CLI, daemon, MCP, persisted-state, generated-artifact, interchange, or process-adapter boundaries. A document may enter `VERSIONED_JSON_CONTRACTS` only when one Rust type owns one top-level schema id and its current payload shape is protected by a regression fixture.
 
-Audit baseline: `main` at `4555263d859dbe0c6cd9c88570c2caadb9ca5682`.
+Audit baseline: `main` at `fb2f30e2004765ba01bd28ea5c32860e192915fb`.
 
 ## Registered contracts
 
@@ -29,8 +29,8 @@ Audit baseline: `main` at `4555263d859dbe0c6cd9c88570c2caadb9ca5682`.
 | `athanor.index_benchmark.v1` | `BenchmarkReport` | direct CLI benchmark output | application-output golden |
 | `athanor.changed_validation.v1` | `ChangedValidationReport` | direct CLI changed-file validation | application-output golden |
 | `athanor.generation.v1` | `GenerationReport` | direct CLI generation and daemon generation job result | generation/docs golden plus daemon parity regression |
-| `athanor.config_validate.v1` | `ConfigValidateReport` | application config validation target; direct CLI migration pending | config golden |
-| `athanor.config_doctor.v1` | `ConfigDoctorReport` | application config diagnostics target; direct CLI migration pending | config golden |
+| `athanor.config_validate.v1` | `ConfigValidateReport` | direct CLI config validation | config golden plus executable CLI regression |
+| `athanor.config_doctor.v1` | `ConfigDoctorReport` | direct CLI config diagnostics | config golden plus executable CLI regression |
 | `athanor.docs_check.v1` | `DocsCheckReport` | direct CLI documentation policy check | generation/docs golden |
 | `athanor.docs_drift.v1` | `DocsDriftReport` | direct CLI documentation drift report | generation/docs golden |
 | `athanor.docs_apply_patch.v1` | `DocsApplyPatchReport` | direct CLI documentation patch application | generation/docs golden |
@@ -70,7 +70,7 @@ Audit baseline: `main` at `4555263d859dbe0c6cd9c88570c2caadb9ca5682`.
 
 `ConfigValidateReport` owns `athanor.config_validate.v1`. Its effective `ProjectConfig` remains flattened at the top level, while `schema` and `root` are additive fields. `ConfigDoctorReport` owns `athanor.config_doctor.v1` and preserves the existing `{ schema, root, config, checks }` shape with typed check entries.
 
-Both owners are registered and protected by `config_contracts.v1.json`. Direct CLI dispatch still emits the legacy raw/ad-hoc values and must be wired to these application functions before CLI parity can be marked complete.
+The direct CLI dispatcher now routes both `ath config validate` and `ath config doctor` through the typed application functions. Human-readable output remains compatible: validation still prints the raw effective configuration after the success line, and doctor still prints the three established check statuses. `apps/ath/tests/direct_config_cli.rs` protects the executable JSON shapes, help surface, and strict unknown-field failure path. Execution of that regression remains part of the pending workspace verification pass.
 
 ### Documentation contracts
 
@@ -107,7 +107,7 @@ The bounded public migration allowlist remains empty because known unversioned w
 
 ### Remaining application outputs
 
-The remaining application pass covers direct CLI wiring for config validation/doctor, versioned wrappers for `ApiSnapshotReport` and `DocsProposeFixReport`, and repair JSON reports/state.
+The remaining application pass covers versioned wrappers for `ApiSnapshotReport` and `DocsProposeFixReport`, plus repair JSON reports/state.
 
 ### Daemon and MCP envelopes
 
@@ -123,7 +123,7 @@ Index state, publication journals, projector payloads/manifests, read-model mani
 
 ## Enforcement implementation
 
-`crates/athanor-app/tests/json_contract_inventory.rs` scans the identified public application owner modules, including `config.rs`, `wiki.rs`, and `report.rs`. Registered Config, Wiki, and HTML ids are therefore enforced from their source owner modules.
+`crates/athanor-app/tests/json_contract_inventory.rs` scans the identified public application owner modules, including `config.rs`, `wiki.rs`, and `report.rs`. Registered Config, Wiki, and HTML ids are therefore enforced from their source owner modules. The executable Config CLI regression additionally verifies that the production entry dispatcher reaches the registered owners instead of the legacy ad-hoc branch.
 
 Public, migration, persisted, generated, embedded, and interchange sets are mutually exclusive. Every classified id must remain observable in the bounded source set and cannot simultaneously become a public registry owner.
 
