@@ -8,7 +8,7 @@ status: active
 
 This inventory records JSON documents that cross CLI, daemon, MCP, persisted-state, generated-artifact, interchange, or process-adapter boundaries. A document may enter `VERSIONED_JSON_CONTRACTS` only when one Rust type owns one top-level Athanor schema id and its current payload shape is protected by a regression fixture. Standard and schema-less protocols use separate registries instead of receiving synthetic Athanor schema ids.
 
-Audit baseline: `main` at `2da2ddd98a021703565913435b93538d2faa6faa`.
+Audit baseline: `main` at `0c177cb43c43b0a575045decfb86932e53bc4d08`.
 
 ## Registered public contracts
 
@@ -115,6 +115,8 @@ These wire shapes are the serde representation of core port types. Adding a top-
 - `athanor.canonical_latest.v1`
 - `athanor.canonical_commit.v2`
 
+`IndexState.generation` is derived and required when `snapshot` is present. An empty current state has `snapshot: null` and may omit `generation`; both feature-specific schema alternatives use this conditional rule.
+
 ### Generated current
 
 - `athanor.validation_result.v1`
@@ -144,7 +146,7 @@ Cleanup tombstones, staging directories, backups, locks, and repair guards are f
 - `NON_PUBLIC_JSON_CONTRACTS` protects current, legacy-input, and historical persisted/generated/interchange/embedded schemas.
 - `PROCESS_PROTOCOL_CONTRACTS` protects the four schema-less external-process shapes and framing.
 - `boundary_contracts.v1.json` provides representative current documents and process request/response fixtures.
-- `process_persistence_contract_inventory.rs` verifies disjoint classifications, current fixture coverage, runtime source observability, process type usage, and newline/single-document framing.
+- `process_persistence_contract_inventory.rs` verifies disjoint classifications, current fixture coverage, conditional empty index state, endpoint lifecycle, runtime source observability, process type usage, and newline/single-document framing.
 - Existing application, daemon, MCP, Repair, publication, checksum, recovery, and projector tests continue to protect semantic validation and atomicity.
 
 The bounded public migration allowlist remains empty. No known implementation inventory gap remains in the audited JSON scope; executable parity and workspace verification remain outstanding.
