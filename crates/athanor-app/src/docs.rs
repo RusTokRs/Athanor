@@ -1,19 +1,18 @@
-include!("docs/legacy_impl.rs");
+//! Documentation completeness, drift, repair proposal, and patch application services.
 
-pub(crate) fn build_docs_patch_proposal_from_snapshot(
-    snapshot: String,
-    entities: &[Entity],
-    relations: &[Relation],
-    diagnostics: &[Diagnostic],
-    config: &DocsConfig,
-    project_root: Option<&Path>,
-) -> DocsPatchProposal {
-    build_docs_patch_proposal(
-        snapshot,
-        entities,
-        relations,
-        diagnostics,
-        config,
-        project_root,
-    )
-}
+mod api_docs;
+mod check;
+mod frontmatter;
+mod model;
+mod operations;
+mod proposal;
+mod service;
+
+#[cfg(test)]
+mod tests;
+
+pub use model::*;
+pub use service::{check_docs, docs_apply_patch, docs_drift, docs_propose_fix};
+
+pub(crate) use check::build_docs_drift_report;
+pub(crate) use proposal::build_docs_patch_proposal_from_snapshot;
