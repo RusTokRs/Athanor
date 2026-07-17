@@ -4,6 +4,7 @@ pub mod api;
 pub mod api_registry;
 mod artifact_checksum;
 pub mod bench;
+pub mod boundary_contract;
 pub mod cancellation;
 pub mod capabilities;
 pub mod change_map;
@@ -157,6 +158,7 @@ pub mod projects {
 pub use api::*;
 pub use api_registry::*;
 pub use bench::*;
+pub use boundary_contract::*;
 pub use cancellation::*;
 pub use capabilities::*;
 pub use change_map::*;
