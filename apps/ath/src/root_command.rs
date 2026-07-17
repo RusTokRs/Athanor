@@ -160,7 +160,10 @@ mod tests {
 
     #[test]
     fn unknown_command_fails_without_legacy_fallback() {
-        let error = parse(&["not-a-command".to_string()]).unwrap_err();
+        let error = match parse(&["not-a-command".to_string()]) {
+            Err(error) => error,
+            Ok(_) => panic!("unknown command must fail"),
+        };
         assert!(error.to_string().contains("unknown command"));
     }
 }
