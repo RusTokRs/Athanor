@@ -24,10 +24,10 @@ After the commit point succeeds, maintenance failure must not turn durable succe
 | `athanor-search-tantivy` | search index rebuild | staging index installed and reopened | backup cleanup is best effort; open failure rolls back | already safe |
 | `athanor-store-jsonl/atomic_publication.rs` | immutable canonical generation | staging directory renamed to immutable snapshot path | no post-commit cleanup capable of changing result | already safe |
 | `athanor-app/index_publication.rs` | immutable read model/state generation | immutable targets and checksummed current pointer published | journal retained when pointer publication is incomplete | recovery-visible |
-| `athanor-app/read_model.rs` | prepared current read model | staging directory renamed to current output | `finalize` still propagates backup deletion failure | `PUB-004` open |
-| `athanor-app/index_state.rs` | prepared current index state | staging file renamed to current state | `finalize` still propagates backup deletion failure | `PUB-004` open |
-| `athanor-app/project_registry.rs` | project registry state | staging file renamed to registry path | backup deletion still propagates | `PUB-004` open |
-| `athanor-app/index_publication_journal.rs` | publication journal | staging file renamed to journal path | backup deletion still propagates | `PUB-004` open |
+| `athanor-app/read_model.rs` | prepared current read model | staging directory renamed to current output | `finalize` warns on backup cleanup failure and returns the published report | fixed in `main` |
+| `athanor-app/index_state.rs` | prepared current index state | staging file renamed to current state | `finalize` warns on backup cleanup failure and returns success | fixed in `main` |
+| `athanor-app/project_registry.rs` | project registry state | staging file renamed to registry path | backup cleanup warns and the published registry remains successful | fixed in `main` |
+| `athanor-app/index_publication_journal.rs` | publication journal | staging file renamed to journal path | backup cleanup warns and journal publication remains successful | fixed in `main` |
 | `athanor-store-jsonl/lib.rs` | generation-bearing latest pointer | staging pointer renamed to `latest.json` | backup deletion still propagates | `PUB-005` open |
 | `athanor-store-jsonl/store.rs` | legacy latest pointer and snapshot sequence | staging file renamed to target | backup deletion still propagates | `PUB-005` open |
 | `athanor-app/repair_retention.rs` | confirmed generation deletion | both live artifacts renamed to tombstones | tombstone removal is the requested destructive operation and remains strict | intentional strict cleanup |
@@ -48,6 +48,11 @@ Implemented in `athanor-projector-support` unit tests:
 - [x] a deterministic `cfg(test)` fault hook injects backup cleanup failure after the commit rename;
 - [x] publication still returns success and exposes the new target;
 - [x] the previous target remains in backup for recovery and a warning is emitted.
+
+Implemented in `publication_semantics_inventory.rs`:
+
+- [x] all four `PUB-004` app owners must retain their warning path;
+- [x] the former post-commit cleanup error strings must not reappear.
 
 Implemented in `publication_recovery_matrix.rs`:
 
