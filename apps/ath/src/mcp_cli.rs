@@ -38,7 +38,13 @@ pub(crate) fn parse(args: &[String]) -> Result<Option<Command>> {
 
 pub(crate) async fn run(command: Command) -> Result<()> {
     match command {
-        Command::Mcp { path } => athanor_transport_mcp::run_mcp_server(path).await?,
+        Command::Mcp { path } => {
+            // The transport still delegates tool execution to its legacy dispatcher.
+            // Keep the bootstrap local to the dedicated MCP process until MCP-005
+            // threads RuntimeComposition through every tool call.
+            athanor_runtime_defaults::install();
+            athanor_transport_mcp::run_mcp_server(path).await?;
+        }
     }
     Ok(())
 }
