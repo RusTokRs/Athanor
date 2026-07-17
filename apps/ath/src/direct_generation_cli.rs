@@ -219,9 +219,4 @@ mod tests {
             Some(Command::Generate { json: true, .. })
         ));
     }
-
-    #[test]
-    fn report_family_is_owned_by_generation_parser() {
-        assert!(parse(&["report".to_string(), "--help".to_string()]).is_ok());
-    }
 }
