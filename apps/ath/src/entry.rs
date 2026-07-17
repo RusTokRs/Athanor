@@ -13,7 +13,7 @@ mod direct_rustok_composed_cli;
 mod direct_rustok_help;
 mod direct_search_cli;
 mod direct_validate_changed_cli;
-mod repair_cli;
+mod repair_composed_cli;
 
 mod legacy {
     include!("main.rs");
@@ -131,12 +131,8 @@ fn main() -> Result<()> {
         return runtime("Athanor direct changed validation runtime")?
             .block_on(direct_validate_changed_cli::run(command));
     }
-    if let Some(command) = repair_cli::parse(&args)? {
-        #[allow(deprecated)]
-        {
-            athanor_runtime_defaults::install();
-        }
-        return runtime("Athanor repair runtime")?.block_on(repair_cli::run(command));
+    if let Some(command) = repair_composed_cli::parse(&args)? {
+        return runtime("Athanor repair runtime")?.block_on(repair_composed_cli::run(command));
     }
     if let Some(command) = direct_application_report_composed_cli::parse(&args)? {
         return runtime("Athanor versioned application report runtime")?
