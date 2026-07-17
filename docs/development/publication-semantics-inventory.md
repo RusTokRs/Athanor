@@ -39,19 +39,27 @@ After the commit point succeeds, maintenance failure must not turn durable succe
 Implemented in `publication_failure_semantics.rs`:
 
 - [x] staged build failure preserves the previous visible directory and removes temporary siblings;
+- [x] failure after the previous target moved to backup restores that target and removes publication siblings;
 - [x] an unpublished immutable candidate is removed by `Drop`;
 - [x] a target created after staging wins the race and the rejected candidate is removed.
 
+Implemented in `publication_recovery_matrix.rs`:
+
+- [x] failure while staging the second retention tombstone requires rollback of the first rename;
+- [x] destructive tombstone cleanup remains strict and recovery-visible;
+- [x] complete, partial and conflicting cleanup-recovery states remain represented in the source matrix;
+- [x] recovery fails closed when live artifacts conflict with tombstones.
+
 Still required for `PUB-003`:
 
-- [ ] failure after the previous target has moved to backup exercises rollback restoration;
-- [ ] injected post-commit backup cleanup failure proves that the operation remains successful and emits a warning;
-- [ ] recovery and retention fault matrices execute against the same commit.
+- [ ] inject post-commit backup cleanup failure and prove that publication remains successful while emitting a warning;
+- [ ] execute the rollback, recovery and retention matrices against the same commit.
 
 ## Regression commands
 
 ```bash
 cargo test -p athanor-app --test publication_semantics_inventory --locked
+cargo test -p athanor-app --test publication_recovery_matrix --locked
 cargo test -p athanor-projector-support --test publication_failure_semantics --locked
 cargo test -p athanor-projector-support --locked
 cargo test -p athanor-app index_publication --locked
