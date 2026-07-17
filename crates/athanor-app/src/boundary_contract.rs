@@ -137,14 +137,14 @@ pub const NON_PUBLIC_JSON_CONTRACTS: &[NonPublicJsonContractDescriptor] = &[
         "IndexState",
         Persisted,
         Current,
-        ["schema", "snapshot", "generation", "files"]
+        ["schema", "snapshot", "files"]
     ),
     boundary!(
         "athanor.index_state.v46-js-ts-precision-v1",
         "IndexState",
         Persisted,
         Current,
-        ["schema", "snapshot", "generation", "files"]
+        ["schema", "snapshot", "files"]
     ),
     boundary!(
         crate::index_publication_journal::INDEX_PUBLICATION_JOURNAL_SCHEMA_V3,
