@@ -8,7 +8,7 @@ mod direct_generation_cli;
 mod direct_graph_cli;
 mod direct_operation;
 mod direct_plugin_cli;
-mod direct_read_cli;
+mod direct_read_composed_cli;
 mod direct_rustok_composed_cli;
 mod direct_rustok_help;
 mod direct_search_cli;
@@ -167,8 +167,9 @@ fn main() -> Result<()> {
         return runtime("Athanor direct search runtime")?
             .block_on(direct_search_cli::run(command));
     }
-    if let Some(command) = direct_read_cli::parse(&args)? {
-        return runtime("Athanor direct read runtime")?.block_on(direct_read_cli::run(command));
+    if let Some(command) = direct_read_composed_cli::parse(&args)? {
+        return runtime("Athanor direct read runtime")?
+            .block_on(direct_read_composed_cli::run(command));
     }
     legacy::run()
 }
