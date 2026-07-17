@@ -2,12 +2,16 @@ const APPLICATION_FACADE_SOURCE: &str =
     include_str!("../src/application_report_composition.rs");
 const API_DIRECT_SOURCE: &str =
     include_str!("../src/application_report_composition/api_direct.rs");
+const DOCS_FACADE_SOURCE: &str = include_str!("../src/docs.rs");
+const DOCS_LEGACY_SOURCE: &str = include_str!("../src/docs/legacy_impl.rs");
 const DOCS_DIRECT_ROOT_SOURCE: &str =
     include_str!("../src/application_report_composition/docs_direct.rs");
 const DOCS_DIRECT_SNAPSHOT_SOURCE: &str =
     include_str!("../src/application_report_composition/docs_direct/snapshot.rs");
 const DOCS_DIRECT_CHECK_SOURCE: &str =
     include_str!("../src/application_report_composition/docs_direct/check.rs");
+const DOCS_DIRECT_PROPOSE_SOURCE: &str =
+    include_str!("../src/application_report_composition/docs_direct/propose.rs");
 const DOCS_DIRECT_APPLY_SOURCE: &str =
     include_str!("../src/application_report_composition/docs_direct/apply.rs");
 const REPAIR_FACADE_SOURCE: &str = include_str!("../src/repair_composition.rs");
@@ -33,23 +37,27 @@ fn repair_services_initialize_store_directly_from_composition() {
 }
 
 #[test]
-fn docs_check_drift_and_apply_initialize_store_directly() {
+fn every_docs_service_initializes_store_directly() {
     for operation in [
         "docs_direct::check",
         "docs_direct::drift",
+        "docs_direct::propose",
         "docs_direct::apply",
     ] {
         assert!(APPLICATION_FACADE_SOURCE.contains(operation));
     }
-    assert!(DOCS_DIRECT_ROOT_SOURCE.contains("mod snapshot;"));
-    assert!(DOCS_DIRECT_ROOT_SOURCE.contains("mod check;"));
-    assert!(DOCS_DIRECT_ROOT_SOURCE.contains("mod apply;"));
+    for module in ["snapshot", "check", "propose", "apply"] {
+        assert!(DOCS_DIRECT_ROOT_SOURCE.contains(&format!("mod {module};")));
+    }
     assert!(DOCS_DIRECT_SNAPSHOT_SOURCE.contains("composition.init_store"));
     assert!(DOCS_DIRECT_CHECK_SOURCE.contains("build_docs_drift_report"));
+    assert!(DOCS_DIRECT_PROPOSE_SOURCE.contains("build_docs_patch_proposal_from_snapshot"));
     for source in [
+        APPLICATION_FACADE_SOURCE,
         DOCS_DIRECT_ROOT_SOURCE,
         DOCS_DIRECT_SNAPSHOT_SOURCE,
         DOCS_DIRECT_CHECK_SOURCE,
+        DOCS_DIRECT_PROPOSE_SOURCE,
         DOCS_DIRECT_APPLY_SOURCE,
     ] {
         assert!(!source.contains("with_store_composition"));
@@ -58,22 +66,11 @@ fn docs_check_drift_and_apply_initialize_store_directly() {
 }
 
 #[test]
-fn docs_propose_fix_is_the_only_remaining_task_local_service_bridge() {
-    assert_eq!(
-        APPLICATION_FACADE_SOURCE
-            .matches("with_store_composition")
-            .count(),
-        2,
-        "one import plus docs propose-fix should remain"
-    );
-    assert!(APPLICATION_FACADE_SOURCE.contains("docs_propose_fix(options)"));
-    for removed in [
-        "check_docs(options)",
-        "docs_drift(options)",
-        "docs_apply_patch(options)",
-    ] {
-        assert!(!APPLICATION_FACADE_SOURCE.contains(removed));
-    }
+fn legacy_docs_owner_exposes_only_a_snapshot_builder_bridge() {
+    assert!(DOCS_FACADE_SOURCE.contains("include!(\"docs/legacy_impl.rs\")"));
+    assert!(DOCS_FACADE_SOURCE.contains("build_docs_patch_proposal_from_snapshot"));
+    assert!(DOCS_LEGACY_SOURCE.contains("fn build_docs_patch_proposal("));
+    assert!(!DOCS_FACADE_SOURCE.contains("with_store_composition"));
 }
 
 #[test]
@@ -81,9 +78,11 @@ fn direct_service_composition_modules_remain_bounded() {
     for (name, source, max_lines) in [
         ("application facade", APPLICATION_FACADE_SOURCE, 80),
         ("API direct", API_DIRECT_SOURCE, 280),
+        ("Docs facade", DOCS_FACADE_SOURCE, 40),
         ("Docs direct root", DOCS_DIRECT_ROOT_SOURCE, 20),
         ("Docs direct snapshot", DOCS_DIRECT_SNAPSHOT_SOURCE, 80),
         ("Docs direct check", DOCS_DIRECT_CHECK_SOURCE, 220),
+        ("Docs direct propose", DOCS_DIRECT_PROPOSE_SOURCE, 140),
         ("Docs direct apply", DOCS_DIRECT_APPLY_SOURCE, 220),
         ("repair facade", REPAIR_FACADE_SOURCE, 40),
         ("repair direct", REPAIR_DIRECT_SOURCE, 280),

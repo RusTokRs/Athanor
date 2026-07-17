@@ -11,9 +11,7 @@ use crate::composition::RuntimeComposition;
 use crate::docs::{
     DocsApplyPatchOptions, DocsApplyPatchReport, DocsCheckOptions, DocsCheckReport,
     DocsDriftOptions, DocsDriftReport, DocsProposeFixOptions, DocsProposeFixReport,
-    docs_propose_fix,
 };
-use crate::store::with_store_composition;
 
 pub async fn snapshot_api_contract_with_composition(
     options: ApiSnapshotOptions,
@@ -47,7 +45,7 @@ pub async fn docs_propose_fix_with_composition(
     options: DocsProposeFixOptions,
     composition: &RuntimeComposition,
 ) -> Result<DocsProposeFixReport> {
-    with_store_composition(composition.clone(), docs_propose_fix(options)).await
+    docs_direct::propose(options, composition).await
 }
 
 pub async fn docs_apply_patch_with_composition(
