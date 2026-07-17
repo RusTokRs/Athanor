@@ -38,11 +38,9 @@ fn mcp_transport_registry_is_unique_and_separate_from_athanor_schema_registry() 
         .collect::<BTreeSet<_>>();
     assert_eq!(names.len(), MCP_TRANSPORT_CONTRACTS.len());
     assert_eq!(MCP_TRANSPORT_CONTRACTS.len(), 4);
-    assert!(
-        MCP_TRANSPORT_CONTRACTS
-            .iter()
-            .all(|contract| contract.version == JSON_RPC_VERSION || contract.version == MCP_PROTOCOL_VERSION)
-    );
+    assert!(MCP_TRANSPORT_CONTRACTS.iter().all(|contract| {
+        contract.version == JSON_RPC_VERSION || contract.version == MCP_PROTOCOL_VERSION
+    }));
 
     assert!(LEGACY_RUNTIME_SOURCE.contains("struct JsonRpcRequest"));
     assert!(LEGACY_RUNTIME_SOURCE.contains("struct JsonRpcResponse"));

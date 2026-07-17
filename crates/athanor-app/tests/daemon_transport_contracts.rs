@@ -71,9 +71,15 @@ fn daemon_transport_contracts_match_golden_fixture() {
         }],
     };
 
-    request.validate_contract().expect("valid daemon request contract");
-    success.validate_contract().expect("valid daemon success response contract");
-    failure.validate_contract().expect("valid daemon error response contract");
+    request
+        .validate_contract()
+        .expect("valid daemon request contract");
+    success
+        .validate_contract()
+        .expect("valid daemon success response contract");
+    failure
+        .validate_contract()
+        .expect("valid daemon error response contract");
     jobs.validate_contract().expect("valid daemon jobs contract");
 
     let fixture = read_fixture("daemon_transport_contracts.v1.json");
@@ -106,9 +112,17 @@ fn registry_contains_only_current_top_level_daemon_owners() {
         DAEMON_REQUEST_SCHEMA_V2,
         DAEMON_RESPONSE_SCHEMA_V2,
     ] {
-        assert!(!schemas.contains(legacy), "legacy daemon schema became current: {legacy}");
+        assert!(
+            !schemas.contains(legacy),
+            "legacy daemon schema became current: {legacy}"
+        );
     }
-    for embedded_or_persisted in ["DaemonError", "DaemonCommand", "DaemonJob", "DaemonEndpoint"] {
+    for embedded_or_persisted in [
+        "DaemonError",
+        "DaemonCommand",
+        "DaemonJob",
+        "DaemonEndpoint",
+    ] {
         assert!(
             !owners.contains(embedded_or_persisted),
             "embedded or persisted daemon type became a public owner: {embedded_or_persisted}"
