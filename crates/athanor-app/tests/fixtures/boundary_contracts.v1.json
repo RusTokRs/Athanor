@@ -1,0 +1,249 @@
+{
+  "documents": {
+    "athanor.project_registry_state.v1": {
+      "schema": "athanor.project_registry_state.v1",
+      "projects": []
+    },
+    "athanor.daemon_endpoint.v3": {
+      "schema": "athanor.daemon_endpoint.v3",
+      "protocol_version": 3,
+      "athanor_version": "0.1.0",
+      "runtime_id": "runtime-test",
+      "token_path": "runtime/token",
+      "project_id": "project-alpha",
+      "root": "project",
+      "registry_path": "projects.json",
+      "address": "127.0.0.1:0",
+      "transport": "tcp",
+      "local_socket_path": null,
+      "windows_pipe_name": null,
+      "pid": 1,
+      "started_at_unix_ms": 1000,
+      "max_concurrent_requests": 4,
+      "max_job_history": 100,
+      "watch": false,
+      "watch_poll": false,
+      "debounce_ms": 250,
+      "max_request_bytes": 1048576,
+      "max_response_bytes": 1048576
+    },
+    "athanor.index_current.v2": {
+      "schema": "athanor.index_current.v2",
+      "generation": "gen_snap-current",
+      "snapshot": "snap-current",
+      "read_model": ".athanor/generated/index-generations/gen_snap-current/jsonl",
+      "index_state": ".athanor/state/index-state-gen_snap-current.json",
+      "read_model_manifest_sha256": "sha256:manifest",
+      "index_state_sha256": "sha256:state"
+    },
+    "athanor.index_state.v46": {
+      "schema": "athanor.index_state.v46",
+      "snapshot": "snap-current",
+      "generation": "gen_snap-current",
+      "files": {}
+    },
+    "athanor.index_state.v46-js-ts-precision-v1": {
+      "schema": "athanor.index_state.v46-js-ts-precision-v1",
+      "snapshot": "snap-current",
+      "generation": "gen_snap-current",
+      "files": {}
+    },
+    "athanor.index_publication.v3": {
+      "schema": "athanor.index_publication.v3",
+      "prepared": "snap-current",
+      "generation": "gen_snap-current",
+      "id": "publication-test",
+      "read_model": "project/.athanor/generated/index-generations/gen_snap-current/jsonl",
+      "index_state": "project/.athanor/state/index-state-gen_snap-current.json"
+    },
+    "athanor.index_current_publication.v1": {
+      "schema": "athanor.index_current_publication.v1",
+      "generation": "gen_snap-current",
+      "snapshot": "snap-current"
+    },
+    "athanor.canonical_snapshot.v1": {
+      "schema": "athanor.canonical_snapshot.v1",
+      "snapshot": "snap-current",
+      "commit_marker_schema": "athanor.canonical_commit.v2"
+    },
+    "athanor.canonical_latest.v1": {
+      "schema": "athanor.canonical_latest.v1",
+      "snapshot": "snap-current",
+      "generation": "gen_snap-current"
+    },
+    "athanor.canonical_commit.v2": {
+      "schema": "athanor.canonical_commit.v2",
+      "snapshot": "snap-current",
+      "generation": "gen_snap-current"
+    },
+    "athanor.validation_result.v1": {
+      "schema": "athanor.validation_result.v1",
+      "status": "valid",
+      "snapshot": "snap-current",
+      "files_indexed": 0,
+      "changed_files": 0,
+      "unchanged_files": 0,
+      "removed_files": 0,
+      "entities": 0,
+      "facts": 0,
+      "relations": 0,
+      "diagnostics": 0
+    },
+    "athanor.generated_generation.v1": {
+      "schema": "athanor.generated_generation.v1",
+      "status": "complete",
+      "generation": "generation-test",
+      "snapshot": "snap-current",
+      "athanor_version": "0.1.0",
+      "entities": 0,
+      "facts": 0,
+      "relations": 0,
+      "diagnostics": 0,
+      "outputs": {
+        "jsonl": "jsonl",
+        "wiki": "wiki",
+        "html": "html"
+      }
+    },
+    "athanor.generated_current.v1": {
+      "schema": "athanor.generated_current.v1",
+      "generation": "generation-test",
+      "snapshot": "snap-current",
+      "path": "generations/generation-test",
+      "manifest": "generations/generation-test/manifest.json"
+    },
+    "athanor.api_contract_snapshot.v2": {
+      "schema": "athanor.api_contract_snapshot.v2",
+      "snapshot": "snap-current",
+      "endpoints": [],
+      "schemas": [],
+      "examples": []
+    },
+    "athanor.api_contract_latest.v1": {
+      "schema": "athanor.api_contract_latest.v1",
+      "snapshot": "snap-current",
+      "path": "snapshots/snap-current.json"
+    },
+    "athanor.jsonl_manifest.v1": {
+      "schema": "athanor.jsonl_manifest.v1",
+      "snapshot": "snap-current",
+      "generation": "gen_snap-current",
+      "files_indexed": 0,
+      "changed_files": 0,
+      "unchanged_files": 0,
+      "removed_files": 0,
+      "entities": 0,
+      "facts": 0,
+      "relations": 0,
+      "diagnostics": 0
+    },
+    "athanor.wiki_manifest.v1": {
+      "schema": "athanor.wiki_manifest.v1",
+      "wiki_format_version": "agent-wiki-v1",
+      "snapshot": "snap-current",
+      "status": "complete",
+      "entities": 0,
+      "facts": 0,
+      "relations": 0,
+      "open_diagnostics": 0
+    },
+    "athanor.html_report_manifest.v1": {
+      "schema": "athanor.html_report_manifest.v1",
+      "report_format_version": "athanor-html-report-v1",
+      "snapshot": "snap-current",
+      "status": "complete",
+      "entities": 0,
+      "entity_pages": 0,
+      "facts": 0,
+      "relations": 0,
+      "open_diagnostics": 0
+    },
+    "athanor.docs_patch.v1": {
+      "schema": "athanor.docs_patch.v1",
+      "id": "docs-patch-test",
+      "snapshot": "snap-current",
+      "operations": []
+    },
+    "athanor.wiki_projection.v1": {
+      "schema": "athanor.wiki_projection.v1",
+      "entities": [],
+      "facts": [],
+      "relations": [],
+      "diagnostics": []
+    },
+    "athanor.html_report_projection.v1": {
+      "schema": "athanor.html_report_projection.v1",
+      "entities": [],
+      "facts": [],
+      "relations": [],
+      "diagnostics": []
+    },
+    "athanor.index_metrics.v1": {
+      "schema": "athanor.index_metrics.v1",
+      "total_ms": 0
+    },
+    "athanor.index_report_metrics.v1": {
+      "schema": "athanor.index_report_metrics.v1",
+      "total_ms": 0,
+      "pipeline": {
+        "schema": "athanor.index_metrics.v1"
+      }
+    },
+    "athanor.generation_metrics.v1": {
+      "schema": "athanor.generation_metrics.v1",
+      "total_ms": 0
+    }
+  },
+  "process_protocols": {
+    "source-discover": {
+      "request": {
+        "root": "project"
+      },
+      "response": []
+    },
+    "extractor": {
+      "request": {
+        "repo": "repo",
+        "snapshot": "snap-current",
+        "source": {
+          "path": "src/lib.rs",
+          "language_hint": "rust",
+          "content_hash": "hash",
+          "content": "fn main() {}"
+        }
+      },
+      "response": {
+        "entities": [],
+        "facts": [],
+        "diagnostics": []
+      }
+    },
+    "linker": {
+      "request": {
+        "snapshot": "snap-current",
+        "entities": [],
+        "facts": [],
+        "affected": {
+          "entities": [],
+          "facts": [],
+          "relations": []
+        }
+      },
+      "response": []
+    },
+    "checker": {
+      "request": {
+        "snapshot": "snap-current",
+        "entities": [],
+        "facts": [],
+        "relations": [],
+        "affected": {
+          "entities": [],
+          "facts": [],
+          "relations": []
+        }
+      },
+      "response": []
+    }
+  }
+}
