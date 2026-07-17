@@ -31,7 +31,7 @@ pub use base::{
     validate_contract_value, validate_schema_id,
 };
 
-pub use crate::adapter_contract::{
+use crate::adapter_contract::{
     ADAPTER_TRUST_REPORT_SCHEMA_V1, VersionedAdapterTrustReport,
 };
 
