@@ -8,6 +8,7 @@ const PROJECTION_SOURCE: &str = include_str!("../src/projection.rs");
 const STORE_FACADE_SOURCE: &str = include_str!("../src/store_facade.rs");
 const SEARCH_FACADE_SOURCE: &str = include_str!("../src/search_facade.rs");
 const GRAPH_OPERATION_SOURCE: &str = include_str!("../src/graph_operation.rs");
+const RUSTOK_COMPOSITION_SOURCE: &str = include_str!("../src/rustok_composition_operation.rs");
 const APP_LIB_SOURCE: &str = include_str!("../src/lib.rs");
 const VALIDATE_CHANGED_SOURCE: &str = include_str!("../src/validate_changed.rs");
 const CLI_ENTRY_SOURCE: &str = include_str!("../../../apps/ath/src/entry.rs");
@@ -15,6 +16,8 @@ const DIRECT_SEARCH_SOURCE: &str = include_str!("../../../apps/ath/src/direct_se
 const DIRECT_CONTEXT_SOURCE: &str = include_str!("../../../apps/ath/src/direct_context_cli.rs");
 const DIRECT_CHECK_SOURCE: &str = include_str!("../../../apps/ath/src/direct_check_cli.rs");
 const DIRECT_GRAPH_SOURCE: &str = include_str!("../../../apps/ath/src/direct_graph_cli.rs");
+const DIRECT_RUSTOK_SOURCE: &str =
+    include_str!("../../../apps/ath/src/direct_rustok_composed_cli.rs");
 const DIRECT_VALIDATE_CHANGED_SOURCE: &str =
     include_str!("../../../apps/ath/src/direct_validate_changed_cli.rs");
 
@@ -68,16 +71,45 @@ fn graph_operations_have_an_explicit_composition_path() {
 }
 
 #[test]
+fn rustok_operations_have_an_explicit_composition_path() {
+    for operation in [
+        "rustok_architecture_context_with_composition_and_operation_context",
+        "rustok_ffa_audit_with_composition_and_operation_context",
+        "rustok_fba_audit_with_composition_and_operation_context",
+        "rustok_page_builder_audit_with_composition_and_operation_context",
+        "graph_ffa_surface_with_composition_and_operation_context",
+        "graph_ffa_violations_with_composition_and_operation_context",
+        "graph_fba_module_with_composition_and_operation_context",
+        "graph_fba_port_with_composition_and_operation_context",
+        "graph_fba_dependencies_with_composition_and_operation_context",
+        "graph_fba_violations_with_composition_and_operation_context",
+        "graph_page_builder_provider_with_composition_and_operation_context",
+        "graph_page_builder_consumer_with_composition_and_operation_context",
+        "graph_page_builder_violations_with_composition_and_operation_context",
+    ] {
+        assert!(RUSTOK_COMPOSITION_SOURCE.contains(operation));
+    }
+    assert!(RUSTOK_COMPOSITION_SOURCE.contains("composition.init_store"));
+    assert!(RUSTOK_COMPOSITION_SOURCE.contains(
+        "context_project_with_composition_and_operation_context"
+    ));
+    assert!(!RUSTOK_COMPOSITION_SOURCE.contains("crate::store::init_store"));
+}
+
+#[test]
 fn focused_composition_reads_do_not_install_global_runtime() {
     for source in [
         DIRECT_SEARCH_SOURCE,
         DIRECT_CONTEXT_SOURCE,
         DIRECT_CHECK_SOURCE,
         DIRECT_GRAPH_SOURCE,
+        DIRECT_RUSTOK_SOURCE,
     ] {
         assert!(source.contains("athanor_runtime_defaults::production()"));
         assert!(!source.contains("athanor_runtime_defaults::install()"));
     }
+    assert!(CLI_ENTRY_SOURCE.contains("direct_rustok_composed_cli"));
+    assert!(!CLI_ENTRY_SOURCE.contains("mod direct_rustok_cli;"));
 }
 
 #[test]
