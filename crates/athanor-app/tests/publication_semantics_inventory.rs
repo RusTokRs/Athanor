@@ -8,6 +8,10 @@ const PLUGIN_TRUST_REGISTRY: &str =
 const RUNTIME_PROJECTOR: &str =
     include_str!("../../athanor-runtime-defaults/src/projector_operation.rs");
 const TANTIVY_SEARCH: &str = include_str!("../../athanor-search-tantivy/src/lib.rs");
+const READ_MODEL: &str = include_str!("../src/read_model.rs");
+const INDEX_STATE: &str = include_str!("../src/index_state.rs");
+const PROJECT_REGISTRY: &str = include_str!("../src/project_registry.rs");
+const PUBLICATION_JOURNAL: &str = include_str!("../src/index_publication_journal.rs");
 
 #[test]
 fn inventory_covers_every_confirmed_publication_owner() {
@@ -57,6 +61,39 @@ fn generic_replacement_has_deterministic_post_commit_fault_coverage() {
 fn daemon_endpoint_uses_the_shared_atomic_replacement() {
     assert!(DAEMON_ENDPOINT.contains("replace_output_file"));
     assert!(!DAEMON_ENDPOINT.contains("fs::remove_file(path)"));
+}
+
+#[test]
+fn app_publication_cleanup_is_non_fatal_after_commit() {
+    for (source, warning, legacy_error) in [
+        (
+            READ_MODEL,
+            "read model was published but backup cleanup failed",
+            "failed to remove read model backup",
+        ),
+        (
+            INDEX_STATE,
+            "index state was published but backup cleanup failed",
+            "failed to remove index state backup",
+        ),
+        (
+            PROJECT_REGISTRY,
+            "project registry was published but backup cleanup failed",
+            "failed to remove registry backup",
+        ),
+        (
+            PUBLICATION_JOURNAL,
+            "publication journal was published but backup cleanup failed",
+            "failed to remove publication journal backup",
+        ),
+    ] {
+        assert!(source.contains("use tracing::warn;"));
+        assert!(source.contains(warning), "missing warning path `{warning}`");
+        assert!(
+            !source.contains(legacy_error),
+            "post-commit cleanup still propagates `{legacy_error}`"
+        );
+    }
 }
 
 #[test]
