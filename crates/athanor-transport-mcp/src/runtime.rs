@@ -1,44 +1,28 @@
-//! MCP transport entry point with request-scoped operation lifecycle.
-
-#[allow(dead_code)]
-mod legacy {
-    include!("lib.rs");
-
-    pub(super) fn tools_list_bridge() -> serde_json::Value {
-        get_tools_list()
-    }
-
-    pub(super) async fn call_tool_bridge(
-        root: &std::path::Path,
-        name: &str,
-        args: serde_json::Value,
-    ) -> anyhow::Result<String> {
-        call_tool(root, name, args).await
-    }
-
-    pub(super) async fn call_tool_inner_bridge(
-        root: &std::path::Path,
-        name: &str,
-        args: serde_json::Value,
-    ) -> anyhow::Result<String> {
-        call_tool_inner(root, name, args).await
-    }
-
-    pub(super) fn rpc_error_bridge(error: &anyhow::Error) -> serde_json::Value {
-        serde_json::to_value(json_rpc_error_from_anyhow(error)).unwrap_or_else(|_| {
-            serde_json::json!({
-                "code": -32603,
-                "message": "internal MCP tool error",
-                "data": { "code": "internal", "retryable": false }
-            })
-        })
-    }
-}
+//! MCP transport entry points with request-scoped operation lifecycle.
 
 mod server;
+mod tools;
 pub mod transport_contract;
 
+use std::path::PathBuf;
+
+use anyhow::Result;
+use athanor_app::RuntimeComposition;
+
 pub use server::{
-    DEFAULT_MAX_IN_FLIGHT_REQUESTS, DEFAULT_RESPONSE_QUEUE_CAPACITY, run_mcp_server,
+    DEFAULT_MAX_IN_FLIGHT_REQUESTS, DEFAULT_RESPONSE_QUEUE_CAPACITY,
+    run_mcp_server_with_composition,
 };
 pub use transport_contract::*;
+
+/// Runs the MCP server with Athanor's production runtime composition.
+///
+/// Callers that already own a composition should prefer
+/// [`run_mcp_server_with_composition`].
+pub async fn run_mcp_server(root: PathBuf) -> Result<()> {
+    run_mcp_server_with_composition(root, athanor_runtime_defaults::production()).await
+}
+
+/// Type-level assertion that the explicit server entry point accepts the
+/// application runtime composition rather than relying on process globals.
+const _: fn(PathBuf, RuntimeComposition) -> _ = run_mcp_server_with_composition;
