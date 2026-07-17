@@ -1,0 +1,22 @@
+{
+  "wiki": {
+    "schema": "athanor.wiki_report.v1",
+    "root": "project",
+    "output_dir": "project/.athanor/generated/current/wiki",
+    "snapshot": "snap-wiki",
+    "entities": 12,
+    "facts": 18,
+    "relations": 7,
+    "open_diagnostics": 2
+  },
+  "html": {
+    "schema": "athanor.html_report.v1",
+    "root": "project",
+    "output_dir": "project/.athanor/generated/current/html",
+    "snapshot": "snap-html",
+    "entities": 12,
+    "facts": 18,
+    "relations": 7,
+    "open_diagnostics": 2
+  }
+}
