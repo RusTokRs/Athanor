@@ -9,12 +9,13 @@ mod direct_graph_cli;
 mod direct_operation;
 mod direct_plugin_cli;
 mod direct_read;
-mod direct_rustok_composed_cli;
 mod direct_rustok_help;
 mod direct_search_cli;
 mod direct_validate_changed_cli;
 mod render;
 mod repair;
+mod root_command;
+mod rustok_cli;
 
 mod legacy {
     include!("main.rs");
@@ -22,128 +23,49 @@ mod legacy {
     pub(crate) fn run() -> anyhow::Result<()> {
         main()
     }
-
-    pub(crate) fn print_related_graph_bridge(report: &athanor_app::GraphRelated) {
-        print_related_graph(report);
-    }
-
-    pub(crate) fn print_graph_path_bridge(report: &athanor_app::GraphPath) {
-        print_graph_path(report);
-    }
-
-    pub(crate) fn print_graph_hubs_bridge(report: &athanor_app::GraphHubs) {
-        print_graph_hubs(report);
-    }
-
-    pub(crate) fn print_graph_pagerank_bridge(report: &athanor_app::GraphPageRank) {
-        print_graph_pagerank(report);
-    }
-
-    pub(crate) fn print_graph_cycles_bridge(report: &athanor_app::GraphCycles) {
-        print_graph_cycles(report);
-    }
-
-    pub(crate) fn print_rustok_architecture_context_bridge(
-        report: &athanor_app::RustokArchitectureContext,
-    ) {
-        print_rustok_architecture_context(report);
-    }
-
-    pub(crate) fn print_rustok_ffa_audit_bridge(report: &athanor_app::RustokFfaAudit) {
-        print_rustok_ffa_audit(report);
-    }
-
-    pub(crate) fn print_rustok_ffa_graph_bridge(report: &athanor_app::RustokFfaGraph) {
-        print_rustok_ffa_graph(report);
-    }
-
-    pub(crate) fn print_rustok_fba_audit_bridge(report: &athanor_app::RustokFbaAudit) {
-        print_rustok_fba_audit(report);
-    }
-
-    pub(crate) fn print_rustok_fba_graph_bridge(report: &athanor_app::RustokFbaGraph) {
-        print_rustok_fba_graph(report);
-    }
-
-    pub(crate) fn print_rustok_page_builder_audit_bridge(
-        report: &athanor_app::RustokPageBuilderAudit,
-    ) {
-        print_rustok_page_builder_audit(report);
-    }
-
-    pub(crate) fn print_rustok_page_builder_graph_bridge(
-        report: &athanor_app::RustokPageBuilderGraph,
-    ) {
-        print_rustok_page_builder_graph(report);
-    }
-
-    pub(crate) fn print_affected_check_bridge(
-        report: &athanor_app::AffectedCheckReport,
-    ) -> anyhow::Result<()> {
-        print_affected_check_report(report)
-    }
-
-    pub(crate) fn print_check_bridge(
-        report: &athanor_app::DiagnosticCheckReport,
-    ) -> anyhow::Result<()> {
-        print_check_report(report)
-    }
-
-    pub(crate) fn print_api_contract_diff_bridge(
-        report: &athanor_app::ApiContractDiff,
-    ) -> anyhow::Result<()> {
-        print_api_contract_diff(report)
-    }
 }
 
 fn main() -> Result<()> {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
-    if direct_rustok_help::print_if_requested(&args) {
-        return Ok(());
+    match root_command::parse(&args)? {
+        root_command::Command::Handled => Ok(()),
+        root_command::Command::Plugin(command) => direct_plugin_cli::run(command),
+        root_command::Command::ValidateChanged(command) => {
+            runtime("Athanor direct changed validation runtime")?
+                .block_on(direct_validate_changed_cli::run(command))
+        }
+        root_command::Command::Repair(command) => {
+            runtime("Athanor repair runtime")?.block_on(repair::run(command))
+        }
+        root_command::Command::ApplicationReport(command) => {
+            runtime("Athanor versioned application report runtime")?
+                .block_on(direct_application_report_cli::run(command))
+        }
+        root_command::Command::Generation(command) => {
+            runtime("Athanor direct generation report runtime")?
+                .block_on(direct_generation_cli::run(command))
+        }
+        root_command::Command::Config(command) => direct_config_cli::run(command),
+        root_command::Command::Check(command) => {
+            runtime("Athanor direct check runtime")?.block_on(direct_check_cli::run(command))
+        }
+        root_command::Command::Rustok(command) => {
+            runtime("Athanor direct Rustok runtime")?.block_on(rustok_cli::run(command))
+        }
+        root_command::Command::Graph(command) => {
+            runtime("Athanor direct graph runtime")?.block_on(direct_graph_cli::run(command))
+        }
+        root_command::Command::Context(command) => {
+            runtime("Athanor direct context runtime")?.block_on(direct_context_cli::run(command))
+        }
+        root_command::Command::Search(command) => {
+            runtime("Athanor direct search runtime")?.block_on(direct_search_cli::run(command))
+        }
+        root_command::Command::Read(command) => {
+            runtime("Athanor direct read runtime")?.block_on(direct_read::run(command))
+        }
+        root_command::Command::Legacy => legacy::run(),
     }
-    if let Some(command) = direct_plugin_cli::parse(&args)? {
-        return direct_plugin_cli::run(command);
-    }
-    if let Some(command) = direct_validate_changed_cli::parse(&args)? {
-        return runtime("Athanor direct changed validation runtime")?
-            .block_on(direct_validate_changed_cli::run(command));
-    }
-    if let Some(command) = repair::parse(&args)? {
-        return runtime("Athanor repair runtime")?.block_on(repair::run(command));
-    }
-    if let Some(command) = direct_application_report_cli::parse(&args)? {
-        return runtime("Athanor versioned application report runtime")?
-            .block_on(direct_application_report_cli::run(command));
-    }
-    if let Some(command) = direct_generation_cli::parse(&args)? {
-        return runtime("Athanor direct generation report runtime")?
-            .block_on(direct_generation_cli::run(command));
-    }
-    if let Some(command) = direct_config_cli::parse(&args)? {
-        return direct_config_cli::run(command);
-    }
-    if let Some(command) = direct_check_cli::parse(&args)? {
-        return runtime("Athanor direct check runtime")?.block_on(direct_check_cli::run(command));
-    }
-    if let Some(command) = direct_rustok_composed_cli::parse(&args)? {
-        return runtime("Athanor direct Rustok runtime")?
-            .block_on(direct_rustok_composed_cli::run(command));
-    }
-    if let Some(command) = direct_graph_cli::parse(&args)? {
-        return runtime("Athanor direct graph runtime")?.block_on(direct_graph_cli::run(command));
-    }
-    if let Some(command) = direct_context_cli::parse(&args)? {
-        return runtime("Athanor direct context runtime")?
-            .block_on(direct_context_cli::run(command));
-    }
-    if let Some(command) = direct_search_cli::parse(&args)? {
-        return runtime("Athanor direct search runtime")?
-            .block_on(direct_search_cli::run(command));
-    }
-    if let Some(command) = direct_read::parse(&args)? {
-        return runtime("Athanor direct read runtime")?.block_on(direct_read::run(command));
-    }
-    legacy::run()
 }
 
 fn runtime(label: &str) -> Result<tokio::runtime::Runtime> {
