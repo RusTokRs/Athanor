@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 
 use athanor_app::{
     BenchmarkReport, BenchmarkSize, CHANGED_VALIDATION_SCHEMA_V1, ChangedValidationReport,
-    INDEX_BENCHMARK_SCHEMA_V1, INDEX_METRICS_SCHEMA, INDEX_REPORT_METRICS_SCHEMA, IndexPipelineMetrics,
-    IndexReport, IndexReportMetrics, VersionedJsonContract,
+    INDEX_BENCHMARK_SCHEMA_V1, INDEX_METRICS_SCHEMA, INDEX_REPORT_METRICS_SCHEMA,
+    IndexPipelineMetrics, IndexReport, IndexReportMetrics, VersionedJsonContract,
 };
 use serde_json::Value;
 
