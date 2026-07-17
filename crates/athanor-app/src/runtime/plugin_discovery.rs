@@ -3,7 +3,11 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 
-use super::{ADAPTER_MANIFEST_SCHEMA, AdapterPluginManifest, DiscoveredAdapterPlugin};
+use super::{AdapterPluginManifest, DiscoveredAdapterPlugin};
+use crate::adapter_contract::{
+    ADAPTER_MANIFEST_SCHEMA_V1, normalize_adapter_manifest_schema,
+    validate_adapter_manifest_schema,
+};
 
 /// Discovers adapter manifests from the project-local adapter and plugin directories.
 pub(super) fn discover(root: impl AsRef<Path>) -> Result<Vec<DiscoveredAdapterPlugin>> {
@@ -44,8 +48,10 @@ pub(super) fn discover(root: impl AsRef<Path>) -> Result<Vec<DiscoveredAdapterPl
 pub(super) fn read_manifest(path: std::path::PathBuf) -> Result<DiscoveredAdapterPlugin> {
     let content =
         fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
-    let manifest: AdapterPluginManifest = serde_json::from_str(&content)
+    let mut manifest: AdapterPluginManifest = serde_json::from_str(&content)
         .with_context(|| format!("failed to parse {}", path.display()))?;
+    normalize_adapter_manifest_schema(&mut manifest)
+        .with_context(|| format!("invalid adapter plugin manifest {}", path.display()))?;
     validate(&manifest)
         .with_context(|| format!("invalid adapter plugin manifest {}", path.display()))?;
     Ok(DiscoveredAdapterPlugin {
@@ -55,15 +61,18 @@ pub(super) fn read_manifest(path: std::path::PathBuf) -> Result<DiscoveredAdapte
 }
 
 pub(super) fn validate(manifest: &AdapterPluginManifest) -> Result<()> {
-    if manifest.schema != ADAPTER_MANIFEST_SCHEMA {
+    validate_adapter_manifest_schema(&manifest.schema)?;
+    if manifest.name.trim().is_empty() {
+        anyhow::bail!("adapter plugin manifest name must not be empty");
+    }
+    if manifest.schema != ADAPTER_MANIFEST_SCHEMA_V1
+        && manifest.schema != crate::adapter_contract::ADAPTER_MANIFEST_SCHEMA_LEGACY
+    {
         anyhow::bail!(
             "unsupported adapter plugin manifest schema {}; expected {}",
             manifest.schema,
-            ADAPTER_MANIFEST_SCHEMA
+            ADAPTER_MANIFEST_SCHEMA_V1
         );
-    }
-    if manifest.name.trim().is_empty() {
-        anyhow::bail!("adapter plugin manifest name must not be empty");
     }
     Ok(())
 }
