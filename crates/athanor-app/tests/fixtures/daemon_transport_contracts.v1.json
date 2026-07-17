@@ -1,0 +1,57 @@
+{
+  "request": {
+    "schema": "athanor.daemon_request.v3",
+    "request_id": "request-transport-1",
+    "project_id": "project-alpha",
+    "auth_token": "redacted-test-token",
+    "command": {
+      "name": "search",
+      "query": "authentication",
+      "limit": 5
+    }
+  },
+  "success": {
+    "schema": "athanor.daemon_response.v3",
+    "request_id": "request-transport-1",
+    "project_id": "project-alpha",
+    "ok": true,
+    "result": {
+      "schema": "athanor.search.v1",
+      "items": []
+    }
+  },
+  "failure": {
+    "schema": "athanor.daemon_response.v3",
+    "request_id": "request-transport-1",
+    "project_id": "project-alpha",
+    "ok": false,
+    "error": "entity not found",
+    "error_details": {
+      "code": "not_found",
+      "message": "entity not found",
+      "retryable": false,
+      "details": {}
+    }
+  },
+  "jobs": {
+    "schema": "athanor.daemon_jobs.v1",
+    "total": 1,
+    "returned": 1,
+    "retention_limit": 100,
+    "jobs": [
+      {
+        "id": "job_00000001",
+        "kind": "search",
+        "status": "succeeded",
+        "description": "search authentication",
+        "created_at_unix_ms": 1000,
+        "started_at_unix_ms": 1001,
+        "finished_at_unix_ms": 1005,
+        "result": {
+          "schema": "athanor.search.v1",
+          "items": []
+        }
+      }
+    ]
+  }
+}

@@ -2,7 +2,7 @@
 //!
 //! The original implementation remains isolated in `json_contract_base.rs`.
 //! This facade extends the public registry with additive response wrappers and
-//! report families without rewriting the established validation machinery.
+//! report and transport families without rewriting the validation machinery.
 
 #[path = "json_contract_base.rs"]
 mod base;
@@ -48,6 +48,14 @@ pub use repair_contract::{
     REPAIR_INSPECT_SCHEMA_V2, REPAIR_RECOVER_CANONICAL_SCHEMA_V1,
     REPAIR_RECOVER_INDEX_CLEANUP_SCHEMA_V1, REPAIR_RECOVER_INDEX_SCHEMA_V1,
     REPAIR_REGENERATE_SCHEMA_V1,
+};
+
+#[path = "daemon_contract.rs"]
+mod daemon_contract;
+
+pub use daemon_contract::{
+    DAEMON_JOBS_CONTRACT_SCHEMA_V1, DAEMON_REQUEST_CONTRACT_SCHEMA_V3,
+    DAEMON_RESPONSE_CONTRACT_SCHEMA_V3,
 };
 
 macro_rules! descriptor {
@@ -105,6 +113,9 @@ pub const VERSIONED_JSON_CONTRACTS: &[JsonContractDescriptor] = &[
         REPAIR_CANONICAL_LATEST_SCHEMA_V1,
         "RepairCanonicalLatestReport"
     ),
+    descriptor!(DAEMON_REQUEST_CONTRACT_SCHEMA_V3, "DaemonRequest"),
+    descriptor!(DAEMON_RESPONSE_CONTRACT_SCHEMA_V3, "DaemonResponse"),
+    descriptor!(DAEMON_JOBS_CONTRACT_SCHEMA_V1, "DaemonJobsReport"),
     descriptor!(WIKI_REPORT_SCHEMA_V1, "WikiReport"),
     descriptor!(HTML_REPORT_SCHEMA_V1, "HtmlReport"),
     descriptor!(GRAPH_EXPORT_SCHEMA_V1, "GraphExport"),
@@ -150,10 +161,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn extended_registry_contains_all_application_report_owners() {
+    fn extended_registry_contains_application_and_daemon_owners() {
         validate_contract_registry(VERSIONED_JSON_CONTRACTS)
             .expect("extended JSON contract registry must remain valid");
-        assert_eq!(VERSIONED_JSON_CONTRACTS.len(), 56);
+        assert_eq!(VERSIONED_JSON_CONTRACTS.len(), 59);
         assert_eq!(API_SNAPSHOT_SCHEMA_V1, VersionedApiSnapshotReport::SCHEMA);
         assert_eq!(
             DOCS_PROPOSE_FIX_SCHEMA_V1,
@@ -166,6 +177,14 @@ mod tests {
         assert_eq!(
             REPAIR_CANONICAL_LATEST_SCHEMA_V1,
             crate::repair::RepairCanonicalLatestReport::SCHEMA
+        );
+        assert_eq!(
+            DAEMON_REQUEST_CONTRACT_SCHEMA_V3,
+            crate::daemon::DaemonRequest::SCHEMA
+        );
+        assert_eq!(
+            DAEMON_RESPONSE_CONTRACT_SCHEMA_V3,
+            crate::daemon::DaemonResponse::SCHEMA
         );
     }
 }
