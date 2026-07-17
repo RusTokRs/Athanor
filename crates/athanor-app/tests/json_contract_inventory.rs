@@ -23,9 +23,11 @@ const INVENTORIED_SOURCE_FILES: &[&str] = &[
     "src/index_runtime.rs",
     "src/pipeline.rs",
     "src/project_registry.rs",
+    "src/report.rs",
     "src/rustok_architecture.rs",
     "src/rustok_json_contract.rs",
     "src/validate_changed.rs",
+    "src/wiki.rs",
 ];
 
 const KNOWN_UNREGISTERED_PUBLIC_SCHEMAS: &[&str] = &[];
