@@ -8,7 +8,7 @@ status: active
 
 This inventory records JSON documents that cross CLI, daemon, MCP, persisted-state, generated-artifact, interchange, or process-adapter boundaries. A document may enter `VERSIONED_JSON_CONTRACTS` only when one Rust type owns one top-level schema id and its current payload shape is protected by a regression fixture.
 
-Audit baseline: `main` at `fb2f30e2004765ba01bd28ea5c32860e192915fb`.
+Audit baseline: `main` at `92d15376b6e511433d512728720f180c936981f7`.
 
 ## Registered contracts
 
@@ -34,6 +34,8 @@ Audit baseline: `main` at `fb2f30e2004765ba01bd28ea5c32860e192915fb`.
 | `athanor.docs_check.v1` | `DocsCheckReport` | direct CLI documentation policy check | generation/docs golden |
 | `athanor.docs_drift.v1` | `DocsDriftReport` | direct CLI documentation drift report | generation/docs golden |
 | `athanor.docs_apply_patch.v1` | `DocsApplyPatchReport` | direct CLI documentation patch application | generation/docs golden |
+| `athanor.docs_propose_fix.v1` | `VersionedDocsProposeFixReport` | direct CLI documentation proposal summary | remaining-application golden plus direct help regression |
+| `athanor.api_snapshot.v1` | `VersionedApiSnapshotReport` | direct CLI API snapshot summary | remaining-application golden plus direct help regression |
 | `athanor.api_contract_diff.v2` | `ApiContractDiff` | direct CLI diff plus persisted diff artifact | API golden |
 | `athanor.api_cleanup.v1` | `ApiCleanupReport` | direct CLI API retention cleanup | API golden |
 | `athanor.wiki_report.v1` | `WikiReport` | application result and daemon Wiki job result | Wiki/HTML golden plus daemon parity regression |
@@ -70,25 +72,23 @@ Audit baseline: `main` at `fb2f30e2004765ba01bd28ea5c32860e192915fb`.
 
 `ConfigValidateReport` owns `athanor.config_validate.v1`. Its effective `ProjectConfig` remains flattened at the top level, while `schema` and `root` are additive fields. `ConfigDoctorReport` owns `athanor.config_doctor.v1` and preserves the existing `{ schema, root, config, checks }` shape with typed check entries.
 
-The direct CLI dispatcher now routes both `ath config validate` and `ath config doctor` through the typed application functions. Human-readable output remains compatible: validation still prints the raw effective configuration after the success line, and doctor still prints the three established check statuses. `apps/ath/tests/direct_config_cli.rs` protects the executable JSON shapes, help surface, and strict unknown-field failure path. Execution of that regression remains part of the pending workspace verification pass.
+The direct CLI dispatcher routes both Config commands through the typed application functions. Human-readable output remains compatible. `apps/ath/tests/direct_config_cli.rs` protects the executable JSON shapes, help surface, and strict unknown-field failure path.
 
 ### Documentation contracts
 
-`DocsCheckReport`, `DocsDriftReport`, and `DocsApplyPatchReport` are public command-response contracts. `DocsPatchProposal` is a versioned file exchanged between propose and apply, so `athanor.docs_patch.v1` is classified as interchange instead of public report ownership.
+`DocsCheckReport`, `DocsDriftReport`, and `DocsApplyPatchReport` remain direct public report owners. `DocsPatchProposal` remains a versioned interchange file under `athanor.docs_patch.v1`.
 
-`DocsProposeFixReport` remains a structural blocker because its top-level `{ proposal, path }` wrapper has no schema while the nested proposal is already versioned.
+`VersionedDocsProposeFixReport` now owns `athanor.docs_propose_fix.v1`. It adds only the top-level `schema` field and flattens the existing `{ proposal, path }` summary, so the proposal document and output path remain unchanged. The production entry dispatcher routes `ath docs propose-fix` through this wrapper.
 
 ### API contracts
 
-`ApiContractDiff` owns `athanor.api_contract_diff.v2` for both the direct command result and persisted diff artifact. `ApiCleanupReport` owns `athanor.api_cleanup.v1`. Generated snapshots and latest pointers remain outside the public registry but are protected by the API golden fixture.
+`ApiContractDiff` owns `athanor.api_contract_diff.v2` for both the direct command result and persisted diff artifact. `ApiCleanupReport` owns `athanor.api_cleanup.v1`. Generated contract snapshots and latest pointers remain separate generated documents under `athanor.api_contract_snapshot.v2` and `athanor.api_contract_latest.v1`.
 
-`ApiSnapshotReport` remains a migration blocker: the command returns an unversioned summary wrapper rather than the generated snapshot document itself.
+`VersionedApiSnapshotReport` now owns `athanor.api_snapshot.v1`. It adds only top-level `schema` and flattens the previous snapshot summary fields. `ath api snapshot` uses this wrapper while the generated immutable snapshot retains its independent v2 schema.
 
 ### Wiki and HTML reports
 
-`WikiReport` and `HtmlReport` now own distinct public application schemas. Their app-layer constructors set the schema, and daemon jobs serialize the complete typed report instead of assembling reduced objects. Existing daemon fields remain present; `schema` and `root` are additive.
-
-The projector input documents remain separate generated boundaries: `athanor.wiki_projection.v1` and `athanor.html_report_projection.v1` describe projection payloads, not operation reports. They will be classified with projector manifests during the persisted/generated pass.
+`WikiReport` and `HtmlReport` own distinct public application schemas. App constructors set the schema, and daemon jobs serialize the complete typed report. Projector input documents remain separate generated boundaries.
 
 ### Specialized RusTok owners
 
@@ -101,13 +101,13 @@ The architecture context has a dedicated owner. FFA, FBA, and Page Builder graph
 - Embedded: `athanor.index_metrics.v1`, `athanor.index_report_metrics.v1`, `athanor.generation_metrics.v1`.
 - Interchange: `athanor.docs_patch.v1`.
 
-The bounded public migration allowlist remains empty because known unversioned wrappers are tracked by type and boundary rather than by a schema id that does not yet exist.
+The bounded public migration allowlist remains empty.
 
 ## Boundaries requiring the next inventory pass
 
 ### Remaining application outputs
 
-The remaining application pass covers versioned wrappers for `ApiSnapshotReport` and `DocsProposeFixReport`, plus repair JSON reports/state.
+The remaining application pass covers Repair JSON reports and state. API Snapshot and Docs Propose Fix wrappers are no longer blockers.
 
 ### Daemon and MCP envelopes
 
@@ -123,9 +123,9 @@ Index state, publication journals, projector payloads/manifests, read-model mani
 
 ## Enforcement implementation
 
-`crates/athanor-app/tests/json_contract_inventory.rs` scans the identified public application owner modules, including `config.rs`, `wiki.rs`, and `report.rs`. Registered Config, Wiki, and HTML ids are therefore enforced from their source owner modules. The executable Config CLI regression additionally verifies that the production entry dispatcher reaches the registered owners instead of the legacy ad-hoc branch.
+The legacy validation and owner implementations live in `json_contract_base.rs`; `json_contract.rs` is now the public facade and extends the canonical registry to 47 owners. `remaining_application_contracts.rs` and its golden fixture protect both additive wrappers. `remaining_application_contract_inventory.rs` verifies their registry ownership and schema literals. The production entry dispatcher routes only `api snapshot` and `docs propose-fix` through the new direct module, leaving unrelated API and Docs commands on the established dispatcher.
 
-Public, migration, persisted, generated, embedded, and interchange sets are mutually exclusive. Every classified id must remain observable in the bounded source set and cannot simultaneously become a public registry owner.
+Public, migration, persisted, generated, embedded, and interchange sets remain mutually exclusive.
 
 ## Enforcement rules
 
@@ -134,8 +134,7 @@ Public, migration, persisted, generated, embedded, and interchange sets are mutu
 - Equivalent CLI/application and daemon results serialize the same typed document.
 - Embedded schema-bearing fragments are not registered as top-level documents.
 - Generated, persisted, and interchange schemas remain separate from public report contracts.
-- One type may serve a public response and generated artifact only when both boundaries emit the same top-level shape.
 - A schema id must never describe two current emitted top-level shapes.
 - Legacy input must normalize to a current schema before writing.
 - Removing, renaming, retyping, or semantically changing a field requires a new major schema id.
-- New schema literals in inventoried modules must be registered or explicitly classified.
+- New schema literals must be registered or explicitly classified.
