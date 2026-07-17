@@ -5,6 +5,7 @@ use anyhow::{Context, Result, bail};
 use athanor_domain::{GenerationId, SnapshotId};
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize};
+use tracing::warn;
 
 pub(crate) const INDEX_PUBLICATION_JOURNAL_SCHEMA_V1: &str = "athanor.index_publication.v1";
 pub(crate) const INDEX_PUBLICATION_JOURNAL_SCHEMA_V2: &str = "athanor.index_publication.v2";
@@ -96,13 +97,14 @@ impl IndexPublicationJournal {
                 format!("failed to publish publication journal {}", path.display())
             });
         }
-        if backup.exists() {
-            fs::remove_file(&backup).with_context(|| {
-                format!(
-                    "failed to remove publication journal backup {}",
-                    backup.display()
-                )
-            })?;
+        if backup.exists()
+            && let Err(error) = fs::remove_file(&backup)
+        {
+            warn!(
+                backup = %backup.display(),
+                error = %error,
+                "publication journal was published but backup cleanup failed"
+            );
         }
         Ok(())
     }
