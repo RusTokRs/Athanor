@@ -3,6 +3,7 @@
 pub mod adapter_contract;
 pub mod api;
 pub mod api_registry;
+pub mod application_report_composition;
 mod artifact_checksum;
 pub mod bench;
 pub mod boundary_contract;
@@ -164,6 +165,7 @@ pub mod projects {
 pub use adapter_contract::*;
 pub use api::*;
 pub use api_registry::*;
+pub use application_report_composition::*;
 pub use bench::*;
 pub use boundary_contract::*;
 pub use cancellation::*;
