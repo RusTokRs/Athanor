@@ -186,7 +186,7 @@ pub use index_state::*;
 pub use init::*;
 pub use invalidation::*;
 pub use json_contract::*;
-pub use legacy_factory::LegacyFactoryInstallError;
+pub use legacy_factory::{LegacyFactoryInstallError, LegacyFactoryUnavailableError};
 pub use overview::*;
 pub use pipeline::*;
 pub use prepared_publication::*;
@@ -197,7 +197,10 @@ pub(crate) use process_execution_scope::{
     current_process_execution_context, current_process_runner, with_process_execution_context,
 };
 pub use project_registry::*;
-pub use projection::{install_html_projector_factory, install_wiki_projector_factory};
+pub use projection::{
+    install_html_projector_factory, install_wiki_projector_factory,
+    try_install_html_projector_factory, try_install_wiki_projector_factory,
+};
 pub use read_model::*;
 pub use repair::*;
 pub use report::*;
