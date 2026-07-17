@@ -23,11 +23,25 @@ const DIRECT_RUSTOK_SOURCE: &str =
     include_str!("../../../apps/ath/src/direct_rustok_composed_cli.rs");
 const DIRECT_GENERATION_SOURCE: &str =
     include_str!("../../../apps/ath/src/direct_generation_cli.rs");
-const DIRECT_READ_COMPOSED_SOURCE: &str =
-    include_str!("../../../apps/ath/src/direct_read_composed_cli.rs");
-const DIRECT_APPLICATION_REPORT_COMPOSED_SOURCE: &str =
-    include_str!("../../../apps/ath/src/direct_application_report_composed_cli.rs");
-const REPAIR_COMPOSED_SOURCE: &str = include_str!("../../../apps/ath/src/repair_composed_cli.rs");
+const DIRECT_READ_ROOT_SOURCE: &str = include_str!("../../../apps/ath/src/direct_read/mod.rs");
+const DIRECT_READ_MODEL_SOURCE: &str = include_str!("../../../apps/ath/src/direct_read/model.rs");
+const DIRECT_READ_OPERATION_SOURCE: &str =
+    include_str!("../../../apps/ath/src/direct_read/operation.rs");
+const DIRECT_READ_RUN_SOURCE: &str = include_str!("../../../apps/ath/src/direct_read/run.rs");
+const DIRECT_READ_RENDER_ROOT_SOURCE: &str =
+    include_str!("../../../apps/ath/src/direct_read/render/mod.rs");
+const DIRECT_READ_ENTITY_RENDER_SOURCE: &str =
+    include_str!("../../../apps/ath/src/direct_read/render/entity.rs");
+const DIRECT_READ_CHANGE_RENDER_SOURCE: &str =
+    include_str!("../../../apps/ath/src/direct_read/render/change.rs");
+const DIRECT_READ_RENDER_SUPPORT_SOURCE: &str =
+    include_str!("../../../apps/ath/src/direct_read/render/support.rs");
+const DIRECT_APPLICATION_REPORT_SOURCE: &str =
+    include_str!("../../../apps/ath/src/direct_application_report_cli.rs");
+const REPAIR_ROOT_SOURCE: &str = include_str!("../../../apps/ath/src/repair/mod.rs");
+const REPAIR_MODEL_SOURCE: &str = include_str!("../../../apps/ath/src/repair/model.rs");
+const REPAIR_RUN_SOURCE: &str = include_str!("../../../apps/ath/src/repair/run.rs");
+const REPAIR_RENDER_SOURCE: &str = include_str!("../../../apps/ath/src/repair/render.rs");
 const DIRECT_VALIDATE_CHANGED_SOURCE: &str =
     include_str!("../../../apps/ath/src/direct_validate_changed_cli.rs");
 
@@ -141,15 +155,13 @@ fn focused_composition_reads_do_not_install_global_runtime() {
         DIRECT_GRAPH_SOURCE,
         DIRECT_RUSTOK_SOURCE,
         DIRECT_GENERATION_SOURCE,
-        DIRECT_READ_COMPOSED_SOURCE,
+        DIRECT_READ_RUN_SOURCE,
     ] {
         assert!(source.contains("athanor_runtime_defaults::production()"));
         assert!(!source.contains("athanor_runtime_defaults::install()"));
     }
-    assert!(DIRECT_READ_COMPOSED_SOURCE.contains("include!(\"direct_read_cli.rs\")"));
-    assert!(DIRECT_READ_COMPOSED_SOURCE.contains("::athanor_runtime_defaults::production()"));
-    assert!(!DIRECT_READ_COMPOSED_SOURCE.contains("::athanor_runtime_defaults::install()"));
-    assert!(CLI_ENTRY_SOURCE.contains("direct_read_composed_cli"));
+    assert!(CLI_ENTRY_SOURCE.contains("mod direct_read;"));
+    assert!(!CLI_ENTRY_SOURCE.contains("direct_read_composed_cli"));
     assert!(!CLI_ENTRY_SOURCE.contains("mod direct_read_cli;"));
     assert!(CLI_ENTRY_SOURCE.contains("direct_rustok_composed_cli"));
     assert!(!CLI_ENTRY_SOURCE.contains("mod direct_rustok_cli;"));
@@ -157,35 +169,86 @@ fn focused_composition_reads_do_not_install_global_runtime() {
 
 #[test]
 fn focused_application_reports_do_not_install_global_runtime() {
-    assert!(DIRECT_APPLICATION_REPORT_COMPOSED_SOURCE.contains(
+    assert!(DIRECT_APPLICATION_REPORT_SOURCE.contains(
         "snapshot_api_contract_with_composition"
     ));
-    assert!(DIRECT_APPLICATION_REPORT_COMPOSED_SOURCE.contains(
+    assert!(DIRECT_APPLICATION_REPORT_SOURCE.contains(
         "docs_propose_fix_with_composition"
     ));
-    assert!(DIRECT_APPLICATION_REPORT_COMPOSED_SOURCE.contains(
-        "::athanor_runtime_defaults::production()"
+    assert!(DIRECT_APPLICATION_REPORT_SOURCE.contains(
+        "athanor_runtime_defaults::production()"
     ));
-    assert!(!DIRECT_APPLICATION_REPORT_COMPOSED_SOURCE.contains(
-        "::athanor_runtime_defaults::install()"
+    assert!(!DIRECT_APPLICATION_REPORT_SOURCE.contains(
+        "athanor_runtime_defaults::install()"
     ));
-    assert!(CLI_ENTRY_SOURCE.contains("direct_application_report_composed_cli"));
-    assert!(!CLI_ENTRY_SOURCE.contains("mod direct_application_report_cli;"));
+    assert!(CLI_ENTRY_SOURCE.contains("mod direct_application_report_cli;"));
+    assert!(!CLI_ENTRY_SOURCE.contains("direct_application_report_composed_cli"));
 }
 
 #[test]
 fn focused_repairs_do_not_install_global_runtime() {
-    assert!(REPAIR_COMPOSED_SOURCE.contains(
+    assert!(REPAIR_RUN_SOURCE.contains(
         "recover_index_publication_with_composition"
     ));
-    assert!(REPAIR_COMPOSED_SOURCE.contains(
+    assert!(REPAIR_RUN_SOURCE.contains(
         "repair_canonical_latest_with_composition"
     ));
-    assert!(REPAIR_COMPOSED_SOURCE.contains("::athanor_runtime_defaults::production()"));
-    assert!(!REPAIR_COMPOSED_SOURCE.contains("::athanor_runtime_defaults::install()"));
-    assert!(CLI_ENTRY_SOURCE.contains("repair_composed_cli"));
+    assert!(REPAIR_RUN_SOURCE.contains("athanor_runtime_defaults::production()"));
+    assert!(!REPAIR_RUN_SOURCE.contains("athanor_runtime_defaults::install()"));
+    assert!(CLI_ENTRY_SOURCE.contains("mod repair;"));
+    assert!(!CLI_ENTRY_SOURCE.contains("repair_composed_cli"));
     assert!(!CLI_ENTRY_SOURCE.contains("mod repair_cli;"));
     assert!(!CLI_ENTRY_SOURCE.contains("athanor_runtime_defaults::install()"));
+}
+
+#[test]
+fn focused_cli_families_have_no_compatibility_includes_or_namespace_shadowing() {
+    for source in [
+        DIRECT_READ_ROOT_SOURCE,
+        DIRECT_READ_MODEL_SOURCE,
+        DIRECT_READ_OPERATION_SOURCE,
+        DIRECT_READ_RUN_SOURCE,
+        DIRECT_READ_RENDER_ROOT_SOURCE,
+        DIRECT_READ_ENTITY_RENDER_SOURCE,
+        DIRECT_READ_CHANGE_RENDER_SOURCE,
+        DIRECT_READ_RENDER_SUPPORT_SOURCE,
+        DIRECT_APPLICATION_REPORT_SOURCE,
+        REPAIR_ROOT_SOURCE,
+        REPAIR_MODEL_SOURCE,
+        REPAIR_RUN_SOURCE,
+        REPAIR_RENDER_SOURCE,
+    ] {
+        assert!(!source.contains("include!("));
+        assert!(!source.contains("mod athanor_app {"));
+        assert!(!source.contains("mod athanor_runtime_defaults {"));
+    }
+    for removed in [
+        "direct_read_cli.rs",
+        "direct_read_composed_cli.rs",
+        "direct_application_report_composed_cli.rs",
+        "repair_cli.rs",
+        "repair_composed_cli.rs",
+    ] {
+        assert!(!CLI_ENTRY_SOURCE.contains(removed));
+    }
+}
+
+#[test]
+fn focused_cli_production_modules_remain_bounded() {
+    for (name, source, max_lines) in [
+        ("direct_read/model", DIRECT_READ_MODEL_SOURCE, 240),
+        ("direct_read/operation", DIRECT_READ_OPERATION_SOURCE, 180),
+        ("direct_read/run", DIRECT_READ_RUN_SOURCE, 260),
+        ("direct_read/render/entity", DIRECT_READ_ENTITY_RENDER_SOURCE, 220),
+        ("direct_read/render/change", DIRECT_READ_CHANGE_RENDER_SOURCE, 220),
+        ("direct_application_report", DIRECT_APPLICATION_REPORT_SOURCE, 300),
+        ("repair/model", REPAIR_MODEL_SOURCE, 260),
+        ("repair/run", REPAIR_RUN_SOURCE, 140),
+        ("repair/render", REPAIR_RENDER_SOURCE, 180),
+    ] {
+        let lines = source.lines().count();
+        assert!(lines <= max_lines, "{name} grew to {lines} lines");
+    }
 }
 
 #[test]

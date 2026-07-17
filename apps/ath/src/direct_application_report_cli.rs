@@ -3,8 +3,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use athanor_app::{
     ApiRetentionOverrides, ApiSnapshotOptions, DocsProposeFixOptions,
-    VersionedApiSnapshotReport, VersionedDocsProposeFixReport, docs_propose_fix,
-    snapshot_api_contract,
+    VersionedApiSnapshotReport, VersionedDocsProposeFixReport,
 };
 use clap::error::ErrorKind;
 use clap::{Parser, Subcommand};
@@ -136,11 +135,7 @@ pub(crate) fn parse(args: &[String]) -> Result<Option<Command>> {
 }
 
 pub(crate) async fn run(command: Command) -> Result<()> {
-    #[allow(deprecated)]
-    {
-        athanor_runtime_defaults::install();
-    }
-
+    let composition = athanor_runtime_defaults::production();
     match command {
         Command::ApiSnapshot {
             path,
@@ -150,10 +145,18 @@ pub(crate) async fn run(command: Command) -> Result<()> {
             keep_diffs,
             json,
         } => {
-            let report = snapshot_api_contract(ApiSnapshotOptions {
-                root: path,
-                retention: retention_overrides(cleanup, no_cleanup, keep_snapshots, keep_diffs),
-            })
+            let report = athanor_app::snapshot_api_contract_with_composition(
+                ApiSnapshotOptions {
+                    root: path,
+                    retention: retention_overrides(
+                        cleanup,
+                        no_cleanup,
+                        keep_snapshots,
+                        keep_diffs,
+                    ),
+                },
+                &composition,
+            )
             .await?;
             let report = VersionedApiSnapshotReport::from(report);
             if json {
@@ -163,7 +166,11 @@ pub(crate) async fn run(command: Command) -> Result<()> {
             }
         }
         Command::DocsProposeFix { path, output, json } => {
-            let report = docs_propose_fix(DocsProposeFixOptions { root: path, output }).await?;
+            let report = athanor_app::docs_propose_fix_with_composition(
+                DocsProposeFixOptions { root: path, output },
+                &composition,
+            )
+            .await?;
             let report = VersionedDocsProposeFixReport::from(report);
             if json {
                 println!("{}", serde_json::to_string_pretty(&report)?);
