@@ -7,6 +7,7 @@ use athanor_core::SourceFile;
 use athanor_domain::{GenerationId, SnapshotId};
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use tracing::warn;
 
 #[cfg(not(feature = "js-ts-precision"))]
 pub const INDEX_STATE_SCHEMA: &str = "athanor.index_state.v46";
@@ -182,10 +183,14 @@ pub struct PreparedIndexState {
 
 impl PreparedIndexState {
     pub fn finalize(mut self) -> Result<()> {
-        if let Some(backup) = self.backup.take() {
-            fs::remove_file(&backup).with_context(|| {
-                format!("failed to remove index state backup {}", backup.display())
-            })?;
+        if let Some(backup) = self.backup.take()
+            && let Err(error) = fs::remove_file(&backup)
+        {
+            warn!(
+                backup = %backup.display(),
+                error = %error,
+                "index state was published but backup cleanup failed"
+            );
         }
         Ok(())
     }
