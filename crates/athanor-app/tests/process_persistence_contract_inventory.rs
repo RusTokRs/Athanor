@@ -104,7 +104,8 @@ fn inventory_schemas_and_process_framing_are_observable_in_runtime_sources() {
     ]
     .into_iter()
     .map(read_source)
-    .collect::<String>();
+    .collect::<Vec<_>>()
+    .join("\n");
 
     for descriptor in NON_PUBLIC_JSON_CONTRACTS {
         let literal = format!("\"{}\"", descriptor.schema);
@@ -125,8 +126,12 @@ fn inventory_schemas_and_process_framing_are_observable_in_runtime_sources() {
             "process request type {} is not used by runtime",
             descriptor.request_type
         );
+        let response_type = descriptor
+            .response_type
+            .trim_start_matches("Vec<")
+            .trim_end_matches('>');
         assert!(
-            process_source.contains(descriptor.response_type.trim_start_matches("Vec<").trim_end_matches('>')),
+            process_source.contains(response_type),
             "process response type {} is not used by runtime",
             descriptor.response_type
         );
