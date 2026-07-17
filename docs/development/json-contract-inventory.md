@@ -6,11 +6,11 @@ status: active
 ---
 # Versioned JSON Contract Inventory
 
-This inventory records JSON documents that cross CLI, daemon, MCP, persisted-state, generated-artifact, interchange, or process-adapter boundaries. A document may enter `VERSIONED_JSON_CONTRACTS` only when one Rust type owns one top-level Athanor schema id and its current payload shape is protected by a regression fixture. Standard protocol envelopes use a separate protocol registry instead of receiving synthetic Athanor schema ids.
+This inventory records JSON documents that cross CLI, daemon, MCP, persisted-state, generated-artifact, interchange, or process-adapter boundaries. A document may enter `VERSIONED_JSON_CONTRACTS` only when one Rust type owns one top-level Athanor schema id and its current payload shape is protected by a regression fixture. Standard and schema-less protocols use separate registries instead of receiving synthetic Athanor schema ids.
 
-Audit baseline: `main` at `216aac85487abb22c8df1dd4a0e1a822d02f8307`.
+Audit baseline: `main` at `2da2ddd98a021703565913435b93538d2faa6faa`.
 
-## Registered contracts
+## Registered public contracts
 
 | Schema | Rust owner | Boundary | Fixture status |
 | --- | --- | --- | --- |
@@ -74,66 +74,90 @@ Audit baseline: `main` at `216aac85487abb22c8df1dd4a0e1a822d02f8307`.
 | `athanor.project_registry.v1` | `ProjectRegistryReport` | CLI project list/add/remove | dedicated golden |
 | `athanor.project_resolution.v1` | `ProjectResolutionReport` | CLI/daemon project resolution | second-wave golden |
 
-## Resolved migration decisions
+The public registry contains 59 current Athanor-schema owners. Public reports, generated artifacts, persisted state, embedded fragments, interchange documents, and transport/process protocols are deliberately separate ownership classes.
 
-### Application and Repair reports
+## Transport and process protocols
 
-Application reports, generated artifacts, persisted state, embedded fragments, and interchange files remain distinct ownership classes. Additive wrappers preserve legacy fields where a top-level schema was missing. Nine Repair reports retain their existing payloads and current schemas; their state, issue, row, and tombstone components remain embedded or filesystem protocol fragments.
+### Daemon
 
-### Daemon transport
+`DaemonRequest` owns current `athanor.daemon_request.v3`; `DaemonResponse` owns current `athanor.daemon_response.v3`; `DaemonJobsReport` owns `athanor.daemon_jobs.v1`. Request v1/v2 compatibility remains accepted input only. `DaemonError`, `DaemonCommand`, and `DaemonJob` are embedded. `DaemonEndpoint` is persisted runtime discovery state: v3 is current, v2 is accepted legacy input, and v1 is historical-only and rejected by the current reader.
 
-`DaemonRequest` owns current `athanor.daemon_request.v3`; `DaemonResponse` owns current `athanor.daemon_response.v3`; `DaemonJobsReport` owns `athanor.daemon_jobs.v1`. Request v1/v2 compatibility remains accepted input only and is not registered as current ownership. Historical response v2 is likewise not current.
+### MCP
 
-`DaemonError`, `DaemonCommand`, and `DaemonJob` are embedded parts of the current envelopes. `DaemonEndpoint` is a persisted runtime-discovery descriptor under `athanor.daemon_endpoint.v3`, not a public response owner. Endpoint/request compatibility constants for earlier protocol generations remain migration history.
+MCP uses JSON-RPC `2.0` and MCP protocol `2024-11-05`. `JsonRpcRequest`, `JsonRpcResponse`, `JsonRpcError`, and text tool-call results remain native standard-protocol boundaries in `MCP_TRANSPORT_CONTRACTS`; they do not receive synthetic `athanor.*` schemas. Text content carries serialized Athanor reports with their own inner schema ids.
 
-### MCP transport
+### External processes
 
-MCP uses JSON-RPC `2.0` and MCP protocol `2024-11-05`. `JsonRpcRequest`, `JsonRpcResponse`, `JsonRpcError`, and the text tool-call result are standard-protocol boundaries, not Athanor-schema documents. They are recorded in `MCP_TRANSPORT_CONTRACTS`, validated by fail-closed helpers, and protected by `mcp_transport_contracts.v1.json` plus the existing runtime unit tests around `handle_line`.
+`PROCESS_PROTOCOL_CONTRACTS` records four intentionally schema-less protocols:
 
-The content text contains serialized Athanor application reports. Those inner reports retain their own registered `athanor.*` schema ids; the outer JSON-RPC and tool-content envelopes must not acquire synthetic Athanor schema ids.
+| Protocol | Request | Response | Framing |
+| --- | --- | --- | --- |
+| `source-discover` | `SourceDiscoverInput` object | `Vec<SourceFile>` array | newline-terminated JSON stdin, one JSON stdout document |
+| `extractor` | `ExtractInput` object | `ExtractOutput` object | newline-terminated JSON stdin, one JSON stdout document |
+| `linker` | `LinkInput` object | `Vec<Relation>` array | newline-terminated JSON stdin, one JSON stdout document |
+| `checker` | `CheckInput` object | `Vec<Diagnostic>` array | newline-terminated JSON stdin, one JSON stdout document |
 
-### Generated, persisted, and interchange documents
+These wire shapes are the serde representation of core port types. Adding a top-level schema now would change existing external adapters; future incompatible changes require an explicit versioned process envelope rather than silent field mutation.
 
-`DocsPatchProposal` is interchange. API snapshots/latest pointers and generation manifests/current pointers are generated. Project Registry state, index-current publication journal, and daemon endpoint are persisted. The remaining pointer/manifest inventory is the next implementation package.
+## Non-public Athanor-schema registry
 
-## Classified non-public schemas and protocols
+`NON_PUBLIC_JSON_CONTRACTS` contains 30 descriptors: 24 current documents, five accepted legacy inputs, and one historical-only schema.
 
-- Persisted: `athanor.project_registry_state.v1`, `athanor.index_current_publication.v1`, `athanor.daemon_endpoint.v3`.
-- Generated: `athanor.validation_result.v1`, `athanor.generated_generation.v1`, `athanor.generated_current.v1`, `athanor.api_contract_snapshot.v2`, `athanor.api_contract_latest.v1`.
+### Persisted current
+
+- `athanor.project_registry_state.v1`
+- `athanor.daemon_endpoint.v3`
+- `athanor.index_current.v2`
+- `athanor.index_state.v46` or feature-specific `athanor.index_state.v46-js-ts-precision-v1`
+- `athanor.index_publication.v3`
+- `athanor.index_current_publication.v1`
+- `athanor.canonical_snapshot.v1`
+- `athanor.canonical_latest.v1`
+- `athanor.canonical_commit.v2`
+
+### Generated current
+
+- `athanor.validation_result.v1`
+- `athanor.generated_generation.v1`
+- `athanor.generated_current.v1`
+- `athanor.api_contract_snapshot.v2`
+- `athanor.api_contract_latest.v1`
+- `athanor.jsonl_manifest.v1`
+- `athanor.wiki_manifest.v1`
+- `athanor.html_report_manifest.v1`
+
+### Interchange and embedded current
+
+- Interchange: `athanor.docs_patch.v1`, `athanor.wiki_projection.v1`, `athanor.html_report_projection.v1`.
 - Embedded: `athanor.index_metrics.v1`, `athanor.index_report_metrics.v1`, `athanor.generation_metrics.v1`, plus schema-less Repair and Daemon fragments.
-- Interchange: `athanor.docs_patch.v1`.
-- Standard protocol: JSON-RPC `2.0` and MCP `2024-11-05` envelopes registered separately in `MCP_TRANSPORT_CONTRACTS`.
-- Legacy daemon input: request v1/v2; historical response/endpoint schemas are compatibility history, not current owners.
 
-The bounded public migration allowlist remains empty.
+### Compatibility lifecycle
 
-## Boundaries requiring the next inventory pass
+Accepted legacy input schemas are `athanor.daemon_endpoint.v2`, `athanor.index_current.v1`, `athanor.index_publication.v1`, `athanor.index_publication.v2`, and `athanor.canonical_commit.v1`. They normalize to current state before a current write. `athanor.daemon_endpoint.v1` is retained only as explicit history and is rejected by the current endpoint reader.
 
-### Process-adapter protocols
-
-Extractor, linker, and checker process request/response documents require an explicit inventory of schema ids, Rust owners, framing, and compatibility behavior.
-
-### Persisted and generated state
-
-Index-current pointers, index state, publication journals, projector payloads/manifests, read-model manifests, repair guards, generated/canonical pointers, and remaining persisted documents require repository-wide enforcement.
+Cleanup tombstones, staging directories, backups, locks, and repair guards are filesystem recovery protocols, not JSON documents. Schema-less canonical latest documents from older stores are compatibility input but cannot enter an Athanor schema registry because they have no schema id.
 
 ## Enforcement implementation
 
-The shared Athanor registry now contains 59 current owners. `daemon_contract.rs` implements ownership for current daemon request, response, and jobs documents. `daemon_transport_contracts.rs` and its fixture protect current shapes and reject legacy or embedded ownership.
+- `VERSIONED_JSON_CONTRACTS` protects 59 current public/transport Athanor owners.
+- `MCP_TRANSPORT_CONTRACTS` protects four native JSON-RPC/MCP boundaries.
+- `NON_PUBLIC_JSON_CONTRACTS` protects current, legacy-input, and historical persisted/generated/interchange/embedded schemas.
+- `PROCESS_PROTOCOL_CONTRACTS` protects the four schema-less external-process shapes and framing.
+- `boundary_contracts.v1.json` provides representative current documents and process request/response fixtures.
+- `process_persistence_contract_inventory.rs` verifies disjoint classifications, current fixture coverage, runtime source observability, process type usage, and newline/single-document framing.
+- Existing application, daemon, MCP, Repair, publication, checksum, recovery, and projector tests continue to protect semantic validation and atomicity.
 
-The MCP crate exposes a separate four-entry standard-protocol registry and validators. Its integration fixture covers request, success response, error response, initialize result, and success/error tool content. Source assertions ensure the actual legacy runtime still emits the inventoried JSON-RPC/MCP versions and does not introduce an `athanor.mcp_*` schema.
-
-Public, migration, persisted, generated, embedded, interchange, and standard-protocol sets remain mutually exclusive.
+The bounded public migration allowlist remains empty. No known implementation inventory gap remains in the audited JSON scope; executable parity and workspace verification remain outstanding.
 
 ## Enforcement rules
 
-- Every registered schema id and Rust owner is unique.
-- Current Athanor-schema owners implement `VersionedJsonContract` and have a golden regression.
-- Standard protocol envelopes retain their native version field instead of receiving synthetic Athanor schema ids.
+- Every current public schema has exactly one Rust owner and a regression fixture.
+- Non-public and public schema sets are disjoint; all schema ids are canonical and unique within their registry.
+- Standard and schema-less protocols retain native framing/version rules instead of receiving synthetic Athanor schema ids.
+- Current persisted/generated/interchange documents have representative required-field fixtures.
+- Legacy input is never emitted as a current fixture; historical-only schemas are not presented as accepted compatibility.
 - Equivalent CLI/application and daemon/MCP inner results serialize the same typed Athanor document.
-- Embedded schema-bearing fragments are not registered as top-level documents.
-- Generated, persisted, and interchange schemas remain separate from public report contracts.
 - A schema id must never describe two current emitted top-level shapes.
-- Legacy input must normalize to a current schema before writing or responding.
+- Legacy input normalizes to a current schema before writing or responding.
 - Removing, renaming, retyping, or semantically changing a field requires a new major schema id or protocol version.
-- New schema literals and protocol envelopes must be registered or explicitly classified.
+- New schema literals and protocol envelopes must be registered or explicitly classified in the same change.
