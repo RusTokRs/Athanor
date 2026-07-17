@@ -4,10 +4,8 @@ use anyhow::Result;
 
 use crate::composition::RuntimeComposition;
 use crate::repair::{
-    RepairCanonicalLatestOptions, RepairCanonicalLatestReport, repair_canonical_latest,
-};
-use crate::repair_recovery::{
-    RepairRecoverIndexOptions, RepairRecoverIndexReport, recover_index_publication,
+    RepairCanonicalLatestOptions, RepairCanonicalLatestReport, RepairRecoverIndexOptions,
+    RepairRecoverIndexReport, recover_index_publication, repair_canonical_latest,
 };
 use crate::store::with_store_composition;
 
