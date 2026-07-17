@@ -9,7 +9,9 @@ use serde_json::Value;
 
 const RUNTIME_SOURCE: &str = include_str!("../src/runtime.rs");
 const SERVER_SOURCE: &str = include_str!("../src/server.rs");
-const TOOLS_SOURCE: &str = include_str!("../src/tools.rs");
+const TOOLS_ROOT_SOURCE: &str = include_str!("../src/tools.rs");
+const TOOLS_DISPATCH_SOURCE: &str = include_str!("../src/tools/dispatch.rs");
+const TOOLS_SCHEMA_SOURCE: &str = include_str!("../src/tools/schema.rs");
 const FIXTURE: &str = include_str!("fixtures/mcp_transport_contracts.v1.json");
 
 #[test]
@@ -51,7 +53,9 @@ fn mcp_transport_registry_is_unique_and_separate_from_athanor_schema_registry() 
     assert!(SERVER_SOURCE.contains("\"isError\": true"));
     assert!(SERVER_SOURCE.contains("\"type\": \"text\""));
     assert!(
-        !SERVER_SOURCE.contains("athanor.mcp_") && !TOOLS_SOURCE.contains("athanor.mcp_"),
+        !SERVER_SOURCE.contains("athanor.mcp_")
+            && !TOOLS_DISPATCH_SOURCE.contains("athanor.mcp_")
+            && !TOOLS_SCHEMA_SOURCE.contains("athanor.mcp_"),
         "standard MCP envelopes must not acquire an Athanor schema id"
     );
 }
@@ -88,12 +92,30 @@ fn active_mcp_dispatch_is_explicitly_composed() {
     assert!(!RUNTIME_SOURCE.contains("include!("));
     assert!(SERVER_SOURCE.contains("Arc<RuntimeComposition>"));
     assert!(SERVER_SOURCE.contains("Arc::clone(composition)"));
-    assert!(TOOLS_SOURCE.contains("index_project_with_composition"));
-    assert!(TOOLS_SOURCE.contains("search_project_with_composition_and_operation_context"));
-    assert!(TOOLS_SOURCE.contains(
+    assert!(TOOLS_ROOT_SOURCE.contains("mod dispatch;"));
+    assert!(TOOLS_ROOT_SOURCE.contains("mod schema;"));
+    assert!(TOOLS_DISPATCH_SOURCE.contains("index_project_with_composition"));
+    assert!(TOOLS_DISPATCH_SOURCE.contains(
+        "search_project_with_composition_and_operation_context"
+    ));
+    assert!(TOOLS_DISPATCH_SOURCE.contains(
         "rustok_architecture_context_with_composition_and_operation_context"
     ));
-    assert!(!TOOLS_SOURCE.contains("athanor_runtime_defaults::install()"));
+    assert!(!TOOLS_DISPATCH_SOURCE.contains("athanor_runtime_defaults::install()"));
+}
+
+#[test]
+fn mcp_production_modules_remain_bounded() {
+    for (name, source, max_lines) in [
+        ("runtime", RUNTIME_SOURCE, 40),
+        ("tools root", TOOLS_ROOT_SOURCE, 20),
+        ("tools schema", TOOLS_SCHEMA_SOURCE, 220),
+        ("tools dispatch", TOOLS_DISPATCH_SOURCE, 330),
+        ("server", SERVER_SOURCE, 900),
+    ] {
+        let lines = source.lines().count();
+        assert!(lines <= max_lines, "{name} grew to {lines} lines");
+    }
 }
 
 #[test]
