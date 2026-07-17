@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
+use tracing::warn;
 
 use crate::project_path::normalize_canonical_path;
 
@@ -237,8 +238,13 @@ fn write_registry(path: &Path, registry: &ProjectRegistry) -> Result<()> {
             .with_context(|| format!("failed to publish project registry {}", path.display()));
     }
     if backup.exists() {
-        fs::remove_file(&backup)
-            .with_context(|| format!("failed to remove registry backup {}", backup.display()))?;
+        if let Err(error) = fs::remove_file(&backup) {
+            warn!(
+                backup = %backup.display(),
+                error = %error,
+                "project registry was published but backup cleanup failed"
+            );
+        }
     }
     Ok(())
 }
