@@ -3,7 +3,8 @@ use std::path::PathBuf;
 use anyhow::{Context, Result, bail};
 use athanor_app::{
     ApiCleanupOptions, ApiCleanupReport, ApiDiffOptions, ApiRegistryOptions, ApiRegistryReport,
-    ApiRetentionOverrides, cleanup_api_contracts, diff_api_contracts, query_api_registry,
+    ApiRetentionOverrides, ApiSnapshotOptions, VersionedApiSnapshotReport, cleanup_api_contracts,
+    diff_api_contracts, query_api_registry,
 };
 use clap::error::ErrorKind;
 use clap::{Parser, Subcommand};
@@ -27,6 +28,20 @@ enum RootCommand {
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum Command {
+    Snapshot {
+        #[arg(long, default_value = ".")]
+        path: PathBuf,
+        #[arg(long, conflicts_with = "no_cleanup")]
+        cleanup: bool,
+        #[arg(long = "no-cleanup")]
+        no_cleanup: bool,
+        #[arg(long)]
+        keep_snapshots: Option<usize>,
+        #[arg(long)]
+        keep_diffs: Option<usize>,
+        #[arg(long)]
+        json: bool,
+    },
     Diff {
         #[arg(long)]
         from: Option<String>,
@@ -76,16 +91,7 @@ pub(crate) enum Command {
 }
 
 pub(crate) fn parse(args: &[String]) -> Result<Option<Command>> {
-    let selected = matches!(
-        args.get(0..2),
-        Some([root, command])
-            if root == "api"
-                && matches!(
-                    command.as_str(),
-                    "diff" | "breaking-changes" | "registry" | "cleanup"
-                )
-    );
-    if !selected {
+    if args.first().map(String::as_str) != Some("api") {
         return Ok(None);
     }
     let argv = std::iter::once("ath".to_string())
@@ -105,6 +111,31 @@ pub(crate) fn parse(args: &[String]) -> Result<Option<Command>> {
 
 pub(crate) async fn run(command: Command) -> Result<()> {
     match command {
+        Command::Snapshot {
+            path,
+            cleanup,
+            no_cleanup,
+            keep_snapshots,
+            keep_diffs,
+            json,
+        } => {
+            let composition = athanor_runtime_defaults::production();
+            let report = athanor_app::snapshot_api_contract_with_composition(
+                ApiSnapshotOptions {
+                    root: path,
+                    retention: retention_overrides(
+                        cleanup,
+                        no_cleanup,
+                        keep_snapshots,
+                        keep_diffs,
+                    ),
+                },
+                &composition,
+            )
+            .await?;
+            let report = VersionedApiSnapshotReport::from(report);
+            render_snapshot(&report, json)?;
+        }
         Command::Diff {
             from,
             to,
@@ -195,6 +226,32 @@ fn retention_overrides(
         keep_snapshots,
         keep_diffs,
     }
+}
+
+fn render_snapshot(report: &VersionedApiSnapshotReport, json: bool) -> Result<()> {
+    if json {
+        println!("{}", serde_json::to_string_pretty(report)?);
+        return Ok(());
+    }
+    let report = &report.report;
+    println!(
+        "{} API contract snapshot {} ({} endpoints, {} schemas, {} examples)",
+        if report.created { "created" } else { "reused" },
+        report.snapshot,
+        report.endpoints,
+        report.schemas,
+        report.examples
+    );
+    println!("wrote API contract to {}", report.path.display());
+    if let Some(cleanup) = &report.cleanup {
+        println!(
+            "API cleanup: {} removed, {} retained{}",
+            cleanup.removed.len(),
+            cleanup.retained.len(),
+            if cleanup.dry_run { " (dry run)" } else { "" }
+        );
+    }
+    Ok(())
 }
 
 fn render_registry(report: &ApiRegistryReport, json: bool) -> Result<()> {
