@@ -101,8 +101,10 @@ mod rustok_audit_cooperative;
 mod rustok_graph_cooperative;
 pub mod rustok_json_contract;
 pub mod rustok_operation;
+#[path = "search_facade.rs"]
 pub mod search;
 pub mod search_operation;
+#[path = "store_facade.rs"]
 pub mod store;
 #[cfg(test)]
 mod test_runtime;
