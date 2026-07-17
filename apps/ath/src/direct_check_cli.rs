@@ -12,7 +12,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use crate::direct_operation::{
     await_drained_operation, await_operation, operation, run_blocking_operation,
 };
-use crate::legacy;
+use crate::render::{api, check};
 
 #[derive(Debug, Parser)]
 #[command(name = "ath", disable_version_flag = true)]
@@ -134,7 +134,7 @@ pub(crate) async fn run(command: Command) -> Result<()> {
         if command.json {
             println!("{}", serde_json::to_string_pretty(&report)?);
         } else {
-            legacy::print_affected_check_bridge(&report)?;
+            check::print_affected(&report)?;
         }
         if report.counts.total > 0 {
             bail!(
@@ -198,8 +198,8 @@ pub(crate) async fn run(command: Command) -> Result<()> {
                 }))?
             );
         } else {
-            legacy::print_check_bridge(&report)?;
-            legacy::print_api_contract_diff_bridge(&diff)?;
+            check::print_diagnostics(&report)?;
+            api::print_contract_diff(&diff)?;
         }
         if report.counts.total > 0 || diff.breaking_changes > 0 {
             bail!(
@@ -211,7 +211,7 @@ pub(crate) async fn run(command: Command) -> Result<()> {
     } else if command.json {
         println!("{}", serde_json::to_string_pretty(&report)?);
     } else {
-        legacy::print_check_bridge(&report)?;
+        check::print_diagnostics(&report)?;
     }
 
     Ok(())
