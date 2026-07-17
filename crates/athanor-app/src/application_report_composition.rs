@@ -1,14 +1,11 @@
 //! Explicit-composition facades for application report and documentation operations.
-//!
-//! The underlying API and documentation services still expose compatibility
-//! entry points that resolve stores through the legacy facade. These wrappers
-//! bind that lookup to a task-local `RuntimeComposition` without mutating
-//! process-global state.
+
+mod api_direct;
 
 use anyhow::Result;
 
-use crate::api::{ApiSnapshotOptions, ApiSnapshotReport, snapshot_api_contract};
-use crate::api_registry::{ApiRegistryOptions, ApiRegistryReport, query_api_registry};
+use crate::api::{ApiSnapshotOptions, ApiSnapshotReport};
+use crate::api_registry::{ApiRegistryOptions, ApiRegistryReport};
 use crate::composition::RuntimeComposition;
 use crate::docs::{
     DocsApplyPatchOptions, DocsApplyPatchReport, DocsCheckOptions, DocsCheckReport,
@@ -21,14 +18,14 @@ pub async fn snapshot_api_contract_with_composition(
     options: ApiSnapshotOptions,
     composition: &RuntimeComposition,
 ) -> Result<ApiSnapshotReport> {
-    with_store_composition(composition.clone(), snapshot_api_contract(options)).await
+    api_direct::snapshot(options, composition).await
 }
 
 pub async fn query_api_registry_with_composition(
     options: ApiRegistryOptions,
     composition: &RuntimeComposition,
 ) -> Result<ApiRegistryReport> {
-    with_store_composition(composition.clone(), query_api_registry(options)).await
+    api_direct::registry(options, composition).await
 }
 
 pub async fn check_docs_with_composition(
