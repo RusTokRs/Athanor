@@ -20,6 +20,8 @@ const DIRECT_RUSTOK_SOURCE: &str =
     include_str!("../../../apps/ath/src/direct_rustok_composed_cli.rs");
 const DIRECT_GENERATION_SOURCE: &str =
     include_str!("../../../apps/ath/src/direct_generation_cli.rs");
+const DIRECT_READ_COMPOSED_SOURCE: &str =
+    include_str!("../../../apps/ath/src/direct_read_composed_cli.rs");
 const DIRECT_VALIDATE_CHANGED_SOURCE: &str =
     include_str!("../../../apps/ath/src/direct_validate_changed_cli.rs");
 
@@ -107,10 +109,16 @@ fn focused_composition_reads_do_not_install_global_runtime() {
         DIRECT_GRAPH_SOURCE,
         DIRECT_RUSTOK_SOURCE,
         DIRECT_GENERATION_SOURCE,
+        DIRECT_READ_COMPOSED_SOURCE,
     ] {
         assert!(source.contains("athanor_runtime_defaults::production()"));
         assert!(!source.contains("athanor_runtime_defaults::install()"));
     }
+    assert!(DIRECT_READ_COMPOSED_SOURCE.contains("include!(\"direct_read_cli.rs\")"));
+    assert!(DIRECT_READ_COMPOSED_SOURCE.contains("::athanor_runtime_defaults::production()"));
+    assert!(!DIRECT_READ_COMPOSED_SOURCE.contains("::athanor_runtime_defaults::install()"));
+    assert!(CLI_ENTRY_SOURCE.contains("direct_read_composed_cli"));
+    assert!(!CLI_ENTRY_SOURCE.contains("mod direct_read_cli;"));
     assert!(CLI_ENTRY_SOURCE.contains("direct_rustok_composed_cli"));
     assert!(!CLI_ENTRY_SOURCE.contains("mod direct_rustok_cli;"));
 }
