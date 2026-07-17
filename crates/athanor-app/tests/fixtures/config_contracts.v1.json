@@ -1,0 +1,123 @@
+{
+  "validation": {
+    "schema": "athanor.config_validate.v1",
+    "root": "project",
+    "docs": {
+      "editable_path": "docs",
+      "completeness": {
+        "required_fields": [
+          "id",
+          "kind",
+          "language",
+          "source_language",
+          "last_verified_snapshot",
+          "status"
+        ],
+        "allowed_statuses": [
+          "verified"
+        ],
+        "minimum_diagnostic_severity": "medium",
+        "require_current_snapshot": false
+      }
+    },
+    "api": {
+      "enabled": true,
+      "source_of_truth": "hybrid",
+      "strict": true,
+      "fail_on_missing_docs": true,
+      "fail_on_openapi_mismatch": true,
+      "fail_on_undocumented_status_code": true,
+      "retention": {
+        "auto_cleanup": false,
+        "keep_snapshots": 2,
+        "keep_diffs": 2
+      }
+    },
+    "storage": {
+      "mode": "jsonl",
+      "path": ".athanor/store/canonical/jsonl"
+    },
+    "adapters": {
+      "allow_external_process": false,
+      "external_process_allowlist": [],
+      "external_process_sandbox": "disabled"
+    },
+    "pipeline": {
+      "extraction_concurrency": 16,
+      "max_extraction_bytes_in_flight": 67108864,
+      "max_snapshot_batch_objects": 1000000,
+      "max_snapshot_batch_bytes": 536870912,
+      "extraction_concurrency_by_adapter": {}
+    }
+  },
+  "doctor": {
+    "schema": "athanor.config_doctor.v1",
+    "root": "project",
+    "config": {
+      "docs": {
+        "editable_path": "docs",
+        "completeness": {
+          "required_fields": [
+            "id",
+            "kind",
+            "language",
+            "source_language",
+            "last_verified_snapshot",
+            "status"
+          ],
+          "allowed_statuses": [
+            "verified"
+          ],
+          "minimum_diagnostic_severity": "medium",
+          "require_current_snapshot": false
+        }
+      },
+      "api": {
+        "enabled": true,
+        "source_of_truth": "hybrid",
+        "strict": true,
+        "fail_on_missing_docs": true,
+        "fail_on_openapi_mismatch": true,
+        "fail_on_undocumented_status_code": true,
+        "retention": {
+          "auto_cleanup": false,
+          "keep_snapshots": 2,
+          "keep_diffs": 2
+        }
+      },
+      "storage": {
+        "mode": "jsonl",
+        "path": ".athanor/store/canonical/jsonl"
+      },
+      "adapters": {
+        "allow_external_process": false,
+        "external_process_allowlist": [],
+        "external_process_sandbox": "disabled"
+      },
+      "pipeline": {
+        "extraction_concurrency": 16,
+        "max_extraction_bytes_in_flight": 67108864,
+        "max_snapshot_batch_objects": 1000000,
+        "max_snapshot_batch_bytes": 536870912,
+        "extraction_concurrency_by_adapter": {}
+      }
+    },
+    "checks": [
+      {
+        "name": "storage_backend",
+        "status": "available",
+        "detail": "the configured storage mode is compiled into this build"
+      },
+      {
+        "name": "external_process_adapters",
+        "status": "configured",
+        "detail": "external process adapters require explicit enablement, trust, and allowlisting"
+      },
+      {
+        "name": "external_process_sandbox",
+        "status": "disabled",
+        "detail": "clean_environment clears inherited environment variables only; it is not OS-level filesystem, network, or CPU isolation"
+      }
+    ]
+  }
+}
