@@ -8,7 +8,7 @@ status: active
 
 This inventory records JSON documents that cross CLI, daemon, MCP, persisted-state, generated-artifact, interchange, or process-adapter boundaries. A document may enter `VERSIONED_JSON_CONTRACTS` only when one Rust type owns one top-level Athanor schema id and its current payload shape is protected by a regression fixture. Standard and schema-less protocols use separate registries instead of receiving synthetic Athanor schema ids.
 
-Audit baseline: `main` at `0c177cb43c43b0a575045decfb86932e53bc4d08`.
+Audit baseline: `main` at `f6e94941dc6858d16309d036bb1492e5835f0dc3`.
 
 ## Registered public contracts
 
@@ -24,11 +24,11 @@ Audit baseline: `main` at `0c177cb43c43b0a575045decfb86932e53bc4d08`.
 | `athanor.coverage.v1` | `CoverageReport` | CLI/daemon/MCP read | dedicated golden |
 | `athanor.capabilities.v1` | `CapabilitiesReport` | CLI/daemon/MCP read | dedicated golden |
 | `athanor.change_map.v1` | `ChangeMapReport` | CLI/daemon/MCP read | second-wave golden |
-| `athanor.context_pack.v1` | `ContextReport` | direct CLI/daemon/active MCP read | dedicated golden |
-| `athanor.index_report.v1` | `IndexReport` | direct CLI index/update and daemon index job result | application-output golden plus daemon parity regression |
+| `athanor.context_pack.v1` | `ContextReport` | direct CLI/daemon/active MCP read | dedicated golden plus executable shared-report regression |
+| `athanor.index_report.v1` | `IndexReport` | direct CLI index/update and daemon index job result | application-output golden, daemon parity, executable shared-report regression |
 | `athanor.index_benchmark.v1` | `BenchmarkReport` | direct CLI benchmark output | application-output golden |
 | `athanor.changed_validation.v1` | `ChangedValidationReport` | direct CLI changed-file validation | application-output golden |
-| `athanor.generation.v1` | `GenerationReport` | direct CLI generation and daemon generation job result | generation/docs golden plus daemon parity regression |
+| `athanor.generation.v1` | `GenerationReport` | direct CLI generation and daemon generation job result | generation/docs golden, daemon parity, executable shared-report regression |
 | `athanor.config_validate.v1` | `ConfigValidateReport` | direct CLI config validation | config golden plus executable CLI regression |
 | `athanor.config_doctor.v1` | `ConfigDoctorReport` | direct CLI config diagnostics | config golden plus executable CLI regression |
 | `athanor.docs_check.v1` | `DocsCheckReport` | direct CLI documentation policy check | generation/docs golden |
@@ -50,8 +50,8 @@ Audit baseline: `main` at `0c177cb43c43b0a575045decfb86932e53bc4d08`.
 | `athanor.daemon_request.v3` | `DaemonRequest` | local daemon transport request | daemon transport golden |
 | `athanor.daemon_response.v3` | `DaemonResponse` | local daemon transport success/error envelope | daemon transport golden |
 | `athanor.daemon_jobs.v1` | `DaemonJobsReport` | daemon jobs result payload | daemon transport golden |
-| `athanor.wiki_report.v1` | `WikiReport` | application result and daemon Wiki job result | Wiki/HTML golden plus daemon parity regression |
-| `athanor.html_report.v1` | `HtmlReport` | application result and daemon HTML job result | Wiki/HTML golden plus daemon parity regression |
+| `athanor.wiki_report.v1` | `WikiReport` | direct CLI JSON/application result and daemon Wiki job result | Wiki/HTML golden, daemon parity, executable shared-report regression |
+| `athanor.html_report.v1` | `HtmlReport` | direct CLI JSON/application result and daemon HTML job result | Wiki/HTML golden, daemon parity, executable shared-report regression |
 | `athanor.graph_export.v1` | `GraphExport` | CLI/daemon/MCP read | second-wave golden |
 | `athanor.graph_related.v1` | `GraphRelated` | CLI/daemon/MCP read | second-wave golden |
 | `athanor.graph_path.v1` | `GraphPath` | CLI/daemon/MCP read | second-wave golden |
@@ -147,9 +147,11 @@ Cleanup tombstones, staging directories, backups, locks, and repair guards are f
 - `PROCESS_PROTOCOL_CONTRACTS` protects the four schema-less external-process shapes and framing.
 - `boundary_contracts.v1.json` provides representative current documents and process request/response fixtures.
 - `process_persistence_contract_inventory.rs` verifies disjoint classifications, current fixture coverage, conditional empty index state, endpoint lifecycle, runtime source observability, process type usage, and newline/single-document framing.
+- `direct_generation_cli.rs` adds additive `--json` output for Generate, Wiki, and HTML while preserving their prior human-readable output.
+- `executable_shared_report_cli.rs` runs the real `ath` binary over a temporary project and protects Index, Context, Generation, Wiki, and HTML schemas plus shared snapshot identity. Its execution remains pending until a Rust toolchain is available.
 - Existing application, daemon, MCP, Repair, publication, checksum, recovery, and projector tests continue to protect semantic validation and atomicity.
 
-The bounded public migration allowlist remains empty. No known implementation inventory gap remains in the audited JSON scope; executable parity and workspace verification remain outstanding.
+The bounded public migration allowlist remains empty. No known implementation or executable-parity test gap remains in the audited JSON scope; actual test, fmt, and Clippy execution remain outstanding.
 
 ## Enforcement rules
 
