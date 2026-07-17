@@ -104,7 +104,7 @@ pub(crate) enum Command {
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
-pub(super) enum ContextLevelArg {
+pub(crate) enum ContextLevelArg {
     Summary,
     Normal,
     Deep,
