@@ -4,8 +4,9 @@ use anyhow::{Context, Result, bail};
 use athanor_app::{
     DocsApplyPatchOptions, DocsApplyPatchReport, DocsCheckOptions, DocsCheckReport, DocsDriftOptions,
     DocsDriftReport, DocsProposeFixOptions, OperationsDocsCheckOptions, OperationsDocsCheckReport,
-    VersionedDocsProposeFixReport, check_docs, check_operations_docs_with_composition,
-    docs_apply_patch, docs_drift,
+    VersionedDocsProposeFixReport, check_docs_with_composition,
+    check_operations_docs_with_composition, docs_apply_patch_with_composition,
+    docs_drift_with_composition,
 };
 use clap::error::ErrorKind;
 use clap::{Parser, Subcommand};
@@ -92,20 +93,28 @@ pub(crate) fn parse(args: &[String]) -> Result<Option<Command>> {
 }
 
 pub(crate) async fn run(command: Command) -> Result<()> {
+    let composition = athanor_runtime_defaults::production();
     match command {
         Command::Check { path, json } => {
-            let report = check_docs(DocsCheckOptions { root: path }).await?;
+            let report = check_docs_with_composition(
+                DocsCheckOptions { root: path },
+                &composition,
+            )
+            .await?;
             render_check(&report, json)?;
             if !report.passed {
                 bail!("documentation completeness gate failed");
             }
         }
         Command::Drift { path, json } => {
-            let report = docs_drift(DocsDriftOptions { root: path }).await?;
+            let report = docs_drift_with_composition(
+                DocsDriftOptions { root: path },
+                &composition,
+            )
+            .await?;
             render_drift(&report, json)?;
         }
         Command::ProposeFix { path, output, json } => {
-            let composition = athanor_runtime_defaults::production();
             let report = athanor_app::docs_propose_fix_with_composition(
                 DocsProposeFixOptions { root: path, output },
                 &composition,
@@ -115,13 +124,16 @@ pub(crate) async fn run(command: Command) -> Result<()> {
             render_proposal(&report, json)?;
         }
         Command::ApplyPatch { patch, path, json } => {
-            let report = docs_apply_patch(DocsApplyPatchOptions { root: path, patch }).await?;
+            let report = docs_apply_patch_with_composition(
+                DocsApplyPatchOptions { root: path, patch },
+                &composition,
+            )
+            .await?;
             render_apply(&report, json)?;
         }
         Command::Operations {
             command: OperationsCommand::Check { path, json },
         } => {
-            let composition = athanor_runtime_defaults::production();
             let report = check_operations_docs_with_composition(
                 OperationsDocsCheckOptions { root: path },
                 &composition,
