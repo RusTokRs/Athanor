@@ -12,6 +12,7 @@ const VALIDATE_CHANGED_SOURCE: &str = include_str!("../src/validate_changed.rs")
 const CLI_ENTRY_SOURCE: &str = include_str!("../../../apps/ath/src/entry.rs");
 const DIRECT_SEARCH_SOURCE: &str = include_str!("../../../apps/ath/src/direct_search_cli.rs");
 const DIRECT_CONTEXT_SOURCE: &str = include_str!("../../../apps/ath/src/direct_context_cli.rs");
+const DIRECT_CHECK_SOURCE: &str = include_str!("../../../apps/ath/src/direct_check_cli.rs");
 const DIRECT_VALIDATE_CHANGED_SOURCE: &str =
     include_str!("../../../apps/ath/src/direct_validate_changed_cli.rs");
 
@@ -55,8 +56,12 @@ fn changed_validation_has_an_explicit_composition_path() {
 }
 
 #[test]
-fn focused_search_and_context_do_not_install_global_runtime() {
-    for source in [DIRECT_SEARCH_SOURCE, DIRECT_CONTEXT_SOURCE] {
+fn focused_composition_reads_do_not_install_global_runtime() {
+    for source in [
+        DIRECT_SEARCH_SOURCE,
+        DIRECT_CONTEXT_SOURCE,
+        DIRECT_CHECK_SOURCE,
+    ] {
         assert!(source.contains("athanor_runtime_defaults::production()"));
         assert!(!source.contains("athanor_runtime_defaults::install()"));
     }
