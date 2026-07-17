@@ -80,14 +80,10 @@ pub(crate) enum Command {
 }
 
 pub(crate) fn parse(args: &[String]) -> Result<Option<Command>> {
-    let selected = matches!(
+    if !matches!(
         args.first().map(String::as_str),
-        Some("wiki") | Some("generate")
-    ) || matches!(
-        args.get(0..2),
-        Some([root, command]) if root == "report" && command == "html"
-    );
-    if !selected {
+        Some("wiki" | "report" | "generate")
+    ) {
         return Ok(None);
     }
 
@@ -225,11 +221,7 @@ mod tests {
     }
 
     #[test]
-    fn ignores_unrelated_report_commands() {
-        assert!(
-            parse(&["report".to_string(), "unknown".to_string()])
-                .unwrap()
-                .is_none()
-        );
+    fn report_family_is_owned_by_generation_parser() {
+        assert!(parse(&["report".to_string(), "--help".to_string()]).is_ok());
     }
 }
