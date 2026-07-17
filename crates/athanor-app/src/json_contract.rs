@@ -31,6 +31,10 @@ pub use base::{
     validate_contract_value, validate_schema_id,
 };
 
+pub use crate::adapter_contract::{
+    ADAPTER_TRUST_REPORT_SCHEMA_V1, VersionedAdapterTrustReport,
+};
+
 #[path = "response_contract.rs"]
 mod response_contract;
 
@@ -92,6 +96,7 @@ pub const VERSIONED_JSON_CONTRACTS: &[JsonContractDescriptor] = &[
     descriptor!(API_SNAPSHOT_SCHEMA_V1, "VersionedApiSnapshotReport"),
     descriptor!(API_CONTRACT_DIFF_SCHEMA_V2, "ApiContractDiff"),
     descriptor!(API_CLEANUP_SCHEMA_V1, "ApiCleanupReport"),
+    descriptor!(ADAPTER_TRUST_REPORT_SCHEMA_V1, "VersionedAdapterTrustReport"),
     descriptor!(REPAIR_INSPECT_SCHEMA_V2, "RepairInspectReport"),
     descriptor!(REPAIR_CLEANUP_SCHEMA_V2, "RepairCleanupReport"),
     descriptor!(REPAIR_REGENERATE_SCHEMA_V1, "RepairRegenerateReport"),
@@ -161,14 +166,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn extended_registry_contains_application_and_daemon_owners() {
+    fn extended_registry_contains_application_daemon_and_adapter_owners() {
         validate_contract_registry(VERSIONED_JSON_CONTRACTS)
             .expect("extended JSON contract registry must remain valid");
-        assert_eq!(VERSIONED_JSON_CONTRACTS.len(), 59);
+        assert_eq!(VERSIONED_JSON_CONTRACTS.len(), 60);
         assert_eq!(API_SNAPSHOT_SCHEMA_V1, VersionedApiSnapshotReport::SCHEMA);
         assert_eq!(
             DOCS_PROPOSE_FIX_SCHEMA_V1,
             VersionedDocsProposeFixReport::SCHEMA
+        );
+        assert_eq!(
+            ADAPTER_TRUST_REPORT_SCHEMA_V1,
+            VersionedAdapterTrustReport::SCHEMA
         );
         assert_eq!(
             REPAIR_INSPECT_SCHEMA_V2,
