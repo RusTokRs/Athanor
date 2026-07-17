@@ -5,6 +5,7 @@ use std::path::Path;
 use athanor_app::{VERSIONED_JSON_CONTRACTS, validate_contract_registry, validate_schema_id};
 
 const INVENTORIED_SOURCE_FILES: &[&str] = &[
+    "src/api.rs",
     "src/bench.rs",
     "src/overview.rs",
     "src/search.rs",
@@ -30,6 +31,8 @@ const INVENTORIED_SOURCE_FILES: &[&str] = &[
 const KNOWN_UNREGISTERED_PUBLIC_SCHEMAS: &[&str] = &[];
 const KNOWN_PERSISTED_SCHEMAS: &[&str] = &["athanor.project_registry_state.v1"];
 const KNOWN_GENERATED_SCHEMAS: &[&str] = &[
+    "athanor.api_contract_latest.v1",
+    "athanor.api_contract_snapshot.v2",
     "athanor.generated_current.v1",
     "athanor.generated_generation.v1",
     "athanor.validation_result.v1",
