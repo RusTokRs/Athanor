@@ -13,6 +13,7 @@ mod direct_rustok_composed_cli;
 mod direct_rustok_help;
 mod direct_search_cli;
 mod direct_validate_changed_cli;
+mod render;
 mod repair;
 
 mod legacy {
