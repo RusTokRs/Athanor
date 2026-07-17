@@ -8,10 +8,12 @@ use std::path::Path;
 use std::sync::{Arc, OnceLock};
 
 use anyhow::Result;
-use athanor_core::{CanonicalSnapshot, OperationContext, SearchDocument, SearchIndex};
+use athanor_core::{CanonicalSnapshot, OperationContext, SearchIndex};
 
-use crate::legacy_factory::{install_once, require_installed};
-use crate::{LegacyFactoryInstallError, LegacyFactoryUnavailableError, RuntimeComposition};
+use crate::legacy_factory::{
+    LegacyFactoryInstallError, LegacyFactoryUnavailableError, install_once, require_installed,
+};
+use crate::RuntimeComposition;
 
 #[path = "search.rs"]
 mod legacy;
@@ -36,7 +38,6 @@ pub fn try_install_search_index_factory(
     Ok(())
 }
 
-#[deprecated(note = "use RuntimeComposition or try_install_search_index_factory")]
 pub fn install_search_index_factory(factory: SearchIndexFactory) {
     try_install_search_index_factory(factory)
         .expect("conflicting legacy search index factory installation");
@@ -54,7 +55,6 @@ pub fn try_install_search_index_operation_factory(
     Ok(())
 }
 
-#[deprecated(note = "use RuntimeComposition or try_install_search_index_operation_factory")]
 pub fn install_search_index_operation_factory(factory: SearchIndexOperationFactory) {
     try_install_search_index_operation_factory(factory)
         .expect("conflicting legacy operation-aware search index factory installation");
