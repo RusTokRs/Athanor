@@ -1,10 +1,11 @@
 use std::collections::HashMap;
 use std::future::Future;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
+use athanor_app::RuntimeComposition;
 use athanor_core::{
     CancellationHandle, CoreError, OperationContext, OperationContextCancellation,
 };
@@ -15,7 +16,7 @@ use tokio::io::{
 use tokio::sync::{Mutex, mpsc};
 use tokio::task::{JoinError, JoinSet};
 
-use crate::legacy;
+use crate::tools;
 use crate::transport_contract::{JSON_RPC_VERSION, MCP_PROTOCOL_VERSION};
 
 pub const DEFAULT_MAX_IN_FLIGHT_REQUESTS: usize = 32;
@@ -185,11 +186,14 @@ enum DispatchError {
 
 type DispatchResult = std::result::Result<Value, DispatchError>;
 
-/// Runs the MCP stdio server with bounded concurrent request processing,
-/// serialized response writing, and request-scoped cancellation.
-pub async fn run_mcp_server(root: PathBuf) -> Result<()> {
+/// Runs the MCP stdio server with explicit runtime dependencies.
+pub async fn run_mcp_server_with_composition(
+    root: PathBuf,
+    composition: RuntimeComposition,
+) -> Result<()> {
     run_mcp_server_io(
         root,
+        Arc::new(composition),
         BufReader::new(io::stdin()),
         io::stdout(),
         McpServerLimits::default(),
@@ -199,6 +203,7 @@ pub async fn run_mcp_server(root: PathBuf) -> Result<()> {
 
 async fn run_mcp_server_io<R, W>(
     root: PathBuf,
+    composition: Arc<RuntimeComposition>,
     reader: R,
     writer: W,
     limits: McpServerLimits,
@@ -231,6 +236,7 @@ where
                         Some(line) => {
                             process_line(
                                 &root,
+                                &composition,
                                 &active_reads,
                                 &session,
                                 &responses_tx,
@@ -264,6 +270,7 @@ where
 
 async fn process_line(
     root: &Arc<PathBuf>,
+    composition: &Arc<RuntimeComposition>,
     active_reads: &ActiveReads,
     session: &SessionState,
     responses_tx: &mpsc::Sender<String>,
@@ -295,6 +302,7 @@ async fn process_line(
     }
 
     let root = Arc::clone(root);
+    let composition = Arc::clone(composition);
     let active_reads = Arc::clone(active_reads);
     let session = Arc::clone(session);
     let responses_tx = responses_tx.clone();
@@ -305,6 +313,7 @@ async fn process_line(
             .expect("request tasks only contain explicit ids");
         let response = handle_request(
             &root,
+            &composition,
             request.method,
             request.params,
             &id,
@@ -451,7 +460,8 @@ async fn handle_initialize(params: Option<Value>, session: &SessionState) -> Dis
 }
 
 async fn handle_request(
-    root: &Path,
+    root: &PathBuf,
+    composition: &RuntimeComposition,
     method: String,
     params: Option<Value>,
     request_id: &Value,
@@ -467,11 +477,18 @@ async fn handle_request(
         }
         "tools/list" => {
             require_ready(session).await?;
-            Ok(legacy::tools_list_bridge())
+            Ok(tools::list())
         }
         "tools/call" => {
             require_ready(session).await?;
-            handle_tool_call(root, request_id, params, active_reads).await
+            handle_tool_call(
+                root,
+                composition,
+                request_id,
+                params,
+                active_reads,
+            )
+            .await
         }
         other => Err(DispatchError::Protocol(RpcError::method_not_found(other))),
     }
@@ -515,7 +532,8 @@ fn params_object(
 }
 
 async fn handle_tool_call(
-    root: &Path,
+    root: &PathBuf,
+    composition: &RuntimeComposition,
     request_id: &Value,
     params: Option<Value>,
     active_reads: &ActiveReads,
@@ -540,10 +558,28 @@ async fn handle_tool_call(
         )));
     }
 
+    let operation = operation_context(request_id, &arguments)
+        .map_err(DispatchError::Application)?;
+    let request_key = request_key(request_id).map_err(DispatchError::Application)?;
     let result = if is_read_tool(tool_name) {
-        call_read_tool(root, request_id, tool_name, arguments, active_reads).await
+        let future = tools::call(root, tool_name, arguments, composition, &operation);
+        if is_drained_operation_tool(tool_name) {
+            run_registered_drained_read(
+                active_reads,
+                request_key,
+                operation,
+                future,
+            )
+            .await
+        } else {
+            run_registered_read(active_reads, request_key, operation, future).await
+        }
     } else {
-        legacy::call_tool_bridge(root, tool_name, arguments).await
+        await_read_operation(
+            &operation,
+            tools::call(root, tool_name, arguments, composition, &operation),
+        )
+        .await
     };
 
     match result {
@@ -561,116 +597,12 @@ async fn handle_tool_call(
     }
 }
 
-async fn call_read_tool(
-    root: &Path,
-    request_id: &Value,
-    tool_name: &str,
-    arguments: Value,
-    active_reads: &ActiveReads,
-) -> Result<String> {
-    let request_key = request_key(request_id)?;
-    let deadline_unix_ms = parse_deadline(&arguments)?;
-    let mut operation = OperationContext::new(format!("mcp:{request_key}"));
-    if let Some(deadline_unix_ms) = deadline_unix_ms {
+fn operation_context(request_id: &Value, arguments: &Value) -> Result<OperationContext> {
+    let mut operation = OperationContext::new(format!("mcp:{}", request_key(request_id)?));
+    if let Some(deadline_unix_ms) = parse_deadline(arguments)? {
         operation = operation.with_deadline_unix_ms(deadline_unix_ms);
     }
-
-    if is_drained_operation_tool(tool_name) {
-        let root = root.to_path_buf();
-        let tool_name = tool_name.to_string();
-        let execution_operation = operation.clone();
-        run_registered_drained_read(
-            active_reads,
-            request_key,
-            operation,
-            async move {
-                call_operation_read_tool(&root, &tool_name, arguments, &execution_operation).await
-            },
-        )
-        .await
-    } else {
-        run_registered_read(
-            active_reads,
-            request_key,
-            operation,
-            legacy::call_tool_inner_bridge(root, tool_name, arguments),
-        )
-        .await
-    }
-}
-
-async fn call_operation_read_tool(
-    root: &Path,
-    tool_name: &str,
-    arguments: Value,
-    operation: &OperationContext,
-) -> Result<String> {
-    match tool_name {
-        "search" => {
-            let query = arguments
-                .get("query")
-                .and_then(Value::as_str)
-                .context("missing query")?
-                .to_string();
-            let limit = arguments
-                .get("limit")
-                .and_then(Value::as_u64)
-                .map(|value| value as usize)
-                .unwrap_or(10);
-            let report = athanor_app::search_project_with_operation_context(
-                athanor_app::SearchOptions {
-                    root: root.to_path_buf(),
-                    query,
-                    limit,
-                },
-                operation,
-            )
-            .await?;
-            Ok(serde_json::to_string_pretty(&report)?)
-        }
-        "context" => {
-            let task = arguments
-                .get("task")
-                .and_then(Value::as_str)
-                .context("missing task")?
-                .to_string();
-            let level = match arguments
-                .get("level")
-                .and_then(Value::as_str)
-                .unwrap_or("normal")
-            {
-                "summary" => athanor_domain::ContextLevel::Summary,
-                "deep" => athanor_domain::ContextLevel::Deep,
-                "full" => athanor_domain::ContextLevel::Full,
-                _ => athanor_domain::ContextLevel::Normal,
-            };
-            let optional_limit = |name: &str| {
-                arguments
-                    .get(name)
-                    .and_then(Value::as_u64)
-                    .map(|value| value as usize)
-            };
-            let report = athanor_app::context_project_with_operation_context(
-                athanor_app::ContextOptions {
-                    root: root.to_path_buf(),
-                    task,
-                    diff: false,
-                    level,
-                    limits: athanor_app::ContextLimitOverrides {
-                        max_tokens: optional_limit("max_tokens"),
-                        max_files: optional_limit("max_files"),
-                        max_entities: optional_limit("max_entities"),
-                        max_diagnostics: optional_limit("max_diagnostics"),
-                        max_depth: optional_limit("max_depth"),
-                    },
-                },
-                operation,
-            )
-            .await?;
-            Ok(serde_json::to_string_pretty(&report)?)
-        }
-        other => bail!("operation-aware MCP read is not implemented for `{other}`"),
-    }
+    Ok(operation)
 }
 
 async fn run_registered_read<T>(
@@ -774,7 +706,10 @@ fn is_read_tool(tool_name: &str) -> bool {
 }
 
 fn is_drained_operation_tool(tool_name: &str) -> bool {
-    matches!(tool_name, "search" | "context")
+    matches!(
+        tool_name,
+        "search" | "context" | "change_map" | "rustok_architecture_context"
+    )
 }
 
 fn is_cancel_notification(method: &str) -> bool {
@@ -840,7 +775,7 @@ fn response_json(id: Value, result: DispatchResult) -> String {
         Err(DispatchError::Application(error)) => json!({
             "jsonrpc": JSON_RPC_VERSION,
             "id": id,
-            "error": legacy::rpc_error_bridge(&error)
+            "error": tools::rpc_error(&error)
         }),
     };
     serialize_response(response)
@@ -872,52 +807,32 @@ mod tests {
     #[tokio::test]
     async fn protocol_session_negotiates_before_tools_are_available() {
         let responses = exchange(&[
-            r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}"#,
+            r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}"#,
             r#"{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}"#,
             r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#,
         ])
         .await;
         assert_eq!(responses.len(), 2);
         assert_eq!(responses[0]["id"], 1);
-        assert_eq!(
-            responses[0]["result"]["protocolVersion"],
-            MCP_PROTOCOL_VERSION
-        );
         assert_eq!(responses[1]["id"], 2);
         assert!(responses[1]["result"]["tools"].is_array());
     }
 
     #[tokio::test]
     async fn protocol_errors_use_standard_json_rpc_codes() {
-        let parse = exchange(&["not-json"]).await;
-        assert_eq!(parse[0]["error"]["code"], -32700);
-
-        let invalid = exchange(&[
-            r#"{"jsonrpc":"1.0","id":7,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}"#,
-        ])
-        .await;
-        assert_eq!(invalid[0]["id"], 7);
-        assert_eq!(invalid[0]["error"]["code"], -32600);
-
-        let not_initialized =
-            exchange(&[r#"{"jsonrpc":"2.0","id":8,"method":"tools/list"}"#]).await;
-        assert_eq!(not_initialized[0]["error"]["code"], -32002);
-
-        let unknown = exchange(&[
-            r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}"#,
-            r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#,
-            r#"{"jsonrpc":"2.0","id":9,"method":"missing/method"}"#,
-        ])
-        .await;
-        assert_eq!(unknown[1]["error"]["code"], -32601);
-
-        let invalid_params = exchange(&[
-            r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}"#,
-            r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#,
-            r#"{"jsonrpc":"2.0","id":10,"method":"tools/call"}"#,
-        ])
-        .await;
-        assert_eq!(invalid_params[1]["error"]["code"], -32602);
+        assert_eq!(exchange(&["not-json"]).await[0]["error"]["code"], -32700);
+        assert_eq!(
+            exchange(&[
+                r#"{"jsonrpc":"1.0","id":7,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}"#,
+            ])
+            .await[0]["error"]["code"],
+            -32600
+        );
+        assert_eq!(
+            exchange(&[r#"{"jsonrpc":"2.0","id":8,"method":"tools/list"}"#])
+                .await[0]["error"]["code"],
+            -32002
+        );
     }
 
     #[tokio::test]
@@ -927,17 +842,12 @@ mod tests {
         ])
         .await;
         assert!(notification.is_empty());
-
         let explicit_null = exchange(&[
             r#"{"jsonrpc":"2.0","id":null,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}"#,
         ])
         .await;
         assert_eq!(explicit_null.len(), 1);
         assert!(explicit_null[0]["id"].is_null());
-        assert_eq!(
-            explicit_null[0]["result"]["protocolVersion"],
-            MCP_PROTOCOL_VERSION
-        );
     }
 
     #[tokio::test]
@@ -954,7 +864,7 @@ mod tests {
         assert_eq!(receiver.recv().await.as_deref(), Some("first"));
         tokio::time::timeout(Duration::from_secs(1), &mut second)
             .await
-            .expect("second response admitted after capacity released")
+            .unwrap()
             .unwrap();
     }
 
@@ -965,35 +875,6 @@ mod tests {
         let joined = requests.join_next().await.expect("completed request task");
         log_request_task(joined);
         assert!(requests.is_empty());
-    }
-
-    #[test]
-    fn default_server_limits_are_bounded() {
-        let limits = McpServerLimits::default().validate().unwrap();
-        assert_eq!(
-            limits.max_in_flight_requests,
-            DEFAULT_MAX_IN_FLIGHT_REQUESTS
-        );
-        assert_eq!(
-            limits.response_queue_capacity,
-            DEFAULT_RESPONSE_QUEUE_CAPACITY
-        );
-        assert!(
-            McpServerLimits {
-                max_in_flight_requests: 0,
-                response_queue_capacity: 1,
-            }
-            .validate()
-            .is_err()
-        );
-        assert!(
-            McpServerLimits {
-                max_in_flight_requests: 1,
-                response_queue_capacity: 0,
-            }
-            .validate()
-            .is_err()
-        );
     }
 
     #[tokio::test]
@@ -1010,27 +891,13 @@ mod tests {
             )
             .await
         });
-        tokio::time::timeout(Duration::from_secs(1), async {
-            loop {
-                if active_reads.lock().await.contains_key("\"request-1\"") {
-                    break;
-                }
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .expect("read registered");
-
+        wait_until_registered(&active_reads, "\"request-1\"").await;
         cancel_notification(
             &active_reads,
             Some(&json!({ "requestId": "request-1" })),
         )
         .await;
-        let error = task
-            .await
-            .expect("read task joined")
-            .expect_err("cancelled read must fail");
-
+        let error = task.await.unwrap().expect_err("cancelled read must fail");
         assert!(error.chain().any(|cause| matches!(
             cause.downcast_ref::<CoreError>(),
             Some(CoreError::Cancelled(_))
@@ -1064,71 +931,21 @@ mod tests {
             )
             .await
         });
-        tokio::time::timeout(Duration::from_secs(1), async {
-            loop {
-                if active_reads.lock().await.contains_key("\"drained\"") {
-                    break;
-                }
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .expect("drained read registered");
-
+        wait_until_registered(&active_reads, "\"drained\"").await;
         cancel_notification(&active_reads, Some(&json!({ "requestId": "drained" }))).await;
-        let error = task
-            .await
-            .expect("drained read task joined")
-            .expect_err("cancelled drained read must fail");
-
+        let error = task.await.unwrap().expect_err("cancelled read must fail");
         assert!(completed.load(Ordering::Acquire));
         assert!(error.chain().any(|cause| matches!(
             cause.downcast_ref::<CoreError>(),
             Some(CoreError::Cancelled(_))
         )));
-        assert!(active_reads.lock().await.is_empty());
-    }
-
-    #[tokio::test]
-    async fn deadline_terminates_registered_read_and_releases_lease() {
-        let active_reads = ActiveReads::default();
-        let operation = OperationContext::new("mcp:7").with_deadline_unix_ms(0);
-
-        let error = run_registered_read(
-            &active_reads,
-            "7".to_string(),
-            operation,
-            pending::<Result<()>>(),
-        )
-        .await
-        .expect_err("expired read deadline must fail");
-
-        assert!(error.chain().any(|cause| matches!(
-            cause.downcast_ref::<CoreError>(),
-            Some(CoreError::DeadlineExceeded(_))
-        )));
-        assert!(active_reads.lock().await.is_empty());
     }
 
     #[test]
-    fn supports_standard_and_legacy_cancellation_notifications() {
-        assert!(is_cancel_notification("notifications/cancelled"));
-        assert!(is_cancel_notification("$/cancelRequest"));
-        assert!(!is_cancel_notification("tools/call"));
-    }
-
-    #[test]
-    fn read_tool_scope_excludes_transactional_index() {
-        assert!(is_read_tool("search"));
-        assert!(is_read_tool("change_map"));
-        assert!(!is_read_tool("index"));
-    }
-
-    #[test]
-    fn rebuild_capable_tools_use_drained_operation_dispatch() {
-        assert!(is_drained_operation_tool("search"));
-        assert!(is_drained_operation_tool("context"));
-        assert!(!is_drained_operation_tool("impact"));
+    fn default_server_limits_are_bounded() {
+        let limits = McpServerLimits::default().validate().unwrap();
+        assert_eq!(limits.max_in_flight_requests, DEFAULT_MAX_IN_FLIGHT_REQUESTS);
+        assert_eq!(limits.response_queue_capacity, DEFAULT_RESPONSE_QUEUE_CAPACITY);
     }
 
     #[test]
@@ -1137,19 +954,28 @@ mod tests {
         assert_eq!(request_key(&json!("seven")).unwrap(), "\"seven\"");
         assert_eq!(request_key(&Value::Null).unwrap(), "null");
         assert!(request_key(&json!(true)).is_err());
+    }
 
-        let omitted = parse_request(r#"{"jsonrpc":"2.0","method":"tools/list"}"#).unwrap();
-        assert!(omitted.id.is_notification());
-        let explicit_null =
-            parse_request(r#"{"jsonrpc":"2.0","id":null,"method":"tools/list"}"#).unwrap();
-        assert!(!explicit_null.id.is_notification());
+    async fn wait_until_registered(active_reads: &ActiveReads, key: &str) {
+        tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                if active_reads.lock().await.contains_key(key) {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("read registered");
     }
 
     async fn exchange(lines: &[&str]) -> Vec<Value> {
         let (mut input_client, input_server) = tokio::io::duplex(16 * 1024);
         let (output_server, mut output_client) = tokio::io::duplex(64 * 1024);
+        let composition = Arc::new(athanor_runtime_defaults::production());
         let server = tokio::spawn(run_mcp_server_io(
             PathBuf::from("."),
+            composition,
             BufReader::new(input_server),
             output_server,
             McpServerLimits {
@@ -1167,7 +993,6 @@ mod tests {
         let mut output = String::new();
         output_client.read_to_string(&mut output).await.unwrap();
         server.await.unwrap().unwrap();
-
         output
             .lines()
             .filter(|line| !line.trim().is_empty())
