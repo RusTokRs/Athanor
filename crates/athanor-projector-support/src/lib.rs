@@ -2,10 +2,18 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
+#[cfg(test)]
+use std::cell::Cell;
+
 use athanor_core::{CoreError, CoreResult};
 use athanor_domain::{Diagnostic, Entity, EntityId, Fact, Relation};
 use serde::{Deserialize, Serialize};
 use tracing::warn;
+
+#[cfg(test)]
+thread_local! {
+    static INJECT_BACKUP_CLEANUP_FAILURE: Cell<bool> = const { Cell::new(false) };
+}
 
 #[derive(Debug)]
 pub struct NewDirectoryPublication {
@@ -280,6 +288,16 @@ fn remove_path_if_exists(path: &Path) -> CoreResult<()> {
 }
 
 fn cleanup_backup_after_publish(path: &Path, output_kind: &str) {
+    #[cfg(test)]
+    if INJECT_BACKUP_CLEANUP_FAILURE.with(|inject| inject.replace(false)) {
+        warn!(
+            backup = %path.display(),
+            output_kind,
+            "output was published but backup cleanup failed (injected)"
+        );
+        return;
+    }
+
     if let Err(error) = remove_path_if_exists(path) {
         warn!(
             backup = %path.display(),
@@ -393,6 +411,37 @@ mod tests {
         assert_eq!(
             fs::read_to_string(target.join("index.txt")).unwrap(),
             "complete"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn post_commit_cleanup_failure_keeps_new_directory_published() {
+        let root = std::env::temp_dir().join(format!(
+            "athanor-projector-support-cleanup-failure-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let target = root.join("report");
+        fs::create_dir_all(&target).unwrap();
+        fs::write(target.join("previous.txt"), "previous").unwrap();
+
+        INJECT_BACKUP_CLEANUP_FAILURE.with(|inject| inject.set(true));
+        publish_staged_directory(&target, "test", |staging| {
+            write_output_file(&staging.join("index.txt"), "complete")
+        })
+        .unwrap();
+
+        let backup = root.join(format!(".report.backup-{}", std::process::id()));
+        assert_eq!(
+            fs::read_to_string(target.join("index.txt")).unwrap(),
+            "complete"
+        );
+        assert_eq!(
+            fs::read_to_string(backup.join("previous.txt")).unwrap(),
+            "previous"
         );
         fs::remove_dir_all(root).unwrap();
     }
