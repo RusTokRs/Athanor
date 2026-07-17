@@ -21,7 +21,8 @@ fn non_public_json_boundaries_are_disjoint_and_fixture_protected() {
         .as_object()
         .expect("boundary documents object");
     let mut current = 0;
-    let mut legacy = 0;
+    let mut legacy_input = 0;
+    let mut historical = 0;
 
     for descriptor in NON_PUBLIC_JSON_CONTRACTS {
         match descriptor.lifecycle {
@@ -35,10 +36,18 @@ fn non_public_json_boundaries_are_disjoint_and_fixture_protected() {
                 });
             }
             BoundaryLifecycle::LegacyInput => {
-                legacy += 1;
+                legacy_input += 1;
                 assert!(
                     !documents.contains_key(descriptor.schema),
                     "legacy input {} must not be emitted as a current fixture",
+                    descriptor.schema
+                );
+            }
+            BoundaryLifecycle::Historical => {
+                historical += 1;
+                assert!(
+                    !documents.contains_key(descriptor.schema),
+                    "historical schema {} must not be emitted as a current fixture",
                     descriptor.schema
                 );
             }
@@ -46,7 +55,8 @@ fn non_public_json_boundaries_are_disjoint_and_fixture_protected() {
     }
 
     assert_eq!(current, 24);
-    assert_eq!(legacy, 6);
+    assert_eq!(legacy_input, 5);
+    assert_eq!(historical, 1);
     assert_eq!(documents.len(), current);
 }
 
