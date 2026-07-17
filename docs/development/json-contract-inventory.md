@@ -8,7 +8,7 @@ status: active
 
 This inventory records JSON documents that cross CLI, daemon, MCP, persisted-state, generated-artifact, interchange, or process-adapter boundaries. A document may enter `VERSIONED_JSON_CONTRACTS` only when one Rust type owns one top-level schema id and its current payload shape is protected by a regression fixture.
 
-Audit baseline: `main` at `e2a9bf5ba7742b6d81f087ee5ef0a711a8d1f74f`.
+Audit baseline: `main` at `4b00ea51d2d9dc3cae78a64bd4a3827053b8d191`.
 
 ## Registered contracts
 
@@ -32,6 +32,8 @@ Audit baseline: `main` at `e2a9bf5ba7742b6d81f087ee5ef0a711a8d1f74f`.
 | `athanor.docs_check.v1` | `DocsCheckReport` | direct CLI documentation policy check | generation/docs golden |
 | `athanor.docs_drift.v1` | `DocsDriftReport` | direct CLI documentation drift report | generation/docs golden |
 | `athanor.docs_apply_patch.v1` | `DocsApplyPatchReport` | direct CLI documentation patch application | generation/docs golden |
+| `athanor.api_contract_diff.v2` | `ApiContractDiff` | direct CLI diff plus persisted diff artifact | API golden |
+| `athanor.api_cleanup.v1` | `ApiCleanupReport` | direct CLI API retention cleanup | API golden |
 | `athanor.graph_export.v1` | `GraphExport` | CLI/daemon/MCP read | second-wave golden |
 | `athanor.graph_related.v1` | `GraphRelated` | CLI/daemon/MCP read | second-wave golden |
 | `athanor.graph_path.v1` | `GraphPath` | CLI/daemon/MCP read | second-wave golden |
@@ -56,21 +58,23 @@ Audit baseline: `main` at `e2a9bf5ba7742b6d81f087ee5ef0a711a8d1f74f`.
 
 ## Resolved migration decisions
 
-### Context and project registry
+### Context, indexing, generation, and registry
 
-`ContextPack` remains the internal domain value. Public JSON boundaries serialize flattened `ContextReport`. Public Project Registry reports and persisted registry state use distinct schema ids; legacy persisted input normalizes on the next mutation.
-
-### Index and generation parity
-
-`IndexReport` owns `athanor.index_report.v1`; direct index/update JSON and daemon index jobs serialize the same document. `GenerationReport` similarly owns `athanor.generation.v1`; daemon generation jobs now serialize the complete report rather than a reduced hand-built object.
-
-The generation parity change preserves the previous daemon generation fields and adds `schema`, `status`, `root`, and `metrics` additively. Golden fixtures and unit regressions compare daemon payloads with direct typed serialization.
+`ContextPack` remains the internal domain value and is exposed through flattened `ContextReport`. Direct CLI and daemon Index and Generation operations serialize the same typed reports. Public Project Registry reports and persisted registry state use distinct schema ids; legacy state normalizes on mutation.
 
 ### Documentation contracts
 
-`DocsCheckReport`, `DocsDriftReport`, and `DocsApplyPatchReport` are public command-response contracts. `DocsPatchProposal` is different: it is a versioned file exchanged between propose and apply operations, so `athanor.docs_patch.v1` is classified as an interchange artifact instead of a public report owner.
+`DocsCheckReport`, `DocsDriftReport`, and `DocsApplyPatchReport` are public command-response contracts. `DocsPatchProposal` is a versioned file exchanged between propose and apply, so `athanor.docs_patch.v1` is classified as interchange instead of public report ownership.
 
-`DocsProposeFixReport` remains a structural blocker because its top-level response contains `{ proposal, path }` without its own schema while the nested proposal is already versioned.
+`DocsProposeFixReport` remains a structural blocker because its top-level `{ proposal, path }` wrapper has no schema while the nested proposal is already versioned.
+
+### API contracts
+
+`ApiContractDiff` owns `athanor.api_contract_diff.v2` for both the direct command result and the persisted diff artifact; the emitted shape is the same in both places. `ApiCleanupReport` owns `athanor.api_cleanup.v1`.
+
+`ApiContractSnapshot` and `ApiContractLatest` are generated artifacts, not command-response owners. Their schemas remain outside the public registry but are protected by the API golden fixture and `validate_contract_value()`.
+
+`ApiSnapshotReport` remains a migration blocker: `ath api snapshot --json` returns an unversioned summary wrapper rather than the generated snapshot document itself. Registering the generated snapshot type would not solve that top-level boundary.
 
 ### Specialized RusTok owners
 
@@ -79,17 +83,17 @@ The architecture context has a dedicated owner. FFA, FBA, and Page Builder graph
 ## Classified non-public schemas
 
 - Persisted: `athanor.project_registry_state.v1`.
-- Generated: `athanor.validation_result.v1`, `athanor.generated_generation.v1`, `athanor.generated_current.v1`.
+- Generated: `athanor.validation_result.v1`, `athanor.generated_generation.v1`, `athanor.generated_current.v1`, `athanor.api_contract_snapshot.v2`, `athanor.api_contract_latest.v1`.
 - Embedded: `athanor.index_metrics.v1`, `athanor.index_report_metrics.v1`, `athanor.generation_metrics.v1`.
 - Interchange: `athanor.docs_patch.v1`.
 
-The bounded public migration allowlist remains empty.
+The bounded public migration allowlist remains empty because known unversioned wrappers are tracked by type and boundary rather than by a schema id that does not yet exist.
 
 ## Boundaries requiring the next inventory pass
 
 ### Remaining application outputs
 
-The next pass covers config doctor/validation, API snapshot/diff/cleanup, wiki, HTML report, repair, and other CLI JSON documents. Known structural issues include unversioned `ApiSnapshotReport`, `WikiReport`, `HtmlReport`, and `DocsProposeFixReport` response wrappers.
+The next pass covers config doctor/validation, versioned wrappers for `ApiSnapshotReport`, `DocsProposeFixReport`, `WikiReport`, and `HtmlReport`, plus repair JSON reports and state.
 
 ### Daemon and MCP envelopes
 
@@ -101,15 +105,13 @@ Extractor, linker, and checker process request/response documents require an exp
 
 ### Persisted and generated state
 
-Index state, publication journals, API snapshots/pointers/diffs, projector manifests, generation pointers, read-model manifests, and repair journals/guards require a repository-wide persisted/generated pass.
+Index state, publication journals, projector manifests, read-model manifests, repair journals/guards, and remaining pointer documents require a repository-wide persisted/generated pass.
 
 ## Enforcement implementation
 
-`crates/athanor-app/tests/json_contract_inventory.rs` now scans the identified public read, project, Rustok, benchmark, index, pipeline, changed-validation, generation, and docs modules.
+`crates/athanor-app/tests/json_contract_inventory.rs` scans identified public application owner modules including `api.rs`. Registered API diff/cleanup ids and classified snapshot/latest ids are therefore enforced from the same source owner module.
 
 Public, migration, persisted, generated, embedded, and interchange sets are mutually exclusive. Every classified id must remain observable in the bounded source set and cannot simultaneously become a public registry owner.
-
-This remains a bounded enforcement slice until the remaining application, transport, process, persistence, and generated boundaries are classified.
 
 ## Enforcement rules
 
@@ -118,7 +120,7 @@ This remains a bounded enforcement slice until the remaining application, transp
 - Equivalent CLI and daemon application results serialize the same typed document.
 - Embedded schema-bearing fragments are not registered as top-level documents.
 - Generated, persisted, and interchange schemas remain separate from public report contracts.
-- Shared calculation types with multiple public schema ids require distinct transparent owner types.
+- One type may serve a public response and generated artifact only when both boundaries emit the same top-level shape.
 - A schema id must never describe two current emitted top-level shapes.
 - Legacy input must normalize to a current schema before writing.
 - Removing, renaming, retyping, or semantically changing a field requires a new major schema id.
