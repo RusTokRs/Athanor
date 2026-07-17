@@ -6,75 +6,49 @@ status: active
 ---
 # Versioned JSON Contract Inventory
 
-This inventory records JSON documents that cross CLI, daemon, MCP, persisted-state, generated-artifact, interchange, or process-adapter boundaries. A document may enter `VERSIONED_JSON_CONTRACTS` only when one Rust type owns one top-level Athanor schema id and its current payload shape is protected by a regression fixture. Standard and schema-less protocols use separate registries instead of receiving synthetic Athanor schema ids.
+This inventory records JSON documents that cross CLI, daemon, MCP, persisted-state, generated-artifact, interchange, adapter-plugin, or process-adapter boundaries. A document may enter `VERSIONED_JSON_CONTRACTS` only when one Rust type owns one top-level current Athanor schema id and its current payload shape is protected by a regression fixture. Standard and schema-less protocols use separate registries instead of receiving synthetic Athanor schema ids.
 
-Audit baseline: `main` at `f6e94941dc6858d16309d036bb1492e5835f0dc3`.
+Audit baseline: current `main`; Rust-enabled verification is pending for the current HEAD.
 
 ## Registered public contracts
 
+The public registry contains 60 current Athanor-schema owners. The previously documented 59 owners remain unchanged, and the adapter trust status response now has a distinct owner:
+
 | Schema | Rust owner | Boundary | Fixture status |
 | --- | --- | --- | --- |
-| `athanor.overview.v1` | `RepositoryOverview` | CLI/daemon/MCP read | dedicated golden |
-| `athanor.search.v1` | `SearchReport` | CLI/daemon/MCP read | dedicated golden |
-| `athanor.entity_explanation.v1` | `EntityExplanation` | CLI/daemon/MCP read | dedicated golden |
-| `athanor.impact_analysis.v1` | `ImpactAnalysis` | CLI/daemon/MCP read | dedicated golden |
-| `athanor.diagnostic_check.v1` | `DiagnosticCheckReport` | CLI/daemon/MCP read | dedicated golden |
-| `athanor.affected_check.v1` | `AffectedCheckReport` | CLI/daemon/MCP read | dedicated golden |
-| `athanor.operations_docs_check.v1` | `OperationsDocsCheckReport` | CLI/daemon/MCP read | dedicated golden |
-| `athanor.coverage.v1` | `CoverageReport` | CLI/daemon/MCP read | dedicated golden |
-| `athanor.capabilities.v1` | `CapabilitiesReport` | CLI/daemon/MCP read | dedicated golden |
-| `athanor.change_map.v1` | `ChangeMapReport` | CLI/daemon/MCP read | second-wave golden |
-| `athanor.context_pack.v1` | `ContextReport` | direct CLI/daemon/active MCP read | dedicated golden plus executable shared-report regression |
-| `athanor.index_report.v1` | `IndexReport` | direct CLI index/update and daemon index job result | application-output golden, daemon parity, executable shared-report regression |
-| `athanor.index_benchmark.v1` | `BenchmarkReport` | direct CLI benchmark output | application-output golden |
-| `athanor.changed_validation.v1` | `ChangedValidationReport` | direct CLI changed-file validation | application-output golden |
-| `athanor.generation.v1` | `GenerationReport` | direct CLI generation and daemon generation job result | generation/docs golden, daemon parity, executable shared-report regression |
-| `athanor.config_validate.v1` | `ConfigValidateReport` | direct CLI config validation | config golden plus executable CLI regression |
-| `athanor.config_doctor.v1` | `ConfigDoctorReport` | direct CLI config diagnostics | config golden plus executable CLI regression |
-| `athanor.docs_check.v1` | `DocsCheckReport` | direct CLI documentation policy check | generation/docs golden |
-| `athanor.docs_drift.v1` | `DocsDriftReport` | direct CLI documentation drift report | generation/docs golden |
-| `athanor.docs_apply_patch.v1` | `DocsApplyPatchReport` | direct CLI documentation patch application | generation/docs golden |
-| `athanor.docs_propose_fix.v1` | `VersionedDocsProposeFixReport` | direct CLI documentation proposal summary | remaining-application golden plus direct help regression |
-| `athanor.api_snapshot.v1` | `VersionedApiSnapshotReport` | direct CLI API snapshot summary | remaining-application golden plus direct help regression |
-| `athanor.api_contract_diff.v2` | `ApiContractDiff` | direct CLI diff plus persisted diff artifact | API golden |
-| `athanor.api_cleanup.v1` | `ApiCleanupReport` | direct CLI API retention cleanup | API golden |
-| `athanor.repair_inspect.v2` | `RepairInspectReport` | direct CLI repair inspection | Repair family golden |
-| `athanor.repair_cleanup.v2` | `RepairCleanupReport` | direct CLI legacy artifact cleanup | Repair family golden |
-| `athanor.repair_regenerate.v1` | `RepairRegenerateReport` | direct CLI generated-output repair | Repair family golden |
-| `athanor.repair_recover_canonical.v1` | `RepairRecoverCanonicalReport` | direct CLI canonical pointer recovery | Repair family golden |
-| `athanor.repair_apply.v2` | `RepairApplyReport` | direct CLI coordinated repair | Repair family golden |
-| `athanor.index_generation_cleanup.v1` | `IndexGenerationCleanupReport` | direct CLI transactional index retention | Repair family golden plus executable CLI regression |
-| `athanor.repair_recover_index.v1` | `RepairRecoverIndexReport` | direct CLI publication recovery | Repair family golden plus executable CLI regression |
-| `athanor.repair_recover_index_cleanup.v1` | `RepairRecoverIndexCleanupReport` | direct CLI cleanup-tombstone recovery | Repair family golden plus executable CLI regression |
-| `athanor.repair_canonical_latest.v1` | `RepairCanonicalLatestReport` | direct CLI backend latest repair | Repair family golden plus CLI help regression |
-| `athanor.daemon_request.v3` | `DaemonRequest` | local daemon transport request | daemon transport golden |
-| `athanor.daemon_response.v3` | `DaemonResponse` | local daemon transport success/error envelope | daemon transport golden |
-| `athanor.daemon_jobs.v1` | `DaemonJobsReport` | daemon jobs result payload | daemon transport golden |
-| `athanor.wiki_report.v1` | `WikiReport` | direct CLI JSON/application result and daemon Wiki job result | Wiki/HTML golden, daemon parity, executable shared-report regression |
-| `athanor.html_report.v1` | `HtmlReport` | direct CLI JSON/application result and daemon HTML job result | Wiki/HTML golden, daemon parity, executable shared-report regression |
-| `athanor.graph_export.v1` | `GraphExport` | CLI/daemon/MCP read | second-wave golden |
-| `athanor.graph_related.v1` | `GraphRelated` | CLI/daemon/MCP read | second-wave golden |
-| `athanor.graph_path.v1` | `GraphPath` | CLI/daemon/MCP read | second-wave golden |
-| `athanor.graph_hubs.v1` | `GraphHubs` | CLI/daemon/MCP read | second-wave golden |
-| `athanor.graph_pagerank.v1` | `GraphPageRank` | CLI/daemon/MCP read | second-wave golden |
-| `athanor.graph_cycles.v1` | `GraphCycles` | CLI/daemon/MCP read | second-wave golden |
-| `athanor.rustok_architecture_context.v1` | `RustokArchitectureContext` | direct CLI/active MCP read | dedicated golden |
-| `athanor.rustok_ffa_audit.v1` | `RustokFfaAudit` | direct CLI Rustok audit | representative family golden |
-| `athanor.rustok_ffa_surface_graph.v1` | `RustokFfaSurfaceGraphReport` | direct CLI FFA graph | representative family golden |
-| `athanor.rustok_ffa_violations_graph.v1` | `RustokFfaViolationsGraphReport` | direct CLI FFA graph | representative family golden |
-| `athanor.rustok_fba_audit.v1` | `RustokFbaAudit` | direct CLI Rustok audit | representative family golden |
-| `athanor.rustok_fba_module_graph.v1` | `RustokFbaModuleGraphReport` | direct CLI FBA graph | representative family golden |
-| `athanor.rustok_fba_port_graph.v1` | `RustokFbaPortGraphReport` | direct CLI FBA graph | representative family golden |
-| `athanor.rustok_fba_dependencies_graph.v1` | `RustokFbaDependenciesGraphReport` | direct CLI FBA graph | representative family golden |
-| `athanor.rustok_fba_violations_graph.v1` | `RustokFbaViolationsGraphReport` | direct CLI FBA graph | representative family golden |
-| `athanor.rustok_page_builder_audit.v1` | `RustokPageBuilderAudit` | direct CLI Rustok audit | representative family golden |
-| `athanor.rustok_page_builder_provider_graph.v1` | `RustokPageBuilderProviderGraphReport` | direct CLI Page Builder graph | representative family golden |
-| `athanor.rustok_page_builder_consumer_graph.v1` | `RustokPageBuilderConsumerGraphReport` | direct CLI Page Builder graph | representative family golden |
-| `athanor.rustok_page_builder_violations_graph.v1` | `RustokPageBuilderViolationsGraphReport` | direct CLI Page Builder graph | representative family golden |
-| `athanor.project_registry.v1` | `ProjectRegistryReport` | CLI project list/add/remove | dedicated golden |
-| `athanor.project_resolution.v1` | `ProjectResolutionReport` | CLI/daemon project resolution | second-wave golden |
+| `athanor.adapter_trust_report.v1` | `VersionedAdapterTrustReport` | direct `ath plugins list/trust/untrust --json` application output | adapter contract fixture plus executable CLI regression; execution pending |
 
-The public registry contains 59 current Athanor-schema owners. Public reports, generated artifacts, persisted state, embedded fragments, interchange documents, and transport/process protocols are deliberately separate ownership classes.
+The other registered families remain:
+
+- overview, search, explain, impact, diagnostic/check, coverage, capabilities, change map, and context;
+- index, benchmark, changed validation, generation, config, documentation, API, wiki, and HTML reports;
+- graph and specialized RusTok report families;
+- project registry/resolution reports;
+- nine Repair owners;
+- daemon request v3, response v3, and jobs v1.
+
+`VERSIONED_JSON_CONTRACTS` validates schema and Rust-owner uniqueness across all 60 current public owners.
+
+## Adapter plugin and trust contracts
+
+Adapter boundaries use three distinct current owners:
+
+| Schema | Rust owner | Class | Lifecycle |
+| --- | --- | --- | --- |
+| `athanor.adapter_manifest.v1` | `AdapterPluginManifest` | project-local interchange/configuration | current input |
+| `athanor.adapter_trust_registry.v2` | `AdapterTrustRegistry` | user-level persisted state | current read/write |
+| `athanor.adapter_trust_report.v1` | `VersionedAdapterTrustReport` | public CLI/application response | current output |
+
+`ADAPTER_NON_PUBLIC_JSON_CONTRACTS` separately records the two non-public current owners and their compatibility inputs:
+
+| Legacy schema | Current normalization | Lifecycle |
+| --- | --- | --- |
+| `athanor.adapter_manifest` | `athanor.adapter_manifest.v1` | accepted legacy input |
+| `athanor.adapter_trust.v2` | `athanor.adapter_trust_registry.v2` | accepted legacy persisted input |
+
+Legacy manifest and trust-registry documents are normalized in memory before runtime use. A subsequent trust mutation writes only `athanor.adapter_trust_registry.v2`. The focused `ath plugins` dispatcher emits only `athanor.adapter_trust_report.v1` while preserving the existing command grammar and human-readable rendering.
+
+The older library functions in `runtime.rs` still return the legacy `AdapterTrustReport` structure for source compatibility. They are not current registry owners and remain a compatibility-cleanup item; callers requiring a current contract must use `list_adapter_plugin_trust_versioned`, `trust_adapter_plugin_versioned`, or `untrust_adapter_plugin_versioned`.
 
 ## Transport and process protocols
 
@@ -84,7 +58,7 @@ The public registry contains 59 current Athanor-schema owners. Public reports, g
 
 ### MCP
 
-MCP uses JSON-RPC `2.0` and MCP protocol `2024-11-05`. `JsonRpcRequest`, `JsonRpcResponse`, `JsonRpcError`, and text tool-call results remain native standard-protocol boundaries in `MCP_TRANSPORT_CONTRACTS`; they do not receive synthetic `athanor.*` schemas. Text content carries serialized Athanor reports with their own inner schema ids.
+MCP uses JSON-RPC `2.0` and MCP protocol `2024-11-05`. `JsonRpcRequest`, `JsonRpcResponse`, `JsonRpcError`, and text tool-call results remain native standard-protocol boundaries in `MCP_TRANSPORT_CONTRACTS`; they do not receive synthetic `athanor.*` schemas. The active server validates protocol/session state and uses bounded request and response resources. Execution of its current regressions remains pending.
 
 ### External processes
 
@@ -99,9 +73,9 @@ MCP uses JSON-RPC `2.0` and MCP protocol `2024-11-05`. `JsonRpcRequest`, `JsonRp
 
 These wire shapes are the serde representation of core port types. Adding a top-level schema now would change existing external adapters; future incompatible changes require an explicit versioned process envelope rather than silent field mutation.
 
-## Non-public Athanor-schema registry
+## General non-public Athanor-schema registry
 
-`NON_PUBLIC_JSON_CONTRACTS` contains 30 descriptors: 24 current documents, five accepted legacy inputs, and one historical-only schema.
+`NON_PUBLIC_JSON_CONTRACTS` retains 30 descriptors: 24 current documents, five accepted legacy inputs, and one historical-only schema. The adapter-specific registry adds four more descriptors: two current and two accepted legacy inputs.
 
 ### Persisted current
 
@@ -114,6 +88,7 @@ These wire shapes are the serde representation of core port types. Adding a top-
 - `athanor.canonical_snapshot.v1`
 - `athanor.canonical_latest.v1`
 - `athanor.canonical_commit.v2`
+- `athanor.adapter_trust_registry.v2` in the adapter-specific registry
 
 `IndexState.generation` is derived and required when `snapshot` is present. An empty current state has `snapshot: null` and may omit `generation`; both feature-specific schema alternatives use this conditional rule.
 
@@ -130,38 +105,38 @@ These wire shapes are the serde representation of core port types. Adding a top-
 
 ### Interchange and embedded current
 
-- Interchange: `athanor.docs_patch.v1`, `athanor.wiki_projection.v1`, `athanor.html_report_projection.v1`.
+- Interchange: `athanor.docs_patch.v1`, `athanor.wiki_projection.v1`, `athanor.html_report_projection.v1`, and adapter manifest v1 in the adapter-specific registry.
 - Embedded: `athanor.index_metrics.v1`, `athanor.index_report_metrics.v1`, `athanor.generation_metrics.v1`, plus schema-less Repair and Daemon fragments.
 
 ### Compatibility lifecycle
 
-Accepted legacy input schemas are `athanor.daemon_endpoint.v2`, `athanor.index_current.v1`, `athanor.index_publication.v1`, `athanor.index_publication.v2`, and `athanor.canonical_commit.v1`. They normalize to current state before a current write. `athanor.daemon_endpoint.v1` is retained only as explicit history and is rejected by the current endpoint reader.
+The general registry accepts legacy daemon endpoint, index current/publication, and canonical commit inputs as documented by their readers. The adapter-specific registry additionally accepts legacy unversioned adapter manifests and legacy shared trust-registry v2 documents. Legacy input is never emitted as a current fixture.
 
 Cleanup tombstones, staging directories, backups, locks, and repair guards are filesystem recovery protocols, not JSON documents. Schema-less canonical latest documents from older stores are compatibility input but cannot enter an Athanor schema registry because they have no schema id.
 
 ## Enforcement implementation
 
-- `VERSIONED_JSON_CONTRACTS` protects 59 current public/transport Athanor owners.
+- `VERSIONED_JSON_CONTRACTS` protects 60 current public/transport Athanor owners.
 - `MCP_TRANSPORT_CONTRACTS` protects four native JSON-RPC/MCP boundaries.
-- `NON_PUBLIC_JSON_CONTRACTS` protects current, legacy-input, and historical persisted/generated/interchange/embedded schemas.
+- `NON_PUBLIC_JSON_CONTRACTS` protects 30 general persisted/generated/interchange/embedded descriptors.
+- `ADAPTER_NON_PUBLIC_JSON_CONTRACTS` protects two current adapter documents and two accepted legacy inputs.
 - `PROCESS_PROTOCOL_CONTRACTS` protects the four schema-less external-process shapes and framing.
-- `boundary_contracts.v1.json` provides representative current documents and process request/response fixtures.
-- `process_persistence_contract_inventory.rs` verifies disjoint classifications, current fixture coverage, conditional empty index state, endpoint lifecycle, runtime source observability, process type usage, and newline/single-document framing.
-- `direct_generation_cli.rs` adds additive `--json` output for Generate, Wiki, and HTML while preserving their prior human-readable output.
-- `executable_shared_report_cli.rs` runs the real `ath` binary over a temporary project and protects Index, Context, Generation, Wiki, and HTML schemas plus shared snapshot identity. Its execution remains pending until a Rust toolchain is available.
-- Existing application, daemon, MCP, Repair, publication, checksum, recovery, and projector tests continue to protect semantic validation and atomicity.
+- `boundary_contracts.v1.json` and `process_persistence_contract_inventory.rs` retain general process/persistence coverage.
+- `adapter_contracts.v1.json` and `adapter_contract_inventory.rs` protect adapter ownership, normalization, current writes, and source observability.
+- `direct_plugin_cli.rs` and `direct_plugin_cli` executable tests protect current public CLI output while preserving command grammar and human rendering.
+- MCP unit/in-memory stdio and source guards protect bounded resources and JSON-RPC categories.
 
-The bounded public migration allowlist remains empty. No known implementation or executable-parity test gap remains in the audited JSON scope; actual test, fmt, and Clippy execution remain outstanding.
+Actual test, formatting, and Clippy execution remain outstanding because the current environment has no Rust toolchain and the connector does not expose a hosted status for the latest direct-to-main commits.
 
 ## Enforcement rules
 
 - Every current public schema has exactly one Rust owner and a regression fixture.
-- Non-public and public schema sets are disjoint; all schema ids are canonical and unique within their registry.
+- Non-public and public schema sets are disjoint within each registry; current schema ids are canonical and unique.
 - Standard and schema-less protocols retain native framing/version rules instead of receiving synthetic Athanor schema ids.
 - Current persisted/generated/interchange documents have representative required-field fixtures.
 - Legacy input is never emitted as a current fixture; historical-only schemas are not presented as accepted compatibility.
 - Equivalent CLI/application and daemon/MCP inner results serialize the same typed Athanor document.
 - A schema id must never describe two current emitted top-level shapes.
-- Legacy input normalizes to a current schema before writing or responding.
+- Legacy input normalizes to a current schema before a current write or current response.
 - Removing, renaming, retyping, or semantically changing a field requires a new major schema id or protocol version.
 - New schema literals and protocol envelopes must be registered or explicitly classified in the same change.
