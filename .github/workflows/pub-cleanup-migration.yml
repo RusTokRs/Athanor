@@ -1,0 +1,250 @@
+name: Publication cleanup migration
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publication-cleanup-migration
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    if: github.event.issue.number == 16 && github.event.comment.body == '/pub-cleanup-migrate'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Apply deterministic migration
+        shell: bash
+        run: |
+          git pull --ff-only origin main
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file = Path(path)
+              text = file.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one replacement, found {count}")
+              file.write_text(text.replace(old, new, 1))
+
+          def add_import(path: str, anchor: str, import_line: str) -> None:
+              file = Path(path)
+              text = file.read_text()
+              if import_line in text:
+                  return
+              if text.count(anchor) != 1:
+                  raise SystemExit(f"{path}: import anchor mismatch")
+              file.write_text(text.replace(anchor, anchor + import_line, 1))
+
+          add_import(
+              "crates/athanor-app/src/read_model.rs",
+              "use serde_json::json;\n",
+              "use tracing::warn;\n",
+          )
+          replace_once(
+              "crates/athanor-app/src/read_model.rs",
+              '''    pub fn finalize(mut self) -> Result<JsonlReadModelReport> {
+                  if let Some(backup) = self.backup.take() {
+                      fs::remove_dir_all(&backup).with_context(|| {
+                          format!("failed to remove read model backup {}", backup.display())
+                      })?;
+                  }
+                  Ok(self.report)
+              }
+          ''',
+              '''    pub fn finalize(mut self) -> Result<JsonlReadModelReport> {
+                  if let Some(backup) = self.backup.take()
+                      && let Err(error) = fs::remove_dir_all(&backup)
+                  {
+                      warn!(
+                          backup = %backup.display(),
+                          error = %error,
+                          "read model was published but backup cleanup failed"
+                      );
+                  }
+                  Ok(self.report)
+              }
+          ''',
+          )
+
+          add_import(
+              "crates/athanor-app/src/index_state.rs",
+              "use serde::{Deserialize, Deserializer, Serialize, Serializer};\n",
+              "use tracing::warn;\n",
+          )
+          replace_once(
+              "crates/athanor-app/src/index_state.rs",
+              '''    pub fn finalize(mut self) -> Result<()> {
+                  if let Some(backup) = self.backup.take() {
+                      fs::remove_file(&backup).with_context(|| {
+                          format!("failed to remove index state backup {}", backup.display())
+                      })?;
+                  }
+                  Ok(())
+              }
+          ''',
+              '''    pub fn finalize(mut self) -> Result<()> {
+                  if let Some(backup) = self.backup.take()
+                      && let Err(error) = fs::remove_file(&backup)
+                  {
+                      warn!(
+                          backup = %backup.display(),
+                          error = %error,
+                          "index state was published but backup cleanup failed"
+                      );
+                  }
+                  Ok(())
+              }
+          ''',
+          )
+
+          add_import(
+              "crates/athanor-app/src/project_registry.rs",
+              "use serde::{Deserialize, Serialize};\n",
+              "use tracing::warn;\n",
+          )
+          replace_once(
+              "crates/athanor-app/src/project_registry.rs",
+              '''    if backup.exists() {
+                  fs::remove_file(&backup)
+                      .with_context(|| format!("failed to remove registry backup {}", backup.display()))?;
+              }
+              Ok(())
+          ''',
+              '''    if backup.exists()
+                  && let Err(error) = fs::remove_file(&backup)
+              {
+                  warn!(
+                      backup = %backup.display(),
+                      error = %error,
+                      "project registry was published but backup cleanup failed"
+                  );
+              }
+              Ok(())
+          ''',
+          )
+
+          add_import(
+              "crates/athanor-app/src/index_publication_journal.rs",
+              "use serde::{Deserialize, Deserializer, Serialize};\n",
+              "use tracing::warn;\n",
+          )
+          replace_once(
+              "crates/athanor-app/src/index_publication_journal.rs",
+              '''        if backup.exists() {
+                      fs::remove_file(&backup).with_context(|| {
+                          format!(
+                              "failed to remove publication journal backup {}",
+                              backup.display()
+                          )
+                      })?;
+                  }
+                  Ok(())
+          ''',
+              '''        if backup.exists()
+                      && let Err(error) = fs::remove_file(&backup)
+                  {
+                      warn!(
+                          backup = %backup.display(),
+                          error = %error,
+                          "publication journal was published but backup cleanup failed"
+                      );
+                  }
+                  Ok(())
+          ''',
+          )
+
+          add_import(
+              "crates/athanor-store-jsonl/src/lib.rs",
+              "use serde_json::Value;\n",
+              "use tracing::warn;\n",
+          )
+          replace_once(
+              "crates/athanor-store-jsonl/src/lib.rs",
+              '''    fs::remove_file(&backup).map_err(|error| {
+                  CoreError::Adapter(format!("failed to remove previous latest identity: {error}"))
+              })
+          ''',
+              '''    if let Err(error) = fs::remove_file(&backup) {
+                  warn!(
+                      backup = %backup.display(),
+                      error = %error,
+                      "latest identity was published but backup cleanup failed"
+                  );
+              }
+              Ok(())
+          ''',
+          )
+
+          add_import(
+              "crates/athanor-store-jsonl/src/store.rs",
+              "use serde_json::json;\n",
+              "use tracing::warn;\n",
+          )
+          replace_once(
+              "crates/athanor-store-jsonl/src/store.rs",
+              '''    fs::remove_file(backup).map_err(|err| {
+                  CoreError::Adapter(format!("failed to remove previous latest pointer: {err}"))
+              })
+          ''',
+              '''    if let Err(error) = fs::remove_file(&backup) {
+                  warn!(
+                      backup = %backup.display(),
+                      error = %error,
+                      "latest pointer was published but backup cleanup failed"
+                  );
+              }
+              Ok(())
+          ''',
+          )
+
+          replace_once(
+              "crates/athanor-store-jsonl/Cargo.toml",
+              "serde_json.workspace = true\n",
+              "serde_json.workspace = true\ntracing.workspace = true\n",
+          )
+          PY
+
+      - name: Enforce source invariants
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          checks = {
+              "crates/athanor-app/src/read_model.rs": "read model was published but backup cleanup failed",
+              "crates/athanor-app/src/index_state.rs": "index state was published but backup cleanup failed",
+              "crates/athanor-app/src/project_registry.rs": "project registry was published but backup cleanup failed",
+              "crates/athanor-app/src/index_publication_journal.rs": "publication journal was published but backup cleanup failed",
+              "crates/athanor-store-jsonl/src/lib.rs": "latest identity was published but backup cleanup failed",
+              "crates/athanor-store-jsonl/src/store.rs": "latest pointer was published but backup cleanup failed",
+          }
+          for path, marker in checks.items():
+              text = Path(path).read_text()
+              if marker not in text or "warn!(" not in text:
+                  raise SystemExit(f"{path}: missing non-fatal cleanup marker")
+          PY
+          git diff --check
+
+      - name: Commit migration to main
+        shell: bash
+        run: |
+          git config user.name "Athanor publication migration"
+          git config user.email "actions@users.noreply.github.com"
+          git add crates/athanor-app/src/read_model.rs \
+                  crates/athanor-app/src/index_state.rs \
+                  crates/athanor-app/src/project_registry.rs \
+                  crates/athanor-app/src/index_publication_journal.rs \
+                  crates/athanor-store-jsonl/src/lib.rs \
+                  crates/athanor-store-jsonl/src/store.rs \
+                  crates/athanor-store-jsonl/Cargo.toml
+          git commit -m "fix(publication): make post-commit cleanup non-fatal"
+          git push origin HEAD:main
