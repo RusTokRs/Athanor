@@ -7,13 +7,13 @@ use serde_json::Value;
 use crate::config::DocsConfig;
 
 use super::shared::{operation, push_change, read_project_file};
-use super::super::super::api_docs::{
+use super::super::api_docs::{
     api_doc_content, api_doc_path, documented_api_pages, explicit_api_entity_reference_change,
     is_api_documentation_page, stale_api_route_mentions, upsert_api_doc_managed_section,
     upsert_api_docs_coordination_section, upsert_api_narrative_review_section,
 };
-use super::super::super::check::page_path;
-use super::super::super::DocsPatchOperation;
+use super::super::check::page_path;
+use super::super::DocsPatchOperation;
 
 pub(super) fn add_missing(
     changes: &mut BTreeMap<String, DocsPatchOperation>,

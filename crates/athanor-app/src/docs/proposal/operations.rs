@@ -5,11 +5,11 @@ use serde_json::Value;
 
 use crate::config::DocsConfig;
 
-use super::super::super::operations::{
+use super::super::operations::{
     env_doc_content, env_doc_path, operation_doc_content, operation_doc_diagnostic_shape,
     operation_doc_path,
 };
-use super::super::super::DocsPatchOperation;
+use super::super::DocsPatchOperation;
 
 pub(super) fn add_missing(
     changes: &mut BTreeMap<String, DocsPatchOperation>,

@@ -6,8 +6,8 @@ use serde_json::Value;
 use crate::config::DocsConfig;
 
 use super::shared::push_change;
-use super::super::super::check::{build_docs_check_report, build_docs_drift_report};
-use super::super::super::{DocsFrontmatterChange, DocsPatchOperation, DocsPolicyViolation};
+use super::super::check::{build_docs_check_report, build_docs_drift_report};
+use super::super::{DocsFrontmatterChange, DocsPatchOperation, DocsPolicyViolation};
 
 pub(super) fn add(
     changes: &mut BTreeMap<String, DocsPatchOperation>,
