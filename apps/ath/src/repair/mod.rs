@@ -5,5 +5,5 @@ mod run;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use model::{Command, parse};
+pub(crate) use model::parse;
 pub(crate) use run::run;
