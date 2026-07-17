@@ -35,8 +35,10 @@ mod legacy {
     }
 }
 
-mod lifecycle;
+mod server;
 pub mod transport_contract;
 
-pub use lifecycle::run_mcp_server;
+pub use server::{
+    DEFAULT_MAX_IN_FLIGHT_REQUESTS, DEFAULT_RESPONSE_QUEUE_CAPACITY, run_mcp_server,
+};
 pub use transport_contract::*;
