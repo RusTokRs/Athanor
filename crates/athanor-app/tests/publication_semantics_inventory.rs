@@ -43,6 +43,17 @@ fn generic_replacement_commits_before_best_effort_cleanup() {
 }
 
 #[test]
+fn generic_replacement_has_deterministic_post_commit_fault_coverage() {
+    assert!(PROJECTOR_SUPPORT.contains("INJECT_BACKUP_CLEANUP_FAILURE"));
+    assert!(PROJECTOR_SUPPORT.contains(
+        "post_commit_cleanup_failure_keeps_new_directory_published"
+    ));
+    assert!(PROJECTOR_SUPPORT.contains(
+        "output was published but backup cleanup failed (injected)"
+    ));
+}
+
+#[test]
 fn daemon_endpoint_uses_the_shared_atomic_replacement() {
     assert!(DAEMON_ENDPOINT.contains("replace_output_file"));
     assert!(!DAEMON_ENDPOINT.contains("fs::remove_file(path)"));
