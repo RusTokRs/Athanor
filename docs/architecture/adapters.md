@@ -2,9 +2,8 @@
 id: doc://docs/architecture/adapters.md
 kind: architecture
 language: en
-last_verified_snapshot: snap_jsonl_00000272
 source_language: en
-status: verified
+status: draft
 ---
 # Adapter Architecture
 
@@ -134,11 +133,11 @@ Manifest locations:
 .athanor/plugins/*/athanor-adapter.json
 ```
 
-Manifest schema:
+Current manifest schema:
 
 ```json
 {
-  "schema": "athanor.adapter_manifest",
+  "schema": "athanor.adapter_manifest.v1",
   "name": "example-plugin",
   "version": "0.1.0",
   "adapters": [
@@ -155,6 +154,8 @@ Manifest schema:
   ]
 }
 ```
+
+The legacy unversioned `athanor.adapter_manifest` id remains accepted as migration input. It is normalized to `athanor.adapter_manifest.v1` before runtime use and must not be emitted by new examples or tooling.
 
 Supported adapter kinds:
 
