@@ -11,6 +11,7 @@ const GRAPH_OPERATION_SOURCE: &str = include_str!("../src/graph_operation.rs");
 const RUSTOK_COMPOSITION_SOURCE: &str = include_str!("../src/rustok_composition_operation.rs");
 const APPLICATION_REPORT_COMPOSITION_SOURCE: &str =
     include_str!("../src/application_report_composition.rs");
+const REPAIR_COMPOSITION_SOURCE: &str = include_str!("../src/repair_composition.rs");
 const APP_LIB_SOURCE: &str = include_str!("../src/lib.rs");
 const VALIDATE_CHANGED_SOURCE: &str = include_str!("../src/validate_changed.rs");
 const CLI_ENTRY_SOURCE: &str = include_str!("../../../apps/ath/src/entry.rs");
@@ -26,6 +27,7 @@ const DIRECT_READ_COMPOSED_SOURCE: &str =
     include_str!("../../../apps/ath/src/direct_read_composed_cli.rs");
 const DIRECT_APPLICATION_REPORT_COMPOSED_SOURCE: &str =
     include_str!("../../../apps/ath/src/direct_application_report_composed_cli.rs");
+const REPAIR_COMPOSED_SOURCE: &str = include_str!("../../../apps/ath/src/repair_composed_cli.rs");
 const DIRECT_VALIDATE_CHANGED_SOURCE: &str =
     include_str!("../../../apps/ath/src/direct_validate_changed_cli.rs");
 
@@ -119,6 +121,18 @@ fn application_reports_have_an_explicit_composition_path() {
 }
 
 #[test]
+fn repair_operations_have_an_explicit_composition_path() {
+    assert!(REPAIR_COMPOSITION_SOURCE.contains(
+        "recover_index_publication_with_composition"
+    ));
+    assert!(REPAIR_COMPOSITION_SOURCE.contains(
+        "repair_canonical_latest_with_composition"
+    ));
+    assert!(REPAIR_COMPOSITION_SOURCE.contains("with_store_composition"));
+    assert!(APP_LIB_SOURCE.contains("pub mod repair_composition"));
+}
+
+#[test]
 fn focused_composition_reads_do_not_install_global_runtime() {
     for source in [
         DIRECT_SEARCH_SOURCE,
@@ -157,6 +171,21 @@ fn focused_application_reports_do_not_install_global_runtime() {
     ));
     assert!(CLI_ENTRY_SOURCE.contains("direct_application_report_composed_cli"));
     assert!(!CLI_ENTRY_SOURCE.contains("mod direct_application_report_cli;"));
+}
+
+#[test]
+fn focused_repairs_do_not_install_global_runtime() {
+    assert!(REPAIR_COMPOSED_SOURCE.contains(
+        "recover_index_publication_with_composition"
+    ));
+    assert!(REPAIR_COMPOSED_SOURCE.contains(
+        "repair_canonical_latest_with_composition"
+    ));
+    assert!(REPAIR_COMPOSED_SOURCE.contains("::athanor_runtime_defaults::production()"));
+    assert!(!REPAIR_COMPOSED_SOURCE.contains("::athanor_runtime_defaults::install()"));
+    assert!(CLI_ENTRY_SOURCE.contains("repair_composed_cli"));
+    assert!(!CLI_ENTRY_SOURCE.contains("mod repair_cli;"));
+    assert!(!CLI_ENTRY_SOURCE.contains("athanor_runtime_defaults::install()"));
 }
 
 #[test]
