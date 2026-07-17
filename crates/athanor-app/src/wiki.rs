@@ -4,11 +4,14 @@ use crate::config::load_config;
 use crate::store::init_store;
 use anyhow::{Context, Result, bail};
 use athanor_core::{CanonicalSnapshotStore, OperationContext};
+use serde::Serialize;
 use serde_json::json;
 
 use crate::project_path::normalize_canonical_path;
 use crate::projection::{WIKI_PROJECTION_SCHEMA, project_wiki_payload};
 use crate::{CancellationToken, RuntimeComposition};
+
+pub const WIKI_REPORT_SCHEMA: &str = "athanor.wiki_report.v1";
 
 #[derive(Debug, Clone)]
 pub struct WikiOptions {
@@ -16,8 +19,9 @@ pub struct WikiOptions {
     pub output: Option<PathBuf>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct WikiReport {
+    pub schema: &'static str,
     pub root: PathBuf,
     pub output_dir: PathBuf,
     pub snapshot: String,
@@ -147,6 +151,7 @@ async fn project_wiki_inner(
         .filter(|diagnostic| diagnostic.status == athanor_domain::DiagnosticStatus::Open)
         .count();
     let report = WikiReport {
+        schema: WIKI_REPORT_SCHEMA,
         root,
         output_dir: output_dir.clone(),
         snapshot: snapshot_id.0.clone(),
@@ -230,6 +235,7 @@ mod tests {
         .await
         .unwrap();
 
+        assert_eq!(report.schema, WIKI_REPORT_SCHEMA);
         assert_eq!(report.snapshot, snapshot.0);
         assert!(report.output_dir.join("index.md").is_file());
         assert!(report.output_dir.join("manifest.json").is_file());
