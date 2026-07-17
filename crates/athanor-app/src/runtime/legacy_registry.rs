@@ -1,7 +1,9 @@
 use std::sync::OnceLock;
 
 use super::{AdapterRegistry, AdapterRegistryFactory, BuiltinAdapterResolver};
-use crate::legacy_factory::{LegacyFactoryInstallError, install_once};
+use crate::legacy_factory::{
+    LegacyFactoryInstallError, LegacyFactoryUnavailableError, install_once, require_installed,
+};
 
 static DEFAULT_ADAPTER_REGISTRY_FACTORY: OnceLock<AdapterRegistryFactory> = OnceLock::new();
 static BUILTIN_ADAPTER_RESOLVER: OnceLock<BuiltinAdapterResolver> = OnceLock::new();
@@ -36,14 +38,21 @@ pub(super) fn install_builtin_adapter_resolver(resolver: BuiltinAdapterResolver)
         .expect("legacy built-in adapter resolver installation must be unique");
 }
 
-pub(super) fn default_adapter_registry() -> AdapterRegistry {
+pub(super) fn try_default_adapter_registry(
+) -> Result<AdapterRegistry, LegacyFactoryUnavailableError> {
     #[cfg(test)]
     crate::ensure_test_runtime();
 
-    DEFAULT_ADAPTER_REGISTRY_FACTORY
-        .get()
-        .map(|factory| factory())
-        .unwrap_or_else(AdapterRegistry::empty)
+    require_installed(
+        &DEFAULT_ADAPTER_REGISTRY_FACTORY,
+        "default adapter registry",
+    )
+    .map(|factory| factory())
+}
+
+pub(super) fn default_adapter_registry() -> AdapterRegistry {
+    try_default_adapter_registry()
+        .expect("legacy default adapter registry must be installed before RuntimeBuilder::new")
 }
 
 pub(super) fn builtin_adapter_resolver() -> Option<BuiltinAdapterResolver> {
