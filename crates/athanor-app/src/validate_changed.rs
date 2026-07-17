@@ -13,7 +13,7 @@ use crate::index_state::{AffectedFileSet, IndexStateStore};
 use crate::local_source::read_source_file_at;
 use crate::project_path::normalize_canonical_path;
 use crate::transient_store::TransientKnowledgeStore;
-use crate::{IndexPipelineMetrics, RuntimeBuilder};
+use crate::{IndexPipelineMetrics, RuntimeBuilder, RuntimeComposition};
 
 pub const CHANGED_VALIDATION_SCHEMA: &str = "athanor.changed_validation.v1";
 
@@ -37,6 +37,20 @@ pub struct ChangedValidationReport {
 
 pub async fn validate_changed(
     options: ChangedValidationOptions,
+) -> Result<ChangedValidationReport> {
+    validate_changed_inner(options, None).await
+}
+
+pub async fn validate_changed_with_composition(
+    options: ChangedValidationOptions,
+    composition: &RuntimeComposition,
+) -> Result<ChangedValidationReport> {
+    validate_changed_inner(options, Some(composition)).await
+}
+
+async fn validate_changed_inner(
+    options: ChangedValidationOptions,
+    composition: Option<&RuntimeComposition>,
 ) -> Result<ChangedValidationReport> {
     let root = normalize_canonical_path(
         options
@@ -62,7 +76,11 @@ pub async fn validate_changed(
         }
     }
     let config = load_config(&root)?;
-    let pipeline = RuntimeBuilder::new(&root)
+    let builder = match composition {
+        Some(composition) => RuntimeBuilder::from_composition(&root, composition),
+        None => RuntimeBuilder::new(&root),
+    };
+    let pipeline = builder
         .allow_external_process(config.adapters.allow_external_process)
         .clear_external_process_environment(matches!(
             config.adapters.external_process_sandbox,
