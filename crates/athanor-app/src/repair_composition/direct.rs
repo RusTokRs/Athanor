@@ -61,10 +61,9 @@ pub(super) async fn repair_latest(
     composition: &RuntimeComposition,
 ) -> Result<RepairCanonicalLatestReport> {
     let root = canonical_root(&options.root)?;
-    let config = crate::config::load_config(&root)?;
-    let store = composition.init_store(&root, &config).await?;
-
     if options.dry_run {
+        let config = crate::config::load_config(&root)?;
+        let store = composition.init_store(&root, &config).await?;
         return repair_latest_with_store(
             &root,
             true,
@@ -75,6 +74,8 @@ pub(super) async fn repair_latest(
     }
 
     let _lock = RepairLock::acquire(root.join(PUBLICATION_LOCK_PATH))?;
+    let config = crate::config::load_config(&root)?;
+    let store = composition.init_store(&root, &config).await?;
     repair_latest_with_store(&root, false, options.snapshot.as_deref(), &store).await
 }
 
