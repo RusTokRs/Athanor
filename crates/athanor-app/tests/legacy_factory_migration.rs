@@ -7,12 +7,14 @@ const ADAPTER_REGISTRY_SOURCE: &str = include_str!("../src/runtime/legacy_regist
 const PROJECTION_SOURCE: &str = include_str!("../src/projection.rs");
 const STORE_FACADE_SOURCE: &str = include_str!("../src/store_facade.rs");
 const SEARCH_FACADE_SOURCE: &str = include_str!("../src/search_facade.rs");
+const GRAPH_OPERATION_SOURCE: &str = include_str!("../src/graph_operation.rs");
 const APP_LIB_SOURCE: &str = include_str!("../src/lib.rs");
 const VALIDATE_CHANGED_SOURCE: &str = include_str!("../src/validate_changed.rs");
 const CLI_ENTRY_SOURCE: &str = include_str!("../../../apps/ath/src/entry.rs");
 const DIRECT_SEARCH_SOURCE: &str = include_str!("../../../apps/ath/src/direct_search_cli.rs");
 const DIRECT_CONTEXT_SOURCE: &str = include_str!("../../../apps/ath/src/direct_context_cli.rs");
 const DIRECT_CHECK_SOURCE: &str = include_str!("../../../apps/ath/src/direct_check_cli.rs");
+const DIRECT_GRAPH_SOURCE: &str = include_str!("../../../apps/ath/src/direct_graph_cli.rs");
 const DIRECT_VALIDATE_CHANGED_SOURCE: &str =
     include_str!("../../../apps/ath/src/direct_validate_changed_cli.rs");
 
@@ -56,11 +58,22 @@ fn changed_validation_has_an_explicit_composition_path() {
 }
 
 #[test]
+fn graph_operations_have_an_explicit_composition_path() {
+    assert!(GRAPH_OPERATION_SOURCE.contains("export_graph_with_composition_and_operation_context"));
+    assert!(GRAPH_OPERATION_SOURCE.contains("related_graph_with_composition_and_operation_context"));
+    assert!(GRAPH_OPERATION_SOURCE.contains("shortest_graph_path_with_composition_and_operation_context"));
+    assert!(GRAPH_OPERATION_SOURCE.contains("graph_hubs_with_composition_and_operation_context"));
+    assert!(GRAPH_OPERATION_SOURCE.contains("graph_pagerank_with_composition_and_operation_context"));
+    assert!(GRAPH_OPERATION_SOURCE.contains("graph_cycles_with_composition_and_operation_context"));
+}
+
+#[test]
 fn focused_composition_reads_do_not_install_global_runtime() {
     for source in [
         DIRECT_SEARCH_SOURCE,
         DIRECT_CONTEXT_SOURCE,
         DIRECT_CHECK_SOURCE,
+        DIRECT_GRAPH_SOURCE,
     ] {
         assert!(source.contains("athanor_runtime_defaults::production()"));
         assert!(!source.contains("athanor_runtime_defaults::install()"));
