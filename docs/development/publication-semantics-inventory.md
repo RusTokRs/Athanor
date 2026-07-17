@@ -1,0 +1,46 @@
+# Publication durability inventory
+
+Status: implementation in progress; execution evidence is pending.
+
+## Invariant
+
+A publication has three distinct phases:
+
+1. **Stage** — build a complete candidate outside the visible target.
+2. **Commit** — atomically rename the candidate into the visible target or publish an immutable generation.
+3. **Maintenance** — remove backups, stale staging paths, or completed journals.
+
+After the commit point succeeds, maintenance failure must not turn durable success into an ordinary publication failure. It must be reported as a warning or as an explicit recovery-visible maintenance state. Destructive cleanup and rollback operations are different: removal is their requested result, so cleanup failures remain errors.
+
+## Inventory
+
+| Owner | Operation | Commit point | Post-commit policy | Status |
+| --- | --- | --- | --- | --- |
+| `athanor-projector-support` | `publish_staged_directory` | staging directory renamed to target | backup cleanup warns, result stays successful | fixed in `main` |
+| `athanor-projector-support` | `replace_output_file` | staging file renamed to target | backup cleanup warns, result stays successful | fixed in `main` |
+| `athanor-app/daemon_endpoint.rs` | daemon endpoint replacement | generic `replace_output_file` commit | inherits best-effort backup cleanup | fixed in `main` |
+| `athanor-app/runtime/plugin_trust_registry.rs` | adapter trust registry | staging file renamed to registry path | backup cleanup warns | already safe |
+| `athanor-runtime-defaults/projector_operation.rs` | cancellable Wiki/HTML output | staging directory renamed to target | backup cleanup is best effort | already safe |
+| `athanor-search-tantivy` | search index rebuild | staging index installed and reopened | backup cleanup is best effort; open failure rolls back | already safe |
+| `athanor-store-jsonl/atomic_publication.rs` | immutable canonical generation | staging directory renamed to immutable snapshot path | no post-commit cleanup capable of changing result | already safe |
+| `athanor-app/index_publication.rs` | immutable read model/state generation | immutable targets and checksummed current pointer published | journal retained when pointer publication is incomplete | recovery-visible |
+| `athanor-app/read_model.rs` | prepared current read model | staging directory renamed to current output | `finalize` still propagates backup deletion failure | `PUB-004` open |
+| `athanor-app/index_state.rs` | prepared current index state | staging file renamed to current state | `finalize` still propagates backup deletion failure | `PUB-004` open |
+| `athanor-app/project_registry.rs` | project registry state | staging file renamed to registry path | backup deletion still propagates | `PUB-004` open |
+| `athanor-app/index_publication_journal.rs` | publication journal | staging file renamed to journal path | backup deletion still propagates | `PUB-004` open |
+| `athanor-store-jsonl/lib.rs` | generation-bearing latest pointer | staging pointer renamed to `latest.json` | backup deletion still propagates | `PUB-005` open |
+| `athanor-store-jsonl/store.rs` | legacy latest pointer and snapshot sequence | staging file renamed to target | backup deletion still propagates | `PUB-005` open |
+| `athanor-app/repair_retention.rs` | confirmed generation deletion | both live artifacts renamed to tombstones | tombstone removal is the requested destructive operation and remains strict | intentional strict cleanup |
+| `athanor-app/repair_cleanup_recovery.rs` | cleanup recovery | tombstones removed or restored | failures remain recovery-visible and retryable | intentional strict recovery |
+| `apps/athd` | log rotation | active log renamed into rotation chain | operational rotation, not durable state publication | out of PUB scope |
+
+## Regression commands
+
+```bash
+cargo test -p athanor-app --test publication_semantics_inventory --locked
+cargo test -p athanor-projector-support --locked
+cargo test -p athanor-app index_publication --locked
+cargo test -p athanor-store-jsonl --locked
+```
+
+The inventory is not considered verified until these commands, workspace tests, formatting, and Clippy have executed against the same commit.
