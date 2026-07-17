@@ -94,6 +94,7 @@ mod projection;
 pub mod read_model;
 #[path = "repair_latest.rs"]
 pub mod repair;
+pub mod repair_composition;
 pub mod report;
 pub mod runtime;
 pub mod rustok_architecture;
@@ -209,6 +210,7 @@ pub use projection::{
 };
 pub use read_model::*;
 pub use repair::*;
+pub use repair_composition::*;
 pub use report::*;
 pub use runtime::*;
 pub use rustok_architecture::*;
