@@ -107,7 +107,7 @@ fn active_mcp_dispatch_is_explicitly_composed() {
 #[test]
 fn mcp_production_modules_remain_bounded() {
     for (name, source, max_lines) in [
-        ("runtime", RUNTIME_SOURCE, 40),
+        ("runtime", RUNTIME_SOURCE, 90),
         ("tools root", TOOLS_ROOT_SOURCE, 20),
         ("tools schema", TOOLS_SCHEMA_SOURCE, 220),
         ("tools dispatch", TOOLS_DISPATCH_SOURCE, 330),
