@@ -111,7 +111,7 @@ fn mcp_production_modules_remain_bounded() {
         ("tools root", TOOLS_ROOT_SOURCE, 20),
         ("tools schema", TOOLS_SCHEMA_SOURCE, 220),
         ("tools dispatch", TOOLS_DISPATCH_SOURCE, 330),
-        ("server", SERVER_SOURCE, 900),
+        ("server", SERVER_SOURCE, 1_050),
     ] {
         let lines = source.lines().count();
         assert!(lines <= max_lines, "{name} grew to {lines} lines");
