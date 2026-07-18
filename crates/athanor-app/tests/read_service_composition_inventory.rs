@@ -1,6 +1,11 @@
 const APP_LIB_SOURCE: &str = include_str!("../src/lib.rs");
 const SEARCH_FACADE_SOURCE: &str = include_str!("../src/search_facade.rs");
-const CHANGE_MAP_SOURCE: &str = include_str!("../src/change_map.rs");
+const CHANGE_MAP_ROOT_SOURCE: &str = include_str!("../src/change_map.rs");
+const CHANGE_MAP_MODEL_SOURCE: &str = include_str!("../src/change_map/model.rs");
+const CHANGE_MAP_EXECUTION_SOURCE: &str = include_str!("../src/change_map/execution.rs");
+const CHANGE_MAP_RANKING_SOURCE: &str = include_str!("../src/change_map/ranking.rs");
+const CHANGE_MAP_EVIDENCE_SOURCE: &str = include_str!("../src/change_map/evidence.rs");
+const CHANGE_MAP_TESTS_SOURCE: &str = include_str!("../src/change_map/tests.rs");
 const EXPLAIN_SOURCE: &str = include_str!("../src/explain.rs");
 
 #[test]
@@ -22,25 +27,51 @@ fn operation_aware_search_compatibility_apis_are_removed() {
 }
 
 #[test]
-fn change_map_owner_requires_runtime_composition() {
+fn change_map_uses_conventional_bounded_modules() {
     assert!(APP_LIB_SOURCE.contains("pub mod change_map;"));
     assert!(!APP_LIB_SOURCE.contains("change_map_facade.rs"));
 
-    assert!(CHANGE_MAP_SOURCE.contains(
+    for module in ["evidence", "execution", "model", "ranking"] {
+        assert!(CHANGE_MAP_ROOT_SOURCE.contains(&format!("mod {module};")));
+    }
+    assert!(CHANGE_MAP_ROOT_SOURCE.contains("#[cfg(test)]\nmod tests;"));
+    assert!(CHANGE_MAP_ROOT_SOURCE.contains(
+        "pub use execution::change_map_project_with_composition;"
+    ));
+    assert!(CHANGE_MAP_ROOT_SOURCE.contains("pub use model::{"));
+
+    for source in [
+        CHANGE_MAP_ROOT_SOURCE,
+        CHANGE_MAP_MODEL_SOURCE,
+        CHANGE_MAP_EXECUTION_SOURCE,
+        CHANGE_MAP_RANKING_SOURCE,
+        CHANGE_MAP_EVIDENCE_SOURCE,
+        CHANGE_MAP_TESTS_SOURCE,
+    ] {
+        assert!(!source.contains("include!("));
+        assert!(!source.contains("change_map_facade"));
+    }
+}
+
+#[test]
+fn change_map_execution_requires_runtime_composition() {
+    assert!(CHANGE_MAP_EXECUTION_SOURCE.contains(
         "pub async fn change_map_project_with_composition("
     ));
-    assert!(CHANGE_MAP_SOURCE.contains("composition: &RuntimeComposition"));
-    assert!(CHANGE_MAP_SOURCE.contains("composition.init_store(&root, &config)"));
-    assert!(CHANGE_MAP_SOURCE.contains("use crate::search::search_snapshot_with_composition;"));
-    assert!(CHANGE_MAP_SOURCE.contains(
+    assert!(CHANGE_MAP_EXECUTION_SOURCE.contains("composition: &RuntimeComposition"));
+    assert!(CHANGE_MAP_EXECUTION_SOURCE.contains("composition.init_store(&root, &config)"));
+    assert!(CHANGE_MAP_EXECUTION_SOURCE.contains(
+        "use crate::search::search_snapshot_with_composition;"
+    ));
+    assert!(CHANGE_MAP_EXECUTION_SOURCE.contains(
         "let search = search_snapshot_with_composition("
     ));
 
-    assert!(!CHANGE_MAP_SOURCE.contains("pub async fn change_map_project("));
-    assert!(!CHANGE_MAP_SOURCE.contains("Option<&RuntimeComposition>"));
-    assert!(!CHANGE_MAP_SOURCE.contains("crate::store::init_store"));
-    assert!(!CHANGE_MAP_SOURCE.contains("use crate::search::search_snapshot;"));
-    assert!(!CHANGE_MAP_SOURCE.contains("match composition"));
+    assert!(!CHANGE_MAP_EXECUTION_SOURCE.contains("pub async fn change_map_project("));
+    assert!(!CHANGE_MAP_EXECUTION_SOURCE.contains("Option<&RuntimeComposition>"));
+    assert!(!CHANGE_MAP_EXECUTION_SOURCE.contains("crate::store::init_store"));
+    assert!(!CHANGE_MAP_EXECUTION_SOURCE.contains("use crate::search::search_snapshot;"));
+    assert!(!CHANGE_MAP_EXECUTION_SOURCE.contains("match composition"));
 }
 
 #[test]
@@ -67,7 +98,17 @@ fn explain_owner_requires_explicit_composition() {
 }
 
 #[test]
-fn search_facade_remains_bounded() {
-    let lines = SEARCH_FACADE_SOURCE.lines().count();
-    assert!(lines <= 100, "Search facade grew to {lines} lines");
+fn read_service_modules_remain_bounded() {
+    for (name, source, max_lines) in [
+        ("ChangeMap root", CHANGE_MAP_ROOT_SOURCE, 30),
+        ("ChangeMap model", CHANGE_MAP_MODEL_SOURCE, 180),
+        ("ChangeMap execution", CHANGE_MAP_EXECUTION_SOURCE, 220),
+        ("ChangeMap ranking", CHANGE_MAP_RANKING_SOURCE, 570),
+        ("ChangeMap evidence", CHANGE_MAP_EVIDENCE_SOURCE, 100),
+        ("ChangeMap tests", CHANGE_MAP_TESTS_SOURCE, 680),
+        ("Search facade", SEARCH_FACADE_SOURCE, 100),
+    ] {
+        let lines = source.lines().count();
+        assert!(lines <= max_lines, "{name} grew to {lines} lines");
+    }
 }
