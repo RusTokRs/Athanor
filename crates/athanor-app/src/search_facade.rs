@@ -1,8 +1,8 @@
 //! Guarded facade for legacy process-global search-index factories.
 //!
-//! The search implementation remains in `search.rs`. Public global-factory
-//! entrypoints fail with typed errors when installation is missing or
-//! conflicting. Explicit `RuntimeComposition` entrypoints bypass these guards.
+//! Explicit `RuntimeComposition` entrypoints bypass this compatibility boundary.
+//! Factory lookup remains private so new callers cannot couple themselves to the
+//! process-global installation state.
 
 use std::path::Path;
 use std::sync::{Arc, OnceLock};
@@ -60,18 +60,8 @@ pub fn install_search_index_operation_factory(factory: SearchIndexOperationFacto
         .expect("conflicting legacy operation-aware search index factory installation");
 }
 
-pub fn require_legacy_search_index_factory(
-) -> Result<SearchIndexFactory, LegacyFactoryUnavailableError> {
+fn require_search_index_factory() -> Result<SearchIndexFactory, LegacyFactoryUnavailableError> {
     require_installed(&SEARCH_INDEX_FACTORY_GUARD, "search index").copied()
-}
-
-pub fn require_legacy_search_index_operation_factory(
-) -> Result<SearchIndexOperationFactory, LegacyFactoryUnavailableError> {
-    require_installed(
-        &SEARCH_INDEX_OPERATION_FACTORY_GUARD,
-        "operation-aware search index",
-    )
-    .copied()
 }
 
 fn require_any_search_factory() -> Result<(), LegacyFactoryUnavailableError> {
@@ -88,7 +78,7 @@ pub async fn search_project(options: SearchOptions) -> Result<SearchReport> {
     #[cfg(test)]
     crate::ensure_test_runtime();
 
-    require_legacy_search_index_factory().map_err(anyhow::Error::new)?;
+    require_search_index_factory().map_err(anyhow::Error::new)?;
     legacy::search_project(options).await
 }
 
@@ -146,7 +136,7 @@ pub async fn search_snapshot(
     #[cfg(test)]
     crate::ensure_test_runtime();
 
-    require_legacy_search_index_factory().map_err(anyhow::Error::new)?;
+    require_search_index_factory().map_err(anyhow::Error::new)?;
     legacy::search_snapshot(root, snapshot, query, limit).await
 }
 
@@ -182,7 +172,7 @@ pub async fn get_or_build_search_index(
     #[cfg(test)]
     crate::ensure_test_runtime();
 
-    require_legacy_search_index_factory().map_err(anyhow::Error::new)?;
+    require_search_index_factory().map_err(anyhow::Error::new)?;
     legacy::get_or_build_search_index(snapshot, snapshot_id, index_dir).await
 }
 
@@ -194,7 +184,7 @@ pub fn get_or_build_search_index_sync(
     #[cfg(test)]
     crate::ensure_test_runtime();
 
-    require_legacy_search_index_factory().map_err(anyhow::Error::new)?;
+    require_search_index_factory().map_err(anyhow::Error::new)?;
     legacy::get_or_build_search_index_sync(snapshot, snapshot_id, index_dir)
 }
 
