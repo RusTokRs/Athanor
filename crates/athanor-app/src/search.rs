@@ -1,84 +1,35 @@
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, OnceLock};
+use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use athanor_core::{
     CanonicalSnapshot, CanonicalSnapshotStore, CanonicalSnapshotStoreOperationExt, OperationContext,
-    OperationContextCancellation, SearchDocument, SearchIndex, SearchIndexOperationExt, SearchQuery,
+    OperationContextCancellation, SearchIndex, SearchIndexOperationExt, SearchQuery,
 };
-use athanor_domain::{Entity, EntityId, Ownership, SourceLocation};
-use serde::{Deserialize, Serialize};
+use athanor_domain::Entity;
 
+use crate::RuntimeComposition;
 use crate::config::load_config;
 use crate::json_contract::SEARCH_SCHEMA_V1;
 use crate::project_path::normalize_canonical_path;
 use crate::store::init_store;
-use crate::RuntimeComposition;
 
-const SEARCH_REBUILD_POLL_DOCUMENTS: usize = 256;
+#[path = "search/index.rs"]
+mod index;
+#[path = "search/model.rs"]
+mod model;
 
-pub type SearchIndexFactory =
-    fn(&Path, Option<Vec<SearchDocument>>) -> Result<Arc<dyn SearchIndex>>;
-pub type SearchIndexOperationFactory = fn(
-    &Path,
-    Option<Vec<SearchDocument>>,
-    &OperationContext,
-) -> Result<Arc<dyn SearchIndex>>;
-
-static SEARCH_INDEX_FACTORY: OnceLock<SearchIndexFactory> = OnceLock::new();
-static SEARCH_INDEX_OPERATION_FACTORY: OnceLock<SearchIndexOperationFactory> = OnceLock::new();
-
-pub fn install_search_index_factory(factory: SearchIndexFactory) {
-    let _ = SEARCH_INDEX_FACTORY.set(factory);
-}
-
-pub fn install_search_index_operation_factory(factory: SearchIndexOperationFactory) {
-    let _ = SEARCH_INDEX_OPERATION_FACTORY.set(factory);
-}
-
-#[derive(Debug, Clone)]
-pub struct SearchOptions {
-    pub root: PathBuf,
-    pub query: String,
-    pub limit: usize,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SearchItem {
-    pub entity_id: EntityId,
-    pub stable_key: String,
-    pub kind: String,
-    pub name: String,
-    pub title: Option<String>,
-    pub source: Option<SourceLocation>,
-    pub ownership: Vec<Ownership>,
-    pub score: f32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SearchReport {
-    pub schema: String,
-    pub root: PathBuf,
-    pub snapshot: String,
-    pub query: String,
-    pub limit: usize,
-    pub returned: usize,
-    pub truncated: bool,
-    pub omitted: SearchOmissions,
-    pub results: Vec<SearchItem>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SearchOmissions {
-    pub results_lower_bound: usize,
-    pub reason: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct IndexMeta {
-    snapshot_id: String,
-}
+pub use index::{
+    entity_text, get_or_build_search_index, get_or_build_search_index_sync,
+    get_or_build_search_index_with_operation_context,
+};
+pub use model::{
+    SearchIndexFactory, SearchIndexOperationFactory, SearchItem, SearchOmissions, SearchOptions,
+    SearchReport,
+};
+pub(crate) use index::{
+    get_or_build_search_index_with_factory,
+    get_or_build_search_index_with_factory_and_operation,
+};
 
 pub async fn search_project(options: SearchOptions) -> Result<SearchReport> {
     search_project_inner(options, None, None).await
@@ -171,7 +122,7 @@ pub async fn search_snapshot_with_composition(
 ) -> Result<SearchReport> {
     let snapshot_id = required_snapshot_id(snapshot)?;
     let index_dir = root.join(".athanor/generated/current/search");
-    let index = get_or_build_search_index_with_factory(
+    let index = index::get_or_build_search_index_with_factory(
         snapshot,
         &snapshot_id,
         &index_dir,
@@ -196,7 +147,7 @@ pub async fn search_snapshot_with_composition_and_operation_context(
     let composition = composition.clone();
     let operation_for_worker = operation.clone();
     let index = tokio::task::spawn_blocking(move || {
-        get_or_build_search_index_with_factory_and_operation(
+        index::get_or_build_search_index_with_factory_and_operation(
             &snapshot_for_worker,
             &snapshot_id,
             &index_dir,
@@ -225,7 +176,7 @@ pub async fn search_snapshot(
     validate_search(&query, limit)?;
     let snapshot_id = required_snapshot_id(snapshot)?;
     let index_dir = root.join(".athanor/generated/current/search");
-    let index = get_or_build_search_index(snapshot, &snapshot_id, &index_dir).await?;
+    let index = index::get_or_build_search_index(snapshot, &snapshot_id, &index_dir).await?;
     search_snapshot_with_index(root, snapshot, query, limit, index.as_ref()).await
 }
 
@@ -243,7 +194,7 @@ pub async fn search_snapshot_with_operation_context(
     let snapshot_for_worker = snapshot.clone();
     let operation_for_worker = operation.clone();
     let index = tokio::task::spawn_blocking(move || {
-        get_or_build_search_index_with_operation_context(
+        index::get_or_build_search_index_with_operation_context(
             &snapshot_for_worker,
             &snapshot_id,
             &index_dir,
@@ -311,163 +262,12 @@ async fn search_snapshot_with_index_inner(
     })
 }
 
-pub async fn get_or_build_search_index(
-    snapshot: &CanonicalSnapshot,
-    snapshot_id: &str,
-    index_dir: &Path,
-) -> Result<Arc<dyn SearchIndex>> {
-    get_or_build_search_index_sync(snapshot, snapshot_id, index_dir)
+fn legacy_search_index_factory() -> Option<SearchIndexFactory> {
+    super::legacy_global::search_index_factory()
 }
 
-pub fn get_or_build_search_index_sync(
-    snapshot: &CanonicalSnapshot,
-    snapshot_id: &str,
-    index_dir: &Path,
-) -> Result<Arc<dyn SearchIndex>> {
-    #[cfg(test)]
-    crate::ensure_test_runtime();
-    let Some(factory) = SEARCH_INDEX_FACTORY.get() else {
-        bail!("no Athanor search index factory is installed");
-    };
-    get_or_build_search_index_with_factory(snapshot, snapshot_id, index_dir, factory)
-}
-
-pub fn get_or_build_search_index_with_operation_context(
-    snapshot: &CanonicalSnapshot,
-    snapshot_id: &str,
-    index_dir: &Path,
-    operation: &OperationContext,
-) -> Result<Arc<dyn SearchIndex>> {
-    #[cfg(test)]
-    crate::ensure_test_runtime();
-    if let Some(factory) = SEARCH_INDEX_OPERATION_FACTORY.get() {
-        return get_or_build_search_index_with_factory_and_operation(
-            snapshot,
-            snapshot_id,
-            index_dir,
-            operation,
-            factory,
-        );
-    }
-    let Some(factory) = SEARCH_INDEX_FACTORY.get() else {
-        bail!("no Athanor search index factory is installed");
-    };
-    get_or_build_search_index_with_factory_and_operation(
-        snapshot,
-        snapshot_id,
-        index_dir,
-        operation,
-        |directory, documents, operation| {
-            operation.check_active().map_err(anyhow::Error::new)?;
-            let index = factory(directory, documents)?;
-            operation.check_active().map_err(anyhow::Error::new)?;
-            Ok(index)
-        },
-    )
-}
-
-pub(crate) fn get_or_build_search_index_with_factory(
-    snapshot: &CanonicalSnapshot,
-    snapshot_id: &str,
-    index_dir: &Path,
-    factory: impl Fn(&Path, Option<Vec<SearchDocument>>) -> Result<Arc<dyn SearchIndex>>,
-) -> Result<Arc<dyn SearchIndex>> {
-    get_or_build_search_index_inner(snapshot, snapshot_id, index_dir, None, |dir, docs, _| {
-        factory(dir, docs)
-    })
-}
-
-pub(crate) fn get_or_build_search_index_with_factory_and_operation(
-    snapshot: &CanonicalSnapshot,
-    snapshot_id: &str,
-    index_dir: &Path,
-    operation: &OperationContext,
-    factory: impl Fn(
-        &Path,
-        Option<Vec<SearchDocument>>,
-        &OperationContext,
-    ) -> Result<Arc<dyn SearchIndex>>,
-) -> Result<Arc<dyn SearchIndex>> {
-    get_or_build_search_index_inner(
-        snapshot,
-        snapshot_id,
-        index_dir,
-        Some(operation),
-        factory,
-    )
-}
-
-fn get_or_build_search_index_inner(
-    snapshot: &CanonicalSnapshot,
-    snapshot_id: &str,
-    index_dir: &Path,
-    operation: Option<&OperationContext>,
-    factory: impl Fn(
-        &Path,
-        Option<Vec<SearchDocument>>,
-        &OperationContext,
-    ) -> Result<Arc<dyn SearchIndex>>,
-) -> Result<Arc<dyn SearchIndex>> {
-    check_active(operation)?;
-    let meta_path = index_dir.join("index_meta.json");
-    let needs_rebuild = if index_dir.exists() && meta_path.exists() {
-        fs::read_to_string(&meta_path)
-            .ok()
-            .and_then(|contents| serde_json::from_str::<IndexMeta>(&contents).ok())
-            .is_none_or(|meta| meta.snapshot_id != snapshot_id)
-    } else {
-        true
-    };
-    let fallback_operation = OperationContext::default();
-    let operation_for_factory = operation.unwrap_or(&fallback_operation);
-
-    if needs_rebuild {
-        let mut documents = Vec::with_capacity(snapshot.entities.len());
-        for (position, entity) in snapshot.entities.iter().enumerate() {
-            if position % SEARCH_REBUILD_POLL_DOCUMENTS == 0 {
-                check_active(operation)?;
-            }
-            documents.push(SearchDocument {
-                id: entity.id.0.clone(),
-                title: entity.title.clone().unwrap_or_else(|| entity.name.clone()),
-                body: entity_text(entity),
-                payload: serde_json::to_value(entity)?,
-            });
-        }
-        check_active(operation)?;
-        let index = factory(index_dir, Some(documents), operation_for_factory)
-            .context("failed to rebuild search index")?;
-        check_active(operation)?;
-        let meta = IndexMeta {
-            snapshot_id: snapshot_id.to_string(),
-        };
-        fs::write(&meta_path, serde_json::to_string_pretty(&meta)?)?;
-        check_active(operation)?;
-        return Ok(index);
-    }
-
-    let index = factory(index_dir, None, operation_for_factory)
-        .context("failed to open search index")?;
-    check_active(operation)?;
-    Ok(index)
-}
-
-pub fn entity_text(entity: &Entity) -> String {
-    let mut parts = vec![entity.name.as_str(), entity.stable_key.0.as_str()];
-    if let Some(title) = &entity.title {
-        parts.push(title);
-    }
-    if let Some(source) = &entity.source {
-        parts.push(&source.path);
-    }
-    parts.extend(entity.aliases.iter().map(String::as_str));
-    if let Some(description) = entity.payload.get("description").and_then(|value| value.as_str()) {
-        parts.push(description);
-    }
-    if let Some(summary) = entity.payload.get("summary").and_then(|value| value.as_str()) {
-        parts.push(summary);
-    }
-    parts.join(" ").to_lowercase()
+fn legacy_search_index_operation_factory() -> Option<SearchIndexOperationFactory> {
+    super::legacy_global::search_index_operation_factory()
 }
 
 fn validate_search(query: &str, limit: usize) -> Result<()> {

@@ -1,56 +1,58 @@
-//! Guarded facade for the remaining legacy process-global store factory.
+//! Compatibility facade for the optional process-global store factory.
 //!
 //! Active application entrypoints use `RuntimeComposition::init_store` directly.
-//! This module retains the old no-composition API only as a compatibility boundary;
-//! it no longer exposes a task-local composition bridge or factory-introspection API.
+//! The `legacy-global-runtime` feature retains the old no-composition API during
+//! the compatibility window; default production builds contain no Store factory state.
 
 use std::path::Path;
-use std::sync::OnceLock;
 
 use anyhow::Result;
+#[cfg(not(any(feature = "legacy-global-runtime", test)))]
+use anyhow::bail;
 
 use crate::config::ProjectConfig;
-use crate::legacy_factory::{
-    LegacyFactoryInstallError, install_once, require_installed,
-};
+use crate::legacy_factory::LegacyFactoryInstallError;
 
 #[path = "store.rs"]
-mod legacy;
+mod core;
+#[cfg(any(feature = "legacy-global-runtime", test))]
+#[path = "store_legacy_global.rs"]
+mod legacy_global;
 
-pub use legacy::{AthanorStore, StoreFactory};
+pub use core::{AthanorStore, StoreFactory};
 
-static STORE_FACTORY_GUARD: OnceLock<StoreFactory> = OnceLock::new();
-
+#[cfg(any(feature = "legacy-global-runtime", test))]
 pub fn try_install_store_factory(
     factory: StoreFactory,
 ) -> Result<(), LegacyFactoryInstallError> {
-    install_once(&STORE_FACTORY_GUARD, factory, "store")?;
-    legacy::install_store_factory(factory);
-    Ok(())
+    legacy_global::try_install_store_factory(factory)
 }
 
+#[cfg(not(any(feature = "legacy-global-runtime", test)))]
+pub fn try_install_store_factory(
+    _factory: StoreFactory,
+) -> Result<(), LegacyFactoryInstallError> {
+    panic!("legacy-global-runtime feature is disabled; use RuntimeComposition")
+}
+
+#[cfg(any(feature = "legacy-global-runtime", test))]
 pub fn install_store_factory(factory: StoreFactory) {
-    try_install_store_factory(factory)
-        .expect("conflicting legacy store factory installation");
+    legacy_global::install_store_factory(factory);
 }
 
+#[cfg(not(any(feature = "legacy-global-runtime", test)))]
+pub fn install_store_factory(_factory: StoreFactory) {
+    panic!("legacy-global-runtime feature is disabled; use RuntimeComposition")
+}
+
+#[cfg(any(feature = "legacy-global-runtime", test))]
 pub async fn init_store(root: &Path, config: &ProjectConfig) -> Result<AthanorStore> {
     #[cfg(test)]
     crate::ensure_test_runtime();
-
-    require_installed(&STORE_FACTORY_GUARD, "store")
-        .map_err(anyhow::Error::new)?;
-    legacy::init_store(root, config).await
+    legacy_global::init_store(root, config).await
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn missing_store_factory_is_typed() {
-        let slot = OnceLock::<StoreFactory>::new();
-        let error = require_installed(&slot, "store").unwrap_err();
-        assert_eq!(error.factory(), "store");
-    }
+#[cfg(not(any(feature = "legacy-global-runtime", test)))]
+pub async fn init_store(_root: &Path, _config: &ProjectConfig) -> Result<AthanorStore> {
+    bail!("legacy Store initialization is disabled; use RuntimeComposition::init_store")
 }
