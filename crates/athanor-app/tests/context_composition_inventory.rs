@@ -7,7 +7,7 @@ const LEGACY_CONTEXT_SOURCE: &str = include_str!("../src/context.rs");
 #[test]
 fn context_module_routes_to_the_composition_first_owner() {
     assert!(APP_LIB_SOURCE.contains("#[path = \"context_composition.rs\"]\npub mod context;"));
-    assert!(!APP_LIB_SOURCE.contains("\npub mod context;\n"));
+    assert_eq!(APP_LIB_SOURCE.matches("pub mod context;").count(), 1);
 
     assert!(ACTIVE_CONTEXT_SOURCE.contains("composition.init_store"));
     assert!(ACTIVE_CONTEXT_SOURCE.contains("composition.build_search_index"));
