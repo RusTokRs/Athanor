@@ -9,6 +9,7 @@ pub mod bench;
 pub mod boundary_contract;
 pub mod cancellation;
 pub mod capabilities;
+#[path = "change_map_facade.rs"]
 pub mod change_map;
 pub mod check;
 pub mod composition;
