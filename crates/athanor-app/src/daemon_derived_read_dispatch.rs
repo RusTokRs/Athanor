@@ -17,13 +17,11 @@ use crate::daemon_operation::context as operation_context;
 use crate::daemon_protocol::{error_response_from_anyhow, success_response, validate_request};
 use crate::derived_read_operation::{
     change_map_project_with_composition_and_operation_context,
-    change_map_project_with_operation_context,
     context_project_with_composition_and_operation_context,
-    context_project_with_operation_context,
 };
 
-/// Intercepts derived read commands that still execute through compatibility application services.
-/// Every other request is delegated to the established operation-aware read dispatcher.
+/// Intercepts derived read commands before the established operation-aware read dispatcher.
+/// Context and change-map execution require the daemon's explicit runtime composition.
 pub(crate) async fn execute(
     state: Arc<DaemonState>,
     request: DaemonRequest,
@@ -71,7 +69,9 @@ pub(crate) async fn execute(
                     )
                     .await
                 }
-                None => context_project_with_operation_context(options, &operation).await,
+                None => Err(anyhow::anyhow!(
+                    "daemon runtime composition is unavailable"
+                )),
             };
             finish_read(&state, &request_id, &job_id, result)
         }
@@ -117,13 +117,9 @@ pub(crate) async fn execute(
                     )
                     .await
                 }
-                None => {
-                    within_operation_deadline(
-                        &operation,
-                        change_map_project_with_operation_context(options, &operation),
-                    )
-                    .await
-                }
+                None => Err(anyhow::anyhow!(
+                    "daemon runtime composition is unavailable"
+                )),
             };
             finish_read(&state, &request_id, &job_id, result)
         }
