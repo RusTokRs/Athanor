@@ -32,9 +32,10 @@ Composition-only execution уже действует для:
 - ChangeMap;
 - API Registry;
 - Overview;
-- Capabilities.
+- Capabilities;
+- Impact.
 
-ChangeMap, Overview и Capabilities физически разделены на conventional bounded modules без
+ChangeMap, Overview, Capabilities и Impact физически разделены на conventional bounded modules без
 `include!` и forwarding compatibility facades. Их public root modules содержат только module wiring
 и стабильные re-exports.
 
@@ -57,31 +58,32 @@ ChangeMap, Overview и Capabilities физически разделены на c
 - [x] Overview декомпозирован на `model`, `execution`, `aggregation`, `tests`.
 - [x] Capabilities использует только `capabilities_project_with_composition`.
 - [x] Capabilities декомпозирован на `model`, `execution`, `aggregation`, `tests`.
+- [x] Impact использует только `impact_project_with_composition`.
+- [x] Impact декомпозирован на `model`, `execution`, `traversal`, `tests`.
 - [x] Source inventories запрещают возврат удалённых APIs и фиксируют line budgets.
 
 ### Следующий обязательный срез
 
-`Impact`:
+`Coverage`:
 
-- удалить `impact_project`;
-- оставить только `impact_project_with_composition`;
+- удалить no-composition project entrypoint;
+- оставить только composition-aware execution;
 - удалить `Option<&RuntimeComposition>`;
 - удалить `crate::store::init_store` и fallback match;
-- отделить execution/loading от pure `impact_snapshot` и graph traversal;
-- сохранить `IMPACT_ANALYSIS_SCHEMA_V1`, BFS semantics, deterministic paths и target/diff behavior;
+- отделить loading/execution от pure coverage aggregation;
+- сохранить schema, thresholds, deterministic ordering и omission semantics;
 - добавить source/line-budget inventory.
 
-### После Impact
+### После Coverage
 
 Последовательно мигрировать:
 
-1. Coverage;
-2. Graph и Graph operation;
-3. Check families;
-4. API read owners;
-5. Repair latest/recovery;
-6. Docs service;
-7. remaining embedding examples и tests.
+1. Graph и Graph operation;
+2. Check families;
+3. API read owners;
+4. Repair latest/recovery;
+5. Docs service;
+6. remaining embedding examples и tests.
 
 После migration всех callers:
 
@@ -114,7 +116,7 @@ ChangeMap, Overview и Capabilities физически разделены на c
 - [x] Daemon state и lifecycle требуют mandatory composition.
 - [x] Write services и projectors composition-only.
 - [x] Search facade composition-only.
-- [x] Explain, ChangeMap, API Registry, Overview и Capabilities composition-only.
+- [x] Explain, ChangeMap, API Registry, Overview, Capabilities и Impact composition-only.
 
 ### Bounded ownership
 
@@ -122,6 +124,7 @@ ChangeMap, Overview и Capabilities физически разделены на c
 - [x] ChangeMap декомпозирован на conventional bounded owners.
 - [x] Overview декомпозирован на conventional bounded owners.
 - [x] Capabilities декомпозирован на conventional bounded owners.
+- [x] Impact декомпозирован на conventional bounded owners.
 - [x] Daemon command dispatch вынесен из transport lifecycle.
 - [x] Publication lifecycle имеет отдельные bounded owners и commit-point semantics.
 
@@ -171,6 +174,20 @@ Hosted workflow runs для новых direct-to-main commits также не о
 status намеренно не повышается.
 
 ## 7. Последние изменения
+
+### 2026-07-18 — Composition-only bounded Impact
+
+- Монолитный `impact.rs` заменён small module root.
+- Public model перенесён в `impact/model.rs`.
+- Composition-aware loading, target resolution и diff seeding перенесены в `impact/execution.rs`.
+- Pure BFS traversal, relation propagation, path steps и deterministic output перенесены в
+  `impact/traversal.rs`.
+- Unit regression перенесён в `impact/tests.rs`.
+- Удалены no-composition `impact_project`, optional composition,
+  `crate::store::init_store` и fallback match.
+- `read_service_composition_inventory` фиксирует routing, physical fallback absence и line budgets.
+- Schema `IMPACT_ANALYSIS_SCHEMA_V1`, target/diff behavior и BFS semantics сохранены.
+- Статус — implemented, Rust/hosted verification pending.
 
 ### 2026-07-18 — Composition-only bounded Capabilities
 
