@@ -13,6 +13,7 @@ pub mod change_map;
 pub mod check;
 pub mod composition;
 pub mod config;
+#[path = "context_composition.rs"]
 pub mod context;
 mod context_operation;
 pub mod context_report;
