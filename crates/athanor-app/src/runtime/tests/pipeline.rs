@@ -2,8 +2,8 @@ use std::fs;
 
 use athanor_domain::{EntityKind, RelationKind, RepoId, SnapshotBase};
 
-use super::fixtures::{empty_array_command, empty_output_command, source_output_command};
 use super::super::*;
+use super::fixtures::{empty_array_command, empty_output_command, source_output_command};
 use crate::transient_store::TransientKnowledgeStore;
 
 #[tokio::test]
@@ -11,8 +11,9 @@ async fn builds_builtin_index_pipeline() {
     let root = temp_root("runtime-builtins");
     fs::create_dir_all(root.join("docs")).unwrap();
     fs::write(root.join("docs/runtime.md"), "# Runtime\n\n## Registry\n").unwrap();
+    let composition = crate::test_runtime::composition();
 
-    let output = RuntimeBuilder::new(&root)
+    let output = RuntimeBuilder::from_composition(&root, &composition)
         .build_index_pipeline(TransientKnowledgeStore::new())
         .run(
             RepoId("repo_runtime_test".to_string()),
@@ -54,9 +55,14 @@ async fn plugin_manifest_deduplicates_builtin_ids() {
             supports_extensions: Vec::new(),
         }],
     };
+    let composition = crate::test_runtime::composition();
+    let registry = composition
+        .adapter_registry()
+        .with_plugin_manifest(&manifest)
+        .unwrap();
 
     let output = RuntimeBuilder::new(&root)
-        .with_registry(AdapterRegistry::built_in().with_plugin_manifest(&manifest).unwrap())
+        .with_registry(registry)
         .build_index_pipeline(TransientKnowledgeStore::new())
         .run(
             RepoId("repo_runtime_plugin_dedupe_test".to_string()),

@@ -32,7 +32,6 @@ getrandom = { workspace = true, features = ["std"] }
 [features]
 default = []
 js-ts-precision = []
-legacy-global-runtime = []
 
 [dev-dependencies]
 athanor-checker-api = { path = "../athanor-checker-api" }

@@ -37,10 +37,6 @@ impl AdapterRegistry {
         }
     }
 
-    pub fn built_in() -> Self {
-        super::default_adapter_registry()
-    }
-
     pub fn with_plugin_manifest(self, manifest: &AdapterPluginManifest) -> Result<Self> {
         self.with_plugin_manifest_at(manifest, Path::new("."))
     }
@@ -63,6 +59,9 @@ impl AdapterRegistry {
         super::plugin_discovery::validate(manifest)?;
 
         for adapter in manifest.adapters.iter().filter(|adapter| adapter.enabled) {
+            if self.adapter_ids.contains(&adapter.id) {
+                continue;
+            }
             self = self
                 .with_adapter_entry_using(
                     adapter,
@@ -88,12 +87,8 @@ impl AdapterRegistry {
         builtin_resolver: Option<BuiltinAdapterResolver>,
         clear_external_process_environment: bool,
     ) -> Result<Self> {
-        #[cfg(test)]
-        crate::ensure_test_runtime();
-
         if adapter.command.is_none()
-            && let Some(resolver) =
-                builtin_resolver.or_else(super::legacy_registry::builtin_adapter_resolver)
+            && let Some(resolver) = builtin_resolver
         {
             if let Some(registry) = resolver(self, adapter.kind, adapter.id.as_str()) {
                 return Ok(registry);
@@ -316,6 +311,6 @@ impl AdapterRegistry {
 
 impl Default for AdapterRegistry {
     fn default() -> Self {
-        Self::built_in()
+        Self::empty()
     }
 }

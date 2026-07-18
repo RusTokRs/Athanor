@@ -1,30 +1,18 @@
-use athanor_app::legacy_factory::{
-    LegacyFactoryInstallError, LegacyFactoryUnavailableError,
-};
-
-const LEGACY_FACTORY_SOURCE: &str = include_str!("../src/legacy_factory.rs");
+const APP_LIB_SOURCE: &str = include_str!("../src/lib.rs");
+const APP_CARGO: &str = include_str!("../Cargo.toml");
+const RUNTIME_DEFAULTS_CARGO: &str = include_str!("../../athanor-runtime-defaults/Cargo.toml");
+const RUNTIME_DEFAULTS_SOURCE: &str = include_str!("../../athanor-runtime-defaults/src/lib.rs");
+const CI_SOURCE: &str = include_str!("../../../.github/workflows/ci.yml");
 const RUNTIME_ROOT_SOURCE: &str = include_str!("../src/runtime.rs");
-const RUNTIME_LEGACY_API_SOURCE: &str = include_str!("../src/runtime/legacy_api.rs");
-const ADAPTER_REGISTRY_SOURCE: &str = include_str!("../src/runtime/legacy_registry.rs");
-const ADAPTER_DISABLED_SOURCE: &str =
-    include_str!("../src/runtime/legacy_registry_disabled.rs");
+const RUNTIME_REGISTRY_SOURCE: &str = include_str!("../src/runtime/registry.rs");
+const RUNTIME_BUILDER_SOURCE: &str = include_str!("../src/runtime/builder.rs");
 const PROJECTION_SOURCE: &str = include_str!("../src/projection.rs");
-const PROJECTION_GLOBAL_SOURCE: &str = include_str!("../src/projection_legacy_global.rs");
 const STORE_FACADE_SOURCE: &str = include_str!("../src/store_facade.rs");
 const STORE_CORE_SOURCE: &str = include_str!("../src/store.rs");
-const STORE_KNOWLEDGE_SOURCE: &str = include_str!("../src/store/knowledge.rs");
-const STORE_PUBLICATION_SOURCE: &str = include_str!("../src/store/publication.rs");
-const STORE_CANONICAL_SOURCE: &str = include_str!("../src/store/canonical.rs");
-const STORE_GLOBAL_SOURCE: &str = include_str!("../src/store_legacy_global.rs");
 const SEARCH_FACADE_SOURCE: &str = include_str!("../src/search_facade.rs");
 const SEARCH_CORE_SOURCE: &str = include_str!("../src/search.rs");
-const SEARCH_MODEL_SOURCE: &str = include_str!("../src/search/model.rs");
 const SEARCH_INDEX_SOURCE: &str = include_str!("../src/search/index.rs");
-const SEARCH_GLOBAL_SOURCE: &str = include_str!("../src/search_legacy_global.rs");
-const APP_CARGO: &str = include_str!("../Cargo.toml");
-const RUNTIME_DEFAULTS_CARGO: &str =
-    include_str!("../../athanor-runtime-defaults/Cargo.toml");
-const CI_SOURCE: &str = include_str!("../../../.github/workflows/ci.yml");
+const TEST_RUNTIME_SOURCE: &str = include_str!("../src/test_runtime.rs");
 const APPLICATION_COMPOSITION_SOURCE: &str =
     include_str!("../src/application_report_composition.rs");
 const INDEX_CLI_SOURCE: &str = include_str!("../../../apps/ath/src/index_cli.rs");
@@ -36,77 +24,43 @@ const MIGRATION_DOC: &str =
     include_str!("../../../docs/development/legacy-runtime-compatibility.md");
 
 #[test]
-fn legacy_runtime_feature_is_explicit_forwarded_and_exercised() {
-    assert!(APP_CARGO.contains("legacy-global-runtime = []"));
-    assert!(RUNTIME_DEFAULTS_CARGO.contains(
-        "legacy-global-runtime = [\"athanor-app/legacy-global-runtime\"]"
-    ));
-    assert!(CI_SOURCE.contains("- legacy-global-runtime"));
-    assert!(CI_SOURCE.contains("- all-features"));
-}
+fn process_global_runtime_feature_and_storage_are_removed() {
+    assert!(!APP_CARGO.contains("legacy-global-runtime"));
+    assert!(!RUNTIME_DEFAULTS_CARGO.contains("legacy-global-runtime"));
+    assert!(!CI_SOURCE.contains("- legacy-global-runtime"));
 
-#[test]
-fn process_global_storage_is_confined_to_feature_only_owners() {
     for source in [
+        APP_LIB_SOURCE,
         RUNTIME_ROOT_SOURCE,
-        RUNTIME_LEGACY_API_SOURCE,
-        ADAPTER_DISABLED_SOURCE,
+        RUNTIME_REGISTRY_SOURCE,
+        RUNTIME_BUILDER_SOURCE,
         PROJECTION_SOURCE,
         STORE_FACADE_SOURCE,
         STORE_CORE_SOURCE,
-        STORE_KNOWLEDGE_SOURCE,
-        STORE_PUBLICATION_SOURCE,
-        STORE_CANONICAL_SOURCE,
         SEARCH_FACADE_SOURCE,
         SEARCH_CORE_SOURCE,
-        SEARCH_MODEL_SOURCE,
         SEARCH_INDEX_SOURCE,
+        TEST_RUNTIME_SOURCE,
     ] {
         assert!(!source.contains("OnceLock"));
+        assert!(!source.contains("legacy_global"));
+        assert!(!source.contains("legacy_registry"));
+        assert!(!source.contains("LegacyFactoryInstallError"));
+        assert!(!source.contains("LegacyFactoryUnavailableError"));
     }
-
-    for source in [
-        ADAPTER_REGISTRY_SOURCE,
-        PROJECTION_GLOBAL_SOURCE,
-        STORE_GLOBAL_SOURCE,
-        SEARCH_GLOBAL_SOURCE,
-    ] {
-        assert!(source.contains("OnceLock"));
-    }
-
-    assert!(RUNTIME_ROOT_SOURCE.contains("legacy_registry_disabled.rs"));
-    assert!(PROJECTION_SOURCE.contains("projection_legacy_global.rs"));
-    assert!(STORE_FACADE_SOURCE.contains("store_legacy_global.rs"));
-    assert!(SEARCH_FACADE_SOURCE.contains("search_legacy_global.rs"));
+    assert!(!APP_LIB_SOURCE.contains("pub mod legacy_factory"));
+    assert!(!TEST_RUNTIME_SOURCE.contains("fn install"));
 }
 
 #[test]
-fn store_and_search_core_owners_have_no_installation_api() {
-    for source in [
-        STORE_CORE_SOURCE,
-        STORE_KNOWLEDGE_SOURCE,
-        STORE_PUBLICATION_SOURCE,
-    ] {
-        assert!(!source.contains("install_store_factory"));
-        assert!(!source.contains("pub async fn init_store"));
-    }
-    assert!(STORE_CORE_SOURCE.contains("store/knowledge.rs"));
-    assert!(STORE_CORE_SOURCE.contains("store/publication.rs"));
-    assert!(STORE_CORE_SOURCE.contains("store/canonical.rs"));
-    assert!(STORE_FACADE_SOURCE.contains("RuntimeComposition::init_store"));
-
-    for source in [
-        SEARCH_CORE_SOURCE,
-        SEARCH_MODEL_SOURCE,
-        SEARCH_INDEX_SOURCE,
-    ] {
-        assert!(!source.contains("install_search_index_factory"));
-        assert!(!source.contains("install_search_index_operation_factory"));
-    }
-    assert!(SEARCH_CORE_SOURCE.contains("search/index.rs"));
-    assert!(SEARCH_CORE_SOURCE.contains("search/model.rs"));
-    assert!(SEARCH_INDEX_SOURCE.contains("RuntimeComposition::build_search_index"));
-    assert!(SEARCH_FACADE_SOURCE.contains("legacy-global-runtime disabled or not installed"));
+fn core_runtime_paths_require_explicit_composition() {
+    assert!(RUNTIME_BUILDER_SOURCE.contains("registry: AdapterRegistry::empty()"));
+    assert!(!RUNTIME_REGISTRY_SOURCE.contains("default_adapter_registry"));
+    assert!(!RUNTIME_REGISTRY_SOURCE.contains("ensure_test_runtime"));
+    assert!(STORE_FACADE_SOURCE.contains("explicit RuntimeComposition is required"));
+    assert!(SEARCH_FACADE_SOURCE.contains("explicit RuntimeComposition is required"));
+    assert!(PROJECTION_SOURCE.contains("explicit RuntimeComposition is required"));
+    assert!(TEST_RUNTIME_SOURCE.contains("pub(crate) fn composition()"));
 }
 
 #[test]
@@ -134,45 +88,37 @@ fn application_report_services_have_no_store_scope_bridge() {
 }
 
 #[test]
-fn compatibility_modules_remain_bounded() {
+fn temporary_installer_shims_are_state_free_and_documented() {
+    for source in [
+        RUNTIME_ROOT_SOURCE,
+        PROJECTION_SOURCE,
+        STORE_FACADE_SOURCE,
+        SEARCH_FACADE_SOURCE,
+    ] {
+        assert!(source.contains("process-global"));
+        assert!(source.contains("panic!"));
+        assert!(!source.contains(".set("));
+    }
+    assert!(RUNTIME_DEFAULTS_SOURCE.contains("pub fn install()"));
+    assert!(MIGRATION_DOC.contains("COMP-003C1"));
+    assert!(MIGRATION_DOC.contains("COMP-003C2"));
+}
+
+#[test]
+fn composition_boundary_modules_remain_bounded() {
     for (name, source, max_lines) in [
-        ("runtime root", RUNTIME_ROOT_SOURCE, 70),
-        ("runtime legacy API", RUNTIME_LEGACY_API_SOURCE, 90),
-        ("projection facade", PROJECTION_SOURCE, 130),
-        ("projection global", PROJECTION_GLOBAL_SOURCE, 90),
-        ("store facade", STORE_FACADE_SOURCE, 90),
+        ("runtime root", RUNTIME_ROOT_SOURCE, 80),
+        ("runtime registry", RUNTIME_REGISTRY_SOURCE, 360),
+        ("runtime builder", RUNTIME_BUILDER_SOURCE, 220),
+        ("projection facade", PROJECTION_SOURCE, 100),
+        ("store facade", STORE_FACADE_SOURCE, 60),
         ("store core", STORE_CORE_SOURCE, 220),
-        ("store knowledge", STORE_KNOWLEDGE_SOURCE, 230),
-        ("store publication", STORE_PUBLICATION_SOURCE, 90),
-        ("store canonical", STORE_CANONICAL_SOURCE, 90),
-        ("store global", STORE_GLOBAL_SOURCE, 80),
-        ("search facade", SEARCH_FACADE_SOURCE, 300),
-        ("search core", SEARCH_CORE_SOURCE, 360),
-        ("search model", SEARCH_MODEL_SOURCE, 90),
-        ("search index", SEARCH_INDEX_SOURCE, 230),
-        ("search global", SEARCH_GLOBAL_SOURCE, 90),
+        ("search facade", SEARCH_FACADE_SOURCE, 260),
+        ("search core", SEARCH_CORE_SOURCE, 300),
+        ("search index", SEARCH_INDEX_SOURCE, 160),
+        ("test runtime", TEST_RUNTIME_SOURCE, 180),
     ] {
         let lines = source.lines().count();
         assert!(lines <= max_lines, "{name} grew to {lines} lines");
     }
-}
-
-#[test]
-fn compatibility_bootstrap_is_deprecated_and_documented() {
-    assert!(MIGRATION_DOC.contains("RuntimeComposition"));
-    assert!(MIGRATION_DOC.contains("legacy-global-runtime"));
-    assert!(MIGRATION_DOC.contains("COMP-003B1"));
-    assert!(MIGRATION_DOC.contains("COMP-003B2"));
-    assert!(MIGRATION_DOC.contains("COMP-003C"));
-}
-
-#[test]
-fn guarded_factory_failures_are_public_and_actionable() {
-    assert!(LEGACY_FACTORY_SOURCE.contains("LegacyFactoryInstallError"));
-    let installed = LegacyFactoryInstallError::new("fixture");
-    let unavailable = LegacyFactoryUnavailableError::new("fixture");
-    assert_eq!(installed.factory(), "fixture");
-    assert_eq!(unavailable.factory(), "fixture");
-    assert!(installed.to_string().contains("RuntimeComposition"));
-    assert!(unavailable.to_string().contains("RuntimeComposition"));
 }

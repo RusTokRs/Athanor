@@ -11,17 +11,13 @@ use crate::RuntimeComposition;
 use crate::config::load_config;
 use crate::json_contract::SEARCH_SCHEMA_V1;
 use crate::project_path::normalize_canonical_path;
-use crate::store::init_store;
 
 #[path = "search/index.rs"]
 mod index;
 #[path = "search/model.rs"]
 mod model;
 
-pub use index::{
-    entity_text, get_or_build_search_index, get_or_build_search_index_sync,
-    get_or_build_search_index_with_operation_context,
-};
+pub use index::entity_text;
 pub use model::{
     SearchIndexFactory, SearchIndexOperationFactory, SearchItem, SearchOmissions, SearchOptions,
     SearchReport,
@@ -31,15 +27,11 @@ pub(crate) use index::{
     get_or_build_search_index_with_factory_and_operation,
 };
 
-pub async fn search_project(options: SearchOptions) -> Result<SearchReport> {
-    search_project_inner(options, None, None).await
-}
-
 pub async fn search_project_with_composition(
     options: SearchOptions,
     composition: &RuntimeComposition,
 ) -> Result<SearchReport> {
-    search_project_inner(options, Some(composition), None).await
+    search_project_inner(options, composition, None).await
 }
 
 pub async fn search_project_with_composition_and_operation_context(
@@ -47,12 +39,12 @@ pub async fn search_project_with_composition_and_operation_context(
     composition: &RuntimeComposition,
     operation: &OperationContext,
 ) -> Result<SearchReport> {
-    search_project_inner(options, Some(composition), Some(operation)).await
+    search_project_inner(options, composition, Some(operation)).await
 }
 
 async fn search_project_inner(
     options: SearchOptions,
-    composition: Option<&RuntimeComposition>,
+    composition: &RuntimeComposition,
     operation: Option<&OperationContext>,
 ) -> Result<SearchReport> {
     validate_search(&options.query, options.limit)?;
@@ -64,10 +56,7 @@ async fn search_project_inner(
             .with_context(|| format!("failed to canonicalize {}", options.root.display()))?,
     );
     let config = load_config(&root)?;
-    let store = match composition {
-        Some(composition) => composition.init_store(&root, &config).await?,
-        None => init_store(&root, &config).await?,
-    };
+    let store = composition.init_store(&root, &config).await?;
     let snapshot = match operation {
         Some(operation) => store
             .load_latest_snapshot_with_operation_context(operation)
@@ -77,8 +66,8 @@ async fn search_project_inner(
     .context("failed to load latest canonical snapshot")?
     .ok_or_else(|| anyhow::anyhow!("no canonical snapshot found; run `ath index` first"))?;
 
-    match (composition, operation) {
-        (Some(composition), Some(operation)) => {
+    match operation {
+        Some(operation) => {
             search_snapshot_with_composition_and_operation_context(
                 &root,
                 &snapshot,
@@ -89,7 +78,7 @@ async fn search_project_inner(
             )
             .await
         }
-        (Some(composition), None) => {
+        None => {
             search_snapshot_with_composition(
                 &root,
                 &snapshot,
@@ -99,17 +88,6 @@ async fn search_project_inner(
             )
             .await
         }
-        (None, Some(operation)) => {
-            search_snapshot_with_operation_context(
-                &root,
-                &snapshot,
-                options.query,
-                options.limit,
-                operation,
-            )
-            .await
-        }
-        (None, None) => search_snapshot(&root, &snapshot, options.query, options.limit).await,
     }
 }
 
@@ -159,46 +137,6 @@ pub async fn search_snapshot_with_composition_and_operation_context(
                     operation,
                 )
             },
-        )
-    })
-    .await
-    .context("search index rebuild worker terminated unexpectedly")??;
-    search_snapshot_with_index_inner(root, snapshot, query, limit, index.as_ref(), Some(operation))
-        .await
-}
-
-pub async fn search_snapshot(
-    root: &Path,
-    snapshot: &CanonicalSnapshot,
-    query: String,
-    limit: usize,
-) -> Result<SearchReport> {
-    validate_search(&query, limit)?;
-    let snapshot_id = required_snapshot_id(snapshot)?;
-    let index_dir = root.join(".athanor/generated/current/search");
-    let index = index::get_or_build_search_index(snapshot, &snapshot_id, &index_dir).await?;
-    search_snapshot_with_index(root, snapshot, query, limit, index.as_ref()).await
-}
-
-pub async fn search_snapshot_with_operation_context(
-    root: &Path,
-    snapshot: &CanonicalSnapshot,
-    query: String,
-    limit: usize,
-    operation: &OperationContext,
-) -> Result<SearchReport> {
-    validate_search(&query, limit)?;
-    operation.check_active().map_err(anyhow::Error::new)?;
-    let snapshot_id = required_snapshot_id(snapshot)?;
-    let index_dir = root.join(".athanor/generated/current/search");
-    let snapshot_for_worker = snapshot.clone();
-    let operation_for_worker = operation.clone();
-    let index = tokio::task::spawn_blocking(move || {
-        index::get_or_build_search_index_with_operation_context(
-            &snapshot_for_worker,
-            &snapshot_id,
-            &index_dir,
-            &operation_for_worker,
         )
     })
     .await
@@ -260,14 +198,6 @@ async fn search_snapshot_with_index_inner(
         },
         results: search_items,
     })
-}
-
-fn legacy_search_index_factory() -> Option<SearchIndexFactory> {
-    super::legacy_global::search_index_factory()
-}
-
-fn legacy_search_index_operation_factory() -> Option<SearchIndexOperationFactory> {
-    super::legacy_global::search_index_operation_factory()
 }
 
 fn validate_search(query: &str, limit: usize) -> Result<()> {

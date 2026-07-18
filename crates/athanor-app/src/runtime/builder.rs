@@ -21,10 +21,23 @@ pub struct RuntimeBuilder {
 }
 
 impl RuntimeBuilder {
+    /// Starts a builder with an empty registry in production.
+    ///
+    /// Unit tests receive a fresh local test composition so legacy test helpers remain deterministic
+    /// without process-global installation. Production callers should use [`Self::from_composition`]
+    /// or provide an explicit registry and built-in resolver.
     pub fn new(root: impl Into<PathBuf>) -> Self {
+        let root = root.into();
+
+        #[cfg(test)]
+        {
+            return Self::from_composition(root, &crate::test_runtime::composition());
+        }
+
+        #[cfg(not(test))]
         Self {
-            root: root.into(),
-            registry: AdapterRegistry::built_in(),
+            root,
+            registry: AdapterRegistry::empty(),
             allow_external_process: false,
             clear_external_process_environment: false,
             allowed_external_process_programs: Vec::new(),
@@ -34,8 +47,6 @@ impl RuntimeBuilder {
     }
 
     /// Starts a builder from an explicit application composition.
-    ///
-    /// Unlike [`Self::new`], this does not consult process-global adapter factories.
     pub fn from_composition(root: impl Into<PathBuf>, composition: &RuntimeComposition) -> Self {
         Self {
             root: root.into(),

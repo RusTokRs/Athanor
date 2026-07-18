@@ -1,67 +1,21 @@
 use std::path::Path;
 
 use anyhow::Result;
-#[cfg(not(any(feature = "legacy-global-runtime", test)))]
+#[cfg(not(test))]
 use anyhow::bail;
 use serde_json::Value;
-
-use crate::legacy_factory::LegacyFactoryInstallError;
-
-#[cfg(any(feature = "legacy-global-runtime", test))]
-#[path = "projection_legacy_global.rs"]
-mod legacy_global;
 
 pub(crate) const WIKI_PROJECTION_SCHEMA: &str = "athanor.wiki_projection.v1";
 pub(crate) const HTML_REPORT_PROJECTION_SCHEMA: &str = "athanor.html_report_projection.v1";
 
 pub type ProjectionFactory = fn(&Path, &str, Value, &dyn Fn() -> bool) -> Result<()>;
 
-#[cfg(any(feature = "legacy-global-runtime", test))]
-pub fn try_install_wiki_projector_factory(
-    factory: ProjectionFactory,
-) -> Result<(), LegacyFactoryInstallError> {
-    legacy_global::try_install_wiki_projector_factory(factory)
-}
-
-#[cfg(not(any(feature = "legacy-global-runtime", test)))]
-pub fn try_install_wiki_projector_factory(
-    _factory: ProjectionFactory,
-) -> Result<(), LegacyFactoryInstallError> {
-    panic!("legacy-global-runtime feature is disabled; use RuntimeComposition")
-}
-
-#[cfg(any(feature = "legacy-global-runtime", test))]
-pub fn install_wiki_projector_factory(factory: ProjectionFactory) {
-    legacy_global::install_wiki_projector_factory(factory);
-}
-
-#[cfg(not(any(feature = "legacy-global-runtime", test)))]
 pub fn install_wiki_projector_factory(_factory: ProjectionFactory) {
-    panic!("legacy-global-runtime feature is disabled; use RuntimeComposition")
+    panic!("process-global wiki projector installation was removed; use RuntimeComposition")
 }
 
-#[cfg(any(feature = "legacy-global-runtime", test))]
-pub fn try_install_html_projector_factory(
-    factory: ProjectionFactory,
-) -> Result<(), LegacyFactoryInstallError> {
-    legacy_global::try_install_html_projector_factory(factory)
-}
-
-#[cfg(not(any(feature = "legacy-global-runtime", test)))]
-pub fn try_install_html_projector_factory(
-    _factory: ProjectionFactory,
-) -> Result<(), LegacyFactoryInstallError> {
-    panic!("legacy-global-runtime feature is disabled; use RuntimeComposition")
-}
-
-#[cfg(any(feature = "legacy-global-runtime", test))]
-pub fn install_html_projector_factory(factory: ProjectionFactory) {
-    legacy_global::install_html_projector_factory(factory);
-}
-
-#[cfg(not(any(feature = "legacy-global-runtime", test)))]
 pub fn install_html_projector_factory(_factory: ProjectionFactory) {
-    panic!("legacy-global-runtime feature is disabled; use RuntimeComposition")
+    panic!("process-global HTML projector installation was removed; use RuntimeComposition")
 }
 
 pub(crate) fn project_wiki_payload(
@@ -71,17 +25,19 @@ pub(crate) fn project_wiki_payload(
     is_cancelled: &dyn Fn() -> bool,
 ) -> Result<()> {
     #[cfg(test)]
-    crate::ensure_test_runtime();
-
-    #[cfg(any(feature = "legacy-global-runtime", test))]
     {
-        legacy_global::project_wiki_payload(target, snapshot, payload, is_cancelled)
+        return crate::test_runtime::composition().project_wiki(
+            target,
+            snapshot,
+            payload,
+            is_cancelled,
+        );
     }
 
-    #[cfg(not(any(feature = "legacy-global-runtime", test)))]
+    #[cfg(not(test))]
     {
         let _ = (target, snapshot, payload, is_cancelled);
-        bail!("legacy wiki projection is disabled; use RuntimeComposition::project_wiki")
+        bail!("explicit RuntimeComposition is required for wiki projection")
     }
 }
 
@@ -92,16 +48,18 @@ pub(crate) fn project_html_payload(
     is_cancelled: &dyn Fn() -> bool,
 ) -> Result<()> {
     #[cfg(test)]
-    crate::ensure_test_runtime();
-
-    #[cfg(any(feature = "legacy-global-runtime", test))]
     {
-        legacy_global::project_html_payload(target, snapshot, payload, is_cancelled)
+        return crate::test_runtime::composition().project_html(
+            target,
+            snapshot,
+            payload,
+            is_cancelled,
+        );
     }
 
-    #[cfg(not(any(feature = "legacy-global-runtime", test)))]
+    #[cfg(not(test))]
     {
         let _ = (target, snapshot, payload, is_cancelled);
-        bail!("legacy HTML projection is disabled; use RuntimeComposition::project_html")
+        bail!("explicit RuntimeComposition is required for HTML projection")
     }
 }

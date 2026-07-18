@@ -1,7 +1,7 @@
 use std::future::Future;
 use std::path::Path;
 use std::pin::Pin;
-use std::sync::{Arc, Once};
+use std::sync::Arc;
 
 use anyhow::{Result, bail};
 use athanor_checker_api::ApiConsistencyChecker;
@@ -18,13 +18,8 @@ use athanor_linker_rust::RustLinker;
 use athanor_source_fs::LocalFileSystemSource;
 
 use crate::{
-    AdapterPluginKind, AdapterRegistry, AthanorStore, ProjectConfig, RuntimeComposition,
-    StorageMode, install_builtin_adapter_resolver, install_default_adapter_registry,
-    install_html_projector_factory, install_search_index_factory, install_store_factory,
-    install_wiki_projector_factory,
+    AdapterPluginKind, AdapterRegistry, AthanorStore, ProjectConfig, RuntimeComposition, StorageMode,
 };
-
-static INSTALL: Once = Once::new();
 
 pub(crate) fn composition() -> RuntimeComposition {
     RuntimeComposition::new(
@@ -35,17 +30,6 @@ pub(crate) fn composition() -> RuntimeComposition {
         default_wiki_projector,
         default_html_projector,
     )
-}
-
-pub(crate) fn install() {
-    INSTALL.call_once(|| {
-        install_default_adapter_registry(default_adapter_registry);
-        install_builtin_adapter_resolver(resolve_builtin_adapter);
-        install_store_factory(default_store);
-        install_search_index_factory(default_search_index);
-        install_wiki_projector_factory(default_wiki_projector);
-        install_html_projector_factory(default_html_projector);
-    });
 }
 
 fn default_store<'a>(

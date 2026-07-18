@@ -2,69 +2,16 @@ use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use athanor_core::{
-    CanonicalSnapshot, OperationContext, OperationContextCancellation, SearchDocument, SearchIndex,
+    CanonicalSnapshot, OperationContext, SearchDocument, SearchIndex,
 };
 use athanor_domain::Entity;
 
 use super::model::IndexMeta;
-use super::{check_active, legacy_search_index_factory, legacy_search_index_operation_factory};
+use super::check_active;
 
 const SEARCH_REBUILD_POLL_DOCUMENTS: usize = 256;
-
-pub async fn get_or_build_search_index(
-    snapshot: &CanonicalSnapshot,
-    snapshot_id: &str,
-    index_dir: &Path,
-) -> Result<Arc<dyn SearchIndex>> {
-    get_or_build_search_index_sync(snapshot, snapshot_id, index_dir)
-}
-
-pub fn get_or_build_search_index_sync(
-    snapshot: &CanonicalSnapshot,
-    snapshot_id: &str,
-    index_dir: &Path,
-) -> Result<Arc<dyn SearchIndex>> {
-    let Some(factory) = legacy_search_index_factory() else {
-        bail!("legacy search index is disabled; use RuntimeComposition::build_search_index");
-    };
-    get_or_build_search_index_with_factory(snapshot, snapshot_id, index_dir, factory)
-}
-
-pub fn get_or_build_search_index_with_operation_context(
-    snapshot: &CanonicalSnapshot,
-    snapshot_id: &str,
-    index_dir: &Path,
-    operation: &OperationContext,
-) -> Result<Arc<dyn SearchIndex>> {
-    if let Some(factory) = legacy_search_index_operation_factory() {
-        return get_or_build_search_index_with_factory_and_operation(
-            snapshot,
-            snapshot_id,
-            index_dir,
-            operation,
-            factory,
-        );
-    }
-    let Some(factory) = legacy_search_index_factory() else {
-        bail!(
-            "legacy operation-aware search index is disabled; use RuntimeComposition::build_search_index_with_operation_context"
-        );
-    };
-    get_or_build_search_index_with_factory_and_operation(
-        snapshot,
-        snapshot_id,
-        index_dir,
-        operation,
-        |directory, documents, operation| {
-            operation.check_active().map_err(anyhow::Error::new)?;
-            let index = factory(directory, documents)?;
-            operation.check_active().map_err(anyhow::Error::new)?;
-            Ok(index)
-        },
-    )
-}
 
 pub(crate) fn get_or_build_search_index_with_factory(
     snapshot: &CanonicalSnapshot,

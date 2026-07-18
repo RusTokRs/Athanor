@@ -125,7 +125,6 @@ jobs:
           - default
           - store-surreal
           - js-ts-precision
-          - legacy-global-runtime
           - all-features
     env:
       CARGO_TERM_COLOR: always

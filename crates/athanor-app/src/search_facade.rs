@@ -1,35 +1,20 @@
-//! Compatibility facade for optional process-global search-index factories.
+//! Compatibility facade for search APIs that historically used process-global factories.
 //!
-//! Explicit `RuntimeComposition` entrypoints are the default production path.
-//! The `legacy-global-runtime` feature retains no-composition wrappers during
-//! the compatibility window; default builds contain no Search factory state.
+//! Composition-aware APIs are the production path. Unit tests retain the old helper shape by
+//! constructing a fresh local test composition; production no-composition calls fail explicitly.
 
 use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::Result;
+#[cfg(not(test))]
+use anyhow::bail;
 use athanor_core::{CanonicalSnapshot, OperationContext, SearchIndex};
 
-use crate::legacy_factory::{LegacyFactoryInstallError, LegacyFactoryUnavailableError};
 use crate::RuntimeComposition;
 
 #[path = "search.rs"]
 mod core;
-#[cfg(any(feature = "legacy-global-runtime", test))]
-#[path = "search_legacy_global.rs"]
-mod legacy_global;
-#[cfg(not(any(feature = "legacy-global-runtime", test)))]
-mod legacy_global {
-    use super::core::{SearchIndexFactory, SearchIndexOperationFactory};
-
-    pub(super) fn search_index_factory() -> Option<SearchIndexFactory> {
-        None
-    }
-
-    pub(super) fn search_index_operation_factory() -> Option<SearchIndexOperationFactory> {
-        None
-    }
-}
 
 pub use core::{
     SearchIndexFactory, SearchIndexOperationFactory, SearchItem, SearchOmissions, SearchOptions,
@@ -40,80 +25,26 @@ pub(crate) use core::{
     get_or_build_search_index_with_factory_and_operation,
 };
 
-#[cfg(any(feature = "legacy-global-runtime", test))]
-pub fn try_install_search_index_factory(
-    factory: SearchIndexFactory,
-) -> Result<(), LegacyFactoryInstallError> {
-    legacy_global::try_install_search_index_factory(factory)
-}
-
-#[cfg(not(any(feature = "legacy-global-runtime", test)))]
-pub fn try_install_search_index_factory(
-    _factory: SearchIndexFactory,
-) -> Result<(), LegacyFactoryInstallError> {
-    panic!("legacy-global-runtime feature is disabled; use RuntimeComposition")
-}
-
-#[cfg(any(feature = "legacy-global-runtime", test))]
-pub fn install_search_index_factory(factory: SearchIndexFactory) {
-    legacy_global::install_search_index_factory(factory);
-}
-
-#[cfg(not(any(feature = "legacy-global-runtime", test)))]
 pub fn install_search_index_factory(_factory: SearchIndexFactory) {
-    panic!("legacy-global-runtime feature is disabled; use RuntimeComposition")
+    panic!("process-global search-index installation was removed; use RuntimeComposition")
 }
 
-#[cfg(any(feature = "legacy-global-runtime", test))]
-pub fn try_install_search_index_operation_factory(
-    factory: SearchIndexOperationFactory,
-) -> Result<(), LegacyFactoryInstallError> {
-    legacy_global::try_install_search_index_operation_factory(factory)
-}
-
-#[cfg(not(any(feature = "legacy-global-runtime", test)))]
-pub fn try_install_search_index_operation_factory(
-    _factory: SearchIndexOperationFactory,
-) -> Result<(), LegacyFactoryInstallError> {
-    panic!("legacy-global-runtime feature is disabled; use RuntimeComposition")
-}
-
-#[cfg(any(feature = "legacy-global-runtime", test))]
-pub fn install_search_index_operation_factory(factory: SearchIndexOperationFactory) {
-    legacy_global::install_search_index_operation_factory(factory);
-}
-
-#[cfg(not(any(feature = "legacy-global-runtime", test)))]
 pub fn install_search_index_operation_factory(_factory: SearchIndexOperationFactory) {
-    panic!("legacy-global-runtime feature is disabled; use RuntimeComposition")
-}
-
-fn require_legacy_search_index_factory(
-) -> Result<SearchIndexFactory, LegacyFactoryUnavailableError> {
-    legacy_global::search_index_factory().ok_or_else(|| {
-        LegacyFactoryUnavailableError::new(
-            "search index (legacy-global-runtime disabled or not installed)",
-        )
-    })
-}
-
-fn require_any_search_factory() -> Result<(), LegacyFactoryUnavailableError> {
-    if legacy_global::search_index_operation_factory().is_some()
-        || legacy_global::search_index_factory().is_some()
-    {
-        Ok(())
-    } else {
-        Err(LegacyFactoryUnavailableError::new(
-            "search index (legacy-global-runtime disabled or not installed)",
-        ))
-    }
+    panic!("process-global search-index installation was removed; use RuntimeComposition")
 }
 
 pub async fn search_project(options: SearchOptions) -> Result<SearchReport> {
     #[cfg(test)]
-    crate::ensure_test_runtime();
-    require_legacy_search_index_factory().map_err(anyhow::Error::new)?;
-    core::search_project(options).await
+    {
+        let composition = crate::test_runtime::composition();
+        return core::search_project_with_composition(options, &composition).await;
+    }
+
+    #[cfg(not(test))]
+    {
+        let _ = options;
+        bail!("explicit RuntimeComposition is required for project search")
+    }
 }
 
 pub async fn search_project_with_composition(
@@ -128,12 +59,7 @@ pub async fn search_project_with_composition_and_operation_context(
     composition: &RuntimeComposition,
     operation: &OperationContext,
 ) -> Result<SearchReport> {
-    core::search_project_with_composition_and_operation_context(
-        options,
-        composition,
-        operation,
-    )
-    .await
+    core::search_project_with_composition_and_operation_context(options, composition, operation).await
 }
 
 pub async fn search_snapshot_with_composition(
@@ -172,9 +98,23 @@ pub async fn search_snapshot(
     limit: usize,
 ) -> Result<SearchReport> {
     #[cfg(test)]
-    crate::ensure_test_runtime();
-    require_legacy_search_index_factory().map_err(anyhow::Error::new)?;
-    core::search_snapshot(root, snapshot, query, limit).await
+    {
+        let composition = crate::test_runtime::composition();
+        return core::search_snapshot_with_composition(
+            root,
+            snapshot,
+            query,
+            limit,
+            &composition,
+        )
+        .await;
+    }
+
+    #[cfg(not(test))]
+    {
+        let _ = (root, snapshot, query, limit);
+        bail!("explicit RuntimeComposition is required for snapshot search")
+    }
 }
 
 pub async fn search_snapshot_with_operation_context(
@@ -185,9 +125,24 @@ pub async fn search_snapshot_with_operation_context(
     operation: &OperationContext,
 ) -> Result<SearchReport> {
     #[cfg(test)]
-    crate::ensure_test_runtime();
-    require_any_search_factory().map_err(anyhow::Error::new)?;
-    core::search_snapshot_with_operation_context(root, snapshot, query, limit, operation).await
+    {
+        let composition = crate::test_runtime::composition();
+        return core::search_snapshot_with_composition_and_operation_context(
+            root,
+            snapshot,
+            query,
+            limit,
+            &composition,
+            operation,
+        )
+        .await;
+    }
+
+    #[cfg(not(test))]
+    {
+        let _ = (root, snapshot, query, limit, operation);
+        bail!("explicit RuntimeComposition is required for operation-aware snapshot search")
+    }
 }
 
 pub async fn search_snapshot_with_index(
@@ -205,10 +160,7 @@ pub async fn get_or_build_search_index(
     snapshot_id: &str,
     index_dir: &Path,
 ) -> Result<Arc<dyn SearchIndex>> {
-    #[cfg(test)]
-    crate::ensure_test_runtime();
-    require_legacy_search_index_factory().map_err(anyhow::Error::new)?;
-    core::get_or_build_search_index(snapshot, snapshot_id, index_dir).await
+    get_or_build_search_index_sync(snapshot, snapshot_id, index_dir)
 }
 
 pub fn get_or_build_search_index_sync(
@@ -217,9 +169,21 @@ pub fn get_or_build_search_index_sync(
     index_dir: &Path,
 ) -> Result<Arc<dyn SearchIndex>> {
     #[cfg(test)]
-    crate::ensure_test_runtime();
-    require_legacy_search_index_factory().map_err(anyhow::Error::new)?;
-    core::get_or_build_search_index_sync(snapshot, snapshot_id, index_dir)
+    {
+        let composition = crate::test_runtime::composition();
+        return core::get_or_build_search_index_with_factory(
+            snapshot,
+            snapshot_id,
+            index_dir,
+            |directory, documents| composition.build_search_index(directory, documents),
+        );
+    }
+
+    #[cfg(not(test))]
+    {
+        let _ = (snapshot, snapshot_id, index_dir);
+        bail!("explicit RuntimeComposition is required to build a search index")
+    }
 }
 
 pub fn get_or_build_search_index_with_operation_context(
@@ -229,12 +193,26 @@ pub fn get_or_build_search_index_with_operation_context(
     operation: &OperationContext,
 ) -> Result<Arc<dyn SearchIndex>> {
     #[cfg(test)]
-    crate::ensure_test_runtime();
-    require_any_search_factory().map_err(anyhow::Error::new)?;
-    core::get_or_build_search_index_with_operation_context(
-        snapshot,
-        snapshot_id,
-        index_dir,
-        operation,
-    )
+    {
+        let composition = crate::test_runtime::composition();
+        return core::get_or_build_search_index_with_factory_and_operation(
+            snapshot,
+            snapshot_id,
+            index_dir,
+            operation,
+            |directory, documents, operation| {
+                composition.build_search_index_with_operation_context(
+                    directory,
+                    documents,
+                    operation,
+                )
+            },
+        );
+    }
+
+    #[cfg(not(test))]
+    {
+        let _ = (snapshot, snapshot_id, index_dir, operation);
+        bail!("explicit RuntimeComposition is required for operation-aware search indexing")
+    }
 }

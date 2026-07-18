@@ -46,4 +46,3 @@ js-ts-precision = [
     "athanor-app/js-ts-precision",
     "athanor-extractor-js-ts/precision-parser",
 ]
-legacy-global-runtime = ["athanor-app/legacy-global-runtime"]

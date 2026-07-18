@@ -3,6 +3,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{Context, Result};
+#[cfg(not(test))]
+use anyhow::bail;
 use athanor_core::{CoreResult, SourceFile, SourceProvider};
 use athanor_domain::{Diagnostic, RepoId, SnapshotBase, SnapshotId};
 use serde::Serialize;
@@ -38,19 +40,29 @@ pub struct ChangedValidationReport {
 pub async fn validate_changed(
     options: ChangedValidationOptions,
 ) -> Result<ChangedValidationReport> {
-    validate_changed_inner(options, None).await
+    #[cfg(test)]
+    {
+        let composition = crate::test_runtime::composition();
+        return validate_changed_with_composition(options, &composition).await;
+    }
+
+    #[cfg(not(test))]
+    {
+        let _ = options;
+        bail!("explicit RuntimeComposition is required for changed-file validation")
+    }
 }
 
 pub async fn validate_changed_with_composition(
     options: ChangedValidationOptions,
     composition: &RuntimeComposition,
 ) -> Result<ChangedValidationReport> {
-    validate_changed_inner(options, Some(composition)).await
+    validate_changed_inner(options, composition).await
 }
 
 async fn validate_changed_inner(
     options: ChangedValidationOptions,
-    composition: Option<&RuntimeComposition>,
+    composition: &RuntimeComposition,
 ) -> Result<ChangedValidationReport> {
     let root = normalize_canonical_path(
         options
@@ -76,11 +88,7 @@ async fn validate_changed_inner(
         }
     }
     let config = load_config(&root)?;
-    let builder = match composition {
-        Some(composition) => RuntimeBuilder::from_composition(&root, composition),
-        None => RuntimeBuilder::new(&root),
-    };
-    let pipeline = builder
+    let pipeline = RuntimeBuilder::from_composition(&root, composition)
         .allow_external_process(config.adapters.allow_external_process)
         .clear_external_process_environment(matches!(
             config.adapters.external_process_sandbox,
