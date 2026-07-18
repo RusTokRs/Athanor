@@ -1,8 +1,7 @@
 //! Compatibility facade for search APIs that still require migration to explicit composition.
 //!
-//! Composition-aware APIs are the production path. Unit tests retain the old helper shape
-//! temporarily by constructing a fresh local test composition; production no-composition calls
-//! fail explicitly.
+//! Composition-aware APIs are the production path. Remaining no-composition snapshot helpers are
+//! retained only until their internal callers migrate in COMP-003C2B2.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -25,20 +24,6 @@ pub(crate) use core::{
     get_or_build_search_index_with_factory,
     get_or_build_search_index_with_factory_and_operation,
 };
-
-pub async fn search_project(options: SearchOptions) -> Result<SearchReport> {
-    #[cfg(test)]
-    {
-        let composition = crate::test_runtime::composition();
-        return core::search_project_with_composition(options, &composition).await;
-    }
-
-    #[cfg(not(test))]
-    {
-        let _ = options;
-        bail!("explicit RuntimeComposition is required for project search")
-    }
-}
 
 pub async fn search_project_with_composition(
     options: SearchOptions,
@@ -146,37 +131,6 @@ pub async fn search_snapshot_with_index(
     index: &dyn SearchIndex,
 ) -> Result<SearchReport> {
     core::search_snapshot_with_index(root, snapshot, query, limit, index).await
-}
-
-pub async fn get_or_build_search_index(
-    snapshot: &CanonicalSnapshot,
-    snapshot_id: &str,
-    index_dir: &Path,
-) -> Result<Arc<dyn SearchIndex>> {
-    get_or_build_search_index_sync(snapshot, snapshot_id, index_dir)
-}
-
-pub fn get_or_build_search_index_sync(
-    snapshot: &CanonicalSnapshot,
-    snapshot_id: &str,
-    index_dir: &Path,
-) -> Result<Arc<dyn SearchIndex>> {
-    #[cfg(test)]
-    {
-        let composition = crate::test_runtime::composition();
-        return core::get_or_build_search_index_with_factory(
-            snapshot,
-            snapshot_id,
-            index_dir,
-            |directory, documents| composition.build_search_index(directory, documents),
-        );
-    }
-
-    #[cfg(not(test))]
-    {
-        let _ = (snapshot, snapshot_id, index_dir);
-        bail!("explicit RuntimeComposition is required to build a search index")
-    }
 }
 
 pub fn get_or_build_search_index_with_operation_context(
