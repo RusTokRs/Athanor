@@ -670,7 +670,6 @@ pub async fn request_daemon(
     request_daemon_transport(&endpoint, &request).await
 }
 
-<<<<<<< HEAD
 pub(crate) async fn execute_request(
     state: Arc<DaemonState>,
     request: DaemonRequest,

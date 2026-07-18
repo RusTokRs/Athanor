@@ -393,6 +393,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "athanor-app",
+ "athanor-core",
  "athanor-domain",
  "athanor-runtime-defaults",
  "athanor-transport-mcp",
@@ -511,6 +512,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "athanor-domain",
+ "futures",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -695,6 +697,7 @@ dependencies = [
  "athanor-domain",
  "serde",
  "serde_json",
+ "tracing",
 ]
 
 [[package]]
