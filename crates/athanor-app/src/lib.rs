@@ -40,6 +40,8 @@ mod daemon_recovery;
 pub mod daemon_runtime;
 mod daemon_watcher;
 mod daemon_write_jobs;
+#[cfg(test)]
+mod daemon_write_job_contract_tests;
 pub mod derived_read_operation;
 pub mod docs;
 pub mod explain;
