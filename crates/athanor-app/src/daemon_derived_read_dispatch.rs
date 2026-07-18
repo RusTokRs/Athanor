@@ -20,8 +20,7 @@ use crate::derived_read_operation::{
     context_project_with_composition_and_operation_context,
 };
 
-/// Intercepts derived read commands before the established operation-aware read dispatcher.
-/// Context and change-map execution require the daemon's explicit runtime composition.
+/// Intercepts derived read commands before the operation-aware read dispatcher.
 pub(crate) async fn execute(
     state: Arc<DaemonState>,
     request: DaemonRequest,
@@ -60,19 +59,13 @@ pub(crate) async fn execute(
                 level,
                 limits,
             };
-            let result = match crate::daemon_queries::composition(&state) {
-                Some(composition) => {
-                    context_project_with_composition_and_operation_context(
-                        options,
-                        &composition,
-                        &operation,
-                    )
-                    .await
-                }
-                None => Err(anyhow::anyhow!(
-                    "daemon runtime composition is unavailable"
-                )),
-            };
+            let composition = crate::daemon_queries::composition(&state);
+            let result = context_project_with_composition_and_operation_context(
+                options,
+                &composition,
+                &operation,
+            )
+            .await;
             finish_read(&state, &request_id, &job_id, result)
         }
         DaemonCommand::ChangeMap {
@@ -105,22 +98,16 @@ pub(crate) async fn execute(
                 max_diagnostics,
                 max_depth,
             };
-            let result = match crate::daemon_queries::composition(&state) {
-                Some(composition) => {
-                    within_operation_deadline(
-                        &operation,
-                        change_map_project_with_composition_and_operation_context(
-                            options,
-                            &composition,
-                            &operation,
-                        ),
-                    )
-                    .await
-                }
-                None => Err(anyhow::anyhow!(
-                    "daemon runtime composition is unavailable"
-                )),
-            };
+            let composition = crate::daemon_queries::composition(&state);
+            let result = within_operation_deadline(
+                &operation,
+                change_map_project_with_composition_and_operation_context(
+                    options,
+                    &composition,
+                    &operation,
+                ),
+            )
+            .await;
             finish_read(&state, &request_id, &job_id, result)
         }
         _ => unreachable!("derived read predicate and dispatch match diverged"),

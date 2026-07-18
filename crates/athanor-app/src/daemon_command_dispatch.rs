@@ -58,7 +58,7 @@ pub(crate) async fn execute(
     }
     if lifecycle(&state) != DaemonLifecycleState::Running
         && !matches!(
-            request.command,
+            &request.command,
             DaemonCommand::Status | DaemonCommand::Jobs { .. } | DaemonCommand::Job { .. }
         )
     {
@@ -92,14 +92,18 @@ pub(crate) async fn execute(
                         .lock()
                         .ok()
                         .and_then(|snapshot| snapshot.clone()),
-                    "endpoint": state.endpoint,
+                    "endpoint": &state.endpoint,
                 }),
             ),
             false,
         ),
         DaemonCommand::Jobs { limit } => {
             if limit == 0 || limit > 100 {
-                return invalid_input(&state, &request.request_id, "jobs limit must be between 1 and 100");
+                return invalid_input(
+                    &state,
+                    &request.request_id,
+                    "jobs limit must be between 1 and 100",
+                );
             }
             match list_daemon_jobs(&state, limit) {
                 Ok(report) => (
@@ -192,7 +196,11 @@ pub(crate) async fn execute(
         }
         DaemonCommand::Generate { deadline_unix_ms } => {
             if has_active(&state, DaemonJobKind::Generate).unwrap_or(false) {
-                return busy(&state, &request.request_id, "generate job is already queued or running");
+                return busy(
+                    &state,
+                    &request.request_id,
+                    "generate job is already queued or running",
+                );
             }
             match crate::daemon_write_jobs::start_generate(
                 &state,
@@ -205,7 +213,11 @@ pub(crate) async fn execute(
         }
         DaemonCommand::Wiki { deadline_unix_ms } => {
             if has_active(&state, DaemonJobKind::Wiki).unwrap_or(false) {
-                return busy(&state, &request.request_id, "wiki job is already queued or running");
+                return busy(
+                    &state,
+                    &request.request_id,
+                    "wiki job is already queued or running",
+                );
             }
             match crate::daemon_write_jobs::start_wiki(
                 &state,

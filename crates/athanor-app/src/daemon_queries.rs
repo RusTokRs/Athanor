@@ -40,8 +40,7 @@ pub(crate) async fn latest_snapshot_with_operation_context(
     let root = &state.endpoint.root;
     let config = load_config(root)?;
     check_active(operation)?;
-    let composition = composition(state)
-        .ok_or_else(|| anyhow::anyhow!("daemon runtime composition is unavailable"))?;
+    let composition = composition(state);
     let store = composition.init_store(root, &config).await?;
     let snapshot = store
         .load_latest_snapshot_with_operation_context(operation)
@@ -62,7 +61,7 @@ pub(crate) async fn latest_snapshot_with_operation_context(
     Ok(snapshot)
 }
 
-pub(crate) fn composition(state: &DaemonState) -> Option<RuntimeComposition> {
+pub(crate) fn composition(state: &DaemonState) -> RuntimeComposition {
     state.composition.clone()
 }
 
@@ -309,8 +308,7 @@ fn search_index_with_operation_context(
         .endpoint
         .root
         .join(".athanor/generated/current/search");
-    let composition = composition(state)
-        .ok_or_else(|| anyhow::anyhow!("daemon runtime composition is unavailable"))?;
+    let composition = composition(state);
     let index = get_or_build_search_index_with_factory_and_operation(
         snapshot,
         &snapshot_id,

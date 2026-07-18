@@ -1,14 +1,13 @@
 use std::path::PathBuf;
 
-use crate::config::load_config;
-use crate::store::init_store;
 use anyhow::{Context, Result, bail};
 use athanor_core::{CanonicalSnapshotStore, OperationContext};
 use serde::Serialize;
 use serde_json::json;
 
+use crate::config::load_config;
 use crate::project_path::normalize_canonical_path;
-use crate::projection::{WIKI_PROJECTION_SCHEMA, project_wiki_payload};
+use crate::projection::WIKI_PROJECTION_SCHEMA;
 use crate::{CancellationToken, RuntimeComposition};
 
 pub const WIKI_REPORT_SCHEMA: &str = "athanor.wiki_report.v1";
@@ -31,18 +30,7 @@ pub struct WikiReport {
     pub open_diagnostics: usize,
 }
 
-pub async fn project_wiki(options: WikiOptions) -> Result<WikiReport> {
-    project_wiki_inner(options, None, None, OperationContext::new("wiki")).await
-}
-
-/// Projects the wiki with transport-neutral operation metadata.
-pub async fn project_wiki_with_operation_context(
-    options: WikiOptions,
-    operation: OperationContext,
-) -> Result<WikiReport> {
-    project_wiki_inner(options, None, None, operation).await
-}
-
+/// Projects the wiki with explicitly supplied runtime dependencies.
 pub async fn project_wiki_with_composition(
     options: WikiOptions,
     composition: &RuntimeComposition,
@@ -50,23 +38,19 @@ pub async fn project_wiki_with_composition(
     project_wiki_inner(
         options,
         None,
-        Some(composition),
+        composition,
         OperationContext::new("wiki"),
     )
     .await
 }
 
-pub async fn project_wiki_cancellable(
+/// Projects the wiki with explicit runtime dependencies and operation metadata.
+pub async fn project_wiki_with_composition_and_operation_context(
     options: WikiOptions,
-    cancellation: CancellationToken,
+    composition: &RuntimeComposition,
+    operation: OperationContext,
 ) -> Result<WikiReport> {
-    project_wiki_inner(
-        options,
-        Some(cancellation),
-        None,
-        OperationContext::new("wiki"),
-    )
-    .await
+    project_wiki_inner(options, None, composition, operation).await
 }
 
 /// Projects the wiki with explicit dependencies and cooperative cancellation.
@@ -78,7 +62,7 @@ pub async fn project_wiki_cancellable_with_composition(
     project_wiki_inner(
         options,
         Some(cancellation),
-        Some(composition),
+        composition,
         OperationContext::new("wiki"),
     )
     .await
@@ -91,22 +75,13 @@ pub async fn project_wiki_cancellable_with_composition_and_operation_context(
     composition: &RuntimeComposition,
     operation: OperationContext,
 ) -> Result<WikiReport> {
-    project_wiki_inner(options, Some(cancellation), Some(composition), operation).await
-}
-
-/// Cancellable wiki projection with explicit operation metadata.
-pub async fn project_wiki_cancellable_with_operation_context(
-    options: WikiOptions,
-    cancellation: CancellationToken,
-    operation: OperationContext,
-) -> Result<WikiReport> {
-    project_wiki_inner(options, Some(cancellation), None, operation).await
+    project_wiki_inner(options, Some(cancellation), composition, operation).await
 }
 
 async fn project_wiki_inner(
     options: WikiOptions,
     cancellation: Option<CancellationToken>,
-    composition: Option<&RuntimeComposition>,
+    composition: &RuntimeComposition,
     operation: OperationContext,
 ) -> Result<WikiReport> {
     check_cancelled(&cancellation)?;
@@ -128,10 +103,7 @@ async fn project_wiki_inner(
         })
         .unwrap_or_else(|| root.join(".athanor/generated/current/wiki"));
     let config = load_config(&root)?;
-    let store = match composition {
-        Some(composition) => composition.init_store(&root, &config).await?,
-        None => init_store(&root, &config).await?,
-    };
+    let store = composition.init_store(&root, &config).await?;
     let snapshot = store
         .load_latest_snapshot()
         .await
@@ -174,14 +146,10 @@ async fn project_wiki_inner(
             .is_some_and(CancellationToken::is_cancelled)
             || operation.check_deadline().is_err()
     };
-    let projection = match composition {
-        Some(composition) => {
-            composition.project_wiki(&output_dir, &snapshot_id.0, payload, &is_cancelled)
-        }
-        None => project_wiki_payload(&output_dir, &snapshot_id.0, payload, &is_cancelled),
-    };
+    composition
+        .project_wiki(&output_dir, &snapshot_id.0, payload, &is_cancelled)
+        .context("failed to project Markdown wiki")?;
     operation.check_deadline()?;
-    projection.context("failed to project Markdown wiki")?;
 
     Ok(report)
 }
@@ -227,11 +195,15 @@ mod tests {
             .await
             .unwrap();
         store.commit_snapshot(snapshot.clone()).await.unwrap();
+        let composition = crate::test_runtime::composition();
 
-        let report = project_wiki(WikiOptions {
-            root: root.clone(),
-            output: None,
-        })
+        let report = project_wiki_with_composition(
+            WikiOptions {
+                root: root.clone(),
+                output: None,
+            },
+            &composition,
+        )
         .await
         .unwrap();
 
@@ -253,11 +225,15 @@ mod tests {
                 .as_nanos()
         ));
         fs::create_dir_all(&root).unwrap();
+        let composition = crate::test_runtime::composition();
 
-        let error = project_wiki(WikiOptions {
-            root: root.clone(),
-            output: None,
-        })
+        let error = project_wiki_with_composition(
+            WikiOptions {
+                root: root.clone(),
+                output: None,
+            },
+            &composition,
+        )
         .await
         .unwrap_err();
 

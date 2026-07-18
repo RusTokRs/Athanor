@@ -2,53 +2,12 @@ use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use athanor_core::{
-    CanonicalSnapshot, CanonicalSnapshotStoreOperationExt, OperationContext,
-    OperationContextCancellation, SearchIndex, SearchIndexOperationExt, SearchQuery,
+    CanonicalSnapshot, OperationContext, OperationContextCancellation, SearchIndex,
+    SearchIndexOperationExt, SearchQuery,
 };
 use athanor_domain::Entity;
 
-use crate::config::load_config;
-use crate::project_path::normalize_canonical_path;
-use crate::search::{
-    SearchItem, SearchOmissions, SearchOptions, SearchReport,
-    search_snapshot_with_operation_context,
-};
-use crate::store::init_store;
-
-/// Loads the committed project snapshot and executes Search under one operation context.
-pub async fn search_project_with_operation_context(
-    options: SearchOptions,
-    operation: &OperationContext,
-) -> Result<SearchReport> {
-    operation.check_active().map_err(anyhow::Error::new)?;
-    if options.query.trim().is_empty() {
-        bail!("search query must not be empty");
-    }
-    if options.limit == 0 {
-        bail!("search limit must be greater than zero");
-    }
-    let root = normalize_canonical_path(
-        options
-            .root
-            .canonicalize()
-            .with_context(|| format!("failed to canonicalize {}", options.root.display()))?,
-    );
-    let config = load_config(&root)?;
-    let store = init_store(&root, &config).await?;
-    let snapshot = store
-        .load_latest_snapshot_with_operation_context(operation)
-        .await
-        .context("failed to load latest canonical snapshot")?
-        .ok_or_else(|| anyhow::anyhow!("no canonical snapshot found; run `ath index` first"))?;
-    search_snapshot_with_operation_context(
-        &root,
-        &snapshot,
-        options.query,
-        options.limit,
-        operation,
-    )
-    .await
-}
+use crate::search::{SearchItem, SearchOmissions, SearchReport};
 
 /// Queries an already-built index under the shared operation cancellation/deadline contract.
 pub async fn search_snapshot_with_index_and_operation_context(

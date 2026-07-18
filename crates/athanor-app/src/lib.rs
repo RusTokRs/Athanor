@@ -34,10 +34,14 @@ mod daemon_operation;
 mod daemon_protocol;
 mod daemon_queries;
 mod daemon_read_dispatch;
+#[cfg(test)]
+mod daemon_read_dispatch_tests;
 mod daemon_recovery;
 pub mod daemon_runtime;
 mod daemon_watcher;
 mod daemon_write_jobs;
+#[cfg(test)]
+mod daemon_write_job_contract_tests;
 pub mod derived_read_operation;
 pub mod docs;
 pub mod explain;
@@ -104,7 +108,6 @@ mod rustok_audit_cooperative;
 pub mod rustok_composition_operation;
 mod rustok_graph_cooperative;
 pub mod rustok_json_contract;
-pub mod rustok_operation;
 #[path = "search_facade.rs"]
 pub mod search;
 pub mod search_operation;
@@ -119,11 +122,9 @@ pub mod wiki;
 /// Stable indexing-facing application API.
 pub mod indexing {
     pub use crate::index::{
-        IndexOptions, IndexReport, IndexReportMetrics, index_project, index_project_cancellable,
-        index_project_cancellable_with_composition,
+        IndexOptions, IndexReport, IndexReportMetrics, index_project_cancellable_with_composition,
         index_project_cancellable_with_composition_and_operation_context,
-        index_project_cancellable_with_operation_context, index_project_with_composition,
-        index_project_with_operation_context,
+        index_project_with_composition, index_project_with_composition_and_operation_context,
     };
     pub use crate::invalidation::*;
     pub use crate::pipeline::{IndexPipeline, IndexPipelineMetrics, IndexPipelineOutput};
@@ -154,7 +155,6 @@ pub mod query {
     pub use crate::overview::*;
     pub use crate::rustok_composition_operation::*;
     pub use crate::rustok_json_contract::*;
-    pub use crate::rustok_operation::*;
     pub use crate::search::*;
     pub use crate::search_operation::*;
 }
@@ -212,7 +212,6 @@ pub use runtime::*;
 pub use rustok_architecture::*;
 pub use rustok_composition_operation::*;
 pub use rustok_json_contract::*;
-pub use rustok_operation::*;
 pub use search::*;
 pub use search_operation::*;
 pub use store::*;

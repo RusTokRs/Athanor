@@ -2,15 +2,10 @@ use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
 
-use anyhow::{Context, Result, bail};
-use athanor_core::{CanonicalSnapshot, CanonicalSnapshotStore};
-use athanor_domain::{ContextLevel, DiagnosticStatus, Entity, EntityId, EntityKind, Relation};
+use anyhow::{Result, bail};
+use athanor_core::CanonicalSnapshot;
+use athanor_domain::{DiagnosticStatus, Entity, EntityId, EntityKind, Relation};
 use serde::{Deserialize, Serialize};
-
-use crate::config::load_config;
-use crate::context::{ContextLimitOverrides, ContextOptions, context_project};
-use crate::project_path::normalize_canonical_path;
-use crate::store::init_store;
 
 pub const RUSTOK_ARCHITECTURE_CONTEXT_SCHEMA: &str = "athanor.rustok_architecture_context.v1";
 
@@ -119,59 +114,6 @@ pub struct RustokArchitectureOmitted {
     pub contracts: usize,
     pub interactions: usize,
     pub evidence: usize,
-}
-
-pub async fn rustok_architecture_context(
-    options: RustokArchitectureContextOptions,
-) -> Result<RustokArchitectureContext> {
-    if options.intent.trim().is_empty() && options.module.is_none() {
-        bail!("Rustok architecture context requires an intent or module");
-    }
-    validate_limits(&options)?;
-
-    let root = normalize_canonical_path(
-        options
-            .root
-            .canonicalize()
-            .with_context(|| format!("failed to canonicalize {}", options.root.display()))?,
-    );
-    let task = match &options.module {
-        Some(module) if options.intent.trim().is_empty() => format!("RusTok module {module}"),
-        Some(module) => format!("{} RusTok module {module}", options.intent),
-        None => options.intent.clone(),
-    };
-    let context = context_project(ContextOptions {
-        root: root.clone(),
-        task,
-        diff: false,
-        level: ContextLevel::Normal,
-        limits: ContextLimitOverrides {
-            max_tokens: Some(12_000),
-            max_files: Some(24),
-            max_entities: Some(48),
-            max_diagnostics: Some(24),
-            max_depth: Some(2),
-        },
-    })
-    .await?;
-    let config = load_config(&root)?;
-    let store = init_store(&root, &config).await?;
-    let snapshot = store
-        .load_latest_snapshot()
-        .await
-        .context("failed to load latest canonical snapshot")?
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "no canonical snapshot found; run `ath index {}` first",
-                root.display()
-            )
-        })?;
-
-    Ok(build_rustok_architecture_context(
-        &snapshot,
-        &options,
-        &context.entities,
-    ))
 }
 
 pub fn build_rustok_architecture_context(

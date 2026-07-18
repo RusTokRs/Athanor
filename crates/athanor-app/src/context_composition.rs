@@ -88,24 +88,6 @@ pub struct ContextOptions {
     pub limits: ContextLimitOverrides,
 }
 
-/// Temporary compatibility edge for callers not yet migrated to explicit composition.
-///
-/// Production callers must use [`context_project_with_composition`]. Unit tests keep a local,
-/// state-free composition until their call sites migrate in the next cleanup slice.
-pub async fn context_project(options: ContextOptions) -> Result<ContextPack> {
-    #[cfg(test)]
-    {
-        let composition = crate::test_runtime::composition();
-        return context_project_with_composition(options, &composition).await;
-    }
-
-    #[cfg(not(test))]
-    {
-        let _ = options;
-        bail!("explicit RuntimeComposition is required for context generation")
-    }
-}
-
 /// Builds an agent context pack with explicitly supplied runtime dependencies.
 pub async fn context_project_with_composition(
     options: ContextOptions,
