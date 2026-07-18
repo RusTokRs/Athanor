@@ -7,6 +7,7 @@ const CHANGE_MAP_RANKING_SOURCE: &str = include_str!("../src/change_map/ranking.
 const CHANGE_MAP_EVIDENCE_SOURCE: &str = include_str!("../src/change_map/evidence.rs");
 const CHANGE_MAP_TESTS_SOURCE: &str = include_str!("../src/change_map/tests.rs");
 const EXPLAIN_SOURCE: &str = include_str!("../src/explain.rs");
+const API_REGISTRY_SOURCE: &str = include_str!("../src/api_registry.rs");
 
 #[test]
 fn operation_aware_search_compatibility_apis_are_removed() {
@@ -98,6 +99,21 @@ fn explain_owner_requires_explicit_composition() {
 }
 
 #[test]
+fn api_registry_requires_explicit_composition() {
+    assert!(API_REGISTRY_SOURCE.contains(
+        "pub async fn query_api_registry_with_composition("
+    ));
+    assert!(API_REGISTRY_SOURCE.contains("composition: &RuntimeComposition"));
+    assert!(API_REGISTRY_SOURCE.contains("composition.init_store(&root, &config)"));
+    assert!(API_REGISTRY_SOURCE.contains("crate::test_runtime::composition()"));
+
+    assert!(!API_REGISTRY_SOURCE.contains("pub async fn query_api_registry("));
+    assert!(!API_REGISTRY_SOURCE.contains("crate::store::init_store"));
+    assert!(!API_REGISTRY_SOURCE.contains("Option<&RuntimeComposition>"));
+    assert!(!API_REGISTRY_SOURCE.contains("match composition"));
+}
+
+#[test]
 fn read_service_modules_remain_bounded() {
     for (name, source, max_lines) in [
         ("ChangeMap root", CHANGE_MAP_ROOT_SOURCE, 30),
@@ -107,6 +123,7 @@ fn read_service_modules_remain_bounded() {
         ("ChangeMap evidence", CHANGE_MAP_EVIDENCE_SOURCE, 100),
         ("ChangeMap tests", CHANGE_MAP_TESTS_SOURCE, 680),
         ("Search facade", SEARCH_FACADE_SOURCE, 100),
+        ("API registry", API_REGISTRY_SOURCE, 300),
     ] {
         let lines = source.lines().count();
         assert!(lines <= max_lines, "{name} grew to {lines} lines");
