@@ -12,6 +12,7 @@ const STORE_CORE_SOURCE: &str = include_str!("../src/store.rs");
 const SEARCH_FACADE_SOURCE: &str = include_str!("../src/search_facade.rs");
 const SEARCH_CORE_SOURCE: &str = include_str!("../src/search.rs");
 const SEARCH_INDEX_SOURCE: &str = include_str!("../src/search/index.rs");
+const VALIDATE_CHANGED_SOURCE: &str = include_str!("../src/validate_changed.rs");
 const TEST_RUNTIME_SOURCE: &str = include_str!("../src/test_runtime.rs");
 const COMPOSITION_ISOLATION_SOURCE: &str = include_str!("composition_isolation.rs");
 const APPLICATION_COMPOSITION_SOURCE: &str =
@@ -105,7 +106,20 @@ fn installer_apis_are_removed_from_public_runtime_sources() {
     assert!(!APP_LIB_SOURCE.contains("install_wiki_projector_factory"));
     assert!(!APP_LIB_SOURCE.contains("install_html_projector_factory"));
     assert!(MIGRATION_DOC.contains("COMP-003C2A"));
-    assert!(MIGRATION_DOC.contains("COMP-003C2B"));
+}
+
+#[test]
+fn dead_no_composition_wrappers_are_removed() {
+    assert!(!VALIDATE_CHANGED_SOURCE.contains("pub async fn validate_changed("));
+    assert!(VALIDATE_CHANGED_SOURCE.contains("pub async fn validate_changed_with_composition("));
+
+    assert!(!SEARCH_FACADE_SOURCE.contains("pub async fn search_project("));
+    assert!(SEARCH_FACADE_SOURCE.contains("pub async fn search_project_with_composition("));
+    assert!(!SEARCH_FACADE_SOURCE.contains("pub async fn get_or_build_search_index("));
+    assert!(!SEARCH_FACADE_SOURCE.contains("pub fn get_or_build_search_index_sync("));
+
+    assert!(MIGRATION_DOC.contains("COMP-003C2B1"));
+    assert!(MIGRATION_DOC.contains("COMP-003C2B2"));
 }
 
 #[test]
@@ -138,9 +152,10 @@ fn composition_boundary_modules_remain_bounded() {
         ("projection facade", PROJECTION_SOURCE, 100),
         ("store facade", STORE_FACADE_SOURCE, 60),
         ("store core", STORE_CORE_SOURCE, 220),
-        ("search facade", SEARCH_FACADE_SOURCE, 260),
+        ("search facade", SEARCH_FACADE_SOURCE, 200),
         ("search core", SEARCH_CORE_SOURCE, 300),
         ("search index", SEARCH_INDEX_SOURCE, 160),
+        ("validate changed", VALIDATE_CHANGED_SOURCE, 300),
         ("test runtime", TEST_RUNTIME_SOURCE, 180),
         ("composition isolation", COMPOSITION_ISOLATION_SOURCE, 320),
     ] {
