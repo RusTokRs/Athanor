@@ -198,7 +198,7 @@ async fn exercise(composition: RuntimeComposition, root: PathBuf, owner: &'stati
             .unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, owner);
-        assert_eq!(results[0].payload["owner"], owner);
+        assert_eq!(results[0].payload["owner"].as_str(), Some(owner));
 
         let wiki = root.join(format!("wiki-{iteration}"));
         let html = root.join(format!("html-{iteration}"));
