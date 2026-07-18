@@ -11,13 +11,9 @@ use crate::daemon_operation::context as operation_context;
 use crate::{
     GenerationOptions, GenerationReport, HtmlReport, HtmlReportOptions, IndexOptions, IndexReport,
     WikiOptions, WikiReport, generate_project_cancellable_with_composition_and_operation_context,
-    generate_project_cancellable_with_operation_context,
     index_project_cancellable_with_composition_and_operation_context,
-    index_project_cancellable_with_operation_context,
     project_html_report_cancellable_with_composition_and_operation_context,
-    project_html_report_cancellable_with_operation_context,
     project_wiki_cancellable_with_composition_and_operation_context,
-    project_wiki_cancellable_with_operation_context,
 };
 
 pub(crate) fn start_index(
@@ -28,13 +24,13 @@ pub(crate) fn start_index(
     if crate::daemon_job_state::has_active(state, DaemonJobKind::Index)? {
         anyhow::bail!("index job is already queued or running");
     }
+    let composition = required_composition(state)?;
     let (job_id, cancellation) =
         start_cancellable_with_operation(state, DaemonJobKind::Index, description, &operation)?;
     let mut job = get_daemon_job(state, &job_id)?;
     let job_state = Arc::clone(state);
     let job_id_for_task = job_id.clone();
     let root = state.endpoint.root.clone();
-    let composition = crate::daemon_queries::composition(state);
     if let Err(error) = std::thread::Builder::new()
         .name(format!("athd-index-{job_id_for_task}"))
         .spawn(move || {
@@ -53,25 +49,13 @@ pub(crate) fn start_index(
                             validation_result: None,
                             validate_only: false,
                         };
-                        match composition {
-                            Some(composition) => {
-                                index_project_cancellable_with_composition_and_operation_context(
-                                    options,
-                                    cancellation,
-                                    &composition,
-                                    operation,
-                                )
-                                .await
-                            }
-                            None => {
-                                index_project_cancellable_with_operation_context(
-                                    options,
-                                    cancellation,
-                                    operation,
-                                )
-                                .await
-                            }
-                        }
+                        index_project_cancellable_with_composition_and_operation_context(
+                            options,
+                            cancellation,
+                            &composition,
+                            operation,
+                        )
+                        .await
                     })
                 });
             match result {
@@ -120,6 +104,7 @@ pub(crate) fn start_generate(
     request_id: &str,
     deadline_unix_ms: Option<u64>,
 ) -> Result<Option<DaemonJob>> {
+    let composition = required_composition(state)?;
     let operation = operation_context("generate", request_id, deadline_unix_ms);
     let (job_id, cancellation) = start_cancellable_with_operation(
         state,
@@ -131,7 +116,6 @@ pub(crate) fn start_generate(
     let job_state = Arc::clone(state);
     let job_id_for_task = job_id.clone();
     let root = state.endpoint.root.clone();
-    let composition = crate::daemon_queries::composition(state);
     if let Err(error) = std::thread::Builder::new()
         .name(format!("athd-generate-{job_id_for_task}"))
         .spawn(move || {
@@ -145,25 +129,13 @@ pub(crate) fn start_generate(
                 .and_then(|runtime| {
                     runtime.block_on(async move {
                         let options = GenerationOptions { root, force: false };
-                        match composition {
-                            Some(composition) => {
-                                generate_project_cancellable_with_composition_and_operation_context(
-                                    options,
-                                    cancellation,
-                                    &composition,
-                                    operation,
-                                )
-                                .await
-                            }
-                            None => {
-                                generate_project_cancellable_with_operation_context(
-                                    options,
-                                    cancellation,
-                                    operation,
-                                )
-                                .await
-                            }
-                        }
+                        generate_project_cancellable_with_composition_and_operation_context(
+                            options,
+                            cancellation,
+                            &composition,
+                            operation,
+                        )
+                        .await
                     })
                 });
             match result {
@@ -206,6 +178,7 @@ pub(crate) fn start_html_report(
     request_id: &str,
     deadline_unix_ms: Option<u64>,
 ) -> Result<Option<DaemonJob>> {
+    let composition = required_composition(state)?;
     let operation = operation_context("html_report", request_id, deadline_unix_ms);
     let (job_id, cancellation) = start_cancellable_with_operation(
         state,
@@ -217,7 +190,6 @@ pub(crate) fn start_html_report(
     let job_state = Arc::clone(state);
     let job_id_for_task = job_id.clone();
     let root = state.endpoint.root.clone();
-    let composition = crate::daemon_queries::composition(state);
     if let Err(error) = std::thread::Builder::new()
         .name(format!("athd-html-report-{job_id_for_task}"))
         .spawn(move || {
@@ -231,25 +203,13 @@ pub(crate) fn start_html_report(
                 .and_then(|runtime| {
                     runtime.block_on(async move {
                         let options = HtmlReportOptions { root, output: None };
-                        match composition {
-                            Some(composition) => {
-                                project_html_report_cancellable_with_composition_and_operation_context(
-                                    options,
-                                    cancellation,
-                                    &composition,
-                                    operation,
-                                )
-                                .await
-                            }
-                            None => {
-                                project_html_report_cancellable_with_operation_context(
-                                    options,
-                                    cancellation,
-                                    operation,
-                                )
-                                .await
-                            }
-                        }
+                        project_html_report_cancellable_with_composition_and_operation_context(
+                            options,
+                            cancellation,
+                            &composition,
+                            operation,
+                        )
+                        .await
                     })
                 });
             match result {
@@ -292,6 +252,7 @@ pub(crate) fn start_wiki(
     request_id: &str,
     deadline_unix_ms: Option<u64>,
 ) -> Result<Option<DaemonJob>> {
+    let composition = required_composition(state)?;
     let operation = operation_context("wiki", request_id, deadline_unix_ms);
     let (job_id, cancellation) = start_cancellable_with_operation(
         state,
@@ -303,7 +264,6 @@ pub(crate) fn start_wiki(
     let job_state = Arc::clone(state);
     let job_id_for_task = job_id.clone();
     let root = state.endpoint.root.clone();
-    let composition = crate::daemon_queries::composition(state);
     if let Err(error) = std::thread::Builder::new()
         .name(format!("athd-wiki-{job_id_for_task}"))
         .spawn(move || {
@@ -317,25 +277,13 @@ pub(crate) fn start_wiki(
                 .and_then(|runtime| {
                     runtime.block_on(async move {
                         let options = WikiOptions { root, output: None };
-                        match composition {
-                            Some(composition) => {
-                                project_wiki_cancellable_with_composition_and_operation_context(
-                                    options,
-                                    cancellation,
-                                    &composition,
-                                    operation,
-                                )
-                                .await
-                            }
-                            None => {
-                                project_wiki_cancellable_with_operation_context(
-                                    options,
-                                    cancellation,
-                                    operation,
-                                )
-                                .await
-                            }
-                        }
+                        project_wiki_cancellable_with_composition_and_operation_context(
+                            options,
+                            cancellation,
+                            &composition,
+                            operation,
+                        )
+                        .await
                     })
                 });
             match result {
@@ -371,6 +319,11 @@ pub(crate) fn start_wiki(
 
 fn wiki_job_result(report: &WikiReport) -> Result<serde_json::Value> {
     serialize_job_result(report)
+}
+
+fn required_composition(state: &DaemonState) -> Result<crate::RuntimeComposition> {
+    crate::daemon_queries::composition(state)
+        .ok_or_else(|| anyhow::anyhow!("daemon runtime composition is unavailable"))
 }
 
 fn serialize_job_result<T: Serialize>(report: &T) -> Result<serde_json::Value> {
