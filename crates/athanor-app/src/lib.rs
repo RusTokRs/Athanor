@@ -34,6 +34,8 @@ mod daemon_operation;
 mod daemon_protocol;
 mod daemon_queries;
 mod daemon_read_dispatch;
+#[cfg(test)]
+mod daemon_read_dispatch_tests;
 mod daemon_recovery;
 pub mod daemon_runtime;
 mod daemon_watcher;
