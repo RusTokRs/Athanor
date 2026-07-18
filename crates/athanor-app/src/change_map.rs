@@ -18,8 +18,7 @@ use crate::index_state::IndexStateStore;
 use crate::json_contract::CHANGE_MAP_SCHEMA_V1;
 use crate::local_source::discover_source_files;
 use crate::project_path::normalize_canonical_path;
-use crate::search::search_snapshot;
-use crate::store::init_store;
+use crate::search::search_snapshot_with_composition;
 
 const DEFAULT_MAX_CANDIDATES: usize = 5_000;
 
@@ -168,21 +167,17 @@ struct PathLink {
     to: EntityId,
 }
 
-pub async fn change_map_project(options: ChangeMapOptions) -> Result<ChangeMapReport> {
-    change_map_project_inner(options, None).await
-}
-
 /// Builds a bounded change map with explicitly supplied runtime dependencies.
 pub async fn change_map_project_with_composition(
     options: ChangeMapOptions,
     composition: &RuntimeComposition,
 ) -> Result<ChangeMapReport> {
-    change_map_project_inner(options, Some(composition)).await
+    change_map_project_inner(options, composition).await
 }
 
 async fn change_map_project_inner(
     options: ChangeMapOptions,
-    composition: Option<&RuntimeComposition>,
+    composition: &RuntimeComposition,
 ) -> Result<ChangeMapReport> {
     validate_options(&options)?;
     let root = normalize_canonical_path(
@@ -192,10 +187,7 @@ async fn change_map_project_inner(
             .with_context(|| format!("failed to canonicalize {}", options.root.display()))?,
     );
     let config = load_config(&root)?;
-    let store = match composition {
-        Some(composition) => composition.init_store(&root, &config).await?,
-        None => init_store(&root, &config).await?,
-    };
+    let store = composition.init_store(&root, &config).await?;
     let snapshot = store
         .load_latest_snapshot()
         .await
@@ -245,7 +237,14 @@ async fn change_map_project_inner(
         .filter(|task| !task.trim().is_empty())
     {
         let search_limit = options.max_entities.saturating_mul(4).clamp(10, 200);
-        let search = search_snapshot(&root, &snapshot, task.to_string(), search_limit).await?;
+        let search = search_snapshot_with_composition(
+            &root,
+            &snapshot,
+            task.to_string(),
+            search_limit,
+            composition,
+        )
+        .await?;
         for (rank, result) in search.results.into_iter().enumerate() {
             seeds.push(Seed {
                 id: result.entity_id,
