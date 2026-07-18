@@ -2,7 +2,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use athanor_core::{CanonicalSnapshotStore, KnowledgeStore};
+use athanor_core::CanonicalSnapshotStore;
 use athanor_domain::{EntityKind, RelationKind};
 use serde::Serialize;
 
@@ -132,6 +132,7 @@ pub async fn query_api_registry_with_composition(
 
 #[cfg(test)]
 mod tests {
+    use athanor_core::KnowledgeStore;
     use athanor_domain::{
         Entity, EntityId, LanguageCode, Relation, RelationId, RelationStatus, SnapshotBase,
         StableKey,
