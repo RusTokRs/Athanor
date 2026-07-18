@@ -10,14 +10,6 @@ pub(crate) const HTML_REPORT_PROJECTION_SCHEMA: &str = "athanor.html_report_proj
 
 pub type ProjectionFactory = fn(&Path, &str, Value, &dyn Fn() -> bool) -> Result<()>;
 
-pub fn install_wiki_projector_factory(_factory: ProjectionFactory) {
-    panic!("process-global wiki projector installation was removed; use RuntimeComposition")
-}
-
-pub fn install_html_projector_factory(_factory: ProjectionFactory) {
-    panic!("process-global HTML projector installation was removed; use RuntimeComposition")
-}
-
 pub(crate) fn project_wiki_payload(
     target: &Path,
     snapshot: &str,
