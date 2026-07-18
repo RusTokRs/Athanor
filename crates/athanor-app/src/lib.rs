@@ -20,6 +20,7 @@ pub mod context_report;
 pub mod coverage;
 pub mod daemon;
 mod daemon_client;
+mod daemon_command_dispatch;
 mod daemon_connection;
 mod daemon_derived_read_dispatch;
 mod daemon_endpoint;
