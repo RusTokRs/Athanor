@@ -19,26 +19,26 @@ application payloads.
 
 ## 2. Состояние программы
 
-Process-global runtime state, installer API и dead no-composition wrappers удалены. Context cores,
-daemon query/derived-read paths и daemon write jobs теперь composition-first. Осталось четыре
-содержательных пакета и финальная verification matrix:
+Process-global runtime state, installer API и dead no-composition wrappers удалены. Context cores и
+весь daemon lifecycle — host, query, derived read, command dispatch и write jobs — теперь
+composition-first. Осталось четыре содержательных пакета и финальная verification matrix:
 
-1. `COMP-003C2B2B2B/C` — завершить mandatory composition propagation через daemon host, Index,
-   Generation, Wiki и benchmark public APIs.
+1. `COMP-003C2B2C` — завершить composition-only public API для Index, Generation, Wiki, benchmark и
+   удалить последние compatibility edges.
 2. `MCP-007` — определить transactional Index cancellation до и после durable commit point.
 3. `JSON-003` — повторить repository-wide schema scan и выполнить enforcement matrix.
 4. `DOC-001/002` — убрать stale verification claims и согласовать pipeline current/target/history.
 5. `VERIFY-001` — выполнить fmt/test/Clippy/smoke matrix и перевести подтверждённые пункты в `verified`.
 
-`COMP-003A/B1/B2/C1/C2A/C2B1/C2B2A/C2B2B1/C2B2B2A` завершены на уровне implementation. Store,
-Search, Context и daemon execution paths получают `RuntimeComposition`; остающийся compatibility
-debt сосредоточен в optional daemon host state и публичных write-service API families.
+`COMP-003A/B1/B2/C1/C2A/C2B1/C2B2A/C2B2B1/C2B2B2A/C2B2B2B` завершены на уровне
+implementation. Остающийся composition debt сосредоточен в публичных write-service signatures,
+projector fallbacks и финальном удалении quarantined compatibility owners.
 
 ## 3. Текущая последовательность
 
 | ID | Priority | Status | Result |
 | --- | --- | --- | --- |
-| `ARCH-AUDIT-001` | P1 | `[-] in progress` | Архитектурные owners декомпозированы; daemon-host/write-service cleanup и execution pending |
+| `ARCH-AUDIT-001` | P1 | `[-] in progress` | Архитектурные owners декомпозированы; public service composition cleanup и execution pending |
 | `DS-JSON-001` | P1 | `[x] implemented` | Public registry 60; manifest, trust registry и public report имеют разные current owners |
 | `DS-JSON-002` | P1 | `[-] in progress` | General и adapter-specific non-public descriptors добавлены; repeat scan pending |
 | `DS-JSON-003` | P1 | `[-] in progress` | Typed CLI/daemon/MCP/plugin payload parity реализована; execution pending |
@@ -64,27 +64,28 @@ debt сосредоточен в optional daemon host state и публичны�
 | `RUNTIME-001` | P1 | `[x] implemented` | `runtime.rs` был 1846-line owner | Conventional bounded modules; no include |
 | `COMP-001` | P2 | `[x] implemented` | `OnceLock::set` conflicts молча игнорировались | Process-global runtime storage удалён |
 | `COMP-002` | P1 | `[x] implemented` | Отсутствующий adapter factory создавал empty registry | Explicit registry/composition; no hidden fallback |
-| `COMP-003` | P2 | `[-] in progress` | Runtime dependencies скрывались за globals и compatibility APIs | Context/daemon execution migrated; daemon host/public write APIs и execution остаются |
+| `COMP-003` | P2 | `[-] in progress` | Runtime dependencies скрывались за globals и compatibility APIs | Context/daemon migrated; public service APIs и execution остаются |
 | `COMP-003A` | P2 | `[x] implemented` | Compatibility perimeter не был зафиксирован | Caller inventory и удаление Store bridge/introspection helpers |
 | `COMP-003B1` | P2 | `[x] implemented` | Adapter/projector globals компилировались в default build | Quarantine и последующее физическое удаление |
 | `COMP-003B2` | P2 | `[x] implemented` | Store/Search globals находились в implementation owners | Bounded owners и последующее физическое удаление |
 | `COMP-003C1` | P2 | `[x] implemented` | Feature/test-only globals и legacy errors сохраняли process state | Feature, OnceLock owners, errors и test installation удалены |
-| `COMP-003C2` | P2 | `[-] in progress` | Installer и no-composition shims сохраняли compatibility surface | C2A/C2B1/C2B2 закрыты, isolation matrix выполнена |
+| `COMP-003C2` | P2 | `[-] in progress` | Installer и no-composition shims сохраняли compatibility surface | C2B2C и execution закрыты |
 | `COMP-003C2A` | P2 | `[x] implemented` | State-free installer functions и `runtime_defaults::install()` оставались public | Все installer symbols/re-exports удалены; enforcement/isolation в `main` |
 | `COMP-003C2B1` | P2 | `[x] implemented` | Dead no-composition Validate/Search wrappers оставались public | Removed wrappers и source enforcement в `main` |
-| `COMP-003C2B2` | P2 | `[-] in progress` | Связанные service chains принимают optional/no composition | Context/daemon-host/write-service slices завершены и fallback branches отсутствуют |
+| `COMP-003C2B2` | P2 | `[-] in progress` | Связанные service chains принимают optional/no composition | Context и daemon закрыты; C2B2C остаётся |
 | `COMP-003C2B2A` | P2 | `[x] implemented` | Active Context owner был optional-composition и зависел от удалённого Search wrapper | Composition-first owner активен; behavior/source regressions в `main` |
-| `COMP-003C2B2B1` | P2 | `[x] implemented` | Operation-aware Context core принимал optional composition и fallback Store/Search | Core принимает `&RuntimeComposition`; fallback imports/branches удалены; execution pending |
-| `COMP-003C2B2B2` | P2 | `[-] in progress` | Daemon host и execution layers используют optional composition | B2B2A execution и B2B2B host-state cleanup закрыты |
-| `COMP-003C2B2B2A` | P2 | `[x] implemented` | Daemon queries, derived reads и write jobs выбирали no-composition fallbacks | Query/read/write execution composition-only; source enforcement в `main`; execution pending |
-| `COMP-003C2B2B2B` | P2 | `[-] in progress` | `DaemonState.composition`, `serve_daemon` и host constructors остаются optional | Mandatory field/entrypoint, migrated tests и отсутствие `Option<RuntimeComposition>` в daemon host |
-| `COMP-003C2B2C` | P2 | `[ ] planned` | Index, Generation, Wiki и benchmark сохраняют no-composition APIs/projector fallbacks | Composition-only signatures, updated re-exports/tests/examples |
+| `COMP-003C2B2B1` | P2 | `[x] implemented` | Operation-aware Context core принимал optional composition и fallback Store/Search | Core принимает `&RuntimeComposition`; fallback imports/branches удалены |
+| `COMP-003C2B2B2` | P2 | `[x] implemented` | Daemon host и execution layers использовали optional composition | Mandatory host/query/read/write composition и bounded dispatch в `main` |
+| `COMP-003C2B2B2A` | P2 | `[x] implemented` | Daemon queries, derived reads и write jobs выбирали no-composition fallbacks | Query/read/write execution composition-only; source enforcement в `main` |
+| `COMP-003C2B2B2B` | P2 | `[x] implemented` | `DaemonState.composition`, `serve_daemon` и host constructors оставались optional | Mandatory field/serve API, migrated tests и отсутствие host Option |
+| `COMP-003C2B2C` | P2 | `[-] in progress` | Index, Generation, Wiki и benchmark сохраняют no-composition APIs/projector fallbacks | Composition-only signatures, updated re-exports/tests/examples и удалённые compatibility owners |
 | `COMP-004` | P2 | `[x] implemented` | `validate_changed` использовал hidden adapter composition | Только composition-aware public path; execution pending |
 | `COMP-005` | P2 | `[x] implemented` | Trust functions возвращали report со старым schema | Versioned public report |
 | `COMP-006` | P2 | `[x] implemented` | Focused handlers устанавливали global runtime | Все active CLI families используют explicit composition |
 | `COMP-007` | P2 | `[x] implemented` | RusTok operations использовали global store/context | Composition-aware operation family |
 | `COMP-008` | P2 | `[x] implemented` | API/Docs/Repair использовали task-local store composition | Direct paths используют explicit composition |
 | `COMP-009` | P1 | `[x] implemented` | После удаления Search wrapper старый active Context owner продолжал вызывать удалённый symbol | Active owner заменён; removed symbol вне compiled Context; source regression в `main` |
+| `COMP-010` | P2 | `[x] implemented` | `daemon.rs` дублировал command dispatcher и смешивал host lifecycle с request execution | Bounded command dispatcher; duplicate `execute_request` удалён; owner 4224→866 lines |
 | `PUB-001` | P1 | `[x] implemented` | Trust writer мог вернуть failure после durable rename | Cleanup best effort после commit point |
 | `PUB-002` | P1 | `[x] implemented` | Staged replace смешивал durable success и maintenance failure | Explicit commit point/non-fatal maintenance |
 | `PUB-003` | P2 | `[x] implemented` | Не было failure-injection regressions | Stage/rollback/cleanup/Drop/race/recovery matrix |
@@ -115,8 +116,7 @@ debt сосредоточен в optional daemon host state и публичны�
 - [x] Dead no-composition Validate/Search wrappers удалены.
 - [x] Active Context owner использует mandatory composition для Store и Search.
 - [x] Operation-aware Context core использует mandatory composition.
-- [x] Daemon query/derived-read/write execution использует mandatory composition.
-- [ ] Daemon host state и serve API используют mandatory composition.
+- [x] Daemon host/query/derived-read/write execution использует mandatory composition.
 - [ ] Index/Generation/Wiki/benchmark public APIs composition-only.
 
 ### Context owner replacement
@@ -126,19 +126,21 @@ debt сосредоточен в optional daemon host state и публичны�
 - [x] Active normal/operation cores не вызывают no-composition Search builders.
 - [x] Search factories вызываются через supplied composition.
 - [x] Ranking, relation expansion, diagnostics и limits покрыты integration regressions.
-- [ ] Внешние compatibility edges удалены после daemon/RusTok caller migration.
+- [ ] Внешние compatibility edges удалены после remaining caller migration.
 - [ ] Старый `context.rs` физически удалён.
 
 ### Daemon composition
 
 - [x] `athd` production startup использует `serve_daemon_with_composition`.
+- [x] `DaemonState.composition` обязателен.
+- [x] Legacy `serve_daemon` и optional `serve_daemon_inner` удалены.
 - [x] Snapshot/Search query cache paths не имеют Store/Search fallback.
 - [x] Derived Context/ChangeMap dispatch вызывает только composition-aware APIs.
-- [x] Index/Generate/Wiki/HTML jobs проверяют composition до создания job.
-- [x] Source inventory запрещает возврат execution fallback branches.
-- [ ] `DaemonState.composition` перестал быть `Option`.
-- [ ] Legacy `serve_daemon` и optional `serve_daemon_inner` удалены.
-- [ ] Daemon test constructors передают обязательную composition.
+- [x] Index/Generate/Wiki/HTML jobs используют total composition accessor.
+- [x] Control/write commands вынесены в bounded command dispatcher.
+- [x] Duplicate `daemon.rs::execute_request` удалён.
+- [x] Cancellation/deadline и write-report contracts сохранены bounded test owners.
+- [x] Source inventory запрещает возврат optional host state и fallback branches.
 
 ### Runtime, Docs, Store, Search, MCP, publication и CLI
 
@@ -155,6 +157,7 @@ cargo fmt --all -- --check
 cargo check --workspace --locked
 cargo check --workspace --all-features --locked
 cargo test -p athanor-app runtime --locked
+cargo test -p athanor-app daemon --locked
 cargo test -p athanor-app --test runtime_modularity_inventory --locked
 cargo test -p athanor-app --test service_composition_inventory --locked
 cargo test -p athanor-app --test legacy_factory_migration --locked
@@ -185,21 +188,36 @@ cargo run -p ath --quiet --locked -- index .
 
 ## 7. Активный рабочий пакет
 
-**Сейчас:** `COMP-003C2B2B2B` — mandatory composition в daemon host state и construction API.
+**Сейчас:** `COMP-003C2B2C` — финальный composition-only public service API cleanup.
 
 Требования:
 
-- заменить `DaemonState.composition: Option<RuntimeComposition>` на обязательную composition;
-- удалить `serve_daemon` compatibility entrypoint и `serve_daemon_inner(..., Option<...>)`;
-- заменить `daemon_queries::composition() -> Option<_>` на обязательный accessor либо прямой borrow;
-- убрать оставшийся branching в Context compatibility branch `daemon.rs`;
-- обновить daemon test state constructors и source inventories;
-- удалить временный `context_project_with_operation_context` edge, когда daemon/RusTok callers migrated;
+- удалить no-composition Index entrypoints и optional-composition branches;
+- удалить no-composition Generation, Wiki и HTML projection entrypoints;
+- удалить projector fallback branches и прямые calls к compatibility projection functions;
+- перевести benchmark APIs на обязательную `RuntimeComposition`;
+- удалить оставшиеся Store/snapshot Search compatibility edges;
+- удалить public Context compatibility edges после caller migration;
+- физически удалить quarantined `context.rs`;
+- обновить stable re-exports, tests и embedding examples;
 - выполнить targeted/default/all-features tests и Clippy.
 
-**После него:** `COMP-003C2B2C`, затем `MCP-007`, `JSON-003`, documentation reconciliation и полный verification.
+**После него:** `MCP-007`, затем `JSON-003`, documentation reconciliation и полный verification.
 
 ## 8. Журнал актуализаций
+
+### 2026-07-18 — Mandatory daemon host composition
+
+- Реализован `COMP-003C2B2B2B`.
+- `DaemonState.composition` заменён на обязательный `RuntimeComposition`.
+- Удалены legacy `serve_daemon`, optional `serve_daemon_inner` и missing-composition errors.
+- Добавлен bounded `daemon_command_dispatch.rs`; duplicate `daemon.rs::execute_request` удалён.
+- `daemon.rs` сокращён с 4224 до 866 строк и оставлен owner-ом wire types/transport lifecycle.
+- Read dispatcher делегирует control/write commands bounded dispatcher-у.
+- Cancellation/deadline и write-report shape tests перенесены в bounded test owners.
+- `daemon_composition_inventory` запрещает возврат optional host state, fallback branches и duplicate dispatch.
+- `COMP-003C2B2C` назначен активным.
+- Статус — implemented, execution pending.
 
 ### 2026-07-18 — Daemon execution composition
 
@@ -207,8 +225,7 @@ cargo run -p ath --quiet --locked -- index .
 - `daemon_queries` больше не импортирует Store или no-composition Search fallback.
 - Derived Context/ChangeMap dispatch вызывает только composition-aware operations.
 - Index/Generate/Wiki/HTML write jobs требуют composition до создания job.
-- Добавлен `daemon_composition_inventory` для read/write execution и явного remaining host debt.
-- `COMP-003C2B2B2B` назначен активным.
+- Добавлен `daemon_composition_inventory` для read/write execution.
 - Статус — implemented, execution pending.
 
 ### 2026-07-18 — Operation-aware Context composition
@@ -217,7 +234,6 @@ cargo run -p ath --quiet --locked -- index .
 - `context_project_with_operation_context_impl` принимает обязательный `&RuntimeComposition`.
 - Store и operation-aware Search строятся только через composition.
 - Удалены `Option<RuntimeComposition>`, `match composition`, `init_store` и no-composition Search fallback из core.
-- Temporary public compatibility edge изолирован в `derived_read_operation.rs` до daemon migration.
 - Source inventory расширен на operation-aware core.
 - Статус — implemented, execution pending.
 
