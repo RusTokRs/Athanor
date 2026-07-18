@@ -7,7 +7,7 @@ not install or read process-global runtime factories.
 ## Current state
 
 `COMP-003A`, `COMP-003B1`, `COMP-003B2`, `COMP-003C1`, `COMP-003C2A`, `COMP-003C2B1`,
-`COMP-003C2B2A` and `COMP-003C2B2B1` are implemented.
+`COMP-003C2B2A`, `COMP-003C2B2B1` and `COMP-003C2B2B2A` are implemented.
 
 - the former Store task-local bridge and factory-introspection helpers are removed;
 - `legacy-global-runtime` is removed from Cargo features and CI;
@@ -24,6 +24,10 @@ not install or read process-global runtime factories.
   supplied `RuntimeComposition`;
 - operation-aware Context internals also require `&RuntimeComposition` and contain no Store/Search
   fallback branches;
+- daemon snapshot/search queries and derived Context/ChangeMap reads reject a missing composition
+  instead of invoking compatibility Store/Search/application services;
+- daemon Index/Generate/Wiki/HTML jobs validate composition before job creation and call only
+  composition-aware execution APIs;
 - the previous 823-line `context.rs` owner is quarantined outside the compiled module graph until
   physical deletion after remaining caller migration.
 
@@ -45,14 +49,29 @@ behavior through integration regressions. Temporary `context_project` and
 `context_project_with_operation_context` compatibility edges remain only for callers that have not
 yet migrated; production calls fail explicitly and test builds use a fresh local composition.
 
+## Daemon migration status
+
+`COMP-003C2B2B2A` removes fallback execution from the daemon read and write layers:
+
+- `daemon_queries` creates Store and Search only from the daemon composition;
+- derived Context and ChangeMap dispatch calls only composition-aware operations;
+- Index, Generate, Wiki and HTML jobs call only composition-aware cancellable APIs;
+- a missing daemon composition is rejected explicitly before write-job creation;
+- source enforcement prevents no-composition imports and fallback branches from returning.
+
+The daemon host itself is not yet fully migrated. `DaemonState.composition` remains optional and the
+legacy `serve_daemon`/`serve_daemon_inner(..., Option<...>)` construction path still exists. Active
+`athd` production startup already uses `serve_daemon_with_composition`, but host-state cleanup and
+test constructor migration remain `COMP-003C2B2B2B`.
+
 ## Remaining no-composition compatibility surface
 
 `COMP-003C2B2` remains active and is split into bounded follow-up packages:
 
-- `COMP-003C2B2B2`: require composition through daemon queries, `DaemonState` and daemon host;
-  remove daemon fallback branches and compatibility dispatch;
-- `COMP-003C2B2C`: require composition in Index, Generation, Wiki and benchmark APIs and remove
-  Generation/Wiki projector fallback branches;
+- `COMP-003C2B2B2B`: make `DaemonState` composition mandatory, remove the legacy daemon serve
+  entrypoint and migrate daemon test constructors;
+- `COMP-003C2B2C`: require composition in Index, Generation, Wiki and benchmark public APIs and
+  remove Generation/Wiki projector fallback branches;
 - final cleanup: remove Store/snapshot Search compatibility edges and physically delete the
   quarantined legacy Context owner.
 
@@ -115,6 +134,9 @@ operation-aware Context modules contain no Store/Search fallback or optional-com
 
 `crates/athanor-app/tests/context_pack_behavior.rs` preserves ranking, relation expansion,
 diagnostic inclusion and limit behavior from the replaced Context owner.
+
+`crates/athanor-app/tests/daemon_composition_inventory.rs` verifies composition-only daemon query,
+derived-read and write-job execution while explicitly tracking the remaining optional host state.
 
 The regressions are present in `main`, but execution evidence still requires the Rust test and
 Clippy matrix recorded in `athanor_implementation_plan_ru.md`.
