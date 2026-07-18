@@ -1,6 +1,11 @@
 //! Adapter runtime composition, plugin discovery, trust, and process execution.
 
 mod builder;
+mod legacy_api;
+#[cfg(any(feature = "legacy-global-runtime", test))]
+mod legacy_registry;
+#[cfg(not(any(feature = "legacy-global-runtime", test)))]
+#[path = "runtime/legacy_registry_disabled.rs"]
 mod legacy_registry;
 mod model;
 mod plugin_discovery;
@@ -19,6 +24,11 @@ mod trust;
 mod tests;
 
 pub use builder::RuntimeBuilder;
+pub use legacy_api::{
+    default_adapter_registry, install_builtin_adapter_resolver,
+    install_default_adapter_registry, try_default_adapter_registry,
+    try_install_builtin_adapter_resolver, try_install_default_adapter_registry,
+};
 pub use model::{
     AdapterPluginEntry, AdapterPluginKind, AdapterPluginManifest, AdapterProcessCommand,
     AdapterTrustListOptions, AdapterTrustOptions, AdapterTrustRegistry, AdapterTrustStatus,
@@ -36,32 +46,3 @@ pub type AdapterTrustReport = crate::adapter_contract::VersionedAdapterTrustRepo
 pub const ADAPTER_MANIFEST_SCHEMA: &str = crate::adapter_contract::ADAPTER_MANIFEST_SCHEMA_LEGACY;
 pub const ADAPTER_TRUST_SCHEMA: &str =
     crate::adapter_contract::ADAPTER_TRUST_REGISTRY_SCHEMA_LEGACY_V2;
-
-pub fn try_install_default_adapter_registry(
-    factory: AdapterRegistryFactory,
-) -> Result<(), crate::LegacyFactoryInstallError> {
-    legacy_registry::try_install_default_adapter_registry(factory)
-}
-
-pub fn install_default_adapter_registry(factory: AdapterRegistryFactory) {
-    legacy_registry::install_default_adapter_registry(factory);
-}
-
-pub fn try_install_builtin_adapter_resolver(
-    resolver: BuiltinAdapterResolver,
-) -> Result<(), crate::LegacyFactoryInstallError> {
-    legacy_registry::try_install_builtin_adapter_resolver(resolver)
-}
-
-pub fn install_builtin_adapter_resolver(resolver: BuiltinAdapterResolver) {
-    legacy_registry::install_builtin_adapter_resolver(resolver);
-}
-
-pub fn try_default_adapter_registry(
-) -> Result<AdapterRegistry, crate::LegacyFactoryUnavailableError> {
-    legacy_registry::try_default_adapter_registry()
-}
-
-pub fn default_adapter_registry() -> AdapterRegistry {
-    legacy_registry::default_adapter_registry()
-}
