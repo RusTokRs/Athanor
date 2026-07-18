@@ -1,7 +1,6 @@
 const APP_LIB_SOURCE: &str = include_str!("../src/lib.rs");
 const SEARCH_FACADE_SOURCE: &str = include_str!("../src/search_facade.rs");
-const CHANGE_MAP_FACADE_SOURCE: &str = include_str!("../src/change_map_facade.rs");
-const CHANGE_MAP_CORE_SOURCE: &str = include_str!("../src/change_map.rs");
+const CHANGE_MAP_SOURCE: &str = include_str!("../src/change_map.rs");
 const EXPLAIN_SOURCE: &str = include_str!("../src/explain.rs");
 
 #[test]
@@ -23,39 +22,36 @@ fn operation_aware_search_compatibility_apis_are_removed() {
 }
 
 #[test]
-fn public_change_map_surface_requires_runtime_composition() {
-    assert!(APP_LIB_SOURCE.contains(
-        "#[path = \"change_map_facade.rs\"]\npub mod change_map;"
-    ));
-    assert!(CHANGE_MAP_FACADE_SOURCE.contains(
+fn change_map_owner_requires_runtime_composition() {
+    assert!(APP_LIB_SOURCE.contains("pub mod change_map;"));
+    assert!(!APP_LIB_SOURCE.contains("change_map_facade.rs"));
+
+    assert!(CHANGE_MAP_SOURCE.contains(
         "pub async fn change_map_project_with_composition("
     ));
-    assert!(CHANGE_MAP_FACADE_SOURCE.contains("composition: &RuntimeComposition"));
-    assert!(CHANGE_MAP_FACADE_SOURCE.contains(
-        "core::change_map_project_with_composition(options, composition).await"
+    assert!(CHANGE_MAP_SOURCE.contains("composition: &RuntimeComposition"));
+    assert!(CHANGE_MAP_SOURCE.contains("composition.init_store(&root, &config)"));
+    assert!(CHANGE_MAP_SOURCE.contains("use crate::search::search_snapshot_with_composition;"));
+    assert!(CHANGE_MAP_SOURCE.contains(
+        "let search = search_snapshot_with_composition("
     ));
 
-    assert!(!CHANGE_MAP_FACADE_SOURCE.contains("pub async fn change_map_project("));
-    assert!(!CHANGE_MAP_FACADE_SOURCE.contains("crate::store::init_store"));
-    assert!(!CHANGE_MAP_FACADE_SOURCE.contains("Option<&RuntimeComposition>"));
-    assert!(!CHANGE_MAP_FACADE_SOURCE.contains("pub use core::*"));
+    assert!(!CHANGE_MAP_SOURCE.contains("pub async fn change_map_project("));
+    assert!(!CHANGE_MAP_SOURCE.contains("Option<&RuntimeComposition>"));
+    assert!(!CHANGE_MAP_SOURCE.contains("crate::store::init_store"));
+    assert!(!CHANGE_MAP_SOURCE.contains("use crate::search::search_snapshot;"));
+    assert!(!CHANGE_MAP_SOURCE.contains("match composition"));
 }
 
 #[test]
-fn remaining_snapshot_compatibility_is_crate_private_and_bounded_to_legacy_change_map_core() {
-    assert!(SEARCH_FACADE_SOURCE.contains("pub(crate) async fn search_snapshot("));
+fn no_composition_snapshot_search_helpers_are_removed() {
     assert!(!SEARCH_FACADE_SOURCE.contains("pub async fn search_snapshot("));
-    assert_eq!(
-        SEARCH_FACADE_SOURCE
-            .matches("pub(crate) async fn search_snapshot(")
-            .count(),
-        1
-    );
-    assert!(CHANGE_MAP_CORE_SOURCE.contains("use crate::search::search_snapshot;"));
-    assert!(CHANGE_MAP_CORE_SOURCE.contains(
-        "let search = search_snapshot(&root, &snapshot, task.to_string(), search_limit).await?;"
+    assert!(!SEARCH_FACADE_SOURCE.contains("pub(crate) async fn search_snapshot("));
+    assert!(!SEARCH_FACADE_SOURCE.contains("crate::test_runtime::composition()"));
+    assert!(!SEARCH_FACADE_SOURCE.contains(
+        "explicit RuntimeComposition is required for snapshot search"
     ));
-    assert!(!CHANGE_MAP_CORE_SOURCE.contains("search_snapshot_with_operation_context"));
+    assert!(!SEARCH_FACADE_SOURCE.contains("use anyhow::bail;"));
 }
 
 #[test]
@@ -71,12 +67,7 @@ fn explain_owner_requires_explicit_composition() {
 }
 
 #[test]
-fn read_service_facades_remain_bounded() {
-    for (name, source, max_lines) in [
-        ("ChangeMap facade", CHANGE_MAP_FACADE_SOURCE, 40),
-        ("Search facade", SEARCH_FACADE_SOURCE, 120),
-    ] {
-        let lines = source.lines().count();
-        assert!(lines <= max_lines, "{name} grew to {lines} lines");
-    }
+fn search_facade_remains_bounded() {
+    let lines = SEARCH_FACADE_SOURCE.lines().count();
+    assert!(lines <= 100, "Search facade grew to {lines} lines");
 }
