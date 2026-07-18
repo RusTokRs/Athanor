@@ -19,19 +19,21 @@ application payloads.
 
 ## 2. Состояние программы
 
-Основные монолитные migration-пакеты завершены. Process-global runtime state и installer API
-удалены. Осталось четыре содержательных пакета и финальная verification matrix:
+Process-global runtime state, installer API и dead no-composition wrappers удалены. Context переведён
+на отдельный composition-first owner. Осталось четыре содержательных пакета и финальная
+verification matrix:
 
-1. `COMP-003C2B2` — мигрировать связанные no-composition service chains и optional-composition branches.
+1. `COMP-003C2B2B/C` — завершить mandatory composition propagation через daemon, operation-aware
+   Context, Index, Generation, Wiki и benchmark.
 2. `MCP-007` — определить transactional Index cancellation до и после durable commit point.
 3. `JSON-003` — повторить repository-wide schema scan и выполнить enforcement matrix.
 4. `DOC-001/002` — убрать stale verification claims и согласовать pipeline current/target/history.
 5. `VERIFY-001` — выполнить fmt/test/Clippy/smoke matrix и перевести подтверждённые пункты в `verified`.
 
-`COMP-003A/B1/B2/C1/C2A/C2B1` завершены на уровне implementation. Dead no-composition wrappers
-удалены. Оставшийся compatibility debt связан с реальными internal callers и требует обязательной
-передачи `RuntimeComposition` через Context, daemon queries, Store/Search, Index, Generation, Wiki
-и benchmark paths.
+`COMP-003A/B1/B2/C1/C2A/C2B1/C2B2A` завершены на уровне implementation. Активный Context owner
+обязательно принимает `RuntimeComposition` для Store/Search routing. Оставшийся compatibility debt
+связан с daemon state и другими service families, где composition всё ещё optional либо скрыта за
+no-composition signatures.
 
 ## 3. Текущая последовательность
 
@@ -63,20 +65,24 @@ application payloads.
 | `RUNTIME-001` | P1 | `[x] implemented` | `runtime.rs` был 1846-line owner | Conventional bounded modules; no include |
 | `COMP-001` | P2 | `[x] implemented` | `OnceLock::set` conflicts молча игнорировались | Process-global runtime storage удалён |
 | `COMP-002` | P1 | `[x] implemented` | Отсутствующий adapter factory создавал empty registry | Explicit registry/composition; no hidden fallback |
-| `COMP-003` | P2 | `[-] in progress` | Runtime dependencies скрывались за globals и compatibility APIs | `A/B1/B2/C1/C2A/C2B1` implemented; C2B2 и execution остаются |
+| `COMP-003` | P2 | `[-] in progress` | Runtime dependencies скрывались за globals и compatibility APIs | `A/B1/B2/C1/C2A/C2B1/C2B2A` implemented; B2B/B2C и execution остаются |
 | `COMP-003A` | P2 | `[x] implemented` | Compatibility perimeter не был зафиксирован | Caller inventory и удаление Store bridge/introspection helpers |
 | `COMP-003B1` | P2 | `[x] implemented` | Adapter/projector globals компилировались в default build | Quarantine и последующее физическое удаление |
 | `COMP-003B2` | P2 | `[x] implemented` | Store/Search globals находились в implementation owners | Bounded owners и последующее физическое удаление |
 | `COMP-003C1` | P2 | `[x] implemented` | Feature/test-only globals и legacy errors сохраняли process state | Feature, OnceLock owners, errors и test installation удалены |
-| `COMP-003C2` | P2 | `[-] in progress` | Installer и no-composition shims сохраняли compatibility surface | C2A, C2B1 и C2B2 закрыты, isolation matrix выполнена |
+| `COMP-003C2` | P2 | `[-] in progress` | Installer и no-composition shims сохраняли compatibility surface | C2A, C2B1, C2B2A/B/C закрыты, isolation matrix выполнена |
 | `COMP-003C2A` | P2 | `[x] implemented` | State-free installer functions и `runtime_defaults::install()` оставались public | Все installer symbols/re-exports удалены; source enforcement и isolation test в `main` |
-| `COMP-003C2B1` | P2 | `[x] implemented` | Dead no-composition Validate/Search wrappers оставались public | `validate_changed`, `search_project`, `get_or_build_search_index` и sync wrapper удалены; source enforcement в `main` |
-| `COMP-003C2B2` | P2 | `[-] in progress` | Связанные Store/Search/Projection/Context/Index/Generation/Wiki APIs принимают optional/no composition | Mandatory composition propagation и отсутствие fallback branches |
+| `COMP-003C2B1` | P2 | `[x] implemented` | Dead no-composition Validate/Search wrappers оставались public | Removed wrappers и source enforcement в `main` |
+| `COMP-003C2B2` | P2 | `[-] in progress` | Связанные service chains принимают optional/no composition | B2A/B/C завершены и fallback branches отсутствуют |
+| `COMP-003C2B2A` | P2 | `[x] implemented` | Active Context owner был optional-composition и зависел от удалённого Search wrapper | Composition-first owner активен; Store/Search только через composition; behavior/source regressions в `main` |
+| `COMP-003C2B2B` | P2 | `[-] in progress` | Operation-aware Context, daemon queries и `DaemonState` всё ещё используют optional composition | Mandatory composition в daemon lifecycle и derived reads; no fallback imports/branches |
+| `COMP-003C2B2C` | P2 | `[ ] planned` | Index, Generation, Wiki и benchmark сохраняют no-composition APIs/projector fallbacks | Composition-only signatures, updated re-exports/tests/examples |
 | `COMP-004` | P2 | `[x] implemented` | `validate_changed` использовал hidden adapter composition | Только composition-aware public path; execution pending |
 | `COMP-005` | P2 | `[x] implemented` | Trust functions возвращали report со старым schema | Versioned public report |
 | `COMP-006` | P2 | `[x] implemented` | Focused handlers устанавливали global runtime | Все active CLI families используют explicit composition |
 | `COMP-007` | P2 | `[x] implemented` | RusTok operations использовали global store/context | Composition-aware operation family |
 | `COMP-008` | P2 | `[x] implemented` | API/Docs/Repair использовали task-local store composition | Direct paths используют explicit composition |
+| `COMP-009` | P1 | `[x] implemented` | После удаления `get_or_build_search_index` старый active Context owner продолжал вызывать удалённый symbol | Active module заменён; removed symbol отсутствует в compiled Context; source regression в `main` |
 | `PUB-001` | P1 | `[x] implemented` | Trust writer мог вернуть failure после durable rename | Cleanup best effort после commit point |
 | `PUB-002` | P1 | `[x] implemented` | Staged replace смешивал durable success и maintenance failure | Explicit commit point/non-fatal maintenance |
 | `PUB-003` | P2 | `[x] implemented` | Не было failure-injection regressions | Stage/rollback/cleanup/Drop/race/recovery matrix |
@@ -108,7 +114,18 @@ application payloads.
 - [x] Unit tests создают локальную `test_runtime::composition()` без installation.
 - [x] Parallel isolation matrix покрывает разные Store/Search/Wiki/HTML factories.
 - [x] Dead no-composition Validate/Search wrappers удалены.
-- [ ] Связанные no-composition service chains переведены на mandatory composition.
+- [x] Active Context owner использует mandatory composition для Store и Search.
+- [ ] Operation-aware Context и daemon host используют mandatory composition.
+- [ ] Index/Generation/Wiki/benchmark public APIs composition-only.
+
+### Context owner replacement
+
+- [x] `lib.rs` маршрутизирует `context` на `context_composition.rs`.
+- [x] Active owner не импортирует `crate::store::init_store`.
+- [x] Active owner не вызывает удалённый `get_or_build_search_index`.
+- [x] Search factory вызывается через supplied composition.
+- [x] Ranking, relation expansion, diagnostics и limits покрыты integration regressions.
+- [ ] Старый `context.rs` физически удалён после миграции оставшихся callers.
 
 ### Runtime, Docs, Store, Search, MCP, publication и CLI
 
@@ -129,6 +146,8 @@ cargo test -p athanor-app --test runtime_modularity_inventory --locked
 cargo test -p athanor-app --test service_composition_inventory --locked
 cargo test -p athanor-app --test legacy_factory_migration --locked
 cargo test -p athanor-app --test composition_isolation --locked
+cargo test -p athanor-app --test context_composition_inventory --locked
+cargo test -p athanor-app --test context_pack_behavior --locked
 cargo test -p athanor-app --test adapter_contract_inventory --locked
 cargo test -p athanor-app --test mcp_runtime_bootstrap_inventory --locked
 cargo test -p athanor-transport-mcp --locked
@@ -152,21 +171,34 @@ cargo run -p ath --quiet --locked -- index .
 
 ## 7. Активный рабочий пакет
 
-**Сейчас:** `COMP-003C2B2` — mandatory composition propagation через связанные service chains.
+**Сейчас:** `COMP-003C2B2B` — mandatory composition через operation-aware Context и daemon host.
 
 Требования:
 
-- мигрировать Context и daemon query internals с `Option<RuntimeComposition>` на обязательную composition;
-- удалить no-composition Store и snapshot Search fallbacks;
-- удалить no-composition Index, Generation, Wiki и benchmark entrypoints;
-- заменить internal `Option<&RuntimeComposition>`/`Option<RuntimeComposition>` на обязательную composition;
-- удалить projector fallback branches в Generation и Wiki;
-- обновить stable re-export modules, tests и embedding examples;
-- выполнить targeted/default/all-features tests и Clippy.
+- заменить `context_project_with_operation_context_impl(..., Option<&RuntimeComposition>, ...)` на
+  обязательный `&RuntimeComposition`;
+- удалить no-composition `context_project_with_operation_context`;
+- заменить `DaemonState.composition: Option<RuntimeComposition>` на обязательную composition;
+- удалить `serve_daemon` compatibility entrypoint либо сделать единственный composition-required API;
+- удалить fallback imports/branches `init_store` и no-composition Search из `daemon_queries`;
+- убрать branching в `daemon_derived_read_dispatch` и `daemon.rs`;
+- обновить source inventories, daemon tests и embedding documentation;
+- физически удалить quarantined `context.rs`, когда все callers migrated.
 
-**После него:** `MCP-007`, затем `JSON-003`, documentation reconciliation и полный verification.
+**После него:** `COMP-003C2B2C`, затем `MCP-007`, `JSON-003`, documentation reconciliation и полный verification.
 
 ## 8. Журнал актуализаций
+
+### 2026-07-18 — Composition-first Context owner
+
+- Реализован `COMP-003C2B2A`.
+- Обнаружен и зарегистрирован `COMP-009`: старый active Context owner вызывал symbol, удалённый в `C2B1`.
+- Добавлен bounded `context_composition.rs`; `lib.rs` переключён на новый owner.
+- Store и Search routing выполняются только через supplied `RuntimeComposition`.
+- Старый 823-line `context.rs` quarantined вне compiled module graph до физического удаления.
+- Добавлены source inventory и behavior regressions.
+- `COMP-003C2B2B` назначен активным.
+- Статус — implemented, execution pending.
 
 ### 2026-07-18 — Dead no-composition wrapper cleanup
 
@@ -175,7 +207,6 @@ cargo run -p ath --quiet --locked -- index .
 - Удалён public `search_project`; остаются composition-aware variants.
 - Удалены неиспользуемые `get_or_build_search_index` и `get_or_build_search_index_sync`.
 - Source regression запрещает возврат удалённых wrappers.
-- `COMP-003C2B2` назначен активным для связанных caller chains.
 - Статус — implemented, execution pending.
 
 ### 2026-07-18 — Runtime installer API removal
@@ -183,9 +214,7 @@ cargo run -p ath --quiet --locked -- index .
 - Реализован `COMP-003C2A`.
 - Удалены adapter, Store, Search, Wiki и HTML installer functions.
 - Удалён `athanor_runtime_defaults::install()` и installer re-exports.
-- Добавлен source regression, запрещающий возврат installer APIs.
-- Добавлена parallel composition isolation matrix для Store/Search/Wiki/HTML factories.
-- Breaking migration для external embedders записана в runtime composition document.
+- Добавлены source regression и parallel composition isolation matrix.
 - Статус — implemented, execution pending.
 
 ### 2026-07-17 — Process-global runtime removal
