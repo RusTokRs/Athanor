@@ -6,42 +6,66 @@ not install or read process-global runtime factories.
 
 ## Current state
 
-`COMP-003A`, `COMP-003B1`, `COMP-003B2` and `COMP-003C1` are implemented.
+`COMP-003A`, `COMP-003B1`, `COMP-003B2`, `COMP-003C1` and `COMP-003C2A` are implemented.
 
 - the former Store task-local bridge and factory-introspection helpers are removed;
 - `legacy-global-runtime` is removed from Cargo features and CI;
 - adapter, projector, Store and Search `OnceLock` owners are removed;
 - legacy factory error types are removed;
+- every public `install_*` symbol is removed;
+- `athanor_runtime_defaults::install()` is removed;
 - unit tests use a fresh local `test_runtime::composition()` rather than installation;
-- production no-composition Store/Search/Projection and changed-validation paths fail explicitly;
-- `RuntimeBuilder::new` has no production built-ins or hidden resolver fallback.
+- `RuntimeBuilder::new` has no production built-ins or hidden resolver fallback;
+- parallel Store/Search/Wiki/HTML compositions have an isolation regression matrix.
 
-There is no process-global runtime state in the application crate.
+There is no process-global runtime state or runtime installer API in the application and default
+runtime crates.
 
-## Temporary API shims
+## Remaining no-composition compatibility surface
 
-A small source-compatibility surface remains until `COMP-003C2`:
+`COMP-003C2B` remains active. Public no-composition service wrappers still exist in several
+application families. Production variants fail explicitly instead of discovering dependencies,
+while some unit-test paths create a local test composition.
 
-- non-try `install_*` functions exist only as state-free panic shims;
-- `athanor_runtime_defaults::install()` remains deprecated and reaches those shims;
-- public no-composition service wrappers remain as deterministic fail-fast shims in production;
-- unit-test builds route those wrappers through a local test composition.
+This surface is state-free, but it is still misleading for embedders because the signature does
+not expose the dependencies required for successful production execution. It must not be used by
+new integrations.
 
-These shims do not install, cache or discover dependencies. Applications must not call them.
+The next breaking cleanup will:
 
-## COMP-003C2
+1. remove public no-composition Store, Search, Projection and changed-validation wrappers;
+2. require `RuntimeComposition` in Index, Search, Generation, Wiki, benchmark and remaining
+   service APIs;
+3. remove internal `Option<RuntimeComposition>` branching from composition-owned operations;
+4. update stable re-export modules and migration examples to composition-only signatures;
+5. execute the default/all-features test and Clippy matrix.
 
-The final breaking cleanup will:
+## Breaking change for embedders
 
-1. remove `athanor_runtime_defaults::install()`;
-2. remove all `install_*` symbols;
-3. remove public no-composition service wrappers after the external API change is recorded;
-4. require `RuntimeComposition` in Index, Search, Generation, Wiki and remaining service APIs;
-5. add full parallel Store/Search/Projector composition-isolation regressions.
+Replace installer/bootstrap code:
+
+```rust,ignore
+athanor_runtime_defaults::install();
+```
+
+with an owned or shared composition passed explicitly:
+
+```rust,ignore
+let composition = athanor_runtime_defaults::production();
+let report = athanor_app::index_project_with_composition(options, &composition).await?;
+```
+
+The removed installer functions do not have replacement setters. Custom embedders construct
+`RuntimeComposition::new(...)` and pass it to composition-aware APIs.
 
 ## Enforcement
 
 `crates/athanor-app/tests/legacy_factory_migration.rs` verifies that Cargo, CI, Runtime,
-Projection, Store, Search and test bootstrap contain no process-global state or legacy feature
-wiring. Execution evidence still requires the Rust test and Clippy matrix recorded in
-`athanor_implementation_plan_ru.md`.
+Projection, Store, Search and runtime-default sources contain no process-global state, legacy
+feature wiring or installer functions.
+
+`crates/athanor-app/tests/composition_isolation.rs` exercises two distinct compositions in
+parallel and checks independent Store, Search, Wiki and HTML factory routing.
+
+Both tests are present in `main`, but execution evidence still requires the Rust test and Clippy
+matrix recorded in `athanor_implementation_plan_ru.md`.
