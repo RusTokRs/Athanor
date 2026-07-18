@@ -22,20 +22,23 @@ application payloads.
 Process-global runtime state, installer API, write-service wrappers и Context compatibility owners
 удалены. Context cores и весь daemon lifecycle — host, query, derived read, command dispatch и write
 jobs — composition-first. Index, Generation, Wiki, HTML report и benchmark имеют только
-composition-aware public execution API. Осталось четыре содержательных пакета и финальная
-verification matrix:
+composition-aware public execution API. Operation-aware no-composition Search compatibility APIs
+также удалены; единственный оставшийся no-composition snapshot Search helper ограничен ChangeMap и
+зафиксирован source inventory.
 
-1. `COMP-003C2B2C2B` — удалить Store/snapshot Search compatibility paths и мигрировать оставшиеся
-   read-service owners с implicit/optional composition.
+Осталось четыре содержательных пакета и финальная verification matrix:
+
+1. `COMP-003C2B2C2B` — завершить Store/snapshot Search cleanup и мигрировать оставшиеся read-service
+   owners с implicit/optional composition.
 2. `MCP-007` — определить transactional Index cancellation до и после durable commit point.
 3. `JSON-003` — повторить repository-wide schema scan и выполнить enforcement matrix.
 4. `DOC-001/002` — убрать stale verification claims и согласовать pipeline current/target/history.
 5. `VERIFY-001` — выполнить fmt/test/Clippy/smoke matrix и перевести подтверждённые пункты в `verified`.
 
 `COMP-003A/B1/B2/C1/C2A/C2B1/C2B2A/C2B2B1/C2B2B2A/C2B2B2B/C2B2C1/C2B2C2A`
-завершены на уровне implementation. Остающийся composition debt сосредоточен в Store/Search facade
-и read-service owners, которые ещё импортируют `store::init_store` или принимают optional
-composition.
+завершены на уровне implementation. Внутри `COMP-003C2B2C2B` удалены unused operation-aware Search
+compatibility wrappers. Остающийся composition debt сосредоточен в ChangeMap, Store facade и
+read-service owners, которые ещё импортируют `store::init_store` или принимают optional composition.
 
 ## 3. Текущая последовательность
 
@@ -85,7 +88,7 @@ composition.
 | `COMP-003C2B2C1` | P2 | `[x] implemented` | Index, Generation, Wiki, HTML и benchmark имели no-composition APIs/projector fallbacks | Composition-only signatures/cores, narrowed re-exports и source inventory в `main` |
 | `COMP-003C2B2C2` | P2 | `[-] in progress` | Read services сохраняли dependency-hidden compatibility paths | C2A Context owners закрыт; C2B Store/Search owners активен |
 | `COMP-003C2B2C2A` | P2 | `[x] implemented` | Context, derived-read, Search-operation и RusTok compatibility owners оставались public/physical | Wrappers удалены; `context.rs`/`rustok_operation.rs` удалены; inventory в `main` |
-| `COMP-003C2B2C2B` | P2 | `[-] in progress` | Store facade, snapshot Search, ChangeMap и другие read services сохраняют implicit/optional composition | Composition-only read families и удалённый Store/Search compatibility surface |
+| `COMP-003C2B2C2B` | P2 | `[-] in progress` | Store facade, snapshot Search, ChangeMap и другие read services сохраняют implicit/optional composition | Unused operation-aware Search wrappers удалены; ChangeMap/Store/read owners pending |
 | `COMP-004` | P2 | `[x] implemented` | `validate_changed` использовал hidden adapter composition | Только composition-aware public path; execution pending |
 | `COMP-005` | P2 | `[x] implemented` | Trust functions возвращали report со старым schema | Versioned public report |
 | `COMP-006` | P2 | `[x] implemented` | Focused handlers устанавливали global runtime | Все active CLI families используют explicit composition |
@@ -128,7 +131,9 @@ composition.
 - [x] Index/Generation/Wiki/HTML/benchmark public APIs composition-only.
 - [x] Index RuntimeBuilder и Store fallback branches удалены.
 - [x] Generation/Wiki/HTML Store и projector fallback branches удалены.
-- [ ] Store/snapshot Search compatibility facades удалены.
+- [x] Operation-aware snapshot Search и Search-index compatibility wrappers удалены.
+- [ ] ChangeMap использует только composition-aware snapshot Search.
+- [ ] Public `store::init_store` compatibility facade удалён.
 - [ ] Remaining read-service owners composition-only.
 
 ### Context owner replacement
@@ -176,6 +181,7 @@ cargo test -p athanor-app search_operation --locked
 cargo test -p athanor-app derived_read_operation --locked
 cargo test -p athanor-app --test runtime_modularity_inventory --locked
 cargo test -p athanor-app --test service_composition_inventory --locked
+cargo test -p athanor-app --test read_service_composition_inventory --locked
 cargo test -p athanor-app --test legacy_factory_migration --locked
 cargo test -p athanor-app --test write_service_composition_inventory --locked
 cargo test -p athanor-app --test composition_isolation --locked
@@ -207,20 +213,37 @@ cargo run -p ath --quiet --locked -- index .
 
 **Сейчас:** `COMP-003C2B2C2B` — Store/Search и remaining read-service composition cleanup.
 
-Требования:
+Отметки:
 
-- удалить public `store::init_store` compatibility edge после migration всех callers;
-- сделать ChangeMap composition-only и передавать composition в task Search;
-- удалить no-composition snapshot Search и operation-aware Search-index wrappers;
-- мигрировать Explain, Overview, Impact, Coverage, Capabilities, Graph, Check, API/registry,
+- [x] удалить no-composition operation-aware snapshot Search wrapper;
+- [x] удалить no-composition operation-aware Search-index wrapper;
+- [x] добавить source inventory, запрещающий возврат удалённых wrappers;
+- [ ] сделать ChangeMap composition-only и передавать composition в task Search;
+- [ ] удалить оставшийся no-composition snapshot Search helper после миграции ChangeMap;
+- [ ] удалить public `store::init_store` compatibility edge после migration всех callers;
+- [ ] мигрировать Explain, Overview, Impact, Coverage, Capabilities, Graph, Check, API/registry,
   Repair/Docs и другие read owners с `store::init_store`/optional composition;
-- обновить stable re-exports, inventories и embedding examples;
-- устранить source-level warnings после owner cleanup;
-- выполнить targeted/default/all-features tests и Clippy.
+- [ ] обновить stable re-exports и embedding examples;
+- [ ] устранить source-level warnings после owner cleanup;
+- [ ] выполнить targeted/default/all-features tests и Clippy.
 
-**После него:** `MCP-007`, затем `JSON-003`, documentation reconciliation и полный verification.
+**Следующий минимальный срез:** ChangeMap принимает mandatory `&RuntimeComposition`, Store создаётся
+только через composition, task Search вызывает `search_snapshot_with_composition`, после чего
+удаляется последний `search_snapshot` compatibility helper.
+
+**После пакета:** `MCP-007`, затем `JSON-003`, documentation reconciliation и полный verification.
 
 ## 8. Журнал актуализаций
+
+### 2026-07-18 — Bounded Search compatibility cleanup
+
+- В рамках `COMP-003C2B2C2B` удалены `search_snapshot_with_operation_context` и
+  `get_or_build_search_index_with_operation_context`.
+- Удалён ставший ненужным `Arc` import из Search facade.
+- Добавлен `read_service_composition_inventory`, запрещающий возврат удалённых APIs.
+- Inventory отдельно фиксирует, что последний no-composition `search_snapshot` временно ограничен
+  ChangeMap и является следующим migration target.
+- Статус пакета остаётся `in progress`; implementation evidence есть, Rust/hosted verification нет.
 
 ### 2026-07-18 — Physical Context compatibility removal
 
