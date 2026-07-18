@@ -33,11 +33,12 @@ Composition-only execution уже действует для:
 - API Registry;
 - Overview;
 - Capabilities;
-- Impact.
+- Impact;
+- Coverage.
 
-ChangeMap, Overview, Capabilities и Impact физически разделены на conventional bounded modules без
-`include!` и forwarding compatibility facades. Их public root modules содержат только module wiring
-и стабильные re-exports.
+ChangeMap, Overview, Capabilities, Impact и Coverage физически разделены на conventional bounded
+modules без `include!` и forwarding compatibility facades. Их public root modules содержат только
+module wiring и стабильные re-exports.
 
 Остающийся composition debt сосредоточен в public `store::init_store` facade и read-service owners,
 которые ещё импортируют его или принимают `Option<&RuntimeComposition>`.
@@ -60,30 +61,31 @@ ChangeMap, Overview, Capabilities и Impact физически разделен�
 - [x] Capabilities декомпозирован на `model`, `execution`, `aggregation`, `tests`.
 - [x] Impact использует только `impact_project_with_composition`.
 - [x] Impact декомпозирован на `model`, `execution`, `traversal`, `tests`.
-- [x] Source inventories запрещают возврат удалённых APIs и фиксируют line budgets.
+- [x] Coverage использует только `coverage_project_with_composition`.
+- [x] Coverage декомпозирован на `model`, `execution`, `aggregation`, `tests`.
+- [x] Source inventory использует общие assertions для routing, mandatory composition и line budgets.
 
 ### Следующий обязательный срез
 
-`Coverage`:
+`Graph` и `Graph operation`:
 
-- удалить no-composition project entrypoint;
+- удалить no-composition project entrypoints;
 - оставить только composition-aware execution;
 - удалить `Option<&RuntimeComposition>`;
-- удалить `crate::store::init_store` и fallback match;
-- отделить loading/execution от pure coverage aggregation;
-- сохранить schema, thresholds, deterministic ordering и omission semantics;
+- удалить `crate::store::init_store` и fallback branches;
+- сохранить pure snapshot graph builder и operation-context semantics;
+- разделить крупные owners на bounded model/execution/traversal/render-independent modules;
 - добавить source/line-budget inventory.
 
-### После Coverage
+### После Graph
 
 Последовательно мигрировать:
 
-1. Graph и Graph operation;
-2. Check families;
-3. API read owners;
-4. Repair latest/recovery;
-5. Docs service;
-6. remaining embedding examples и tests.
+1. Check families;
+2. API read owners;
+3. Repair latest/recovery;
+4. Docs service;
+5. remaining embedding examples и tests.
 
 После migration всех callers:
 
@@ -116,7 +118,7 @@ ChangeMap, Overview, Capabilities и Impact физически разделен�
 - [x] Daemon state и lifecycle требуют mandatory composition.
 - [x] Write services и projectors composition-only.
 - [x] Search facade composition-only.
-- [x] Explain, ChangeMap, API Registry, Overview, Capabilities и Impact composition-only.
+- [x] Explain, ChangeMap, API Registry, Overview, Capabilities, Impact и Coverage composition-only.
 
 ### Bounded ownership
 
@@ -125,6 +127,7 @@ ChangeMap, Overview, Capabilities и Impact физически разделен�
 - [x] Overview декомпозирован на conventional bounded owners.
 - [x] Capabilities декомпозирован на conventional bounded owners.
 - [x] Impact декомпозирован на conventional bounded owners.
+- [x] Coverage декомпозирован на conventional bounded owners.
 - [x] Daemon command dispatch вынесен из transport lifecycle.
 - [x] Publication lifecycle имеет отдельные bounded owners и commit-point semantics.
 
@@ -175,40 +178,43 @@ status намеренно не повышается.
 
 ## 7. Последние изменения
 
+### 2026-07-18 — Composition-only bounded Coverage
+
+- Монолитный `coverage.rs` заменён small module root.
+- Public report model перенесён в `coverage/model.rs`.
+- Composition-aware snapshot/state loading и file-filter normalization перенесены в
+  `coverage/execution.rs`.
+- Pure file/adapter/diagnostic aggregation, deterministic ordering и omitted counts перенесены в
+  `coverage/aggregation.rs`.
+- Unit regression перенесён в `coverage/tests.rs`.
+- Удалены no-composition `coverage_project`, optional composition,
+  `crate::store::init_store` и fallback match.
+- `read_service_composition_inventory` уплотнён общими helpers и дополнен Coverage line budgets.
+- Schema `athanor.coverage.v1`, filters, totals, ordering и omission semantics сохранены.
+- Статус — implemented, Rust/hosted verification pending.
+
 ### 2026-07-18 — Composition-only bounded Impact
 
-- Монолитный `impact.rs` заменён small module root.
-- Public model перенесён в `impact/model.rs`.
-- Composition-aware loading, target resolution и diff seeding перенесены в `impact/execution.rs`.
-- Pure BFS traversal, relation propagation, path steps и deterministic output перенесены в
-  `impact/traversal.rs`.
-- Unit regression перенесён в `impact/tests.rs`.
-- Удалены no-composition `impact_project`, optional composition,
-  `crate::store::init_store` и fallback match.
-- `read_service_composition_inventory` фиксирует routing, physical fallback absence и line budgets.
-- Schema `IMPACT_ANALYSIS_SCHEMA_V1`, target/diff behavior и BFS semantics сохранены.
-- Статус — implemented, Rust/hosted verification pending.
+- `impact.rs` заменён small module root.
+- Public model, composition execution, pure traversal и tests вынесены в conventional modules.
+- Удалены no-composition API, optional composition и Store fallback.
+- Schema, target/diff behavior, BFS propagation и deterministic paths сохранены.
+- Статус — implemented, verification pending.
 
 ### 2026-07-18 — Composition-only bounded Capabilities
 
-- Монолитный `capabilities.rs` заменён small module root.
-- Public report model и constants перенесены в `capabilities/model.rs`.
-- Composition-aware snapshot/state loading перенесён в `capabilities/execution.rs`.
-- Completeness aggregation, ordering, limits и evidence-path logic перенесены в
-  `capabilities/aggregation.rs`.
-- Unit regressions перенесены в `capabilities/tests.rs`.
-- Удалены no-composition `capabilities_project`, optional composition,
-  `crate::store::init_store` и fallback match.
-- `read_service_composition_inventory` фиксирует routing, physical fallback absence и line budgets.
-- Schema `athanor.capabilities.v1`, completeness semantics, ordering и omitted counts сохранены.
-- Статус — implemented, Rust/hosted verification pending.
+- `capabilities.rs` заменён small module root.
+- Model, composition execution, completeness aggregation и tests вынесены в conventional modules.
+- Удалены no-composition API, optional composition и Store fallback.
+- Schema, ordering, limits и omitted counts сохранены.
+- Статус — implemented, verification pending.
 
 ### 2026-07-18 — Composition-only bounded Overview
 
 - `overview.rs` заменён small module root.
 - Model, execution, aggregation и tests вынесены в conventional modules.
 - Удалены no-composition API, optional composition и Store fallback.
-- Pure `build_repository_overview`, schema и ordering contracts сохранены.
+- Pure builder, schema и ordering contracts сохранены.
 - Статус — implemented, verification pending.
 
 ### 2026-07-18 — Composition-only API Registry
@@ -222,7 +228,6 @@ status намеренно не повышается.
 
 - Удалены no-composition ChangeMap/Search paths.
 - ChangeMap task Search использует supplied composition.
-- Temporary facade удалён.
 - Owner разделён на model/execution/ranking/evidence/tests.
 - Public schema и report model сохранены.
 - Статус — implemented, verification pending.
