@@ -6,6 +6,11 @@ const CHANGE_MAP_EXECUTION_SOURCE: &str = include_str!("../src/change_map/execut
 const CHANGE_MAP_RANKING_SOURCE: &str = include_str!("../src/change_map/ranking.rs");
 const CHANGE_MAP_EVIDENCE_SOURCE: &str = include_str!("../src/change_map/evidence.rs");
 const CHANGE_MAP_TESTS_SOURCE: &str = include_str!("../src/change_map/tests.rs");
+const OVERVIEW_ROOT_SOURCE: &str = include_str!("../src/overview.rs");
+const OVERVIEW_MODEL_SOURCE: &str = include_str!("../src/overview/model.rs");
+const OVERVIEW_EXECUTION_SOURCE: &str = include_str!("../src/overview/execution.rs");
+const OVERVIEW_AGGREGATION_SOURCE: &str = include_str!("../src/overview/aggregation.rs");
+const OVERVIEW_TESTS_SOURCE: &str = include_str!("../src/overview/tests.rs");
 const EXPLAIN_SOURCE: &str = include_str!("../src/explain.rs");
 const API_REGISTRY_SOURCE: &str = include_str!("../src/api_registry.rs");
 
@@ -76,6 +81,46 @@ fn change_map_execution_requires_runtime_composition() {
 }
 
 #[test]
+fn overview_uses_conventional_bounded_modules() {
+    for module in ["aggregation", "execution", "model"] {
+        assert!(OVERVIEW_ROOT_SOURCE.contains(&format!("mod {module};")));
+    }
+    assert!(OVERVIEW_ROOT_SOURCE.contains("#[cfg(test)]\nmod tests;"));
+    assert!(OVERVIEW_ROOT_SOURCE.contains(
+        "pub use execution::overview_project_with_composition;"
+    ));
+    assert!(OVERVIEW_ROOT_SOURCE.contains(
+        "pub use aggregation::build_repository_overview;"
+    ));
+    assert!(OVERVIEW_ROOT_SOURCE.contains("pub use model::{"));
+
+    for source in [
+        OVERVIEW_ROOT_SOURCE,
+        OVERVIEW_MODEL_SOURCE,
+        OVERVIEW_EXECUTION_SOURCE,
+        OVERVIEW_AGGREGATION_SOURCE,
+        OVERVIEW_TESTS_SOURCE,
+    ] {
+        assert!(!source.contains("include!("));
+        assert!(!source.contains("overview_facade"));
+    }
+}
+
+#[test]
+fn overview_execution_requires_runtime_composition() {
+    assert!(OVERVIEW_EXECUTION_SOURCE.contains(
+        "pub async fn overview_project_with_composition("
+    ));
+    assert!(OVERVIEW_EXECUTION_SOURCE.contains("composition: &RuntimeComposition"));
+    assert!(OVERVIEW_EXECUTION_SOURCE.contains("composition.init_store(&root, &config)"));
+
+    assert!(!OVERVIEW_EXECUTION_SOURCE.contains("pub async fn overview_project("));
+    assert!(!OVERVIEW_EXECUTION_SOURCE.contains("Option<&RuntimeComposition>"));
+    assert!(!OVERVIEW_EXECUTION_SOURCE.contains("crate::store::init_store"));
+    assert!(!OVERVIEW_EXECUTION_SOURCE.contains("match composition"));
+}
+
+#[test]
 fn no_composition_snapshot_search_helpers_are_removed() {
     assert!(!SEARCH_FACADE_SOURCE.contains("pub async fn search_snapshot("));
     assert!(!SEARCH_FACADE_SOURCE.contains("pub(crate) async fn search_snapshot("));
@@ -122,6 +167,11 @@ fn read_service_modules_remain_bounded() {
         ("ChangeMap ranking", CHANGE_MAP_RANKING_SOURCE, 570),
         ("ChangeMap evidence", CHANGE_MAP_EVIDENCE_SOURCE, 100),
         ("ChangeMap tests", CHANGE_MAP_TESTS_SOURCE, 680),
+        ("Overview root", OVERVIEW_ROOT_SOURCE, 30),
+        ("Overview model", OVERVIEW_MODEL_SOURCE, 140),
+        ("Overview execution", OVERVIEW_EXECUTION_SOURCE, 60),
+        ("Overview aggregation", OVERVIEW_AGGREGATION_SOURCE, 430),
+        ("Overview tests", OVERVIEW_TESTS_SOURCE, 220),
         ("Search facade", SEARCH_FACADE_SOURCE, 100),
         ("API registry", API_REGISTRY_SOURCE, 300),
     ] {
