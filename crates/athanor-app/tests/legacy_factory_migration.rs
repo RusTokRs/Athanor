@@ -13,6 +13,7 @@ const SEARCH_FACADE_SOURCE: &str = include_str!("../src/search_facade.rs");
 const SEARCH_CORE_SOURCE: &str = include_str!("../src/search.rs");
 const SEARCH_INDEX_SOURCE: &str = include_str!("../src/search/index.rs");
 const TEST_RUNTIME_SOURCE: &str = include_str!("../src/test_runtime.rs");
+const COMPOSITION_ISOLATION_SOURCE: &str = include_str!("composition_isolation.rs");
 const APPLICATION_COMPOSITION_SOURCE: &str =
     include_str!("../src/application_report_composition.rs");
 const INDEX_CLI_SOURCE: &str = include_str!("../../../apps/ath/src/index_cli.rs");
@@ -88,20 +89,44 @@ fn application_report_services_have_no_store_scope_bridge() {
 }
 
 #[test]
-fn temporary_installer_shims_are_state_free_and_documented() {
+fn installer_apis_are_removed_from_public_runtime_sources() {
     for source in [
+        APP_LIB_SOURCE,
         RUNTIME_ROOT_SOURCE,
         PROJECTION_SOURCE,
         STORE_FACADE_SOURCE,
         SEARCH_FACADE_SOURCE,
+        RUNTIME_DEFAULTS_SOURCE,
     ] {
-        assert!(source.contains("process-global"));
-        assert!(source.contains("panic!"));
-        assert!(!source.contains(".set("));
+        assert!(!source.contains("pub fn install_"));
+        assert!(!source.contains("pub fn install()"));
+        assert!(!source.contains("process-global installation was removed"));
     }
-    assert!(RUNTIME_DEFAULTS_SOURCE.contains("pub fn install()"));
-    assert!(MIGRATION_DOC.contains("COMP-003C1"));
-    assert!(MIGRATION_DOC.contains("COMP-003C2"));
+    assert!(!APP_LIB_SOURCE.contains("install_wiki_projector_factory"));
+    assert!(!APP_LIB_SOURCE.contains("install_html_projector_factory"));
+    assert!(MIGRATION_DOC.contains("COMP-003C2A"));
+    assert!(MIGRATION_DOC.contains("COMP-003C2B"));
+}
+
+#[test]
+fn parallel_isolation_matrix_covers_every_composed_factory_family() {
+    assert!(COMPOSITION_ISOLATION_SOURCE.contains(
+        "parallel_compositions_do_not_cross_store_search_or_projector_factories"
+    ));
+    for token in [
+        "store_a",
+        "store_b",
+        "search_a",
+        "search_b",
+        "wiki_a",
+        "wiki_b",
+        "html_a",
+        "html_b",
+    ] {
+        assert!(COMPOSITION_ISOLATION_SOURCE.contains(token));
+    }
+    assert!(COMPOSITION_ISOLATION_SOURCE.contains("tokio::spawn"));
+    assert!(COMPOSITION_ISOLATION_SOURCE.contains("ITERATIONS"));
 }
 
 #[test]
@@ -117,6 +142,7 @@ fn composition_boundary_modules_remain_bounded() {
         ("search core", SEARCH_CORE_SOURCE, 300),
         ("search index", SEARCH_INDEX_SOURCE, 160),
         ("test runtime", TEST_RUNTIME_SOURCE, 180),
+        ("composition isolation", COMPOSITION_ISOLATION_SOURCE, 320),
     ] {
         let lines = source.lines().count();
         assert!(lines <= max_lines, "{name} grew to {lines} lines");
