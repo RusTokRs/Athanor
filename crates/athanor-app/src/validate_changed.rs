@@ -3,8 +3,6 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{Context, Result};
-#[cfg(not(test))]
-use anyhow::bail;
 use athanor_core::{CoreResult, SourceFile, SourceProvider};
 use athanor_domain::{Diagnostic, RepoId, SnapshotBase, SnapshotId};
 use serde::Serialize;
@@ -35,22 +33,6 @@ pub struct ChangedValidationReport {
     pub removed_files: usize,
     pub diagnostics: Vec<Diagnostic>,
     pub metrics: IndexPipelineMetrics,
-}
-
-pub async fn validate_changed(
-    options: ChangedValidationOptions,
-) -> Result<ChangedValidationReport> {
-    #[cfg(test)]
-    {
-        let composition = crate::test_runtime::composition();
-        return validate_changed_with_composition(options, &composition).await;
-    }
-
-    #[cfg(not(test))]
-    {
-        let _ = options;
-        bail!("explicit RuntimeComposition is required for changed-file validation")
-    }
 }
 
 pub async fn validate_changed_with_composition(
