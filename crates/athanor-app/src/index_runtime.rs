@@ -18,7 +18,6 @@ use crate::transient_store::TransientKnowledgeStore;
 use crate::{
     AdapterValidationReport, AthanorStore, CancellationToken, IncrementalIndexContext,
     IndexPipelineMetrics, IndexStateStore, RuntimeBuilder, RuntimeComposition, config::load_config,
-    store::init_store,
 };
 
 #[derive(Debug, Clone)]
@@ -95,40 +94,27 @@ struct ValidationResultFile<'a> {
     diagnostics: usize,
 }
 
-pub async fn index_project(options: IndexOptions) -> Result<IndexReport> {
-    index_project_inner(options, None, None, None).await
-}
-
-/// Indexes with explicit transport-neutral operation metadata propagated to all pipeline ports.
-pub async fn index_project_with_operation_context(
-    options: IndexOptions,
-    operation: OperationContext,
-) -> Result<IndexReport> {
-    index_project_inner(options, None, None, Some(operation)).await
-}
-
 /// Indexes with dependencies supplied by an explicit application composition.
 pub async fn index_project_with_composition(
     options: IndexOptions,
     composition: &RuntimeComposition,
 ) -> Result<IndexReport> {
-    index_project_inner(options, None, Some(composition), None).await
+    index_project_inner(
+        options,
+        None,
+        composition,
+        OperationContext::new("index"),
+    )
+    .await
 }
 
-pub async fn index_project_cancellable(
+/// Indexes with explicit dependencies and transport-neutral operation metadata.
+pub async fn index_project_with_composition_and_operation_context(
     options: IndexOptions,
-    cancellation: CancellationToken,
-) -> Result<IndexReport> {
-    index_project_inner(options, Some(cancellation), None, None).await
-}
-
-/// Cancellable indexing with explicit transport-neutral operation metadata.
-pub async fn index_project_cancellable_with_operation_context(
-    options: IndexOptions,
-    cancellation: CancellationToken,
+    composition: &RuntimeComposition,
     operation: OperationContext,
 ) -> Result<IndexReport> {
-    index_project_inner(options, Some(cancellation), None, Some(operation)).await
+    index_project_inner(options, None, composition, operation).await
 }
 
 /// Cancellable variant of [`index_project_with_composition`].
@@ -137,7 +123,13 @@ pub async fn index_project_cancellable_with_composition(
     cancellation: CancellationToken,
     composition: &RuntimeComposition,
 ) -> Result<IndexReport> {
-    index_project_inner(options, Some(cancellation), Some(composition), None).await
+    index_project_inner(
+        options,
+        Some(cancellation),
+        composition,
+        OperationContext::new("index"),
+    )
+    .await
 }
 
 /// Cancellable composition-aware indexing with explicit operation metadata.
@@ -147,22 +139,15 @@ pub async fn index_project_cancellable_with_composition_and_operation_context(
     composition: &RuntimeComposition,
     operation: OperationContext,
 ) -> Result<IndexReport> {
-    index_project_inner(
-        options,
-        Some(cancellation),
-        Some(composition),
-        Some(operation),
-    )
-    .await
+    index_project_inner(options, Some(cancellation), composition, operation).await
 }
 
 async fn index_project_inner(
     options: IndexOptions,
     cancellation: Option<CancellationToken>,
-    composition: Option<&RuntimeComposition>,
-    operation: Option<OperationContext>,
+    composition: &RuntimeComposition,
+    operation: OperationContext,
 ) -> Result<IndexReport> {
-    let operation = operation.unwrap_or_else(|| OperationContext::new("index"));
     let index_started = Instant::now();
     let root = normalize_canonical_path(
         options
@@ -178,10 +163,7 @@ async fn index_project_inner(
     let validation_report = validation_report_path(&root, options.validation_report.as_deref());
     let validation_result = validation_result_path(&root, options.validation_result.as_deref());
     let config = load_config(&root)?;
-    let canonical_store = match composition {
-        Some(composition) => composition.init_store(&root, &config).await?,
-        None => init_store(&root, &config).await?,
-    };
+    let canonical_store = composition.init_store(&root, &config).await?;
     recover_interrupted_publication(&root, &canonical_store).await?;
     let previous_state = state_store.load().context("failed to load index state")?;
     let previous_snapshot = match previous_state.snapshot.as_ref() {
@@ -483,11 +465,8 @@ async fn publish_index_snapshot_with_cleanup(
     }
 }
 
-fn runtime_builder(root: &Path, composition: Option<&RuntimeComposition>) -> RuntimeBuilder {
-    match composition {
-        Some(composition) => RuntimeBuilder::from_composition(root, composition),
-        None => RuntimeBuilder::new(root),
-    }
+fn runtime_builder(root: &Path, composition: &RuntimeComposition) -> RuntimeBuilder {
+    RuntimeBuilder::from_composition(root, composition)
 }
 
 /// An OS-level lock covering source-state classification, canonical writes, and publication.
