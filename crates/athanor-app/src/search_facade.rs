@@ -1,7 +1,8 @@
-//! Compatibility facade for search APIs that historically used process-global factories.
+//! Compatibility facade for search APIs that still require migration to explicit composition.
 //!
-//! Composition-aware APIs are the production path. Unit tests retain the old helper shape by
-//! constructing a fresh local test composition; production no-composition calls fail explicitly.
+//! Composition-aware APIs are the production path. Unit tests retain the old helper shape
+//! temporarily by constructing a fresh local test composition; production no-composition calls
+//! fail explicitly.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -24,14 +25,6 @@ pub(crate) use core::{
     get_or_build_search_index_with_factory,
     get_or_build_search_index_with_factory_and_operation,
 };
-
-pub fn install_search_index_factory(_factory: SearchIndexFactory) {
-    panic!("process-global search-index installation was removed; use RuntimeComposition")
-}
-
-pub fn install_search_index_operation_factory(_factory: SearchIndexOperationFactory) {
-    panic!("process-global search-index installation was removed; use RuntimeComposition")
-}
 
 pub async fn search_project(options: SearchOptions) -> Result<SearchReport> {
     #[cfg(test)]
