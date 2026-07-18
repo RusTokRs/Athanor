@@ -1,6 +1,8 @@
 use std::future::Future;
 
 use anyhow::Result;
+#[cfg(not(test))]
+use anyhow::bail;
 use athanor_core::{OperationContext, OperationContextCancellation};
 
 use crate::context_operation::context_project_with_operation_context_impl;
@@ -9,14 +11,30 @@ use crate::{
     change_map_project, change_map_project_with_composition,
 };
 
-/// Builds a diff-aware context report under the shared cancellation/deadline contract.
+/// Temporary compatibility edge for callers not yet migrated to explicit composition.
+///
+/// Production callers fail explicitly. Unit tests use a fresh local composition until daemon and
+/// legacy operation callers are migrated.
 pub async fn context_project_with_operation_context(
     options: ContextOptions,
     operation: &OperationContext,
 ) -> Result<ContextReport> {
-    context_project_with_operation_context_impl(options, None, operation)
-        .await
-        .map(ContextReport::from)
+    #[cfg(test)]
+    {
+        let composition = crate::test_runtime::composition();
+        return context_project_with_composition_and_operation_context(
+            options,
+            &composition,
+            operation,
+        )
+        .await;
+    }
+
+    #[cfg(not(test))]
+    {
+        let _ = (options, operation);
+        bail!("explicit RuntimeComposition is required for operation-aware context generation")
+    }
 }
 
 /// Builds a diff-aware context report with explicit runtime dependencies and operation metadata.
@@ -25,7 +43,7 @@ pub async fn context_project_with_composition_and_operation_context(
     composition: &RuntimeComposition,
     operation: &OperationContext,
 ) -> Result<ContextReport> {
-    context_project_with_operation_context_impl(options, Some(composition), operation)
+    context_project_with_operation_context_impl(options, composition, operation)
         .await
         .map(ContextReport::from)
 }
