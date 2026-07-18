@@ -1,10 +1,9 @@
-//! Compatibility facade for search APIs that still require migration to explicit composition.
+//! Compatibility facade for Search APIs during the remaining ChangeMap migration.
 //!
-//! Composition-aware APIs are the production path. Remaining no-composition snapshot helpers are
-//! retained only until their internal callers migrate in COMP-003C2B2.
+//! Composition-aware APIs are the production path. The sole remaining no-composition snapshot
+//! helper is retained only until ChangeMap receives explicit runtime composition.
 
 use std::path::Path;
-use std::sync::Arc;
 
 use anyhow::Result;
 #[cfg(not(test))]
@@ -95,34 +94,6 @@ pub async fn search_snapshot(
     }
 }
 
-pub async fn search_snapshot_with_operation_context(
-    root: &Path,
-    snapshot: &CanonicalSnapshot,
-    query: String,
-    limit: usize,
-    operation: &OperationContext,
-) -> Result<SearchReport> {
-    #[cfg(test)]
-    {
-        let composition = crate::test_runtime::composition();
-        return core::search_snapshot_with_composition_and_operation_context(
-            root,
-            snapshot,
-            query,
-            limit,
-            &composition,
-            operation,
-        )
-        .await;
-    }
-
-    #[cfg(not(test))]
-    {
-        let _ = (root, snapshot, query, limit, operation);
-        bail!("explicit RuntimeComposition is required for operation-aware snapshot search")
-    }
-}
-
 pub async fn search_snapshot_with_index(
     root: &Path,
     snapshot: &CanonicalSnapshot,
@@ -131,35 +102,4 @@ pub async fn search_snapshot_with_index(
     index: &dyn SearchIndex,
 ) -> Result<SearchReport> {
     core::search_snapshot_with_index(root, snapshot, query, limit, index).await
-}
-
-pub fn get_or_build_search_index_with_operation_context(
-    snapshot: &CanonicalSnapshot,
-    snapshot_id: &str,
-    index_dir: &Path,
-    operation: &OperationContext,
-) -> Result<Arc<dyn SearchIndex>> {
-    #[cfg(test)]
-    {
-        let composition = crate::test_runtime::composition();
-        return core::get_or_build_search_index_with_factory_and_operation(
-            snapshot,
-            snapshot_id,
-            index_dir,
-            operation,
-            |directory, documents, operation| {
-                composition.build_search_index_with_operation_context(
-                    directory,
-                    documents,
-                    operation,
-                )
-            },
-        );
-    }
-
-    #[cfg(not(test))]
-    {
-        let _ = (snapshot, snapshot_id, index_dir, operation);
-        bail!("explicit RuntimeComposition is required for operation-aware search indexing")
-    }
 }
