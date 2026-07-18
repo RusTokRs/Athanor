@@ -11,6 +11,11 @@ const OVERVIEW_MODEL_SOURCE: &str = include_str!("../src/overview/model.rs");
 const OVERVIEW_EXECUTION_SOURCE: &str = include_str!("../src/overview/execution.rs");
 const OVERVIEW_AGGREGATION_SOURCE: &str = include_str!("../src/overview/aggregation.rs");
 const OVERVIEW_TESTS_SOURCE: &str = include_str!("../src/overview/tests.rs");
+const CAPABILITIES_ROOT_SOURCE: &str = include_str!("../src/capabilities.rs");
+const CAPABILITIES_MODEL_SOURCE: &str = include_str!("../src/capabilities/model.rs");
+const CAPABILITIES_EXECUTION_SOURCE: &str = include_str!("../src/capabilities/execution.rs");
+const CAPABILITIES_AGGREGATION_SOURCE: &str = include_str!("../src/capabilities/aggregation.rs");
+const CAPABILITIES_TESTS_SOURCE: &str = include_str!("../src/capabilities/tests.rs");
 const EXPLAIN_SOURCE: &str = include_str!("../src/explain.rs");
 const API_REGISTRY_SOURCE: &str = include_str!("../src/api_registry.rs");
 
@@ -121,6 +126,45 @@ fn overview_execution_requires_runtime_composition() {
 }
 
 #[test]
+fn capabilities_use_conventional_bounded_modules() {
+    for module in ["aggregation", "execution", "model"] {
+        assert!(CAPABILITIES_ROOT_SOURCE.contains(&format!("mod {module};")));
+    }
+    assert!(CAPABILITIES_ROOT_SOURCE.contains("#[cfg(test)]\nmod tests;"));
+    assert!(CAPABILITIES_ROOT_SOURCE.contains(
+        "pub use execution::capabilities_project_with_composition;"
+    ));
+    assert!(CAPABILITIES_ROOT_SOURCE.contains("pub use model::{"));
+
+    for source in [
+        CAPABILITIES_ROOT_SOURCE,
+        CAPABILITIES_MODEL_SOURCE,
+        CAPABILITIES_EXECUTION_SOURCE,
+        CAPABILITIES_AGGREGATION_SOURCE,
+        CAPABILITIES_TESTS_SOURCE,
+    ] {
+        assert!(!source.contains("include!("));
+        assert!(!source.contains("capabilities_facade"));
+    }
+}
+
+#[test]
+fn capabilities_execution_requires_runtime_composition() {
+    assert!(CAPABILITIES_EXECUTION_SOURCE.contains(
+        "pub async fn capabilities_project_with_composition("
+    ));
+    assert!(CAPABILITIES_EXECUTION_SOURCE.contains("composition: &RuntimeComposition"));
+    assert!(CAPABILITIES_EXECUTION_SOURCE.contains(
+        "composition.init_store(&root, &config)"
+    ));
+
+    assert!(!CAPABILITIES_EXECUTION_SOURCE.contains("pub async fn capabilities_project("));
+    assert!(!CAPABILITIES_EXECUTION_SOURCE.contains("Option<&RuntimeComposition>"));
+    assert!(!CAPABILITIES_EXECUTION_SOURCE.contains("crate::store::init_store"));
+    assert!(!CAPABILITIES_EXECUTION_SOURCE.contains("match composition"));
+}
+
+#[test]
 fn no_composition_snapshot_search_helpers_are_removed() {
     assert!(!SEARCH_FACADE_SOURCE.contains("pub async fn search_snapshot("));
     assert!(!SEARCH_FACADE_SOURCE.contains("pub(crate) async fn search_snapshot("));
@@ -172,6 +216,11 @@ fn read_service_modules_remain_bounded() {
         ("Overview execution", OVERVIEW_EXECUTION_SOURCE, 60),
         ("Overview aggregation", OVERVIEW_AGGREGATION_SOURCE, 430),
         ("Overview tests", OVERVIEW_TESTS_SOURCE, 220),
+        ("Capabilities root", CAPABILITIES_ROOT_SOURCE, 30),
+        ("Capabilities model", CAPABILITIES_MODEL_SOURCE, 130),
+        ("Capabilities execution", CAPABILITIES_EXECUTION_SOURCE, 70),
+        ("Capabilities aggregation", CAPABILITIES_AGGREGATION_SOURCE, 360),
+        ("Capabilities tests", CAPABILITIES_TESTS_SOURCE, 200),
         ("Search facade", SEARCH_FACADE_SOURCE, 100),
         ("API registry", API_REGISTRY_SOURCE, 300),
     ] {
