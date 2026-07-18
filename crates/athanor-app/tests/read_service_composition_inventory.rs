@@ -16,6 +16,11 @@ const CAPABILITIES_MODEL_SOURCE: &str = include_str!("../src/capabilities/model.
 const CAPABILITIES_EXECUTION_SOURCE: &str = include_str!("../src/capabilities/execution.rs");
 const CAPABILITIES_AGGREGATION_SOURCE: &str = include_str!("../src/capabilities/aggregation.rs");
 const CAPABILITIES_TESTS_SOURCE: &str = include_str!("../src/capabilities/tests.rs");
+const IMPACT_ROOT_SOURCE: &str = include_str!("../src/impact.rs");
+const IMPACT_MODEL_SOURCE: &str = include_str!("../src/impact/model.rs");
+const IMPACT_EXECUTION_SOURCE: &str = include_str!("../src/impact/execution.rs");
+const IMPACT_TRAVERSAL_SOURCE: &str = include_str!("../src/impact/traversal.rs");
+const IMPACT_TESTS_SOURCE: &str = include_str!("../src/impact/tests.rs");
 const EXPLAIN_SOURCE: &str = include_str!("../src/explain.rs");
 const API_REGISTRY_SOURCE: &str = include_str!("../src/api_registry.rs");
 
@@ -165,6 +170,44 @@ fn capabilities_execution_requires_runtime_composition() {
 }
 
 #[test]
+fn impact_uses_conventional_bounded_modules() {
+    for module in ["execution", "model", "traversal"] {
+        assert!(IMPACT_ROOT_SOURCE.contains(&format!("mod {module};")));
+    }
+    assert!(IMPACT_ROOT_SOURCE.contains("#[cfg(test)]\nmod tests;"));
+    assert!(IMPACT_ROOT_SOURCE.contains(
+        "pub use execution::impact_project_with_composition;"
+    ));
+    assert!(IMPACT_ROOT_SOURCE.contains("pub use traversal::impact_snapshot;"));
+    assert!(IMPACT_ROOT_SOURCE.contains("pub use model::{"));
+
+    for source in [
+        IMPACT_ROOT_SOURCE,
+        IMPACT_MODEL_SOURCE,
+        IMPACT_EXECUTION_SOURCE,
+        IMPACT_TRAVERSAL_SOURCE,
+        IMPACT_TESTS_SOURCE,
+    ] {
+        assert!(!source.contains("include!("));
+        assert!(!source.contains("impact_facade"));
+    }
+}
+
+#[test]
+fn impact_execution_requires_runtime_composition() {
+    assert!(IMPACT_EXECUTION_SOURCE.contains(
+        "pub async fn impact_project_with_composition("
+    ));
+    assert!(IMPACT_EXECUTION_SOURCE.contains("composition: &RuntimeComposition"));
+    assert!(IMPACT_EXECUTION_SOURCE.contains("composition.init_store(&root, &config)"));
+
+    assert!(!IMPACT_EXECUTION_SOURCE.contains("pub async fn impact_project("));
+    assert!(!IMPACT_EXECUTION_SOURCE.contains("Option<&RuntimeComposition>"));
+    assert!(!IMPACT_EXECUTION_SOURCE.contains("crate::store::init_store"));
+    assert!(!IMPACT_EXECUTION_SOURCE.contains("match composition"));
+}
+
+#[test]
 fn no_composition_snapshot_search_helpers_are_removed() {
     assert!(!SEARCH_FACADE_SOURCE.contains("pub async fn search_snapshot("));
     assert!(!SEARCH_FACADE_SOURCE.contains("pub(crate) async fn search_snapshot("));
@@ -221,6 +264,11 @@ fn read_service_modules_remain_bounded() {
         ("Capabilities execution", CAPABILITIES_EXECUTION_SOURCE, 70),
         ("Capabilities aggregation", CAPABILITIES_AGGREGATION_SOURCE, 360),
         ("Capabilities tests", CAPABILITIES_TESTS_SOURCE, 200),
+        ("Impact root", IMPACT_ROOT_SOURCE, 30),
+        ("Impact model", IMPACT_MODEL_SOURCE, 100),
+        ("Impact execution", IMPACT_EXECUTION_SOURCE, 210),
+        ("Impact traversal", IMPACT_TRAVERSAL_SOURCE, 270),
+        ("Impact tests", IMPACT_TESTS_SOURCE, 190),
         ("Search facade", SEARCH_FACADE_SOURCE, 100),
         ("API registry", API_REGISTRY_SOURCE, 300),
     ] {
