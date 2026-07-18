@@ -16,6 +16,7 @@ use surrealdb::Surreal;
 use surrealdb::engine::any::Any;
 use surrealdb::sql::Thing;
 use tokio::sync::Mutex;
+use tokio::time::{Duration, sleep};
 
 /// SurrealDB-backed canonical store.
 ///
@@ -45,6 +46,10 @@ struct SnapshotRecord {
     committed: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     generation: Option<GenerationId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    allocation_operation_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    allocation_created_at_unix_ms: Option<u64>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -88,24 +93,38 @@ impl SurrealKnowledgeStore {
     }
 
     async fn allocate_snapshot_sequence(&self) -> CoreResult<u64> {
-        let response = self
-            .db
-            .query("UPDATE ONLY meta:snapshot_counter SET count += 1 RETURN AFTER;")
-            .await
-            .map_err(|error| {
-                CoreError::Adapter(format!("failed to increment snapshot counter: {error}"))
-            })?
-            .check()
-            .map_err(|error| {
-                CoreError::Adapter(format!("snapshot counter transaction failed: {error}"))
+        const MAX_ATTEMPTS: usize = 8;
+        for attempt in 0..MAX_ATTEMPTS {
+            let response = self
+                .db
+                .query("UPDATE ONLY meta:snapshot_counter SET count += 1 RETURN AFTER;")
+                .await
+                .map_err(|error| {
+                    CoreError::Adapter(format!("failed to increment snapshot counter: {error}"))
+                })?;
+            let mut response = match response.check() {
+                Ok(response) => response,
+                Err(error)
+                    if attempt + 1 < MAX_ATTEMPTS
+                        && is_retryable_counter_conflict(&error.to_string()) =>
+                {
+                    sleep(Duration::from_millis(2_u64.saturating_pow(attempt as u32))).await;
+                    continue;
+                }
+                Err(error) => {
+                    return Err(CoreError::Adapter(format!(
+                        "snapshot counter transaction failed: {error}"
+                    )));
+                }
+            };
+            let counter: Option<CounterRecord> = response.take(0).map_err(|error| {
+                CoreError::Adapter(format!("failed to parse snapshot counter: {error}"))
             })?;
-        let mut response = response;
-        let counter: Option<CounterRecord> = response.take(0).map_err(|error| {
-            CoreError::Adapter(format!("failed to parse snapshot counter: {error}"))
-        })?;
-        counter
-            .map(|counter| counter.count)
-            .ok_or_else(|| CoreError::Adapter("snapshot counter returned no record".to_string()))
+            return counter.map(|counter| counter.count).ok_or_else(|| {
+                CoreError::Adapter("snapshot counter returned no record".to_string())
+            });
+        }
+        unreachable!("snapshot counter retry loop always returns");
     }
 
     async fn load_snapshot_record(&self, snapshot: &SnapshotId) -> CoreResult<SnapshotRecord> {
@@ -204,6 +223,11 @@ impl SurrealKnowledgeStore {
     }
 }
 
+fn is_retryable_counter_conflict(message: &str) -> bool {
+    let message = message.to_ascii_lowercase();
+    message.contains("read or write conflict") || message.contains("can be retried")
+}
+
 fn validate_committed_generation(
     record: &SnapshotRecord,
     snapshot: &SnapshotId,
@@ -292,6 +316,8 @@ impl KnowledgeStore for SurrealKnowledgeStore {
             prepared: false,
             committed: false,
             generation: None,
+            allocation_operation_id: None,
+            allocation_created_at_unix_ms: None,
         };
 
         let _: Option<SnapshotRecord> = self

@@ -60,7 +60,7 @@ impl SurrealKnowledgeStore {
             sql.push_str("INSERT INTO diagnostic $diagnostics RETURN NONE;\n");
         }
         sql.push_str(
-            "UPDATE ONLY type::thing('snapshot', $snapshot) \
+            "UPDATE type::thing('snapshot', $snapshot) \
              SET prepared = true, committed = true, generation = $generation RETURN NONE;\n\
              COMMIT;",
         );
@@ -82,7 +82,7 @@ impl SurrealKnowledgeStore {
             .check()
             .map_err(|error| {
                 CoreError::Adapter(format!(
-                    "atomic snapshot publication transaction rolled back: {error}"
+                    "atomic snapshot publication transaction rolled back: {error:?}"
                 ))
             })?;
 

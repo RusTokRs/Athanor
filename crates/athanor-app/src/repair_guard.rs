@@ -2,6 +2,8 @@ use std::path::Path;
 
 use anyhow::{Result, bail};
 
+use crate::RuntimeComposition;
+
 mod current {
     include!("repair_pointer.rs");
 }
@@ -66,16 +68,22 @@ pub fn cleanup_repair(options: RepairCleanupOptions) -> Result<RepairCleanupRepo
     Ok(report)
 }
 
-pub async fn apply_repair(options: RepairApplyOptions) -> Result<RepairApplyReport> {
+pub async fn apply_repair(
+    options: RepairApplyOptions,
+    composition: &RuntimeComposition,
+) -> Result<RepairApplyReport> {
     let canonical = recover_canonical_repair(RepairRecoverCanonicalOptions {
         root: options.root.clone(),
         dry_run: options.dry_run,
     })?;
     let root = canonical.root.clone();
-    let generated = regenerate_repair(RepairRegenerateOptions {
-        root: root.clone(),
-        dry_run: options.dry_run,
-    })
+    let generated = regenerate_repair(
+        RepairRegenerateOptions {
+            root: root.clone(),
+            dry_run: options.dry_run,
+        },
+        composition,
+    )
     .await?;
     let cleanup = cleanup_repair(RepairCleanupOptions {
         root: root.clone(),

@@ -8,9 +8,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::generation::{
     CurrentGeneration, GENERATED_CURRENT_SCHEMA, GENERATED_GENERATION_SCHEMA, GenerationOptions,
-    GenerationReport, generate_project,
+    GenerationReport, generate_project_with_composition,
 };
 use crate::project_path::normalize_canonical_path;
+use crate::RuntimeComposition;
 
 #[derive(Debug, Clone)]
 pub struct RepairInspectOptions {
@@ -273,7 +274,10 @@ pub fn cleanup_repair(options: RepairCleanupOptions) -> Result<RepairCleanupRepo
     })
 }
 
-pub async fn regenerate_repair(options: RepairRegenerateOptions) -> Result<RepairRegenerateReport> {
+pub async fn regenerate_repair(
+    options: RepairRegenerateOptions,
+    composition: &RuntimeComposition,
+) -> Result<RepairRegenerateReport> {
     let inspection = inspect_repair(RepairInspectOptions {
         root: options.root.clone(),
     })?;
@@ -282,10 +286,13 @@ pub async fn regenerate_repair(options: RepairRegenerateOptions) -> Result<Repai
 
     let generated = if needed && !options.dry_run {
         Some(
-            generate_project(GenerationOptions {
-                root: root.clone(),
-                force: false,
-            })
+            generate_project_with_composition(
+                GenerationOptions {
+                    root: root.clone(),
+                    force: false,
+                },
+                composition,
+            )
             .await
             .context("failed to regenerate generated outputs")?,
         )
@@ -351,7 +358,10 @@ pub fn recover_canonical_repair(
     })
 }
 
-pub async fn apply_repair(options: RepairApplyOptions) -> Result<RepairApplyReport> {
+pub async fn apply_repair(
+    options: RepairApplyOptions,
+    composition: &RuntimeComposition,
+) -> Result<RepairApplyReport> {
     let root = normalize_canonical_path(
         options
             .root
@@ -362,10 +372,13 @@ pub async fn apply_repair(options: RepairApplyOptions) -> Result<RepairApplyRepo
         root: root.clone(),
         dry_run: options.dry_run,
     })?;
-    let generated = regenerate_repair(RepairRegenerateOptions {
-        root: root.clone(),
-        dry_run: options.dry_run,
-    })
+    let generated = regenerate_repair(
+        RepairRegenerateOptions {
+            root: root.clone(),
+            dry_run: options.dry_run,
+        },
+        composition,
+    )
     .await?;
     let cleanup = cleanup_repair(RepairCleanupOptions {
         root: root.clone(),
@@ -1148,10 +1161,14 @@ mod tests {
         )
         .unwrap();
 
-        let report = regenerate_repair(RepairRegenerateOptions {
-            root: root.clone(),
-            dry_run: false,
-        })
+        let composition = crate::test_runtime::composition();
+        let report = regenerate_repair(
+            RepairRegenerateOptions {
+                root: root.clone(),
+                dry_run: false,
+            },
+            &composition,
+        )
         .await
         .unwrap();
 
@@ -1222,10 +1239,14 @@ mod tests {
                 .any(|issue| { issue.code == "current_generation_manifest_snapshot_mismatch" })
         );
 
-        let report = regenerate_repair(RepairRegenerateOptions {
-            root: root.clone(),
-            dry_run: false,
-        })
+        let composition = crate::test_runtime::composition();
+        let report = regenerate_repair(
+            RepairRegenerateOptions {
+                root: root.clone(),
+                dry_run: false,
+            },
+            &composition,
+        )
         .await
         .unwrap();
 
@@ -1429,13 +1450,17 @@ mod tests {
         )
         .unwrap();
 
-        let report = apply_repair(RepairApplyOptions {
-            root: root.clone(),
-            dry_run: false,
-            keep_canonical: 0,
-            keep_generated: 0,
-            generated_only: false,
-        })
+        let composition = crate::test_runtime::composition();
+        let report = apply_repair(
+            RepairApplyOptions {
+                root: root.clone(),
+                dry_run: false,
+                keep_canonical: 0,
+                keep_generated: 0,
+                generated_only: false,
+            },
+            &composition,
+        )
         .await
         .unwrap();
 

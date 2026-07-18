@@ -2,8 +2,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use athanor_core::{CoreError, CoreResult, OperationContext};
 use athanor_domain::{RepoId, SnapshotBase, SnapshotId};
-use serde_json::json;
-
 use super::{SnapshotRecord, SurrealKnowledgeStore};
 
 const MAX_ORPHAN_CLEANUP_BATCH: usize = 128;
@@ -27,20 +25,22 @@ impl SurrealKnowledgeStore {
         let _guard = self.write_gate.lock().await;
         let sequence = self.allocate_snapshot_sequence().await?;
         let snapshot_id = format!("snap_surreal_{sequence:08}");
-        let record = json!({
-            "repo": repo.0,
-            "base_branch": base.branch,
-            "base_commit": base.commit,
-            "base_parent_snapshot": base.parent_snapshot.map(|snapshot| snapshot.0),
-            "base_working_tree": base.working_tree,
-            "sequence": sequence,
-            "prepared": false,
-            "committed": false,
-            "allocation_operation_id": context.operation_id.clone(),
-            "allocation_created_at_unix_ms": current_unix_ms(),
-        });
+        let record = SnapshotRecord {
+            id: snapshot_id.clone(),
+            repo: repo.0,
+            base_branch: base.branch,
+            base_commit: base.commit,
+            base_parent_snapshot: base.parent_snapshot.map(|snapshot| snapshot.0),
+            base_working_tree: base.working_tree,
+            sequence,
+            prepared: false,
+            committed: false,
+            generation: None,
+            allocation_operation_id: context.operation_id.clone(),
+            allocation_created_at_unix_ms: Some(current_unix_ms()),
+        };
 
-        let _: Option<serde_json::Value> = self
+        let _: Option<SnapshotRecord> = self
             .db
             .create(("snapshot", &snapshot_id))
             .content(record)
@@ -73,9 +73,7 @@ impl SurrealKnowledgeStore {
                  WHERE repo = $repo \
                    AND committed = false \
                    AND prepared = false \
-                   AND allocation_created_at_unix_ms != NONE \
-                   AND allocation_created_at_unix_ms <= $stale_before \
-                 ORDER BY allocation_created_at_unix_ms ASC, sequence ASC \
+                 ORDER BY sequence ASC \
                  LIMIT $limit;",
             )
             .bind(("repo", repo.0.clone()))
@@ -100,22 +98,23 @@ impl SurrealKnowledgeStore {
         })?;
 
         let mut removed = Vec::with_capacity(candidates.len());
-        for candidate in candidates {
+        for candidate in candidates.into_iter().filter(|candidate| {
+            candidate
+                .allocation_created_at_unix_ms
+                .is_some_and(|created| created <= stale_before_unix_ms)
+        }) {
             let snapshot = SnapshotId(candidate.id);
             let mut delete_response = self
                 .db
                 .query(
-                    "DELETE ONLY type::thing('snapshot', $snapshot) \
+                    "DELETE type::thing('snapshot', $snapshot) \
                      WHERE repo = $repo \
                        AND committed = false \
                        AND prepared = false \
-                       AND allocation_created_at_unix_ms != NONE \
-                       AND allocation_created_at_unix_ms <= $stale_before \
                      RETURN BEFORE;",
                 )
                 .bind(("snapshot", snapshot.0.clone()))
                 .bind(("repo", repo.0.clone()))
-                .bind(("stale_before", stale_before_unix_ms))
                 .await
                 .map_err(|error| {
                     CoreError::Adapter(format!(
