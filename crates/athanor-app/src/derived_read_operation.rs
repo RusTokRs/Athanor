@@ -1,41 +1,13 @@
 use std::future::Future;
 
 use anyhow::Result;
-#[cfg(not(test))]
-use anyhow::bail;
 use athanor_core::{OperationContext, OperationContextCancellation};
 
 use crate::context_operation::context_project_with_operation_context_impl;
 use crate::{
     ChangeMapOptions, ChangeMapReport, ContextOptions, ContextReport, RuntimeComposition,
-    change_map_project, change_map_project_with_composition,
+    change_map_project_with_composition,
 };
-
-/// Temporary compatibility edge for callers not yet migrated to explicit composition.
-///
-/// Production callers fail explicitly. Unit tests use a fresh local composition until daemon and
-/// legacy operation callers are migrated.
-pub async fn context_project_with_operation_context(
-    options: ContextOptions,
-    operation: &OperationContext,
-) -> Result<ContextReport> {
-    #[cfg(test)]
-    {
-        let composition = crate::test_runtime::composition();
-        return context_project_with_composition_and_operation_context(
-            options,
-            &composition,
-            operation,
-        )
-        .await;
-    }
-
-    #[cfg(not(test))]
-    {
-        let _ = (options, operation);
-        bail!("explicit RuntimeComposition is required for operation-aware context generation")
-    }
-}
 
 /// Builds a diff-aware context report with explicit runtime dependencies and operation metadata.
 pub async fn context_project_with_composition_and_operation_context(
@@ -46,14 +18,6 @@ pub async fn context_project_with_composition_and_operation_context(
     context_project_with_operation_context_impl(options, composition, operation)
         .await
         .map(ContextReport::from)
-}
-
-/// Builds a change map under the shared cancellation/deadline contract.
-pub async fn change_map_project_with_operation_context(
-    options: ChangeMapOptions,
-    operation: &OperationContext,
-) -> Result<ChangeMapReport> {
-    run_with_operation_context(operation, change_map_project(options)).await
 }
 
 /// Builds a change map with explicit runtime dependencies and operation metadata.
@@ -113,7 +77,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cancellation_after_legacy_work_rejects_false_success() {
+    async fn cancellation_after_work_rejects_false_success() {
         let operation = OperationContext::new("derived-read-post-cancelled");
         let cancellation = operation.cancellation_handle().unwrap();
         let cancellation_in_future = cancellation.clone();
@@ -123,7 +87,7 @@ mod tests {
             Ok::<_, anyhow::Error>(42_u8)
         })
         .await
-        .expect_err("postflight cancellation must reject legacy success");
+        .expect_err("postflight cancellation must reject false success");
 
         assert!(cancellation.is_cancelled());
         assert!(error.chain().any(|cause| matches!(
