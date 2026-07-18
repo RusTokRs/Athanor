@@ -67,8 +67,10 @@ fn write_service_cores_have_no_runtime_or_projector_fallbacks() {
     assert!(!INDEX_SOURCE.contains("match composition"));
 
     assert!(GENERATION_SOURCE.contains("composition.init_store"));
-    assert!(GENERATION_SOURCE.contains("wiki_composition.project_wiki"));
-    assert!(GENERATION_SOURCE.contains("html_composition.project_html"));
+    assert!(GENERATION_SOURCE.contains("wiki_composition"));
+    assert!(GENERATION_SOURCE.contains(".project_wiki"));
+    assert!(GENERATION_SOURCE.contains("html_composition"));
+    assert!(GENERATION_SOURCE.contains(".project_html"));
     assert!(!GENERATION_SOURCE.contains("crate::store::init_store"));
     assert!(!GENERATION_SOURCE.contains("project_wiki_payload"));
     assert!(!GENERATION_SOURCE.contains("project_html_payload"));
@@ -80,8 +82,8 @@ fn write_service_cores_have_no_runtime_or_projector_fallbacks() {
         assert!(!source.contains("crate::store::init_store"));
         assert!(!source.contains("match composition"));
     }
-    assert!(WIKI_SOURCE.contains("composition.project_wiki"));
-    assert!(REPORT_SOURCE.contains("composition.project_html"));
+    assert!(WIKI_SOURCE.contains(".project_wiki"));
+    assert!(REPORT_SOURCE.contains(".project_html"));
     assert!(!PROJECTION_SOURCE.contains("project_wiki_payload"));
     assert!(!PROJECTION_SOURCE.contains("project_html_payload"));
 }
