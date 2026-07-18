@@ -9,9 +9,7 @@ use athanor_adapter_rustok_page_builder::{
 };
 use athanor_app::{
     AdapterPluginKind, AdapterRegistry, AthanorStore, ProjectConfig, RuntimeComposition,
-    StorageMode, install_builtin_adapter_resolver, install_default_adapter_registry,
-    install_html_projector_factory, install_search_index_factory,
-    install_search_index_operation_factory, install_store_factory, install_wiki_projector_factory,
+    StorageMode,
 };
 use athanor_checker_api::{
     ApiConsistencyChecker, DeploymentDocsChecker, EnvDocsChecker, RunbookConsistencyChecker,
@@ -45,20 +43,6 @@ pub fn production() -> RuntimeComposition {
         default_html_projector,
     )
     .with_search_index_operation_factory(default_search_index_with_operation_context)
-}
-
-/// Legacy process-global installation.
-///
-/// New applications should keep a [`RuntimeComposition`] and pass it explicitly.
-#[deprecated(note = "use athanor_runtime_defaults::production() and explicit composition APIs")]
-pub fn install() {
-    install_default_adapter_registry(default_adapter_registry);
-    install_builtin_adapter_resolver(resolve_builtin_adapter);
-    install_store_factory(default_store);
-    install_search_index_factory(default_search_index);
-    install_search_index_operation_factory(default_search_index_with_operation_context);
-    install_wiki_projector_factory(default_wiki_projector);
-    install_html_projector_factory(default_html_projector);
 }
 
 fn default_wiki_projector(
@@ -185,20 +169,14 @@ pub fn default_adapter_registry() -> AdapterRegistry {
         .register_extractor_id("builtin.extractor.markdown", || Box::new(MarkdownExtractor))
         .register_extractor_id("builtin.extractor.openapi", || Box::new(OpenApiExtractor))
         .register_extractor_id("builtin.extractor.graphql", || Box::new(GraphQlExtractor))
-        .register_extractor_id("builtin.extractor.operations", || {
-            Box::new(OperationsExtractor)
-        })
+        .register_extractor_id("builtin.extractor.operations", || Box::new(OperationsExtractor))
         .register_extractor_id("builtin.extractor.js_ts", || Box::new(JsTsExtractor))
         .register_extractor_id("builtin.extractor.rust", || Box::new(RustExtractor))
         .register_linker_id("builtin.linker.markdown_containment", || {
             Box::new(MarkdownContainmentLinker)
         })
-        .register_linker_id("builtin.linker.api_knowledge", || {
-            Box::new(ApiKnowledgeLinker)
-        })
-        .register_linker_id("builtin.linker.js_ts_imports", || {
-            Box::new(JsTsImportLinker)
-        })
+        .register_linker_id("builtin.linker.api_knowledge", || Box::new(ApiKnowledgeLinker))
+        .register_linker_id("builtin.linker.js_ts_imports", || Box::new(JsTsImportLinker))
         .register_linker_id("builtin.linker.rust", || Box::new(RustLinker))
         .register_checker_id("builtin.checker.markdown_structure", || {
             Box::new(MarkdownStructureChecker)
@@ -207,9 +185,7 @@ pub fn default_adapter_registry() -> AdapterRegistry {
             Box::new(ApiConsistencyChecker)
         })
         .register_checker_id("builtin.checker.env_docs", || Box::new(EnvDocsChecker))
-        .register_checker_id("builtin.checker.script_docs", || {
-            Box::new(ScriptDocsChecker)
-        })
+        .register_checker_id("builtin.checker.script_docs", || Box::new(ScriptDocsChecker))
         .register_checker_id("builtin.checker.deployment_docs", || {
             Box::new(DeploymentDocsChecker)
         })
@@ -238,12 +214,14 @@ pub fn resolve_builtin_adapter(
             }),
         ),
         (AdapterPluginKind::Extractor, "builtin.extractor.openapi") => Some(
-            registry
-                .register_extractor_id("builtin.extractor.openapi", || Box::new(OpenApiExtractor)),
+            registry.register_extractor_id("builtin.extractor.openapi", || {
+                Box::new(OpenApiExtractor)
+            }),
         ),
         (AdapterPluginKind::Extractor, "builtin.extractor.graphql") => Some(
-            registry
-                .register_extractor_id("builtin.extractor.graphql", || Box::new(GraphQlExtractor)),
+            registry.register_extractor_id("builtin.extractor.graphql", || {
+                Box::new(GraphQlExtractor)
+            }),
         ),
         (AdapterPluginKind::Extractor, "builtin.extractor.operations") => Some(
             registry.register_extractor_id("builtin.extractor.operations", || {
@@ -329,12 +307,14 @@ pub fn resolve_builtin_adapter(
             }),
         ),
         (AdapterPluginKind::Checker, "builtin.checker.rustok_ffa") => Some(
-            registry
-                .register_checker_id("builtin.checker.rustok_ffa", || Box::new(RustokFfaChecker)),
+            registry.register_checker_id("builtin.checker.rustok_ffa", || {
+                Box::new(RustokFfaChecker)
+            }),
         ),
         (AdapterPluginKind::Checker, "builtin.checker.rustok_fba") => Some(
-            registry
-                .register_checker_id("builtin.checker.rustok_fba", || Box::new(RustokFbaChecker)),
+            registry.register_checker_id("builtin.checker.rustok_fba", || {
+                Box::new(RustokFbaChecker)
+            }),
         ),
         (AdapterPluginKind::Checker, "builtin.checker.rustok_page_builder") => Some(
             registry.register_checker_id("builtin.checker.rustok_page_builder", || {
