@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 use serde::Serialize;
 
 use crate::{
-    IndexOptions, IndexReport, RuntimeComposition, index_project, index_project_with_composition,
+    IndexOptions, IndexReport, RuntimeComposition, index_project_with_composition,
 };
 
 pub const INDEX_BENCHMARK_SCHEMA: &str = "athanor.index_benchmark.v1";
@@ -74,20 +74,9 @@ struct FixtureProfile {
     openapi_specs: usize,
 }
 
-pub async fn benchmark_index(options: BenchmarkOptions) -> Result<BenchmarkReport> {
-    benchmark_index_inner(options, None).await
-}
-
 pub async fn benchmark_index_with_composition(
     options: BenchmarkOptions,
     composition: &RuntimeComposition,
-) -> Result<BenchmarkReport> {
-    benchmark_index_inner(options, Some(composition)).await
-}
-
-async fn benchmark_index_inner(
-    options: BenchmarkOptions,
-    composition: Option<&RuntimeComposition>,
 ) -> Result<BenchmarkReport> {
     let started = Instant::now();
     let root = match options.root {
@@ -102,16 +91,16 @@ async fn benchmark_index_inner(
         .with_context(|| format!("failed to create benchmark root {}", root.display()))?;
 
     let files_written = write_fixture(&root, options.size.profile())?;
-    let index_options = IndexOptions {
-        root: root.clone(),
-        validation_report: None,
-        validation_result: None,
-        validate_only: false,
-    };
-    let index = match composition {
-        Some(composition) => index_project_with_composition(index_options, composition).await,
-        None => index_project(index_options).await,
-    }
+    let index = index_project_with_composition(
+        IndexOptions {
+            root: root.clone(),
+            validation_report: None,
+            validation_result: None,
+            validate_only: false,
+        },
+        composition,
+    )
+    .await
     .context("failed to benchmark index fixture")?;
 
     let kept_fixture = options.keep_fixture;
@@ -213,11 +202,15 @@ mod tests {
     #[tokio::test]
     async fn runs_small_index_benchmark() {
         let root = temp_benchmark_root(BenchmarkSize::Small);
-        let report = benchmark_index(BenchmarkOptions {
-            size: BenchmarkSize::Small,
-            root: Some(root.clone()),
-            keep_fixture: false,
-        })
+        let composition = crate::test_runtime::composition();
+        let report = benchmark_index_with_composition(
+            BenchmarkOptions {
+                size: BenchmarkSize::Small,
+                root: Some(root.clone()),
+                keep_fixture: false,
+            },
+            &composition,
+        )
         .await
         .unwrap();
 
