@@ -1,14 +1,13 @@
 use std::path::PathBuf;
 
-use crate::config::load_config;
-use crate::store::init_store;
 use anyhow::{Context, Result, bail};
 use athanor_core::{CanonicalSnapshotStore, OperationContext};
 use serde::Serialize;
 use serde_json::json;
 
+use crate::config::load_config;
 use crate::project_path::normalize_canonical_path;
-use crate::projection::{HTML_REPORT_PROJECTION_SCHEMA, project_html_payload};
+use crate::projection::HTML_REPORT_PROJECTION_SCHEMA;
 use crate::{CancellationToken, RuntimeComposition};
 
 pub const HTML_REPORT_SCHEMA: &str = "athanor.html_report.v1";
@@ -31,18 +30,7 @@ pub struct HtmlReport {
     pub open_diagnostics: usize,
 }
 
-pub async fn project_html_report(options: HtmlReportOptions) -> Result<HtmlReport> {
-    project_html_report_inner(options, None, None, OperationContext::new("html_report")).await
-}
-
-/// Projects the HTML report with transport-neutral operation metadata.
-pub async fn project_html_report_with_operation_context(
-    options: HtmlReportOptions,
-    operation: OperationContext,
-) -> Result<HtmlReport> {
-    project_html_report_inner(options, None, None, operation).await
-}
-
+/// Projects the HTML report with explicitly supplied runtime dependencies.
 pub async fn project_html_report_with_composition(
     options: HtmlReportOptions,
     composition: &RuntimeComposition,
@@ -50,23 +38,19 @@ pub async fn project_html_report_with_composition(
     project_html_report_inner(
         options,
         None,
-        Some(composition),
+        composition,
         OperationContext::new("html_report"),
     )
     .await
 }
 
-pub async fn project_html_report_cancellable(
+/// Projects the HTML report with explicit runtime dependencies and operation metadata.
+pub async fn project_html_report_with_composition_and_operation_context(
     options: HtmlReportOptions,
-    cancellation: CancellationToken,
+    composition: &RuntimeComposition,
+    operation: OperationContext,
 ) -> Result<HtmlReport> {
-    project_html_report_inner(
-        options,
-        Some(cancellation),
-        None,
-        OperationContext::new("html_report"),
-    )
-    .await
+    project_html_report_inner(options, None, composition, operation).await
 }
 
 /// Projects the HTML report with explicit dependencies and cooperative cancellation.
@@ -78,7 +62,7 @@ pub async fn project_html_report_cancellable_with_composition(
     project_html_report_inner(
         options,
         Some(cancellation),
-        Some(composition),
+        composition,
         OperationContext::new("html_report"),
     )
     .await
@@ -91,22 +75,13 @@ pub async fn project_html_report_cancellable_with_composition_and_operation_cont
     composition: &RuntimeComposition,
     operation: OperationContext,
 ) -> Result<HtmlReport> {
-    project_html_report_inner(options, Some(cancellation), Some(composition), operation).await
-}
-
-/// Cancellable HTML projection with explicit operation metadata.
-pub async fn project_html_report_cancellable_with_operation_context(
-    options: HtmlReportOptions,
-    cancellation: CancellationToken,
-    operation: OperationContext,
-) -> Result<HtmlReport> {
-    project_html_report_inner(options, Some(cancellation), None, operation).await
+    project_html_report_inner(options, Some(cancellation), composition, operation).await
 }
 
 async fn project_html_report_inner(
     options: HtmlReportOptions,
     cancellation: Option<CancellationToken>,
-    composition: Option<&RuntimeComposition>,
+    composition: &RuntimeComposition,
     operation: OperationContext,
 ) -> Result<HtmlReport> {
     check_cancelled(&cancellation)?;
@@ -128,10 +103,7 @@ async fn project_html_report_inner(
         })
         .unwrap_or_else(|| root.join(".athanor/generated/current/html"));
     let config = load_config(&root)?;
-    let store = match composition {
-        Some(composition) => composition.init_store(&root, &config).await?,
-        None => init_store(&root, &config).await?,
-    };
+    let store = composition.init_store(&root, &config).await?;
     let snapshot = store
         .load_latest_snapshot()
         .await
@@ -174,14 +146,10 @@ async fn project_html_report_inner(
             .is_some_and(CancellationToken::is_cancelled)
             || operation.check_deadline().is_err()
     };
-    let projection = match composition {
-        Some(composition) => {
-            composition.project_html(&output_dir, &snapshot_id.0, payload, &is_cancelled)
-        }
-        None => project_html_payload(&output_dir, &snapshot_id.0, payload, &is_cancelled),
-    };
+    composition
+        .project_html(&output_dir, &snapshot_id.0, payload, &is_cancelled)
+        .context("failed to project HTML report")?;
     operation.check_deadline()?;
-    projection.context("failed to project HTML report")?;
 
     Ok(report)
 }
@@ -227,11 +195,15 @@ mod tests {
             .await
             .unwrap();
         store.commit_snapshot(snapshot.clone()).await.unwrap();
+        let composition = crate::test_runtime::composition();
 
-        let report = project_html_report(HtmlReportOptions {
-            root: root.clone(),
-            output: None,
-        })
+        let report = project_html_report_with_composition(
+            HtmlReportOptions {
+                root: root.clone(),
+                output: None,
+            },
+            &composition,
+        )
         .await
         .unwrap();
 
