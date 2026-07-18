@@ -123,11 +123,9 @@ pub mod wiki;
 /// Stable indexing-facing application API.
 pub mod indexing {
     pub use crate::index::{
-        IndexOptions, IndexReport, IndexReportMetrics, index_project, index_project_cancellable,
-        index_project_cancellable_with_composition,
+        IndexOptions, IndexReport, IndexReportMetrics, index_project_cancellable_with_composition,
         index_project_cancellable_with_composition_and_operation_context,
-        index_project_cancellable_with_operation_context, index_project_with_composition,
-        index_project_with_operation_context,
+        index_project_with_composition, index_project_with_composition_and_operation_context,
     };
     pub use crate::invalidation::*;
     pub use crate::pipeline::{IndexPipeline, IndexPipelineMetrics, IndexPipelineOutput};
