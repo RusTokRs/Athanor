@@ -108,7 +108,6 @@ mod rustok_audit_cooperative;
 pub mod rustok_composition_operation;
 mod rustok_graph_cooperative;
 pub mod rustok_json_contract;
-pub mod rustok_operation;
 #[path = "search_facade.rs"]
 pub mod search;
 pub mod search_operation;
@@ -156,7 +155,6 @@ pub mod query {
     pub use crate::overview::*;
     pub use crate::rustok_composition_operation::*;
     pub use crate::rustok_json_contract::*;
-    pub use crate::rustok_operation::*;
     pub use crate::search::*;
     pub use crate::search_operation::*;
 }
@@ -214,7 +212,6 @@ pub use runtime::*;
 pub use rustok_architecture::*;
 pub use rustok_composition_operation::*;
 pub use rustok_json_contract::*;
-pub use rustok_operation::*;
 pub use search::*;
 pub use search_operation::*;
 pub use store::*;
