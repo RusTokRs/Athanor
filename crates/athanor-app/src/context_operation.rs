@@ -10,21 +10,17 @@ use athanor_core::{
 use athanor_domain::{ContextPack, EntityId};
 use serde_json::json;
 
+use crate::RuntimeComposition;
 use crate::config::load_config;
 use crate::context::{ContextLimits, ContextOptions, generate_context_pack};
 use crate::index_state::IndexStateStore;
 use crate::local_source::discover_source_files_with_operation_context;
 use crate::project_path::normalize_canonical_path;
-use crate::search::{
-    get_or_build_search_index_with_factory_and_operation,
-    get_or_build_search_index_with_operation_context,
-};
-use crate::store::init_store;
-use crate::RuntimeComposition;
+use crate::search::get_or_build_search_index_with_factory_and_operation;
 
 pub(crate) async fn context_project_with_operation_context_impl(
     options: ContextOptions,
-    composition: Option<&RuntimeComposition>,
+    composition: &RuntimeComposition,
     operation: &OperationContext,
 ) -> Result<ContextPack> {
     operation.check_active().map_err(anyhow::Error::new)?;
@@ -39,10 +35,7 @@ pub(crate) async fn context_project_with_operation_context_impl(
             .with_context(|| format!("failed to canonicalize {}", options.root.display()))?,
     );
     let config = load_config(&root)?;
-    let store = match composition {
-        Some(composition) => composition.init_store(&root, &config).await?,
-        None => init_store(&root, &config).await?,
-    };
+    let store = composition.init_store(&root, &config).await?;
     let snapshot = store
         .load_latest_snapshot_with_operation_context(operation)
         .await
@@ -151,7 +144,7 @@ async fn search_direct_matches(
     snapshot: &CanonicalSnapshot,
     task: &str,
     limit: usize,
-    composition: Option<&RuntimeComposition>,
+    composition: &RuntimeComposition,
     operation: &OperationContext,
 ) -> Result<Option<Vec<EntityId>>> {
     let snapshot_id = snapshot
@@ -164,7 +157,7 @@ async fn search_direct_matches(
         snapshot,
         snapshot_id,
         index_dir,
-        composition.cloned(),
+        composition.clone(),
         operation.clone(),
     )
     .await;
@@ -200,12 +193,12 @@ async fn build_search_index(
     snapshot: &CanonicalSnapshot,
     snapshot_id: String,
     index_dir: PathBuf,
-    composition: Option<RuntimeComposition>,
+    composition: RuntimeComposition,
     operation: OperationContext,
 ) -> Result<Arc<dyn SearchIndex>> {
     let snapshot = snapshot.clone();
-    tokio::task::spawn_blocking(move || match composition {
-        Some(composition) => get_or_build_search_index_with_factory_and_operation(
+    tokio::task::spawn_blocking(move || {
+        get_or_build_search_index_with_factory_and_operation(
             &snapshot,
             &snapshot_id,
             &index_dir,
@@ -217,13 +210,7 @@ async fn build_search_index(
                     operation,
                 )
             },
-        ),
-        None => get_or_build_search_index_with_operation_context(
-            &snapshot,
-            &snapshot_id,
-            &index_dir,
-            &operation,
-        ),
+        )
     })
     .await
     .context("context search-index worker terminated unexpectedly")?
