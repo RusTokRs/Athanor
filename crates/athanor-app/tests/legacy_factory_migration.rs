@@ -13,6 +13,11 @@ const SEARCH_FACADE_SOURCE: &str = include_str!("../src/search_facade.rs");
 const SEARCH_CORE_SOURCE: &str = include_str!("../src/search.rs");
 const SEARCH_INDEX_SOURCE: &str = include_str!("../src/search/index.rs");
 const VALIDATE_CHANGED_SOURCE: &str = include_str!("../src/validate_changed.rs");
+const INDEX_SOURCE: &str = include_str!("../src/index_runtime.rs");
+const GENERATION_SOURCE: &str = include_str!("../src/generation.rs");
+const WIKI_SOURCE: &str = include_str!("../src/wiki.rs");
+const REPORT_SOURCE: &str = include_str!("../src/report.rs");
+const BENCH_SOURCE: &str = include_str!("../src/bench.rs");
 const TEST_RUNTIME_SOURCE: &str = include_str!("../src/test_runtime.rs");
 const COMPOSITION_ISOLATION_SOURCE: &str = include_str!("composition_isolation.rs");
 const APPLICATION_COMPOSITION_SOURCE: &str =
@@ -61,7 +66,8 @@ fn core_runtime_paths_require_explicit_composition() {
     assert!(!RUNTIME_REGISTRY_SOURCE.contains("ensure_test_runtime"));
     assert!(STORE_FACADE_SOURCE.contains("explicit RuntimeComposition is required"));
     assert!(SEARCH_FACADE_SOURCE.contains("explicit RuntimeComposition is required"));
-    assert!(PROJECTION_SOURCE.contains("explicit RuntimeComposition is required"));
+    assert!(!PROJECTION_SOURCE.contains("project_wiki_payload"));
+    assert!(!PROJECTION_SOURCE.contains("project_html_payload"));
     assert!(TEST_RUNTIME_SOURCE.contains("pub(crate) fn composition()"));
 }
 
@@ -78,7 +84,7 @@ fn active_entrypoints_use_explicit_runtime_composition() {
     }
     assert!(INDEX_CLI_SOURCE.contains("index_project_with_composition"));
     assert!(SEARCH_CLI_SOURCE.contains("search_project_with_composition"));
-    assert!(GENERATION_CLI_SOURCE.contains("generate_project"));
+    assert!(GENERATION_CLI_SOURCE.contains("generate_project_with_composition"));
 }
 
 #[test]
@@ -118,6 +124,28 @@ fn dead_no_composition_wrappers_are_removed() {
     assert!(!SEARCH_FACADE_SOURCE.contains("pub async fn get_or_build_search_index("));
     assert!(!SEARCH_FACADE_SOURCE.contains("pub fn get_or_build_search_index_sync("));
 
+    for source in [INDEX_SOURCE, GENERATION_SOURCE, WIKI_SOURCE, REPORT_SOURCE, BENCH_SOURCE] {
+        assert!(!source.contains("Option<RuntimeComposition>"));
+        assert!(!source.contains("Option<&RuntimeComposition>"));
+    }
+    assert!(!INDEX_SOURCE.contains("pub async fn index_project("));
+    assert!(!INDEX_SOURCE.contains("pub async fn index_project_with_operation_context("));
+    assert!(!INDEX_SOURCE.contains("pub async fn index_project_cancellable("));
+    assert!(!INDEX_SOURCE.contains("pub async fn index_project_cancellable_with_operation_context("));
+    assert!(!GENERATION_SOURCE.contains("pub async fn generate_project("));
+    assert!(!GENERATION_SOURCE.contains("pub async fn generate_project_with_operation_context("));
+    assert!(!GENERATION_SOURCE.contains("pub async fn generate_project_cancellable("));
+    assert!(!GENERATION_SOURCE.contains("pub async fn generate_project_cancellable_with_operation_context("));
+    assert!(!WIKI_SOURCE.contains("pub async fn project_wiki("));
+    assert!(!WIKI_SOURCE.contains("pub async fn project_wiki_with_operation_context("));
+    assert!(!WIKI_SOURCE.contains("pub async fn project_wiki_cancellable("));
+    assert!(!WIKI_SOURCE.contains("pub async fn project_wiki_cancellable_with_operation_context("));
+    assert!(!REPORT_SOURCE.contains("pub async fn project_html_report("));
+    assert!(!REPORT_SOURCE.contains("pub async fn project_html_report_with_operation_context("));
+    assert!(!REPORT_SOURCE.contains("pub async fn project_html_report_cancellable("));
+    assert!(!REPORT_SOURCE.contains("pub async fn project_html_report_cancellable_with_operation_context("));
+    assert!(!BENCH_SOURCE.contains("pub async fn benchmark_index("));
+
     assert!(MIGRATION_DOC.contains("COMP-003C2B1"));
     assert!(MIGRATION_DOC.contains("COMP-003C2B2"));
 }
@@ -149,7 +177,7 @@ fn composition_boundary_modules_remain_bounded() {
         ("runtime root", RUNTIME_ROOT_SOURCE, 80),
         ("runtime registry", RUNTIME_REGISTRY_SOURCE, 360),
         ("runtime builder", RUNTIME_BUILDER_SOURCE, 220),
-        ("projection facade", PROJECTION_SOURCE, 100),
+        ("projection facade", PROJECTION_SOURCE, 20),
         ("store facade", STORE_FACADE_SOURCE, 60),
         ("store core", STORE_CORE_SOURCE, 220),
         ("search facade", SEARCH_FACADE_SOURCE, 200),
