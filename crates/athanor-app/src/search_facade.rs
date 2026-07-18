@@ -1,7 +1,7 @@
-//! Compatibility facade for Search APIs during the remaining ChangeMap migration.
+//! Composition-first public facade for Search APIs.
 //!
-//! Composition-aware APIs are the production path. The sole remaining no-composition snapshot
-//! helper is retained only until ChangeMap receives explicit runtime composition.
+//! The remaining no-composition snapshot helper is crate-private and exists only for the isolated
+//! legacy ChangeMap core. External callers must supply `RuntimeComposition`.
 
 use std::path::Path;
 
@@ -68,7 +68,7 @@ pub async fn search_snapshot_with_composition_and_operation_context(
     .await
 }
 
-pub async fn search_snapshot(
+pub(crate) async fn search_snapshot(
     root: &Path,
     snapshot: &CanonicalSnapshot,
     query: String,
