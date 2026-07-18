@@ -35,11 +35,3 @@ pub type AdapterTrustReport = crate::adapter_contract::VersionedAdapterTrustRepo
 pub const ADAPTER_MANIFEST_SCHEMA: &str = crate::adapter_contract::ADAPTER_MANIFEST_SCHEMA_LEGACY;
 pub const ADAPTER_TRUST_SCHEMA: &str =
     crate::adapter_contract::ADAPTER_TRUST_REGISTRY_SCHEMA_LEGACY_V2;
-
-pub fn install_default_adapter_registry(_factory: AdapterRegistryFactory) {
-    panic!("process-global adapter installation was removed; use RuntimeComposition")
-}
-
-pub fn install_builtin_adapter_resolver(_resolver: BuiltinAdapterResolver) {
-    panic!("process-global adapter installation was removed; use RuntimeComposition")
-}
