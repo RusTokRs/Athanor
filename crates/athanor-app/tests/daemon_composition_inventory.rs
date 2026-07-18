@@ -6,6 +6,7 @@ const DERIVED_READ_SOURCE: &str = include_str!("../src/daemon_derived_read_dispa
 const READ_DISPATCH_SOURCE: &str = include_str!("../src/daemon_read_dispatch.rs");
 const READ_TEST_SOURCE: &str = include_str!("../src/daemon_read_dispatch_tests.rs");
 const WRITE_JOBS_SOURCE: &str = include_str!("../src/daemon_write_jobs.rs");
+const WRITE_TEST_SOURCE: &str = include_str!("../src/daemon_write_job_contract_tests.rs");
 const ATHD_SOURCE: &str = include_str!("../../../apps/athd/src/main.rs");
 
 #[test]
@@ -64,6 +65,7 @@ fn daemon_write_jobs_use_total_composition() {
 fn daemon_dispatch_ownership_is_bounded() {
     assert!(APP_LIB_SOURCE.contains("mod daemon_command_dispatch;"));
     assert!(APP_LIB_SOURCE.contains("mod daemon_read_dispatch_tests;"));
+    assert!(APP_LIB_SOURCE.contains("mod daemon_write_job_contract_tests;"));
     assert!(READ_DISPATCH_SOURCE.contains("crate::daemon_command_dispatch::execute"));
     assert!(!READ_DISPATCH_SOURCE.contains("crate::daemon::execute_request"));
     assert!(COMMAND_DISPATCH_SOURCE.contains("Handles control-plane and write commands"));
@@ -71,15 +73,20 @@ fn daemon_dispatch_ownership_is_bounded() {
     assert!(READ_TEST_SOURCE.contains("cancel_request_terminates_running_read_job"));
     assert!(READ_TEST_SOURCE.contains("hard_deadline_returns_stable_error_and_fails_job"));
     assert!(READ_TEST_SOURCE.contains("composition: crate::test_runtime::composition()"));
+    assert!(WRITE_TEST_SOURCE.contains("daemon_index_result_matches_public_index_report_shape"));
+    assert!(WRITE_TEST_SOURCE.contains("daemon_generation_result_matches_public_generation_report_shape"));
+    assert!(WRITE_TEST_SOURCE.contains("daemon_html_result_matches_public_html_report_shape"));
+    assert!(WRITE_TEST_SOURCE.contains("daemon_wiki_result_matches_public_wiki_report_shape"));
 
     for (name, source, max_lines) in [
-        ("daemon host", DAEMON_SOURCE, 800),
+        ("daemon host", DAEMON_SOURCE, 900),
         ("command dispatcher", COMMAND_DISPATCH_SOURCE, 380),
         ("read dispatcher", READ_DISPATCH_SOURCE, 300),
         ("derived read dispatcher", DERIVED_READ_SOURCE, 280),
         ("daemon queries", QUERIES_SOURCE, 380),
         ("daemon write jobs", WRITE_JOBS_SOURCE, 380),
         ("daemon read tests", READ_TEST_SOURCE, 230),
+        ("daemon write contract tests", WRITE_TEST_SOURCE, 160),
     ] {
         let lines = source.lines().count();
         assert!(lines <= max_lines, "{name} grew to {lines} lines");
