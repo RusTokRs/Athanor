@@ -21,10 +21,10 @@ application payloads.
 
 Process-global runtime state, installer API, write-service wrappers и Context compatibility owners
 удалены. Context cores и весь daemon lifecycle — host, query, derived read, command dispatch и write
-jobs — composition-first. Index, Generation, Wiki, HTML report, benchmark, Explain и ChangeMap имеют
-только composition-aware execution API. Все no-composition snapshot Search helpers физически удалены.
-ChangeMap разделён на conventional bounded `model`, `execution`, `ranking`, `evidence` и test owners;
-root оставлен только для module wiring и стабильных re-exports.
+jobs — composition-first. Index, Generation, Wiki, HTML report, benchmark, Explain, ChangeMap и API
+Registry имеют только composition-aware execution API. Все no-composition snapshot Search helpers
+физически удалены. ChangeMap разделён на conventional bounded `model`, `execution`, `ranking`,
+`evidence` и test owners; root оставлен только для module wiring и стабильных re-exports.
 
 Осталось четыре содержательных пакета и финальная verification matrix:
 
@@ -37,15 +37,15 @@ root оставлен только для module wiring и стабильных 
 
 `COMP-003A/B1/B2/C1/C2A/C2B1/C2B2A/C2B2B1/C2B2B2A/C2B2B2B/C2B2C1/C2B2C2A`
 завершены на уровне implementation. Внутри `COMP-003C2B2C2B` удалены Search compatibility wrappers,
-закрыты Explain и ChangeMap execution owners, а ChangeMap monolith физически декомпозирован.
-Остающийся composition debt сосредоточен в Store facade и read-service owners, которые ещё
-импортируют `store::init_store` или принимают optional composition.
+закрыты Explain, ChangeMap и API Registry execution owners, а ChangeMap monolith физически
+декомпозирован. Остающийся composition debt сосредоточен в Store facade и read-service owners,
+которые ещё импортируют `store::init_store` или принимают optional composition.
 
 ## 3. Текущая последовательность
 
 | ID | Priority | Status | Result |
 | --- | --- | --- | --- |
-| `ARCH-AUDIT-001` | P1 | `[-] in progress` | ChangeMap composition/decomposition завершены; Store/read cleanup и execution pending |
+| `ARCH-AUDIT-001` | P1 | `[-] in progress` | ChangeMap/API Registry закрыты; Store/read cleanup и execution pending |
 | `DS-JSON-001` | P1 | `[x] implemented` | Public registry 60; manifest, trust registry и public report имеют разные current owners |
 | `DS-JSON-002` | P1 | `[-] in progress` | General и adapter-specific non-public descriptors добавлены; repeat scan pending |
 | `DS-JSON-003` | P1 | `[-] in progress` | Typed CLI/daemon/MCP/plugin payload parity реализована; execution pending |
@@ -71,7 +71,7 @@ root оставлен только для module wiring и стабильных 
 | `RUNTIME-001` | P1 | `[x] implemented` | `runtime.rs` был 1846-line owner | Conventional bounded modules; no include |
 | `COMP-001` | P2 | `[x] implemented` | `OnceLock::set` conflicts молча игнорировались | Process-global runtime storage удалён |
 | `COMP-002` | P1 | `[x] implemented` | Отсутствующий adapter factory создавал empty registry | Explicit registry/composition; no hidden fallback |
-| `COMP-003` | P2 | `[-] in progress` | Runtime dependencies скрывались за globals и compatibility APIs | ChangeMap migrated/decomposed; Store/remaining read debt и execution остаются |
+| `COMP-003` | P2 | `[-] in progress` | Runtime dependencies скрывались за globals и compatibility APIs | ChangeMap/API Registry migrated; Store/remaining read debt и execution остаются |
 | `COMP-003A` | P2 | `[x] implemented` | Compatibility perimeter не был зафиксирован | Caller inventory и удаление Store bridge/introspection helpers |
 | `COMP-003B1` | P2 | `[x] implemented` | Adapter/projector globals компилировались в default build | Quarantine и последующее физическое удаление |
 | `COMP-003B2` | P2 | `[x] implemented` | Store/Search globals находились в implementation owners | Bounded owners и последующее физическое удаление |
@@ -79,17 +79,17 @@ root оставлен только для module wiring и стабильных 
 | `COMP-003C2` | P2 | `[-] in progress` | Installer и no-composition shims сохраняли compatibility surface | C2B2C2B и execution закрыты |
 | `COMP-003C2A` | P2 | `[x] implemented` | State-free installer functions и `runtime_defaults::install()` оставались public | Все installer symbols/re-exports удалены; enforcement/isolation в `main` |
 | `COMP-003C2B1` | P2 | `[x] implemented` | Dead no-composition Validate/Search wrappers оставались public | Removed wrappers и source enforcement в `main` |
-| `COMP-003C2B2` | P2 | `[-] in progress` | Связанные service chains принимают optional/no composition | Context/daemon/write/ChangeMap закрыты; Store/remaining reads остаются |
+| `COMP-003C2B2` | P2 | `[-] in progress` | Связанные service chains принимают optional/no composition | Context/daemon/write/ChangeMap/API Registry закрыты; Store/remaining reads остаются |
 | `COMP-003C2B2A` | P2 | `[x] implemented` | Active Context owner был optional-composition и зависел от удалённого Search wrapper | Composition-first owner активен; behavior/source regressions в `main` |
 | `COMP-003C2B2B1` | P2 | `[x] implemented` | Operation-aware Context core принимал optional composition и fallback Store/Search | Core принимает `&RuntimeComposition`; fallback imports/branches удалены |
 | `COMP-003C2B2B2` | P2 | `[x] implemented` | Daemon host и execution layers использовали optional composition | Mandatory host/query/read/write composition и bounded dispatch в `main` |
 | `COMP-003C2B2B2A` | P2 | `[x] implemented` | Daemon queries, derived reads и write jobs выбирали no-composition fallbacks | Query/read/write execution composition-only; source enforcement в `main` |
 | `COMP-003C2B2B2B` | P2 | `[x] implemented` | `DaemonState.composition`, `serve_daemon` и host constructors оставались optional | Mandatory field/serve API, migrated tests и отсутствие host Option |
-| `COMP-003C2B2C` | P2 | `[-] in progress` | Public service APIs и compatibility facades скрывали composition | C1/C2A/Context/ChangeMap закрыты; Store/read cleanup активен |
+| `COMP-003C2B2C` | P2 | `[-] in progress` | Public service APIs и compatibility facades скрывали composition | C1/C2A/Context/ChangeMap/API Registry закрыты; Store/read cleanup активен |
 | `COMP-003C2B2C1` | P2 | `[x] implemented` | Index, Generation, Wiki, HTML и benchmark имели no-composition APIs/projector fallbacks | Composition-only signatures/cores, narrowed re-exports и source inventory в `main` |
-| `COMP-003C2B2C2` | P2 | `[-] in progress` | Read services сохраняли dependency-hidden compatibility paths | Context и ChangeMap закрыты; Store/remaining read owners активны |
+| `COMP-003C2B2C2` | P2 | `[-] in progress` | Read services сохраняли dependency-hidden compatibility paths | Context/ChangeMap/API Registry закрыты; Store/remaining read owners активны |
 | `COMP-003C2B2C2A` | P2 | `[x] implemented` | Context, derived-read, Search-operation и RusTok compatibility owners оставались public/physical | Wrappers удалены; `context.rs`/`rustok_operation.rs` удалены; inventory в `main` |
-| `COMP-003C2B2C2B` | P2 | `[-] in progress` | Store facade, Search, ChangeMap и другие read services сохраняли implicit/optional composition | Search/Explain/ChangeMap/decomposition закрыты; Store и remaining read owners pending |
+| `COMP-003C2B2C2B` | P2 | `[-] in progress` | Store facade, Search, ChangeMap и другие read services сохраняли implicit/optional composition | Search/Explain/ChangeMap/API Registry закрыты; Store и remaining read owners pending |
 | `COMP-004` | P2 | `[x] implemented` | `validate_changed` использовал hidden adapter composition | Только composition-aware public path; execution pending |
 | `COMP-005` | P2 | `[x] implemented` | Trust functions возвращали report со старым schema | Versioned public report |
 | `COMP-006` | P2 | `[x] implemented` | Focused handlers устанавливали global runtime | Все active CLI families используют explicit composition |
@@ -131,6 +131,7 @@ root оставлен только для module wiring и стабильных 
 - [x] Daemon host/query/derived-read/write execution использует mandatory composition.
 - [x] Index/Generation/Wiki/HTML/benchmark public APIs composition-only.
 - [x] Explain public execution API composition-only.
+- [x] API Registry public execution API composition-only.
 - [x] ChangeMap owner использует mandatory composition.
 - [x] ChangeMap task Search вызывает `search_snapshot_with_composition`.
 - [x] Все no-composition snapshot Search helpers физически удалены.
@@ -233,23 +234,36 @@ cargo run -p ath --quiet --locked -- index .
 - [x] удалить temporary ChangeMap facade и восстановить один conventional owner;
 - [x] декомпозировать ChangeMap на `model`, `execution`, `ranking`, `evidence` и bounded tests;
 - [x] добавить line-boundary/source inventory для всех ChangeMap owners;
+- [x] сделать API Registry composition-only и мигрировать unit test;
 - [ ] сделать Overview composition-only и удалить его Store fallback;
 - [ ] удалить public `store::init_store` compatibility edge после migration всех callers;
-- [ ] мигрировать Impact, Coverage, Capabilities, Graph, Check, API/registry, Repair/Docs и другие
-  read owners с `store::init_store`/optional composition;
+- [ ] мигрировать Impact, Coverage, Capabilities, Graph, Check, Repair/Docs и другие read owners с
+  `store::init_store`/optional composition;
 - [ ] обновить embedding examples после remaining owner cleanup;
 - [ ] устранить source-level warnings после owner cleanup;
 - [ ] выполнить targeted/default/all-features tests и Clippy.
 
-**Следующий минимальный срез:** `overview.rs` принимает только mandatory `&RuntimeComposition`,
-удаляет `overview_project`, `Option<&RuntimeComposition>`, `crate::store::init_store` и fallback
-match. Pure `build_repository_overview`, JSON schema и report shape сохраняются без изменений.
+**Следующий обязательный срез:** декомпозировать 733-line `overview.rs` на conventional bounded model,
+execution и aggregation owners, одновременно удалить `overview_project`, optional composition,
+`crate::store::init_store` и fallback match. Pure report semantics, JSON schema и ordering contracts
+должны сохраниться.
 
 **После Overview:** последовательно мигрировать remaining bounded read owners, удалить
 `store::init_store` и его facade; после закрытия пакета перейти к `MCP-007`, `JSON-003`, documentation
 reconciliation и full verification.
 
 ## 8. Журнал актуализаций
+
+### 2026-07-18 — Composition-only API Registry
+
+- Удалён no-composition `query_api_registry`.
+- Новый public entrypoint `query_api_registry_with_composition` принимает mandatory composition.
+- Store создаётся только через `composition.init_store`; `crate::store::init_store` удалён.
+- Unit test выполняет query через isolated test composition.
+- `KnowledgeStore` import оставлен test-only, чтобы не создавать production warning.
+- `read_service_composition_inventory` запрещает возврат fallback API и фиксирует line budget.
+- API registry schema и report shape не изменялись.
+- Статус среза — implemented, Rust/hosted verification pending.
 
 ### 2026-07-18 — Bounded ChangeMap decomposition
 
