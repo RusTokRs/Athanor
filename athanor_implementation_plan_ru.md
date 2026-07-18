@@ -23,11 +23,13 @@ Process-global runtime state, installer API, write-service wrappers и Context c
 удалены. Context cores и весь daemon lifecycle — host, query, derived read, command dispatch и write
 jobs — composition-first. Index, Generation, Wiki, HTML report, benchmark, Explain и ChangeMap имеют
 только composition-aware execution API. Все no-composition snapshot Search helpers физически удалены.
+ChangeMap разделён на conventional bounded `model`, `execution`, `ranking`, `evidence` и test owners;
+root оставлен только для module wiring и стабильных re-exports.
 
 Осталось четыре содержательных пакета и финальная verification matrix:
 
-1. `COMP-003C2B2C2B` — декомпозировать крупный ChangeMap owner, удалить Store compatibility path и
-   мигрировать оставшиеся read-service owners с implicit/optional composition.
+1. `COMP-003C2B2C2B` — удалить Store compatibility path и мигрировать оставшиеся read-service owners
+   с implicit/optional composition.
 2. `MCP-007` — определить transactional Index cancellation до и после durable commit point.
 3. `JSON-003` — повторить repository-wide schema scan и выполнить enforcement matrix.
 4. `DOC-001/002` — убрать stale verification claims и согласовать pipeline current/target/history.
@@ -35,16 +37,15 @@ jobs — composition-first. Index, Generation, Wiki, HTML report, benchmark, Exp
 
 `COMP-003A/B1/B2/C1/C2A/C2B1/C2B2A/C2B2B1/C2B2B2A/C2B2B2B/C2B2C1/C2B2C2A`
 завершены на уровне implementation. Внутри `COMP-003C2B2C2B` удалены Search compatibility wrappers,
-закрыты Explain и ChangeMap execution owners. Остающийся composition debt сосредоточен в Store
-facade и read-service owners, которые ещё импортируют `store::init_store` или принимают optional
-composition. Отдельный maintainability debt — монолитный `change_map.rs`, который должен быть
-разделён на bounded conventional modules без forwarding shims.
+закрыты Explain и ChangeMap execution owners, а ChangeMap monolith физически декомпозирован.
+Остающийся composition debt сосредоточен в Store facade и read-service owners, которые ещё
+импортируют `store::init_store` или принимают optional composition.
 
 ## 3. Текущая последовательность
 
 | ID | Priority | Status | Result |
 | --- | --- | --- | --- |
-| `ARCH-AUDIT-001` | P1 | `[-] in progress` | ChangeMap composition cleanup завершён; decomposition, Store/read cleanup и execution pending |
+| `ARCH-AUDIT-001` | P1 | `[-] in progress` | ChangeMap composition/decomposition завершены; Store/read cleanup и execution pending |
 | `DS-JSON-001` | P1 | `[x] implemented` | Public registry 60; manifest, trust registry и public report имеют разные current owners |
 | `DS-JSON-002` | P1 | `[-] in progress` | General и adapter-specific non-public descriptors добавлены; repeat scan pending |
 | `DS-JSON-003` | P1 | `[-] in progress` | Typed CLI/daemon/MCP/plugin payload parity реализована; execution pending |
@@ -70,7 +71,7 @@ composition. Отдельный maintainability debt — монолитный `c
 | `RUNTIME-001` | P1 | `[x] implemented` | `runtime.rs` был 1846-line owner | Conventional bounded modules; no include |
 | `COMP-001` | P2 | `[x] implemented` | `OnceLock::set` conflicts молча игнорировались | Process-global runtime storage удалён |
 | `COMP-002` | P1 | `[x] implemented` | Отсутствующий adapter factory создавал empty registry | Explicit registry/composition; no hidden fallback |
-| `COMP-003` | P2 | `[-] in progress` | Runtime dependencies скрывались за globals и compatibility APIs | ChangeMap migrated; Store/remaining read debt и execution остаются |
+| `COMP-003` | P2 | `[-] in progress` | Runtime dependencies скрывались за globals и compatibility APIs | ChangeMap migrated/decomposed; Store/remaining read debt и execution остаются |
 | `COMP-003A` | P2 | `[x] implemented` | Compatibility perimeter не был зафиксирован | Caller inventory и удаление Store bridge/introspection helpers |
 | `COMP-003B1` | P2 | `[x] implemented` | Adapter/projector globals компилировались в default build | Quarantine и последующее физическое удаление |
 | `COMP-003B2` | P2 | `[x] implemented` | Store/Search globals находились в implementation owners | Bounded owners и последующее физическое удаление |
@@ -88,7 +89,7 @@ composition. Отдельный maintainability debt — монолитный `c
 | `COMP-003C2B2C1` | P2 | `[x] implemented` | Index, Generation, Wiki, HTML и benchmark имели no-composition APIs/projector fallbacks | Composition-only signatures/cores, narrowed re-exports и source inventory в `main` |
 | `COMP-003C2B2C2` | P2 | `[-] in progress` | Read services сохраняли dependency-hidden compatibility paths | Context и ChangeMap закрыты; Store/remaining read owners активны |
 | `COMP-003C2B2C2A` | P2 | `[x] implemented` | Context, derived-read, Search-operation и RusTok compatibility owners оставались public/physical | Wrappers удалены; `context.rs`/`rustok_operation.rs` удалены; inventory в `main` |
-| `COMP-003C2B2C2B` | P2 | `[-] in progress` | Store facade, Search, ChangeMap и другие read services сохраняли implicit/optional composition | Search/Explain/ChangeMap закрыты; decomposition, Store и remaining read owners pending |
+| `COMP-003C2B2C2B` | P2 | `[-] in progress` | Store facade, Search, ChangeMap и другие read services сохраняли implicit/optional composition | Search/Explain/ChangeMap/decomposition закрыты; Store и remaining read owners pending |
 | `COMP-004` | P2 | `[x] implemented` | `validate_changed` использовал hidden adapter composition | Только composition-aware public path; execution pending |
 | `COMP-005` | P2 | `[x] implemented` | Trust functions возвращали report со старым schema | Versioned public report |
 | `COMP-006` | P2 | `[x] implemented` | Focused handlers устанавливали global runtime | Все active CLI families используют explicit composition |
@@ -134,10 +135,10 @@ composition. Отдельный maintainability debt — монолитный `c
 - [x] ChangeMap task Search вызывает `search_snapshot_with_composition`.
 - [x] Все no-composition snapshot Search helpers физически удалены.
 - [x] Temporary ChangeMap facade физически удалён; conventional direct module восстановлен.
+- [x] `change_map.rs` декомпозирован на bounded conventional modules без `include!`.
 - [x] Index RuntimeBuilder и Store fallback branches удалены.
 - [x] Generation/Wiki/HTML Store и projector fallback branches удалены.
 - [x] Operation-aware snapshot Search и Search-index compatibility wrappers удалены.
-- [ ] `change_map.rs` декомпозирован на bounded conventional modules.
 - [ ] Public `store::init_store` compatibility facade удалён.
 - [ ] Remaining read-service owners composition-only.
 
@@ -216,7 +217,7 @@ cargo run -p ath --quiet --locked -- index .
 
 ## 7. Активный рабочий пакет
 
-**Сейчас:** `COMP-003C2B2C2B` — Store/Search и remaining read-service composition cleanup.
+**Сейчас:** `COMP-003C2B2C2B` — Store и remaining read-service composition cleanup.
 
 Отметки:
 
@@ -230,24 +231,38 @@ cargo run -p ath --quiet --locked -- index .
 - [x] передавать composition в task Search через `search_snapshot_with_composition`;
 - [x] удалить последний no-composition snapshot Search helper;
 - [x] удалить temporary ChangeMap facade и восстановить один conventional owner;
-- [x] обновить source inventory под physical cleanup;
-- [ ] декомпозировать `change_map.rs` на `model`, `execution`, `ranking`, `evidence` и bounded tests;
+- [x] декомпозировать ChangeMap на `model`, `execution`, `ranking`, `evidence` и bounded tests;
+- [x] добавить line-boundary/source inventory для всех ChangeMap owners;
+- [ ] сделать Overview composition-only и удалить его Store fallback;
 - [ ] удалить public `store::init_store` compatibility edge после migration всех callers;
-- [ ] мигрировать Overview, Impact, Coverage, Capabilities, Graph, Check, API/registry,
-  Repair/Docs и другие read owners с `store::init_store`/optional composition;
+- [ ] мигрировать Impact, Coverage, Capabilities, Graph, Check, API/registry, Repair/Docs и другие
+  read owners с `store::init_store`/optional composition;
 - [ ] обновить embedding examples после remaining owner cleanup;
 - [ ] устранить source-level warnings после owner cleanup;
 - [ ] выполнить targeted/default/all-features tests и Clippy.
 
-**Следующий обязательный срез:** декомпозировать 1,5k-строчный `change_map.rs` без `include!` и
-forwarding compatibility APIs. Целевая структура: bounded model, execution/loading, ranking/graph,
-evidence/annotations и test owner. Публичный composition-only contract и JSON schema должны
-сохраниться без изменений.
+**Следующий минимальный срез:** `overview.rs` принимает только mandatory `&RuntimeComposition`,
+удаляет `overview_project`, `Option<&RuntimeComposition>`, `crate::store::init_store` и fallback
+match. Pure `build_repository_overview`, JSON schema и report shape сохраняются без изменений.
 
-**После декомпозиции:** удалить `store::init_store`, затем мигрировать remaining read owners; после
-закрытия пакета перейти к `MCP-007`, `JSON-003`, documentation reconciliation и full verification.
+**После Overview:** последовательно мигрировать remaining bounded read owners, удалить
+`store::init_store` и его facade; после закрытия пакета перейти к `MCP-007`, `JSON-003`, documentation
+reconciliation и full verification.
 
 ## 8. Журнал актуализаций
+
+### 2026-07-18 — Bounded ChangeMap decomposition
+
+- Монолитный `change_map.rs` заменён 15-line module root.
+- Public model перенесён в `change_map/model.rs`.
+- Composition-aware loading, option validation и target resolution перенесены в `execution.rs`.
+- Ranking, graph expansion, diagnostics/test links и report assembly перенесены в `ranking.rs`.
+- Evidence, file ownership и adapter annotations перенесены в `evidence.rs`.
+- Unit regressions перенесены в отдельный bounded `change_map/tests.rs`.
+- `include!`, forwarding facade и compatibility APIs не используются.
+- `read_service_composition_inventory` фиксирует module routing, composition contract и line budgets.
+- Публичные типы, JSON schema и composition-only entrypoint сохранены.
+- Статус среза — implemented, Rust/hosted verification pending.
 
 ### 2026-07-18 — Physical ChangeMap composition cleanup
 
