@@ -1432,7 +1432,9 @@ async fn daemon_context_from_cache(
     level: ContextLevel,
     overrides: &ContextLimitOverrides,
 ) -> Result<athanor_domain::ContextPack> {
-    crate::daemon_queries::context(state, task, level, overrides).await
+    crate::daemon_queries::context(state, task, level, overrides)
+        .await
+        .map(|report| report.pack)
 }
 
 async fn daemon_overview_from_cache(

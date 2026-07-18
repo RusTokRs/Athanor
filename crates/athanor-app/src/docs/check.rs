@@ -7,8 +7,8 @@ use crate::check::{DiagnosticScope, diagnostic_matches_scope};
 use crate::config::{CompletenessPolicy, DocsConfig};
 
 use super::{
-    DOCS_CHECK_SCHEMA, DOCS_DRIFT_SCHEMA, DocsCheckReport, DocsDriftReport,
-    DocsPolicyViolation, DriftedDocument,
+    DOCS_CHECK_SCHEMA, DOCS_DRIFT_SCHEMA, DocsCheckReport, DocsDriftReport, DocsPolicyViolation,
+    DriftedDocument,
 };
 
 pub(super) fn build_docs_check_report(
@@ -57,9 +57,8 @@ pub(super) fn build_docs_check_report(
         })
         .cloned()
         .collect::<Vec<_>>();
-    diagnostics.sort_by_key(|diagnostic| {
-        (severity_rank(diagnostic.severity), diagnostic.id.0.clone())
-    });
+    diagnostics
+        .sort_by_key(|diagnostic| (severity_rank(diagnostic.severity), diagnostic.id.0.clone()));
 
     DocsCheckReport {
         schema: DOCS_CHECK_SCHEMA.to_string(),
@@ -130,7 +129,7 @@ pub(super) fn is_editable_page(entity: &Entity, editable_path: &str) -> bool {
         return false;
     }
     entity.source.as_ref().is_some_and(|source| {
-        let path = source.path.replace('\', "/");
+        let path = source.path.replace('\\', "/");
         path == editable_path || path.starts_with(&format!("{editable_path}/"))
     })
 }
@@ -140,7 +139,7 @@ pub(super) fn page_path(page: &Entity) -> Option<String> {
 }
 
 pub(super) fn normalize_policy_path(path: &str) -> String {
-    path.replace('\', "/").trim_matches('/').to_string()
+    path.replace('\\', "/").trim_matches('/').to_string()
 }
 
 fn accepted_verification_snapshots(
@@ -199,7 +198,11 @@ fn policy_violations(
 
     if present.contains("status") {
         let status = page.payload["status"].as_str().unwrap_or_default();
-        if !policy.allowed_statuses.iter().any(|allowed| allowed == status) {
+        if !policy
+            .allowed_statuses
+            .iter()
+            .any(|allowed| allowed == status)
+        {
             violations.push(DocsPolicyViolation {
                 path: path.clone(),
                 stable_key: page.stable_key.0.clone(),

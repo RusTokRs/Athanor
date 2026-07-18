@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use super::super::check::normalize_policy_path;
 
-pub(super) fn api_doc_path(editable_path: &str, endpoint: &Entity) -> String {
+pub(crate) fn api_doc_path(editable_path: &str, endpoint: &Entity) -> String {
     let method = endpoint.payload["method"]
         .as_str()
         .unwrap_or("endpoint")
@@ -43,7 +43,7 @@ pub(super) fn api_doc_path(editable_path: &str, endpoint: &Entity) -> String {
     )
 }
 
-pub(super) fn api_doc_content(
+pub(crate) fn api_doc_content(
     snapshot: &str,
     endpoint: &Entity,
     diagnostic: &Diagnostic,
@@ -174,7 +174,11 @@ pub(super) fn push_api_contract_lines(
             inline_code_list(&responses)
         ));
     }
-    if let Some(security) = endpoint.payload.get("security").filter(|value| !value.is_null()) {
+    if let Some(security) = endpoint
+        .payload
+        .get("security")
+        .filter(|value| !value.is_null())
+    {
         content.push_str(&format!("- Security: `{}`\n", compact_json(security)));
     }
     content.push_str(&format!(
@@ -309,11 +313,16 @@ fn api_doc_context<'a>(
             .cmp(&(&right.schema.stable_key.0, &right.media_type))
     });
     context.response_schemas.sort_by(|left, right| {
-        (&left.status_code, &left.schema.stable_key.0, &left.media_type).cmp(&(
-            &right.status_code,
-            &right.schema.stable_key.0,
-            &right.media_type,
-        ))
+        (
+            &left.status_code,
+            &left.schema.stable_key.0,
+            &left.media_type,
+        )
+            .cmp(&(
+                &right.status_code,
+                &right.schema.stable_key.0,
+                &right.media_type,
+            ))
     });
     context
         .examples

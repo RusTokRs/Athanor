@@ -14,7 +14,7 @@ use crate::docs::{
 
 use super::snapshot;
 
-pub(super) async fn check(
+pub(crate) async fn check(
     options: DocsCheckOptions,
     composition: &RuntimeComposition,
 ) -> Result<DocsCheckReport> {
@@ -27,7 +27,7 @@ pub(super) async fn check(
     ))
 }
 
-pub(super) async fn drift(
+pub(crate) async fn drift(
     options: DocsDriftOptions,
     composition: &RuntimeComposition,
 ) -> Result<DocsDriftReport> {
@@ -127,7 +127,11 @@ fn policy_violations(
         .collect::<Vec<_>>();
     if present.contains("status") {
         let status = page.payload["status"].as_str().unwrap_or_default();
-        if !policy.allowed_statuses.iter().any(|allowed| allowed == status) {
+        if !policy
+            .allowed_statuses
+            .iter()
+            .any(|allowed| allowed == status)
+        {
             violations.push(DocsPolicyViolation {
                 path: path.clone(),
                 stable_key: page.stable_key.0.clone(),

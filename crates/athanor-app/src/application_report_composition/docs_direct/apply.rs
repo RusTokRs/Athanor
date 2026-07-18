@@ -13,7 +13,7 @@ use crate::docs::{
 
 use super::snapshot;
 
-pub(super) async fn apply(
+pub(crate) async fn apply(
     options: DocsApplyPatchOptions,
     composition: &RuntimeComposition,
 ) -> Result<DocsApplyPatchReport> {

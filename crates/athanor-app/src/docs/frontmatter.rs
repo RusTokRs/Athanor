@@ -45,7 +45,7 @@ pub(super) fn resolve_project_output(root: &Path, output: &Path) -> Result<PathB
 
 pub(super) fn resolve_docs_patch_path(root: &Path, patch: &str) -> Result<PathBuf> {
     let path = Path::new(patch);
-    if path.is_absolute() || patch.contains('/') || patch.contains('\') || patch.ends_with(".json")
+    if path.is_absolute() || patch.contains('/') || patch.contains('\\') || patch.ends_with(".json")
     {
         return resolve_project_output(root, path);
     }

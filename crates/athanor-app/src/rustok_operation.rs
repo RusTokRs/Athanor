@@ -15,9 +15,8 @@ use crate::graph::{
     GraphFbaDependenciesOptions, GraphFbaModuleOptions, GraphFbaPortOptions,
     GraphFbaViolationsOptions, GraphFfaSurfaceOptions, GraphFfaViolationsOptions,
     GraphPageBuilderConsumerOptions, GraphPageBuilderProviderOptions,
-    GraphPageBuilderViolationsOptions, RustokFbaAudit, RustokFbaAuditOptions,
-    RustokFfaAudit, RustokFfaAuditOptions, RustokPageBuilderAudit,
-    RustokPageBuilderAuditOptions,
+    GraphPageBuilderViolationsOptions, RustokFbaAudit, RustokFbaAuditOptions, RustokFfaAudit,
+    RustokFfaAuditOptions, RustokPageBuilderAudit, RustokPageBuilderAuditOptions,
 };
 use crate::project_path::normalize_canonical_path;
 use crate::rustok_architecture::{RustokArchitectureContext, RustokArchitectureContextOptions};
@@ -85,7 +84,7 @@ pub async fn rustok_architecture_context_with_operation_context(
     .await?;
     let snapshot = load_latest_snapshot(root.clone(), operation).await?;
     options.root = root;
-    let context_entities = context.entities;
+    let context_entities = context.pack.entities;
     let operation_for_worker = operation.clone();
     run_rustok_worker(operation, move || {
         build_rustok_architecture_context_with_operation_context(

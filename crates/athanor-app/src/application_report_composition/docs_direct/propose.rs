@@ -10,7 +10,7 @@ use crate::docs::{
 
 use super::snapshot;
 
-pub(super) async fn propose(
+pub(crate) async fn propose(
     options: DocsProposeFixOptions,
     composition: &RuntimeComposition,
 ) -> Result<DocsProposeFixReport> {

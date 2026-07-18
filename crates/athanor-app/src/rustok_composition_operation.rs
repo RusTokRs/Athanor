@@ -8,6 +8,7 @@ use athanor_core::{
 };
 use athanor_domain::ContextLevel;
 
+use crate::RuntimeComposition;
 use crate::config::load_config;
 use crate::context::{ContextLimitOverrides, ContextOptions};
 use crate::derived_read_operation::context_project_with_composition_and_operation_context;
@@ -15,9 +16,8 @@ use crate::graph::{
     GraphFbaDependenciesOptions, GraphFbaModuleOptions, GraphFbaPortOptions,
     GraphFbaViolationsOptions, GraphFfaSurfaceOptions, GraphFfaViolationsOptions,
     GraphPageBuilderConsumerOptions, GraphPageBuilderProviderOptions,
-    GraphPageBuilderViolationsOptions, RustokFbaAudit, RustokFbaAuditOptions,
-    RustokFfaAudit, RustokFfaAuditOptions, RustokPageBuilderAudit,
-    RustokPageBuilderAuditOptions,
+    GraphPageBuilderViolationsOptions, RustokFbaAudit, RustokFbaAuditOptions, RustokFfaAudit,
+    RustokFfaAuditOptions, RustokPageBuilderAudit, RustokPageBuilderAuditOptions,
 };
 use crate::project_path::normalize_canonical_path;
 use crate::rustok_architecture::{RustokArchitectureContext, RustokArchitectureContextOptions};
@@ -43,7 +43,6 @@ use crate::rustok_json_contract::{
     RustokPageBuilderConsumerGraphReport, RustokPageBuilderProviderGraphReport,
     RustokPageBuilderViolationsGraphReport,
 };
-use crate::RuntimeComposition;
 
 pub async fn rustok_architecture_context_with_composition_and_operation_context(
     mut options: RustokArchitectureContextOptions,
@@ -87,7 +86,7 @@ pub async fn rustok_architecture_context_with_composition_and_operation_context(
     .await?;
     let snapshot = load_latest_snapshot(root.clone(), composition, operation).await?;
     options.root = root;
-    let context_entities = context.entities;
+    let context_entities = context.pack.entities;
     let operation_for_worker = operation.clone();
     run_rustok_worker(operation, move || {
         build_rustok_architecture_context_with_operation_context(

@@ -3,14 +3,12 @@ use std::collections::{BTreeMap, HashMap};
 use athanor_domain::{Entity, EntityKind, Relation, RelationKind};
 use serde_json::Value;
 
-use super::content::push_api_contract_lines;
-use super::{
-    COORDINATION_END, COORDINATION_START_PREFIX, MANAGED_END, MANAGED_START_PREFIX,
-};
-use super::super::check::page_path;
 use super::super::DocsFrontmatterChange;
+use super::super::check::page_path;
+use super::content::push_api_contract_lines;
+use super::{COORDINATION_END, COORDINATION_START_PREFIX, MANAGED_END, MANAGED_START_PREFIX};
 
-pub(super) fn documented_api_pages<'a>(
+pub(crate) fn documented_api_pages<'a>(
     endpoint: &Entity,
     pages_by_path: &'a BTreeMap<String, &'a Entity>,
     entities: &'a [Entity],
@@ -69,12 +67,12 @@ pub(super) fn documented_api_pages<'a>(
     pages.into_values().collect()
 }
 
-pub(super) fn is_api_documentation_page(page: &Entity) -> bool {
+pub(crate) fn is_api_documentation_page(page: &Entity) -> bool {
     page.payload["documentation_kind"].as_str() == Some("api_documentation")
         || page.payload["kind"].as_str() == Some("api_documentation")
 }
 
-pub(super) fn explicit_api_entity_reference_change(
+pub(crate) fn explicit_api_entity_reference_change(
     page: &Entity,
     endpoint: &Entity,
 ) -> Option<DocsFrontmatterChange> {
@@ -107,7 +105,7 @@ pub(super) fn explicit_api_entity_reference_change(
     })
 }
 
-pub(super) fn upsert_api_doc_managed_section(
+pub(crate) fn upsert_api_doc_managed_section(
     content: &str,
     endpoint: &Entity,
     entities: &[Entity],
@@ -122,7 +120,7 @@ pub(super) fn upsert_api_doc_managed_section(
     )
 }
 
-pub(super) fn upsert_api_docs_coordination_section(
+pub(crate) fn upsert_api_docs_coordination_section(
     content: &str,
     endpoint: &Entity,
     documented_pages: &[&Entity],

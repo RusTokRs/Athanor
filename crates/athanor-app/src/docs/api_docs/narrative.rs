@@ -2,12 +2,12 @@ use std::collections::BTreeSet;
 
 use athanor_domain::Entity;
 
+use super::super::frontmatter::split_frontmatter;
 use super::content::api_route_signature;
 use super::{
     COORDINATION_END, COORDINATION_START_PREFIX, MANAGED_END, MANAGED_START_PREFIX,
     NARRATIVE_REVIEW_END, NARRATIVE_REVIEW_START,
 };
-use super::super::frontmatter::split_frontmatter;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ApiNarrativeRewriteDraft {
@@ -17,7 +17,7 @@ struct ApiNarrativeRewriteDraft {
     draft_line: String,
 }
 
-pub(super) fn stale_api_route_mentions(content: &str, endpoints: &[&Entity]) -> Vec<String> {
+pub(crate) fn stale_api_route_mentions(content: &str, endpoints: &[&Entity]) -> Vec<String> {
     let expected = endpoints
         .iter()
         .filter_map(|endpoint| api_route_signature(endpoint))
@@ -35,7 +35,7 @@ pub(super) fn stale_api_route_mentions(content: &str, endpoints: &[&Entity]) -> 
     stale
 }
 
-pub(super) fn upsert_api_narrative_review_section(
+pub(crate) fn upsert_api_narrative_review_section(
     content: &str,
     endpoints: &[&Entity],
     stale_mentions: &[String],
@@ -81,7 +81,8 @@ fn review_section(
     let mut content = String::new();
     content.push_str(NARRATIVE_REVIEW_START);
     content.push_str("\n\n## Athanor API Narrative Review\n\n");
-    content.push_str("Potentially stale API route mentions found outside Athanor-managed blocks:\n");
+    content
+        .push_str("Potentially stale API route mentions found outside Athanor-managed blocks:\n");
     for mention in stale_mentions {
         content.push_str(&format!("- `{mention}`\n"));
     }
@@ -94,10 +95,7 @@ fn review_section(
         for draft in drafts {
             content.push_str(&format!(
                 "- Replace `{}` with `{}`\n  - Current: {}\n  - Draft: {}\n",
-                draft.stale_mention,
-                draft.suggested_mention,
-                draft.current_line,
-                draft.draft_line
+                draft.stale_mention, draft.suggested_mention, draft.current_line, draft.draft_line
             ));
         }
     }
