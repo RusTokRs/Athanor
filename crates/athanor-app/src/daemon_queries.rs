@@ -11,12 +11,8 @@ use serde_json::Value;
 use crate::config::load_config;
 use crate::daemon::{CachedSearchIndex, ContextCacheKey, DaemonState, OverviewCacheKey};
 use crate::explain::explain_snapshot;
-use crate::search::{
-    get_or_build_search_index_with_factory_and_operation,
-    get_or_build_search_index_with_operation_context,
-};
+use crate::search::get_or_build_search_index_with_factory_and_operation;
 use crate::search_operation::search_snapshot_with_index_and_operation_context;
-use crate::store::init_store;
 use crate::{
     ContextLimitOverrides, ContextLimits, ContextReport, RepositoryOverview, RuntimeComposition,
     build_repository_overview, generate_context_pack,
@@ -44,10 +40,9 @@ pub(crate) async fn latest_snapshot_with_operation_context(
     let root = &state.endpoint.root;
     let config = load_config(root)?;
     check_active(operation)?;
-    let store = match composition(state) {
-        Some(composition) => composition.init_store(root, &config).await?,
-        None => init_store(root, &config).await?,
-    };
+    let composition = composition(state)
+        .ok_or_else(|| anyhow::anyhow!("daemon runtime composition is unavailable"))?;
+    let store = composition.init_store(root, &config).await?;
     let snapshot = store
         .load_latest_snapshot_with_operation_context(operation)
         .await
@@ -314,27 +309,21 @@ fn search_index_with_operation_context(
         .endpoint
         .root
         .join(".athanor/generated/current/search");
-    let index = match composition(state) {
-        Some(composition) => get_or_build_search_index_with_factory_and_operation(
-            snapshot,
-            &snapshot_id,
-            &index_dir,
-            operation,
-            |directory, documents, operation| {
-                composition.build_search_index_with_operation_context(
-                    directory,
-                    documents,
-                    operation,
-                )
-            },
-        )?,
-        None => get_or_build_search_index_with_operation_context(
-            snapshot,
-            &snapshot_id,
-            &index_dir,
-            operation,
-        )?,
-    };
+    let composition = composition(state)
+        .ok_or_else(|| anyhow::anyhow!("daemon runtime composition is unavailable"))?;
+    let index = get_or_build_search_index_with_factory_and_operation(
+        snapshot,
+        &snapshot_id,
+        &index_dir,
+        operation,
+        |directory, documents, operation| {
+            composition.build_search_index_with_operation_context(
+                directory,
+                documents,
+                operation,
+            )
+        },
+    )?;
     check_active(operation)?;
     *cache = Some(CachedSearchIndex {
         snapshot_id,
