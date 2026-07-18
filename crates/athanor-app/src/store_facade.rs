@@ -1,7 +1,7 @@
-//! Compatibility facade for the former process-global store factory.
+//! Compatibility facade for Store APIs that still require migration to explicit composition.
 //!
-//! Active application entrypoints use `RuntimeComposition::init_store` directly.
-//! Unit tests retain the old helper shape by creating a fresh local test composition.
+//! Active application entrypoints use `RuntimeComposition::init_store` directly. Unit tests retain
+//! the old helper shape temporarily by creating a fresh local test composition.
 
 use std::path::Path;
 
@@ -15,10 +15,6 @@ use crate::config::ProjectConfig;
 mod core;
 
 pub use core::{AthanorStore, StoreFactory};
-
-pub fn install_store_factory(_factory: StoreFactory) {
-    panic!("process-global Store installation was removed; use RuntimeComposition")
-}
 
 pub async fn init_store(root: &Path, config: &ProjectConfig) -> Result<AthanorStore> {
     #[cfg(test)]
