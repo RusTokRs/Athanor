@@ -1,0 +1,8 @@
+[docs]
+editable_path = "docs"
+
+[docs.completeness]
+required_fields = ["id", "kind", "language", "source_language", "status"]
+allowed_statuses = ["active", "implemented", "planned", "draft", "verified"]
+minimum_diagnostic_severity = "medium"
+require_current_snapshot = false
