@@ -13,8 +13,8 @@ Athanor read-only ports and the daemon query layer share the operation identity,
 deadline contract used by write jobs.
 
 The daemon slice covers repository overview, entity explanation, indexed search, cached and
-diff-aware context generation, and change-map analysis. CLI, daemon and MCP active callers pass a
-`RuntimeComposition` explicitly.
+diff-aware context generation, change-map analysis, standard Graph reads and RusTok architecture
+reads. CLI, daemon and MCP active callers pass a `RuntimeComposition` explicitly.
 
 ## Core Port Contract
 
@@ -51,13 +51,29 @@ change_map_project_with_composition_and_operation_context(
 ).await?;
 ```
 
-The former no-composition Context, ChangeMap and Search operation wrappers are removed. RusTok
-operation execution is owned by `rustok_composition_operation.rs`; the former duplicate
-`rustok_operation.rs` owner is physically deleted.
+Standard Graph and RusTok operations follow the same contract:
+
+```rust,ignore
+export_graph_with_composition_and_operation_context(
+    options,
+    &composition,
+    &operation,
+).await?;
+
+rustok_ffa_audit_with_composition_and_operation_context(
+    options,
+    &composition,
+    &operation,
+).await?;
+```
+
+The former no-composition Context, ChangeMap, Search, Graph and RusTok operation wrappers are removed.
+RusTok operation execution is owned by `rustok_composition_operation.rs`; the former duplicate
+`rustok_operation.rs` owner and the former Graph monolith are physically deleted.
 
 The postflight operation check rejects a result completed after cancellation or deadline expiry.
-Synchronous filesystem discovery and bounded graph construction are not preempted inside a running
-thread; the operation boundary is checked before success is exposed.
+Traversal-heavy standard and RusTok graph algorithms poll the operation inside bounded work loops.
+Pure snapshot adapters use a fresh active context and share the same canonical algorithm owners.
 
 ## Daemon Routing
 
@@ -84,11 +100,14 @@ open/rebuild, and before cache insertion.
 Search failures may fall back to context generation without direct matches. `Cancelled` and
 `DeadlineExceeded` are never fallback-eligible search failures.
 
-## Remaining Migration
+## Composition Invariant
 
-`COMP-003C2B2C2B` removes the remaining Store facade and snapshot Search compatibility paths, then
-migrates the read-service families that still accept optional or implicit composition. New code must
-not call `store::init_store` or no-composition snapshot Search helpers.
+`COMP-003C2B2C2B` is implemented. Read-service families accept mandatory composition, the final
+no-composition Graph project loaders are removed, and public `store::init_store` no longer exists.
+Store construction is owned only by `RuntimeComposition::init_store`.
+
+New code must not introduce optional/implicit composition, dependency-hidden Store initialization or
+no-composition snapshot Search/Graph helpers.
 
 ## Verification
 
@@ -97,6 +116,9 @@ cargo fmt --all -- --check
 cargo test -p athanor-core read_operation --locked
 cargo test -p athanor-app search_operation --locked
 cargo test -p athanor-app derived_read_operation --locked
+cargo test -p athanor-app graph_operation --locked
+cargo test -p athanor-app --test graph_composition_inventory --locked
+cargo test -p athanor-app --test legacy_factory_migration --locked
 cargo test -p athanor-app --test context_composition_inventory --locked
 cargo test -p athanor-app daemon_read_dispatch --locked
 cargo test -p athanor-app daemon_derived_read_dispatch --locked
@@ -106,8 +128,8 @@ cargo clippy -p athanor-app --all-targets --locked -- -D warnings
 ```
 
 Required regressions cover preflight cancellation, cancellation observed during backend work,
-expired deadlines, daemon search cancellation, stable public cancellation/deadline codes, and
-composition-only derived read routing.
+expired deadlines, daemon search cancellation, stable public cancellation/deadline codes,
+composition-only routing, physical Graph decomposition and Store initializer removal.
 
 Hosted compile, test, Clippy, transport and operating-system evidence remains separate and is not
 claimed without recorded runs.
