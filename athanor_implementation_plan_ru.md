@@ -23,7 +23,9 @@ version. CLI, daemon и MCP варианты одной операции дол�
 - `COMP-003` и `COMP-003C2B2C2B` — explicit runtime composition, bounded read owners, Graph cleanup и
   удаление public Store initializer;
 - `MCP-007` — transactional Index cancellation с различением pre-commit rollback и post-commit
-  durable success.
+  durable success;
+- `JSON-003` — repeat workspace-wide schema inventory, adapter/persistence lifecycle enforcement и
+  typed transport payload parity.
 
 Composition-only execution действует для Context, daemon, Search, Index, Generation, Wiki, HTML,
 benchmark, Explain, ChangeMap, API, Overview, Capabilities, Impact, Coverage, Check, Graph, Repair и
@@ -43,6 +45,12 @@ Transactional Index publication теперь имеет явную границ�
 4. exact committed snapshot сохраняет durable success;
 5. MCP регистрирует Index cancellation, но не выполняет transport postflight после application future;
 6. CLI, daemon и MCP сериализуют один public `IndexReport` contract.
+
+JSON contract inventory теперь имеет три независимых enforcement слоя:
+
+1. public, general non-public и adapter registries валидируются на uniqueness/disjointness;
+2. production Rust sources под `crates/*/src` и `apps/*/src` сканируются рекурсивно;
+3. CLI/daemon/MCP equivalent operations обязаны сериализовать один typed public report.
 
 ## 3. Завершённые пакеты
 
@@ -77,30 +85,42 @@ Transactional Index publication теперь имеет явную границ�
 - [x] Source inventory фиксирует CLI/daemon/MCP `IndexReport` payload parity и line budgets.
 - [x] `direct-operation-context.md` согласован с transactional contract.
 
+### 3.3 `JSON-003` — repeat contract inventory
+
+- [x] Public registry сохраняет 60 unique current Rust/schema owners.
+- [x] General non-public registry сохраняет 30 persisted/generated/interchange/embedded descriptors.
+- [x] Adapter registry сохраняет два current и два legacy-input descriptors.
+- [x] Public, general non-public и adapter schema sets проверяются на взаимную disjointness.
+- [x] Qualified schema grammar поддерживает wire-compatible
+  `athanor.index_state.v46-js-ts-precision-v1` и возвращает base major `46`.
+- [x] Malformed qualified versions fail closed.
+- [x] Старый path-list `json_contract_inventory` заменён recursive workspace production scan.
+- [x] Unit-test source owners исключены из production emitter scan.
+- [x] Любой новый quoted `athanor.*` production literal требует registration/classification в том же change.
+- [x] Persistence/process source inventory больше не ссылается на удалённые monolith paths.
+- [x] Adapter legacy manifest/trust inputs нормализуются в current owners перед current write/response.
+- [x] Current persisted/generated/interchange fixtures сохраняют required-field coverage.
+- [x] External process protocols остаются schema-less и сохраняют framing/type inventory.
+- [x] CLI, daemon и MCP Index используют один typed `IndexReport` payload.
+- [x] Daemon Index/Generation/HTML/Wiki regressions сравнивают transport result с direct serde shape.
+- [x] `json-contract-inventory.md` отражает фактические registries, recursive scan и pending verification.
+
 ## 4. Следующие активные пакеты
 
-### 4.1 `JSON-003` — repeat contract inventory
-
-- [ ] повторить repository-wide scan schema emitters и parsers;
-- [ ] проверить adapter/plugin boundaries и legacy input-only schema ids;
-- [ ] подтвердить CLI/daemon/MCP payload parity для public reports;
-- [ ] выполнить source inventory и JSON regression matrix;
-- [ ] удалить stale claims о complete inventory без execution evidence.
-
-### 4.2 `DOC-001` / `DOC-002` — documentation status hygiene
+### 4.1 `DOC-001` / `DOC-002` — documentation status hygiene
 
 - [ ] убрать stale `verified` claims, не подтверждённые одним current commit;
 - [ ] заменить ссылки на удалённые monolith paths актуальными bounded owners;
 - [ ] согласовать pipeline current/target/history;
 - [ ] синхронизировать roadmap, architecture guides и implementation plan.
 
-### 4.3 `MCP-004` — control-plane responsiveness
+### 4.2 `MCP-004` — control-plane responsiveness
 
 - [ ] подтвердить обработку cancellation/control notifications при saturation ordinary request slots;
 - [ ] исключить starvation control-plane сообщений;
 - [ ] добавить bounded saturation/disconnect regressions.
 
-### 4.4 `VERIFY-001` — execution matrix
+### 4.3 `VERIFY-001` — execution matrix
 
 - [!] Локальный checkout недоступен из текущего runtime из-за DNS-доступа к GitHub.
 - [!] Hosted workflow runs для новых direct-to-main commits пока отсутствуют.
@@ -111,11 +131,11 @@ Transactional Index publication теперь имеет явную границ�
 
 | ID | Priority | Status | Результат / критерий закрытия |
 | --- | --- | --- | --- |
-| `ARCH-AUDIT-001` | P1 | `[-] in progress` | Composition и MCP-007 implemented; JSON/docs/verification pending |
+| `ARCH-AUDIT-001` | P1 | `[-] in progress` | Composition, MCP-007 и JSON-003 implemented; docs/control-plane/verification pending |
 | `COMP-003` | P2 | `[x] implemented` | Runtime dependencies explicit; Store initialization only through composition |
 | `COMP-003C2B2C2B` | P2 | `[x] implemented` | Read services, Graph и Store compatibility cleanup complete |
 | `MCP-007` | P1 | `[x] implemented` | Pre-commit cancellation rolls back; post-commit durable success retained |
-| `JSON-003` | P1 | `[-] in progress` | Repeat repository-wide schema scan и enforcement matrix выполнены |
+| `JSON-003` | P1 | `[x] implemented` | Workspace schema scan, lifecycle registries, fixtures и payload parity enforced |
 | `DOC-001` | P3 | `[-] in progress` | Stale verification claims и removed paths удалены |
 | `DOC-002` | P3 | `[ ] planned` | Pipeline current/target/history согласованы |
 | `MCP-004` | P1 | `[ ] planned` | Control-plane остаётся responsive при request saturation |
@@ -153,10 +173,14 @@ Transactional Index publication теперь имеет явную границ�
 
 ### JSON contracts
 
-- [x] Adapter manifest использует versioned schema id.
-- [x] Persisted registry и public report имеют разные schema owners.
-- [x] Canonical re-export path для adapter contracts один.
-- [-] Repeat adapter-boundary inventory и execution matrix pending.
+- [x] Public/current, non-public/current, legacy-input и historical lifecycles разделены.
+- [x] Adapter manifest/trust persisted state и public trust report имеют разные owners.
+- [x] Ordinary и qualified versioned schema IDs валидируются fail-closed.
+- [x] Production schema literals сканируются рекурсивно по workspace source tree.
+- [x] Removed monolith paths не участвуют в inventory.
+- [x] Persisted/generated/interchange fixtures покрывают required current fields.
+- [x] Process protocols сохраняют schema-less typed framing.
+- [x] Typed CLI/daemon/MCP payload parity закреплена source и serde regressions.
 
 ## 7. Verification matrix
 
@@ -180,6 +204,9 @@ cargo test -p athanor-app --test daemon_composition_inventory --locked
 cargo test -p athanor-app --test write_service_composition_inventory --locked
 cargo test -p athanor-app --test runtime_modularity_inventory --locked
 cargo test -p athanor-app --test json_contract_inventory --locked
+cargo test -p athanor-app --test process_persistence_contract_inventory --locked
+cargo test -p athanor-app --test adapter_contract_inventory --locked
+cargo test -p athanor-app --test public_report_transport_inventory --locked
 cargo test -p athanor-transport-mcp server::operation --locked
 cargo test -p athanor-transport-mcp --test index_publication_cancellation_inventory --locked
 cargo test -p athanor-transport-mcp --test mcp_transport_contracts --locked
@@ -195,6 +222,17 @@ cargo run -p ath --quiet --locked -- index .
 Новые срезы сохраняют статус `implemented`, пока этот набор не выполнен на одном commit.
 
 ## 8. Последние изменения
+
+### 2026-07-19 — Repeat workspace JSON contract inventory
+
+- Schema validator поддерживает ordinary и strict qualified version forms.
+- Qualified JS/TS precision IndexState wire id сохраняется без breaking migration.
+- JSON contract inventory рекурсивно сканирует production Rust sources вместо stale path list.
+- Persistence/process inventory больше не зависит от удалённых API/Graph/Check monolith paths.
+- Public/general/adapter registries проверяются на uniqueness, disjointness и source observability.
+- Adapter legacy input normalization и current fixture rules сохранены.
+- CLI/daemon/MCP typed `IndexReport` parity и daemon write-report parity закреплены source guards.
+- Status — implemented; Rust/hosted verification pending.
 
 ### 2026-07-19 — Transactional MCP Index cancellation
 
