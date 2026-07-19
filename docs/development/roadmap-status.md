@@ -19,7 +19,7 @@ verification matrix live in `athanor_implementation_plan_ru.md`; long-range prod
 - Historical snapshot metadata in individual documentation pages is content metadata. It is not
   execution evidence for the current repository commit.
 - The current direct-to-main architecture work remains implemented, not verified, until one complete
-  matrix succeeds on the same commit.
+  matrix succeeds and publishes exact versioned evidence for its commit.
 
 ## Current Architecture
 
@@ -84,6 +84,17 @@ before ordinary admission. Inline reader-loop responses use nonblocking bounded 
 response queue cannot terminate or suspend the only input reader. Ordinary request tasks retain
 bounded response backpressure. EOF cancels registered operations before request-task drain.
 
+### Exact Verification Evidence
+
+The main `CI` workflow runs the quality, security, feature, smoke, documentation, and coverage matrix.
+After a successful push run on `main`, `verification-evidence.yml` may publish
+`docs/development/verification-evidence.json` with schema `athanor.verification_evidence.v1`, exact
+`head_sha`, run identity, URL, completion time, and matrix description.
+
+The publisher rejects pull-request, failed, cancelled, and non-main runs. The evidence-only file is
+ignored by push-CI, preventing a recursive workflow loop. Workflow YAML without a valid evidence file
+remains implementation evidence only.
+
 ## Implemented Architecture Packages
 
 ### `COMP-003` / `COMP-003C2B2C2B`
@@ -132,25 +143,27 @@ bounded response backpressure. EOF cancels registered operations before request-
 - focused saturation, protocol-error, overload, and disconnect regressions added;
 - source inventory enforces routing, response admission, cancellation, and line budgets.
 
+### `VERIFY-001A`
+
+- successful main-CI evidence is recorded with exact workflow and commit identity;
+- evidence publication is restricted to completed successful push runs on `main`;
+- the evidence-only commit cannot recursively trigger CI;
+- source inventory validates triggers, permissions, staging scope, schema, URL, SHA, and matrix shape;
+- `ci.md` distinguishes workflow implementation from actual execution evidence.
+
 ## Active Work
 
 ### `VERIFY-001`
 
-Run one complete matrix on one commit:
+The remaining architecture task is one exact successful matrix:
 
-```bash
-cargo fmt --all -- --check
-cargo check --workspace --locked
-cargo check --workspace --all-features --locked
-cargo test --workspace --quiet --locked
-cargo clippy --workspace --all-targets --locked -- -D warnings
-cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
-cargo run -p ath --quiet --locked -- --help
-cargo run -p ath --quiet --locked -- index .
-```
+1. final push-CI completes successfully;
+2. `verification-evidence.json` is published;
+3. its `head_sha` is matched to the architecture commit being claimed;
+4. only those implemented packages are promoted to verified.
 
-Focused architecture inventories listed in `athanor_implementation_plan_ru.md` must run in the same
-matrix. Only then may implemented items be promoted to verified for that commit.
+The current runtime has no local checkout or GitHub CLI. Until valid evidence is present, the package
+remains blocked rather than inferred from workflow source.
 
 ## Product Backlog
 
