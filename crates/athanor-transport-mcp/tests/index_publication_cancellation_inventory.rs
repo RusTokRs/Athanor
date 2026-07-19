@@ -41,12 +41,14 @@ fn atomic_publication_reconciles_only_terminal_operation_errors() {
 #[test]
 fn cancellation_matrix_covers_pre_commit_commit_race_and_post_commit() {
     for regression in [
-        "pre_commit_cancellation_remains_an_error",
-        "committed_terminal_errors_are_reconciled_to_success",
-        "cancellation_after_commit_does_not_override_success",
+        "pre_commit_cancellation_rolls_back_and_remains_an_error",
+        "committed_terminal_errors_are_reconciled_to_publication_success",
+        "cancellation_after_commit_does_not_override_publication_success",
     ] {
         assert!(APP_CANCELLATION_REGRESSIONS.contains(regression));
     }
+    assert!(APP_CANCELLATION_REGRESSIONS.contains("assert_publication_journals_cleared"));
+    assert!(APP_CANCELLATION_REGRESSIONS.contains("IndexCurrent::load"));
     assert!(APP_PRECOMMIT_REGRESSION.contains(
         "cancelled_canonical_publish_restores_previous_artifacts_and_aborts_snapshot"
     ));
@@ -60,7 +62,7 @@ fn transactional_cancellation_owners_remain_bounded() {
         (
             "Store publication cancellation regressions",
             APP_CANCELLATION_REGRESSIONS,
-            360,
+            430,
         ),
     ] {
         let lines = source.lines().count();
