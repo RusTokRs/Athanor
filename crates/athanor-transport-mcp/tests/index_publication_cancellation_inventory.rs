@@ -1,5 +1,8 @@
+const CLI_INDEX_SOURCE: &str = include_str!("../../../apps/ath/src/index_cli.rs");
 const MCP_DISPATCH_SOURCE: &str = include_str!("../src/tools/dispatch.rs");
 const MCP_OPERATION_SOURCE: &str = include_str!("../src/server/operation.rs");
+const DAEMON_INDEX_CONTRACT_SOURCE: &str =
+    include_str!("../../athanor-app/src/daemon_write_job_contract_tests.rs");
 const PIPELINE_SUPPORT_SOURCE: &str =
     include_str!("../../athanor-app/src/pipeline_support.rs");
 const STORE_PUBLICATION_SOURCE: &str =
@@ -34,6 +37,18 @@ fn mcp_index_uses_operation_aware_durable_success_path() {
     assert!(MCP_OPERATION_SOURCE.contains(
         "durable_operation_preserves_success_after_registered_cancellation"
     ));
+}
+
+#[test]
+fn cli_daemon_and_mcp_share_the_public_index_report_payload() {
+    assert!(CLI_INDEX_SOURCE.contains("fn render_index(report: &IndexReport"));
+    assert!(CLI_INDEX_SOURCE.contains("serde_json::to_string_pretty(report)"));
+    assert!(MCP_DISPATCH_SOURCE.contains("serde_json::to_string_pretty(&report)"));
+    assert!(DAEMON_INDEX_CONTRACT_SOURCE.contains(
+        "daemon_index_result_matches_public_index_report_shape"
+    ));
+    assert!(DAEMON_INDEX_CONTRACT_SOURCE.contains("assert_eq!(daemon, direct)"));
+    assert!(DAEMON_INDEX_CONTRACT_SOURCE.contains("INDEX_REPORT_SCHEMA"));
 }
 
 #[test]
