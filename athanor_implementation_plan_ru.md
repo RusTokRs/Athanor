@@ -11,155 +11,127 @@
 - `[x] verified` — реализация и regressions подтверждены одной выполненной matrix на одном commit.
 - `[-] in progress` — полезные срезы находятся в `main`, но Definition of Done закрыт не полностью.
 - `[ ] planned` — подтверждённая работа ещё не начата.
-- `[!] blocked` — безопасное изменение или проверка временно недоступны.
+- `[!] blocked` — execution evidence временно недоступно.
 
-JSON является внешним контрактом. Несовместимое изменение требует нового major schema id или protocol
-version. CLI, daemon и MCP варианты одной операции должны сериализовать эквивалентный typed
-application payload.
-
-Frontmatter `status` и `last_verified_snapshot` отдельных documentation pages являются metadata
-содержания. Они не заменяют current-commit Rust execution evidence.
+JSON является внешним контрактом. CLI, daemon и MCP варианты одной операции должны сериализовать
+эквивалентный typed application payload. Documentation lifecycle status и snapshot metadata не
+заменяют current-commit Rust execution evidence.
 
 ## 2. Текущее состояние
 
 На уровне implementation завершены:
 
-- `COMP-003` и `COMP-003C2B2C2B` — explicit runtime composition, bounded owners, Graph cleanup и
+- `COMP-003` / `COMP-003C2B2C2B` — explicit runtime composition, bounded owners, Graph cleanup и
   удаление public Store initializer;
-- `MCP-007` — transactional Index cancellation с различением pre-commit rollback и post-commit
-  durable success;
-- `JSON-003` — recursive workspace schema inventory, lifecycle enforcement и typed transport parity;
-- `DOC-001` / `DOC-002` — status hygiene, active bounded owner paths и разделение pipeline
-  current/target/history;
-- `MCP-004` — control-plane responsiveness при одновременной saturation request slots и response
-  queue;
-- `VERIFY-001A` — exact successful main-CI evidence publisher и fail-closed evidence contract.
+- `MCP-007` — transactional Index cancellation с pre-commit rollback и post-commit durable success;
+- `JSON-003` — recursive schema inventory, lifecycle registries и typed transport parity;
+- `DOC-001` / `DOC-002` — status hygiene и pipeline current/target/history;
+- `MCP-004` — control-plane responsiveness при saturation request slots и response queue;
+- `VERIFY-001A` — exact successful main-CI evidence publisher;
+- `VERIFY-001B` — lifecycle-aware docs completeness gate, valid `ath init` config и refreshed golden
+  config contract.
 
-Composition-only execution действует для Context, daemon, Search, Index, Generation, Wiki, HTML,
-benchmark, Explain, ChangeMap, API, Overview, Capabilities, Impact, Coverage, Check, Graph, Repair и
-Docs.
-
-Conventional bounded owners без forwarding compatibility facades реализованы для ChangeMap,
-Overview, Capabilities, Impact, Coverage, Check, API contracts и Graph.
+Composition-only execution действует для Index, Generation, Wiki, HTML, Search, Context, Explain,
+ChangeMap, API, Overview, Capabilities, Impact, Coverage, Check, Graph, Repair, Docs и daemon work.
 
 ### Transactional Index invariant
 
-1. pre-commit adapter/Store boundaries проверяют `OperationContext::check_active()` до и после work;
-2. cancellation/deadline до canonical commit приводит к rollback prepared artifacts и abort snapshot;
-3. backend `Cancelled`/`DeadlineExceeded` на commit race сверяется с exact snapshot identity;
+1. pre-commit boundaries проверяют cancellation/deadline до и после bounded work;
+2. cancellation до commit откатывает prepared artifacts и aborts snapshot;
+3. commit-race terminal errors сверяются exact snapshot identity;
 4. exact committed snapshot сохраняет durable success;
-5. MCP регистрирует Index cancellation, но не применяет transport postflight после application future;
-6. CLI, daemon и MCP сериализуют один public `IndexReport` contract.
+5. MCP не применяет transport postflight после Index application future;
+6. CLI, daemon и MCP сериализуют один `IndexReport`.
 
 ### MCP control-plane invariant
 
-1. stdin branch расположен перед request-task reaping в biased select loop;
-2. notifications обрабатываются до ordinary request admission;
-3. notification control input не потребляет request slot и не создаёт response;
-4. inline parse/initialize/overload responses используют bounded nonblocking admission;
-5. full response queue не завершает и не блокирует stdin reader;
-6. ordinary request tasks сохраняют bounded `send().await` backpressure;
-7. EOF отменяет registered operations до drain request tasks.
+1. stdin расположен перед request-task reaping в biased select;
+2. notifications обрабатываются до ordinary admission;
+3. inline parse/initialize/overload responses используют nonblocking bounded admission;
+4. full response queue не блокирует stdin reader;
+5. ordinary tasks сохраняют bounded `send().await` backpressure;
+6. EOF вызывает cancellation до task drain.
 
-### Documentation invariant
+### Documentation and verification invariant
 
-1. `docs/development/roadmap-status.md` — compact current-state ledger;
-2. `docs/architecture/pipeline.md` разделяет current, target и history;
-3. aggregate status docs не используют stale snapshot metadata как current-commit evidence;
-4. активные paths указывают на bounded Check/API/Graph и transactional Index owners;
-5. `documentation_status_inventory` запрещает возврат удалённых paths и stale claims.
-
-### Verification evidence invariant
-
-1. `CI` запускается на push `main`, pull request и manual dispatch;
-2. evidence publisher принимает только completed successful push run с `head_branch == main`;
-3. `verification-evidence.json` хранит exact `head_sha`, run id/URL, conclusion, completion time и matrix;
-4. evidence-only commit изменяет только этот JSON и исключён из повторного push-CI;
-5. YAML без валидного evidence-файла остаётся implementation, а `VERIFY-001` — blocked;
-6. evidence доказывает только записанный `head_sha`, а не произвольные более поздние изменения.
+1. roadmap является compact current-state ledger;
+2. pipeline guide разделяет current, target и history;
+3. completeness lifecycle допускает `active`, `implemented`, `planned`, `draft`, `verified`;
+4. default completeness не требует `last_verified_snapshot`; freshness принадлежит `docs drift`;
+5. root `athanor.toml`, `ProjectConfig::default` и `ath init` используют один current policy;
+6. workflow YAML является implementation evidence, но не execution evidence;
+7. valid `verification-evidence.json` содержит exact successful CI SHA и run identity.
 
 ## 3. Завершённые пакеты
 
 ### 3.1 `COMP-003C2B2C2B` — composition cleanup
 
-- [x] Удалены no-composition Search, Context, ChangeMap, Graph и read-service wrappers.
 - [x] Read и write services требуют mandatory `RuntimeComposition`.
 - [x] Check, API contracts и Graph разделены на conventional bounded modules.
-- [x] Traversal-heavy Graph algorithms имеют canonical cooperative owners.
-- [x] Legacy Graph monolith и legacy Docs execution owner физически удалены.
-- [x] Repair execution консолидирован в composition owner.
-- [x] Public `store::init_store` и последний production caller удалены.
-- [x] Source inventories запрещают возврат compatibility APIs и фиксируют line budgets.
+- [x] Legacy Graph/Docs execution owners и public `store::init_store` удалены.
+- [x] Source inventories запрещают возврат compatibility APIs.
 
 ### 3.2 `MCP-007` — transactional Index cancellation
 
-- [x] Durable commit point определён как successful exact canonical atomic publication.
-- [x] Pre-commit boundaries проверяют operation cancellation/deadline до и после work.
+- [x] Durable commit point определён exact canonical atomic publication.
 - [x] Pre-commit termination откатывает read model/index state и aborts snapshot.
-- [x] Commit-race terminal errors сверяются exact snapshot probe.
-- [x] Exact committed snapshot сохраняет durable success.
-- [x] Missing/uncommitted/mismatched/ambiguous probes fail closed.
-- [x] MCP durable runner не применяет polling/postflight после application completion.
-- [x] Daemon допускает `cancelling → succeeded` после durable publication.
-- [x] Pre-commit, commit-race, post-commit и payload-parity regressions находятся в `main`.
+- [x] Commit-race errors сверяются exact snapshot probe и fail closed при ambiguity.
+- [x] Post-commit cancellation не маскирует successful `IndexReport`.
+- [x] MCP и daemon сохраняют durable-success semantics.
 
 ### 3.3 `JSON-003` — repeat contract inventory
 
-- [x] Public registry сохраняет 60 unique current Rust/schema owners.
-- [x] General non-public registry сохраняет 30 boundary descriptors.
-- [x] Adapter registry сохраняет два current и два legacy-input descriptors.
-- [x] Public/general/adapter schema sets взаимно disjoint.
-- [x] Ordinary и strict qualified schema forms валидируются fail closed.
-- [x] Feature wire id сохраняет compatibility major `46`.
+- [x] Public, general non-public и adapter registries unique и disjoint.
+- [x] Ordinary и qualified schema ids валидируются fail closed.
 - [x] Production Rust sources сканируются рекурсивно.
-- [x] Новый quoted `athanor.*` literal требует registration/classification.
 - [x] Adapter legacy inputs нормализуются перед current write/response.
-- [x] Current boundary fixtures и schema-less process protocols инвентаризированы.
 - [x] CLI/daemon/MCP Index используют один typed public report.
 
 ### 3.4 `DOC-001` / `DOC-002` — documentation status hygiene
 
 - [x] Snapshot-era roadmap заменён compact current-state ledger.
 - [x] Aggregate stale verification claims удалены.
-- [x] Removed Check/API/Graph monolith references заменены bounded paths.
-- [x] Pipeline guide переписан вокруг explicit composition и bounded phase owners.
-- [x] Current publication sequence согласован с journals и exact commit probe.
-- [x] Pipeline target work отделён от current behavior и history.
-- [x] Documentation map сокращён и переведён на active status semantics.
+- [x] Removed Check/API/Graph paths заменены bounded owners.
+- [x] Pipeline current/target/history разделены.
+- [x] Documentation map, roadmap и implementation plan синхронизированы.
 - [x] `documentation_status_inventory` фиксирует status/path/alignment/line budgets.
 
 ### 3.5 `MCP-004` — control-plane responsiveness
 
-- [x] Stdin input имеет приоритет перед ordinary task reaping в biased select loop.
-- [x] Notifications bypass ordinary request-limit admission.
-- [x] Parse, initialize и overload inline responses используют `try_send` admission.
-- [x] Full/closed response queue больше не завершает reader loop.
-- [x] Ordinary request task responses сохраняют bounded async backpressure.
-- [x] `notifications/cancelled` остаётся observable при saturated requests и responses.
+- [x] Notifications bypass ordinary request admission.
+- [x] Inline reader-loop responses используют `try_send`.
+- [x] Full/closed response queue не завершает reader loop.
 - [x] EOF вызывает `cancel_all` до request-task drain.
-- [x] Добавлены saturation, protocol-error, overload и disconnect regressions.
+- [x] Saturation, protocol-error, overload и disconnect regressions добавлены.
 - [x] `control_plane_saturation_inventory` фиксирует routing и line budgets.
-- [x] `direct-operation-context.md` согласован с фактическим behavior.
 
 ### 3.6 `VERIFY-001A` — exact CI evidence publication
 
-- [x] Main CI evidence-only path исключён из push trigger, предотвращая рекурсивный loop.
-- [x] `verification-evidence.yml` запускается через `workflow_run` только после completed `CI`.
-- [x] Publisher требует successful push run на `main`.
-- [x] Versioned evidence содержит exact SHA, run identity, URL, completion time и matrix.
+- [x] `verification-evidence.yml` принимает только completed successful push-CI на `main`.
+- [x] Evidence содержит schema, exact SHA, run id/URL, completion time и matrix.
+- [x] Evidence-only path исключён из push-CI, предотвращая recursive loop.
 - [x] Workflow коммитит только `docs/development/verification-evidence.json`.
-- [x] `verification_evidence_inventory` запрещает unsafe triggers, broad `git add` и malformed evidence.
-- [x] `ci.md` различает workflow implementation и current-commit execution evidence.
+- [x] `verification_evidence_inventory` валидирует trigger, permissions и evidence shape.
+
+### 3.7 `VERIFY-001B` — lifecycle-aware docs gate
+
+- [x] Default policy больше не требует `last_verified_snapshot` как completeness field.
+- [x] Lifecycle vocabulary: `active`, `implemented`, `planned`, `draft`, `verified`.
+- [x] Snapshot freshness остаётся отдельным `ath docs drift` contract.
+- [x] Корневой `athanor.toml` явно задаёт repository policy.
+- [x] `ath init` генерирует только поля текущего `ProjectConfig` и имеет parse regression.
+- [x] `config_contracts.v1.json` обновлён под current default contract.
+- [x] `docs_completeness_lifecycle_inventory` фиксирует default/init/root parity.
 
 ## 4. Следующие активные пакеты
 
 ### 4.1 `VERIFY-001` — execution matrix
 
-- [!] Локальный checkout недоступен из текущего runtime из-за DNS-доступа к GitHub.
+- [!] Локальный checkout и `gh` недоступны в текущем runtime.
 - [x] Self-recording exact evidence workflow находится в `main`.
-- [ ] получить валидный `docs/development/verification-evidence.json` от successful final push-CI;
-- [ ] сверить recorded `head_sha` с проверяемым architecture commit;
-- [ ] повысить только подтверждённые `[x] implemented` пункты до `[x] verified`.
+- [ ] получить valid `docs/development/verification-evidence.json` от successful final push-CI;
+- [ ] сверить recorded `head_sha` с architecture commit;
+- [ ] повысить только доказанные packages до `[x] verified`.
 
 ### 4.2 Product backlog
 
@@ -168,24 +140,23 @@ Overview, Capabilities, Impact, Coverage, Check, API contracts и Graph.
 - [ ] richer analysis completeness reporting;
 - [ ] evidence-backed documentation generation;
 - [ ] release-readiness consolidation;
-- [ ] i18n/concept mapping;
-- [ ] optional semantic/vector retrieval;
-- [ ] additional Rustok/community-module/language integrations.
+- [ ] i18n/concept mapping и optional semantic/vector retrieval.
 
 ## 5. Программа работ
 
 | ID | Priority | Status | Результат / критерий закрытия |
 | --- | --- | --- | --- |
-| `ARCH-AUDIT-001` | P1 | `[-] in progress` | Architecture packages implemented; exact one-commit evidence pending |
-| `COMP-003` | P2 | `[x] implemented` | Runtime dependencies explicit; Store initialization only through composition |
-| `COMP-003C2B2C2B` | P2 | `[x] implemented` | Read services, Graph и Store compatibility cleanup complete |
-| `MCP-007` | P1 | `[x] implemented` | Pre-commit cancellation rolls back; post-commit durable success retained |
-| `JSON-003` | P1 | `[x] implemented` | Schema scan, lifecycle registries, fixtures и payload parity enforced |
-| `DOC-001` | P3 | `[x] implemented` | Aggregate stale verification claims и removed owner references удалены |
-| `DOC-002` | P3 | `[x] implemented` | Pipeline current/target/history и status docs согласованы |
-| `MCP-004` | P1 | `[x] implemented` | Control input remains observable under request/response saturation |
-| `VERIFY-001A` | P1 | `[x] implemented` | Successful main CI publishes exact versioned evidence without a CI loop |
-| `VERIFY-001` | P1 | `[!] blocked` | Valid evidence JSON identifies one successful architecture commit |
+| `ARCH-AUDIT-001` | P1 | `[-] in progress` | Architecture packages implemented; exact evidence pending |
+| `COMP-003` | P2 | `[x] implemented` | Runtime dependencies explicit |
+| `COMP-003C2B2C2B` | P2 | `[x] implemented` | Read services, Graph и Store cleanup complete |
+| `MCP-007` | P1 | `[x] implemented` | Transactional cancellation preserves durable success |
+| `JSON-003` | P1 | `[x] implemented` | Schema lifecycle and payload parity enforced |
+| `DOC-001` | P3 | `[x] implemented` | Stale verification and removed paths cleaned |
+| `DOC-002` | P3 | `[x] implemented` | Pipeline/status docs aligned |
+| `MCP-004` | P1 | `[x] implemented` | Control input remains observable under saturation |
+| `VERIFY-001A` | P1 | `[x] implemented` | Successful main CI can publish exact evidence |
+| `VERIFY-001B` | P1 | `[x] implemented` | Docs gate matches lifecycle semantics and current config |
+| `VERIFY-001` | P1 | `[!] blocked` | Valid evidence JSON identifies one successful commit |
 
 ## 6. Verification matrix
 
@@ -215,6 +186,8 @@ cargo test -p athanor-app --test adapter_contract_inventory --locked
 cargo test -p athanor-app --test public_report_transport_inventory --locked
 cargo test -p athanor-app --test documentation_status_inventory --locked
 cargo test -p athanor-app --test verification_evidence_inventory --locked
+cargo test -p athanor-app --test docs_completeness_lifecycle_inventory --locked
+cargo test -p athanor-app --test config_contracts --locked
 cargo test -p athanor-transport-mcp server::operation --locked
 cargo test -p athanor-transport-mcp server::tests --locked
 cargo test -p athanor-transport-mcp --test index_publication_cancellation_inventory --locked
@@ -227,42 +200,28 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo run -p ath --quiet --locked -- --help
 cargo run -p ath --quiet --locked -- index .
+cargo run -p ath --quiet --locked -- docs check
 ```
 
-Новые срезы сохраняют статус `implemented`, пока валидный evidence-файл не идентифицирует successful
-matrix для exact architecture commit.
+Статус остаётся `implemented`, пока valid evidence-файл не идентифицирует successful matrix для exact
+architecture commit.
 
 ## 7. Последние изменения
 
+### 2026-07-19 — Documentation lifecycle gate repair
+
+- Completeness lifecycle отделён от snapshot freshness.
+- Root policy и `ath init` приведены к текущему `ProjectConfig`.
+- Golden config fixture и source inventory обновлены.
+- Status — implemented; final CI evidence pending.
+
 ### 2026-07-19 — Exact CI verification evidence gate
 
-- Main CI ignores the evidence-only JSON path to prevent recursive runs.
-- Successful push-CI for `main` publishes versioned evidence with exact `head_sha` and run identity.
-- Unsafe triggers, broad staging and malformed evidence are source-enforced.
+- Successful push-CI for `main` может публиковать exact versioned evidence.
+- Unsafe triggers, broad staging и malformed evidence source-enforced.
 - Status — evidence publication implemented; successful recorded run pending.
-
-### 2026-07-19 — MCP control-plane saturation
-
-- Reader loop prioritizes stdin before ordinary task reaping.
-- Notifications bypass ordinary request admission.
-- Inline reader-loop responses use nonblocking bounded admission.
-- Full response queues no longer block or terminate control input processing.
-- EOF cancels registered operations before saturated task drain.
-- Saturation/disconnect tests and source inventory added.
-- Status — implemented; Rust/hosted verification pending.
-
-### 2026-07-19 — Documentation status and pipeline alignment
-
-- Roadmap, pipeline and documentation map aligned with current owners and evidence semantics.
-- Status — implemented; Rust/hosted verification pending.
-
-### 2026-07-19 — JSON and transactional Index packages
-
-- Recursive JSON contract inventory and transactional Index cancellation are implemented.
-- Status — implemented; Rust/hosted verification pending.
 
 ## 8. Historical status
 
-Closed composition subpackages and earlier verified historical slices remain available in Git history.
-Current architecture packages are not promoted to verified without one fresh execution matrix on the
-same commit.
+Closed packages and earlier historical evidence remain available in Git history. Current architecture
+packages are not promoted to verified without fresh exact execution evidence.
