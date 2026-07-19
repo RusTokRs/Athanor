@@ -4,11 +4,28 @@ const PIPELINE: &str = include_str!("../../../docs/architecture/pipeline.md");
 #[test]
 fn aggregate_status_documents_do_not_claim_unexecuted_verification() {
     for (name, source) in [("roadmap", ROADMAP), ("pipeline", PIPELINE)] {
-        assert!(source.contains("status: active"), "{name} must remain an active status document");
-        assert!(!source.contains("status: verified"), "{name} must not use snapshot verification as current-commit evidence");
-        assert!(!source.contains("last_verified_snapshot:"), "{name} must not carry stale snapshot verification metadata");
-        assert!(!source.contains("Status: verified."), "{name} must not contain aggregate verified claims without one-commit execution evidence");
-        assert!(source.contains("implemented, not verified") || source.contains("Implemented means"));
+        assert!(
+            source.contains("status: active"),
+            "{name} must remain an active status document"
+        );
+        assert!(
+            !source.contains("status: verified"),
+            "{name} must not use snapshot verification as current-commit evidence"
+        );
+        assert!(
+            !source.contains("last_verified_snapshot:"),
+            "{name} must not carry stale snapshot verification metadata"
+        );
+        assert!(
+            !source.contains("Status: verified."),
+            "{name} must not contain aggregate verified claims without one-commit execution evidence"
+        );
+        assert!(
+            source.contains("implementation evidence")
+                || source.contains("Implemented means")
+                || source.contains("implemented, not verified"),
+            "{name} must distinguish implementation from execution evidence"
+        );
     }
 }
 
@@ -37,7 +54,10 @@ fn pipeline_separates_current_target_and_history() {
         "check/execution.rs",
         "api/snapshot.rs",
     ] {
-        assert!(PIPELINE.contains(current_owner), "pipeline omits current owner {current_owner}");
+        assert!(
+            PIPELINE.contains(current_owner),
+            "pipeline omits current owner {current_owner}"
+        );
     }
 }
 
@@ -52,8 +72,14 @@ fn removed_monoliths_and_legacy_services_do_not_return_to_status_docs() {
         "- `check_project`:",
         "- `snapshot_api_contract`:",
     ] {
-        assert!(!ROADMAP.contains(stale), "roadmap contains stale architecture claim {stale}");
-        assert!(!PIPELINE.contains(stale), "pipeline contains stale architecture claim {stale}");
+        assert!(
+            !ROADMAP.contains(stale),
+            "roadmap contains stale architecture claim {stale}"
+        );
+        assert!(
+            !PIPELINE.contains(stale),
+            "pipeline contains stale architecture claim {stale}"
+        );
     }
 }
 
