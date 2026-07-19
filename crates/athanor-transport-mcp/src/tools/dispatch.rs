@@ -33,17 +33,21 @@ async fn call_inner(
     operation.check_active().map_err(anyhow::Error::new)?;
     let result = match name {
         "index" => {
-            let report = athanor_app::index_project_with_composition(
-                IndexOptions {
-                    root: root.to_path_buf(),
-                    validation_report: None,
-                    validation_result: None,
-                    validate_only: bool_arg(&args, "validate_only", false),
-                },
-                composition,
-            )
-            .await?;
-            serde_json::to_string_pretty(&report)?
+            let report =
+                athanor_app::index_project_with_composition_and_operation_context(
+                    IndexOptions {
+                        root: root.to_path_buf(),
+                        validation_report: None,
+                        validation_result: None,
+                        validate_only: bool_arg(&args, "validate_only", false),
+                    },
+                    composition,
+                    operation.clone(),
+                )
+                .await?;
+            // Index publication has a durable commit boundary. Once the application returns a report,
+            // a transport-level cancellation that races after commit must not replace that success.
+            return Ok(serde_json::to_string_pretty(&report)?);
         }
         "explain" => {
             let report = athanor_app::explain_project_with_composition(
