@@ -4,6 +4,7 @@ const EXPLAIN_SOURCE: &str = include_str!("../src/explain.rs");
 const API_REGISTRY_SOURCE: &str = include_str!("../src/api_registry.rs");
 const GRAPH_OPERATION_SOURCE: &str = include_str!("../src/graph_operation.rs");
 const REPAIR_LATEST_SOURCE: &str = include_str!("../src/repair_latest.rs");
+const REPAIR_RECOVERY_SOURCE: &str = include_str!("../src/repair_recovery.rs");
 const REPAIR_COMPOSITION_SOURCE: &str = include_str!("../src/repair_composition.rs");
 const REPAIR_DIRECT_SOURCE: &str = include_str!("../src/repair_composition/direct.rs");
 
@@ -114,23 +115,39 @@ fn graph_operation_reads_require_explicit_composition() {
 }
 
 #[test]
-fn repair_latest_has_one_composition_execution_owner() {
+fn repair_has_one_composition_execution_owner() {
     assert!(REPAIR_LATEST_SOURCE.contains("pub struct RepairCanonicalLatestOptions"));
     assert!(REPAIR_LATEST_SOURCE.contains("pub struct RepairCanonicalLatestReport"));
     assert!(!REPAIR_LATEST_SOURCE.contains("pub async fn repair_canonical_latest("));
     assert!(!REPAIR_LATEST_SOURCE.contains("crate::store::init_store"));
     assert!(!REPAIR_LATEST_SOURCE.contains("repair_canonical_latest_with_store"));
 
-    assert!(REPAIR_COMPOSITION_SOURCE.contains(
-        "pub async fn repair_canonical_latest_with_composition("
-    ));
+    assert!(REPAIR_RECOVERY_SOURCE.contains("pub struct RepairRecoverIndexOptions"));
+    assert!(REPAIR_RECOVERY_SOURCE.contains("pub struct RepairRecoverIndexReport"));
+    assert!(!REPAIR_RECOVERY_SOURCE.contains("pub async fn recover_index_publication("));
+    assert!(!REPAIR_RECOVERY_SOURCE.contains("crate::store::init_store"));
+    assert!(!REPAIR_RECOVERY_SOURCE.contains("recover_index_publication_with_store"));
+
+    for entrypoint in [
+        "pub async fn repair_canonical_latest_with_composition(",
+        "pub async fn recover_index_publication_with_composition(",
+    ] {
+        assert!(REPAIR_COMPOSITION_SOURCE.contains(entrypoint));
+    }
     assert!(REPAIR_COMPOSITION_SOURCE.contains("direct::repair_latest(options, composition).await"));
+    assert!(REPAIR_COMPOSITION_SOURCE.contains("direct::recover_index(options, composition).await"));
     assert!(REPAIR_DIRECT_SOURCE.contains("pub(super) async fn repair_latest("));
+    assert!(REPAIR_DIRECT_SOURCE.contains("pub(super) async fn recover_index("));
     assert!(REPAIR_DIRECT_SOURCE.contains("composition: &RuntimeComposition"));
     assert!(REPAIR_DIRECT_SOURCE.contains("composition.init_store(&root, &config)"));
-    assert!(REPAIR_DIRECT_SOURCE.contains(
-        "async fn repairs_corrupt_jsonl_latest_to_authoritative_generation()"
-    ));
+    for regression in [
+        "async fn repairs_corrupt_jsonl_latest_to_authoritative_generation()",
+        "async fn refuses_to_rewind_to_older_committed_generation()",
+        "async fn standalone_recovery_publishes_committed_pending_pointer()",
+        "async fn dry_run_reports_pending_identity_without_mutation()",
+    ] {
+        assert!(REPAIR_DIRECT_SOURCE.contains(regression));
+    }
     assert!(!REPAIR_DIRECT_SOURCE.contains("crate::store::init_store"));
     assert!(!REPAIR_DIRECT_SOURCE.contains("Option<&RuntimeComposition>"));
     assert!(!REPAIR_DIRECT_SOURCE.contains("match composition"));
@@ -274,8 +291,9 @@ fn read_service_modules_remain_bounded() {
         ("Coverage tests", COVERAGE_TESTS, 180),
         ("Graph operation", GRAPH_OPERATION_SOURCE, 330),
         ("Repair latest model", REPAIR_LATEST_SOURCE, 60),
+        ("Repair recovery model", REPAIR_RECOVERY_SOURCE, 60),
         ("Repair composition root", REPAIR_COMPOSITION_SOURCE, 50),
-        ("Repair direct execution", REPAIR_DIRECT_SOURCE, 380),
+        ("Repair direct execution and tests", REPAIR_DIRECT_SOURCE, 520),
         ("Search facade", SEARCH_FACADE_SOURCE, 100),
         ("API registry", API_REGISTRY_SOURCE, 300),
     ] {
