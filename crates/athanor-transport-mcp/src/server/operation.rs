@@ -40,7 +40,10 @@ pub(super) async fn handle_tool_call(
 
     let operation = operation_context(request_id, &arguments).map_err(DispatchError::Application)?;
     let request_key = request_key(request_id).map_err(DispatchError::Application)?;
-    let result = if is_read_tool(tool_name) {
+    let result = if is_durable_commit_tool(tool_name) {
+        let future = tools::call(root, tool_name, arguments, composition, &operation);
+        run_registered_durable_operation(active_reads, request_key, operation, future).await
+    } else if is_read_tool(tool_name) {
         let future = tools::call(root, tool_name, arguments, composition, &operation);
         if is_drained_operation_tool(tool_name) {
             run_registered_drained_read(active_reads, request_key, operation, future).await
@@ -107,6 +110,23 @@ pub(super) async fn run_registered_drained_read<T>(
     result
 }
 
+/// Registers cancellation for an operation with a durable commit boundary.
+///
+/// The application future owns pre-commit cancellation and post-commit reconciliation. The MCP
+/// transport deliberately does not poll or postflight-check the operation after the future returns,
+/// because cancellation racing with a durable commit must not replace a successful report.
+pub(super) async fn run_registered_durable_operation<T>(
+    active_reads: &ActiveReads,
+    request_key: String,
+    operation: OperationContext,
+    future: impl Future<Output = Result<T>>,
+) -> Result<T> {
+    register_read(active_reads, &request_key, &operation).await?;
+    let result = future.await;
+    active_reads.lock().await.remove(&request_key);
+    result
+}
+
 async fn register_read(
     active_reads: &ActiveReads,
     request_key: &str,
@@ -163,6 +183,10 @@ pub(super) fn request_key(id: &Value) -> Result<String> {
         bail!("MCP request id must be a string, number, or null");
     }
     serde_json::to_string(id).context("failed to encode MCP request id")
+}
+
+fn is_durable_commit_tool(tool_name: &str) -> bool {
+    matches!(tool_name, "index")
 }
 
 fn is_read_tool(tool_name: &str) -> bool {
@@ -223,4 +247,59 @@ fn is_operation_termination(error: &anyhow::Error) -> bool {
             )
         })
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    use tokio::sync::Mutex;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn durable_operation_preserves_success_after_registered_cancellation() {
+        let active_reads: ActiveReads = Arc::new(Mutex::new(HashMap::new()));
+        let request_key = format!("durable-{}", test_nonce());
+        let operation = OperationContext::new(format!("mcp-durable-{}", test_nonce()));
+        let active_for_future = Arc::clone(&active_reads);
+        let request_for_future = request_key.clone();
+
+        let (value, cancellation) = run_registered_durable_operation(
+            &active_reads,
+            request_key.clone(),
+            operation.clone(),
+            async move {
+                let cancellation = active_for_future
+                    .lock()
+                    .await
+                    .get(&request_for_future)
+                    .cloned()
+                    .expect("durable operation must be registered");
+                cancellation.cancel();
+                Ok((42_u8, cancellation))
+            },
+        )
+        .await
+        .expect("registered cancellation after durable success must not mask the result");
+
+        assert_eq!(value, 42);
+        assert!(cancellation.is_cancelled());
+        assert!(operation.is_cancelled());
+        assert!(!active_reads.lock().await.contains_key(&request_key));
+    }
+
+    #[test]
+    fn index_is_the_durable_commit_tool() {
+        assert!(is_durable_commit_tool("index"));
+        assert!(!is_durable_commit_tool("search"));
+    }
+
+    fn test_nonce() -> u128 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("current time")
+            .as_nanos()
+    }
 }
