@@ -4,9 +4,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use athanor_app::{
-    ADAPTER_NON_PUBLIC_JSON_CONTRACTS, BoundaryLifecycle, NON_PUBLIC_JSON_CONTRACTS,
-    VERSIONED_JSON_CONTRACTS, validate_adapter_contract_inventory,
-    validate_boundary_contract_inventory, validate_contract_registry, validate_schema_id,
+    ADAPTER_NON_PUBLIC_JSON_CONTRACTS, AUTOMATION_JSON_CONTRACTS, BoundaryLifecycle,
+    NON_PUBLIC_JSON_CONTRACTS, VERSIONED_JSON_CONTRACTS, validate_adapter_contract_inventory,
+    validate_automation_contract_inventory, validate_boundary_contract_inventory,
+    validate_contract_registry, validate_schema_id,
 };
 
 #[test]
@@ -17,10 +18,17 @@ fn schema_registries_are_valid_unique_and_disjoint() {
         .expect("non-public JSON boundary registry must remain valid");
     validate_adapter_contract_inventory(VERSIONED_JSON_CONTRACTS)
         .expect("adapter JSON boundary registry must remain valid");
+    validate_automation_contract_inventory(
+        VERSIONED_JSON_CONTRACTS,
+        NON_PUBLIC_JSON_CONTRACTS,
+        ADAPTER_NON_PUBLIC_JSON_CONTRACTS,
+    )
+    .expect("automation JSON contract registry must remain valid");
 
     assert_eq!(VERSIONED_JSON_CONTRACTS.len(), 60);
     assert_eq!(NON_PUBLIC_JSON_CONTRACTS.len(), 30);
     assert_eq!(ADAPTER_NON_PUBLIC_JSON_CONTRACTS.len(), 4);
+    assert_eq!(AUTOMATION_JSON_CONTRACTS.len(), 1);
 
     let public = VERSIONED_JSON_CONTRACTS
         .iter()
@@ -34,10 +42,17 @@ fn schema_registries_are_valid_unique_and_disjoint() {
         .iter()
         .map(|contract| contract.schema)
         .collect::<BTreeSet<_>>();
+    let automation = AUTOMATION_JSON_CONTRACTS
+        .iter()
+        .map(|contract| contract.schema)
+        .collect::<BTreeSet<_>>();
 
     assert!(public.is_disjoint(&general));
     assert!(public.is_disjoint(&adapter));
+    assert!(public.is_disjoint(&automation));
     assert!(general.is_disjoint(&adapter));
+    assert!(general.is_disjoint(&automation));
+    assert!(adapter.is_disjoint(&automation));
 
     for schema in public {
         validate_schema_id(schema).expect("public schema ids must remain canonical");
@@ -55,6 +70,16 @@ fn schema_registries_are_valid_unique_and_disjoint() {
             validate_schema_id(descriptor.schema).unwrap_or_else(|error| {
                 panic!(
                     "current adapter schema {} is not canonical: {error}",
+                    descriptor.schema
+                )
+            });
+        }
+    }
+    for descriptor in AUTOMATION_JSON_CONTRACTS {
+        if descriptor.lifecycle == BoundaryLifecycle::Current {
+            validate_schema_id(descriptor.schema).unwrap_or_else(|error| {
+                panic!(
+                    "current automation schema {} is not canonical: {error}",
                     descriptor.schema
                 )
             });
@@ -138,6 +163,11 @@ fn classified_schemas() -> BTreeSet<&'static str> {
         )
         .chain(
             ADAPTER_NON_PUBLIC_JSON_CONTRACTS
+                .iter()
+                .map(|contract| contract.schema),
+        )
+        .chain(
+            AUTOMATION_JSON_CONTRACTS
                 .iter()
                 .map(|contract| contract.schema),
         )
