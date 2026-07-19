@@ -19,7 +19,7 @@ verification matrix live in `athanor_implementation_plan_ru.md`; long-range prod
 - Documentation lifecycle status and historical snapshot metadata are not execution evidence for the
   current repository commit.
 - The current architecture work remains implemented, not verified, until one complete matrix succeeds
-  and publishes exact versioned evidence for its commit.
+  and publishes exact evidence for its commit.
 
 ## Current Architecture
 
@@ -56,10 +56,10 @@ success preservation. MCP does not apply a transport postflight after durable In
 
 ### JSON Contract Inventory
 
-Current JSON ownership is divided into mutually disjoint public, general non-public, and adapter
-registries. Production Rust sources are scanned recursively. A new quoted `athanor.*` schema literal
-must be registered or classified in the same change. CLI, daemon, and MCP Index serialize one typed
-`IndexReport` contract.
+Current JSON ownership is divided into mutually disjoint public, general non-public, adapter, and
+automation registries. Production Rust sources are scanned recursively. A new quoted `athanor.*`
+schema literal must be registered or classified in the same change. CLI, daemon, and MCP Index
+serialize one typed `IndexReport` contract.
 
 ### Documentation Lifecycle Policy
 
@@ -79,10 +79,14 @@ request tasks retain bounded response backpressure. EOF cancels registered opera
 
 ### Exact Verification Evidence
 
-After a successful push run on `main`, `verification-evidence.yml` may publish
+The final push-CI job aggregates security, quality, feature-matrix, and coverage with `always()`. It
+publishes legacy commit status `athanor/verification-matrix` on the exact `GITHUB_SHA`; success is used
+only when every required job result is `success`.
+
+After a successful push run on `main`, `verification-evidence.yml` may additionally publish
 `docs/development/verification-evidence.json` with exact `head_sha`, run identity, URL, completion time,
-and matrix description. Failed, cancelled, pull-request, and non-main runs cannot publish evidence.
-The evidence-only path is ignored by push-CI, preventing recursive runs.
+and matrix description. Failed, cancelled, pull-request, and non-main runs cannot publish successful
+evidence. The evidence-only path is ignored by push-CI, preventing recursive runs.
 
 ## Implemented Architecture Packages
 
@@ -105,7 +109,7 @@ The evidence-only path is ignored by push-CI, preventing recursive runs.
 ### `JSON-003`
 
 - recursive workspace schema inventory;
-- public/non-public/adapter lifecycle separation;
+- public/non-public/adapter/automation lifecycle separation;
 - qualified schema validation and legacy-input normalization;
 - persisted/generated/interchange fixtures;
 - typed public report transport parity.
@@ -128,10 +132,11 @@ The evidence-only path is ignored by push-CI, preventing recursive runs.
 
 ### `VERIFY-001A`
 
-- successful main-CI evidence records exact workflow and commit identity;
-- publication is restricted to completed successful push runs on `main`;
+- successful main-CI can publish connector-visible exact commit status;
+- status aggregation is restricted to push runs on `main`;
+- versioned JSON evidence remains a persisted secondary channel;
 - evidence-only commits cannot recursively trigger CI;
-- evidence workflow and schema are source-enforced.
+- status workflow, evidence workflow, and schema are source-enforced.
 
 ### `VERIFY-001B`
 
@@ -147,13 +152,13 @@ The evidence-only path is ignored by push-CI, preventing recursive runs.
 
 The remaining architecture task is one exact successful matrix:
 
-1. final push-CI completes successfully;
-2. `verification-evidence.json` is published;
-3. its `head_sha` is matched to the architecture commit being claimed;
+1. final push-CI completes;
+2. `athanor/verification-matrix` reports success or valid JSON evidence is published;
+3. the evidence SHA is matched to the architecture commit being claimed;
 4. only those implemented packages are promoted to verified.
 
-The current runtime has no local checkout or GitHub CLI. Until valid evidence is present, the package
-remains blocked rather than inferred from workflow source.
+The current runtime has no local checkout or GitHub CLI. Until one exact success channel is present,
+the package remains blocked rather than inferred from workflow source.
 
 ## Product Backlog
 
