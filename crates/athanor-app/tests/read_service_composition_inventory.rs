@@ -7,6 +7,19 @@ const REPAIR_LATEST_SOURCE: &str = include_str!("../src/repair_latest.rs");
 const REPAIR_RECOVERY_SOURCE: &str = include_str!("../src/repair_recovery.rs");
 const REPAIR_COMPOSITION_SOURCE: &str = include_str!("../src/repair_composition.rs");
 const REPAIR_DIRECT_SOURCE: &str = include_str!("../src/repair_composition/direct.rs");
+const DOCS_ROOT_SOURCE: &str = include_str!("../src/docs.rs");
+const APPLICATION_REPORT_COMPOSITION_SOURCE: &str =
+    include_str!("../src/application_report_composition.rs");
+const DOCS_DIRECT_ROOT_SOURCE: &str =
+    include_str!("../src/application_report_composition/docs_direct.rs");
+const DOCS_SNAPSHOT_SOURCE: &str =
+    include_str!("../src/application_report_composition/docs_direct/snapshot.rs");
+const DOCS_CHECK_SOURCE: &str =
+    include_str!("../src/application_report_composition/docs_direct/check.rs");
+const DOCS_APPLY_SOURCE: &str =
+    include_str!("../src/application_report_composition/docs_direct/apply.rs");
+const DOCS_PROPOSE_SOURCE: &str =
+    include_str!("../src/application_report_composition/docs_direct/propose.rs");
 
 const CHANGE_MAP_ROOT: &str = include_str!("../src/change_map.rs");
 const CHANGE_MAP_MODEL: &str = include_str!("../src/change_map/model.rs");
@@ -154,6 +167,31 @@ fn repair_has_one_composition_execution_owner() {
 }
 
 #[test]
+fn docs_execution_routes_only_through_composition() {
+    assert!(!DOCS_ROOT_SOURCE.contains("mod service;"));
+    assert!(!DOCS_ROOT_SOURCE.contains("pub use service::"));
+    for entrypoint in [
+        "pub async fn check_docs_with_composition(",
+        "pub async fn docs_drift_with_composition(",
+        "pub async fn docs_propose_fix_with_composition(",
+        "pub async fn docs_apply_patch_with_composition(",
+    ] {
+        assert!(APPLICATION_REPORT_COMPOSITION_SOURCE.contains(entrypoint));
+    }
+    for module in ["apply", "check", "propose", "snapshot"] {
+        assert!(DOCS_DIRECT_ROOT_SOURCE.contains(&format!("mod {module};")));
+    }
+    assert!(DOCS_SNAPSHOT_SOURCE.contains("composition: &RuntimeComposition"));
+    assert!(DOCS_SNAPSHOT_SOURCE.contains("composition.init_store(&root, &config)"));
+    assert!(!DOCS_SNAPSHOT_SOURCE.contains("crate::store::init_store"));
+    for source in [DOCS_CHECK_SOURCE, DOCS_APPLY_SOURCE, DOCS_PROPOSE_SOURCE] {
+        assert!(source.contains("composition: &RuntimeComposition"));
+        assert!(!source.contains("crate::store::init_store"));
+        assert!(!source.contains("Option<&RuntimeComposition>"));
+    }
+}
+
+#[test]
 fn change_map_is_bounded_and_composition_only() {
     assert!(APP_LIB_SOURCE.contains("pub mod change_map;"));
     assert_conventional_root(
@@ -294,6 +332,13 @@ fn read_service_modules_remain_bounded() {
         ("Repair recovery model", REPAIR_RECOVERY_SOURCE, 60),
         ("Repair composition root", REPAIR_COMPOSITION_SOURCE, 50),
         ("Repair direct execution and tests", REPAIR_DIRECT_SOURCE, 520),
+        ("Docs root", DOCS_ROOT_SOURCE, 30),
+        ("Application report composition", APPLICATION_REPORT_COMPOSITION_SOURCE, 80),
+        ("Docs direct root", DOCS_DIRECT_ROOT_SOURCE, 20),
+        ("Docs snapshot", DOCS_SNAPSHOT_SOURCE, 60),
+        ("Docs check", DOCS_CHECK_SOURCE, 220),
+        ("Docs apply", DOCS_APPLY_SOURCE, 220),
+        ("Docs propose", DOCS_PROPOSE_SOURCE, 120),
         ("Search facade", SEARCH_FACADE_SOURCE, 100),
         ("API registry", API_REGISTRY_SOURCE, 300),
     ] {
