@@ -22,7 +22,7 @@ application payloads.
 Process-global runtime state, installer APIs, adapter/projector/store/search globals, Context
 compatibility owners и no-composition write-service wrappers удалены.
 
-Composition-only execution уже действует для:
+Composition-only execution действует для:
 
 - Context и operation-aware Context;
 - daemon host, query, derived read и write jobs;
@@ -35,18 +35,28 @@ Composition-only execution уже действует для:
 - Capabilities;
 - Impact;
 - Coverage;
-- стандартных operation-aware Graph reads.
+- стандартных operation-aware Graph reads;
+- Repair latest и publication recovery;
+- Docs check, drift, proposal и patch application.
 
 ChangeMap, Overview, Capabilities, Impact и Coverage физически разделены на conventional bounded
-modules без `include!` и forwarding compatibility facades. Их public root modules содержат только
-module wiring и стабильные re-exports.
+modules без `include!` и forwarding compatibility facades. Их public roots содержат только module
+wiring и стабильные re-exports.
 
-`graph_operation.rs` теперь принимает mandatory `&RuntimeComposition` во всех шести execution
-entrypoints. Монолитный `graph.rs` всё ещё содержит no-composition project loading и остаётся активным
+`graph_operation.rs` принимает mandatory `&RuntimeComposition` во всех шести execution entrypoints.
+Монолитный `graph.rs` всё ещё содержит no-composition project loading и остаётся обязательным
 physical decomposition debt.
 
-Остающийся composition debt сосредоточен в public `store::init_store` facade и read-service owners,
-которые ещё импортируют его или принимают `Option<&RuntimeComposition>`.
+Repair latest/recovery имеют один execution owner в `repair_composition/direct.rs`. Старые execution
+paths удалены из model owners. Legacy `docs/service.rs` физически удалён; Docs execution идёт через
+`application_report_composition/docs_direct`.
+
+Остающийся production composition debt:
+
+1. `graph.rs`;
+2. `check.rs`;
+3. `api.rs` snapshot owner;
+4. public `store::init_store` facade после migration всех callers.
 
 ## 3. Активный пакет — `COMP-003C2B2C2B`
 
@@ -57,7 +67,7 @@ physical decomposition debt.
 - [x] Удалены operation-aware no-composition snapshot Search wrappers.
 - [x] Удалён последний no-composition snapshot Search helper.
 - [x] Explain требует mandatory `&RuntimeComposition`.
-- [x] ChangeMap требует mandatory composition и использует composition-aware task Search.
+- [x] ChangeMap требует mandatory composition и composition-aware task Search.
 - [x] ChangeMap декомпозирован на `model`, `execution`, `ranking`, `evidence`, `tests`.
 - [x] API Registry использует только `query_api_registry_with_composition`.
 - [x] Overview использует только `overview_project_with_composition`.
@@ -69,53 +79,66 @@ physical decomposition debt.
 - [x] Coverage использует только `coverage_project_with_composition`.
 - [x] Coverage декомпозирован на `model`, `execution`, `aggregation`, `tests`.
 - [x] Шесть стандартных Graph operation entrypoints требуют composition.
-- [x] Graph operation snapshot loading не имеет `store::init_store` fallback.
-- [x] Source inventory запрещает возврат удалённых Graph operation wrappers.
-- [x] Source inventory использует общие assertions для routing, mandatory composition и line budgets.
+- [x] Graph operation snapshot loading не имеет Store fallback.
+- [x] Repair latest/recovery duplicate execution owners удалены.
+- [x] Repair regressions перенесены в единственный composition owner.
+- [x] Legacy Docs service owner физически удалён.
+- [x] Docs execution маршрутизируется только через composition facade/direct modules.
+- [x] Source inventory проверяет routing, mandatory composition и line budgets.
+- [x] Runtime composition migration guide согласован с текущим деревом.
 
-### Следующий обязательный срез
+### Активные следующие срезы
 
-Физический cleanup `graph.rs`:
+#### 3.1 Check family
 
-- удалить no-composition project entrypoints `export_graph`, `related_graph`, `shortest_graph_path`,
-  `graph_hubs`, `graph_pagerank`, `graph_cycles` и Rustok graph/audit project wrappers;
-- оставить composition-aware execution и operation-aware execution;
-- удалить `crate::store::init_store` и `load_latest_graph_snapshot` fallback owner;
-- сохранить pure snapshot builders, GraphML conversion, Rustok audit/graph schemas и deterministic
-  ordering;
-- разделить 4,8k-line owner на conventional bounded model, standard graph, Rustok FFA/FBA/Page
-  Builder, serialization и tests;
-- не использовать forwarding facade или `include!`;
-- расширить source/line-budget inventory.
+- [ ] удалить `check_project`, `check_affected`, `check_operations_docs`;
+- [ ] оставить composition-aware execution;
+- [ ] удалить `Option<&RuntimeComposition>`, `crate::store::init_store` и fallback branches;
+- [ ] разделить 1.3k-line owner на model, execution, diagnostic aggregation, affected-file/artifact
+  inspection и bounded tests;
+- [ ] сохранить diagnostic scopes, sorting, schemas и affected-file semantics;
+- [ ] добавить source/line-budget inventory.
+
+#### 3.2 API contract snapshot
+
+- [ ] удалить no-composition `snapshot_api_contract`;
+- [ ] оставить `snapshot_api_contract_with_composition` единственным Store-owning entrypoint;
+- [ ] сохранить pure diff, cleanup, retention и immutable artifact semantics;
+- [ ] разделить крупный `api.rs` на bounded model, snapshot, diff, retention и tests;
+- [ ] добавить source/line-budget inventory.
+
+#### 3.3 Physical cleanup `graph.rs`
+
+- [ ] удалить no-composition standard Graph project entrypoints;
+- [ ] удалить no-composition Rustok graph/audit project wrappers;
+- [ ] удалить `crate::store::init_store` и `load_latest_graph_snapshot` fallback owner;
+- [ ] сохранить pure snapshot builders, GraphML conversion, schemas и deterministic ordering;
+- [ ] разделить 4.8k-line owner на conventional model, standard graph, Rustok FFA/FBA/Page Builder,
+  serialization и tests;
+- [ ] не использовать forwarding facade или `include!`;
+- [ ] расширить source/line-budget inventory.
 
 Connector не предоставляет patch write для repository contents: для `graph.rs` доступна только полная
-замена файла. Поэтому текущий срез закрыл operation owner, а physical decomposition остаётся активной,
-не отмеченной как implemented.
+замена файла. Поэтому безопасно завершён operation owner, а physical decomposition остаётся активной и
+не отмечается implemented до реального split.
 
-### После Graph
+#### 3.4 Store facade removal
 
-Последовательно мигрировать:
+После migration `graph.rs`, `check.rs` и `api.rs`:
 
-1. Check families;
-2. API read owners;
-3. Repair latest/recovery;
-4. Docs service;
-5. remaining embedding examples и tests.
-
-После migration всех callers:
-
-- удалить public `store::init_store` facade;
-- запретить его source inventory;
-- удалить stale compatibility documentation;
-- выполнить targeted/default/all-features verification.
+- [ ] удалить public `store::init_store`;
+- [ ] удалить его re-exports;
+- [ ] запретить symbol source inventory;
+- [ ] обновить embedding examples и remaining tests;
+- [ ] удалить последние compatibility claims.
 
 ## 4. Программа работ
 
 | ID | Priority | Status | Результат / критерий закрытия |
 | --- | --- | --- | --- |
-| `ARCH-AUDIT-001` | P1 | `[-] in progress` | Graph operation закрыт; graph.rs и remaining Store/read cleanup pending |
-| `COMP-003` | P2 | `[-] in progress` | Все runtime dependencies explicit; public Store compatibility facade удалён |
-| `COMP-003C2B2C2B` | P2 | `[-] in progress` | Все remaining read services composition-only; source enforcement и execution complete |
+| `ARCH-AUDIT-001` | P1 | `[-] in progress` | Repair/Docs/Graph operation закрыты; graph/check/api/Store pending |
+| `COMP-003` | P2 | `[-] in progress` | Все runtime dependencies explicit; public Store facade удалён |
+| `COMP-003C2B2C2B` | P2 | `[-] in progress` | Remaining read services composition-only; source enforcement и execution complete |
 | `MCP-007` | P1 | `[ ] planned` | Index cancellation различает pre-commit rollback и post-commit durable success |
 | `JSON-003` | P1 | `[-] in progress` | Repeat repository-wide schema scan и enforcement matrix выполнены |
 | `DOC-001` | P3 | `[-] in progress` | Stale `verified` claims и removed paths удалены |
@@ -135,20 +158,24 @@ Connector не предоставляет patch write для repository contents
 - [x] Search facade composition-only.
 - [x] Explain, ChangeMap, API Registry, Overview, Capabilities, Impact и Coverage composition-only.
 - [x] Standard Graph operation reads composition-only.
-- [-] Graph project reads и Rustok graph/audit wrappers ещё имеют hidden Store path.
+- [x] Repair latest/recovery composition-only.
+- [x] Docs execution composition-only.
+- [-] Graph project reads, Check и API snapshot ещё имеют hidden Store path.
 
 ### Bounded ownership
 
-- [x] Runtime, Docs, JSONL Store, Search, MCP и CLI монолиты декомпозированы.
+- [x] Runtime, Docs engine, JSONL Store, Search, MCP и CLI монолиты декомпозированы.
 - [x] ChangeMap декомпозирован на conventional bounded owners.
 - [x] Overview декомпозирован на conventional bounded owners.
 - [x] Capabilities декомпозирован на conventional bounded owners.
 - [x] Impact декомпозирован на conventional bounded owners.
 - [x] Coverage декомпозирован на conventional bounded owners.
-- [x] Graph operation owner ограничен composition-aware execution и cooperative worker lifecycle.
+- [x] Graph operation owner ограничен composition execution и cooperative worker lifecycle.
+- [x] Repair execution консолидирован в одном bounded owner.
+- [x] Legacy Docs execution owner удалён; existing bounded direct modules являются canonical owners.
 - [ ] `graph.rs` декомпозирован без facade/include compatibility layer.
-- [x] Daemon command dispatch вынесен из transport lifecycle.
-- [x] Publication lifecycle имеет отдельные bounded owners и commit-point semantics.
+- [ ] `check.rs` декомпозирован.
+- [ ] `api.rs` декомпозирован.
 
 ### Protocols и publication
 
@@ -156,6 +183,8 @@ Connector не предоставляет patch write для repository contents
 - [x] JSON-RPC `2.0`, error codes, id/null/session semantics реализованы.
 - [x] Publication post-commit cleanup является best effort.
 - [x] Pointer publication имеет один owner.
+- [x] Repair latest не допускает rewind на неавторитетную generation.
+- [x] Repair recovery сохраняет committed-pointer recovery semantics.
 
 ### JSON contracts
 
@@ -172,6 +201,8 @@ cargo check --workspace --locked
 cargo check --workspace --all-features --locked
 cargo test -p athanor-app --test read_service_composition_inventory --locked
 cargo test -p athanor-app graph_operation --locked
+cargo test -p athanor-app repair_composition --locked
+cargo test -p athanor-app docs --locked
 cargo test -p athanor-app --test service_composition_inventory --locked
 cargo test -p athanor-app --test legacy_factory_migration --locked
 cargo test -p athanor-app --test composition_isolation --locked
@@ -192,73 +223,50 @@ cargo run -p ath --quiet --locked -- index .
 
 Новые срезы сохраняют статус `implemented`, пока этот набор не выполнен на одном commit.
 
-Текущий runtime не может получить локальный checkout из-за отсутствия DNS-доступа к GitHub.
-Hosted workflow runs для новых direct-to-main commits также не обнаружены, поэтому verification
-status намеренно не повышается.
+Текущий runtime не может получить локальный checkout из-за отсутствия DNS-доступа к GitHub. Hosted
+workflow runs для новых direct-to-main commits также не обнаружены, поэтому verification status
+намеренно не повышается.
 
 ## 7. Последние изменения
 
+### 2026-07-19 — Composition-only Docs execution
+
+- Физически удалён `crates/athanor-app/src/docs/service.rs`.
+- `docs.rs` больше не подключает и не re-export-ит legacy execution owner.
+- Check, drift, proposal и patch application доступны через composition facade.
+- Общий snapshot loader использует только `composition.init_store`.
+- Existing bounded check/apply/propose/snapshot modules стали canonical execution owners.
+- Source inventory проверяет routing, mandatory composition и line budgets.
+- Runtime migration guide согласован с текущим состоянием.
+- Статус — implemented, Rust/hosted verification pending.
+
+### 2026-07-19 — Composition-only Repair family
+
+- Удалён duplicate no-composition `repair_canonical_latest` owner.
+- Удалён duplicate no-composition `recover_index_publication` owner.
+- Latest/recovery files оставлены владельцами public option/report models и current recovery contracts.
+- Execution консолидирован в `repair_composition/direct.rs`.
+- Latest authoritative-generation и recovery regressions перенесены к единственному execution owner.
+- Source inventory запрещает возврат legacy APIs и Store fallbacks.
+- Статус — implemented, Rust/hosted verification pending.
+
 ### 2026-07-19 — Composition-only Graph operation reads
 
-- Удалены `export_graph_with_operation_context`, `related_graph_with_operation_context`,
-  `shortest_graph_path_with_operation_context`, `graph_hubs_with_operation_context`,
-  `graph_pagerank_with_operation_context` и `graph_cycles_with_operation_context`.
-- Все шесть public entrypoints принимают mandatory `&RuntimeComposition` и `&OperationContext`.
-- Snapshot loading использует только `composition.init_store` и
-  `load_latest_snapshot_with_operation_context`.
-- `Option<&RuntimeComposition>`, `crate::store::init_store` и fallback match удалены.
+- Удалены шесть standard no-composition operation wrappers.
+- Все public operation entrypoints принимают `&RuntimeComposition` и `&OperationContext`.
+- Snapshot loading использует только composition и operation-aware Store API.
 - Cooperative blocking-worker cancellation/deadline tests сохранены.
-- Direct Graph CLI уже использовал composition-aware variants, поэтому caller migration не
-  потребовалась.
-- `read_service_composition_inventory` проверяет physical absence wrappers и line budget.
-- `graph.rs` остаётся active physical debt и не отмечен implemented.
-- Статус среза — implemented, Rust/hosted verification pending.
+- Direct Graph CLI уже использовал retained APIs.
+- `graph.rs` остаётся active physical debt.
+- Статус — implemented, Rust/hosted verification pending.
 
-### 2026-07-18 — Composition-only bounded Coverage
+### 2026-07-18 — Composition-only bounded read owners
 
-- `coverage.rs` заменён small module root.
-- Model, composition execution, pure aggregation и tests вынесены в conventional modules.
-- Удалены no-composition API, optional composition и Store fallback.
-- Schema, filters, totals, ordering и omission semantics сохранены.
-- Статус — implemented, verification pending.
-
-### 2026-07-18 — Composition-only bounded Impact
-
-- `impact.rs` заменён small module root.
-- Public model, composition execution, pure traversal и tests вынесены в conventional modules.
-- Удалены no-composition API, optional composition и Store fallback.
-- Schema, target/diff behavior, BFS propagation и deterministic paths сохранены.
-- Статус — implemented, verification pending.
-
-### 2026-07-18 — Composition-only bounded Capabilities
-
-- `capabilities.rs` заменён small module root.
-- Model, composition execution, completeness aggregation и tests вынесены в conventional modules.
-- Удалены no-composition API, optional composition и Store fallback.
-- Schema, ordering, limits и omitted counts сохранены.
-- Статус — implemented, verification pending.
-
-### 2026-07-18 — Composition-only bounded Overview
-
-- `overview.rs` заменён small module root.
-- Model, execution, aggregation и tests вынесены в conventional modules.
-- Удалены no-composition API, optional composition и Store fallback.
-- Pure builder, schema и ordering contracts сохранены.
-- Статус — implemented, verification pending.
-
-### 2026-07-18 — Composition-only API Registry
-
-- Удалён `query_api_registry`.
-- `query_api_registry_with_composition` создаёт Store только через supplied composition.
-- Unit test использует isolated test composition.
-- Статус — implemented, verification pending.
-
-### 2026-07-18 — ChangeMap cleanup и decomposition
-
-- Удалены no-composition ChangeMap/Search paths.
-- ChangeMap task Search использует supplied composition.
-- Owner разделён на model/execution/ranking/evidence/tests.
-- Public schema и report model сохранены.
+- ChangeMap, Overview, Capabilities, Impact и Coverage переведены на mandatory composition.
+- Owners разделены на conventional model/execution/aggregation-or-traversal/test modules.
+- Search compatibility wrappers и Explain fallback удалены.
+- API Registry переведён на composition-only execution.
+- Public schemas, ordering, limits и report shapes сохранены.
 - Статус — implemented, verification pending.
 
 ## 8. Ранее закрытые этапы
@@ -266,4 +274,4 @@ status намеренно не повышается.
 - `COMP-003A/B1/B2/C1/C2A/C2B1/C2B2A/C2B2B1/C2B2B2A/C2B2B2B/C2B2C1/C2B2C2A`
   реализованы в `main`.
 - `DS-RESOLVE-003` verified.
-- Runtime, MCP, publication, JSONL Store, Docs и CLI modularity changes находятся в `main`.
+- Runtime, MCP, publication, JSONL Store, Docs engine и CLI modularity changes находятся в `main`.
