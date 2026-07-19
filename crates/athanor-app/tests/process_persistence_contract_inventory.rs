@@ -1,3 +1,4 @@
+use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -110,30 +111,15 @@ fn process_protocols_are_schema_less_typed_and_fixture_protected() {
 #[test]
 fn inventory_schemas_and_process_framing_are_observable_in_runtime_sources() {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let schema_sources = [
-        app_source(manifest_dir, "src/project_registry.rs"),
-        app_source(manifest_dir, "src/daemon.rs"),
-        app_source(manifest_dir, "src/index_current.rs"),
-        app_source(manifest_dir, "src/index_state.rs"),
-        app_source(manifest_dir, "src/index_publication_journal.rs"),
-        app_source(manifest_dir, "src/repair_pointer.rs"),
-        app_source(manifest_dir, "src/index_runtime.rs"),
-        app_source(manifest_dir, "src/generation.rs"),
-        app_source(manifest_dir, "src/api.rs"),
-        app_source(manifest_dir, "src/read_model.rs"),
-        app_source(manifest_dir, "src/docs.rs"),
-        app_source(manifest_dir, "src/projection.rs"),
-        app_source(manifest_dir, "src/pipeline.rs"),
-        workspace_source(manifest_dir, "athanor-store-jsonl/src/lib.rs"),
-        workspace_source(manifest_dir, "athanor-store-jsonl/src/store.rs"),
-        workspace_source(manifest_dir, "athanor-store-jsonl/src/atomic_publication.rs"),
-        workspace_source(manifest_dir, "athanor-projector-wiki/src/lib.rs"),
-        workspace_source(manifest_dir, "athanor-projector-html/src/lib.rs"),
-    ]
-    .into_iter()
-    .map(read_source)
-    .collect::<Vec<_>>()
-    .join("\n");
+    let workspace = manifest_dir
+        .parent()
+        .and_then(Path::parent)
+        .expect("athanor-app must be under <workspace>/crates");
+    let schema_sources = production_rust_sources(workspace)
+        .into_iter()
+        .map(read_source)
+        .collect::<Vec<_>>()
+        .join("\n");
 
     for descriptor in NON_PUBLIC_JSON_CONTRACTS {
         let literal = format!("\"{}\"", descriptor.schema);
@@ -144,17 +130,14 @@ fn inventory_schemas_and_process_framing_are_observable_in_runtime_sources() {
         );
     }
 
-    let endpoint_reader = read_source(app_source(manifest_dir, "src/daemon_endpoint.rs"));
+    let endpoint_reader = read_source(manifest_dir.join("src/daemon_endpoint.rs"));
     assert!(endpoint_reader.contains("DAEMON_ENDPOINT_SCHEMA_V2"));
     assert!(
         !endpoint_reader.contains("DAEMON_ENDPOINT_SCHEMA_V1"),
         "historical daemon endpoint v1 unexpectedly became accepted input"
     );
 
-    let process_source = read_source(app_source(
-        manifest_dir,
-        "src/runtime/process_adapter.rs",
-    ));
+    let process_source = read_source(manifest_dir.join("src/runtime/process_adapter.rs"));
     for descriptor in PROCESS_PROTOCOL_CONTRACTS {
         assert!(
             process_source.contains(descriptor.request_type),
@@ -175,15 +158,45 @@ fn inventory_schemas_and_process_framing_are_observable_in_runtime_sources() {
     assert!(process_source.contains("serde_json::from_slice(&output.stdout)"));
 }
 
-fn app_source(manifest_dir: &Path, relative: &str) -> PathBuf {
-    manifest_dir.join(relative)
+fn production_rust_sources(workspace: &Path) -> Vec<PathBuf> {
+    let mut sources = Vec::new();
+    for root in [workspace.join("crates"), workspace.join("apps")] {
+        collect_rust_sources(&root, &mut sources);
+    }
+    sources.sort();
+    sources
 }
 
-fn workspace_source(manifest_dir: &Path, relative: &str) -> PathBuf {
-    manifest_dir
-        .parent()
-        .expect("athanor-app crate parent")
-        .join(relative)
+fn collect_rust_sources(path: &Path, sources: &mut Vec<PathBuf>) {
+    let entries = fs::read_dir(path)
+        .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
+    for entry in entries {
+        let entry = entry
+            .unwrap_or_else(|error| panic!("failed to inspect {}: {error}", path.display()));
+        let child = entry.path();
+        let file_type = entry.file_type().unwrap_or_else(|error| {
+            panic!("failed to inspect {}: {error}", child.display())
+        });
+        if file_type.is_dir() {
+            if child.file_name().and_then(OsStr::to_str) != Some("target") {
+                collect_rust_sources(&child, sources);
+            }
+            continue;
+        }
+        if !file_type.is_file() || child.extension().and_then(OsStr::to_str) != Some("rs") {
+            continue;
+        }
+        let stem = child.file_stem().and_then(OsStr::to_str).unwrap_or_default();
+        if stem == "tests" || stem.ends_with("_test") || stem.ends_with("_tests") {
+            continue;
+        }
+        if child
+            .components()
+            .any(|component| component.as_os_str() == OsStr::new("src"))
+        {
+            sources.push(child);
+        }
+    }
 }
 
 fn read_source(path: PathBuf) -> String {
