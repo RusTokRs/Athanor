@@ -9,24 +9,29 @@ status: implemented
 
 ## Scope
 
-This document describes the shared cancellation and deadline contract used by direct CLI operations and the MCP stdio transport. The source implementation is present in `main`; Rust-enabled formatting, tests, Clippy, and executable interoperability remain pending for the current HEAD.
+This document describes the shared cancellation and deadline contract used by direct CLI operations
+and the MCP stdio transport. The source implementation is present in `main`; formatting, tests,
+Clippy, and executable interoperability remain pending for the current HEAD.
 
-Covered direct CLI command families include Context, Explain, Overview, Impact, Change Map, Search, Check, standard Graph reads, RusTok audit/graph reads, and Index.
+Covered direct CLI command families include Context, Explain, Overview, Impact, Change Map, Search,
+Check, standard Graph reads, RusTok audit/graph reads, and Index.
 
-The MCP lifecycle covers:
+The MCP lifecycle provides:
 
-- concurrent JSON-RPC request processing over stdio;
-- explicit `RuntimeComposition` passed from the CLI composition root;
-- request-scoped cancellation authority for read tools and transactional Index;
+- explicit `RuntimeComposition` supplied by the CLI composition root;
+- concurrent JSON-RPC request execution with bounded request and response capacity;
+- request-scoped cancellation for read tools and transactional Index;
 - `notifications/cancelled` and legacy `$/cancelRequest` notifications;
-- cancellation of outstanding registered operations when stdin reaches EOF;
+- cancellation of registered operations when stdin reaches EOF;
 - request deadlines through `deadline_unix_ms`;
-- stable `cancelled` and `deadline_exceeded` JSON-RPC error data;
-- durable Index success when cancellation races after canonical commit.
+- stable cancellation and deadline error categories;
+- durable Index success when cancellation races after canonical commit;
+- a control-plane path that remains readable while ordinary request and response capacity is full.
 
 ## Direct CLI Contract
 
-Focused command parsers preserve their command arguments and text/JSON rendering. Read commands accept:
+Focused command parsers preserve command arguments and text/JSON rendering. Operation-aware commands
+accept:
 
 ```text
 --deadline-unix-ms <UNIX_MILLISECONDS>
@@ -38,19 +43,25 @@ A default may also be supplied through:
 ATHANOR_DEADLINE_UNIX_MS=<UNIX_MILLISECONDS>
 ```
 
-The explicit command-line deadline has precedence over the environment. Malformed values fail closed before project access. Each intercepted command owns a process-local operation id and one live `CancellationHandle`.
+The explicit command-line deadline has precedence over the environment. Malformed values fail closed
+before project access. Each intercepted command owns a process-local operation identity and one live
+`CancellationHandle`.
 
-Async reads are polled together with operation deadline, shared cancellation state, and `tokio::signal::ctrl_c()`. Preflight checks prevent already-expired work; postflight checks reject late read success after cancellation.
-
-Context and Search use drained interceptors because either command may build a search index on a blocking worker. The terminal response is delayed until the worker has completed or cooperatively observed termination.
+Async reads are polled together with operation deadline, shared cancellation state, and
+`tokio::signal::ctrl_c()`. Preflight checks reject already-terminated work; postflight checks reject
+late read success after cancellation. Context and Search use drained interceptors because either may
+own cooperative or blocking cleanup.
 
 ## Transactional Index Boundary
 
-Index has a different terminal contract from read-only operations. Its durable commit point is successful exact canonical snapshot publication through `AtomicSnapshotPublication::publish_snapshot_batch_with_context`.
+Index has a different terminal contract from read-only operations. Its durable commit point is
+successful exact canonical snapshot publication through
+`AtomicSnapshotPublication::publish_snapshot_batch_with_context`.
 
 Before that boundary:
 
-- source, extractor, linker, checker, Store write, and Store prepare boundaries check `OperationContext::check_active()` before and after bounded work;
+- source, extractor, linker, checker, and Store boundaries check
+  `OperationContext::check_active()` before and after bounded work;
 - cancellation or deadline failure rolls back prepared read-model and index-state artifacts;
 - the uncommitted canonical allocation is aborted;
 - publication journals are cleared when cleanup succeeds;
@@ -58,58 +69,37 @@ Before that boundary:
 
 At the commit race:
 
-- `Cancelled` and `DeadlineExceeded` returned by a backend are reconciled by loading the exact snapshot identity;
+- backend `Cancelled` and `DeadlineExceeded` returns are reconciled by loading the exact snapshot;
 - an absent or uncommitted snapshot preserves the terminal error and rollback path;
-- an exact committed snapshot converts the terminal return into durable success;
+- an exact committed snapshot preserves durable success;
 - an identity mismatch or failed state probe remains an error rather than guessing.
 
 After durable commit:
 
 - read-model and index-state finalization continues;
-- the application current pointer is published;
+- the application current pointer is published or left journal-recoverable;
 - cancellation state does not replace the successful `IndexReport`;
-- cleanup failures retain existing journal-based recovery semantics.
+- cleanup retains existing recovery semantics.
 
-The MCP server registers Index in the request cancellation registry, so notification cancellation reaches the shared operation. Unlike read-only operations, the transport awaits the Index application future directly and performs no external polling or postflight check after that future returns. This lets the application publication coordinator distinguish pre-commit cancellation from post-commit durable success.
+The MCP server registers Index in the request cancellation registry, so notification cancellation
+reaches the same operation. Unlike read-only operations, the transport awaits the Index application
+future directly and performs no external polling or postflight after completion. Daemon Index uses
+the same report and may transition from `cancelling` to `succeeded` after durable publication.
 
-Daemon Index uses the same application report. A job already marked `cancelling` may finish as `succeeded` when publication crossed the durable boundary before cancellation became terminal.
+## Blocking And Cooperative Work
 
-## Blocking Worker Boundary
+Graph builders, synchronous RusTok report builders, and search-index rebuilds run on Tokio's blocking
+pool after a committed snapshot has been loaded. A blocking task cannot be force-stopped safely, so
+the wrapper records terminal state, drains the worker, and discards a completed value after
+cancellation.
 
-Graph builders, synchronous RusTok report builders, and search-index rebuilds run on Tokio's blocking pool after the committed snapshot has been loaded through a context-aware store read. The operation wrapper polls cancellation and deadline state while a builder runs.
+Operation-aware graph traversal, filesystem discovery, diff scanning, search-index rebuild, and
+RusTok report assembly poll `OperationContext::check_active()` at bounded intervals. Search rebuilds
+use a sibling staging directory and switch the current index only while the operation remains active.
 
-A blocking task cannot be force-stopped safely. Cancellation therefore records terminal operation state but the wrapper drains the worker before returning. The completed value is discarded and cannot become a late successful response. This provides:
-
-- no detached graph, RusTok report, or search rebuild worker after command termination;
-- no CPU-bound graph or index construction on an async runtime worker;
-- stable `cancelled` and `deadline_exceeded` output;
-- bounded resource ownership during cancellation.
-
-## Cooperative Graph And Search Work
-
-Operation-aware related traversal, shortest-path traversal, PageRank, and directed-cycle search poll `OperationContext::check_active()` at bounded work intervals.
-
-The built-in filesystem source and application diff scanner also poll active state while traversing directories, reading files, and hashing content.
-
-Search-index rebuild uses an operation-aware factory. A rebuild is written to a sibling staging directory and the current index is switched only after the staged writer commits and the operation is still active. Failed or cancelled rebuilds preserve the prior current index.
-
-The production composition registers the operation-aware Tantivy factory. Direct Search, Context, daemon Search/Context, and MCP Search/Context receive it through explicit composition paths.
-
-## Cooperative Projector Publication
-
-Wiki and HTML projectors check cancellation while rendering. Runtime defaults add an outer publication transaction:
-
-- the inner projector writes a complete result into an operation-specific sibling staging directory;
-- cancellation is checked after inner files exist and before the current target is touched;
-- a late cancellation removes staging and preserves the prior target;
-- a failed staging-to-target rename restores the prior directory;
-- backup cleanup after successful swap is best-effort and cannot convert durable success into an error.
-
-## Cooperative RusTok Operations
-
-The operation-aware RusTok architecture-context path and FFA/FBA/Page Builder audit and graph paths preserve report schemas and deterministic ordering while polling active state during indexing, selection, evidence collection, diagnostics, graph assembly, and final report construction.
-
-The outer blocking-worker drain remains the final protection against detached work and late successful responses.
+Wiki and HTML projectors write complete staged output before replacing the target. Cancellation before
+the swap removes staging and preserves the prior target. Backup cleanup after a successful swap is
+best effort and cannot convert durable success into failure.
 
 ## MCP Composition Contract
 
@@ -120,42 +110,75 @@ athanor_runtime_defaults::production()
   -> athanor_transport_mcp::run_mcp_server_with_composition(...)
 ```
 
-The transport does not install process-global runtime factories. Its active module boundary is:
+The transport does not install process-global runtime factories. Active ownership is split across:
 
 ```text
 runtime.rs
-  -> server.rs
+  -> server/lifecycle.rs
+  -> server/protocol.rs
   -> server/operation.rs
+  -> server/types.rs
   -> tools/schema.rs
   -> tools/dispatch.rs
 ```
 
-`server.rs` wraps `RuntimeComposition` in `Arc` and clones it into each request task. `tools/dispatch.rs` invokes only composition-aware application entry points for Index, Explain, Search, Context, Impact, Change Map, RusTok architecture context, and Check. Index specifically uses `index_project_with_composition_and_operation_context`.
+`tools/dispatch.rs` calls composition-aware application entry points. Index specifically uses
+`index_project_with_composition_and_operation_context`.
 
-The former textual `include!("lib.rs")` compatibility dispatcher and the MCP-local global bootstrap have been removed.
+## MCP Request And Control-Plane Lifecycle
 
-## MCP Request Lifecycle
+The server continues reading stdin while ordinary requests execute. Registered operations are keyed
+by serialized JSON-RPC id. Duplicate live request identities fail closed through the cancellation
+lease.
 
-The server continues reading input while ordinary tool requests are active. Registered operations are keyed by serialized JSON-RPC id. The operation id is `mcp:<serialized-request-id>`, so duplicate active request identities fail closed through the cancellation lease.
+### Ordinary Request Capacity
 
-Search, Context, Change Map, and RusTok architecture context use a drained registry path because they may own cooperative or blocking cleanup. Cancellation marks the shared operation but does not release the request lease or emit a response until the future has completed cleanup. Terminal cancellation/deadline state takes precedence over simultaneous worker error.
+Ordinary requests consume the bounded `RequestTasks` set. When the configured in-flight limit is
+reached, an additional ordinary request receives retryable `server_busy` when response capacity is
+available. Ordinary request tasks retain bounded `send().await` backpressure when publishing their
+terminal response.
 
-Index uses the durable registry path. It remains cancellable before commit, but successful application completion is returned without a transport postflight check.
+### Control Input Priority
 
-Normal tool failures remain successful MCP tool results with `isError: true`. Cancellation and deadline termination remain JSON-RPC errors. When stdin closes, every registered operation lease is cancelled and request tasks are drained before the response writer exits.
+The stdin branch appears before request-task reaping in the biased `tokio::select!`. A line that is
+already readable is therefore processed before another completed ordinary task is reaped.
+
+Notifications are dispatched before ordinary request admission. `notifications/cancelled`,
+`$/cancelRequest`, and notification-only session messages do not consume a request slot and do not
+produce responses.
+
+### Saturated Response Queue
+
+Responses produced directly by the reader loop—parse errors, initialize responses, and overload
+rejections—must not await a full response queue. They use nonblocking admission:
+
+- if capacity is available, the response is queued;
+- if the queue is full or closed, the response is logged and dropped;
+- the stdin reader continues, so cancellation notifications and EOF remain observable.
+
+This fail-open rule is limited to inline control-loop responses. It does not make the response queue
+unbounded and does not remove backpressure from ordinary request tasks.
+
+### Disconnect
+
+When stdin reaches EOF, the server marks input closed and cancels every registered operation before
+waiting for request tasks to drain. This applies even when ordinary request slots are saturated.
+After tasks finish, the response sender is dropped and the writer task flushes the remaining bounded
+queue.
 
 ## Compatibility
 
 - Existing MCP tool names and input schemas are preserved.
-- The Index output remains the public `athanor.index_report.v1` payload used by direct and daemon execution.
+- Index output remains the public `athanor.index_report.v1` payload shared by CLI and daemon paths.
 - JSON-RPC responses may complete out of input order because request ids provide correlation.
 - Notifications without an id remain response-free.
 - Explicit `null` ids receive responses with `id: null`.
+- Overload rejection remains retryable when it can be admitted to the bounded response queue.
 
 ## Remaining Work
 
-- Resolve control-plane responsiveness under full ordinary-request saturation (`MCP-004`).
-- Execute hosted Linux/Windows formatting, tests, Clippy, stdio, disconnect, cancellation, and worker-drain regressions.
+- Execute the Rust formatting, test, Clippy, stdio, disconnect, cancellation, saturation, and
+  worker-drain matrix on one current commit.
 
 ## Verification
 
@@ -165,7 +188,9 @@ cargo test -p athanor-app pipeline_support --locked
 cargo test -p athanor-app store_publication_cancellation --locked
 cargo test -p athanor-app index_publication_fault_tests --locked
 cargo test -p athanor-transport-mcp server::operation --locked
+cargo test -p athanor-transport-mcp server::tests --locked
 cargo test -p athanor-transport-mcp --test index_publication_cancellation_inventory --locked
+cargo test -p athanor-transport-mcp --test control_plane_saturation_inventory --locked
 cargo test -p athanor-transport-mcp --test mcp_transport_contracts --locked
 cargo clippy -p athanor-app --all-targets --locked -- -D warnings
 cargo clippy -p athanor-transport-mcp --all-targets --locked -- -D warnings
