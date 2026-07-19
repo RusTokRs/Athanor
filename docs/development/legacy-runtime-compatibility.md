@@ -26,8 +26,9 @@ Implemented invariants:
 - normal and operation-aware Context cores route Store/Search only through supplied composition;
 - daemon host, queries, derived reads and write jobs require composition;
 - Index, Generation, Wiki, HTML report and benchmark public APIs require composition;
-- Search, Explain, ChangeMap, API Registry, Overview, Capabilities, Impact and Coverage require
+- Search, Explain, ChangeMap, API Registry, Overview, Capabilities, Impact, Coverage and Check require
   composition;
+- API contract snapshot creation requires composition;
 - standard operation-aware Graph reads require composition;
 - Repair latest/recovery execution has one composition owner;
 - Docs check, drift, proposal and patch execution routes only through composition owners.
@@ -79,15 +80,20 @@ The following read owners are composition-only and source-enforced:
 - Search and operation-aware snapshot Search;
 - Explain;
 - ChangeMap;
-- API Registry;
+- API Registry and API contract snapshot;
 - Overview;
 - Capabilities;
 - Impact;
 - Coverage;
+- Check, affected Check and operations-docs Check;
 - standard operation-aware Graph reads.
 
-ChangeMap, Overview, Capabilities, Impact and Coverage are split into conventional bounded modules
-without `include!` or forwarding facades.
+ChangeMap, Overview, Capabilities, Impact, Coverage, Check and API contracts are split into
+conventional bounded modules without `include!` or forwarding facades.
+
+API contract snapshot Store loading is owned by `application_report_composition/api_direct.rs`.
+Immutable snapshot publication, diff analysis and retention cleanup are pure bounded owners under
+`api/`.
 
 ## Repair and Docs migration
 
@@ -112,12 +118,11 @@ docs_apply_patch_with_composition(options, &composition).await?;
 
 ## Remaining compatibility surface
 
-`COMP-003C2B2C2B` remains active until these production owners are migrated:
+`COMP-003C2B2C2B` remains active until:
 
-1. `graph.rs` — no-composition standard and RusTok project loaders plus a 4.8k-line mixed owner;
-2. `check.rs` — diagnostic, affected-file and operations-docs Store fallbacks;
-3. `api.rs` — API contract snapshot Store fallback;
-4. public `store::init_store` facade, removable after all callers are migrated.
+1. `graph.rs` no-composition standard and RusTok project loaders are removed and its 4.8k-line mixed
+   owner is physically split;
+2. the public `store::init_store` facade is removed after the final production caller migration.
 
 `graph_operation.rs` is already composition-only. The remaining `graph.rs` work is a physical owner
 split, not an operation-context migration.
@@ -150,6 +155,7 @@ Read and write services follow the same pattern:
 
 ```rust,ignore
 athanor_app::overview_project_with_composition(options, &composition).await?;
+athanor_app::snapshot_api_contract_with_composition(options, &composition).await?;
 athanor_app::generate_project_with_composition(options, &composition).await?;
 athanor_app::context_project_with_composition_and_operation_context(
     options,
@@ -169,7 +175,11 @@ The migration is source-enforced by:
 - `write_service_composition_inventory.rs` — Index, Generation, Wiki, HTML and benchmark;
 - `context_composition_inventory.rs` — Context and RusTok composition routing;
 - `daemon_composition_inventory.rs` — daemon host/query/read/write execution;
-- `read_service_composition_inventory.rs` — Search, read owners, Graph operation, Repair and Docs;
+- `read_service_composition_inventory.rs` — Search, bounded read owners, Graph operation, Repair and
+  Docs;
+- `check_composition_inventory.rs` — Check routing, physical decomposition and line budgets;
+- `api_composition_inventory.rs` — composition-only API snapshot routing, bounded contracts and
+  active CLI usage;
 - `composition_isolation.rs` — parallel independent Store/Search/Wiki/HTML compositions.
 
 The regressions are present in `main`, but implementation status is not promoted to `verified` until
