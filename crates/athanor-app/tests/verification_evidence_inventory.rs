@@ -31,7 +31,11 @@ fn successful_main_ci_is_the_only_evidence_publisher() {
         );
     }
 
-    for forbidden in ["pull_request_target", "workflow_dispatch:", "conclusion != 'failure'"] {
+    for forbidden in [
+        "pull_request_target",
+        "workflow_dispatch:",
+        "conclusion != 'failure'",
+    ] {
         assert!(
             !EVIDENCE_WORKFLOW.contains(forbidden),
             "verification evidence workflow contains unsafe trigger/condition {forbidden}"
@@ -97,10 +101,14 @@ fn optional_recorded_evidence_is_strictly_validated() {
         return;
     }
 
-    let payload: Value = serde_json::from_slice(
-        &fs::read(&path).unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display())),
-    )
-    .unwrap_or_else(|error| panic!("invalid verification evidence {}: {error}", path.display()));
+    let bytes = fs::read(&path)
+        .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
+    let payload: Value = serde_json::from_slice(&bytes).unwrap_or_else(|error| {
+        panic!(
+            "invalid verification evidence {}: {error}",
+            path.display()
+        )
+    });
 
     assert_eq!(
         payload.get("schema").and_then(Value::as_str),
@@ -117,24 +125,29 @@ fn optional_recorded_evidence_is_strictly_validated() {
         .and_then(Value::as_str)
         .expect("verification evidence head_sha");
     assert_eq!(head_sha.len(), 40);
-    assert!(head_sha.chars().all(|character| character.is_ascii_hexdigit()));
-
     assert!(
-        payload.get("run_id").and_then(Value::as_u64).is_some_and(|id| id > 0),
+        head_sha
+            .chars()
+            .all(|character| character.is_ascii_hexdigit())
+    );
+
+    let run_id = payload.get("run_id").and_then(Value::as_u64);
+    assert!(
+        run_id.is_some_and(|id| id > 0),
         "verification evidence requires a positive workflow run id"
     );
+
+    let run_url = payload.get("run_url").and_then(Value::as_str);
     assert!(
-        payload
-            .get("run_url")
-            .and_then(Value::as_str)
-            .is_some_and(|url| url.starts_with("https://github.com/RusTokRs/Athanor/actions/runs/")),
+        run_url.is_some_and(|url| {
+            url.starts_with("https://github.com/RusTokRs/Athanor/actions/runs/")
+        }),
         "verification evidence requires the canonical repository run URL"
     );
+
+    let completed_at = payload.get("completed_at").and_then(Value::as_str);
     assert!(
-        payload
-            .get("completed_at")
-            .and_then(Value::as_str)
-            .is_some_and(|timestamp| !timestamp.trim().is_empty()),
+        completed_at.is_some_and(|timestamp| !timestamp.trim().is_empty()),
         "verification evidence requires completion time"
     );
 
