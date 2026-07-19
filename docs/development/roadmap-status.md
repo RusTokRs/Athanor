@@ -77,6 +77,13 @@ Production Rust sources under `crates/*/src` and `apps/*/src` are scanned recurs
 `athanor.*` schema literal must be registered or explicitly classified in the same change. CLI,
 daemon, and MCP Index paths serialize one typed `IndexReport` contract.
 
+### MCP Control Plane
+
+The MCP stdin loop remains available while ordinary request slots are full. Notifications are handled
+before ordinary admission. Inline reader-loop responses use nonblocking bounded admission so a full
+response queue cannot terminate or suspend the only input reader. Ordinary request tasks retain
+bounded response backpressure. EOF cancels registered operations before request-task drain.
+
 ## Implemented Architecture Packages
 
 ### `COMP-003` / `COMP-003C2B2C2B`
@@ -115,15 +122,17 @@ daemon, and MCP Index paths serialize one typed `IndexReport` contract.
 - roadmap, pipeline guide, and implementation plan synchronized;
 - source inventory added for status, path, section, alignment, and line-budget invariants.
 
-## Active Work
-
 ### `MCP-004`
 
-Control-plane responsiveness under request saturation:
+- stdin/control input ordered before ordinary task reaping in the biased select loop;
+- notifications bypass ordinary request admission and response production;
+- inline parse, initialize, and overload responses use nonblocking bounded admission;
+- a saturated response queue cannot stop cancellation notification processing;
+- EOF cancels registered operations before saturated request-task drain;
+- focused saturation, protocol-error, overload, and disconnect regressions added;
+- source inventory enforces routing, response admission, cancellation, and line budgets.
 
-- ensure cancellation and disconnect control messages are not starved by ordinary request slots;
-- preserve bounded queues and task ownership;
-- add saturation and disconnect regressions.
+## Active Work
 
 ### `VERIFY-001`
 
