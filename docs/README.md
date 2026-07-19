@@ -2,500 +2,163 @@
 id: doc://docs/README.md
 kind: project_overview
 language: en
-last_verified_snapshot: snap_jsonl_00000272
 source_language: en
-status: verified
+status: active
 ---
 # Athanor Documentation Map
 
-This is the documentation index for Athanor.
+Use this index to locate current architecture, implementation workflow, adapter contracts, operations
+guides, and long-range plans. A document's frontmatter describes that document's content lifecycle; it
+does not prove that the current repository commit passed Rust verification.
 
-Use this file to find the right document before changing code, adapters, plugins, pipeline behavior, or generated artifacts.
+## Start Here
 
-## Entry Points
+- [Project overview](../README.md): product summary, quick start, and user-facing commands.
+- [Agent entrypoint](../AGENTS.md): mandatory repository instructions for implementation agents.
+- [Agent workflow](development/agent-workflow.md): planning, implementation, documentation, and
+  verification workflow.
+- [Roadmap status](development/roadmap-status.md): compact current-state ledger and active work.
+- [Implementation plan](../athanor_implementation_plan_ru.md): detailed package status and one-commit
+  verification matrix.
+- [Long-range architecture plan](../start.md): product direction and future phases.
 
-- [Project overview](../README.md): concise product description, quick start, and verification commands.
-- [Agent entrypoint](../AGENTS.md): required first read for agents.
-- [Full architectural plan](../start.md): long-form product and architecture plan.
-- [Agent workflow](development/agent-workflow.md): required implementation workflow.
-- [Roadmap status](development/roadmap-status.md): what is implemented, in progress, and next.
-- [ADR template](development/adr-template.md): required structure for material architecture decisions.
+## Current Architecture
 
-## Project Governance
+- [Indexing pipeline](architecture/pipeline.md): current composition, incremental phases,
+  transactional publication, target work, and historical layouts.
+- [Adapter architecture](architecture/adapters.md): Source/Extractor/Linker/Checker boundaries,
+  built-in adapters, plugin discovery, and external process policy.
+- [Store conformance](architecture/store-conformance.md): snapshot visibility and backend behavior.
+- [Publication semantics](development/publication-semantics-inventory.md): durable publication,
+  recovery, pointer ownership, and source enforcement.
+- [Runtime composition migration](development/legacy-runtime-compatibility.md): removed globals,
+  retained composition APIs, bounded owners, and embedder migration.
+- [Direct operation context](development/direct-operation-context.md): CLI/MCP cancellation,
+  deadlines, worker drain, and transactional Index semantics.
+- [JSON contract inventory](development/json-contract-inventory.md): public, persisted, generated,
+  adapter, MCP, and process protocol ownership.
 
-- [Contributing](../CONTRIBUTING.md): pull-request, verification, commit, and ADR expectations.
-- [Security policy](../SECURITY.md): private vulnerability disclosure process.
-- [Unsafe-code policy](../UNSAFE.md): prohibition and ADR requirements for any future exception.
-- [Code of conduct](../CODE_OF_CONDUCT.md): expected collaboration behavior and reporting path.
+## Development And Governance
 
-## Architecture
+- [Contributing](../CONTRIBUTING.md): contribution and review expectations.
+- [Coding standards](development/athanor-coding-standards.md): normative Rust and architecture rules.
+- [Definition of done](development/definition-of-done.md): completion requirements.
+- [Continuous integration](development/ci.md): intended GitHub Actions matrix and commands.
+- [Production operation](development/production.md): daemon, runtime permissions, release, and
+  external-adapter policy.
+- [Documentation completeness](development/docs-completeness-policy.md): editable documentation
+  policy and `ath docs` workflows.
+- [Library adoption](development/library-adoption-plan.md): dependency choices and adapter seams.
+- [ADR template](development/adr-template.md): required structure for material architecture changes.
 
-- [Indexing pipeline](architecture/pipeline.md): source discovery, extraction, linking, checking, storage, and JSONL export.
-- [Adapter architecture](architecture/adapters.md): adapter-first boundaries and current adapter map.
-- [RusTok Page Builder adapter](adapters/rustok-page-builder.md): opt-in Page Builder provider/consumer/FSD code-audit adapter and bounded graph commands for RusTok.
-- [RusTok FBA adapter](adapters/rustok-fba.md): opt-in FBA code-audit adapter and bounded graph commands for RusTok.
-- [RusTok FFA adapter](adapters/rustok-ffa.md): opt-in FFA code-audit adapter and bounded graph commands for RusTok.
-- [RusTok architecture context](adapters/rustok-architecture-context.md): bounded agent-facing ownership, contract, interaction, test, diagnostic, and evidence context assembled from the canonical graph.
+## Core Adapter Documentation
 
-## Development
+### Extraction
 
-- [Agent workflow](development/agent-workflow.md): read-before-coding, planning, documentation, verification, completion notes.
-- [Athanor coding standards](development/athanor-coding-standards.md): normative design, naming, testing, safety, and review rules for human and AI contributors.
-- [Definition of done](development/definition-of-done.md): required checks and documentation expectations.
-- [Continuous integration](development/ci.md): GitHub Actions matrix, commands, and security defaults.
-- [Production operation](development/production.md): authenticated daemon v2, per-user services, runtime permissions, release verification, and external-adapter policy.
-- [Library adoption plan](development/library-adoption-plan.md): approved dependencies, adapter boundaries, risks, and acceptance criteria.
-- [Evidence-backed documentation generation plan](development/evidence-backed-documentation-generation-plan.md): planned graph-grounded architecture documentation, guides, diagrams, optional LLM composition, and validation.
-- [Documentation completeness policy](development/docs-completeness-policy.md): `athanor.toml` policy fields and the `ath docs check` CI gate.
-- [RusTok FFA/FBA adapter improvement plan](development/rustok-ffa-fba-adapter-improvement-plan.md): project-specific iteration plan for improving RusTok adapter and graph visibility without mixing it into the global roadmap.
-- [Dart/Flutter adapter plan](development/dart-flutter-adapter-plan.md): Athanor-side plan for consuming the separate `D:\DartScope` community Rust library through an adapter wrapper.
-- [Roadmap status](development/roadmap-status.md): current verified implementation status and next recommended task.
+- [Basic/file inventory](adapters/extractor-basic.md)
+- [Markdown](adapters/extractor-markdown.md)
+- [Rust](adapters/extractor-rust.md)
+- [JavaScript/TypeScript](adapters/extractor-js-ts.md)
+- [OpenAPI](adapters/extractor-openapi.md)
+- [GraphQL](adapters/extractor-graphql.md)
+- [Operations sources](adapters/extractor-operations.md)
+
+### Linking And Checking
+
+- [Markdown linker](adapters/linker-markdown.md)
+- [Rust linker](adapters/linker-rust.md)
+- [JavaScript/TypeScript linker](adapters/linker-js-ts.md)
+- [API knowledge linker](adapters/linker-api.md)
+- [Markdown checker](adapters/checker-markdown.md)
+- [API and operations checker](adapters/checker-api.md)
+
+### Read Models And Services
+
+- [JSONL Store](adapters/store-jsonl.md)
+- [SurrealDB Store](adapters/store-surrealdb.md)
+- [Tantivy search](adapters/search-tantivy.md)
+- [Markdown Wiki projector](adapters/projector-wiki.md)
+- [HTML report projector](adapters/projector-html.md)
+- [MCP transport](adapters/transport-mcp.md)
+- [Impact analysis](adapters/impact.md)
+- [Change Map](adapters/change-map.md)
+
+### RusTok Opt-In Adapters
+
+- [FFA](adapters/rustok-ffa.md)
+- [FBA](adapters/rustok-fba.md)
+- [Page Builder](adapters/rustok-page-builder.md)
+- [Architecture Context](adapters/rustok-architecture-context.md)
+
+Crate-local README files document implementation-specific configuration and fixtures. Prefer the
+high-level documents above for cross-crate architecture.
 
 ## Operations Documentation
 
-Environment variables:
+Operations pages under `operations/` document:
 
-- [ATHANOR_ADAPTER_TRUST](operations/env-athanor-adapter-trust.md)
-- [ATHANOR_LOG_FORMAT](operations/env-athanor-log-format.md)
-- [ATHANOR_PROJECT_REGISTRY](operations/env-athanor-project-registry.md)
-- [ATHANOR_RUNTIME_DIR](operations/env-athanor-runtime-dir.md)
-- [CARGO_PKG_VERSION](operations/env-cargo-pkg-version.md)
-- [CARGO_TERM_COLOR](operations/env-cargo-term-color.md)
-- [HOME](operations/env-home.md)
-- [LOCALAPPDATA](operations/env-localappdata.md)
-- [RUST_BACKTRACE](operations/env-rust-backtrace.md)
-- [USERDOMAIN](operations/env-userdomain.md)
-- [USERNAME](operations/env-username.md)
-- [USERPROFILE](operations/env-userprofile.md)
-- [XDG_RUNTIME_DIR](operations/env-xdg-runtime-dir.md)
+- environment variables and runtime directories;
+- CI, production, release, and security workflows;
+- workflow jobs and individual generated command/action steps;
+- daemon lifecycle and release procedures.
 
-GitHub Actions workflows and jobs:
+Important entry pages include:
 
 - [CI workflow](operations/script-script-command-github-workflows-ci-yml-github-actions-workflow.md)
-- [CI quality job](operations/script-script-command-github-workflows-ci-yml-github-actions-job-quality.md)
-- [CI security job](operations/script-script-command-github-workflows-ci-yml-github-actions-job-security.md)
-- [Production gate workflow](operations/script-script-command-github-workflows-production-yml-github-actions-workflow.md)
-- [Production daemon E2E job](operations/script-script-command-github-workflows-production-yml-github-actions-job-daemon-e2e.md)
-- [Production nightly soak job](operations/script-script-command-github-workflows-production-yml-github-actions-job-nightly-soak.md)
+- [Production gate](operations/script-script-command-github-workflows-production-yml-github-actions-workflow.md)
 - [Release workflow](operations/script-script-command-github-workflows-release-yml-github-actions-workflow.md)
-- [Release build job](operations/script-script-command-github-workflows-release-yml-github-actions-job-build.md)
-- [Release publish job](operations/script-script-command-github-workflows-release-yml-github-actions-job-publish.md)
 - [Security audit workflow](operations/script-script-command-github-workflows-security-yml-github-actions-workflow.md)
-- [Security audit job](operations/script-script-command-github-workflows-security-yml-github-actions-job-audit.md)
+- [ATHANOR_RUNTIME_DIR](operations/env-athanor-runtime-dir.md)
+- [ATHANOR_PROJECT_REGISTRY](operations/env-athanor-project-registry.md)
+- [ATHANOR_ADAPTER_TRUST](operations/env-athanor-adapter-trust.md)
 
-GitHub Actions steps:
+Use `ath docs operations check` to evaluate canonical operations-documentation diagnostics rather than
+assuming this index proves completeness.
 
-- [CI quality checkout step](operations/script-script-command-github-workflows-ci-yml-github-actions-job-quality-step-1-uses.md)
-- [CI quality toolchain step](operations/script-script-command-github-workflows-ci-yml-github-actions-job-quality-step-2-uses.md)
-- [CI quality cache step](operations/script-script-command-github-workflows-ci-yml-github-actions-job-quality-step-3-uses.md)
-- [CI formatting step](operations/script-script-command-github-workflows-ci-yml-github-actions-job-quality-step-4-run.md)
-- [CI workspace tests step](operations/script-script-command-github-workflows-ci-yml-github-actions-job-quality-step-5-run.md)
-- [CI Clippy step](operations/script-script-command-github-workflows-ci-yml-github-actions-job-quality-step-6-run.md)
-- [CI indexing smoke step](operations/script-script-command-github-workflows-ci-yml-github-actions-job-quality-step-7-run.md)
-- [CI docs check step](operations/script-script-command-github-workflows-ci-yml-github-actions-job-quality-step-8-run.md)
-- [CI security checkout step](operations/script-script-command-github-workflows-ci-yml-github-actions-job-security-step-1-uses.md)
-- [CI cargo-deny step](operations/script-script-command-github-workflows-ci-yml-github-actions-job-security-step-2-uses.md)
-- [Production daemon E2E checkout step](operations/script-script-command-github-workflows-production-yml-github-actions-job-daemon-e2e-step-1-uses.md)
-- [Production daemon E2E toolchain step](operations/script-script-command-github-workflows-production-yml-github-actions-job-daemon-e2e-step-2-uses.md)
-- [Production daemon E2E cache step](operations/script-script-command-github-workflows-production-yml-github-actions-job-daemon-e2e-step-3-uses.md)
-- [Production daemon E2E Linux lifecycle step](operations/script-script-command-github-workflows-production-yml-github-actions-job-daemon-e2e-step-4-run.md)
-- [Production daemon E2E Windows lifecycle step](operations/script-script-command-github-workflows-production-yml-github-actions-job-daemon-e2e-step-5-run.md)
-- [Production daemon E2E Windows service step](operations/script-script-command-github-workflows-production-yml-github-actions-job-daemon-e2e-step-6-run.md)
-- [Production nightly soak checkout step](operations/script-script-command-github-workflows-production-yml-github-actions-job-nightly-soak-step-1-uses.md)
-- [Production nightly soak toolchain step](operations/script-script-command-github-workflows-production-yml-github-actions-job-nightly-soak-step-2-uses.md)
-- [Production nightly soak cache step](operations/script-script-command-github-workflows-production-yml-github-actions-job-nightly-soak-step-3-uses.md)
-- [Production nightly soak run step](operations/script-script-command-github-workflows-production-yml-github-actions-job-nightly-soak-step-4-run.md)
-- [Release build checkout step](operations/script-script-command-github-workflows-release-yml-github-actions-job-build-step-1-uses.md)
-- [Release build toolchain step](operations/script-script-command-github-workflows-release-yml-github-actions-job-build-step-2-uses.md)
-- [Release build cache step](operations/script-script-command-github-workflows-release-yml-github-actions-job-build-step-3-uses.md)
-- [Release binary build step](operations/script-script-command-github-workflows-release-yml-github-actions-job-build-step-4-run.md)
-- [Release Linux archive step](operations/script-script-command-github-workflows-release-yml-github-actions-job-build-step-5-run.md)
-- [Release Windows archive step](operations/script-script-command-github-workflows-release-yml-github-actions-job-build-step-6-run.md)
-- [Release checksum step](operations/script-script-command-github-workflows-release-yml-github-actions-job-build-step-7-run.md)
-- [Release Cosign installer step](operations/script-script-command-github-workflows-release-yml-github-actions-job-build-step-8-uses.md)
-- [Release signing step](operations/script-script-command-github-workflows-release-yml-github-actions-job-build-step-9-run.md)
-- [Release provenance attestation step](operations/script-script-command-github-workflows-release-yml-github-actions-job-build-step-10-uses.md)
-- [Release artifact upload step](operations/script-script-command-github-workflows-release-yml-github-actions-job-build-step-11-uses.md)
-- [Release artifact download step](operations/script-script-command-github-workflows-release-yml-github-actions-job-publish-step-1-uses.md)
-- [Release GitHub publish step](operations/script-script-command-github-workflows-release-yml-github-actions-job-publish-step-2-uses.md)
-- [Security audit checkout step](operations/script-script-command-github-workflows-security-yml-github-actions-job-audit-step-1-uses.md)
-- [Security audit run step](operations/script-script-command-github-workflows-security-yml-github-actions-job-audit-step-2-uses.md)
+## Generated And Editable Documentation
 
-## Adapter Documentation
-
-High-level adapter docs:
-
-- [Basic extractor](adapters/extractor-basic.md)
-- [Markdown extractor](adapters/extractor-markdown.md)
-- [JavaScript/TypeScript extractor](adapters/extractor-js-ts.md)
-- [GraphQL extractor](adapters/extractor-graphql.md)
-- [OpenAPI extractor](adapters/extractor-openapi.md)
-- [Operations extractor](adapters/extractor-operations.md)
-- [Rust extractor](adapters/extractor-rust.md)
-- [RusTok Page Builder adapter](adapters/rustok-page-builder.md)
-- [RusTok FBA adapter](adapters/rustok-fba.md)
-- [RusTok FFA adapter](adapters/rustok-ffa.md)
-- [RusTok architecture context](adapters/rustok-architecture-context.md)
-- [API knowledge linker](adapters/linker-api.md)
-- [Markdown linker](adapters/linker-markdown.md)
-- [JavaScript/TypeScript import linker](adapters/linker-js-ts.md)
-- [Rust linker](adapters/linker-rust.md)
-- [Markdown checker](adapters/checker-markdown.md)
-- [API consistency & environment checker](adapters/checker-api.md)
-- [Code impact analysis](adapters/impact.md)
-- [Whole-code change map](adapters/change-map.md)
-- [JSONL store](adapters/store-jsonl.md)
-- [SurrealDB store](adapters/store-surrealdb.md)
-- [Tantivy search index](adapters/search-tantivy.md)
-- [Markdown wiki projector](adapters/projector-wiki.md)
-- [Model Context Protocol (MCP) transport](adapters/transport-mcp.md)
-- [HTML report projector](adapters/projector-html.md)
-
-Crate-local adapter docs:
-
-- [`athanor-extractor-basic`](../crates/athanor-extractor-basic/README.md)
-- [`athanor-extractor-markdown`](../crates/athanor-extractor-markdown/README.md)
-- [`athanor-extractor-js-ts`](../crates/athanor-extractor-js-ts/README.md)
-- [`athanor-extractor-graphql`](../crates/athanor-extractor-graphql/README.md)
-- [`athanor-extractor-openapi`](../crates/athanor-extractor-openapi/README.md)
-- [`athanor-extractor-operations`](../crates/athanor-extractor-operations/README.md)
-- [`athanor-extractor-rust`](../crates/athanor-extractor-rust/README.md)
-- [`athanor-adapter-rustok-page-builder`](../crates/athanor-adapter-rustok-page-builder/README.md)
-- [`athanor-adapter-rustok-fba`](../crates/athanor-adapter-rustok-fba/README.md)
-- [`athanor-adapter-rustok-ffa`](../crates/athanor-adapter-rustok-ffa/README.md)
-- [`athanor-linker-api`](../crates/athanor-linker-api/README.md)
-- [`athanor-linker-markdown`](../crates/athanor-linker-markdown/README.md)
-- [`athanor-linker-js-ts`](../crates/athanor-linker-js-ts/README.md)
-- [`athanor-linker-rust`](../crates/athanor-linker-rust/README.md)
-- [`athanor-checker-markdown`](../crates/athanor-checker-markdown/README.md)
-- [`athanor-checker-api`](../crates/athanor-checker-api/README.md)
-- [`athanor-store-jsonl`](../crates/athanor-store-jsonl/README.md)
-- [`athanor-store-surrealdb`](../crates/athanor-store-surrealdb/README.md)
-- [`athanor-search-tantivy`](../crates/athanor-search-tantivy/README.md)
-- [`athanor-projector-wiki`](../crates/athanor-projector-wiki/README.md)
-- [`athanor-projector-html`](../crates/athanor-projector-html/README.md)
-- [`athanor-projector-support`](../crates/athanor-projector-support/README.md)
-
-## Current Generated Read Models
-
-The coordinated generation command publishes all read models from one canonical snapshot:
+`ath generate` publishes immutable JSONL, Wiki, and HTML generation artifacts from one canonical
+snapshot. Generated artifacts are disposable projections and are not editable source documentation.
 
 ```bash
 cargo run -p ath --quiet -- generate .
-```
-
-Local generated and canonical artifacts can be inspected without modification:
-
-```bash
 cargo run -p ath --quiet -- repair inspect .
-cargo run -p ath --quiet -- repair inspect . --json
-cargo run -p ath --quiet -- repair cleanup . --dry-run
-cargo run -p ath --quiet -- repair cleanup . --generated-only --dry-run
-cargo run -p ath --quiet -- repair cleanup . --dry-run --keep-canonical 3 --keep-generated 2
-cargo run -p ath --quiet -- repair cleanup .
-cargo run -p ath --quiet -- repair regenerate . --dry-run
-cargo run -p ath --quiet -- repair regenerate .
-cargo run -p ath --quiet -- repair recover-canonical . --dry-run
-cargo run -p ath --quiet -- repair recover-canonical .
-cargo run -p ath --quiet -- repair apply . --dry-run
-cargo run -p ath --quiet -- repair apply . --generated-only --dry-run
-cargo run -p ath --quiet -- repair apply . --dry-run --keep-canonical 3 --keep-generated 2
-cargo run -p ath --quiet -- repair apply .
 ```
 
-`repair regenerate` handles stale or corrupted generated-current selection by publishing a fresh
-coordinated generation. It covers invalid pointer paths, missing selected generation directories,
-and missing or mismatched current generation manifests.
-
-It writes immutable generation directories and updates a portable JSON pointer only after every output succeeds:
-
-```text
-.athanor/generated/
-  current.json
-  generations/
-    00000001/
-      manifest.json
-      jsonl/
-      wiki/
-      html/
-        entities/
-```
-
-`current.json` records the generation id, canonical snapshot id, relative generation path, and manifest path. Consumers should resolve coordinated outputs through this pointer.
-
-Generation reports include `athanor.generation_metrics.v1` timings for canonical snapshot loading,
-JSONL, wiki, HTML, and publication phases. Text generation output prints the timings, while
-`repair regenerate --json` exposes the complete bounded report when regeneration is needed. Wiki
-and HTML entity pages use one shared attachment index per projection so large repositories do not
-rescan every fact and relation for every entity. Coordinated generation builds wiki and HTML outputs
-in parallel after JSONL projection; publication still waits for both outputs before switching the
-current pointer. Re-running `generate` is idempotent when the current generated pointer already
-matches the latest canonical snapshot; the command reports the selected generation and skips JSONL,
-wiki, HTML, and publication work.
-
-The individual commands retain direct compatibility outputs under `.athanor/generated/current`.
-Use `repair cleanup --generated-only` when clearing stale generated generation directories without
-removing orphan canonical snapshots.
-
-The current CLI uses `JsonlReadModelWriter` to write generated JSONL read models to:
-
-```text
-.athanor/generated/current/jsonl/
-  entities.jsonl
-  facts.jsonl
-  relations.jsonl
-  diagnostics.jsonl
-  manifest.json
-```
-
-Generated files are not source documentation. They are disposable read models. Adapter validation failures are written to `.athanor/generated/current/validation-report.json` by default. Successful `--validate-only` runs write `.athanor/generated/current/validation-result.json` by default. The CLI also persists incremental file-change state at `.athanor/state/index-state.json`.
-
-The CLI stores durable canonical snapshots at:
-
-```text
-.athanor/store/canonical/jsonl/
-  latest.json
-  snapshots/<snapshot-id>/
-```
-
-Adapter contracts can be checked without writing snapshots, state, or read models:
+Editable documentation workflows are review-oriented:
 
 ```bash
-cargo run -p ath --quiet -- index . --validate-only
-cargo run -p ath --quiet -- index . --validate-only --validation-result .athanor/generated/current/validation-result.json
+cargo run -p ath --quiet -- docs check .
+cargo run -p ath --quiet -- docs drift .
+cargo run -p ath --quiet -- docs propose-fix .
+cargo run -p ath --quiet -- docs apply-patch . <patch-id-or-path>
 ```
 
-Indexing reports can be emitted as bounded machine-readable JSON, including phase timings,
-aggregated adapter metrics, canonical object counts, affected-file counts, and output paths:
+The Docs application services load canonical snapshots through explicit runtime composition. Patch
+proposals remain reviewable JSON interchange documents before explicit application.
+
+## Plans
+
+Focused plans include:
+
+- [Evidence-backed documentation generation](development/evidence-backed-documentation-generation-plan.md)
+- [RusTok FFA/FBA improvements](development/rustok-ffa-fba-adapter-improvement-plan.md)
+- [Dart/Flutter adapter integration](development/dart-flutter-adapter-plan.md)
+
+Plans describe target work. They must not be cited as evidence that a feature is implemented or
+verified.
+
+## Verification
+
+The authoritative current matrix is in `athanor_implementation_plan_ru.md`. At minimum, documentation
+status changes should include:
 
 ```bash
-cargo run -p ath --quiet -- index . --json
+cargo test -p athanor-app --test documentation_status_inventory --locked
+cargo test -p athanor-app --test json_contract_inventory --locked
+cargo test -p athanor-app --test process_persistence_contract_inventory --locked
+cargo fmt --all -- --check
 ```
 
-Synthetic indexing benchmark fixtures can be generated and measured without reading generated
-JSONL artifacts directly:
-
-```bash
-cargo run -p ath --quiet -- bench --size small
-cargo run -p ath --quiet -- bench --size medium --json
-cargo run -p ath --quiet -- bench --size large --root .athanor/bench/large --keep-fixture --json
-```
-
-Detailed indexing diagnostics can be enabled through `RUST_LOG` without changing command output:
-
-```bash
-RUST_LOG=athanor_app=info cargo run -p ath --quiet -- index .
-RUST_LOG=athanor_app=debug cargo run -p ath --quiet -- index .
-```
-
-Tracing output is written to `stderr`, so JSON and normal command output remain on `stdout`.
-
-Changed files can be committed into a fresh durable snapshot through the explicit update command:
-
-```bash
-cargo run -p ath --quiet -- validate-changed --path .
-cargo run -p ath --quiet -- validate-changed --path . --json
-cargo run -p ath --quiet -- validate-changed --path . --file docs/development/roadmap-status.md --json
-cargo run -p ath --quiet -- update . --changed
-cargo run -p ath --quiet -- update . --changed --json
-```
-
-`validate-changed` is a fast extractor-only preflight for tight edit loops. It selects changed and
-untracked files from Git status, falls back to persisted index state outside Git repositories, runs
-matching extractors on those files only, and reports extractor diagnostics without running linkers,
-checkers, storage, state updates, or JSONL read-model writes. Pass one or more `--file <path>`
-arguments to validate an explicit file set before broader changed-file checks. Use `index` or
-`update --changed` after the narrow preflight when full canonical graph validation is required.
-
-Repository overview and task-focused context packs can be read from the latest canonical snapshot:
-
-```bash
-cargo run -p ath --quiet -- overview .
-cargo run -p ath --quiet -- overview . --json
-cargo run -p ath --quiet -- coverage .
-cargo run -p ath --quiet -- coverage . --json
-cargo run -p ath --quiet -- coverage . --adapter MarkdownExtractor
-cargo run -p ath --quiet -- coverage . --file docs/README.md
-cargo run -p ath --quiet -- capabilities .
-cargo run -p ath --quiet -- capabilities . --json
-cargo run -p ath --quiet -- capabilities . --min-confidence 0.8
-cargo run -p ath --quiet -- search "task"
-cargo run -p ath --quiet -- search "task" --json
-cargo run -p ath --quiet -- context "task"
-cargo run -p ath --quiet -- context "task" --json
-cargo run -p ath --quiet -- context --diff
-cargo run -p ath --quiet -- context --diff --json
-cargo run -p ath --quiet -- context "task" --level summary --budget 2000
-cargo run -p ath --quiet -- context "task" --level deep --max-files 20 --max-depth 2
-cargo run -p ath --quiet -- change-map "change authentication"
-cargo run -p ath --quiet -- change-map --target "api://POST:/login" --json
-cargo run -p ath --quiet -- change-map --diff --max-entities 30 --max-files 20 --json
-cargo run -p ath --quiet -- graph export --format json
-cargo run -p ath --quiet -- graph export --format graphml
-cargo run -p ath --quiet -- graph related "api://GET:/health"
-cargo run -p ath --quiet -- graph related "api://GET:/health" --depth 2 --json
-cargo run -p ath --quiet -- graph path "doc://docs/api/health.md" "rust://src/lib.rs#health"
-cargo run -p ath --quiet -- graph path "doc://docs/api/health.md" "rust://src/lib.rs#health" --max-depth 4 --json
-cargo run -p ath --quiet -- graph hubs
-cargo run -p ath --quiet -- graph hubs --kind module --limit 10 --json
-cargo run -p ath --quiet -- graph pagerank
-cargo run -p ath --quiet -- graph pagerank --kind module --limit 10 --json
-cargo run -p ath --quiet -- graph cycles
-cargo run -p ath --quiet -- graph cycles --max-depth 6 --limit 10 --json
-cargo run -p ath --quiet -- projects list
-cargo run -p ath --quiet -- projects add athanor .
-cargo run -p ath --quiet -- projects resolve athanor --json
-cargo run -p ath --quiet -- projects remove athanor
-cargo run -p ath --quiet -- plugins list
-cargo run -p ath --quiet -- plugins list --json
-cargo run -p ath --quiet -- plugins trust .athanor/plugins/example/athanor-adapter.json
-cargo run -p ath --quiet -- plugins untrust .athanor/plugins/example/athanor-adapter.json
-cargo run -p athd --quiet -- start athanor
-cargo run -p athd --quiet -- start athanor --transport local-socket --watch --json
-cargo run -p athd --quiet -- service install athanor --transport local-socket --watch --json
-cargo run -p athd --quiet -- service status athanor --json
-cargo run -p athd --quiet -- serve athanor --max-concurrent-requests 4 --max-job-history 1000
-cargo run -p athd --quiet -- serve athanor --max-request-bytes 1048576 --max-response-bytes 2097152
-cargo run -p athd --quiet -- serve athanor --transport local-socket
-cargo run -p athd --quiet -- serve athanor --watch --debounce-ms 1000
-cargo run -p athd --quiet -- serve athanor --watch --watch-poll --debounce-ms 5000
-cargo run -p athd --quiet -- status athanor
-cargo run -p athd --quiet -- status athanor --json
-cargo run -p athd --quiet -- ping athanor --json
-cargo run -p athd --quiet -- doctor athanor --json
-cargo run -p athd --quiet -- jobs athanor
-cargo run -p athd --quiet -- jobs athanor --limit 20 --json
-cargo run -p athd --quiet -- job athanor job_00000001 --json
-cargo run -p athd --quiet -- cancel athanor job_00000001 --json
-cargo run -p athd --quiet -- index athanor --json
-cargo run -p athd --quiet -- generate athanor --json
-cargo run -p athd --quiet -- wiki athanor --json
-cargo run -p athd --quiet -- report-html athanor --json
-cargo run -p athd --quiet -- overview athanor --top 10
-cargo run -p athd --quiet -- overview athanor --top 10 --json
-cargo run -p athd --quiet -- explain athanor "api://POST:/login"
-cargo run -p athd --quiet -- explain athanor "api://POST:/login" --json
-cargo run -p athd --quiet -- search athanor "login" --limit 10
-cargo run -p athd --quiet -- search athanor "login" --limit 10 --json
-cargo run -p athd --quiet -- context athanor "task" --level summary --budget 2000
-cargo run -p athd --quiet -- context athanor "task" --level summary --budget 2000 --json
-cargo run -p athd --quiet -- context athanor --diff --level summary --budget 2000 --json
-cargo run -p athd --quiet -- change-map athanor "change authentication" --json
-cargo run -p athd --quiet -- change-map athanor --target "api://POST:/login" --json
-cargo run -p athd --quiet -- change-map athanor --diff --json
-cargo run -p athd --quiet -- stop athanor
-cargo run -p athd --quiet -- service uninstall athanor --json
-```
-
-`coverage` emits bounded `athanor.coverage.v1` reports from the latest canonical snapshot and
-persisted index state. It summarizes tracked files, canonical object counts, adapter evidence/fact
-coverage, diagnostic-kind counts, file-level rows, applied filters, explicit row limits, and omitted
-counts without reading generated JSONL artifacts or running a new index.
-
-`capabilities` emits bounded `athanor.capabilities.v1` analysis-completeness reports from the same
-snapshot and persisted index state. It reports how many tracked files received content extraction
-beyond the baseline `file` inventory adapter, per-language and per-adapter completeness, extracted
-facts below a confidence threshold (`--min-confidence`, default `1.0`) with their evidence, and the
-discovered files that remain content-unprocessed. Every section carries explicit row limits
-(`--limit`, default `50`) and omitted counts, so agents can find knowledge-graph gaps without
-reading generated JSONL artifacts or running a new index.
-
-For high-value JavaScript/TypeScript repositories, build `ath` or `athd` with the
-`js-ts-precision` feature to verify affected files with both tree-sitter and Oxc. The normal build
-keeps single-parser performance. Precision disagreements remain bounded evidence-backed canonical
-diagnostics, so their kinds and file counts appear in the same `coverage` report schema.
-
-Canonical entities can be explained directly from the latest snapshot:
-
-```bash
-cargo run -p ath --quiet -- explain "api://POST:/login"
-cargo run -p ath --quiet -- explain "api://POST:/login" --json
-```
-
-Open canonical diagnostics can be inspected by scope:
-
-```bash
-cargo run -p ath --quiet -- check api
-cargo run -p ath --quiet -- check docs --json
-cargo run -p ath --quiet -- check env
-cargo run -p ath --quiet -- check env --json
-cargo run -p ath --quiet -- check scripts
-cargo run -p ath --quiet -- check scripts --json
-cargo run -p ath --quiet -- check deployment
-cargo run -p ath --quiet -- check deployment --json
-cargo run -p ath --quiet -- check runbooks
-cargo run -p ath --quiet -- check runbooks --json
-cargo run -p ath --quiet -- check affected
-cargo run -p ath --quiet -- check affected --json
-```
-
-`check affected` is read-only. In addition to matching open diagnostics, it reports stale or
-potentially stale local artifacts tied to the latest canonical snapshot: coordinated generated
-generations, direct wiki and HTML report outputs, API contract latest pointers, and API diff
-directories. It also reports editable documentation drift only for affected documents whose
-`last_verified_snapshot` is missing or older than the latest canonical snapshot's immediate
-predecessor. It suggests explicit
-follow-up commands but does not regenerate, rewrite, or delete artifacts.
-
-Editable documentation can be checked against the project completeness policy:
-
-```bash
-cargo run -p ath --quiet -- docs check
-cargo run -p ath --quiet -- docs check --json
-cargo run -p ath --quiet -- docs drift
-cargo run -p ath --quiet -- docs drift --json
-cargo run -p ath --quiet -- docs propose-fix
-cargo run -p ath --quiet -- docs apply-patch <patch-id-or-path>
-cargo run -p ath --quiet -- docs operations check
-cargo run -p ath --quiet -- docs operations check --json
-cargo run -p ath --quiet -- api snapshot
-cargo run -p ath --quiet -- api snapshot --cleanup
-cargo run -p ath --quiet -- api diff --from <snapshot> --to <snapshot>
-cargo run -p ath --quiet -- api diff --from <snapshot> --to <snapshot> --no-cleanup
-cargo run -p ath --quiet -- api breaking-changes --from <snapshot> --to <snapshot>
-cargo run -p ath --quiet -- api cleanup --dry-run
-cargo run -p ath --quiet -- api cleanup --keep-snapshots 2 --keep-diffs 2
-cargo run -p ath --quiet -- api registry
-cargo run -p ath --quiet -- api registry --json
-cargo run -p ath --quiet -- check api --strict
-```
-
-API contract snapshots and diffs are managed separately from `ath index` so contract history is not
-deleted accidentally during frequent re-indexing. Use `ath api cleanup` to apply explicit retention,
-or enable `[api.retention].auto_cleanup` to run the same cleanup after successful `ath api snapshot`
-and `ath api diff` commands. Per-command `--cleanup`, `--no-cleanup`, `--keep-snapshots`, and
-`--keep-diffs` flags override the configured policy for one invocation. The latest API contract
-snapshot is always retained.
-
-The latest canonical snapshot can be projected into a disposable Markdown wiki:
-
-```bash
-cargo run -p ath --quiet -- wiki .
-```
-
-The wiki is written to `.athanor/generated/current/wiki` by default.
-
-A self-contained browser report can be generated from the same snapshot:
-
-```bash
-cargo run -p ath --quiet -- report html .
-```
-
-The report is written to `.athanor/generated/current/html` by default and includes `index.html`,
-`entities/<entity-id>.html`, and `manifest.json`.
-
-## Documentation Rule
-
-When code changes, documentation must be updated in the same task.
-
-Typical mapping:
-
-| Change | Update |
-| --- | --- |
-| Pipeline behavior | `architecture/pipeline.md`, `development/roadmap-status.md` |
-| Adapter/plugin behavior | `architecture/adapters.md`, `docs/adapters/*.md`, crate `README.md` |
-| CLI behavior | `development/roadmap-status.md`, relevant architecture doc |
-| Definition of done or workflow | `development/agent-workflow.md`, `development/definition-of-done.md`, `AGENTS.md` |
-| Roadmap progress | `development/roadmap-status.md` |
-
-If documentation is added, renamed, removed, or its purpose changes, update this index in the same task.
+Current direct-to-main architecture changes remain implemented, not verified, until the complete
+matrix runs on one commit.
