@@ -28,7 +28,7 @@ pub use base::{
     RUSTOK_PAGE_BUILDER_PROVIDER_GRAPH_SCHEMA_V1,
     RUSTOK_PAGE_BUILDER_VIOLATIONS_GRAPH_SCHEMA_V1, SEARCH_SCHEMA_V1,
     VersionedJsonContract, WIKI_REPORT_SCHEMA_V1, validate_contract_registry,
-    validate_contract_value, validate_schema_id,
+    validate_contract_value,
 };
 
 use crate::adapter_contract::{
@@ -61,6 +61,59 @@ pub use daemon_contract::{
     DAEMON_JOBS_CONTRACT_SCHEMA_V1, DAEMON_REQUEST_CONTRACT_SCHEMA_V3,
     DAEMON_RESPONSE_CONTRACT_SCHEMA_V3,
 };
+
+/// Validates a current Athanor schema id and returns its compatibility major.
+///
+/// Most contracts use `athanor.<name>.v<major>`. Feature-qualified wire families may use the
+/// stricter `athanor.<name>.v<major>-<qualifier>-v<revision>` form. The latter preserves the base
+/// compatibility major while versioning the qualifier itself; for example,
+/// `athanor.index_state.v46-js-ts-precision-v1` has compatibility major `46`.
+pub fn validate_schema_id(schema: &str) -> Result<u32, JsonContractError> {
+    match base::validate_schema_id(schema) {
+        Ok(major) => Ok(major),
+        Err(base_error) => validate_qualified_schema_id(schema).ok_or(base_error),
+    }
+}
+
+fn validate_qualified_schema_id(schema: &str) -> Option<u32> {
+    let segments = schema.split('.').collect::<Vec<_>>();
+    if segments.len() < 3 || segments.first() != Some(&"athanor") {
+        return None;
+    }
+    if segments[1..segments.len() - 1].iter().any(|segment| {
+        segment.is_empty()
+            || !segment.chars().all(|character| {
+                character.is_ascii_lowercase()
+                    || character.is_ascii_digit()
+                    || matches!(character, '_' | '-')
+            })
+    }) {
+        return None;
+    }
+
+    let version = segments.last()?.strip_prefix('v')?;
+    let parts = version.split('-').collect::<Vec<_>>();
+    if parts.len() < 3 {
+        return None;
+    }
+    let major = parts.first()?.parse::<u32>().ok().filter(|major| *major > 0)?;
+    let revision = parts.last()?.strip_prefix('v')?;
+    if revision.is_empty()
+        || !revision.chars().all(|digit| digit.is_ascii_digit())
+        || revision.parse::<u32>().ok().filter(|value| *value > 0).is_none()
+    {
+        return None;
+    }
+    if parts[1..parts.len() - 1].iter().any(|qualifier| {
+        qualifier.is_empty()
+            || !qualifier
+                .chars()
+                .all(|character| character.is_ascii_lowercase() || character.is_ascii_digit())
+    }) {
+        return None;
+    }
+    Some(major)
+}
 
 macro_rules! descriptor {
     ($schema:ident, $rust_type:literal) => {
@@ -195,5 +248,21 @@ mod tests {
             DAEMON_RESPONSE_CONTRACT_SCHEMA_V3,
             crate::daemon::DaemonResponse::SCHEMA
         );
+    }
+
+    #[test]
+    fn qualified_schema_ids_preserve_the_base_compatibility_major() {
+        assert_eq!(
+            validate_schema_id("athanor.index_state.v46-js-ts-precision-v1"),
+            Ok(46)
+        );
+        for schema in [
+            "athanor.index_state.v46-js-ts-precision",
+            "athanor.index_state.v46--v1",
+            "athanor.index_state.v46-js-ts-precision-v0",
+            "athanor.index_state.v0-js-ts-precision-v1",
+        ] {
+            assert!(validate_schema_id(schema).is_err(), "accepted `{schema}`");
+        }
     }
 }
