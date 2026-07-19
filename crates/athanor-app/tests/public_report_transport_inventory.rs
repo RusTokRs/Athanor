@@ -24,10 +24,12 @@ fn index_report_uses_one_typed_payload_across_cli_daemon_and_mcp() {
     ));
 
     assert!(MCP_INDEX_INVENTORY.contains(
-        "mcp_index_preserves_the_public_index_report_payload"
+        "cli_daemon_and_mcp_share_the_public_index_report_payload"
     ));
-    assert!(MCP_INDEX_INVENTORY.contains("daemon_index_result_matches_public_index_report_shape"));
-    assert!(MCP_INDEX_INVENTORY.contains("serde_json::to_value(&report)"));
+    assert!(MCP_INDEX_INVENTORY.contains(
+        "daemon_index_result_matches_public_index_report_shape"
+    ));
+    assert!(MCP_INDEX_INVENTORY.contains("assert_eq!(daemon, direct)"));
 }
 
 #[test]
