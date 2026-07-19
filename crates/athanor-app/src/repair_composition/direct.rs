@@ -49,11 +49,15 @@ pub(super) async fn recover_index(
 
     let config = crate::config::load_config(&root)?;
     let store = composition.init_store(&root, &config).await?;
-    crate::index_publication::recover_interrupted_publication(&root, &store)
-        .await
-        .context("failed to recover interrupted index publication")?;
+    recover_index_with_store(&root, &store).await?;
     let after = inspect_repair(RepairInspectOptions { root: root.clone() })?;
     Ok(recovery_report(root, false, true, true, pending, after))
+}
+
+async fn recover_index_with_store(root: &Path, store: &crate::AthanorStore) -> Result<()> {
+    crate::index_publication::recover_interrupted_publication(root, store)
+        .await
+        .context("failed to recover interrupted index publication")
 }
 
 pub(super) async fn repair_latest(
@@ -247,6 +251,7 @@ mod tests {
     };
     use athanor_domain::{RepoId, SnapshotBase};
     use athanor_store_jsonl::JsonlKnowledgeStore;
+    use serde_json::json;
 
     use super::*;
 
@@ -336,6 +341,96 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    #[tokio::test]
+    async fn standalone_recovery_publishes_committed_pending_pointer() {
+        let root = test_root("committed");
+        let store = crate::AthanorStore::new(JsonlKnowledgeStore::new(
+            root.join(".athanor/store/canonical/jsonl"),
+        ));
+        let snapshot = store
+            .begin_snapshot(
+                RepoId("repo_repair_recovery".to_string()),
+                snapshot_base(),
+            )
+            .await
+            .unwrap();
+        store.commit_snapshot(snapshot.clone()).await.unwrap();
+        let snapshot_id = snapshot.0.clone();
+        write_legacy_artifacts(&root, &snapshot_id);
+        fs::write(
+            root.join(POINTER_JOURNAL_PATH),
+            serde_json::to_vec_pretty(&json!({
+                "schema": "athanor.index_current_publication.v1",
+                "snapshot": snapshot_id.clone(),
+                "generation": format!("gen_{snapshot_id}")
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        recover_index_with_store(&root, &store).await.unwrap();
+
+        assert!(root.join(".athanor/state/index-current.json").is_file());
+        assert!(!root.join(POINTER_JOURNAL_PATH).exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn dry_run_reports_pending_identity_without_mutation() {
+        let root = test_root("dry-run");
+        fs::create_dir_all(root.join(".athanor/state")).unwrap();
+        fs::write(
+            root.join(POINTER_JOURNAL_PATH),
+            r#"{"schema":"athanor.index_current_publication.v1","snapshot":"snap_pending","generation":"gen_snap_pending"}"#,
+        )
+        .unwrap();
+
+        let composition = crate::test_runtime::composition();
+        let report = recover_index(
+            RepairRecoverIndexOptions {
+                root: root.clone(),
+                dry_run: true,
+            },
+            &composition,
+        )
+        .await
+        .unwrap();
+        assert!(report.needed);
+        assert!(!report.recovered);
+        assert_eq!(report.snapshot.as_deref(), Some("snap_pending"));
+        assert_eq!(report.generation.as_deref(), Some("gen_snap_pending"));
+        assert!(root.join(POINTER_JOURNAL_PATH).exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    fn write_legacy_artifacts(root: &Path, snapshot: &str) {
+        let generation = format!("gen_{snapshot}");
+        let read_model = root.join(".athanor/generated/current/jsonl");
+        fs::create_dir_all(&read_model).unwrap();
+        fs::create_dir_all(root.join(".athanor/state")).unwrap();
+        fs::write(
+            read_model.join("manifest.json"),
+            serde_json::to_vec_pretty(&json!({
+                "schema": crate::read_model::JSONL_MANIFEST_SCHEMA,
+                "snapshot": snapshot,
+                "generation": generation
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            root.join(".athanor/state/index-state.json"),
+            serde_json::to_vec_pretty(&json!({
+                "schema": crate::index_state::INDEX_STATE_SCHEMA,
+                "snapshot": snapshot,
+                "generation": format!("gen_{snapshot}"),
+                "files": {}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+    }
+
     fn snapshot_base() -> SnapshotBase {
         SnapshotBase {
             branch: None,
@@ -350,7 +445,7 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let root = std::env::temp_dir().join(format!("athanor-latest-repair-{label}-{nonce}"));
+        let root = std::env::temp_dir().join(format!("athanor-repair-{label}-{nonce}"));
         fs::create_dir_all(&root).unwrap();
         root
     }
