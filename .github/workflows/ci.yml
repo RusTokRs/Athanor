@@ -152,7 +152,7 @@ jobs:
           esac
           cargo check --workspace ${FEATURES} --locked
           cargo test --workspace --quiet ${FEATURES} --locked
-          cargo clippy --workspace --all-targets ${FEATURES} --locked -- -D warnings
+          cargo clippy --workspace --all-targetS ${FEATURES} --locked -- -D warnings
 
   coverage:
     name: Source coverage baseline
@@ -189,3 +189,60 @@ jobs:
           path: coverage/
           if-no-files-found: error
           retention-days: 14
+
+  verification-status:
+    name: Exact verification status
+    if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    needs: [security, quality, feature-matrix, coverage]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      statuses: write
+    env:
+      SECURITY_RESULT: ${{ needs.security.result }}
+      QUALITY_RESULT: ${{ needs.quality.result }}
+      FEATURE_RESULT: ${{ needs.feature-matrix.result }}
+      COVERAGE_RESULT: ${{ needs.coverage.result }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Publish exact matrix status
+        shell: bash
+        run: |
+          set -euo pipefail
+          state="success"
+          description="Athanor verification matrix passed"
+          for result in \
+            "$SECURITY_RESULT" \
+            "$QUALITY_RESULT" \
+            "$FEATURE_RESULT" \
+            "$COVERAGE_RESULT"
+          do
+            if [[ "$result" != "success" ]]; then
+              state="failure"
+              description="Athanor verification matrix failed"
+              break
+            fi
+          done
+          export STATE="$state"
+          export DESCRIPTION="$description"
+          python - <<'PY' > verification-status.json
+          import json
+          import os
+
+          print(json.dumps({
+              "state": os.environ["STATE"],
+              "target_url": (
+                  f"{os.environ['GITHUB_SERVER_URL']}/"
+                  f"{os.environ['GITHUB_REPOSITORY']}/actions/runs/"
+                  f"{os.environ['GITHUB_RUN_ID']}"
+              ),
+              "description": os.environ["DESCRIPTION"],
+              "context": "athanor/verification-matrix",
+          }))
+          PY
+          curl --fail-with-body --location --request POST \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            --data @verification-status.json
