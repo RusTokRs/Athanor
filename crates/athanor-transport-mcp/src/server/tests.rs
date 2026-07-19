@@ -10,13 +10,15 @@ use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{Mutex, mpsc};
 
-use super::lifecycle::{log_request_task, process_line, run_mcp_server_io};
+use super::lifecycle::{
+    close_stdin, log_request_task, process_line, run_mcp_server_io,
+};
 use super::operation::{
     cancel_notification, request_key, run_registered_drained_read, run_registered_read,
 };
 use super::types::{
-    ActiveReads, McpServerLimits, McpSessionPhase, RequestTasks, SessionState,
-    DEFAULT_MAX_IN_FLIGHT_REQUESTS, DEFAULT_RESPONSE_QUEUE_CAPACITY,
+    ActiveReads, DEFAULT_MAX_IN_FLIGHT_REQUESTS, DEFAULT_RESPONSE_QUEUE_CAPACITY, McpServerLimits,
+    McpSessionPhase, RequestTasks, SessionState,
 };
 
 #[tokio::test]
@@ -122,6 +124,125 @@ async fn cancellation_notification_bypasses_saturated_request_limit() {
     .await
     .unwrap();
 
+    assert!(operation.is_cancelled());
+    requests.abort_all();
+}
+
+#[tokio::test]
+async fn full_request_and_response_capacity_does_not_starve_cancellation() {
+    let active_reads = ActiveReads::default();
+    let operation = OperationContext::new("mcp:\"fully-saturated\"");
+    let cancellation = operation.cancellation_handle().unwrap();
+    active_reads
+        .lock()
+        .await
+        .insert("\"fully-saturated\"".to_string(), cancellation);
+
+    let mut requests = RequestTasks::new();
+    requests.spawn(pending::<Result<()>>());
+    let (responses_tx, mut responses_rx) = mpsc::channel(1);
+    responses_tx.send("occupied".to_string()).await.unwrap();
+    let session: SessionState = Arc::new(Mutex::new(McpSessionPhase::Ready));
+    let root = Arc::new(PathBuf::from("."));
+    let composition = Arc::new(athanor_runtime_defaults::production());
+
+    process_line(
+        &root,
+        &composition,
+        &active_reads,
+        &session,
+        &responses_tx,
+        &mut requests,
+        1,
+        r#"{"jsonrpc":"2.0","id":9,"method":"tools/list"}"#.to_string(),
+    )
+    .await
+    .expect("overload rejection must not terminate the reader loop");
+
+    process_line(
+        &root,
+        &composition,
+        &active_reads,
+        &session,
+        &responses_tx,
+        &mut requests,
+        1,
+        r#"{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":"fully-saturated"}}"#.to_string(),
+    )
+    .await
+    .expect("cancellation must bypass saturated response capacity");
+
+    assert!(operation.is_cancelled());
+    assert_eq!(responses_rx.recv().await.as_deref(), Some("occupied"));
+    assert!(responses_rx.try_recv().is_err());
+    requests.abort_all();
+}
+
+#[tokio::test]
+async fn inline_protocol_error_does_not_block_saturated_control_plane() {
+    let active_reads = ActiveReads::default();
+    let operation = OperationContext::new("mcp:\"protocol-saturated\"");
+    let cancellation = operation.cancellation_handle().unwrap();
+    active_reads
+        .lock()
+        .await
+        .insert("\"protocol-saturated\"".to_string(), cancellation);
+
+    let mut requests = RequestTasks::new();
+    requests.spawn(pending::<Result<()>>());
+    let (responses_tx, _responses_rx) = mpsc::channel(1);
+    responses_tx.send("occupied".to_string()).await.unwrap();
+    let session: SessionState = Arc::new(Mutex::new(McpSessionPhase::Ready));
+    let root = Arc::new(PathBuf::from("."));
+    let composition = Arc::new(athanor_runtime_defaults::production());
+
+    process_line(
+        &root,
+        &composition,
+        &active_reads,
+        &session,
+        &responses_tx,
+        &mut requests,
+        1,
+        "not-json".to_string(),
+    )
+    .await
+    .expect("inline protocol response must fail open under queue saturation");
+
+    process_line(
+        &root,
+        &composition,
+        &active_reads,
+        &session,
+        &responses_tx,
+        &mut requests,
+        1,
+        r#"{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":"protocol-saturated"}}"#.to_string(),
+    )
+    .await
+    .unwrap();
+
+    assert!(operation.is_cancelled());
+    requests.abort_all();
+}
+
+#[tokio::test]
+async fn stdin_close_cancels_registered_operations_while_requests_are_saturated() {
+    let active_reads = ActiveReads::default();
+    let operation = OperationContext::new("mcp:\"disconnect-saturated\"");
+    let cancellation = operation.cancellation_handle().unwrap();
+    active_reads
+        .lock()
+        .await
+        .insert("\"disconnect-saturated\"".to_string(), cancellation);
+    let mut requests = RequestTasks::new();
+    requests.spawn(pending::<Result<()>>());
+    let mut stdin_open = true;
+
+    close_stdin(&active_reads, &mut stdin_open).await;
+
+    assert!(!stdin_open);
+    assert_eq!(requests.len(), 1);
     assert!(operation.is_cancelled());
     requests.abort_all();
 }
