@@ -12,67 +12,85 @@ use athanor_domain::{
 };
 use athanor_store_jsonl::JsonlKnowledgeStore;
 
-use crate::AthanorStore;
+use crate::index_current::IndexCurrent;
+use crate::index_publication::publish_index_snapshot;
+use crate::{
+    AffectedFileSet, AthanorStore, IndexPipelineMetrics, IndexPipelineOutput, IndexStateStore,
+};
 
 #[tokio::test]
-async fn pre_commit_cancellation_remains_an_error() {
+async fn pre_commit_cancellation_rolls_back_and_remains_an_error() {
     let fixture = fixture(PublishMode::BeforeCommitCancelled).await;
 
-    let error = fixture
-        .store
-        .publish_snapshot_batch_with_context(
-            fixture.snapshot.clone(),
-            SnapshotBatch::default(),
-            &fixture.operation,
-        )
-        .await
-        .expect_err("pre-commit cancellation must remain an error");
+    let error = publish_index_snapshot(
+        &fixture.root,
+        &fixture.store,
+        &fixture.state_store,
+        &fixture.output_dir,
+        &fixture.output,
+        fixture.snapshot.clone(),
+        &fixture.operation,
+    )
+    .await
+    .expect_err("pre-commit cancellation must remain an error");
 
-    assert!(matches!(error, CoreError::Cancelled(_)));
+    assert!(error.chain().any(|cause| matches!(
+        cause.downcast_ref::<CoreError>(),
+        Some(CoreError::Cancelled(_))
+    )));
     assert_uncommitted(&fixture.store, &fixture.snapshot).await;
+    assert!(!fixture.output_dir.exists());
+    assert!(!fixture.state_store.path().exists());
+    assert_publication_journals_cleared(&fixture.root);
     fixture.cleanup();
 }
 
 #[tokio::test]
-async fn committed_terminal_errors_are_reconciled_to_success() {
+async fn committed_terminal_errors_are_reconciled_to_publication_success() {
     for mode in [
         PublishMode::CommitThenCancelled,
         PublishMode::CommitThenDeadline,
     ] {
         let fixture = fixture(mode).await;
 
-        fixture
-            .store
-            .publish_snapshot_batch_with_context(
-                fixture.snapshot.clone(),
-                SnapshotBatch::default(),
-                &fixture.operation,
-            )
-            .await
-            .expect("exact committed snapshot must preserve durable success");
+        let outcome = publish_index_snapshot(
+            &fixture.root,
+            &fixture.store,
+            &fixture.state_store,
+            &fixture.output_dir,
+            &fixture.output,
+            fixture.snapshot.clone(),
+            &fixture.operation,
+        )
+        .await
+        .expect("exact committed snapshot must preserve durable publication success");
 
-        assert_committed(&fixture.store, &fixture.snapshot).await;
+        assert_eq!(outcome.read_model.snapshot, fixture.snapshot.0);
+        assert_published(&fixture).await;
         fixture.cleanup();
     }
 }
 
 #[tokio::test]
-async fn cancellation_after_commit_does_not_override_success() {
+async fn cancellation_after_commit_does_not_override_publication_success() {
     let fixture = fixture(PublishMode::CommitThenCancelContext).await;
 
-    fixture
-        .store
-        .publish_snapshot_batch_with_context(
-            fixture.snapshot.clone(),
-            SnapshotBatch::default(),
-            &fixture.operation,
-        )
-        .await
-        .expect("post-commit cancellation must not replace durable success");
+    let outcome = publish_index_snapshot(
+        &fixture.root,
+        &fixture.store,
+        &fixture.state_store,
+        &fixture.output_dir,
+        &fixture.output,
+        fixture.snapshot.clone(),
+        &fixture.operation,
+    )
+    .await
+    .expect("post-commit cancellation must not replace durable publication success");
 
     assert!(fixture.cancellation.is_cancelled());
     assert!(fixture.operation.is_cancelled());
-    assert_committed(&fixture.store, &fixture.snapshot).await;
+    assert_eq!(outcome.read_model.snapshot, fixture.snapshot.0);
+    assert_published(&fixture).await;
     fixture.cleanup();
 }
 
@@ -82,6 +100,9 @@ struct Fixture {
     snapshot: SnapshotId,
     operation: OperationContext,
     cancellation: CancellationHandle,
+    output: IndexPipelineOutput,
+    state_store: IndexStateStore,
+    output_dir: PathBuf,
 }
 
 impl Fixture {
@@ -118,6 +139,18 @@ async fn fixture(mode: PublishMode) -> Fixture {
         )
         .await
         .expect("begin publication snapshot");
+    let output = IndexPipelineOutput {
+        snapshot: snapshot.clone(),
+        files: Vec::new(),
+        entities: Vec::new(),
+        facts: Vec::new(),
+        relations: Vec::new(),
+        diagnostics: Vec::new(),
+        affected_files: AffectedFileSet::default(),
+        metrics: IndexPipelineMetrics::default(),
+    };
+    let state_store = IndexStateStore::new(root.join(".athanor/state/index-state.json"));
+    let output_dir = root.join(".athanor/generated/current/jsonl");
 
     Fixture {
         root,
@@ -125,7 +158,38 @@ async fn fixture(mode: PublishMode) -> Fixture {
         snapshot,
         operation,
         cancellation,
+        output,
+        state_store,
+        output_dir,
     }
+}
+
+async fn assert_published(fixture: &Fixture) {
+    assert_committed(&fixture.store, &fixture.snapshot).await;
+
+    let state = fixture
+        .state_store
+        .load()
+        .expect("load pointer-selected index state");
+    assert_eq!(
+        state.snapshot.as_deref(),
+        Some(fixture.snapshot.0.as_str())
+    );
+
+    let manifest: serde_json::Value = serde_json::from_slice(
+        &fs::read(fixture.output_dir.join("manifest.json")).expect("read current manifest"),
+    )
+    .expect("parse current manifest");
+    assert_eq!(
+        manifest["snapshot"].as_str(),
+        Some(fixture.snapshot.0.as_str())
+    );
+
+    let current = IndexCurrent::load(&fixture.root)
+        .expect("load index current pointer")
+        .expect("index current pointer must exist");
+    assert_eq!(current.snapshot(), &fixture.snapshot);
+    assert_publication_journals_cleared(&fixture.root);
 }
 
 async fn assert_committed(store: &AthanorStore, snapshot: &SnapshotId) {
@@ -145,6 +209,15 @@ async fn assert_uncommitted(store: &AthanorStore, snapshot: &SnapshotId) {
             canonical.snapshot
         ),
         Err(error) => panic!("unexpected exact snapshot probe error: {error}"),
+    }
+}
+
+fn assert_publication_journals_cleared(root: &std::path::Path) {
+    for path in [
+        root.join(".athanor/state/index-publication.json"),
+        root.join(".athanor/state/index-current-publication.json"),
+    ] {
+        assert!(!path.exists(), "publication journal remains at {}", path.display());
     }
 }
 
