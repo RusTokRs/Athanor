@@ -1,5 +1,6 @@
 const ROADMAP: &str = include_str!("../../../docs/development/roadmap-status.md");
 const PIPELINE: &str = include_str!("../../../docs/architecture/pipeline.md");
+const PLAN: &str = include_str!("../../../athanor_implementation_plan_ru.md");
 
 #[test]
 fn aggregate_status_documents_do_not_claim_unexecuted_verification() {
@@ -62,6 +63,20 @@ fn pipeline_separates_current_target_and_history() {
 }
 
 #[test]
+fn implementation_plan_matches_documentation_status() {
+    for completed in [
+        "### 3.4 `DOC-001` / `DOC-002` — documentation status hygiene",
+        "| `DOC-001` | P3 | `[x] implemented` |",
+        "| `DOC-002` | P3 | `[x] implemented` |",
+        "cargo test -p athanor-app --test documentation_status_inventory --locked",
+    ] {
+        assert!(PLAN.contains(completed), "plan is missing {completed}");
+    }
+    assert!(PLAN.contains("### 4.1 `MCP-004` — control-plane responsiveness"));
+    assert!(ROADMAP.contains("### `MCP-004`"));
+}
+
+#[test]
 fn removed_monoliths_and_legacy_services_do_not_return_to_status_docs() {
     for stale in [
         "crates/athanor-app/src/graph.rs",
@@ -88,6 +103,7 @@ fn architecture_status_documents_remain_bounded() {
     for (name, source, max_lines) in [
         ("roadmap", ROADMAP, 240),
         ("pipeline", PIPELINE, 380),
+        ("implementation plan", PLAN, 320),
     ] {
         let lines = source.lines().count();
         assert!(lines <= max_lines, "{name} grew to {lines} lines");
