@@ -1,220 +1,225 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use athanor_app::{VERSIONED_JSON_CONTRACTS, validate_contract_registry, validate_schema_id};
-
-const INVENTORIED_SOURCE_FILES: &[&str] = &[
-    "src/api.rs",
-    "src/bench.rs",
-    "src/overview.rs",
-    "src/search.rs",
-    "src/explain.rs",
-    "src/impact.rs",
-    "src/check.rs",
-    "src/coverage.rs",
-    "src/capabilities.rs",
-    "src/change_map.rs",
-    "src/config.rs",
-    "src/context.rs",
-    "src/context_report.rs",
-    "src/docs.rs",
-    "src/generation.rs",
-    "src/graph.rs",
-    "src/index_runtime.rs",
-    "src/pipeline.rs",
-    "src/project_registry.rs",
-    "src/report.rs",
-    "src/rustok_architecture.rs",
-    "src/rustok_json_contract.rs",
-    "src/validate_changed.rs",
-    "src/wiki.rs",
-];
-
-const KNOWN_UNREGISTERED_PUBLIC_SCHEMAS: &[&str] = &[];
-const KNOWN_PERSISTED_SCHEMAS: &[&str] = &["athanor.project_registry_state.v1"];
-const KNOWN_GENERATED_SCHEMAS: &[&str] = &[
-    "athanor.api_contract_latest.v1",
-    "athanor.api_contract_snapshot.v2",
-    "athanor.generated_current.v1",
-    "athanor.generated_generation.v1",
-    "athanor.validation_result.v1",
-];
-const KNOWN_EMBEDDED_SCHEMAS: &[&str] = &[
-    "athanor.generation_metrics.v1",
-    "athanor.index_metrics.v1",
-    "athanor.index_report_metrics.v1",
-];
-const KNOWN_INTERCHANGE_SCHEMAS: &[&str] = &["athanor.docs_patch.v1"];
-
-const MIGRATED_SHARED_SCHEMA_BUILDERS: &[(&str, &str)] = &[
-    ("src/search.rs", "athanor.search.v1"),
-    ("src/impact.rs", "athanor.impact_analysis.v1"),
-    ("src/check.rs", "athanor.diagnostic_check.v1"),
-    ("src/check.rs", "athanor.affected_check.v1"),
-    ("src/check.rs", "athanor.operations_docs_check.v1"),
-    ("src/change_map.rs", "athanor.change_map.v1"),
-];
+use athanor_app::{
+    ADAPTER_NON_PUBLIC_JSON_CONTRACTS, BoundaryLifecycle, NON_PUBLIC_JSON_CONTRACTS,
+    VERSIONED_JSON_CONTRACTS, validate_adapter_contract_inventory,
+    validate_boundary_contract_inventory, validate_contract_registry, validate_schema_id,
+};
 
 #[test]
-fn known_schema_literals_are_registered_or_explicitly_classified() {
+fn schema_registries_are_valid_unique_and_disjoint() {
     validate_contract_registry(VERSIONED_JSON_CONTRACTS)
-        .expect("shared JSON contract registry must remain valid");
+        .expect("public JSON contract registry must remain valid");
+    validate_boundary_contract_inventory(VERSIONED_JSON_CONTRACTS)
+        .expect("non-public JSON boundary registry must remain valid");
+    validate_adapter_contract_inventory(VERSIONED_JSON_CONTRACTS)
+        .expect("adapter JSON boundary registry must remain valid");
 
-    let registered = VERSIONED_JSON_CONTRACTS
+    assert_eq!(VERSIONED_JSON_CONTRACTS.len(), 60);
+    assert_eq!(NON_PUBLIC_JSON_CONTRACTS.len(), 30);
+    assert_eq!(ADAPTER_NON_PUBLIC_JSON_CONTRACTS.len(), 4);
+
+    let public = VERSIONED_JSON_CONTRACTS
         .iter()
         .map(|contract| contract.schema)
         .collect::<BTreeSet<_>>();
-    let public_migration = schema_set(KNOWN_UNREGISTERED_PUBLIC_SCHEMAS);
-    let persisted = schema_set(KNOWN_PERSISTED_SCHEMAS);
-    let generated = schema_set(KNOWN_GENERATED_SCHEMAS);
-    let embedded = schema_set(KNOWN_EMBEDDED_SCHEMAS);
-    let interchange = schema_set(KNOWN_INTERCHANGE_SCHEMAS);
+    let general = NON_PUBLIC_JSON_CONTRACTS
+        .iter()
+        .map(|contract| contract.schema)
+        .collect::<BTreeSet<_>>();
+    let adapter = ADAPTER_NON_PUBLIC_JSON_CONTRACTS
+        .iter()
+        .map(|contract| contract.schema)
+        .collect::<BTreeSet<_>>();
 
-    for (label, schemas) in [
-        ("public migration", &public_migration),
-        ("persisted", &persisted),
-        ("generated", &generated),
-        ("embedded", &embedded),
-        ("interchange", &interchange),
-    ] {
-        for schema in schemas {
-            validate_schema_id(schema).expect("classified schema ids must remain canonical");
-            assert!(
-                !registered.contains(schema),
-                "{label} schema `{schema}` must not be mixed into the public report registry"
-            );
+    assert!(public.is_disjoint(&general));
+    assert!(public.is_disjoint(&adapter));
+    assert!(general.is_disjoint(&adapter));
+
+    for schema in public {
+        validate_schema_id(schema).expect("public schema ids must remain canonical");
+    }
+    for descriptor in NON_PUBLIC_JSON_CONTRACTS {
+        validate_schema_id(descriptor.schema).unwrap_or_else(|error| {
+            panic!(
+                "general boundary schema {} is not canonical: {error}",
+                descriptor.schema
+            )
+        });
+    }
+    for descriptor in ADAPTER_NON_PUBLIC_JSON_CONTRACTS {
+        if descriptor.lifecycle == BoundaryLifecycle::Current {
+            validate_schema_id(descriptor.schema).unwrap_or_else(|error| {
+                panic!(
+                    "current adapter schema {} is not canonical: {error}",
+                    descriptor.schema
+                )
+            });
         }
     }
-
-    let classified_sets = [
-        &public_migration,
-        &persisted,
-        &generated,
-        &embedded,
-        &interchange,
-    ];
-    for (index, left) in classified_sets.iter().enumerate() {
-        for right in classified_sets.iter().skip(index + 1) {
-            assert!(
-                left.is_disjoint(right),
-                "JSON schema classifications must remain mutually exclusive"
-            );
-        }
-    }
-
-    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let mut observed_public_migration = BTreeSet::new();
-    let mut observed_persisted = BTreeSet::new();
-    let mut observed_generated = BTreeSet::new();
-    let mut observed_embedded = BTreeSet::new();
-    let mut observed_interchange = BTreeSet::new();
-
-    for relative_path in INVENTORIED_SOURCE_FILES {
-        let path = manifest_dir.join(relative_path);
-        let source = fs::read_to_string(&path)
-            .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
-
-        for schema in extract_schema_ids(&source) {
-            if public_migration.contains(schema.as_str()) {
-                observed_public_migration.insert(schema.clone());
-            }
-            if persisted.contains(schema.as_str()) {
-                observed_persisted.insert(schema.clone());
-            }
-            if generated.contains(schema.as_str()) {
-                observed_generated.insert(schema.clone());
-            }
-            if embedded.contains(schema.as_str()) {
-                observed_embedded.insert(schema.clone());
-            }
-            if interchange.contains(schema.as_str()) {
-                observed_interchange.insert(schema.clone());
-            }
-            assert!(
-                registered.contains(schema.as_str())
-                    || public_migration.contains(schema.as_str())
-                    || persisted.contains(schema.as_str())
-                    || generated.contains(schema.as_str())
-                    || embedded.contains(schema.as_str())
-                    || interchange.contains(schema.as_str()),
-                "schema `{schema}` in `{relative_path}` is neither registered nor explicitly classified"
-            );
-        }
-    }
-
-    assert_observed_matches(
-        "public migration",
-        observed_public_migration,
-        public_migration,
-    );
-    assert_observed_matches("persisted", observed_persisted, persisted);
-    assert_observed_matches("generated", observed_generated, generated);
-    assert_observed_matches("embedded", observed_embedded, embedded);
-    assert_observed_matches("interchange", observed_interchange, interchange);
 }
 
 #[test]
-fn migrated_builders_use_shared_registry_constants() {
-    let registered = VERSIONED_JSON_CONTRACTS
-        .iter()
-        .map(|contract| contract.schema)
-        .collect::<BTreeSet<_>>();
-    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+fn every_workspace_production_schema_literal_is_explicitly_classified() {
+    let workspace = workspace_root();
+    let sources = production_rust_sources(&workspace);
+    assert!(
+        !sources.is_empty(),
+        "workspace source discovery returned no Rust files"
+    );
 
-    for (relative_path, schema) in MIGRATED_SHARED_SCHEMA_BUILDERS {
-        assert!(
-            registered.contains(schema),
-            "migrated builder schema `{schema}` must remain registered"
-        );
-        let path = manifest_dir.join(relative_path);
+    let classified = classified_schemas();
+    let mut observed = BTreeMap::<String, BTreeSet<PathBuf>>::new();
+    for path in sources {
         let source = fs::read_to_string(&path)
             .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
-        let quoted_literal = format!("\"{schema}\"");
+        for schema in extract_schema_literals(production_prefix(&source)) {
+            observed.entry(schema).or_default().insert(
+                path.strip_prefix(&workspace)
+                    .unwrap_or(&path)
+                    .to_path_buf(),
+            );
+        }
+    }
+
+    let unknown = observed
+        .iter()
+        .filter(|(schema, _)| !classified.contains(schema.as_str()))
+        .map(|(schema, paths)| format!("{schema}: {paths:?}"))
+        .collect::<Vec<_>>();
+    assert!(
+        unknown.is_empty(),
+        "unclassified production JSON schema literals:\n{}",
+        unknown.join("\n")
+    );
+
+    let missing = classified
+        .iter()
+        .filter(|schema| !observed.contains_key(**schema))
+        .copied()
+        .collect::<Vec<_>>();
+    assert!(
+        missing.is_empty(),
+        "classified schemas are no longer observable in production sources: {missing:?}"
+    );
+}
+
+#[test]
+fn qualified_feature_schema_is_versioned_without_changing_its_wire_id() {
+    assert_eq!(
+        validate_schema_id("athanor.index_state.v46-js-ts-precision-v1"),
+        Ok(46)
+    );
+
+    for invalid in [
+        "athanor.index_state.v46-js-ts-precision",
+        "athanor.index_state.v46--v1",
+        "athanor.index_state.v46-js-ts-precision-v0",
+        "athanor.index_state.v0-js-ts-precision-v1",
+    ] {
         assert!(
-            !source.contains(&quoted_literal),
-            "migrated builder `{relative_path}` embeds schema literal `{schema}` instead of using the shared registry constant"
+            validate_schema_id(invalid).is_err(),
+            "invalid qualified schema was accepted: {invalid}"
         );
     }
 }
 
-fn schema_set(schemas: &[&'static str]) -> BTreeSet<&'static str> {
-    schemas.iter().copied().collect()
+fn classified_schemas() -> BTreeSet<&'static str> {
+    VERSIONED_JSON_CONTRACTS
+        .iter()
+        .map(|contract| contract.schema)
+        .chain(
+            NON_PUBLIC_JSON_CONTRACTS
+                .iter()
+                .map(|contract| contract.schema),
+        )
+        .chain(
+            ADAPTER_NON_PUBLIC_JSON_CONTRACTS
+                .iter()
+                .map(|contract| contract.schema),
+        )
+        .collect()
 }
 
-fn assert_observed_matches(
-    label: &str,
-    observed: BTreeSet<String>,
-    expected: BTreeSet<&str>,
-) {
-    assert_eq!(
-        observed,
-        expected.into_iter().map(str::to_string).collect(),
-        "{label} schema classification and observed literals diverged"
-    );
+fn workspace_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .expect("athanor-app must be under <workspace>/crates")
+        .to_path_buf()
 }
 
-fn extract_schema_ids(source: &str) -> BTreeSet<String> {
+fn production_rust_sources(workspace: &Path) -> Vec<PathBuf> {
+    let mut sources = Vec::new();
+    for root in [workspace.join("crates"), workspace.join("apps")] {
+        collect_rust_sources(&root, &mut sources);
+    }
+    sources.sort();
+    sources
+}
+
+fn collect_rust_sources(path: &Path, sources: &mut Vec<PathBuf>) {
+    let entries = match fs::read_dir(path) {
+        Ok(entries) => entries,
+        Err(error) => panic!("failed to read source directory {}: {error}", path.display()),
+    };
+    for entry in entries {
+        let entry = entry.unwrap_or_else(|error| {
+            panic!("failed to inspect source directory {}: {error}", path.display())
+        });
+        let child = entry.path();
+        let file_type = entry.file_type().unwrap_or_else(|error| {
+            panic!("failed to inspect source path {}: {error}", child.display())
+        });
+        if file_type.is_dir() {
+            if child.file_name().and_then(|name| name.to_str()) != Some("target") {
+                collect_rust_sources(&child, sources);
+            }
+            continue;
+        }
+        if !file_type.is_file() || child.extension().and_then(|ext| ext.to_str()) != Some("rs") {
+            continue;
+        }
+        if child
+            .components()
+            .any(|component| component.as_os_str() == "src")
+        {
+            sources.push(child);
+        }
+    }
+}
+
+fn production_prefix(source: &str) -> &str {
+    source
+        .find("#[cfg(test)]")
+        .map(|offset| &source[..offset])
+        .unwrap_or(source)
+}
+
+fn extract_schema_literals(source: &str) -> BTreeSet<String> {
+    const MARKER: &str = "\"athanor.";
     let mut schemas = BTreeSet::new();
     let mut offset = 0;
 
-    while let Some(relative_start) = source[offset..].find("athanor.") {
-        let start = offset + relative_start;
+    while let Some(relative_start) = source[offset..].find(MARKER) {
+        let start = offset + relative_start + 1;
         let tail = &source[start..];
-        let end = tail
-            .find(|character: char| {
-                !(character.is_ascii_lowercase()
-                    || character.is_ascii_digit()
-                    || matches!(character, '.' | '_' | '-'))
-            })
-            .unwrap_or(tail.len());
+        let Some(end) = tail.find('"') else {
+            break;
+        };
         let candidate = &tail[..end];
-
-        if validate_schema_id(candidate).is_ok() {
+        if candidate.len() > "athanor.".len()
+            && candidate.chars().all(|character| {
+                character.is_ascii_lowercase()
+                    || character.is_ascii_digit()
+                    || matches!(character, '.' | '_' | '-')
+            })
+        {
             schemas.insert(candidate.to_string());
         }
-
-        offset = start + end.max(1);
+        offset = start + end + 1;
     }
 
     schemas
