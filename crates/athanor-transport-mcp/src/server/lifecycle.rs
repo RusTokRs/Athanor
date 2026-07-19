@@ -6,6 +6,7 @@ use athanor_app::RuntimeComposition;
 use tokio::io::{
     self, AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader,
 };
+use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{Mutex, mpsc};
 use tokio::task::JoinError;
 
@@ -60,9 +61,6 @@ where
         if stdin_open {
             tokio::select! {
                 biased;
-                joined = requests.join_next(), if !requests.is_empty() => {
-                    log_request_task(joined.expect("guarded non-empty request set"));
-                }
                 line = lines.next_line() => {
                     match line? {
                         Some(line) => {
@@ -78,11 +76,11 @@ where
                             )
                             .await?;
                         }
-                        None => {
-                            stdin_open = false;
-                            cancel_all(&active_reads).await;
-                        }
+                        None => close_stdin(&active_reads, &mut stdin_open).await,
                     }
+                }
+                joined = requests.join_next(), if !requests.is_empty() => {
+                    log_request_task(joined.expect("guarded non-empty request set"));
                 }
             }
         } else if let Some(joined) = requests.join_next().await {
@@ -118,20 +116,24 @@ pub(super) async fn process_line(
     let request = match parse_request(&line) {
         Ok(request) => request,
         Err(failure) => {
-            send_response(responses_tx, failure.response()).await?;
+            admit_inline_response(responses_tx, failure.response(), "protocol error");
             return Ok(());
         }
     };
 
+    // Notifications are control-plane input. They bypass ordinary request and response capacity.
     if request.id.is_notification() {
         handle_notification(active_reads, session, request).await;
         return Ok(());
     }
 
+    // Initialize is session control and does not consume an ordinary request slot. Its immediate
+    // response is admitted without awaiting a saturated writer queue so later cancellation and EOF
+    // remain observable.
     if request.method == "initialize" {
         let id = request.id.response_value();
         let result = handle_initialize(request.params, session).await;
-        send_response(responses_tx, response_json(id, result)).await?;
+        admit_inline_response(responses_tx, response_json(id, result), "initialize");
         return Ok(());
     }
 
@@ -146,9 +148,7 @@ pub(super) async fn process_line(
                 max_in_flight_requests,
             ))),
         );
-        responses_tx
-            .try_send(response)
-            .context("MCP response queue is saturated while rejecting an overloaded request")?;
+        admit_inline_response(responses_tx, response, "overload rejection");
         return Ok(());
     }
 
@@ -175,6 +175,31 @@ pub(super) async fn process_line(
         send_response(&responses_tx, response_json(id, response)).await
     });
     Ok(())
+}
+
+async fn close_stdin(active_reads: &ActiveReads, stdin_open: &mut bool) {
+    *stdin_open = false;
+    cancel_all(active_reads).await;
+}
+
+/// Admits responses produced directly by the reader/control loop without awaiting queue capacity.
+///
+/// Ordinary request tasks retain bounded `send().await` backpressure. Inline responses must not hold
+/// the only stdin reader while the queue is full, because that would starve cancellation and EOF.
+fn admit_inline_response(
+    responses: &mpsc::Sender<String>,
+    response: String,
+    response_kind: &str,
+) {
+    match responses.try_send(response) {
+        Ok(()) => {}
+        Err(TrySendError::Full(_)) => eprintln!(
+            "MCP {response_kind} response dropped because the bounded response queue is saturated"
+        ),
+        Err(TrySendError::Closed(_)) => eprintln!(
+            "MCP {response_kind} response dropped because the response writer is unavailable"
+        ),
+    }
 }
 
 async fn write_responses<W>(
