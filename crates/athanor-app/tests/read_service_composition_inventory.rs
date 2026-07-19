@@ -2,6 +2,7 @@ const APP_LIB_SOURCE: &str = include_str!("../src/lib.rs");
 const SEARCH_FACADE_SOURCE: &str = include_str!("../src/search_facade.rs");
 const EXPLAIN_SOURCE: &str = include_str!("../src/explain.rs");
 const API_REGISTRY_SOURCE: &str = include_str!("../src/api_registry.rs");
+const GRAPH_OPERATION_SOURCE: &str = include_str!("../src/graph_operation.rs");
 
 const CHANGE_MAP_ROOT: &str = include_str!("../src/change_map.rs");
 const CHANGE_MAP_MODEL: &str = include_str!("../src/change_map/model.rs");
@@ -75,6 +76,38 @@ fn search_compatibility_apis_are_removed() {
     assert!(!SEARCH_FACADE_SOURCE.contains("crate::test_runtime::composition()"));
     assert!(!SEARCH_FACADE_SOURCE.contains("use anyhow::bail;"));
     assert!(!SEARCH_FACADE_SOURCE.contains("use std::sync::Arc;"));
+}
+
+#[test]
+fn graph_operation_reads_require_explicit_composition() {
+    for entrypoint in [
+        "pub async fn export_graph_with_composition_and_operation_context(",
+        "pub async fn related_graph_with_composition_and_operation_context(",
+        "pub async fn shortest_graph_path_with_composition_and_operation_context(",
+        "pub async fn graph_hubs_with_composition_and_operation_context(",
+        "pub async fn graph_pagerank_with_composition_and_operation_context(",
+        "pub async fn graph_cycles_with_composition_and_operation_context(",
+    ] {
+        assert!(GRAPH_OPERATION_SOURCE.contains(entrypoint));
+    }
+    for legacy in [
+        "pub async fn export_graph_with_operation_context(",
+        "pub async fn related_graph_with_operation_context(",
+        "pub async fn shortest_graph_path_with_operation_context(",
+        "pub async fn graph_hubs_with_operation_context(",
+        "pub async fn graph_pagerank_with_operation_context(",
+        "pub async fn graph_cycles_with_operation_context(",
+    ] {
+        assert!(!GRAPH_OPERATION_SOURCE.contains(legacy));
+    }
+    assert!(GRAPH_OPERATION_SOURCE.contains("composition: &RuntimeComposition"));
+    assert!(GRAPH_OPERATION_SOURCE.contains("composition.init_store(&root, &config)"));
+    assert!(GRAPH_OPERATION_SOURCE.contains(
+        "load_latest_snapshot_with_operation_context(operation)"
+    ));
+    assert!(!GRAPH_OPERATION_SOURCE.contains("Option<&RuntimeComposition>"));
+    assert!(!GRAPH_OPERATION_SOURCE.contains("crate::store::init_store"));
+    assert!(!GRAPH_OPERATION_SOURCE.contains("match composition"));
 }
 
 #[test]
@@ -213,6 +246,7 @@ fn read_service_modules_remain_bounded() {
         ("Coverage execution", COVERAGE_EXECUTION, 100),
         ("Coverage aggregation", COVERAGE_AGGREGATION, 380),
         ("Coverage tests", COVERAGE_TESTS, 180),
+        ("Graph operation", GRAPH_OPERATION_SOURCE, 330),
         ("Search facade", SEARCH_FACADE_SOURCE, 100),
         ("API registry", API_REGISTRY_SOURCE, 300),
     ] {
