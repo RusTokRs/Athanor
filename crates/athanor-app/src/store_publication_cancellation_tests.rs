@@ -65,7 +65,10 @@ async fn committed_terminal_errors_are_reconciled_to_publication_success() {
         .await
         .expect("exact committed snapshot must preserve durable publication success");
 
-        assert_eq!(outcome.read_model.snapshot, fixture.snapshot.0);
+        assert_eq!(
+            outcome.read_model.snapshot.as_str(),
+            fixture.snapshot.0.as_str()
+        );
         assert_published(&fixture).await;
         fixture.cleanup();
     }
@@ -89,7 +92,10 @@ async fn cancellation_after_commit_does_not_override_publication_success() {
 
     assert!(fixture.cancellation.is_cancelled());
     assert!(fixture.operation.is_cancelled());
-    assert_eq!(outcome.read_model.snapshot, fixture.snapshot.0);
+    assert_eq!(
+        outcome.read_model.snapshot.as_str(),
+        fixture.snapshot.0.as_str()
+    );
     assert_published(&fixture).await;
     fixture.cleanup();
 }
@@ -217,7 +223,11 @@ fn assert_publication_journals_cleared(root: &std::path::Path) {
         root.join(".athanor/state/index-publication.json"),
         root.join(".athanor/state/index-current-publication.json"),
     ] {
-        assert!(!path.exists(), "publication journal remains at {}", path.display());
+        assert!(
+            !path.exists(),
+            "publication journal remains at {}",
+            path.display()
+        );
     }
 }
 
