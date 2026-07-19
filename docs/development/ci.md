@@ -2,22 +2,38 @@
 id: doc://docs/development/ci.md
 kind: developer_guide
 language: en
-last_verified_snapshot: snap_jsonl_00000272
 source_language: en
-status: verified
+status: active
 ---
 # Continuous Integration
 
 Athanor defines workflows for quality, optional features, store conformance, coverage, AppSec,
 installers, and releases.
 
-## Hosted status
+## Evidence rules
 
-Workflow files are present on `main`, but the public Actions page currently shows onboarding instead
-of runs. The connector also returns no push-run or commit-status evidence. Hosted checks, artifacts,
-and enforcement remain unverified until Actions are enabled or made visible.
+Workflow YAML is implementation evidence, not execution evidence. A package may be described as
+verified only when one completed successful CI run identifies the exact commit that was checked.
 
-Never mark a hosted item complete from workflow YAML alone.
+The `CI` workflow runs on pushes to `main`, pull requests, and manual dispatch. After a successful
+push run for `main`, `.github/workflows/verification-evidence.yml` records:
+
+- schema `athanor.verification_evidence.v1`;
+- the exact CI `head_sha`;
+- workflow run id and URL;
+- conclusion and completion timestamp;
+- the matrix represented by that run.
+
+The evidence is written to `docs/development/verification-evidence.json` by a dedicated
+`workflow_run` job with `contents: write`. Only successful `push` runs whose `head_branch` is `main`
+are eligible. Pull-request runs and failed or cancelled runs cannot publish evidence.
+
+The evidence-only commit changes only that JSON file. The main CI workflow ignores that path, which
+prevents an evidence commit from recursively creating another CI run. The evidence file proves the
+recorded `head_sha`; it does not automatically prove unrelated later changes.
+
+If the evidence file is absent, malformed, stale for the claim being made, or references a non-success
+run, the current architecture status remains implemented, not verified.
 
 ## Workspace quality
 
@@ -30,7 +46,7 @@ cargo run -p ath --quiet --locked -- docs check
 ```
 
 The quality matrix is configured for Linux, Windows, and macOS with Rust `1.95.0`. Optional Linux
-slices cover default/no-default, `store-surreal`, `js-ts-precision`, and `--all-features` with
+slices cover default, `store-surreal`, `js-ts-precision`, and `--all-features` with
 `fail-fast: false`.
 
 ## Store conformance
@@ -153,8 +169,8 @@ cargo llvm-cov report --json --summary-only --output-path coverage/summary.json
 cargo llvm-cov report --html --output-dir coverage/html
 ```
 
-Coverage remains observational until the first hosted artifact establishes a baseline. Do not invent
-a threshold.
+Coverage remains observational until a hosted artifact establishes a baseline. Do not invent a
+threshold.
 
 ## AppSec and release integrity
 
