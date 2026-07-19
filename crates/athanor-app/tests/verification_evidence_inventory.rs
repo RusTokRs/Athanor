@@ -81,6 +81,29 @@ fn evidence_only_commit_cannot_create_a_ci_loop() {
 }
 
 #[test]
+fn ci_publishes_exact_status_after_all_matrix_jobs() {
+    for required in [
+        "verification-status:",
+        "if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}",
+        "needs: [security, quality, feature-matrix, coverage]",
+        "statuses: write",
+        "SECURITY_RESULT: ${{ needs.security.result }}",
+        "QUALITY_RESULT: ${{ needs.quality.result }}",
+        "FEATURE_RESULT: ${{ needs.feature-matrix.result }}",
+        "COVERAGE_RESULT: ${{ needs.coverage.result }}",
+        "context\": \"athanor/verification-matrix",
+        "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA",
+    ] {
+        assert!(
+            CI_WORKFLOW.contains(required),
+            "CI exact status owner omits {required}"
+        );
+    }
+    assert!(CI_WORKFLOW.contains("Athanor verification matrix passed"));
+    assert!(CI_WORKFLOW.contains("Athanor verification matrix failed"));
+}
+
+#[test]
 fn workflow_records_the_matrix_claimed_by_the_ci_guide() {
     for command in [
         "cargo-deny check",
@@ -103,6 +126,8 @@ fn workflow_records_the_matrix_claimed_by_the_ci_guide() {
         VERIFICATION_EVIDENCE_SCHEMA_V1,
         "the exact CI `head_sha`",
         "Only successful `push` runs whose `head_branch` is `main`",
+        "athanor/verification-matrix",
+        "legacy commit status",
         "implemented, not verified",
     ] {
         assert!(CI_GUIDE.contains(invariant), "CI guide omits {invariant}");
@@ -185,9 +210,9 @@ fn optional_recorded_evidence_is_strictly_validated() {
 #[test]
 fn verification_evidence_owners_remain_bounded() {
     for (name, source, max_lines) in [
-        ("CI workflow", CI_WORKFLOW, 210),
+        ("CI workflow", CI_WORKFLOW, 280),
         ("evidence workflow", EVIDENCE_WORKFLOW, 100),
-        ("CI guide", CI_GUIDE, 230),
+        ("CI guide", CI_GUIDE, 240),
     ] {
         let lines = source.lines().count();
         assert!(lines <= max_lines, "{name} grew to {lines} lines");
