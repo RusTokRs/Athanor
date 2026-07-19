@@ -3,6 +3,9 @@ const SEARCH_FACADE_SOURCE: &str = include_str!("../src/search_facade.rs");
 const EXPLAIN_SOURCE: &str = include_str!("../src/explain.rs");
 const API_REGISTRY_SOURCE: &str = include_str!("../src/api_registry.rs");
 const GRAPH_OPERATION_SOURCE: &str = include_str!("../src/graph_operation.rs");
+const REPAIR_LATEST_SOURCE: &str = include_str!("../src/repair_latest.rs");
+const REPAIR_COMPOSITION_SOURCE: &str = include_str!("../src/repair_composition.rs");
+const REPAIR_DIRECT_SOURCE: &str = include_str!("../src/repair_composition/direct.rs");
 
 const CHANGE_MAP_ROOT: &str = include_str!("../src/change_map.rs");
 const CHANGE_MAP_MODEL: &str = include_str!("../src/change_map/model.rs");
@@ -108,6 +111,29 @@ fn graph_operation_reads_require_explicit_composition() {
     assert!(!GRAPH_OPERATION_SOURCE.contains("Option<&RuntimeComposition>"));
     assert!(!GRAPH_OPERATION_SOURCE.contains("crate::store::init_store"));
     assert!(!GRAPH_OPERATION_SOURCE.contains("match composition"));
+}
+
+#[test]
+fn repair_latest_has_one_composition_execution_owner() {
+    assert!(REPAIR_LATEST_SOURCE.contains("pub struct RepairCanonicalLatestOptions"));
+    assert!(REPAIR_LATEST_SOURCE.contains("pub struct RepairCanonicalLatestReport"));
+    assert!(!REPAIR_LATEST_SOURCE.contains("pub async fn repair_canonical_latest("));
+    assert!(!REPAIR_LATEST_SOURCE.contains("crate::store::init_store"));
+    assert!(!REPAIR_LATEST_SOURCE.contains("repair_canonical_latest_with_store"));
+
+    assert!(REPAIR_COMPOSITION_SOURCE.contains(
+        "pub async fn repair_canonical_latest_with_composition("
+    ));
+    assert!(REPAIR_COMPOSITION_SOURCE.contains("direct::repair_latest(options, composition).await"));
+    assert!(REPAIR_DIRECT_SOURCE.contains("pub(super) async fn repair_latest("));
+    assert!(REPAIR_DIRECT_SOURCE.contains("composition: &RuntimeComposition"));
+    assert!(REPAIR_DIRECT_SOURCE.contains("composition.init_store(&root, &config)"));
+    assert!(REPAIR_DIRECT_SOURCE.contains(
+        "async fn repairs_corrupt_jsonl_latest_to_authoritative_generation()"
+    ));
+    assert!(!REPAIR_DIRECT_SOURCE.contains("crate::store::init_store"));
+    assert!(!REPAIR_DIRECT_SOURCE.contains("Option<&RuntimeComposition>"));
+    assert!(!REPAIR_DIRECT_SOURCE.contains("match composition"));
 }
 
 #[test]
@@ -247,6 +273,9 @@ fn read_service_modules_remain_bounded() {
         ("Coverage aggregation", COVERAGE_AGGREGATION, 380),
         ("Coverage tests", COVERAGE_TESTS, 180),
         ("Graph operation", GRAPH_OPERATION_SOURCE, 330),
+        ("Repair latest model", REPAIR_LATEST_SOURCE, 60),
+        ("Repair composition root", REPAIR_COMPOSITION_SOURCE, 50),
+        ("Repair direct execution", REPAIR_DIRECT_SOURCE, 380),
         ("Search facade", SEARCH_FACADE_SOURCE, 100),
         ("API registry", API_REGISTRY_SOURCE, 300),
     ] {
