@@ -1,6 +1,8 @@
 const DOCS_INDEX: &str = include_str!("../../../docs/README.md");
 const ROADMAP: &str = include_str!("../../../docs/development/roadmap-status.md");
 const PIPELINE: &str = include_str!("../../../docs/architecture/pipeline.md");
+const OPERATION_CONTEXT: &str =
+    include_str!("../../../docs/development/direct-operation-context.md");
 const PLAN: &str = include_str!("../../../athanor_implementation_plan_ru.md");
 
 #[test]
@@ -86,21 +88,44 @@ fn pipeline_separates_current_target_and_history() {
 fn implementation_plan_matches_documentation_status() {
     for completed in [
         "### 3.4 `DOC-001` / `DOC-002` — documentation status hygiene",
+        "### 3.5 `MCP-004` — control-plane responsiveness",
         "| `DOC-001` | P3 | `[x] implemented` |",
         "| `DOC-002` | P3 | `[x] implemented` |",
+        "| `MCP-004` | P1 | `[x] implemented` |",
         "cargo test -p athanor-app --test documentation_status_inventory --locked",
+        "cargo test -p athanor-transport-mcp --test control_plane_saturation_inventory --locked",
     ] {
         assert!(PLAN.contains(completed), "plan is missing {completed}");
     }
-    assert!(PLAN.contains("### 4.1 `MCP-004` — control-plane responsiveness"));
-    assert!(ROADMAP.contains("### `DOC-001` / `DOC-002`"));
-    assert!(ROADMAP.contains("### `MCP-004`"));
+    assert!(PLAN.contains("### 4.1 `VERIFY-001` — execution matrix"));
 
-    let docs_package = ROADMAP
-        .find("### `DOC-001` / `DOC-002`")
-        .expect("roadmap docs package");
     let active_work = ROADMAP.find("## Active Work").expect("roadmap active work");
-    assert!(docs_package < active_work, "completed docs package remains active");
+    for package in ["### `DOC-001` / `DOC-002`", "### `MCP-004`"] {
+        let position = ROADMAP.find(package).unwrap_or_else(|| panic!("roadmap omits {package}"));
+        assert!(position < active_work, "completed package {package} remains active");
+    }
+    assert!(ROADMAP[active_work..].contains("### `VERIFY-001`"));
+}
+
+#[test]
+fn mcp_control_plane_documentation_matches_implementation_status() {
+    for invariant in [
+        "## MCP Request And Control-Plane Lifecycle",
+        "### Control Input Priority",
+        "### Saturated Response Queue",
+        "### Disconnect",
+        "nonblocking admission",
+        "Ordinary request tasks retain bounded",
+        "cargo test -p athanor-transport-mcp --test control_plane_saturation_inventory --locked",
+    ] {
+        assert!(
+            OPERATION_CONTEXT.contains(invariant),
+            "operation context guide omits {invariant}"
+        );
+    }
+    assert!(!OPERATION_CONTEXT.contains(
+        "Resolve control-plane responsiveness under full ordinary-request saturation"
+    ));
 }
 
 #[test]
@@ -130,6 +155,7 @@ fn architecture_status_documents_remain_bounded() {
         ("documentation index", DOCS_INDEX, 220),
         ("roadmap", ROADMAP, 240),
         ("pipeline", PIPELINE, 380),
+        ("operation context", OPERATION_CONTEXT, 260),
         ("implementation plan", PLAN, 320),
     ] {
         let lines = source.lines().count();
