@@ -107,16 +107,15 @@ daemon, and MCP Index paths serialize one typed `IndexReport` contract.
 - schema-less external process protocol inventory;
 - typed public report transport parity.
 
-## Active Work
-
 ### `DOC-001` / `DOC-002`
 
-Documentation status hygiene and architecture alignment:
+- aggregate snapshot-era verification claims removed from the roadmap;
+- deleted monolith references replaced with bounded owner paths;
+- pipeline current architecture, target work, and history separated;
+- roadmap, pipeline guide, and implementation plan synchronized;
+- source inventory added for status, path, section, alignment, and line-budget invariants.
 
-- remove aggregate claims that imply current-commit execution evidence;
-- replace references to deleted monolith paths with active bounded owners;
-- keep pipeline current architecture, target work, and history in separate sections;
-- keep this roadmap, architecture guides, and the implementation plan synchronized.
+## Active Work
 
 ### `MCP-004`
 
