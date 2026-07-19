@@ -1,13 +1,13 @@
 use std::collections::{BTreeSet, HashMap};
 use std::path::PathBuf;
 
-use crate::config::load_config;
-use crate::store::init_store;
 use anyhow::{Context, Result};
 use athanor_core::CanonicalSnapshotStore;
 use athanor_domain::{EntityKind, RelationKind};
 use serde::Serialize;
 
+use crate::RuntimeComposition;
+use crate::config::load_config;
 use crate::project_path::normalize_canonical_path;
 
 pub const API_REGISTRY_SCHEMA: &str = "athanor.api_registry.v1";
@@ -35,7 +35,11 @@ pub struct ApiRegistryReport {
     pub endpoints: Vec<ApiRegistryEndpoint>,
 }
 
-pub async fn query_api_registry(options: ApiRegistryOptions) -> Result<ApiRegistryReport> {
+/// Builds the API registry with explicitly supplied runtime dependencies.
+pub async fn query_api_registry_with_composition(
+    options: ApiRegistryOptions,
+    composition: &RuntimeComposition,
+) -> Result<ApiRegistryReport> {
     let root = normalize_canonical_path(
         options
             .root
@@ -43,7 +47,7 @@ pub async fn query_api_registry(options: ApiRegistryOptions) -> Result<ApiRegist
             .with_context(|| format!("failed to canonicalize {}", options.root.display()))?,
     );
     let config = load_config(&root)?;
-    let store = init_store(&root, &config).await?;
+    let store = composition.init_store(&root, &config).await?;
     let canonical = store
         .load_latest_snapshot()
         .await
@@ -83,7 +87,6 @@ pub async fn query_api_registry(options: ApiRegistryOptions) -> Result<ApiRegist
         let operation_id = entity.payload["operation_id"].as_str().map(str::to_string);
         let summary = entity.payload["summary"].as_str().map(str::to_string);
 
-        // Find linked handler (RelationKind::ImplementedBy)
         let mut handler = None;
         for relation in &canonical.relations {
             if relation.kind == RelationKind::ImplementedBy
@@ -95,7 +98,6 @@ pub async fn query_api_registry(options: ApiRegistryOptions) -> Result<ApiRegist
             }
         }
 
-        // Find linked documentation
         let mut documentation = BTreeSet::new();
         for relation in &canonical.relations {
             if relation.to == entity.id
@@ -255,21 +257,28 @@ mod tests {
 
         store.commit_snapshot(snapshot.clone()).await.unwrap();
 
-        let report = query_api_registry(ApiRegistryOptions { root: root.clone() })
-            .await
-            .unwrap();
+        let composition = crate::test_runtime::composition();
+        let report = query_api_registry_with_composition(
+            ApiRegistryOptions { root: root.clone() },
+            &composition,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(report.snapshot, snapshot.0);
         assert_eq!(report.endpoints.len(), 1);
-        let ep = &report.endpoints[0];
-        assert_eq!(ep.stable_key, "api://POST:/login");
-        assert_eq!(ep.method, "POST");
-        assert_eq!(ep.path, "/login");
-        assert_eq!(ep.operation_id.as_deref(), Some("login"));
-        assert_eq!(ep.summary.as_deref(), Some("User Login"));
-        assert_eq!(ep.handler.as_deref(), Some("symbol://rust:auth::login"));
+        let endpoint = &report.endpoints[0];
+        assert_eq!(endpoint.stable_key, "api://POST:/login");
+        assert_eq!(endpoint.method, "POST");
+        assert_eq!(endpoint.path, "/login");
+        assert_eq!(endpoint.operation_id.as_deref(), Some("login"));
+        assert_eq!(endpoint.summary.as_deref(), Some("User Login"));
         assert_eq!(
-            ep.documentation,
+            endpoint.handler.as_deref(),
+            Some("symbol://rust:auth::login")
+        );
+        assert_eq!(
+            endpoint.documentation,
             vec!["doc://docs/auth.md#login".to_string()]
         );
 

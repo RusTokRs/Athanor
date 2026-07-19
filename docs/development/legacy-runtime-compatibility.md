@@ -6,9 +6,15 @@ indexing do not install or read process-global runtime factories.
 
 ## Current state
 
-`COMP-003A`, `COMP-003B1`, `COMP-003B2`, `COMP-003C1`, `COMP-003C2A`, `COMP-003C2B1`,
-`COMP-003C2B2A`, `COMP-003C2B2B1`, `COMP-003C2B2B2A`, `COMP-003C2B2B2B`,
-`COMP-003C2B2C1` and `COMP-003C2B2C2A` are implemented.
+The following migration packages are implemented in `main`:
+
+- `COMP-003A`, `COMP-003B1`, `COMP-003B2`;
+- `COMP-003C1`, `COMP-003C2A`, `COMP-003C2B1`;
+- `COMP-003C2B2A`, `COMP-003C2B2B1`, `COMP-003C2B2B2A`, `COMP-003C2B2B2B`;
+- `COMP-003C2B2C1`, `COMP-003C2B2C2A`;
+- composition-only slices of `COMP-003C2B2C2B` listed below.
+
+Implemented invariants:
 
 - the former Store task-local bridge and factory-introspection helpers are removed;
 - `legacy-global-runtime` is removed from Cargo features and CI;
@@ -17,92 +23,107 @@ indexing do not install or read process-global runtime factories.
 - unit tests use a fresh local `test_runtime::composition()` rather than installation;
 - `RuntimeBuilder::new` has no production built-ins or hidden resolver fallback;
 - parallel Store/Search/Wiki/HTML compositions have an isolation regression matrix;
-- dead no-composition Validate and Search project wrappers are removed;
 - normal and operation-aware Context cores route Store/Search only through supplied composition;
-- public no-composition Context and derived-read operation wrappers are removed;
-- the obsolete `context.rs` and `rustok_operation.rs` owners are physically deleted;
-- RusTok Context execution is owned by `rustok_composition_operation.rs`;
-- daemon snapshot/search queries, derived reads and write jobs are composition-only;
-- `DaemonState.composition` is mandatory and the only daemon serve entrypoint is
-  `serve_daemon_with_composition`;
+- daemon host, queries, derived reads and write jobs require composition;
 - Index, Generation, Wiki, HTML report and benchmark public APIs require composition;
-- write-service Store, RuntimeBuilder and projector fallback branches are removed;
-- stable indexing re-exports expose only composition-aware entrypoints.
+- Search, Explain, ChangeMap, API Registry, Overview, Capabilities, Impact and Coverage require
+  composition;
+- standard operation-aware Graph reads require composition;
+- Repair latest/recovery execution has one composition owner;
+- Docs check, drift, proposal and patch execution routes only through composition owners.
 
 There is no process-global runtime state or runtime installer API in the application and default
 runtime crates.
 
-## Context migration status
+## Context migration
 
-`COMP-009` exposed a compile-level inconsistency after `COMP-003C2B1`: the old active Context owner
-still called a removed Search wrapper. The active `context_composition.rs` owner uses
-`get_or_build_search_index_with_factory` and `RuntimeComposition::build_search_index` directly.
+The active `context_composition.rs` owner uses supplied Store/Search factories directly. Normal and
+operation-aware cores accept mandatory `&RuntimeComposition`.
 
-The operation-aware core receives mandatory composition and uses
-`RuntimeComposition::init_store` and `build_search_index_with_operation_context`. Imports of
-no-composition Store/Search helpers and internal `Option<RuntimeComposition>` branches are gone.
+Removed compatibility surface:
 
-`COMP-003C2B2C2A` completes the Context compatibility cleanup:
-
-- `context_project` is removed;
-- `context_project_with_operation_context` is removed;
-- no-composition ChangeMap and Search operation wrappers are removed;
-- the old 823-line `context.rs` owner is deleted rather than retained as quarantine;
-- duplicate no-composition RusTok operation execution is deleted;
-- the RusTok architecture model contains only contracts and pure snapshot transformation;
-- source enforcement checks physical owner absence and composition-only routing.
+- `context_project`;
+- `context_project_with_operation_context`;
+- no-composition ChangeMap and Search operation wrappers;
+- the obsolete `context.rs` owner;
+- duplicate `rustok_operation.rs` execution.
 
 Context pack ranking, relation expansion, diagnostics and explicit limit behavior remain covered by
 integration regressions.
 
-## Daemon migration status
+## Daemon migration
 
-`COMP-003C2B2B2A/B` completes explicit composition through daemon execution and construction:
+Daemon construction and execution are composition-only:
 
-- `daemon_queries` creates Store and Search only from `DaemonState.composition`;
-- derived Context and ChangeMap dispatch calls only composition-aware operations;
-- Index, Generate, Wiki and HTML jobs call only composition-aware cancellable APIs;
-- the daemon state cannot be constructed without a `RuntimeComposition`;
-- legacy `serve_daemon` and optional `serve_daemon_inner` are removed;
-- the former giant `daemon.rs::execute_request` owner is removed;
-- read dispatch delegates control/write requests to the bounded command dispatcher;
-- source enforcement prevents optional host state, fallback services and duplicate dispatch from
-  returning.
+- `DaemonState.composition` is mandatory;
+- the public serve API is `serve_daemon_with_composition`;
+- snapshot/search queries use Store and Search from daemon composition;
+- derived Context and ChangeMap dispatch invokes composition-aware operations;
+- Index, Generate, Wiki and HTML jobs use composition-aware APIs;
+- command dispatch is separated from transport lifecycle;
+- source enforcement prevents optional host state and fallback services from returning.
 
-`athd` already passed production composition explicitly, so the production command line remains on
-the same supported path while external embedders must use the explicit serve API.
+## Write-service migration
 
-## Write-service migration status
+Index, Generation, Wiki, HTML report and benchmark expose only composition-aware execution.
+Generation workers clone the supplied composition for parallel projection. Store, RuntimeBuilder and
+projector fallback branches are removed.
 
-`COMP-003C2B2C1` removes dependency-free signatures from every write-service family:
+The CLI, daemon and MCP were already using the retained composition-aware symbols, so removal of the
+old entrypoints did not require replacement shims.
 
-- Index exposes normal and cancellable composition-aware calls, with optional operation metadata;
-- Generation exposes normal and cancellable composition-aware calls, with optional operation
-  metadata;
-- Wiki and HTML report expose normal and cancellable composition-aware calls, with optional
-  operation metadata;
-- benchmark indexing requires composition and invokes the same composition-aware Index path;
-- Generation workers clone the supplied composition for parallel Wiki and HTML projection;
-- no write-service core imports `crate::store::init_store`;
-- no write-service core accepts `Option<RuntimeComposition>`;
-- `projection.rs` contains only projection schema constants and the projector factory contract.
+## Read-service migration
 
-The CLI, daemon and MCP were already using the retained composition-aware symbols, so this package
-removes misleading embedding APIs without adding replacement shims.
+The following read owners are composition-only and source-enforced:
 
-## Remaining no-composition compatibility surface
+- Search and operation-aware snapshot Search;
+- Explain;
+- ChangeMap;
+- API Registry;
+- Overview;
+- Capabilities;
+- Impact;
+- Coverage;
+- standard operation-aware Graph reads.
 
-`COMP-003C2B2C2B` is the remaining composition cleanup package:
+ChangeMap, Overview, Capabilities, Impact and Coverage are split into conventional bounded modules
+without `include!` or forwarding facades.
 
-1. remove the Store facade `init_store` compatibility edge;
-2. migrate read-service owners that still import `crate::store::init_store` or accept optional
-   composition;
-3. make ChangeMap composition-only and route task search through supplied composition;
-4. remove snapshot Search and operation-aware Search-index compatibility edges;
-5. update stable re-exports, tests, examples and architecture documentation.
+## Repair and Docs migration
 
-This surface is state-free, but signatures that omit required dependencies remain misleading for
-embedders and must not be used by new integrations.
+Repair latest and publication recovery models remain in `repair_latest.rs` and
+`repair_recovery.rs`. Their duplicate no-composition execution paths are removed. Execution is owned
+by `repair_composition/direct.rs` and exposed through:
+
+```rust,ignore
+repair_canonical_latest_with_composition(options, &composition).await?;
+recover_index_publication_with_composition(options, &composition).await?;
+```
+
+The old `docs/service.rs` owner is physically deleted. Documentation operations are exposed only
+through the composition facade:
+
+```rust,ignore
+check_docs_with_composition(options, &composition).await?;
+docs_drift_with_composition(options, &composition).await?;
+docs_propose_fix_with_composition(options, &composition).await?;
+docs_apply_patch_with_composition(options, &composition).await?;
+```
+
+## Remaining compatibility surface
+
+`COMP-003C2B2C2B` remains active until these production owners are migrated:
+
+1. `graph.rs` — no-composition standard and RusTok project loaders plus a 4.8k-line mixed owner;
+2. `check.rs` — diagnostic, affected-file and operations-docs Store fallbacks;
+3. `api.rs` — API contract snapshot Store fallback;
+4. public `store::init_store` facade, removable after all callers are migrated.
+
+`graph_operation.rs` is already composition-only. The remaining `graph.rs` work is a physical owner
+split, not an operation-context migration.
+
+New integrations must not call `crate::store::init_store` or introduce APIs that omit required
+runtime dependencies.
 
 ## Breaking change for embedders
 
@@ -112,73 +133,44 @@ Replace installer/bootstrap code:
 athanor_runtime_defaults::install();
 ```
 
-with an owned or shared composition passed explicitly:
+with an owned or shared composition:
 
 ```rust,ignore
 let composition = athanor_runtime_defaults::production();
 let report = athanor_app::index_project_with_composition(options, &composition).await?;
 ```
 
-Daemon hosts must use:
+Daemon hosts use:
 
 ```rust,ignore
 athanor_app::serve_daemon_with_composition(options, composition).await?;
 ```
 
-Removed write-service entrypoints map directly to composition-aware variants:
+Read and write services follow the same pattern:
 
 ```rust,ignore
-// before
-athanor_app::index_project(options).await?;
-athanor_app::generate_project(options).await?;
-athanor_app::project_wiki(options).await?;
-athanor_app::project_html_report(options).await?;
-athanor_app::benchmark_index(options).await?;
-
-// after
-athanor_app::index_project_with_composition(options, &composition).await?;
+athanor_app::overview_project_with_composition(options, &composition).await?;
 athanor_app::generate_project_with_composition(options, &composition).await?;
-athanor_app::project_wiki_with_composition(options, &composition).await?;
-athanor_app::project_html_report_with_composition(options, &composition).await?;
-athanor_app::benchmark_index_with_composition(options, &composition).await?;
-```
-
-Context and operation-aware callers migrate directly:
-
-```rust,ignore
-let pack = athanor_app::context_project_with_composition(options, &composition).await?;
-let report = athanor_app::context_project_with_composition_and_operation_context(
+athanor_app::context_project_with_composition_and_operation_context(
     options,
     &composition,
     &operation,
 ).await?;
 ```
 
-The removed functions do not have compatibility aliases, implicit test runtimes or replacement
-setters.
+Removed functions do not have compatibility aliases, implicit test runtimes or replacement setters.
 
 ## Enforcement
 
-`crates/athanor-app/tests/legacy_factory_migration.rs` verifies that Cargo, CI, Runtime,
-Projection, Store, Search and runtime-default sources contain no process-global state, legacy
-feature wiring, installer functions or removed no-composition wrappers.
+The migration is source-enforced by:
 
-`crates/athanor-app/tests/write_service_composition_inventory.rs` verifies composition-only Index,
-Generation, Wiki, HTML and benchmark signatures, mandatory Store/projector routing, stable
-re-exports, active CLI callers and bounded owners.
+- `legacy_factory_migration.rs` — Cargo, CI, Runtime, Projection, Store and Search global/runtime
+  compatibility removal;
+- `write_service_composition_inventory.rs` — Index, Generation, Wiki, HTML and benchmark;
+- `context_composition_inventory.rs` — Context and RusTok composition routing;
+- `daemon_composition_inventory.rs` — daemon host/query/read/write execution;
+- `read_service_composition_inventory.rs` — Search, read owners, Graph operation, Repair and Docs;
+- `composition_isolation.rs` — parallel independent Store/Search/Wiki/HTML compositions.
 
-`crates/athanor-app/tests/context_composition_inventory.rs` verifies mandatory normal and
-operation-aware Context routing, composition-owned RusTok execution, removal of no-composition
-operation APIs, and physical deletion of obsolete Context/RusTok owners.
-
-`crates/athanor-app/tests/context_pack_behavior.rs` preserves ranking, relation expansion,
-diagnostic inclusion and limit behavior from the replaced Context owner.
-
-`crates/athanor-app/tests/composition_isolation.rs` exercises two distinct compositions in parallel
-and checks independent Store, Search, Wiki and HTML factory routing.
-
-`crates/athanor-app/tests/daemon_composition_inventory.rs` verifies mandatory daemon host state,
-composition-only query/read/write execution, bounded dispatch ownership and bounded test owners.
-
-The regressions are present in `main`, but execution evidence still requires the Rust test and
-Clippy matrix recorded in `athanor_implementation_plan_ru.md`.
+The regressions are present in `main`, but implementation status is not promoted to `verified` until
+the Rust test and Clippy matrix in `athanor_implementation_plan_ru.md` runs on one commit.

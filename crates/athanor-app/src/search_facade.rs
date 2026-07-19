@@ -1,13 +1,10 @@
-//! Compatibility facade for Search APIs during the remaining ChangeMap migration.
+//! Composition-only public facade for Search APIs.
 //!
-//! Composition-aware APIs are the production path. The sole remaining no-composition snapshot
-//! helper is retained only until ChangeMap receives explicit runtime composition.
+//! External callers and internal read services must supply `RuntimeComposition`.
 
 use std::path::Path;
 
 use anyhow::Result;
-#[cfg(not(test))]
-use anyhow::bail;
 use athanor_core::{CanonicalSnapshot, OperationContext, SearchIndex};
 
 use crate::RuntimeComposition;
@@ -66,32 +63,6 @@ pub async fn search_snapshot_with_composition_and_operation_context(
         operation,
     )
     .await
-}
-
-pub async fn search_snapshot(
-    root: &Path,
-    snapshot: &CanonicalSnapshot,
-    query: String,
-    limit: usize,
-) -> Result<SearchReport> {
-    #[cfg(test)]
-    {
-        let composition = crate::test_runtime::composition();
-        return core::search_snapshot_with_composition(
-            root,
-            snapshot,
-            query,
-            limit,
-            &composition,
-        )
-        .await;
-    }
-
-    #[cfg(not(test))]
-    {
-        let _ = (root, snapshot, query, limit);
-        bail!("explicit RuntimeComposition is required for snapshot search")
-    }
 }
 
 pub async fn search_snapshot_with_index(
