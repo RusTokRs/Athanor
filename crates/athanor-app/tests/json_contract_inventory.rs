@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -179,12 +180,16 @@ fn collect_rust_sources(path: &Path, sources: &mut Vec<PathBuf>) {
             }
             continue;
         }
-        if !file_type.is_file() || child.extension().and_then(|ext| ext.to_str()) != Some("rs") {
+        if !file_type.is_file() || child.extension().and_then(OsStr::to_str) != Some("rs") {
+            continue;
+        }
+        let stem = child.file_stem().and_then(OsStr::to_str).unwrap_or_default();
+        if stem == "tests" || stem.ends_with("_test") || stem.ends_with("_tests") {
             continue;
         }
         if child
             .components()
-            .any(|component| component.as_os_str() == "src")
+            .any(|component| component.as_os_str() == OsStr::new("src"))
         {
             sources.push(child);
         }
@@ -193,7 +198,7 @@ fn collect_rust_sources(path: &Path, sources: &mut Vec<PathBuf>) {
 
 fn production_prefix(source: &str) -> &str {
     source
-        .find("#[cfg(test)]")
+        .find("#[cfg(test)]\nmod tests")
         .map(|offset| &source[..offset])
         .unwrap_or(source)
 }
