@@ -152,7 +152,7 @@ jobs:
           esac
           cargo check --workspace ${FEATURES} --locked
           cargo test --workspace --quiet ${FEATURES} --locked
-          cargo clippy --workspace --all-targetS ${FEATURES} --locked -- -D warnings
+          cargo clippy --workspace --all-targets ${FEATURES} --locked -- -D warnings
 
   coverage:
     name: Source coverage baseline
