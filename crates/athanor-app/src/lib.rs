@@ -48,6 +48,7 @@ pub mod explain;
 #[cfg(test)]
 mod fact_query_tests;
 pub mod generation;
+#[path = "graph/mod.rs"]
 pub mod graph;
 pub mod graph_cooperative;
 pub mod graph_operation;
