@@ -1,4 +1,5 @@
 const MCP_DISPATCH_SOURCE: &str = include_str!("../src/tools/dispatch.rs");
+const MCP_OPERATION_SOURCE: &str = include_str!("../src/server/operation.rs");
 const STORE_PUBLICATION_SOURCE: &str =
     include_str!("../../athanor-app/src/store/publication.rs");
 const CORE_PUBLICATION_SOURCE: &str =
@@ -19,8 +20,17 @@ fn mcp_index_uses_operation_aware_durable_success_path() {
     assert!(MCP_DISPATCH_SOURCE.contains(
         "return Ok(serde_json::to_string_pretty(&report)?);"
     ));
-    assert!(MCP_DISPATCH_SOURCE.contains(
-        "a transport-level cancellation that races after commit must not replace that success"
+
+    assert!(MCP_OPERATION_SOURCE.contains("is_durable_commit_tool(tool_name)"));
+    assert!(MCP_OPERATION_SOURCE.contains(
+        "run_registered_durable_operation(active_reads, request_key, operation, future)"
+    ));
+    assert!(MCP_OPERATION_SOURCE.contains("matches!(tool_name, \"index\")"));
+    assert!(MCP_OPERATION_SOURCE.contains(
+        "does not poll or postflight-check the operation after the future returns"
+    ));
+    assert!(MCP_OPERATION_SOURCE.contains(
+        "durable_operation_preserves_success_after_registered_cancellation"
     ));
 }
 
@@ -58,6 +68,7 @@ fn cancellation_matrix_covers_pre_commit_commit_race_and_post_commit() {
 fn transactional_cancellation_owners_remain_bounded() {
     for (name, source, max_lines) in [
         ("MCP dispatch", MCP_DISPATCH_SOURCE, 320),
+        ("MCP operation", MCP_OPERATION_SOURCE, 340),
         ("Store publication", STORE_PUBLICATION_SOURCE, 120),
         (
             "Store publication cancellation regressions",
