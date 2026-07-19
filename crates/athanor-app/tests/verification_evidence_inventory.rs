@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::Path;
 
+use athanor_app::{AUTOMATION_JSON_CONTRACTS, VERIFICATION_EVIDENCE_SCHEMA_V1};
 use serde_json::Value;
 
 const CI_WORKFLOW: &str = include_str!("../../../.github/workflows/ci.yml");
@@ -22,7 +23,7 @@ fn successful_main_ci_is_the_only_evidence_publisher() {
         "github.event.workflow_run.head_sha",
         "github.event.workflow_run.id",
         "github.event.workflow_run.html_url",
-        "athanor.verification_evidence.v1",
+        VERIFICATION_EVIDENCE_SCHEMA_V1,
         "docs/development/verification-evidence.json",
     ] {
         assert!(
@@ -39,6 +40,29 @@ fn successful_main_ci_is_the_only_evidence_publisher() {
         assert!(
             !EVIDENCE_WORKFLOW.contains(forbidden),
             "verification evidence workflow contains unsafe trigger/condition {forbidden}"
+        );
+    }
+}
+
+#[test]
+fn automation_registry_owns_the_evidence_document() {
+    assert_eq!(AUTOMATION_JSON_CONTRACTS.len(), 1);
+    let contract = AUTOMATION_JSON_CONTRACTS[0];
+    assert_eq!(contract.schema, VERIFICATION_EVIDENCE_SCHEMA_V1);
+    assert_eq!(contract.owner, ".github/workflows/verification-evidence.yml");
+    for field in [
+        "schema",
+        "workflow",
+        "head_sha",
+        "run_id",
+        "run_url",
+        "conclusion",
+        "completed_at",
+        "matrix",
+    ] {
+        assert!(
+            contract.required_fields.contains(&field),
+            "evidence contract omits required field {field}"
         );
     }
 }
@@ -76,7 +100,7 @@ fn workflow_records_the_matrix_claimed_by_the_ci_guide() {
 
     for invariant in [
         "Workflow YAML is implementation evidence, not execution evidence.",
-        "athanor.verification_evidence.v1",
+        VERIFICATION_EVIDENCE_SCHEMA_V1,
         "the exact CI `head_sha`",
         "Only successful `push` runs whose `head_branch` is `main`",
         "implemented, not verified",
@@ -112,7 +136,7 @@ fn optional_recorded_evidence_is_strictly_validated() {
 
     assert_eq!(
         payload.get("schema").and_then(Value::as_str),
-        Some("athanor.verification_evidence.v1")
+        Some(VERIFICATION_EVIDENCE_SCHEMA_V1)
     );
     assert_eq!(payload.get("workflow").and_then(Value::as_str), Some("CI"));
     assert_eq!(
