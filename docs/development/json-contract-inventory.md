@@ -7,75 +7,91 @@ status: active
 ---
 # Versioned JSON Contract Inventory
 
-This inventory records JSON documents that cross CLI, daemon, MCP, persisted-state, generated-artifact, interchange, adapter-plugin, or process-adapter boundaries. A document may enter `VERSIONED_JSON_CONTRACTS` only when one Rust type owns one top-level current Athanor schema id. Standard and schema-less protocols use separate registries instead of receiving synthetic Athanor schema ids.
+This inventory records JSON documents that cross CLI, daemon, MCP, persisted-state,
+generated-artifact, interchange, adapter-plugin, repository-automation, or process-adapter
+boundaries. Public Rust reports, general Rust-owned boundaries, adapter boundaries, and
+workflow-owned automation documents use separate checked registries. Standard and schema-less
+protocols retain their native version/framing contracts.
 
-Audit baseline: current `main`. The source inventories and regression fixtures described below are implemented; Rust formatting, tests, Clippy, and executable interoperability remain pending for the current HEAD.
+Audit baseline: current `main`. Source inventories and fixtures are implemented; execution evidence
+for the current HEAD remains pending.
 
 ## Schema id grammar
 
-The ordinary form is:
-
-```text
-athanor.<name>.v<major>
-```
-
-A feature-qualified wire family may use the stricter form:
-
-```text
-athanor.<name>.v<major>-<qualifier>-v<revision>
-```
-
-The qualified form preserves the base compatibility major while versioning the qualifier. The current JS/TS precision index-state schema, `athanor.index_state.v46-js-ts-precision-v1`, therefore validates with compatibility major `46`. Empty qualifiers, zero major/revision values, and missing qualifier revisions fail closed.
+The ordinary form is `athanor.<name>.v<major>`. A feature-qualified family may use
+`athanor.<name>.v<major>-<qualifier>-v<revision>`. The current
+`athanor.index_state.v46-js-ts-precision-v1` therefore has compatibility major `46`. Empty qualifiers,
+zero major/revision values, and missing qualifier revisions fail closed.
 
 ## Registered public contracts
 
-The public registry contains 60 current Athanor-schema owners. The adapter trust status response has a distinct public owner:
+`VERSIONED_JSON_CONTRACTS` contains 60 current Rust-owned public application and daemon contracts:
 
-| Schema | Rust owner | Boundary | Fixture status |
-| --- | --- | --- | --- |
-| `athanor.adapter_trust_report.v1` | `VersionedAdapterTrustReport` | direct `ath plugins list/trust/untrust --json` application output | adapter contract fixture and CLI regression implemented; execution pending |
-
-The other registered families are:
-
-- overview, search, explain, impact, diagnostic/check, coverage, capabilities, change map, and context;
-- index, benchmark, changed validation, generation, config, documentation, API, wiki, and HTML reports;
-- graph and specialized RusTok report families;
+- overview, search, explain, impact, check, coverage, capabilities, change map, and context;
+- index, benchmark, changed validation, generation, config, documentation, API, wiki, and HTML;
+- standard Graph and specialized RusTok reports;
 - project registry/resolution reports;
-- nine Repair owners;
-- daemon request v3, response v3, and jobs v1.
+- Repair reports;
+- daemon request, response, and jobs reports;
+- the adapter trust status report.
 
-`VERSIONED_JSON_CONTRACTS` validates schema and Rust-owner uniqueness across all 60 current public owners.
+Each public schema has one current Rust owner.
+
+## General non-public Rust contracts
+
+`NON_PUBLIC_JSON_CONTRACTS` retains 30 descriptors: 24 current documents, five accepted legacy
+inputs, and one historical-only schema.
+
+Current persisted families include project registry state, daemon endpoint, Index current/state and
+publication journals, canonical snapshot/latest/commit documents. Current generated families include
+validation result, coordinated generation/current pointers, API contract snapshot/latest, JSONL
+manifest, wiki manifest, and HTML manifest. Interchange families include docs patches and projector
+payloads. Embedded families include Index and generation metrics.
+
+Legacy input is never emitted as a current fixture. Historical-only schemas are not presented as
+accepted compatibility.
 
 ## Adapter plugin and trust contracts
 
-Adapter boundaries use three distinct current owners:
+`ADAPTER_NON_PUBLIC_JSON_CONTRACTS` contains two current and two legacy-input descriptors:
 
-| Schema | Rust owner | Class | Lifecycle |
-| --- | --- | --- | --- |
-| `athanor.adapter_manifest.v1` | `AdapterPluginManifest` | project-local interchange/configuration | current input |
-| `athanor.adapter_trust_registry.v2` | `AdapterTrustRegistry` | user-level persisted state | current read/write |
-| `athanor.adapter_trust_report.v1` | `VersionedAdapterTrustReport` | public CLI/application response | current output |
-
-`ADAPTER_NON_PUBLIC_JSON_CONTRACTS` separately records the two non-public current owners and their compatibility inputs:
-
-| Legacy schema | Current normalization | Lifecycle |
+| Schema | Owner | Lifecycle |
 | --- | --- | --- |
-| `athanor.adapter_manifest` | `athanor.adapter_manifest.v1` | accepted legacy input |
-| `athanor.adapter_trust.v2` | `athanor.adapter_trust_registry.v2` | accepted legacy persisted input |
+| `athanor.adapter_manifest.v1` | `AdapterPluginManifest` | current interchange input |
+| `athanor.adapter_manifest` | `AdapterPluginManifest` | accepted legacy input |
+| `athanor.adapter_trust_registry.v2` | `AdapterTrustRegistry` | current persisted read/write |
+| `athanor.adapter_trust.v2` | `AdapterTrustRegistry` | accepted legacy input |
 
-Legacy manifest and trust-registry documents are normalized in memory before runtime use. A subsequent trust mutation writes only `athanor.adapter_trust_registry.v2`. The focused `ath plugins` dispatcher emits only `athanor.adapter_trust_report.v1` while preserving the existing command grammar and human-readable rendering.
+Legacy documents normalize in memory before runtime use. Current writes use only current schemas. The
+public trust status response remains `athanor.adapter_trust_report.v1`.
+
+## Automation-owned contracts
+
+`AUTOMATION_JSON_CONTRACTS` contains documents emitted by repository automation rather than Rust
+runtime owners.
+
+| Schema | Owner | Class | Required identity |
+| --- | --- | --- | --- |
+| `athanor.verification_evidence.v1` | `.github/workflows/verification-evidence.yml` | persisted current | workflow, exact head SHA, run id/URL, conclusion, completion time, matrix |
+
+The verification evidence document is published only after a successful push-CI run on `main`. It is
+not a public application report and does not belong in a registry whose descriptor requires a
+`rust_owner`. The automation registry is validated for canonical schema ids, ownership metadata,
+required fields, duplicate ids, and disjointness from public, general, and adapter registries.
 
 ## Transport and process protocols
 
 ### Daemon
 
-`DaemonRequest` owns current `athanor.daemon_request.v3`; `DaemonResponse` owns current `athanor.daemon_response.v3`; `DaemonJobsReport` owns `athanor.daemon_jobs.v1`. Request v1/v2 compatibility remains accepted input only. `DaemonError`, `DaemonCommand`, and `DaemonJob` are embedded. `DaemonEndpoint` is persisted runtime discovery state: v3 is current, v2 is accepted legacy input, and v1 is historical-only and rejected by the current reader.
+`DaemonRequest` owns current `athanor.daemon_request.v3`; `DaemonResponse` owns
+`athanor.daemon_response.v3`; `DaemonJobsReport` owns `athanor.daemon_jobs.v1`. Earlier request and
+endpoint versions follow their declared legacy/historical lifecycles.
 
 ### MCP
 
-MCP uses JSON-RPC `2.0` and MCP protocol `2024-11-05`. `JsonRpcRequest`, `JsonRpcResponse`, `JsonRpcError`, and text tool-call results remain native standard-protocol boundaries in `MCP_TRANSPORT_CONTRACTS`; they do not receive synthetic `athanor.*` schemas.
-
-CLI, daemon, and MCP Index paths serialize the same public `IndexReport` type. `public_report_transport_inventory.rs`, the daemon typed parity regressions, and the MCP Index inventory prohibit transport-specific replacement payloads.
+MCP uses JSON-RPC `2.0` and MCP protocol `2024-11-05`. Request, response, error, and text tool-call
+results remain native standard-protocol boundaries and do not receive synthetic `athanor.*` schemas.
+CLI, daemon, and MCP Index paths serialize the same public `IndexReport`.
 
 ### External processes
 
@@ -83,79 +99,38 @@ CLI, daemon, and MCP Index paths serialize the same public `IndexReport` type. `
 
 | Protocol | Request | Response | Framing |
 | --- | --- | --- | --- |
-| `source-discover` | `SourceDiscoverInput` object | `Vec<SourceFile>` array | newline-terminated JSON stdin, one JSON stdout document |
-| `extractor` | `ExtractInput` object | `ExtractOutput` object | newline-terminated JSON stdin, one JSON stdout document |
-| `linker` | `LinkInput` object | `Vec<Relation>` array | newline-terminated JSON stdin, one JSON stdout document |
-| `checker` | `CheckInput` object | `Vec<Diagnostic>` array | newline-terminated JSON stdin, one JSON stdout document |
+| `source-discover` | `SourceDiscoverInput` object | `Vec<SourceFile>` array | newline JSON stdin / one JSON stdout |
+| `extractor` | `ExtractInput` object | `ExtractOutput` object | newline JSON stdin / one JSON stdout |
+| `linker` | `LinkInput` object | `Vec<Relation>` array | newline JSON stdin / one JSON stdout |
+| `checker` | `CheckInput` object | `Vec<Diagnostic>` array | newline JSON stdin / one JSON stdout |
 
-These wire shapes are the serde representation of core port types. Adding a top-level schema now would change existing external adapters; future incompatible changes require an explicit versioned process envelope rather than silent field mutation.
-
-## General non-public Athanor-schema registry
-
-`NON_PUBLIC_JSON_CONTRACTS` retains 30 descriptors: 24 current documents, five accepted legacy inputs, and one historical-only schema. The adapter-specific registry adds four more descriptors: two current and two accepted legacy inputs.
-
-### Persisted current
-
-- `athanor.project_registry_state.v1`
-- `athanor.daemon_endpoint.v3`
-- `athanor.index_current.v2`
-- `athanor.index_state.v46` or qualified `athanor.index_state.v46-js-ts-precision-v1`
-- `athanor.index_publication.v3`
-- `athanor.index_current_publication.v1`
-- `athanor.canonical_snapshot.v1`
-- `athanor.canonical_latest.v1`
-- `athanor.canonical_commit.v2`
-- `athanor.adapter_trust_registry.v2` in the adapter-specific registry
-
-`IndexState.generation` is derived and required when `snapshot` is present. An empty current state has `snapshot: null` and may omit `generation`; both feature alternatives use this conditional rule.
-
-### Generated current
-
-- `athanor.validation_result.v1`
-- `athanor.generated_generation.v1`
-- `athanor.generated_current.v1`
-- `athanor.api_contract_snapshot.v2`
-- `athanor.api_contract_latest.v1`
-- `athanor.jsonl_manifest.v1`
-- `athanor.wiki_manifest.v1`
-- `athanor.html_report_manifest.v1`
-
-### Interchange and embedded current
-
-- Interchange: `athanor.docs_patch.v1`, `athanor.wiki_projection.v1`, `athanor.html_report_projection.v1`, and adapter manifest v1 in the adapter-specific registry.
-- Embedded: `athanor.index_metrics.v1`, `athanor.index_report_metrics.v1`, `athanor.generation_metrics.v1`, plus schema-less Repair and Daemon fragments.
-
-### Compatibility lifecycle
-
-The general registry accepts legacy daemon endpoint, index current/publication, and canonical commit inputs as documented by their readers. The adapter-specific registry additionally accepts legacy unversioned adapter manifests and legacy shared trust-registry v2 documents. Legacy input is never emitted as a current fixture.
-
-Cleanup tombstones, staging directories, backups, locks, and repair guards are filesystem recovery protocols, not JSON documents. Schema-less canonical latest documents from older stores are compatibility input but cannot enter an Athanor schema registry because they have no schema id.
+Adding a synthetic top-level schema would change existing external adapters; an incompatible future
+change requires an explicit versioned process envelope.
 
 ## Enforcement implementation
 
-- `VERSIONED_JSON_CONTRACTS` protects 60 current public/transport Athanor owners.
-- `NON_PUBLIC_JSON_CONTRACTS` protects 30 general persisted/generated/interchange/embedded descriptors.
-- `ADAPTER_NON_PUBLIC_JSON_CONTRACTS` protects two current adapter documents and two accepted legacy inputs.
-- `PROCESS_PROTOCOL_CONTRACTS` protects four schema-less external-process shapes and framing.
-- `json_contract_inventory.rs` recursively scans production Rust sources under workspace `crates/*/src` and `apps/*/src`; any new quoted `athanor.*` schema literal must be registered or classified in the same change.
-- Unit-test source files and terminal `#[cfg(test)] mod tests` bodies are excluded from emitter discovery, so fixture-only example ids do not masquerade as production contracts.
-- `process_persistence_contract_inventory.rs` uses recursive source observability instead of a stale list of monolithic paths.
-- `boundary_contracts.v1.json` and `adapter_contracts.v1.json` protect current required-field fixtures and legacy lifecycle rules.
-- `public_report_transport_inventory.rs` and focused daemon/MCP regressions protect typed payload parity.
+- `VERSIONED_JSON_CONTRACTS` protects 60 current public Rust owners.
+- `NON_PUBLIC_JSON_CONTRACTS` protects 30 general Rust-owned boundary descriptors.
+- `ADAPTER_NON_PUBLIC_JSON_CONTRACTS` protects two current and two legacy adapter documents.
+- `AUTOMATION_JSON_CONTRACTS` protects the current workflow-owned verification evidence document.
+- `PROCESS_PROTOCOL_CONTRACTS` protects four schema-less process shapes and framing.
+- `json_contract_inventory.rs` scans production Rust sources recursively and requires every quoted
+  `athanor.*` literal to be classified.
+- Public, general, adapter, and automation schema sets are mutually disjoint.
+- Current ids validate under ordinary or qualified grammar.
+- Current boundary fixtures protect required fields and lifecycle rules.
+- Daemon/MCP regressions protect typed transport payload parity.
 
 ## Enforcement rules
 
 - Every current public schema has exactly one Rust owner.
-- Public, general non-public, and adapter non-public schema sets are disjoint.
-- Every production Athanor schema literal is exhaustively classified by a checked-in registry.
-- Current schema ids are canonical under the ordinary or qualified grammar.
-- Standard and schema-less protocols retain native framing/version rules instead of receiving synthetic Athanor schema ids.
-- Current persisted/generated/interchange documents have representative required-field fixtures.
-- Legacy input is never emitted as a current fixture; historical-only schemas are not presented as accepted compatibility.
-- Equivalent CLI/application and daemon/MCP inner results serialize the same typed Athanor document.
-- A schema id must never describe two current emitted top-level shapes.
-- Legacy input normalizes to a current schema before a current write or current response.
-- Removing, renaming, retyping, or semantically changing a field requires a new major schema id or protocol version.
+- Every automation schema has one explicit workflow owner.
+- Every production Athanor schema literal is classified by a checked registry.
+- Current persisted/generated/interchange documents have required-field coverage.
+- Legacy input normalizes before a current write or response.
+- A schema id never describes two current emitted top-level shapes.
+- Removing, renaming, retyping, or semantically changing a field requires a new major schema id or
+  protocol version.
 
 ## Verification
 
@@ -164,7 +139,7 @@ cargo test -p athanor-app --test json_contract_inventory --locked
 cargo test -p athanor-app --test process_persistence_contract_inventory --locked
 cargo test -p athanor-app --test adapter_contract_inventory --locked
 cargo test -p athanor-app --test public_report_transport_inventory --locked
-cargo test -p athanor-transport-mcp --test index_publication_cancellation_inventory --locked
+cargo test -p athanor-app --test verification_evidence_inventory --locked
 cargo check --workspace --all-features --locked
 cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 ```
