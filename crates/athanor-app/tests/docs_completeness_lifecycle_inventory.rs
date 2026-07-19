@@ -14,14 +14,22 @@ const ALLOWED_STATUSES: &[&str] = &["active", "implemented", "planned", "draft",
 fn repository_policy_parses_as_current_project_config() {
     let config = toml::from_str::<ProjectConfig>(ROOT_CONFIG)
         .expect("root athanor.toml must parse as the current ProjectConfig");
-    assert_eq!(
-        config.docs.completeness.required_fields,
-        REQUIRED_FIELDS
-    );
-    assert_eq!(
-        config.docs.completeness.allowed_statuses,
-        ALLOWED_STATUSES
-    );
+    let required = config
+        .docs
+        .completeness
+        .required_fields
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    let allowed = config
+        .docs
+        .completeness
+        .allowed_statuses
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    assert_eq!(required.as_slice(), REQUIRED_FIELDS);
+    assert_eq!(allowed.as_slice(), ALLOWED_STATUSES);
     assert!(!config.docs.completeness.require_current_snapshot);
 }
 
