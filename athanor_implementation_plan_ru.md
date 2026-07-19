@@ -24,10 +24,11 @@ JSON является внешним контрактом. CLI, daemon и MCP в
 - `COMP-003` / `COMP-003C2B2C2B` — explicit runtime composition, bounded owners, Graph cleanup и
   удаление public Store initializer;
 - `MCP-007` — transactional Index cancellation с pre-commit rollback и post-commit durable success;
-- `JSON-003` — recursive schema inventory, lifecycle registries и typed transport parity;
+- `JSON-003` — recursive schema inventory, Rust/adapter/automation lifecycle registries и typed
+  transport parity;
 - `DOC-001` / `DOC-002` — status hygiene и pipeline current/target/history;
 - `MCP-004` — control-plane responsiveness при saturation request slots и response queue;
-- `VERIFY-001A` — exact successful main-CI evidence publisher;
+- `VERIFY-001A` — exact successful main-CI evidence publisher и automation-owned evidence contract;
 - `VERIFY-001B` — lifecycle-aware docs completeness gate, valid `ath init` config и refreshed golden
   config contract.
 
@@ -60,7 +61,8 @@ ChangeMap, API, Overview, Capabilities, Impact, Coverage, Check, Graph, Repair, 
 4. default completeness не требует `last_verified_snapshot`; freshness принадлежит `docs drift`;
 5. root `athanor.toml`, `ProjectConfig::default` и `ath init` используют один current policy;
 6. workflow YAML является implementation evidence, но не execution evidence;
-7. valid `verification-evidence.json` содержит exact successful CI SHA и run identity.
+7. `athanor.verification_evidence.v1` принадлежит workflow-owned automation registry;
+8. valid evidence содержит exact successful CI SHA и run identity.
 
 ## 3. Завершённые пакеты
 
@@ -81,10 +83,11 @@ ChangeMap, API, Overview, Capabilities, Impact, Coverage, Check, Graph, Repair, 
 
 ### 3.3 `JSON-003` — repeat contract inventory
 
-- [x] Public, general non-public и adapter registries unique и disjoint.
+- [x] Public, general non-public, adapter и automation registries unique и mutually disjoint.
 - [x] Ordinary и qualified schema ids валидируются fail closed.
 - [x] Production Rust sources сканируются рекурсивно.
 - [x] Adapter legacy inputs нормализуются перед current write/response.
+- [x] Workflow-owned persisted JSON имеет explicit owner и required fields.
 - [x] CLI/daemon/MCP Index используют один typed public report.
 
 ### 3.4 `DOC-001` / `DOC-002` — documentation status hygiene
@@ -111,7 +114,8 @@ ChangeMap, API, Overview, Capabilities, Impact, Coverage, Check, Graph, Repair, 
 - [x] Evidence содержит schema, exact SHA, run id/URL, completion time и matrix.
 - [x] Evidence-only path исключён из push-CI, предотвращая recursive loop.
 - [x] Workflow коммитит только `docs/development/verification-evidence.json`.
-- [x] `verification_evidence_inventory` валидирует trigger, permissions и evidence shape.
+- [x] `AUTOMATION_JSON_CONTRACTS` классифицирует evidence как persisted current workflow document.
+- [x] `verification_evidence_inventory` связывает workflow, schema constant и required fields.
 
 ### 3.7 `VERIFY-001B` — lifecycle-aware docs gate
 
@@ -150,11 +154,11 @@ ChangeMap, API, Overview, Capabilities, Impact, Coverage, Check, Graph, Repair, 
 | `COMP-003` | P2 | `[x] implemented` | Runtime dependencies explicit |
 | `COMP-003C2B2C2B` | P2 | `[x] implemented` | Read services, Graph и Store cleanup complete |
 | `MCP-007` | P1 | `[x] implemented` | Transactional cancellation preserves durable success |
-| `JSON-003` | P1 | `[x] implemented` | Schema lifecycle and payload parity enforced |
+| `JSON-003` | P1 | `[x] implemented` | Rust, adapter and automation schemas are classified |
 | `DOC-001` | P3 | `[x] implemented` | Stale verification and removed paths cleaned |
 | `DOC-002` | P3 | `[x] implemented` | Pipeline/status docs aligned |
 | `MCP-004` | P1 | `[x] implemented` | Control input remains observable under saturation |
-| `VERIFY-001A` | P1 | `[x] implemented` | Successful main CI can publish exact evidence |
+| `VERIFY-001A` | P1 | `[x] implemented` | Successful main CI can publish classified exact evidence |
 | `VERIFY-001B` | P1 | `[x] implemented` | Docs gate matches lifecycle semantics and current config |
 | `VERIFY-001` | P1 | `[!] blocked` | Valid evidence JSON identifies one successful commit |
 
@@ -208,18 +212,18 @@ architecture commit.
 
 ## 7. Последние изменения
 
+### 2026-07-19 — Workflow-owned JSON evidence contract
+
+- Verification evidence получил отдельный automation registry и exported schema constant.
+- Public/general/adapter/automation sets взаимно disjoint и source-observable.
+- Status — implemented; final CI evidence pending.
+
 ### 2026-07-19 — Documentation lifecycle gate repair
 
 - Completeness lifecycle отделён от snapshot freshness.
 - Root policy и `ath init` приведены к текущему `ProjectConfig`.
 - Golden config fixture и source inventory обновлены.
 - Status — implemented; final CI evidence pending.
-
-### 2026-07-19 — Exact CI verification evidence gate
-
-- Successful push-CI for `main` может публиковать exact versioned evidence.
-- Unsafe triggers, broad staging и malformed evidence source-enforced.
-- Status — evidence publication implemented; successful recorded run pending.
 
 ## 8. Historical status
 
