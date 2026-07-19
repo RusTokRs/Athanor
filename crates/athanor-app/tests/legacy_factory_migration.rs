@@ -64,7 +64,9 @@ fn core_runtime_paths_require_explicit_composition() {
     assert!(RUNTIME_BUILDER_SOURCE.contains("registry: AdapterRegistry::empty()"));
     assert!(!RUNTIME_REGISTRY_SOURCE.contains("default_adapter_registry"));
     assert!(!RUNTIME_REGISTRY_SOURCE.contains("ensure_test_runtime"));
-    assert!(STORE_FACADE_SOURCE.contains("explicit RuntimeComposition is required"));
+    assert!(STORE_FACADE_SOURCE.contains("Store construction is owned by"));
+    assert!(STORE_FACADE_SOURCE.contains("pub use core::{AthanorStore, StoreFactory};"));
+    assert!(!STORE_FACADE_SOURCE.contains("pub async fn init_store"));
     assert!(SEARCH_FACADE_SOURCE.contains("explicit RuntimeComposition is required"));
     assert!(!PROJECTION_SOURCE.contains("project_wiki_payload"));
     assert!(!PROJECTION_SOURCE.contains("project_html_payload"));
