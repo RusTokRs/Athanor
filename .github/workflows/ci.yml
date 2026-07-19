@@ -3,6 +3,8 @@ name: CI
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "docs/development/verification-evidence.json"
   pull_request:
   workflow_dispatch:
 
