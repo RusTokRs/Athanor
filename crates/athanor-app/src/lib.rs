@@ -115,6 +115,8 @@ pub mod search_operation;
 #[path = "store_facade.rs"]
 pub mod store;
 #[cfg(test)]
+mod store_publication_cancellation_tests;
+#[cfg(test)]
 mod test_runtime;
 mod transient_store;
 pub mod validate_changed;
