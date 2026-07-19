@@ -170,10 +170,12 @@ impl Default for CompletenessPolicy {
                 "kind".to_string(),
                 "language".to_string(),
                 "source_language".to_string(),
-                "last_verified_snapshot".to_string(),
                 "status".to_string(),
             ],
-            allowed_statuses: vec!["verified".to_string()],
+            allowed_statuses: ["active", "implemented", "planned", "draft", "verified"]
+                .into_iter()
+                .map(str::to_string)
+                .collect(),
             minimum_diagnostic_severity: Severity::Medium,
             require_current_snapshot: false,
         }
@@ -339,6 +341,24 @@ mod tests {
             ProjectConfig::default().adapters.external_process_sandbox,
             ExternalProcessSandboxProfile::Disabled
         );
+    }
+
+    #[test]
+    fn default_docs_policy_separates_completeness_from_snapshot_drift() {
+        let policy = ProjectConfig::default().docs.completeness;
+        assert_eq!(
+            policy.required_fields,
+            ["id", "kind", "language", "source_language", "status"]
+        );
+        assert_eq!(
+            policy.allowed_statuses,
+            ["active", "implemented", "planned", "draft", "verified"]
+        );
+        assert!(!policy.require_current_snapshot);
+        assert!(!policy
+            .required_fields
+            .iter()
+            .any(|field| field == "last_verified_snapshot"));
     }
 
     #[test]
