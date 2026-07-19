@@ -2,7 +2,7 @@
 
 > Репозиторий: `RusTokRs/Athanor`  
 > Ветка: `main`  
-> Актуализировано: 2026-07-18  
+> Актуализировано: 2026-07-19  
 > Статус: active architecture audit
 
 ## 1. Правила статусов
@@ -34,11 +34,16 @@ Composition-only execution уже действует для:
 - Overview;
 - Capabilities;
 - Impact;
-- Coverage.
+- Coverage;
+- стандартных operation-aware Graph reads.
 
 ChangeMap, Overview, Capabilities, Impact и Coverage физически разделены на conventional bounded
 modules без `include!` и forwarding compatibility facades. Их public root modules содержат только
 module wiring и стабильные re-exports.
+
+`graph_operation.rs` теперь принимает mandatory `&RuntimeComposition` во всех шести execution
+entrypoints. Монолитный `graph.rs` всё ещё содержит no-composition project loading и остаётся активным
+physical decomposition debt.
 
 Остающийся composition debt сосредоточен в public `store::init_store` facade и read-service owners,
 которые ещё импортируют его или принимают `Option<&RuntimeComposition>`.
@@ -63,19 +68,29 @@ module wiring и стабильные re-exports.
 - [x] Impact декомпозирован на `model`, `execution`, `traversal`, `tests`.
 - [x] Coverage использует только `coverage_project_with_composition`.
 - [x] Coverage декомпозирован на `model`, `execution`, `aggregation`, `tests`.
+- [x] Шесть стандартных Graph operation entrypoints требуют composition.
+- [x] Graph operation snapshot loading не имеет `store::init_store` fallback.
+- [x] Source inventory запрещает возврат удалённых Graph operation wrappers.
 - [x] Source inventory использует общие assertions для routing, mandatory composition и line budgets.
 
 ### Следующий обязательный срез
 
-`Graph` и `Graph operation`:
+Физический cleanup `graph.rs`:
 
-- удалить no-composition project entrypoints;
-- оставить только composition-aware execution;
-- удалить `Option<&RuntimeComposition>`;
-- удалить `crate::store::init_store` и fallback branches;
-- сохранить pure snapshot graph builder и operation-context semantics;
-- разделить крупные owners на bounded model/execution/traversal/render-independent modules;
-- добавить source/line-budget inventory.
+- удалить no-composition project entrypoints `export_graph`, `related_graph`, `shortest_graph_path`,
+  `graph_hubs`, `graph_pagerank`, `graph_cycles` и Rustok graph/audit project wrappers;
+- оставить composition-aware execution и operation-aware execution;
+- удалить `crate::store::init_store` и `load_latest_graph_snapshot` fallback owner;
+- сохранить pure snapshot builders, GraphML conversion, Rustok audit/graph schemas и deterministic
+  ordering;
+- разделить 4,8k-line owner на conventional bounded model, standard graph, Rustok FFA/FBA/Page
+  Builder, serialization и tests;
+- не использовать forwarding facade или `include!`;
+- расширить source/line-budget inventory.
+
+Connector не предоставляет patch write для repository contents: для `graph.rs` доступна только полная
+замена файла. Поэтому текущий срез закрыл operation owner, а physical decomposition остаётся активной,
+не отмеченной как implemented.
 
 ### После Graph
 
@@ -98,7 +113,7 @@ module wiring и стабильные re-exports.
 
 | ID | Priority | Status | Результат / критерий закрытия |
 | --- | --- | --- | --- |
-| `ARCH-AUDIT-001` | P1 | `[-] in progress` | Composition owners декомпозированы; remaining Store/read cleanup и execution pending |
+| `ARCH-AUDIT-001` | P1 | `[-] in progress` | Graph operation закрыт; graph.rs и remaining Store/read cleanup pending |
 | `COMP-003` | P2 | `[-] in progress` | Все runtime dependencies explicit; public Store compatibility facade удалён |
 | `COMP-003C2B2C2B` | P2 | `[-] in progress` | Все remaining read services composition-only; source enforcement и execution complete |
 | `MCP-007` | P1 | `[ ] planned` | Index cancellation различает pre-commit rollback и post-commit durable success |
@@ -119,6 +134,8 @@ module wiring и стабильные re-exports.
 - [x] Write services и projectors composition-only.
 - [x] Search facade composition-only.
 - [x] Explain, ChangeMap, API Registry, Overview, Capabilities, Impact и Coverage composition-only.
+- [x] Standard Graph operation reads composition-only.
+- [-] Graph project reads и Rustok graph/audit wrappers ещё имеют hidden Store path.
 
 ### Bounded ownership
 
@@ -128,6 +145,8 @@ module wiring и стабильные re-exports.
 - [x] Capabilities декомпозирован на conventional bounded owners.
 - [x] Impact декомпозирован на conventional bounded owners.
 - [x] Coverage декомпозирован на conventional bounded owners.
+- [x] Graph operation owner ограничен composition-aware execution и cooperative worker lifecycle.
+- [ ] `graph.rs` декомпозирован без facade/include compatibility layer.
 - [x] Daemon command dispatch вынесен из transport lifecycle.
 - [x] Publication lifecycle имеет отдельные bounded owners и commit-point semantics.
 
@@ -152,6 +171,7 @@ cargo fmt --all -- --check
 cargo check --workspace --locked
 cargo check --workspace --all-features --locked
 cargo test -p athanor-app --test read_service_composition_inventory --locked
+cargo test -p athanor-app graph_operation --locked
 cargo test -p athanor-app --test service_composition_inventory --locked
 cargo test -p athanor-app --test legacy_factory_migration --locked
 cargo test -p athanor-app --test composition_isolation --locked
@@ -178,20 +198,29 @@ status намеренно не повышается.
 
 ## 7. Последние изменения
 
+### 2026-07-19 — Composition-only Graph operation reads
+
+- Удалены `export_graph_with_operation_context`, `related_graph_with_operation_context`,
+  `shortest_graph_path_with_operation_context`, `graph_hubs_with_operation_context`,
+  `graph_pagerank_with_operation_context` и `graph_cycles_with_operation_context`.
+- Все шесть public entrypoints принимают mandatory `&RuntimeComposition` и `&OperationContext`.
+- Snapshot loading использует только `composition.init_store` и
+  `load_latest_snapshot_with_operation_context`.
+- `Option<&RuntimeComposition>`, `crate::store::init_store` и fallback match удалены.
+- Cooperative blocking-worker cancellation/deadline tests сохранены.
+- Direct Graph CLI уже использовал composition-aware variants, поэтому caller migration не
+  потребовалась.
+- `read_service_composition_inventory` проверяет physical absence wrappers и line budget.
+- `graph.rs` остаётся active physical debt и не отмечен implemented.
+- Статус среза — implemented, Rust/hosted verification pending.
+
 ### 2026-07-18 — Composition-only bounded Coverage
 
-- Монолитный `coverage.rs` заменён small module root.
-- Public report model перенесён в `coverage/model.rs`.
-- Composition-aware snapshot/state loading и file-filter normalization перенесены в
-  `coverage/execution.rs`.
-- Pure file/adapter/diagnostic aggregation, deterministic ordering и omitted counts перенесены в
-  `coverage/aggregation.rs`.
-- Unit regression перенесён в `coverage/tests.rs`.
-- Удалены no-composition `coverage_project`, optional composition,
-  `crate::store::init_store` и fallback match.
-- `read_service_composition_inventory` уплотнён общими helpers и дополнен Coverage line budgets.
-- Schema `athanor.coverage.v1`, filters, totals, ordering и omission semantics сохранены.
-- Статус — implemented, Rust/hosted verification pending.
+- `coverage.rs` заменён small module root.
+- Model, composition execution, pure aggregation и tests вынесены в conventional modules.
+- Удалены no-composition API, optional composition и Store fallback.
+- Schema, filters, totals, ordering и omission semantics сохранены.
+- Статус — implemented, verification pending.
 
 ### 2026-07-18 — Composition-only bounded Impact
 
