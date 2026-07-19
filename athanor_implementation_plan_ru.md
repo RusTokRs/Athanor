@@ -32,7 +32,8 @@ Frontmatter `status` и `last_verified_snapshot` отдельных documentatio
 - `DOC-001` / `DOC-002` — status hygiene, active bounded owner paths и разделение pipeline
   current/target/history;
 - `MCP-004` — control-plane responsiveness при одновременной saturation request slots и response
-  queue.
+  queue;
+- `VERIFY-001A` — exact successful main-CI evidence publisher и fail-closed evidence contract.
 
 Composition-only execution действует для Context, daemon, Search, Index, Generation, Wiki, HTML,
 benchmark, Explain, ChangeMap, API, Overview, Capabilities, Impact, Coverage, Check, Graph, Repair и
@@ -67,6 +68,15 @@ Overview, Capabilities, Impact, Coverage, Check, API contracts и Graph.
 3. aggregate status docs не используют stale snapshot metadata как current-commit evidence;
 4. активные paths указывают на bounded Check/API/Graph и transactional Index owners;
 5. `documentation_status_inventory` запрещает возврат удалённых paths и stale claims.
+
+### Verification evidence invariant
+
+1. `CI` запускается на push `main`, pull request и manual dispatch;
+2. evidence publisher принимает только completed successful push run с `head_branch == main`;
+3. `verification-evidence.json` хранит exact `head_sha`, run id/URL, conclusion, completion time и matrix;
+4. evidence-only commit изменяет только этот JSON и исключён из повторного push-CI;
+5. YAML без валидного evidence-файла остаётся implementation, а `VERIFY-001` — blocked;
+6. evidence доказывает только записанный `head_sha`, а не произвольные более поздние изменения.
 
 ## 3. Завершённые пакеты
 
@@ -131,13 +141,24 @@ Overview, Capabilities, Impact, Coverage, Check, API contracts и Graph.
 - [x] `control_plane_saturation_inventory` фиксирует routing и line budgets.
 - [x] `direct-operation-context.md` согласован с фактическим behavior.
 
+### 3.6 `VERIFY-001A` — exact CI evidence publication
+
+- [x] Main CI evidence-only path исключён из push trigger, предотвращая рекурсивный loop.
+- [x] `verification-evidence.yml` запускается через `workflow_run` только после completed `CI`.
+- [x] Publisher требует successful push run на `main`.
+- [x] Versioned evidence содержит exact SHA, run identity, URL, completion time и matrix.
+- [x] Workflow коммитит только `docs/development/verification-evidence.json`.
+- [x] `verification_evidence_inventory` запрещает unsafe triggers, broad `git add` и malformed evidence.
+- [x] `ci.md` различает workflow implementation и current-commit execution evidence.
+
 ## 4. Следующие активные пакеты
 
 ### 4.1 `VERIFY-001` — execution matrix
 
 - [!] Локальный checkout недоступен из текущего runtime из-за DNS-доступа к GitHub.
-- [!] Hosted workflow runs для новых direct-to-main commits пока отсутствуют.
-- [ ] выполнить fmt/check/test/Clippy/smoke matrix на одном commit;
+- [x] Self-recording exact evidence workflow находится в `main`.
+- [ ] получить валидный `docs/development/verification-evidence.json` от successful final push-CI;
+- [ ] сверить recorded `head_sha` с проверяемым architecture commit;
 - [ ] повысить только подтверждённые `[x] implemented` пункты до `[x] verified`.
 
 ### 4.2 Product backlog
@@ -155,7 +176,7 @@ Overview, Capabilities, Impact, Coverage, Check, API contracts и Graph.
 
 | ID | Priority | Status | Результат / критерий закрытия |
 | --- | --- | --- | --- |
-| `ARCH-AUDIT-001` | P1 | `[-] in progress` | Architecture packages implemented; one-commit verification pending |
+| `ARCH-AUDIT-001` | P1 | `[-] in progress` | Architecture packages implemented; exact one-commit evidence pending |
 | `COMP-003` | P2 | `[x] implemented` | Runtime dependencies explicit; Store initialization only through composition |
 | `COMP-003C2B2C2B` | P2 | `[x] implemented` | Read services, Graph и Store compatibility cleanup complete |
 | `MCP-007` | P1 | `[x] implemented` | Pre-commit cancellation rolls back; post-commit durable success retained |
@@ -163,7 +184,8 @@ Overview, Capabilities, Impact, Coverage, Check, API contracts и Graph.
 | `DOC-001` | P3 | `[x] implemented` | Aggregate stale verification claims и removed owner references удалены |
 | `DOC-002` | P3 | `[x] implemented` | Pipeline current/target/history и status docs согласованы |
 | `MCP-004` | P1 | `[x] implemented` | Control input remains observable under request/response saturation |
-| `VERIFY-001` | P1 | `[!] blocked` | fmt/check/tests/Clippy/smoke выполнены на одном commit |
+| `VERIFY-001A` | P1 | `[x] implemented` | Successful main CI publishes exact versioned evidence without a CI loop |
+| `VERIFY-001` | P1 | `[!] blocked` | Valid evidence JSON identifies one successful architecture commit |
 
 ## 6. Verification matrix
 
@@ -192,6 +214,7 @@ cargo test -p athanor-app --test process_persistence_contract_inventory --locked
 cargo test -p athanor-app --test adapter_contract_inventory --locked
 cargo test -p athanor-app --test public_report_transport_inventory --locked
 cargo test -p athanor-app --test documentation_status_inventory --locked
+cargo test -p athanor-app --test verification_evidence_inventory --locked
 cargo test -p athanor-transport-mcp server::operation --locked
 cargo test -p athanor-transport-mcp server::tests --locked
 cargo test -p athanor-transport-mcp --test index_publication_cancellation_inventory --locked
@@ -206,9 +229,17 @@ cargo run -p ath --quiet --locked -- --help
 cargo run -p ath --quiet --locked -- index .
 ```
 
-Новые срезы сохраняют статус `implemented`, пока этот набор не выполнен на одном commit.
+Новые срезы сохраняют статус `implemented`, пока валидный evidence-файл не идентифицирует successful
+matrix для exact architecture commit.
 
 ## 7. Последние изменения
+
+### 2026-07-19 — Exact CI verification evidence gate
+
+- Main CI ignores the evidence-only JSON path to prevent recursive runs.
+- Successful push-CI for `main` publishes versioned evidence with exact `head_sha` and run identity.
+- Unsafe triggers, broad staging and malformed evidence are source-enforced.
+- Status — evidence publication implemented; successful recorded run pending.
 
 ### 2026-07-19 — MCP control-plane saturation
 
