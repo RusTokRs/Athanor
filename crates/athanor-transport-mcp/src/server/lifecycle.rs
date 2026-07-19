@@ -177,7 +177,7 @@ pub(super) async fn process_line(
     Ok(())
 }
 
-async fn close_stdin(active_reads: &ActiveReads, stdin_open: &mut bool) {
+pub(super) async fn close_stdin(active_reads: &ActiveReads, stdin_open: &mut bool) {
     *stdin_open = false;
     cancel_all(active_reads).await;
 }
