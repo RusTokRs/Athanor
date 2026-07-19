@@ -15,8 +15,19 @@ installers, and releases.
 Workflow YAML is implementation evidence, not execution evidence. A package may be described as
 verified only when one completed successful CI run identifies the exact commit that was checked.
 
-The `CI` workflow runs on pushes to `main`, pull requests, and manual dispatch. After a successful
-push run for `main`, `.github/workflows/verification-evidence.yml` records:
+The `CI` workflow runs on pushes to `main`, pull requests, and manual dispatch. Its final
+`verification-status` job uses `if: always()` and depends on security, quality, feature-matrix, and
+coverage. For a push to `main`, it publishes the legacy commit status
+`athanor/verification-matrix` on the exact `GITHUB_SHA`:
+
+- `success` only when every required job result is `success`;
+- `failure` when any required result failed, was cancelled, or was skipped;
+- a target URL pointing to the exact workflow run.
+
+The status job has only `contents: read` and `statuses: write`. This channel is visible through the
+commit-status API even when check-run listing is unavailable to a client.
+
+After a successful push run for `main`, `.github/workflows/verification-evidence.yml` also records:
 
 - schema `athanor.verification_evidence.v1`;
 - the exact CI `head_sha`;
@@ -32,8 +43,9 @@ The evidence-only commit changes only that JSON file. The main CI workflow ignor
 prevents an evidence commit from recursively creating another CI run. The evidence file proves the
 recorded `head_sha`; it does not automatically prove unrelated later changes.
 
-If the evidence file is absent, malformed, stale for the claim being made, or references a non-success
-run, the current architecture status remains implemented, not verified.
+A verified claim must cite an exact SHA with either a successful `athanor/verification-matrix` status
+or a valid versioned evidence file for the same successful CI run. If neither channel is present and
+valid, the current architecture status remains implemented, not verified.
 
 ## Workspace quality
 
