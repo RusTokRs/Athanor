@@ -1,10 +1,15 @@
+const DOCS_INDEX: &str = include_str!("../../../docs/README.md");
 const ROADMAP: &str = include_str!("../../../docs/development/roadmap-status.md");
 const PIPELINE: &str = include_str!("../../../docs/architecture/pipeline.md");
 const PLAN: &str = include_str!("../../../athanor_implementation_plan_ru.md");
 
 #[test]
 fn aggregate_status_documents_do_not_claim_unexecuted_verification() {
-    for (name, source) in [("roadmap", ROADMAP), ("pipeline", PIPELINE)] {
+    for (name, source) in [
+        ("documentation index", DOCS_INDEX),
+        ("roadmap", ROADMAP),
+        ("pipeline", PIPELINE),
+    ] {
         assert!(
             source.contains("status: active"),
             "{name} must remain an active status document"
@@ -28,6 +33,21 @@ fn aggregate_status_documents_do_not_claim_unexecuted_verification() {
             "{name} must distinguish implementation from execution evidence"
         );
     }
+}
+
+#[test]
+fn documentation_entrypoint_routes_to_current_status_owners() {
+    for target in [
+        "development/roadmap-status.md",
+        "architecture/pipeline.md",
+        "../athanor_implementation_plan_ru.md",
+        "development/json-contract-inventory.md",
+        "development/legacy-runtime-compatibility.md",
+        "development/direct-operation-context.md",
+    ] {
+        assert!(DOCS_INDEX.contains(target), "documentation map omits {target}");
+    }
+    assert!(!DOCS_INDEX.contains("current verified implementation status"));
 }
 
 #[test]
@@ -73,7 +93,14 @@ fn implementation_plan_matches_documentation_status() {
         assert!(PLAN.contains(completed), "plan is missing {completed}");
     }
     assert!(PLAN.contains("### 4.1 `MCP-004` — control-plane responsiveness"));
+    assert!(ROADMAP.contains("### `DOC-001` / `DOC-002`"));
     assert!(ROADMAP.contains("### `MCP-004`"));
+
+    let docs_package = ROADMAP
+        .find("### `DOC-001` / `DOC-002`")
+        .expect("roadmap docs package");
+    let active_work = ROADMAP.find("## Active Work").expect("roadmap active work");
+    assert!(docs_package < active_work, "completed docs package remains active");
 }
 
 #[test]
@@ -87,20 +114,20 @@ fn removed_monoliths_and_legacy_services_do_not_return_to_status_docs() {
         "- `check_project`:",
         "- `snapshot_api_contract`:",
     ] {
-        assert!(
-            !ROADMAP.contains(stale),
-            "roadmap contains stale architecture claim {stale}"
-        );
-        assert!(
-            !PIPELINE.contains(stale),
-            "pipeline contains stale architecture claim {stale}"
-        );
+        for (name, source) in [
+            ("documentation index", DOCS_INDEX),
+            ("roadmap", ROADMAP),
+            ("pipeline", PIPELINE),
+        ] {
+            assert!(!source.contains(stale), "{name} contains stale claim {stale}");
+        }
     }
 }
 
 #[test]
 fn architecture_status_documents_remain_bounded() {
     for (name, source, max_lines) in [
+        ("documentation index", DOCS_INDEX, 220),
         ("roadmap", ROADMAP, 240),
         ("pipeline", PIPELINE, 380),
         ("implementation plan", PLAN, 320),
