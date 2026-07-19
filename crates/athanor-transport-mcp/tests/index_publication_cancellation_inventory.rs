@@ -1,5 +1,7 @@
 const MCP_DISPATCH_SOURCE: &str = include_str!("../src/tools/dispatch.rs");
 const MCP_OPERATION_SOURCE: &str = include_str!("../src/server/operation.rs");
+const PIPELINE_SUPPORT_SOURCE: &str =
+    include_str!("../../athanor-app/src/pipeline_support.rs");
 const STORE_PUBLICATION_SOURCE: &str =
     include_str!("../../athanor-app/src/store/publication.rs");
 const CORE_PUBLICATION_SOURCE: &str =
@@ -32,6 +34,25 @@ fn mcp_index_uses_operation_aware_durable_success_path() {
     assert!(MCP_OPERATION_SOURCE.contains(
         "durable_operation_preserves_success_after_registered_cancellation"
     ));
+}
+
+#[test]
+fn pre_commit_pipeline_boundaries_check_operation_before_and_after_work() {
+    assert!(PIPELINE_SUPPORT_SOURCE.contains(
+        "operation.check_active()?;\n    let result = match operation.remaining()"
+    ));
+    assert!(PIPELINE_SUPPORT_SOURCE.contains(
+        "None => future.await,\n    }?;\n    operation.check_active()?;"
+    ));
+    assert!(PIPELINE_SUPPORT_SOURCE.contains(
+        "Durable commit boundaries must not use this helper"
+    ));
+    for regression in [
+        "pre_cancelled_operation_does_not_poll_boundary_future",
+        "cancellation_during_pre_commit_boundary_rejects_success",
+    ] {
+        assert!(PIPELINE_SUPPORT_SOURCE.contains(regression));
+    }
 }
 
 #[test]
@@ -69,6 +90,7 @@ fn transactional_cancellation_owners_remain_bounded() {
     for (name, source, max_lines) in [
         ("MCP dispatch", MCP_DISPATCH_SOURCE, 320),
         ("MCP operation", MCP_OPERATION_SOURCE, 340),
+        ("Pipeline support", PIPELINE_SUPPORT_SOURCE, 120),
         ("Store publication", STORE_PUBLICATION_SOURCE, 120),
         (
             "Store publication cancellation regressions",
