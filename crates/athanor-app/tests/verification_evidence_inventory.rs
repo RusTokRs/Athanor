@@ -1,0 +1,158 @@
+use std::fs;
+use std::path::Path;
+
+use serde_json::Value;
+
+const CI_WORKFLOW: &str = include_str!("../../../.github/workflows/ci.yml");
+const EVIDENCE_WORKFLOW: &str =
+    include_str!("../../../.github/workflows/verification-evidence.yml");
+const CI_GUIDE: &str = include_str!("../../../docs/development/ci.md");
+const PLAN: &str = include_str!("../../../athanor_implementation_plan_ru.md");
+
+#[test]
+fn successful_main_ci_is_the_only_evidence_publisher() {
+    for required in [
+        "workflow_run:",
+        "workflows: [\"CI\"]",
+        "types: [completed]",
+        "permissions:\n  contents: write",
+        "github.event.workflow_run.conclusion == 'success'",
+        "github.event.workflow_run.event == 'push'",
+        "github.event.workflow_run.head_branch == 'main'",
+        "github.event.workflow_run.head_sha",
+        "github.event.workflow_run.id",
+        "github.event.workflow_run.html_url",
+        "athanor.verification_evidence.v1",
+        "docs/development/verification-evidence.json",
+    ] {
+        assert!(
+            EVIDENCE_WORKFLOW.contains(required),
+            "verification evidence workflow omits {required}"
+        );
+    }
+
+    for forbidden in ["pull_request_target", "workflow_dispatch:", "conclusion != 'failure'"] {
+        assert!(
+            !EVIDENCE_WORKFLOW.contains(forbidden),
+            "verification evidence workflow contains unsafe trigger/condition {forbidden}"
+        );
+    }
+}
+
+#[test]
+fn evidence_only_commit_cannot_create_a_ci_loop() {
+    assert!(CI_WORKFLOW.contains("paths-ignore:"));
+    assert!(CI_WORKFLOW.contains("docs/development/verification-evidence.json"));
+    assert!(EVIDENCE_WORKFLOW.contains(
+        "git add docs/development/verification-evidence.json"
+    ));
+    assert!(EVIDENCE_WORKFLOW.contains(
+        "chore(verification): record CI evidence [skip ci]"
+    ));
+    assert!(!EVIDENCE_WORKFLOW.contains("git add ."));
+}
+
+#[test]
+fn workflow_records_the_matrix_claimed_by_the_ci_guide() {
+    for command in [
+        "cargo-deny check",
+        "cargo fmt --all -- --check",
+        "cargo test --workspace --quiet --locked",
+        "cargo clippy --workspace --all-targets --locked -- -D warnings",
+        "cargo run -p ath --quiet --locked -- index .",
+        "cargo run -p ath --quiet --locked -- docs check",
+        "feature matrix: default, store-surreal, js-ts-precision, all-features",
+        "source coverage baseline",
+    ] {
+        assert!(
+            EVIDENCE_WORKFLOW.contains(command),
+            "evidence matrix omits {command}"
+        );
+    }
+
+    for invariant in [
+        "Workflow YAML is implementation evidence, not execution evidence.",
+        "athanor.verification_evidence.v1",
+        "the exact CI `head_sha`",
+        "Only successful `push` runs whose `head_branch` is `main`",
+        "implemented, not verified",
+    ] {
+        assert!(CI_GUIDE.contains(invariant), "CI guide omits {invariant}");
+    }
+}
+
+#[test]
+fn optional_recorded_evidence_is_strictly_validated() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .expect("athanor-app must live under <workspace>/crates");
+    let path = workspace.join("docs/development/verification-evidence.json");
+
+    if !path.exists() {
+        assert!(
+            PLAN.contains("| `VERIFY-001` | P1 | `[!] blocked` |"),
+            "missing evidence requires blocked VERIFY-001 status"
+        );
+        return;
+    }
+
+    let payload: Value = serde_json::from_slice(
+        &fs::read(&path).unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display())),
+    )
+    .unwrap_or_else(|error| panic!("invalid verification evidence {}: {error}", path.display()));
+
+    assert_eq!(
+        payload.get("schema").and_then(Value::as_str),
+        Some("athanor.verification_evidence.v1")
+    );
+    assert_eq!(payload.get("workflow").and_then(Value::as_str), Some("CI"));
+    assert_eq!(
+        payload.get("conclusion").and_then(Value::as_str),
+        Some("success")
+    );
+
+    let head_sha = payload
+        .get("head_sha")
+        .and_then(Value::as_str)
+        .expect("verification evidence head_sha");
+    assert_eq!(head_sha.len(), 40);
+    assert!(head_sha.chars().all(|character| character.is_ascii_hexdigit()));
+
+    assert!(
+        payload.get("run_id").and_then(Value::as_u64).is_some_and(|id| id > 0),
+        "verification evidence requires a positive workflow run id"
+    );
+    assert!(
+        payload
+            .get("run_url")
+            .and_then(Value::as_str)
+            .is_some_and(|url| url.starts_with("https://github.com/RusTokRs/Athanor/actions/runs/")),
+        "verification evidence requires the canonical repository run URL"
+    );
+    assert!(
+        payload
+            .get("completed_at")
+            .and_then(Value::as_str)
+            .is_some_and(|timestamp| !timestamp.trim().is_empty()),
+        "verification evidence requires completion time"
+    );
+
+    let matrix = payload
+        .get("matrix")
+        .and_then(Value::as_array)
+        .expect("verification evidence matrix");
+    assert!(matrix.len() >= 8);
+}
+
+#[test]
+fn verification_evidence_owners_remain_bounded() {
+    for (name, source, max_lines) in [
+        ("CI workflow", CI_WORKFLOW, 210),
+        ("evidence workflow", EVIDENCE_WORKFLOW, 100),
+        ("CI guide", CI_GUIDE, 230),
+    ] {
+        let lines = source.lines().count();
+        assert!(lines <= max_lines, "{name} grew to {lines} lines");
+    }
+}
