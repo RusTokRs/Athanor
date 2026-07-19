@@ -239,3 +239,119 @@ impl RepairLock {
         Ok(Self { _file: file })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use athanor_core::{
+        AtomicSnapshotPublication, CanonicalLatestPointer, KnowledgeStore, SnapshotBatch,
+    };
+    use athanor_domain::{RepoId, SnapshotBase};
+    use athanor_store_jsonl::JsonlKnowledgeStore;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn repairs_corrupt_jsonl_latest_to_authoritative_generation() {
+        let root = test_root("repair");
+        let backend = JsonlKnowledgeStore::new(root.join(".athanor/store/canonical/jsonl"));
+        let first = backend
+            .begin_snapshot(RepoId("repo".to_string()), snapshot_base())
+            .await
+            .unwrap();
+        backend
+            .publish_snapshot_batch(first.clone(), SnapshotBatch::default())
+            .await
+            .unwrap();
+        let second = backend
+            .begin_snapshot(RepoId("repo".to_string()), snapshot_base())
+            .await
+            .unwrap();
+        backend
+            .publish_snapshot_batch(second.clone(), SnapshotBatch::default())
+            .await
+            .unwrap();
+        fs::write(
+            root.join(".athanor/store/canonical/jsonl/latest.json"),
+            "{",
+        )
+        .unwrap();
+        let store = crate::AthanorStore::new_with_latest_pointer(backend);
+
+        let plan = repair_latest_with_store(
+            &root,
+            true,
+            Some(second.0.as_str()),
+            &store,
+        )
+        .await
+        .unwrap();
+        assert!(plan.needed);
+        assert!(!plan.repaired);
+        assert!(plan.previous_error.is_some());
+
+        let applied = repair_latest_with_store(
+            &root,
+            false,
+            Some(second.0.as_str()),
+            &store,
+        )
+        .await
+        .unwrap();
+        assert!(applied.repaired);
+        assert_eq!(store.load_latest_identity().await.unwrap(), Some(applied.target));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn refuses_to_rewind_to_older_committed_generation() {
+        let root = test_root("rewind");
+        let backend = JsonlKnowledgeStore::new(root.join(".athanor/store/canonical/jsonl"));
+        let first = backend
+            .begin_snapshot(RepoId("repo".to_string()), snapshot_base())
+            .await
+            .unwrap();
+        backend
+            .publish_snapshot_batch(first.clone(), SnapshotBatch::default())
+            .await
+            .unwrap();
+        let second = backend
+            .begin_snapshot(RepoId("repo".to_string()), snapshot_base())
+            .await
+            .unwrap();
+        backend
+            .publish_snapshot_batch(second, SnapshotBatch::default())
+            .await
+            .unwrap();
+        let store = crate::AthanorStore::new_with_latest_pointer(backend);
+
+        let error = repair_latest_with_store(
+            &root,
+            true,
+            Some(first.0.as_str()),
+            &store,
+        )
+        .await
+        .expect_err("repair must not rewind canonical latest");
+        assert!(error.to_string().contains("not authoritative"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    fn snapshot_base() -> SnapshotBase {
+        SnapshotBase {
+            branch: None,
+            commit: None,
+            parent_snapshot: None,
+            working_tree: true,
+        }
+    }
+
+    fn test_root(label: &str) -> PathBuf {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("athanor-latest-repair-{label}-{nonce}"));
+        fs::create_dir_all(&root).unwrap();
+        root
+    }
+}
