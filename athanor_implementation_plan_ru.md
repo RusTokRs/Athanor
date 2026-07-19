@@ -28,7 +28,7 @@ JSON является внешним контрактом. CLI, daemon и MCP в
   transport parity;
 - `DOC-001` / `DOC-002` — status hygiene и pipeline current/target/history;
 - `MCP-004` — control-plane responsiveness при saturation request slots и response queue;
-- `VERIFY-001A` — exact successful main-CI evidence publisher и automation-owned evidence contract;
+- `VERIFY-001A` — exact successful main-CI JSON evidence и commit-status channels;
 - `VERIFY-001B` — lifecycle-aware docs completeness gate, valid `ath init` config и refreshed golden
   config contract.
 
@@ -62,7 +62,8 @@ ChangeMap, API, Overview, Capabilities, Impact, Coverage, Check, Graph, Repair, 
 5. root `athanor.toml`, `ProjectConfig::default` и `ath init` используют один current policy;
 6. workflow YAML является implementation evidence, но не execution evidence;
 7. `athanor.verification_evidence.v1` принадлежит workflow-owned automation registry;
-8. valid evidence содержит exact successful CI SHA и run identity.
+8. `athanor/verification-matrix` публикуется на exact `GITHUB_SHA` после aggregation required jobs;
+9. verified claim требует successful status или valid JSON evidence для того же SHA.
 
 ## 3. Завершённые пакеты
 
@@ -111,11 +112,14 @@ ChangeMap, API, Overview, Capabilities, Impact, Coverage, Check, Graph, Repair, 
 ### 3.6 `VERIFY-001A` — exact CI evidence publication
 
 - [x] `verification-evidence.yml` принимает только completed successful push-CI на `main`.
-- [x] Evidence содержит schema, exact SHA, run id/URL, completion time и matrix.
+- [x] JSON evidence содержит schema, exact SHA, run id/URL, completion time и matrix.
 - [x] Evidence-only path исключён из push-CI, предотвращая recursive loop.
-- [x] Workflow коммитит только `docs/development/verification-evidence.json`.
-- [x] `AUTOMATION_JSON_CONTRACTS` классифицирует evidence как persisted current workflow document.
-- [x] `verification_evidence_inventory` связывает workflow, schema constant и required fields.
+- [x] `AUTOMATION_JSON_CONTRACTS` классифицирует persisted workflow document.
+- [x] Final CI job зависит от security, quality, feature matrix и coverage через `always()`.
+- [x] Exact legacy status context — `athanor/verification-matrix`.
+- [x] Status публикует success только когда все required results равны `success`.
+- [x] Status API доступен connector даже без check-run listing или branch write.
+- [x] `verification_evidence_inventory` связывает оба evidence channels с exact SHA.
 
 ### 3.7 `VERIFY-001B` — lifecycle-aware docs gate
 
@@ -132,9 +136,9 @@ ChangeMap, API, Overview, Capabilities, Impact, Coverage, Check, Graph, Repair, 
 ### 4.1 `VERIFY-001` — execution matrix
 
 - [!] Локальный checkout и `gh` недоступны в текущем runtime.
-- [x] Self-recording exact evidence workflow находится в `main`.
-- [ ] получить valid `docs/development/verification-evidence.json` от successful final push-CI;
-- [ ] сверить recorded `head_sha` с architecture commit;
+- [x] Exact JSON и legacy commit-status evidence channels находятся в `main`.
+- [ ] получить successful `athanor/verification-matrix` или valid evidence JSON для final push-CI;
+- [ ] сверить evidence SHA с architecture commit;
 - [ ] повысить только доказанные packages до `[x] verified`.
 
 ### 4.2 Product backlog
@@ -158,9 +162,9 @@ ChangeMap, API, Overview, Capabilities, Impact, Coverage, Check, Graph, Repair, 
 | `DOC-001` | P3 | `[x] implemented` | Stale verification and removed paths cleaned |
 | `DOC-002` | P3 | `[x] implemented` | Pipeline/status docs aligned |
 | `MCP-004` | P1 | `[x] implemented` | Control input remains observable under saturation |
-| `VERIFY-001A` | P1 | `[x] implemented` | Successful main CI can publish classified exact evidence |
+| `VERIFY-001A` | P1 | `[x] implemented` | CI publishes exact JSON/status evidence channels |
 | `VERIFY-001B` | P1 | `[x] implemented` | Docs gate matches lifecycle semantics and current config |
-| `VERIFY-001` | P1 | `[!] blocked` | Valid evidence JSON identifies one successful commit |
+| `VERIFY-001` | P1 | `[!] blocked` | Exact successful status or JSON evidence identifies one commit |
 
 ## 6. Verification matrix
 
@@ -207,10 +211,17 @@ cargo run -p ath --quiet --locked -- index .
 cargo run -p ath --quiet --locked -- docs check
 ```
 
-Статус остаётся `implemented`, пока valid evidence-файл не идентифицирует successful matrix для exact
-architecture commit.
+Статус остаётся `implemented`, пока exact successful status или valid evidence JSON не идентифицирует
+matrix для architecture commit.
 
 ## 7. Последние изменения
+
+### 2026-07-19 — Connector-visible exact commit status
+
+- Final CI job aggregates all required job results with `always()`.
+- Status `athanor/verification-matrix` binds success/failure and run URL to exact SHA.
+- JSON evidence remains the persisted secondary channel.
+- Status — implemented; successful final run pending.
 
 ### 2026-07-19 — Workflow-owned JSON evidence contract
 
