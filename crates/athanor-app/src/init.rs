@@ -60,8 +60,8 @@ source_language = "ru"
 mode = "patch-based"
 
 [docs.completeness]
-required_fields = ["id", "kind", "language", "source_language", "last_verified_snapshot", "status"]
-allowed_statuses = ["verified"]
+required_fields = ["id", "kind", "language", "source_language", "status"]
+allowed_statuses = ["active", "implemented", "planned", "draft", "verified"]
 minimum_diagnostic_severity = "medium"
 require_current_snapshot = false
 
@@ -125,5 +125,19 @@ mod tests {
         assert!(!report.created.is_empty());
 
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn generated_docs_policy_keeps_completeness_separate_from_drift() {
+        let config = default_config();
+        assert!(config.contains(
+            "required_fields = [\"id\", \"kind\", \"language\", \"source_language\", \"status\"]"
+        ));
+        assert!(config.contains(
+            "allowed_statuses = [\"active\", \"implemented\", \"planned\", \"draft\", \"verified\"]"
+        ));
+        assert!(!config.contains(
+            "required_fields = [\"id\", \"kind\", \"language\", \"source_language\", \"last_verified_snapshot\", \"status\"]"
+        ));
     }
 }
