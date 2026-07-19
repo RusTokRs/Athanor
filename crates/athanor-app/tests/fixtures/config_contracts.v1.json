@@ -10,10 +10,13 @@
           "kind",
           "language",
           "source_language",
-          "last_verified_snapshot",
           "status"
         ],
         "allowed_statuses": [
+          "active",
+          "implemented",
+          "planned",
+          "draft",
           "verified"
         ],
         "minimum_diagnostic_severity": "medium",
@@ -62,10 +65,13 @@
             "kind",
             "language",
             "source_language",
-            "last_verified_snapshot",
             "status"
           ],
           "allowed_statuses": [
+            "active",
+            "implemented",
+            "planned",
+            "draft",
             "verified"
           ],
           "minimum_diagnostic_severity": "medium",
