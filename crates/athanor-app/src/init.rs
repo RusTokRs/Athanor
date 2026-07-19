@@ -49,15 +49,8 @@ fn create_dir(path: &Path, created: &mut Vec<PathBuf>) -> Result<()> {
 fn default_config() -> &'static str {
     r#"# Athanor project configuration
 
-[project]
-name = "athanor-project"
-
 [docs]
 editable_path = "docs"
-generated_path = ".athanor/generated/current/wiki"
-languages = ["ru", "en"]
-source_language = "ru"
-mode = "patch-based"
 
 [docs.completeness]
 required_fields = ["id", "kind", "language", "source_language", "status"]
@@ -65,45 +58,40 @@ allowed_statuses = ["active", "implemented", "planned", "draft", "verified"]
 minimum_diagnostic_severity = "medium"
 require_current_snapshot = false
 
-[docs.api]
-enabled = true
-source_of_truth = "hybrid"
-strict = true
-
 [api]
 enabled = true
 source_of_truth = "hybrid"
 strict = true
+fail_on_missing_docs = true
+fail_on_openapi_mismatch = true
+fail_on_undocumented_status_code = true
 
 [api.retention]
 auto_cleanup = false
 keep_snapshots = 2
 keep_diffs = 2
 
+[storage]
+mode = "jsonl"
+path = ".athanor/store/canonical/jsonl"
+
 [adapters]
 allow_external_process = false
 external_process_allowlist = []
+external_process_sandbox = "disabled"
 
-[docs.operations]
-enabled = true
-include_scripts = true
-include_env = true
-include_docker = true
-include_ci = true
-
-[commands]
-allow_external = false
-allow_network = false
-allowed = []
-
-[network]
-enabled = false
-allow = []
+[pipeline]
+extraction_concurrency = 16
+max_extraction_bytes_in_flight = 67108864
+max_snapshot_batch_objects = 1000000
+max_snapshot_batch_bytes = 536870912
 "#
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::config::ProjectConfig;
+
     use super::*;
 
     #[test]
@@ -128,16 +116,18 @@ mod tests {
     }
 
     #[test]
-    fn generated_docs_policy_keeps_completeness_separate_from_drift() {
-        let config = default_config();
-        assert!(config.contains(
-            "required_fields = [\"id\", \"kind\", \"language\", \"source_language\", \"status\"]"
-        ));
-        assert!(config.contains(
-            "allowed_statuses = [\"active\", \"implemented\", \"planned\", \"draft\", \"verified\"]"
-        ));
-        assert!(!config.contains(
-            "required_fields = [\"id\", \"kind\", \"language\", \"source_language\", \"last_verified_snapshot\", \"status\"]"
-        ));
+    fn generated_config_parses_as_the_current_contract() {
+        let config = toml::from_str::<ProjectConfig>(default_config())
+            .expect("ath init must emit a valid ProjectConfig");
+        assert_eq!(config.docs.editable_path, "docs");
+        assert_eq!(
+            config.docs.completeness.required_fields,
+            ["id", "kind", "language", "source_language", "status"]
+        );
+        assert_eq!(
+            config.docs.completeness.allowed_statuses,
+            ["active", "implemented", "planned", "draft", "verified"]
+        );
+        assert!(!config.docs.completeness.require_current_snapshot);
     }
 }
