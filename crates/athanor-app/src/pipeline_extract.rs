@@ -36,8 +36,9 @@ pub(crate) async fn extract(
         .flat_map(|source| {
             extractors
                 .iter()
-                .filter(move |extractor| extractor.supports(source))
-                .map(move |extractor| (extractor.as_ref(), source.clone()))
+                .enumerate()
+                .filter(move |(_, extractor)| extractor.supports(source))
+                .map(move |(extractor_index, _)| (extractor_index, source.clone()))
         })
         .collect::<Vec<_>>();
     let byte_budget = Arc::new(Semaphore::new(max_bytes_in_flight.min(u32::MAX as usize)));
@@ -59,7 +60,8 @@ pub(crate) async fn extract(
         concurrency, max_bytes_in_flight, "queued extraction tasks"
     );
     let mut outputs = stream::iter(tasks)
-        .map(|(extractor, source)| {
+        .map(|(extractor_index, source)| {
+            let extractor = extractors[extractor_index].as_ref();
             let byte_budget = Arc::clone(&byte_budget);
             let adapter_budgets = Arc::clone(&adapter_budgets);
             let cancellation = cancellation.clone();
@@ -71,8 +73,8 @@ pub(crate) async fn extract(
                     .acquire_many_owned(permits)
                     .await
                     .map_err(|_| anyhow::anyhow!("extraction byte budget was closed"))?;
-                let extractor_name = extractor.name();
-                let _adapter_permit = match adapter_budgets.get(extractor_name) {
+                let extractor_name = extractor.name().to_string();
+                let _adapter_permit = match adapter_budgets.get(&extractor_name) {
                     Some(budget) => Some(
                         Arc::clone(budget)
                             .acquire_owned()
@@ -83,14 +85,14 @@ pub(crate) async fn extract(
                 };
                 let started = std::time::Instant::now();
                 let span =
-                    debug_span!("extract_source", extractor = extractor_name, file = %source.path);
+                    debug_span!("extract_source", extractor = %extractor_name, file = %source.path);
                 let output = crate::with_process_execution_context(
                     operation.clone(),
                     cancellation,
                     async {
                         within_operation_deadline(
                             &operation,
-                            extractor_name,
+                            &extractor_name,
                             extractor.extract_with_context(
                                 ExtractInput {
                                     repo: repo.clone(),
@@ -101,22 +103,25 @@ pub(crate) async fn extract(
                             ),
                         )
                         .await
-                        .with_context(|| format!("extractor {} failed", extractor_name))
+                        .with_context(|| format!("extractor {extractor_name} failed"))
                     },
                 )
                 .instrument(span)
                 .await?;
-                validate_entities(extractor_name, &output.entities)?;
-                validate_facts(extractor_name, &output.facts)?;
-                validate_diagnostics(extractor_name, &output.diagnostics)?;
-                let mut metrics =
-                    adapter_run("extractor", extractor_name, elapsed_ms(started.elapsed()));
+                validate_entities(&extractor_name, &output.entities)?;
+                validate_facts(&extractor_name, &output.facts)?;
+                validate_diagnostics(&extractor_name, &output.diagnostics)?;
+                let mut metrics = adapter_run(
+                    "extractor",
+                    &extractor_name,
+                    elapsed_ms(started.elapsed()),
+                );
                 metrics.input_files = 1;
                 metrics.output_entities = output.entities.len();
                 metrics.output_facts = output.facts.len();
                 metrics.output_diagnostics = output.diagnostics.len();
                 debug!(
-                    extractor = extractor_name,
+                    extractor = %extractor_name,
                     entities = output.entities.len(),
                     facts = output.facts.len(),
                     diagnostics = output.diagnostics.len(),
