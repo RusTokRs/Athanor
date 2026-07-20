@@ -1,0 +1,144 @@
+name: Test Remediation V14
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/test-remediation-v14.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  statuses: write
+
+concurrency:
+  group: test-remediation-v14-main
+  cancel-in-progress: true
+
+jobs:
+  remediate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+      - name: Install Rust toolchain
+        uses: ./.github/actions/setup-rust
+        with:
+          components: clippy rustfmt
+      - name: Apply deterministic test remediation
+        id: remediate
+        shell: bash
+        run: |
+          set -o pipefail
+          {
+            set -euo pipefail
+            python - <<'PY'
+          from pathlib import Path
+          import subprocess
+          import textwrap
+
+          workflow = subprocess.check_output(
+              [
+                  "git",
+                  "show",
+                  "d5f82adf48658c92cea0abcf21587ebc9cf3ca28:"
+                  ".github/workflows/test-remediation-v13.yml",
+              ],
+              text=True,
+          )
+          marker = "            python - <<'PY'\n"
+          start = workflow.index(marker) + len(marker)
+          end = workflow.index("\n          PY", start)
+          script = textwrap.dedent(workflow[start:end])
+          if script.count("direct_patch = '''") != 1:
+              raise SystemExit("V14: expected one direct_patch string")
+          script = script.replace("direct_patch = '''", "direct_patch = r'''", 1)
+          exec(
+              compile(script, "test-remediation-v14", "exec"),
+              {"__builtins__": __builtins__},
+          )
+          Path(".github/workflows/test-remediation-v14.yml").unlink()
+          PY
+            cargo fmt --all
+            cargo fmt --all -- --check
+            cargo test -p athanor-app --lib --locked
+            cargo test -p ath --test index_checksum_cli --locked
+            cargo test --workspace --quiet --locked
+            cargo check --workspace --all-features --locked
+            cargo clippy --workspace --all-targets --locked -- -D warnings
+            cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+          } 2>&1 | tee "$RUNNER_TEMP/test-remediation-v14.log"
+      - name: Commit validated remediation
+        id: commit
+        if: ${{ steps.remediate.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --name-only | sort > "$RUNNER_TEMP/actual-paths"
+          cat > "$RUNNER_TEMP/allowed-paths" <<'EOF'
+          .github/workflows/test-remediation-v11.yml
+          .github/workflows/test-remediation-v12.yml
+          .github/workflows/test-remediation-v13.yml
+          .github/workflows/test-remediation-v14.yml
+          crates/athanor-app/src/index_publication_finalize_tests_inner.rs
+          crates/athanor-app/src/repair_composition/direct.rs
+          crates/athanor-app/src/runtime/process_runner.rs
+          crates/athanor-app/src/search_operation.rs
+          EOF
+          sort -o "$RUNNER_TEMP/allowed-paths" "$RUNNER_TEMP/allowed-paths"
+          diff -u "$RUNNER_TEMP/allowed-paths" "$RUNNER_TEMP/actual-paths"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add --all
+          git commit -m "test(app): align deterministic publication and cancellation fixtures"
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$GITHUB_SHA"
+          git push origin HEAD:main
+      - name: Upload diagnostics
+        if: ${{ failure() && steps.remediate.outcome == 'failure' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: test-remediation-v14-diagnostics
+          path: ${{ runner.temp }}/test-remediation-v14.log
+          if-no-files-found: error
+          retention-days: 14
+      - name: Publish exact remediation status
+        if: ${{ always() }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REMEDIATION_OUTCOME: ${{ steps.remediate.outcome }}
+          COMMIT_OUTCOME: ${{ steps.commit.outcome }}
+        run: |
+          set -euo pipefail
+          state="failure"
+          description="Test remediation V14 failed"
+          if [[ "$REMEDIATION_OUTCOME" == "success" && "$COMMIT_OUTCOME" == "success" ]]; then
+            state="success"
+            description="Test remediation V14 passed"
+          fi
+          export STATE="$state"
+          export DESCRIPTION="$description"
+          python - <<'PY' > status.json
+          import json
+          import os
+          print(json.dumps({
+              "state": os.environ["STATE"],
+              "target_url": (
+                  f"{os.environ['GITHUB_SERVER_URL']}/"
+                  f"{os.environ['GITHUB_REPOSITORY']}/actions/runs/"
+                  f"{os.environ['GITHUB_RUN_ID']}"
+              ),
+              "description": os.environ["DESCRIPTION"],
+              "context": "athanor/test-remediation-v14",
+          }))
+          PY
+          curl --fail-with-body --location --request POST \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            --data @status.json
