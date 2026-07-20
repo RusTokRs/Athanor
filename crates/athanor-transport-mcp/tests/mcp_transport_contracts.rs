@@ -8,11 +8,29 @@ use athanor_transport_mcp::{
 use serde_json::Value;
 
 const RUNTIME_SOURCE: &str = include_str!("../src/runtime.rs");
-const SERVER_SOURCE: &str = include_str!("../src/server.rs");
+const SERVER_MOD_SOURCE: &str = include_str!("../src/server/mod.rs");
+const SERVER_TYPES_SOURCE: &str = include_str!("../src/server/types.rs");
+const SERVER_PROTOCOL_SOURCE: &str = include_str!("../src/server/protocol.rs");
+const SERVER_LIFECYCLE_SOURCE: &str = include_str!("../src/server/lifecycle.rs");
+const SERVER_OPERATION_SOURCE: &str = include_str!("../src/server/operation.rs");
+const SERVER_TESTS_SOURCE: &str = include_str!("../src/server/tests.rs");
 const TOOLS_ROOT_SOURCE: &str = include_str!("../src/tools.rs");
 const TOOLS_DISPATCH_SOURCE: &str = include_str!("../src/tools/dispatch.rs");
 const TOOLS_SCHEMA_SOURCE: &str = include_str!("../src/tools/schema.rs");
 const FIXTURE: &str = include_str!("fixtures/mcp_transport_contracts.v1.json");
+
+/// Returns the concatenated source of all production server submodules (excluding tests).
+fn server_source() -> String {
+    [
+        SERVER_MOD_SOURCE,
+        SERVER_TYPES_SOURCE,
+        SERVER_PROTOCOL_SOURCE,
+        SERVER_LIFECYCLE_SOURCE,
+        SERVER_OPERATION_SOURCE,
+        SERVER_TESTS_SOURCE,
+    ]
+    .join("\n")
+}
 
 #[test]
 fn standard_mcp_transport_fixture_is_valid() {
@@ -47,13 +65,14 @@ fn mcp_transport_registry_is_unique_and_separate_from_athanor_schema_registry() 
         contract.version == JSON_RPC_VERSION || contract.version == MCP_PROTOCOL_VERSION
     }));
 
-    assert!(SERVER_SOURCE.contains("struct JsonRpcRequest"));
-    assert!(SERVER_SOURCE.contains("struct RpcError"));
-    assert!(SERVER_SOURCE.contains("MCP_PROTOCOL_VERSION"));
-    assert!(SERVER_SOURCE.contains("\"isError\": true"));
-    assert!(SERVER_SOURCE.contains("\"type\": \"text\""));
+    let server_source = server_source();
+    assert!(server_source.contains("struct JsonRpcRequest"));
+    assert!(server_source.contains("struct RpcError"));
+    assert!(server_source.contains("MCP_PROTOCOL_VERSION"));
+    assert!(server_source.contains("\"isError\": true"));
+    assert!(server_source.contains("\"type\": \"text\""));
     assert!(
-        !SERVER_SOURCE.contains("athanor.mcp_")
+        !server_source.contains("athanor.mcp_")
             && !TOOLS_DISPATCH_SOURCE.contains("athanor.mcp_")
             && !TOOLS_SCHEMA_SOURCE.contains("athanor.mcp_"),
         "standard MCP envelopes must not acquire an Athanor schema id"
@@ -64,34 +83,37 @@ fn mcp_transport_registry_is_unique_and_separate_from_athanor_schema_registry() 
 fn active_mcp_server_is_bounded_and_reaps_request_tasks() {
     assert!(DEFAULT_MAX_IN_FLIGHT_REQUESTS > 0);
     assert!(DEFAULT_RESPONSE_QUEUE_CAPACITY > 0);
-    assert!(SERVER_SOURCE.contains("mpsc::channel::<String>"));
-    assert!(!SERVER_SOURCE.contains("unbounded_channel"));
-    assert!(SERVER_SOURCE.contains("requests.len() < limits.max_in_flight_requests"));
-    assert!(SERVER_SOURCE.contains("requests.join_next()"));
-    assert!(SERVER_SOURCE.contains("bounded_response_queue_applies_backpressure"));
-    assert!(SERVER_SOURCE.contains("completed_request_tasks_are_reaped"));
+    let server_source = server_source();
+    assert!(server_source.contains("mpsc::channel::<String>"));
+    assert!(!server_source.contains("unbounded_channel"));
+    assert!(server_source.contains("requests.len() < limits.max_in_flight_requests"));
+    assert!(server_source.contains("requests.join_next()"));
+    assert!(server_source.contains("bounded_response_queue_applies_backpressure"));
+    assert!(server_source.contains("completed_request_tasks_are_reaped"));
 }
 
 #[test]
 fn active_mcp_server_enforces_protocol_and_session_semantics() {
-    assert!(SERVER_SOURCE.contains("Some(JSON_RPC_VERSION)"));
-    assert!(SERVER_SOURCE.contains("McpSessionPhase::AwaitingInitialize"));
-    assert!(SERVER_SOURCE.contains("McpSessionPhase::AwaitingInitialized"));
-    assert!(SERVER_SOURCE.contains("McpSessionPhase::Ready"));
-    assert!(SERVER_SOURCE.contains("code: -32700"));
-    assert!(SERVER_SOURCE.contains("code: -32600"));
-    assert!(SERVER_SOURCE.contains("code: -32601"));
-    assert!(SERVER_SOURCE.contains("code: -32602"));
-    assert!(SERVER_SOURCE.contains("code: -32002"));
-    assert!(SERVER_SOURCE.contains("explicit_null_receives_response"));
+    let server_source = server_source();
+    assert!(server_source.contains("Some(JSON_RPC_VERSION)"));
+    assert!(server_source.contains("McpSessionPhase::AwaitingInitialize"));
+    assert!(server_source.contains("McpSessionPhase::AwaitingInitialized"));
+    assert!(server_source.contains("McpSessionPhase::Ready"));
+    assert!(server_source.contains("code: -32700"));
+    assert!(server_source.contains("code: -32600"));
+    assert!(server_source.contains("code: -32601"));
+    assert!(server_source.contains("code: -32602"));
+    assert!(server_source.contains("code: -32002"));
+    assert!(server_source.contains("explicit_null_receives_response"));
 }
 
 #[test]
 fn active_mcp_dispatch_is_explicitly_composed() {
     assert!(RUNTIME_SOURCE.contains("run_mcp_server_with_composition"));
     assert!(!RUNTIME_SOURCE.contains("include!("));
-    assert!(SERVER_SOURCE.contains("Arc<RuntimeComposition>"));
-    assert!(SERVER_SOURCE.contains("Arc::clone(composition)"));
+    let server_source = server_source();
+    assert!(server_source.contains("Arc<RuntimeComposition>"));
+    assert!(server_source.contains("Arc::clone(composition)"));
     assert!(TOOLS_ROOT_SOURCE.contains("mod dispatch;"));
     assert!(TOOLS_ROOT_SOURCE.contains("mod schema;"));
     assert!(TOOLS_DISPATCH_SOURCE.contains("index_project_with_composition"));
@@ -111,7 +133,11 @@ fn mcp_production_modules_remain_bounded() {
         ("tools root", TOOLS_ROOT_SOURCE, 20),
         ("tools schema", TOOLS_SCHEMA_SOURCE, 220),
         ("tools dispatch", TOOLS_DISPATCH_SOURCE, 330),
-        ("server", SERVER_SOURCE, 1_050),
+        ("server mod", SERVER_MOD_SOURCE, 25),
+        ("server types", SERVER_TYPES_SOURCE, 220),
+        ("server protocol", SERVER_PROTOCOL_SOURCE, 260),
+        ("server lifecycle", SERVER_LIFECYCLE_SOURCE, 280),
+        ("server operation", SERVER_OPERATION_SOURCE, 340),
     ] {
         let lines = source.lines().count();
         assert!(lines <= max_lines, "{name} grew to {lines} lines");

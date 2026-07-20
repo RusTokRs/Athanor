@@ -6,6 +6,7 @@ mod frontmatter;
 mod model;
 mod operations;
 mod proposal;
+mod service;
 
 #[cfg(test)]
 mod tests;

@@ -170,7 +170,7 @@ pub mod projects {
 
 pub use adapter_contract::*;
 pub use api::*;
-pub use api_registry::*;
+pub use api_registry::{API_REGISTRY_SCHEMA, ApiRegistryEndpoint, ApiRegistryOptions, ApiRegistryReport};
 pub use application_report_composition::*;
 pub use automation_contract::*;
 pub use bench::*;

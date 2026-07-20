@@ -3,7 +3,7 @@ use athanor_app::{EntityExplanation, RepositoryOverview};
 
 use super::support::{print_named_counts, serialized_name};
 
-pub(super) fn print_explanation(explanation: &EntityExplanation) -> Result<()> {
+pub(crate) fn print_explanation(explanation: &EntityExplanation) -> Result<()> {
     println!("{}", explanation.entity.stable_key.0);
     println!("snapshot: {}", explanation.snapshot);
     println!("kind: {}", serialized_name(&explanation.entity.kind)?);
@@ -60,7 +60,7 @@ pub(super) fn print_explanation(explanation: &EntityExplanation) -> Result<()> {
     Ok(())
 }
 
-pub(super) fn print_overview(overview: &RepositoryOverview) -> Result<()> {
+pub(crate) fn print_overview(overview: &RepositoryOverview) -> Result<()> {
     println!("Athanor overview (snapshot: {})", overview.snapshot);
     println!(
         "canonical objects: {} entities, {} facts, {} relations, {} diagnostics ({} open)",

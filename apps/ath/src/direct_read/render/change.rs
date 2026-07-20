@@ -3,7 +3,7 @@ use athanor_app::{ChangeMapReport, ImpactAnalysis};
 
 use super::support::serialized_name;
 
-pub(super) fn print_impact_analysis(analysis: &ImpactAnalysis) -> Result<()> {
+pub(crate) fn print_impact_analysis(analysis: &ImpactAnalysis) -> Result<()> {
     println!("Code Impact Analysis (snapshot: {})", analysis.snapshot);
     println!("Starting Entities:");
     if analysis.starting_entities.is_empty() {
@@ -92,7 +92,7 @@ pub(super) fn print_impact_analysis(analysis: &ImpactAnalysis) -> Result<()> {
     Ok(())
 }
 
-pub(super) fn print_change_map(report: &ChangeMapReport) -> Result<()> {
+pub(crate) fn print_change_map(report: &ChangeMapReport) -> Result<()> {
     println!("Change Map (snapshot: {})", report.snapshot);
     println!(
         "Returned: {} entities, {} files, {} diagnostics; omitted: {}/{}/{}",
