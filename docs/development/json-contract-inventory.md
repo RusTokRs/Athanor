@@ -107,6 +107,18 @@ CLI, daemon, and MCP Index paths serialize the same public `IndexReport`.
 Adding a synthetic top-level schema would change existing external adapters; an incompatible future
 change requires an explicit versioned process envelope.
 
+## Source-literal classifications
+
+Sixteen canonical `athanor.*` literals are explicitly classified with a Rust owner and
+lifecycle even though they are not members of the stable public/general registries. They
+cover composite CLI and daemon envelopes, embedded GraphQL/JS-TS metadata, JSONL indexes,
+and accepted legacy daemon/Repair inputs. The source scanner validates their canonical ids,
+uniqueness, ownership, lifecycle, and observability.
+
+Non-canonical Athanor-prefixed strings such as the `athanor.index_state.v` validation prefix
+and the `athanor.toml` filename are not schema ids and are excluded only when they are not explicitly classified and
+`validate_schema_id` rejects them. Registered legacy ids remain observable.
+
 ## Enforcement implementation
 
 - `VERSIONED_JSON_CONTRACTS` protects 60 current public Rust owners.

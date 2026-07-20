@@ -205,6 +205,7 @@ mod tests {
     fn cancellation_observed_during_backend_read_rejects_success() {
         let operation = OperationContext::new("read.mid-flight");
         let cancellation = operation.cancellation_handle().unwrap();
+        let cancellation_lease = cancellation.clone();
         let index = CancellingSearch {
             cancellation: Mutex::new(Some(cancellation)),
         };
@@ -217,6 +218,7 @@ mod tests {
             &operation,
         ))
         .expect_err("cancelled in-flight read must not return a successful result");
+        drop(cancellation_lease);
 
         assert!(matches!(error, CoreError::Cancelled(_)));
     }

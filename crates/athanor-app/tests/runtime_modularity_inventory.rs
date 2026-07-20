@@ -42,7 +42,7 @@ fn process_context_and_test_commands_have_one_clear_environment_owner() {
     assert!(!RUNTIME_ROOT.contains("PROCESS_CANCELLATION"));
 
     let literals = RUNTIME_PROCESS_FIXTURES
-        .split("ProcessCommand {")
+        .split("\n    ProcessCommand {")
         .skip(1)
         .collect::<Vec<_>>();
     assert!(!literals.is_empty());

@@ -336,6 +336,7 @@ mod tests {
         );
         let operation = OperationContext::new("process-runner-cancellation");
         let cancellation = operation.cancellation_handle().unwrap();
+        let cancellation_lease = cancellation.clone();
         let cancel_task = tokio::spawn(async move {
             tokio::time::sleep(Duration::from_millis(30)).await;
             cancellation.cancel();
@@ -346,6 +347,7 @@ mod tests {
             .await
             .expect_err("cancelled helper must terminate");
         cancel_task.await.unwrap();
+        drop(cancellation_lease);
         tokio::time::sleep(Duration::from_millis(350)).await;
 
         assert!(matches!(error, CoreError::Cancelled(_)));

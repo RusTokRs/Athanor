@@ -19,21 +19,13 @@ use crate::{
 };
 
 #[tokio::test]
-async fn read_model_finalize_failure_recovers_committed_generation() {
-    assert_finalize_failure_recovers(
-        SabotageMode::ReadModelFinalize,
-        "failed to remove read model backup",
-    )
-    .await;
+async fn read_model_backup_cleanup_failure_keeps_committed_generation() {
+    assert_backup_cleanup_failure_is_non_fatal(SabotageMode::ReadModelFinalize).await;
 }
 
 #[tokio::test]
-async fn index_state_finalize_failure_recovers_committed_generation() {
-    assert_finalize_failure_recovers(
-        SabotageMode::IndexStateFinalize,
-        "failed to remove index state backup",
-    )
-    .await;
+async fn index_state_backup_cleanup_failure_keeps_committed_generation() {
+    assert_backup_cleanup_failure_is_non_fatal(SabotageMode::IndexStateFinalize).await;
 }
 
 #[tokio::test]
@@ -43,6 +35,38 @@ async fn journal_clear_failure_recovers_committed_generation() {
         "failed to clear publication journal",
     )
     .await;
+}
+
+async fn assert_backup_cleanup_failure_is_non_fatal(mode: SabotageMode) {
+    let root = test_root(mode.label());
+    let PublicationFixture {
+        backend,
+        store,
+        snapshot,
+        output,
+        operation,
+        state_store,
+        output_dir,
+    } = snapshot_fixture(&root, mode).await;
+
+    publish_index_snapshot(
+        &root,
+        &store,
+        &state_store,
+        &output_dir,
+        &output,
+        snapshot.clone(),
+        &operation,
+    )
+    .await
+    .expect("backup cleanup failure must not override durable publication success");
+
+    assert_latest_snapshot(&store, &snapshot).await;
+    assert_current_generation(&root, &snapshot);
+    assert!(!publication_journal(&root).exists());
+
+    backend.repair();
+    fs::remove_dir_all(root).expect("remove backup cleanup fault fixture");
 }
 
 async fn assert_finalize_failure_recovers(mode: SabotageMode, expected_error: &str) {

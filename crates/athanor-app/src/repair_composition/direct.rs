@@ -381,6 +381,14 @@ mod tests {
         let read_model = root.join(".athanor/generated/current/jsonl");
         fs::create_dir_all(&read_model).unwrap();
         fs::create_dir_all(root.join(".athanor/state")).unwrap();
+        for file in [
+            "entities.jsonl",
+            "facts.jsonl",
+            "relations.jsonl",
+            "diagnostics.jsonl",
+        ] {
+            fs::write(read_model.join(file), "").unwrap();
+        }
         fs::write(
             read_model.join("manifest.json"),
             serde_json::to_vec_pretty(&json!({

@@ -66,7 +66,7 @@ fn core_runtime_paths_require_explicit_composition() {
     assert!(STORE_FACADE_SOURCE.contains("Store construction is owned by"));
     assert!(STORE_FACADE_SOURCE.contains("pub use core::{AthanorStore, StoreFactory};"));
     assert!(!STORE_FACADE_SOURCE.contains("pub async fn init_store"));
-    assert!(SEARCH_FACADE_SOURCE.contains("explicit RuntimeComposition is required"));
+    assert!(SEARCH_FACADE_SOURCE.contains("must supply `RuntimeComposition`"));
     assert!(!PROJECTION_SOURCE.contains("project_wiki_payload"));
     assert!(!PROJECTION_SOURCE.contains("project_html_payload"));
     assert!(TEST_RUNTIME_SOURCE.contains("pub(crate) fn composition()"));
@@ -112,7 +112,7 @@ fn installer_apis_are_removed_from_public_runtime_sources() {
     }
     assert!(!APP_LIB_SOURCE.contains("install_wiki_projector_factory"));
     assert!(!APP_LIB_SOURCE.contains("install_html_projector_factory"));
-    assert!(MIGRATION_DOC.contains("COMP-003C2A"));
+    assert!(MIGRATION_DOC.contains("every runtime installer API are removed"));
 }
 
 #[test]
@@ -161,7 +161,7 @@ fn dead_no_composition_wrappers_are_removed() {
     );
     assert!(!BENCH_SOURCE.contains("pub async fn benchmark_index("));
 
-    assert!(MIGRATION_DOC.contains("COMP-003C2B1"));
+    assert!(MIGRATION_DOC.contains("Removed functions do not have compatibility aliases"));
     assert!(MIGRATION_DOC.contains("COMP-003C2B2"));
 }
 

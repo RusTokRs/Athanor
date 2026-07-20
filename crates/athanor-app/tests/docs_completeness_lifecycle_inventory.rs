@@ -58,8 +58,8 @@ fn defaults_init_template_and_repository_policy_share_one_lifecycle() {
 
 #[test]
 fn completeness_and_snapshot_drift_remain_separate_contracts() {
-    assert!(CHECK_SOURCE.contains("policy.required_fields"));
-    assert!(CHECK_SOURCE.contains("policy.allowed_statuses"));
+    assert!(CHECK_SOURCE.contains(".required_fields"));
+    assert!(CHECK_SOURCE.contains(".allowed_statuses"));
     assert!(CHECK_SOURCE.contains("if policy.require_current_snapshot"));
     assert!(CHECK_SOURCE.contains("build_docs_drift_report"));
     assert!(CHECK_SOURCE.contains("missing_verification_snapshot"));

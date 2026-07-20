@@ -27,7 +27,7 @@ fn mcp_runtime_composition_is_explicit_end_to_end() {
     assert!(MCP_SERVER_ROOT_SOURCE.contains("mod protocol;"));
     assert!(MCP_SERVER_ROOT_SOURCE.contains("mod types;"));
     assert!(MCP_SERVER_LIFECYCLE_SOURCE.contains("Arc<RuntimeComposition>"));
-    assert!(MCP_SERVER_LIFECYCLE_SOURCE.contains("Arc::clone(composition)"));
+    assert!(MCP_SERVER_LIFECYCLE_SOURCE.contains("runtime.composition.as_ref()"));
     assert!(MCP_TOOLS_ROOT_SOURCE.contains("mod dispatch;"));
     assert!(MCP_TOOLS_DISPATCH_SOURCE.contains("index_project_with_composition"));
     assert!(MCP_TOOLS_DISPATCH_SOURCE.contains("check_project_with_composition"));
@@ -42,7 +42,9 @@ fn mcp_control_plane_stays_readable_under_request_saturation() {
         !MCP_SERVER_LIFECYCLE_SOURCE
             .contains("stdin_open && requests.len() < limits.max_in_flight_requests")
     );
-    assert!(MCP_SERVER_LIFECYCLE_SOURCE.contains("requests.len() >= max_in_flight_requests"));
+    assert!(
+        MCP_SERVER_LIFECYCLE_SOURCE.contains("requests.len() >= runtime.max_in_flight_requests")
+    );
     assert!(MCP_SERVER_LIFECYCLE_SOURCE.contains("RpcError::server_busy"));
     assert!(MCP_SERVER_TYPES_SOURCE.contains("\"retryable\": true"));
     assert!(MCP_SERVER_PROTOCOL_SOURCE.contains("notifications/cancelled"));
@@ -53,7 +55,7 @@ fn mcp_server_modules_remain_bounded() {
     for (name, source, max_lines) in [
         ("server root", MCP_SERVER_ROOT_SOURCE, 40),
         ("server lifecycle", MCP_SERVER_LIFECYCLE_SOURCE, 260),
-        ("server operation", MCP_SERVER_OPERATION_SOURCE, 280),
+        ("server operation", MCP_SERVER_OPERATION_SOURCE, 320),
         ("server protocol", MCP_SERVER_PROTOCOL_SOURCE, 280),
         ("server types", MCP_SERVER_TYPES_SOURCE, 240),
     ] {

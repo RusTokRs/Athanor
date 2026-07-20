@@ -10,6 +10,96 @@ use athanor_app::{
     validate_contract_registry, validate_schema_id,
 };
 
+#[derive(Debug, Clone, Copy)]
+struct SourceLiteralJsonContract {
+    schema: &'static str,
+    owner: &'static str,
+    lifecycle: BoundaryLifecycle,
+}
+
+const SOURCE_LITERAL_JSON_CONTRACTS: &[SourceLiteralJsonContract] = &[
+    SourceLiteralJsonContract {
+        schema: "athanor.api_registry.v1",
+        owner: "ApiRegistryReport",
+        lifecycle: BoundaryLifecycle::Current,
+    },
+    SourceLiteralJsonContract {
+        schema: "athanor.api_strict_check.v1",
+        owner: "DirectCheckStrictEnvelope",
+        lifecycle: BoundaryLifecycle::Current,
+    },
+    SourceLiteralJsonContract {
+        schema: "athanor.daemon_doctor.v1",
+        owner: "DaemonDoctorReport",
+        lifecycle: BoundaryLifecycle::Current,
+    },
+    SourceLiteralJsonContract {
+        schema: "athanor.daemon_service.v1",
+        owner: "DaemonServiceStatus",
+        lifecycle: BoundaryLifecycle::Current,
+    },
+    SourceLiteralJsonContract {
+        schema: "athanor.graphql_directive.v1",
+        owner: "GraphqlDirectivePayload",
+        lifecycle: BoundaryLifecycle::Current,
+    },
+    SourceLiteralJsonContract {
+        schema: "athanor.graphql_fragment.v1",
+        owner: "GraphqlFragmentPayload",
+        lifecycle: BoundaryLifecycle::Current,
+    },
+    SourceLiteralJsonContract {
+        schema: "athanor.graphql_operation.v1",
+        owner: "GraphqlOperationPayload",
+        lifecycle: BoundaryLifecycle::Current,
+    },
+    SourceLiteralJsonContract {
+        schema: "athanor.graphql_schema.v1",
+        owner: "GraphqlSchemaPayload",
+        lifecycle: BoundaryLifecycle::Current,
+    },
+    SourceLiteralJsonContract {
+        schema: "athanor.js_ts_precision.v1",
+        owner: "JsTsPrecisionPayload",
+        lifecycle: BoundaryLifecycle::Current,
+    },
+    SourceLiteralJsonContract {
+        schema: "athanor.path_index.v1",
+        owner: "JsonlPathIndex",
+        lifecycle: BoundaryLifecycle::Current,
+    },
+    SourceLiteralJsonContract {
+        schema: "athanor.stable_key_index.v1",
+        owner: "JsonlStableKeyIndex",
+        lifecycle: BoundaryLifecycle::Current,
+    },
+    SourceLiteralJsonContract {
+        schema: "athanor.daemon_request.v1",
+        owner: "DaemonRequest",
+        lifecycle: BoundaryLifecycle::Historical,
+    },
+    SourceLiteralJsonContract {
+        schema: "athanor.daemon_request.v2",
+        owner: "DaemonRequest",
+        lifecycle: BoundaryLifecycle::LegacyInput,
+    },
+    SourceLiteralJsonContract {
+        schema: "athanor.daemon_response.v2",
+        owner: "DaemonResponse",
+        lifecycle: BoundaryLifecycle::LegacyInput,
+    },
+    SourceLiteralJsonContract {
+        schema: "athanor.repair_cleanup.v1",
+        owner: "RepairCleanupReport",
+        lifecycle: BoundaryLifecycle::LegacyInput,
+    },
+    SourceLiteralJsonContract {
+        schema: "athanor.repair_inspect.v1",
+        owner: "RepairInspectReport",
+        lifecycle: BoundaryLifecycle::LegacyInput,
+    },
+];
+
 #[test]
 fn schema_registries_are_valid_unique_and_disjoint() {
     validate_contract_registry(VERSIONED_JSON_CONTRACTS)
@@ -97,11 +187,30 @@ fn every_workspace_production_schema_literal_is_explicitly_classified() {
     );
 
     let classified = classified_schemas();
+    let mut source_classifications = BTreeSet::new();
+    for contract in SOURCE_LITERAL_JSON_CONTRACTS {
+        validate_schema_id(contract.schema).unwrap_or_else(|error| {
+            panic!(
+                "source literal schema {} is not canonical: {error}",
+                contract.schema
+            )
+        });
+        assert!(!contract.owner.is_empty());
+        assert!(source_classifications.insert(contract.schema));
+        match contract.lifecycle {
+            BoundaryLifecycle::Current
+            | BoundaryLifecycle::LegacyInput
+            | BoundaryLifecycle::Historical => {}
+        }
+    }
     let mut observed = BTreeMap::<String, BTreeSet<PathBuf>>::new();
     for path in sources {
         let source = fs::read_to_string(&path)
             .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
         for schema in extract_schema_literals(production_prefix(&source)) {
+            if validate_schema_id(&schema).is_err() && !classified.contains(schema.as_str()) {
+                continue;
+            }
             observed
                 .entry(schema)
                 .or_default()
@@ -167,6 +276,11 @@ fn classified_schemas() -> BTreeSet<&'static str> {
         )
         .chain(
             AUTOMATION_JSON_CONTRACTS
+                .iter()
+                .map(|contract| contract.schema),
+        )
+        .chain(
+            SOURCE_LITERAL_JSON_CONTRACTS
                 .iter()
                 .map(|contract| contract.schema),
         )

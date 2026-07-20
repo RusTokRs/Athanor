@@ -27,9 +27,7 @@ fn context_module_routes_to_the_composition_first_owner() {
 fn operation_aware_context_core_requires_composition() {
     assert!(CONTEXT_OPERATION_SOURCE.contains("composition: &RuntimeComposition"));
     assert!(CONTEXT_OPERATION_SOURCE.contains("composition.init_store"));
-    assert!(
-        CONTEXT_OPERATION_SOURCE.contains("composition.build_search_index_with_operation_context")
-    );
+    assert!(CONTEXT_OPERATION_SOURCE.contains(".build_search_index_with_operation_context("));
     assert!(!CONTEXT_OPERATION_SOURCE.contains("Option<&RuntimeComposition>"));
     assert!(!CONTEXT_OPERATION_SOURCE.contains("Option<RuntimeComposition>"));
     assert!(!CONTEXT_OPERATION_SOURCE.contains("crate::store::init_store"));

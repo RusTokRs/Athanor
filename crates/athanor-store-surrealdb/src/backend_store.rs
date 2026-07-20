@@ -30,7 +30,7 @@ pub struct SurrealKnowledgeStore {
     write_gate: Arc<Mutex<()>>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct SnapshotRecord {
     #[serde(deserialize_with = "deserialize_id")]
     id: String,
@@ -320,14 +320,31 @@ impl KnowledgeStore for SurrealKnowledgeStore {
             allocation_created_at_unix_ms: None,
         };
 
-        let _: Option<SnapshotRecord> = self
-            .db
-            .create(("snapshot", &snapshot_id))
-            .content(record)
-            .await
-            .map_err(|error| {
-                CoreError::Adapter(format!("failed to create snapshot record: {error}"))
-            })?;
+        const MAX_ATTEMPTS: usize = 8;
+        for attempt in 0..MAX_ATTEMPTS {
+            let result: Result<Option<SnapshotRecord>, _> = self
+                .db
+                .create(("snapshot", &snapshot_id))
+                .content(record.clone())
+                .await;
+            match result {
+                Ok(_) => break,
+                Err(error)
+                    if attempt + 1 < MAX_ATTEMPTS
+                        && is_retryable_counter_conflict(&error.to_string()) =>
+                {
+                    sleep(Duration::from_millis(
+                        2_u64.saturating_pow(attempt as u32),
+                    ))
+                    .await;
+                }
+                Err(error) => {
+                    return Err(CoreError::Adapter(format!(
+                        "failed to create snapshot record: {error}"
+                    )));
+                }
+            }
+        }
 
         Ok(SnapshotId(snapshot_id))
     }

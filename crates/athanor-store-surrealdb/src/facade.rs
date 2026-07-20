@@ -1,9 +1,13 @@
 // Public SurrealDB store boundary with stable retry classification.
 
+use std::fs::{self, File, OpenOptions};
 use std::future::Future;
+use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use fs2::FileExt;
 use athanor_core::{
     CanonicalSnapshot, CanonicalSnapshotStore, CoreError, CoreResult, DiagnosticQuery, EntityQuery,
     EntityResolver, KnowledgeStore, OperationContext, OperationContextCancellation, RelationQuery,
@@ -23,13 +27,98 @@ const CANCELLATION_POLL_MS: u64 = 5;
 #[derive(Debug, Clone)]
 pub struct SurrealKnowledgeStore {
     inner: backend::SurrealKnowledgeStore,
+    _persistent_lease: Option<Arc<File>>,
 }
 
 impl SurrealKnowledgeStore {
     pub async fn connect(uri: &str) -> CoreResult<Self> {
+        let persistent_lease = acquire_persistent_lease(uri)?;
         classify_backend_result(backend::SurrealKnowledgeStore::connect(uri).await)
-            .map(|inner| Self { inner })
+            .map(|inner| Self {
+                inner,
+                _persistent_lease: persistent_lease,
+            })
     }
+}
+
+fn acquire_persistent_lease(uri: &str) -> CoreResult<Option<Arc<File>>> {
+    let Some(raw_path) = uri.strip_prefix("surrealkv://") else {
+        return Ok(None);
+    };
+    if raw_path.trim().is_empty() {
+        return Err(CoreError::InvalidInput(
+            "persistent SurrealKV URI requires a filesystem path".to_string(),
+        ));
+    }
+
+    let configured_path = PathBuf::from(raw_path);
+    let absolute_path = if configured_path.is_absolute() {
+        configured_path
+    } else {
+        std::env::current_dir()
+            .map_err(|error| {
+                CoreError::Adapter(format!(
+                    "failed to resolve persistent SurrealKV path: {error}"
+                ))
+            })?
+            .join(configured_path)
+    };
+    let file_name = absolute_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+        .ok_or_else(|| {
+            CoreError::InvalidInput(format!(
+                "persistent SurrealKV path has no lockable directory name: {}",
+                absolute_path.display()
+            ))
+        })?;
+    let parent = absolute_path.parent().ok_or_else(|| {
+        CoreError::InvalidInput(format!(
+            "persistent SurrealKV path has no parent: {}",
+            absolute_path.display()
+        ))
+    })?;
+    fs::create_dir_all(parent).map_err(|error| {
+        CoreError::Adapter(format!(
+            "failed to create persistent SurrealKV parent {}: {error}",
+            parent.display()
+        ))
+    })?;
+    let canonical_parent = fs::canonicalize(parent).map_err(|error| {
+        CoreError::Adapter(format!(
+            "failed to canonicalize persistent SurrealKV parent {}: {error}",
+            parent.display()
+        ))
+    })?;
+    let canonical_store = canonical_parent.join(file_name);
+    let lock_path = canonical_parent.join(format!(".{file_name}.athanor.lock"));
+    let file = OpenOptions::new()
+        .create(true)
+        .read(true)
+        .write(true)
+        .truncate(false)
+        .open(&lock_path)
+        .map_err(|error| {
+            CoreError::Adapter(format!(
+                "failed to open persistent SurrealKV lease {}: {error}",
+                lock_path.display()
+            ))
+        })?;
+    FileExt::try_lock_exclusive(&file).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::WouldBlock {
+            CoreError::Busy(format!(
+                "persistent SurrealKV store {} is already locked by another process",
+                canonical_store.display()
+            ))
+        } else {
+            CoreError::Adapter(format!(
+                "failed to acquire persistent SurrealKV lease {}: {error}",
+                lock_path.display()
+            ))
+        }
+    })?;
+    Ok(Some(Arc::new(file)))
 }
 
 fn classify_backend_result<T>(result: CoreResult<T>) -> CoreResult<T> {

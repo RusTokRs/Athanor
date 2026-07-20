@@ -123,6 +123,7 @@ mod tests {
     async fn mid_flight_cancellation_does_not_return_successful_report() {
         let operation = OperationContext::new("search.mid-flight");
         let cancellation = operation.cancellation_handle().unwrap();
+        let cancellation_lease = cancellation.clone();
         let index = CancellingIndex {
             cancellation: Mutex::new(Some(cancellation)),
         };
@@ -141,6 +142,7 @@ mod tests {
         )
         .await
         .expect_err("cancelled search must not return a report");
+        drop(cancellation_lease);
 
         assert!(error.chain().any(|cause| matches!(
             cause.downcast_ref::<CoreError>(),

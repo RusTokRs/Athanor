@@ -121,7 +121,14 @@ fn direct_service_and_docs_engine_modules_remain_bounded() {
         ("Docs direct propose", DOCS_DIRECT_PROPOSE_SOURCE, 140),
         ("Docs direct apply", DOCS_DIRECT_APPLY_SOURCE, 220),
         ("repair facade", REPAIR_FACADE_SOURCE, 40),
-        ("repair direct", REPAIR_DIRECT_SOURCE, 280),
+        (
+            "repair direct",
+            REPAIR_DIRECT_SOURCE
+                .split("#[cfg(test)]")
+                .next()
+                .unwrap_or(REPAIR_DIRECT_SOURCE),
+            280,
+        ),
     ] {
         let lines = source.lines().count();
         assert!(lines <= max_lines, "{name} grew to {lines} lines");

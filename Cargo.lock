@@ -809,6 +809,7 @@ dependencies = [
  "athanor-core",
  "athanor-domain",
  "athanor-store-conformance",
+ "fs2",
  "serde",
  "serde_json",
  "surrealdb",

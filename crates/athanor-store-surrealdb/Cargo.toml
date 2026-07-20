@@ -22,6 +22,7 @@ remote = ["surrealdb/protocol-ws"]
 async-trait.workspace = true
 athanor-core = { path = "../athanor-core" }
 athanor-domain = { path = "../athanor-domain" }
+fs2.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 surrealdb = { version = "2.0", default-features = false, features = ["kv-mem", "kv-surrealkv"] }

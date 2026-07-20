@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use athanor_core::{CoreError, CoreErrorCode};
@@ -13,9 +14,33 @@ async fn persistent_surrealkv_rejects_second_connection_as_retryable_busy() {
     let first = SurrealKnowledgeStore::connect(&uri)
         .await
         .expect("open first persistent SurrealKV connection");
+    let output = Command::new(std::env::current_exe().expect("locate persistent lock test binary"))
+        .arg("--exact")
+        .arg("persistent_surrealkv_child_connection_reports_retryable_busy")
+        .arg("--ignored")
+        .arg("--nocapture")
+        .env("ATHANOR_SURREALKV_LOCK_CHILD_URI", &uri)
+        .output()
+        .expect("spawn independent persistent SurrealKV lock probe");
+    assert!(
+        output.status.success(),
+        "independent lock probe failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    drop(first);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+#[ignore = "spawned as an independent process by the persistent lock regression"]
+async fn persistent_surrealkv_child_connection_reports_retryable_busy() {
+    let uri =
+        std::env::var("ATHANOR_SURREALKV_LOCK_CHILD_URI").expect("child persistent lock probe URI");
     let error = SurrealKnowledgeStore::connect(&uri)
         .await
-        .expect_err("second persistent connection must fail while the directory is locked");
+        .expect_err("independent persistent connection must fail while locked");
 
     assert_eq!(error.code(), CoreErrorCode::Busy);
     assert!(error.is_retryable());
@@ -27,9 +52,6 @@ async fn persistent_surrealkv_rejects_second_connection_as_retryable_busy() {
             .contains("already locked by another process"),
         "unexpected lock-contention error: {error}"
     );
-
-    drop(first);
-    let _ = std::fs::remove_dir_all(root);
 }
 
 fn unique_store_path() -> PathBuf {
