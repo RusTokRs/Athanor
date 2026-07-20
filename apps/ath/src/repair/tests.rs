@@ -46,7 +46,18 @@ fn parses_exact_retention_plan_and_apply_forms() {
 }
 
 #[test]
-fn parses_repair_commands_without_intercepting_legacy_commands() {
+fn parses_repair_inspection_and_transactional_commands() {
+    assert_eq!(
+        parse(&args(&["repair", "inspect", "project", "--json"])).unwrap(),
+        Some(Command::Inspect {
+            path: PathBuf::from("project"),
+            json: true,
+        })
+    );
+    assert_eq!(
+        parse(&args(&["repair", "inspect", "--help"])).unwrap(),
+        Some(Command::Help(HelpTopic::Inspect))
+    );
     assert_eq!(
         parse(&args(&["repair", "recover-index", "project", "--dry-run"])).unwrap(),
         Some(Command::RecoverIndex {
@@ -90,11 +101,10 @@ fn parses_repair_commands_without_intercepting_legacy_commands() {
         parse(&args(&["repair", "index-retention", "--help"])).unwrap(),
         Some(Command::Help(HelpTopic::IndexRetention))
     );
-    assert_eq!(parse(&args(&["repair", "inspect"])).unwrap(), None);
 }
 
 #[test]
-fn rejects_ambiguous_or_invalid_retention_arguments() {
+fn rejects_ambiguous_or_invalid_repair_arguments() {
     assert!(
         parse(&args(&[
             "repair",
@@ -112,5 +122,11 @@ fn rejects_ambiguous_or_invalid_retention_arguments() {
             .unwrap_err()
             .to_string()
             .contains("non-negative integer")
+    );
+    assert!(
+        parse(&args(&["repair", "inspect", "one", "two"]))
+            .unwrap_err()
+            .to_string()
+            .contains("at most one")
     );
 }
