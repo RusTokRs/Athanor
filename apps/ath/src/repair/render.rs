@@ -1,6 +1,6 @@
 use athanor_app::{
-    IndexGenerationCleanupReport, RepairCanonicalLatestReport, RepairRecoverIndexCleanupReport,
-    RepairRecoverIndexReport,
+    IndexGenerationCleanupReport, RepairCanonicalLatestReport, RepairInspectReport,
+    RepairRecoverIndexCleanupReport, RepairRecoverIndexReport,
 };
 
 use super::model::HelpTopic;
@@ -8,17 +8,19 @@ use super::model::HelpTopic;
 pub(super) fn print_help(topic: HelpTopic) {
     match topic {
         HelpTopic::Repair => {
-            println!("Transactional repair commands:");
+            println!("Repair commands:");
+            println!("  inspect               Inspect local repair state");
             println!("  index-retention       Plan or apply immutable index-generation retention");
             println!("  recover-index         Recover a pending transactional index publication");
             println!("  recover-index-cleanup Finish an interrupted confirmed index cleanup");
             println!(
                 "  repair-latest         Repair canonical latest to the authoritative generation"
             );
+        }
+        HelpTopic::Inspect => {
+            println!("Inspect local canonical and generated repair state");
             println!();
-            println!(
-                "Existing commands remain available: inspect, cleanup, regenerate, recover-canonical, apply"
-            );
+            println!("Usage: ath repair inspect [PATH] [--json]");
         }
         HelpTopic::IndexRetention => {
             println!("Plan or apply immutable index-generation retention");
@@ -56,6 +58,19 @@ pub(super) fn print_help(topic: HelpTopic) {
                 "An explicit snapshot is accepted only when backend discovery confirms it is authoritative."
             );
         }
+    }
+}
+
+pub(super) fn print_inspect(report: &RepairInspectReport) {
+    println!("repair inspection at {}", report.root.display());
+    println!("  issues: {}", report.issues.len());
+    for issue in &report.issues {
+        println!(
+            "  {}: {} ({})",
+            issue.code,
+            issue.message,
+            issue.path.display()
+        );
     }
 }
 
