@@ -2,7 +2,7 @@
 
 > Репозиторий: `RusTokRs/Athanor`  
 > Ветка: `main`  
-> Актуализировано: 2026-07-19  
+> Актуализировано: 2026-07-20  
 > Статус: active architecture audit
 
 ## 1. Правила статусов
@@ -11,7 +11,7 @@
 - `[x] verified` — реализация и regressions подтверждены одной выполненной matrix на одном commit.
 - `[-] in progress` — полезные срезы находятся в `main`, но Definition of Done закрыт не полностью.
 - `[ ] planned` — подтверждённая работа ещё не начата.
-- `[!] blocked` — execution evidence временно недоступно.
+- `[!] blocked` — execution evidence временно недоступно или matrix завершилась failure.
 
 JSON является внешним контрактом. CLI, daemon и MCP варианты одной операции должны сериализовать
 эквивалентный typed application payload. Documentation lifecycle status и snapshot metadata не
@@ -29,8 +29,8 @@ JSON является внешним контрактом. CLI, daemon и MCP в
 - `DOC-001` / `DOC-002` — status hygiene и pipeline current/target/history;
 - `MCP-004` — control-plane responsiveness при saturation request slots и response queue;
 - `VERIFY-001A` — exact successful main-CI JSON evidence и commit-status channels;
-- `VERIFY-001B` — lifecycle-aware docs completeness gate, valid `ath init` config и refreshed golden
-  config contract.
+- `VERIFY-001B` — lifecycle-aware docs completeness gate и current `ath init` config;
+- `VERIFY-001C` — repository-owned Rust 1.95 setup для CI, production и release.
 
 Composition-only execution действует для Index, Generation, Wiki, HTML, Search, Context, Explain,
 ChangeMap, API, Overview, Capabilities, Impact, Coverage, Check, Graph, Repair, Docs и daemon work.
@@ -58,12 +58,11 @@ ChangeMap, API, Overview, Capabilities, Impact, Coverage, Check, Graph, Repair, 
 1. roadmap является compact current-state ledger;
 2. pipeline guide разделяет current, target и history;
 3. completeness lifecycle допускает `active`, `implemented`, `planned`, `draft`, `verified`;
-4. default completeness не требует `last_verified_snapshot`; freshness принадлежит `docs drift`;
-5. root `athanor.toml`, `ProjectConfig::default` и `ath init` используют один current policy;
-6. workflow YAML является implementation evidence, но не execution evidence;
-7. `athanor.verification_evidence.v1` принадлежит workflow-owned automation registry;
-8. `athanor/verification-matrix` публикуется на exact `GITHUB_SHA` после aggregation required jobs;
-9. verified claim требует successful status или valid JSON evidence для того же SHA.
+4. snapshot freshness принадлежит `docs drift`, а не completeness;
+5. workflow YAML является implementation evidence, но не execution evidence;
+6. `athanor.verification_evidence.v1` принадлежит workflow-owned automation registry;
+7. `athanor/verification-matrix` публикуется на exact `GITHUB_SHA` после aggregation required jobs;
+8. verified claim требует successful status или valid JSON evidence для того же SHA.
 
 ## 3. Завершённые пакеты
 
@@ -111,33 +110,40 @@ ChangeMap, API, Overview, Capabilities, Impact, Coverage, Check, Graph, Repair, 
 
 ### 3.6 `VERIFY-001A` — exact CI evidence publication
 
-- [x] `verification-evidence.yml` принимает только completed successful push-CI на `main`.
-- [x] JSON evidence содержит schema, exact SHA, run id/URL, completion time и matrix.
-- [x] Evidence-only path исключён из push-CI, предотвращая recursive loop.
-- [x] `AUTOMATION_JSON_CONTRACTS` классифицирует persisted workflow document.
+- [x] JSON evidence и legacy status привязаны к exact workflow SHA.
 - [x] Final CI job зависит от security, quality, feature matrix и coverage через `always()`.
-- [x] Exact legacy status context — `athanor/verification-matrix`.
+- [x] Exact status context — `athanor/verification-matrix`.
 - [x] Status публикует success только когда все required results равны `success`.
-- [x] Status API доступен connector даже без check-run listing или branch write.
-- [x] `verification_evidence_inventory` связывает оба evidence channels с exact SHA.
+- [x] Evidence-only JSON commit не создаёт recursive CI loop.
+- [x] `verification_evidence_inventory` source-enforces оба evidence channels.
 
 ### 3.7 `VERIFY-001B` — lifecycle-aware docs gate
 
-- [x] Default policy больше не требует `last_verified_snapshot` как completeness field.
+- [x] Default policy не требует `last_verified_snapshot` как completeness field.
 - [x] Lifecycle vocabulary: `active`, `implemented`, `planned`, `draft`, `verified`.
 - [x] Snapshot freshness остаётся отдельным `ath docs drift` contract.
-- [x] Корневой `athanor.toml` явно задаёт repository policy.
-- [x] `ath init` генерирует только поля текущего `ProjectConfig` и имеет parse regression.
-- [x] `config_contracts.v1.json` обновлён под current default contract.
-- [x] `docs_completeness_lifecycle_inventory` фиксирует default/init/root parity.
+- [x] Root config, defaults и `ath init` используют один current policy.
+- [x] Golden config fixture и lifecycle source inventory обновлены.
+
+### 3.8 `VERIFY-001C` — executable workflow toolchain setup
+
+- [x] Run `29701756503` на SHA `9fda772436f50b55b2e4d9b11b18b7ec1e43a091` записал exact failure.
+- [x] Quality, feature и coverage jobs завершились до compilation на toolchain-install step.
+- [x] Причина: pinned `dtolnay/rust-toolchain` commit жёстко выбирал `1.100.0`; workflow input
+  `toolchain: 1.95.0` не являлся input этого action и игнорировался.
+- [x] Добавлен `.github/actions/setup-rust/action.yml` с explicit Rust `1.95.0`, components, targets и retry.
+- [x] CI, production и release используют только repository-owned setup.
+- [x] Cargo-deny запускается без Docker build noise; failure log сохраняется artifact-ом.
+- [x] `workflow_toolchain_inventory` запрещает возврат version-encoded action pin.
 
 ## 4. Следующие активные пакеты
 
 ### 4.1 `VERIFY-001` — execution matrix
 
-- [!] Локальный checkout и `gh` недоступны в текущем runtime.
-- [x] Exact JSON и legacy commit-status evidence channels находятся в `main`.
-- [ ] получить successful `athanor/verification-matrix` или valid evidence JSON для final push-CI;
+- [x] Failure run `29701756503` получен и классифицирован; он не является verification success.
+- [x] Toolchain root cause устранён в `main`.
+- [ ] получить новый successful `athanor/verification-matrix` или valid evidence JSON;
+- [ ] при remaining failure разобрать exact failed job/log/artifact;
 - [ ] сверить evidence SHA с architecture commit;
 - [ ] повысить только доказанные packages до `[x] verified`.
 
@@ -154,7 +160,7 @@ ChangeMap, API, Overview, Capabilities, Impact, Coverage, Check, Graph, Repair, 
 
 | ID | Priority | Status | Результат / критерий закрытия |
 | --- | --- | --- | --- |
-| `ARCH-AUDIT-001` | P1 | `[-] in progress` | Architecture packages implemented; exact evidence pending |
+| `ARCH-AUDIT-001` | P1 | `[-] in progress` | Architecture packages implemented; exact success pending |
 | `COMP-003` | P2 | `[x] implemented` | Runtime dependencies explicit |
 | `COMP-003C2B2C2B` | P2 | `[x] implemented` | Read services, Graph и Store cleanup complete |
 | `MCP-007` | P1 | `[x] implemented` | Transactional cancellation preserves durable success |
@@ -164,6 +170,7 @@ ChangeMap, API, Overview, Capabilities, Impact, Coverage, Check, Graph, Repair, 
 | `MCP-004` | P1 | `[x] implemented` | Control input remains observable under saturation |
 | `VERIFY-001A` | P1 | `[x] implemented` | CI publishes exact JSON/status evidence channels |
 | `VERIFY-001B` | P1 | `[x] implemented` | Docs gate matches lifecycle semantics and current config |
+| `VERIFY-001C` | P1 | `[x] implemented` | Workflow toolchain setup matches workspace Rust 1.95 |
 | `VERIFY-001` | P1 | `[!] blocked` | Exact successful status or JSON evidence identifies one commit |
 
 ## 6. Verification matrix
@@ -195,6 +202,7 @@ cargo test -p athanor-app --test public_report_transport_inventory --locked
 cargo test -p athanor-app --test documentation_status_inventory --locked
 cargo test -p athanor-app --test verification_evidence_inventory --locked
 cargo test -p athanor-app --test docs_completeness_lifecycle_inventory --locked
+cargo test -p athanor-app --test workflow_toolchain_inventory --locked
 cargo test -p athanor-app --test config_contracts --locked
 cargo test -p athanor-transport-mcp server::operation --locked
 cargo test -p athanor-transport-mcp server::tests --locked
@@ -216,25 +224,18 @@ matrix для architecture commit.
 
 ## 7. Последние изменения
 
+### 2026-07-20 — Workflow toolchain root-cause remediation
+
+- Exact failure run показал, что проектный Rust код ещё не запускался.
+- Version-encoded third-party setup заменён repository-owned Rust 1.95 action во всех active workflows.
+- Cargo-deny diagnostics стали краткими и retrievable через workflow artifact.
+- Status — implemented; новый exact CI result pending.
+
 ### 2026-07-19 — Connector-visible exact commit status
 
-- Final CI job aggregates all required job results with `always()`.
-- Status `athanor/verification-matrix` binds success/failure and run URL to exact SHA.
-- JSON evidence remains the persisted secondary channel.
-- Status — implemented; successful final run pending.
-
-### 2026-07-19 — Workflow-owned JSON evidence contract
-
-- Verification evidence получил отдельный automation registry и exported schema constant.
-- Public/general/adapter/automation sets взаимно disjoint и source-observable.
-- Status — implemented; final CI evidence pending.
-
-### 2026-07-19 — Documentation lifecycle gate repair
-
-- Completeness lifecycle отделён от snapshot freshness.
-- Root policy и `ath init` приведены к текущему `ProjectConfig`.
-- Golden config fixture и source inventory обновлены.
-- Status — implemented; final CI evidence pending.
+- Final CI job aggregates required results и публикует `athanor/verification-matrix`.
+- JSON evidence остаётся persisted secondary channel.
+- Status — implemented.
 
 ## 8. Historical status
 
