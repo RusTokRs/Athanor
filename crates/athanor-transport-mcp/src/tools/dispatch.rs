@@ -12,13 +12,13 @@ use athanor_core::{
 };
 use serde_json::{Value, json};
 
-pub(super) fn call<'a>(
+pub(crate) fn call<'a>(
     root: &'a Path,
     name: &'a str,
     args: Value,
     composition: &'a RuntimeComposition,
     operation: &OperationContext,
-) -> impl Future<Output = Result<String>> + 'a {
+) -> impl Future<Output = Result<String>> + Send + 'a {
     let operation = operation.clone();
     async move { call_inner(root, name, args, composition, &operation).await }
 }
@@ -183,7 +183,7 @@ async fn call_inner(
     Ok(result)
 }
 
-pub(super) fn rpc_error(error: &anyhow::Error) -> Value {
+pub(crate) fn rpc_error(error: &anyhow::Error) -> Value {
     let core_error = error
         .chain()
         .find_map(|cause| cause.downcast_ref::<CoreError>());
