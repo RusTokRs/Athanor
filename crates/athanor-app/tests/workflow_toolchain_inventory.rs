@@ -40,12 +40,18 @@ fn active_workflows_use_the_local_setup_without_version_encoded_action_pins() {
 }
 
 #[test]
-fn cargo_deny_failure_is_concise_and_retrievable() {
+fn failure_diagnostics_are_concise_and_retrievable() {
     for required in [
         "cargo-deny-0.20.2-x86_64-unknown-linux-musl.tar.gz",
         "tee \"$RUNNER_TEMP/cargo-deny.log\"",
         "name: cargo-deny-diagnostics",
+        "cargo fmt --all -- --check 2>&1 | tee \"$RUNNER_TEMP/cargo-fmt.log\"",
+        "name: cargo-fmt-diagnostics",
+        "tee \"$RUNNER_TEMP/feature-check.log\"",
+        "name: default-feature-diagnostics",
         "failure() && steps.cargo-deny.outcome == 'failure'",
+        "failure() && steps.format.outcome == 'failure' && runner.os == 'Linux'",
+        "failure() && steps.feature-check.outcome == 'failure' && matrix.features == 'default'",
         "retention-days: 14",
     ] {
         assert!(CI_WORKFLOW.contains(required), "CI omits {required}");
@@ -57,7 +63,7 @@ fn cargo_deny_failure_is_concise_and_retrievable() {
 fn workflow_toolchain_owners_remain_bounded() {
     for (name, source, max_lines) in [
         ("Rust setup", SETUP_RUST, 60),
-        ("CI", CI_WORKFLOW, 290),
+        ("CI", CI_WORKFLOW, 330),
         ("production", PRODUCTION_WORKFLOW, 110),
         ("release", RELEASE_WORKFLOW, 190),
     ] {
