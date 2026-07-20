@@ -19,15 +19,13 @@ const TOOLS_DISPATCH_SOURCE: &str = include_str!("../src/tools/dispatch.rs");
 const TOOLS_SCHEMA_SOURCE: &str = include_str!("../src/tools/schema.rs");
 const FIXTURE: &str = include_str!("fixtures/mcp_transport_contracts.v1.json");
 
-/// Returns the concatenated source of all production server submodules (excluding tests).
-fn server_source() -> String {
+fn production_server_source() -> String {
     [
         SERVER_MOD_SOURCE,
         SERVER_TYPES_SOURCE,
         SERVER_PROTOCOL_SOURCE,
         SERVER_LIFECYCLE_SOURCE,
         SERVER_OPERATION_SOURCE,
-        SERVER_TESTS_SOURCE,
     ]
     .join("\n")
 }
@@ -63,7 +61,7 @@ fn mcp_transport_registry_is_unique_and_separate_from_athanor_schema_registry() 
         contract.version == JSON_RPC_VERSION || contract.version == MCP_PROTOCOL_VERSION
     }));
 
-    let server_source = server_source();
+    let server_source = production_server_source();
     assert!(server_source.contains("struct JsonRpcRequest"));
     assert!(server_source.contains("struct RpcError"));
     assert!(server_source.contains("MCP_PROTOCOL_VERSION"));
@@ -81,18 +79,18 @@ fn mcp_transport_registry_is_unique_and_separate_from_athanor_schema_registry() 
 fn active_mcp_server_is_bounded_and_reaps_request_tasks() {
     assert!(DEFAULT_MAX_IN_FLIGHT_REQUESTS > 0);
     assert!(DEFAULT_RESPONSE_QUEUE_CAPACITY > 0);
-    let server_source = server_source();
+    let server_source = production_server_source();
     assert!(server_source.contains("mpsc::channel::<String>"));
     assert!(!server_source.contains("unbounded_channel"));
-    assert!(server_source.contains("requests.len() < limits.max_in_flight_requests"));
-    assert!(server_source.contains("requests.join_next()"));
-    assert!(server_source.contains("bounded_response_queue_applies_backpressure"));
-    assert!(server_source.contains("completed_request_tasks_are_reaped"));
+    assert!(SERVER_LIFECYCLE_SOURCE.contains("requests.len() >= max_in_flight_requests"));
+    assert!(SERVER_LIFECYCLE_SOURCE.contains("requests.join_next()"));
+    assert!(SERVER_TESTS_SOURCE.contains("bounded_response_queue_applies_backpressure"));
+    assert!(SERVER_TESTS_SOURCE.contains("completed_request_tasks_are_reaped"));
 }
 
 #[test]
 fn active_mcp_server_enforces_protocol_and_session_semantics() {
-    let server_source = server_source();
+    let server_source = production_server_source();
     assert!(server_source.contains("Some(JSON_RPC_VERSION)"));
     assert!(server_source.contains("McpSessionPhase::AwaitingInitialize"));
     assert!(server_source.contains("McpSessionPhase::AwaitingInitialized"));
@@ -102,14 +100,14 @@ fn active_mcp_server_enforces_protocol_and_session_semantics() {
     assert!(server_source.contains("code: -32601"));
     assert!(server_source.contains("code: -32602"));
     assert!(server_source.contains("code: -32002"));
-    assert!(server_source.contains("explicit_null_receives_response"));
+    assert!(SERVER_TESTS_SOURCE.contains("explicit_null_receives_response"));
 }
 
 #[test]
 fn active_mcp_dispatch_is_explicitly_composed() {
     assert!(RUNTIME_SOURCE.contains("run_mcp_server_with_composition"));
     assert!(!RUNTIME_SOURCE.contains("include!("));
-    let server_source = server_source();
+    let server_source = production_server_source();
     assert!(server_source.contains("Arc<RuntimeComposition>"));
     assert!(server_source.contains("Arc::clone(composition)"));
     assert!(TOOLS_ROOT_SOURCE.contains("mod dispatch;"));
