@@ -28,7 +28,7 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           components: clippy rustfmt
-      - name: Apply structural MCP and Repair remediation
+      - name: Apply validated execution remediation
         id: remediate
         shell: bash
         run: |
@@ -45,7 +45,7 @@ jobs:
               [
                   "git",
                   "show",
-                  "1806d28f6cae1bc1e94a11ea547fff0fafdb30e7:"
+                  "aa47ab1959bd0f3a18c6c29ea945aefb7f2dd980:"
                   ".github/workflows/execution-remediation-v10.yml",
               ],
               text=True,
@@ -62,22 +62,36 @@ jobs:
               {"__builtins__": __builtins__},
           )
 
-          legacy = Path(
-              "crates/athanor-app/src/repair/cleanup_recovery/recovery/"
-              "retention_guard/retention/guard/pointer/legacy.rs"
+          builder = Path("crates/athanor-app/src/runtime/builder.rs")
+          builder_text = builder.read_text()
+          old_builder = (
+              "            return Self::from_composition("
+              "root, &crate::test_runtime::composition());\n"
           )
-          legacy_text = legacy.read_text()
-          marker = "    use super::*;\n"
-          if legacy_text.count(marker) != 1:
+          new_builder = (
+              "            Self::from_composition("
+              "root, &crate::test_runtime::composition())\n"
+          )
+          if builder_text.count(old_builder) != 1:
+              raise SystemExit("runtime builder: expected one needless test return")
+          builder.write_text(builder_text.replace(old_builder, new_builder, 1))
+
+          transport_inventory = Path(
+              "crates/athanor-transport-mcp/tests/mcp_transport_contracts.rs"
+          )
+          transport_text = transport_inventory.read_text()
+          old_constants = '''    assert!(DEFAULT_MAX_IN_FLIGHT_REQUESTS > 0);
+              assert!(DEFAULT_RESPONSE_QUEUE_CAPACITY > 0);'''
+          new_constants = '''    const {
+              assert!(DEFAULT_MAX_IN_FLIGHT_REQUESTS > 0);
+              assert!(DEFAULT_RESPONSE_QUEUE_CAPACITY > 0);
+          }'''
+          if transport_text.count(old_constants) != 1:
               raise SystemExit(
-                  "repair legacy tests: expected one super import anchor"
+                  "MCP transport inventory: expected one runtime constant assertion block"
               )
-          legacy.write_text(
-              legacy_text.replace(
-                  marker,
-                  marker + "    use crate::apply_repair;\n",
-                  1,
-              )
+          transport_inventory.write_text(
+              transport_text.replace(old_constants, new_constants, 1)
           )
 
           allowed_path = Path(os.environ["RUNNER_TEMP"]).joinpath("allowed-paths")
@@ -86,7 +100,7 @@ jobs:
               for line in allowed_path.read_text().splitlines()
               if line.strip()
           }
-          allowed.add(legacy.as_posix())
+          allowed.update({builder.as_posix(), transport_inventory.as_posix()})
           allowed_path.write_text("\n".join(sorted(allowed)) + "\n")
           PY
             cargo update -p oxc_parser@0.138.0 --precise 0.139.0
