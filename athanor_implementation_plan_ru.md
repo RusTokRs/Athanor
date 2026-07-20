@@ -8,14 +8,14 @@
 ## 1. Правила статусов
 
 - `[x] implemented` — изменение находится в `main`, но ещё не подтверждено execution evidence.
-- `[x] verified` — реализация и regressions подтверждены одной выполненной matrix на одном commit.
+- `[x] verified` — реализация и regressions подтверждены successful matrix на одном exact commit.
 - `[-] in progress` — полезные срезы находятся в `main`, но Definition of Done закрыт не полностью.
 - `[ ] planned` — подтверждённая работа ещё не начата.
-- `[!] blocked` — execution evidence временно недоступно или matrix завершилась failure.
+- `[!] blocked` — matrix отсутствует или завершилась failure.
 
 JSON является внешним контрактом. CLI, daemon и MCP варианты одной операции должны сериализовать
-эквивалентный typed application payload. Documentation lifecycle status и snapshot metadata не
-заменяют current-commit Rust execution evidence.
+эквивалентный typed application payload. Documentation lifecycle metadata не заменяет current-commit
+Rust execution evidence.
 
 ## 2. Текущее состояние
 
@@ -24,13 +24,13 @@ JSON является внешним контрактом. CLI, daemon и MCP в
 - `COMP-003` / `COMP-003C2B2C2B` — explicit runtime composition, bounded owners, Graph cleanup и
   удаление public Store initializer;
 - `MCP-007` — transactional Index cancellation с pre-commit rollback и post-commit durable success;
-- `JSON-003` — recursive schema inventory, Rust/adapter/automation lifecycle registries и typed
-  transport parity;
+- `JSON-003` — recursive Rust/adapter/automation schema lifecycle registries и transport parity;
 - `DOC-001` / `DOC-002` — status hygiene и pipeline current/target/history;
-- `MCP-004` — control-plane responsiveness при saturation request slots и response queue;
-- `VERIFY-001A` — exact successful main-CI JSON evidence и commit-status channels;
-- `VERIFY-001B` — lifecycle-aware docs completeness gate и current `ath init` config;
-- `VERIFY-001C` — repository-owned Rust 1.95 setup для CI, production и release.
+- `MCP-004` — control-plane responsiveness при saturated request/response paths;
+- `VERIFY-001A` — exact JSON evidence и `athanor/verification-matrix` status channels;
+- `VERIFY-001B` — lifecycle-aware docs completeness и current `ath init` config;
+- `VERIFY-001C` — repository-owned Rust 1.95 setup для CI, production и release;
+- `VERIFY-001D` — fail-only artifacts для fmt, default feature compile и cargo-deny diagnostics.
 
 Composition-only execution действует для Index, Generation, Wiki, HTML, Search, Context, Explain,
 ChangeMap, API, Overview, Capabilities, Impact, Coverage, Check, Graph, Repair, Docs и daemon work.
@@ -44,15 +44,6 @@ ChangeMap, API, Overview, Capabilities, Impact, Coverage, Check, Graph, Repair, 
 5. MCP не применяет transport postflight после Index application future;
 6. CLI, daemon и MCP сериализуют один `IndexReport`.
 
-### MCP control-plane invariant
-
-1. stdin расположен перед request-task reaping в biased select;
-2. notifications обрабатываются до ordinary admission;
-3. inline parse/initialize/overload responses используют nonblocking bounded admission;
-4. full response queue не блокирует stdin reader;
-5. ordinary tasks сохраняют bounded `send().await` backpressure;
-6. EOF вызывает cancellation до task drain.
-
 ### Documentation and verification invariant
 
 1. roadmap является compact current-state ledger;
@@ -60,9 +51,8 @@ ChangeMap, API, Overview, Capabilities, Impact, Coverage, Check, Graph, Repair, 
 3. completeness lifecycle допускает `active`, `implemented`, `planned`, `draft`, `verified`;
 4. snapshot freshness принадлежит `docs drift`, а не completeness;
 5. workflow YAML является implementation evidence, но не execution evidence;
-6. `athanor.verification_evidence.v1` принадлежит workflow-owned automation registry;
-7. `athanor/verification-matrix` публикуется на exact `GITHUB_SHA` после aggregation required jobs;
-8. verified claim требует successful status или valid JSON evidence для того же SHA.
+6. exact success требует successful status или valid JSON evidence для того же SHA;
+7. failed matrix является diagnostic evidence и не повышает status до verified.
 
 ## 3. Завершённые пакеты
 
@@ -79,7 +69,6 @@ ChangeMap, API, Overview, Capabilities, Impact, Coverage, Check, Graph, Repair, 
 - [x] Pre-commit termination откатывает read model/index state и aborts snapshot.
 - [x] Commit-race errors сверяются exact snapshot probe и fail closed при ambiguity.
 - [x] Post-commit cancellation не маскирует successful `IndexReport`.
-- [x] MCP и daemon сохраняют durable-success semantics.
 
 ### 3.3 `JSON-003` — repeat contract inventory
 
@@ -87,7 +76,6 @@ ChangeMap, API, Overview, Capabilities, Impact, Coverage, Check, Graph, Repair, 
 - [x] Ordinary и qualified schema ids валидируются fail closed.
 - [x] Production Rust sources сканируются рекурсивно.
 - [x] Adapter legacy inputs нормализуются перед current write/response.
-- [x] Workflow-owned persisted JSON имеет explicit owner и required fields.
 - [x] CLI/daemon/MCP Index используют один typed public report.
 
 ### 3.4 `DOC-001` / `DOC-002` — documentation status hygiene
@@ -105,46 +93,54 @@ ChangeMap, API, Overview, Capabilities, Impact, Coverage, Check, Graph, Repair, 
 - [x] Inline reader-loop responses используют `try_send`.
 - [x] Full/closed response queue не завершает reader loop.
 - [x] EOF вызывает `cancel_all` до request-task drain.
-- [x] Saturation, protocol-error, overload и disconnect regressions добавлены.
-- [x] `control_plane_saturation_inventory` фиксирует routing и line budgets.
+- [x] Saturation regressions и `control_plane_saturation_inventory` добавлены.
 
 ### 3.6 `VERIFY-001A` — exact CI evidence publication
 
 - [x] JSON evidence и legacy status привязаны к exact workflow SHA.
-- [x] Final CI job зависит от security, quality, feature matrix и coverage через `always()`.
-- [x] Exact status context — `athanor/verification-matrix`.
-- [x] Status публикует success только когда все required results равны `success`.
+- [x] Final CI job агрегирует security, quality, feature matrix и coverage через `always()`.
+- [x] Status context — `athanor/verification-matrix`.
+- [x] Success публикуется только когда все required results равны `success`.
 - [x] Evidence-only JSON commit не создаёт recursive CI loop.
-- [x] `verification_evidence_inventory` source-enforces оба evidence channels.
 
 ### 3.7 `VERIFY-001B` — lifecycle-aware docs gate
 
 - [x] Default policy не требует `last_verified_snapshot` как completeness field.
 - [x] Lifecycle vocabulary: `active`, `implemented`, `planned`, `draft`, `verified`.
-- [x] Snapshot freshness остаётся отдельным `ath docs drift` contract.
 - [x] Root config, defaults и `ath init` используют один current policy.
 - [x] Golden config fixture и lifecycle source inventory обновлены.
 
 ### 3.8 `VERIFY-001C` — executable workflow toolchain setup
 
 - [x] Run `29701756503` на SHA `9fda772436f50b55b2e4d9b11b18b7ec1e43a091` записал exact failure.
-- [x] Quality, feature и coverage jobs завершились до compilation на toolchain-install step.
-- [x] Причина: pinned `dtolnay/rust-toolchain` commit жёстко выбирал `1.100.0`; workflow input
-  `toolchain: 1.95.0` не являлся input этого action и игнорировался.
-- [x] Добавлен `.github/actions/setup-rust/action.yml` с explicit Rust `1.95.0`, components, targets и retry.
-- [x] CI, production и release используют только repository-owned setup.
-- [x] Cargo-deny запускается без Docker build noise; failure log сохраняется artifact-ом.
+- [x] Quality, feature и coverage jobs остановились до compilation на toolchain-install step.
+- [x] Pinned third-party action фактически выбирал Rust `1.100.0`, игнорируя неизвестный input `toolchain`.
+- [x] `.github/actions/setup-rust/action.yml` устанавливает exact Rust `1.95.0` с retry/components/targets.
+- [x] CI, production и release используют repository-owned setup.
 - [x] `workflow_toolchain_inventory` запрещает возврат version-encoded action pin.
+
+### 3.9 `VERIFY-001D` — exact failure diagnostics
+
+- [x] Run `29721874834` на SHA `c0876bef110fad4a3dd105f7c46a45aeb01a98f8` подтвердил successful Rust 1.95 setup во всех jobs.
+- [x] Quality jobs дошли до `cargo fmt --check` и завершились failure.
+- [x] Feature и coverage jobs дошли до project compilation и завершились failure.
+- [x] Cargo-deny artifact подтвердил advisories:
+  - `ammonia 4.1.2` / `RUSTSEC-2026-0185`;
+  - `anyhow 1.0.102` / `RUSTSEC-2026-0190`;
+  - `crossbeam-epoch 0.9.18` / `RUSTSEC-2026-0204`.
+- [x] CI сохраняет `cargo-fmt-diagnostics`, `default-feature-diagnostics` и `cargo-deny-diagnostics` только при failure.
+- [x] Source guards фиксируют artifact conditions, paths, retention и bounded owners.
 
 ## 4. Следующие активные пакеты
 
 ### 4.1 `VERIFY-001` — execution matrix
 
-- [x] Failure run `29701756503` получен и классифицирован; он не является verification success.
-- [x] Toolchain root cause устранён в `main`.
-- [ ] получить новый successful `athanor/verification-matrix` или valid evidence JSON;
-- [ ] при remaining failure разобрать exact failed job/log/artifact;
-- [ ] сверить evidence SHA с architecture commit;
+- [x] Toolchain infrastructure failure устранён и подтверждён следующим run.
+- [x] Project-level fmt/compile/security failures обнаружены exact matrix.
+- [ ] получить и применить exact cargo-fmt diff;
+- [ ] исправить exact default-feature compile error;
+- [ ] безопасно обновить lockfile до patched `ammonia`, `anyhow`, `crossbeam-epoch` versions;
+- [ ] повторить matrix и разобрать remaining tests/Clippy/smoke failures;
 - [ ] повысить только доказанные packages до `[x] verified`.
 
 ### 4.2 Product backlog
@@ -164,13 +160,14 @@ ChangeMap, API, Overview, Capabilities, Impact, Coverage, Check, Graph, Repair, 
 | `COMP-003` | P2 | `[x] implemented` | Runtime dependencies explicit |
 | `COMP-003C2B2C2B` | P2 | `[x] implemented` | Read services, Graph и Store cleanup complete |
 | `MCP-007` | P1 | `[x] implemented` | Transactional cancellation preserves durable success |
-| `JSON-003` | P1 | `[x] implemented` | Rust, adapter and automation schemas are classified |
+| `JSON-003` | P1 | `[x] implemented` | Schema lifecycle and payload parity enforced |
 | `DOC-001` | P3 | `[x] implemented` | Stale verification and removed paths cleaned |
 | `DOC-002` | P3 | `[x] implemented` | Pipeline/status docs aligned |
 | `MCP-004` | P1 | `[x] implemented` | Control input remains observable under saturation |
-| `VERIFY-001A` | P1 | `[x] implemented` | CI publishes exact JSON/status evidence channels |
-| `VERIFY-001B` | P1 | `[x] implemented` | Docs gate matches lifecycle semantics and current config |
-| `VERIFY-001C` | P1 | `[x] implemented` | Workflow toolchain setup matches workspace Rust 1.95 |
+| `VERIFY-001A` | P1 | `[x] implemented` | Exact JSON/status evidence channels |
+| `VERIFY-001B` | P1 | `[x] implemented` | Docs gate matches lifecycle semantics |
+| `VERIFY-001C` | P1 | `[x] implemented` | Workflow toolchain matches Rust 1.95 |
+| `VERIFY-001D` | P1 | `[x] implemented` | Failed fmt/compile/security output is retrievable |
 | `VERIFY-001` | P1 | `[!] blocked` | Exact successful status or JSON evidence identifies one commit |
 
 ## 6. Verification matrix
@@ -224,18 +221,11 @@ matrix для architecture commit.
 
 ## 7. Последние изменения
 
-### 2026-07-20 — Workflow toolchain root-cause remediation
+### 2026-07-20 — Project-level CI diagnostics
 
-- Exact failure run показал, что проектный Rust код ещё не запускался.
-- Version-encoded third-party setup заменён repository-owned Rust 1.95 action во всех active workflows.
-- Cargo-deny diagnostics стали краткими и retrievable через workflow artifact.
-- Status — implemented; новый exact CI result pending.
-
-### 2026-07-19 — Connector-visible exact commit status
-
-- Final CI job aggregates required results и публикует `athanor/verification-matrix`.
-- JSON evidence остаётся persisted secondary channel.
-- Status — implemented.
+- Rust 1.95 setup confirmed by exact failed run.
+- Formatting, compile and advisory failures now retain focused artifacts.
+- Status — implemented; exact fixes and successful matrix pending.
 
 ## 8. Historical status
 
