@@ -135,13 +135,60 @@ jobs:
               inventory_text.replace(old_phrase, new_phrase, 1)
           )
 
+          control_inventory = Path(
+              "crates/athanor-transport-mcp/tests/"
+              "control_plane_saturation_inventory.rs"
+          )
+          control_text = control_inventory.read_text()
+          old_control = "None => close_stdin(&active_reads, &mut stdin_open).await"
+          new_control = "None => close_stdin(&runtime.active_reads, &mut stdin_open).await"
+          if control_text.count(old_control) != 1:
+              raise SystemExit(
+                  "control plane inventory: expected one stale close_stdin assertion"
+              )
+          control_inventory.write_text(
+              control_text.replace(old_control, new_control, 1)
+          )
+
+          transport_inventory = Path(
+              "crates/athanor-transport-mcp/tests/mcp_transport_contracts.rs"
+          )
+          transport_text = transport_inventory.read_text()
+          replacements = [
+              (
+                  "requests.len() >= max_in_flight_requests",
+                  "requests.len() >= runtime.max_in_flight_requests",
+              ),
+              ("Arc::clone(composition)", "runtime.composition.as_ref()"),
+              (
+                  '("server types", SERVER_TYPES_SOURCE, 220)',
+                  '("server types", SERVER_TYPES_SOURCE, 260)',
+              ),
+          ]
+          for old_transport, new_transport in replacements:
+              if transport_text.count(old_transport) != 1:
+                  raise SystemExit(
+                      "MCP transport inventory: expected one stale assertion for "
+                      f"{old_transport!r}"
+                  )
+              transport_text = transport_text.replace(
+                  old_transport, new_transport, 1
+              )
+          transport_inventory.write_text(transport_text)
+
           allowed_path = Path(os.environ["RUNNER_TEMP"]).joinpath("allowed-paths")
           allowed = {
               line.strip()
               for line in allowed_path.read_text().splitlines()
               if line.strip()
           }
-          allowed.add(cancellation_inventory.as_posix())
+          allowed.update(
+              {
+                  cancellation_inventory.as_posix(),
+                  control_inventory.as_posix(),
+                  transport_inventory.as_posix(),
+              }
+          )
           allowed_path.write_text("\n".join(sorted(allowed)) + "\n")
           PY
             cargo update -p oxc_parser@0.138.0 --precise 0.139.0
