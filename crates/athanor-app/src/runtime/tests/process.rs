@@ -86,11 +86,11 @@ async fn external_process_timeout_terminates_unix_process_group() {
         .to_string();
     let mut stopped = false;
     for _ in 0..20 {
-        let status = std::process::Command::new("kill")
+        let output = std::process::Command::new("kill")
             .args(["-0", pid.as_str()])
             .output()
             .expect("kill command should be available on Unix");
-        if !status.success() {
+        if !output.status.success() {
             stopped = true;
             break;
         }
