@@ -1,6 +1,6 @@
 use serde_json::{Value, json};
 
-pub(super) fn list() -> Value {
+pub(crate) fn list() -> Value {
     let mut response = json!({
         "tools": [
             {
