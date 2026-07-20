@@ -36,8 +36,6 @@ jobs:
           {
             set -euo pipefail
             python - <<'PY'
-          from pathlib import Path
-          import os
           import subprocess
           import textwrap
 
@@ -45,7 +43,7 @@ jobs:
               [
                   "git",
                   "show",
-                  "31c1cca0da2540aa271c4b16d06f2c3211581142:"
+                  "7f9582b2209b8a28d2961f008946c413fe3939c8:"
                   ".github/workflows/execution-remediation-v10.yml",
               ],
               text=True,
@@ -56,42 +54,11 @@ jobs:
           exec(
               compile(
                   textwrap.dedent(workflow[start:end]),
-                  "execution-remediation-v10-base",
+                  "execution-remediation-v10",
                   "exec",
               ),
               {"__builtins__": __builtins__},
           )
-
-          inventory = Path("crates/athanor-app/tests/publication_recovery_matrix.rs")
-          inventory_text = inventory.read_text()
-          replacements = [
-              (
-                  'include_str!("../src/repair_retention.rs")',
-                  'include_str!("../src/repair/cleanup_recovery/recovery/'
-                  'retention_guard/retention.rs")',
-              ),
-              (
-                  'include_str!("../src/repair_cleanup_recovery.rs")',
-                  'include_str!("../src/repair/cleanup_recovery.rs")',
-              ),
-          ]
-          for old_path, new_path in replacements:
-              if inventory_text.count(old_path) != 1:
-                  raise SystemExit(
-                      "publication recovery inventory: expected one migrated path "
-                      f"for {old_path!r}"
-                  )
-              inventory_text = inventory_text.replace(old_path, new_path, 1)
-          inventory.write_text(inventory_text)
-
-          allowed_path = Path(os.environ["RUNNER_TEMP"]).joinpath("allowed-paths")
-          allowed = {
-              line.strip()
-              for line in allowed_path.read_text().splitlines()
-              if line.strip()
-          }
-          allowed.add(inventory.as_posix())
-          allowed_path.write_text("\n".join(sorted(allowed)) + "\n")
           PY
             cargo update -p oxc_parser@0.138.0 --precise 0.139.0
             cargo fmt --all
@@ -115,28 +82,73 @@ jobs:
         run: |
           set -euo pipefail
           python - <<'PY'
-          import subprocess
-          import textwrap
+          from pathlib import Path
+          import os
 
-          workflow = subprocess.check_output(
-              [
-                  "git",
-                  "show",
-                  "1d41f56155445872aadc8d9cbd0fa0f294908c53:"
-                  ".github/workflows/execution-remediation-v10.yml",
-              ],
-              text=True,
-          )
-          marker = "          python - <<'PY'\n"
-          start = workflow.index(marker) + len(marker)
-          end = workflow.index("\n          PY", start)
-          exec(
-              compile(
-                  textwrap.dedent(workflow[start:end]),
-                  "execution-remediation-v10-evidence",
-                  "exec",
+          plan = Path("athanor_implementation_plan_ru.md")
+          text = plan.read_text()
+          run_id = os.environ["GITHUB_RUN_ID"]
+
+          section_anchor = "## 4. Следующие активные пакеты\n"
+          if text.count(section_anchor) != 1:
+              raise SystemExit(
+                  "plan: expected one active-packages heading, "
+                  f"found {text.count(section_anchor)}"
               )
+          if "### 3.11 `VERIFY-001F`" not in text:
+              section = f"""### 3.11 `VERIFY-001F` — validated execution remediation V10
+
+          - [x] Run `29739854537` подтвердил Rust 1.95 setup, formatting и cargo-deny; workspace/feature execution остановилась на source blockers.
+          - [x] Run `29741168520` повторно подтвердил formatting и security, сохранив exact failed matrix evidence для оставшегося compile path.
+          - [x] Run `29744943097` подтвердил OXC family 0.139 с `--all-features`, executable CLI JSON regression и прохождение Repair cleanup до Clippy.
+          - [x] Run `29754747369` подтвердил targeted MCP suite, default Clippy и all-features Clippy; source publication остановилась только на дефектном evidence anchor.
+          - [x] `RequestRuntime` владеет MCP lifecycle dependencies; `process_line` больше не имеет восемь аргументов.
+          - [x] Tool dispatch принимает `&Path`; `ProtocolFailure` хранит boxed `RpcError` без изменения parser signature и JSON-RPC поведения.
+          - [x] Targeted MCP suite, default/all-features check и Clippy повторно выполнены успешно в publication run `{run_id}`.
+          - [x] Временные execution/source-warning remediation workflows физически удалены из validated source commit.
+          - [ ] Полная `athanor/verification-matrix` должна стать successful на опубликованном architecture commit до повышения пакетов до `[x] verified`.
+
+          """
+              text = text.replace(section_anchor, section + section_anchor, 1)
+
+          table_anchor = (
+              "| `VERIFY-001E` | P1 | `[x] implemented` | "
+              "Fmt, compile owners and advisory lockfile remediated |\n"
           )
+          if text.count(table_anchor) != 1:
+              raise SystemExit(
+                  "plan: expected one VERIFY-001E table row, "
+                  f"found {text.count(table_anchor)}"
+              )
+          if "| `VERIFY-001F` |" not in text:
+              text = text.replace(
+                  table_anchor,
+                  table_anchor
+                  + "| `VERIFY-001F` | P1 | `[x] implemented` | "
+                  + "Structural MCP and execution blockers closed by validated V10 |\n",
+                  1,
+              )
+
+          journal_anchor = "### 2026-07-20 — Project-level CI remediation\n"
+          if text.count(journal_anchor) != 1:
+              raise SystemExit(
+                  "plan: expected one project-level journal heading, "
+                  f"found {text.count(journal_anchor)}"
+              )
+          if "### 2026-07-20 — Validated execution remediation V10" not in text:
+              journal = f"""### 2026-07-20 — Validated execution remediation V10
+
+          - Diagnostic runs `29739854537`, `29741168520` и `29744943097` сведены в один source remediation.
+          - Run `29754747369` доказал successful targeted MCP suite и оба Clippy; publication была заблокирована только evidence writer.
+          - MCP lifecycle, path ownership, protocol error size и физическая Repair migration исправлены структурно, без lint suppressions.
+          - Publication run `{run_id}` повторно проверил source patch до прямой публикации в `main`.
+          - Временные remediation workflows удалены.
+          - Status — implemented; полная exact verification matrix остаётся обязательной.
+
+          """
+              text = text.replace(journal_anchor, journal + journal_anchor, 1)
+
+          plan.write_text(text)
           PY
       - name: Commit validated source remediation
         id: commit
