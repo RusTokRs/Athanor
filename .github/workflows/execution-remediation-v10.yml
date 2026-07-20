@@ -53,6 +53,19 @@ jobs:
           end = workflow.index("\n          PY", start)
           script = textwrap.dedent(workflow[start:end])
 
+          old_base_exec = (
+              'exec(compile(textwrap.dedent(workflow[start:end]), '
+              '"execution-remediation-v10-base", "exec"))'
+          )
+          new_base_exec = (
+              'exec(compile(textwrap.dedent(workflow[start:end]), '
+              '"execution-remediation-v10-base", "exec"), '
+              '{"__builtins__": __builtins__})'
+          )
+          if script.count(old_base_exec) != 1:
+              raise SystemExit("execution-remediation-v10: base exec anchor missing")
+          script = script.replace(old_base_exec, new_base_exec, 1)
+
           old_helper = '''def replace_once(path: str, old: str, new: str) -> None:
               file_path = Path(path)
               text = file_path.read_text()
