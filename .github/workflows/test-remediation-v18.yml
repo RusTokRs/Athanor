@@ -81,66 +81,62 @@ jobs:
               )
           text = text.replace(import_anchor, import_replacement, 1)
 
-          same_process_probe = '''    let error = SurrealKnowledgeStore::connect(&uri)
-              .await
-              .expect_err("second persistent connection must fail while the directory is locked");
-
-              assert_eq!(error.code(), CoreErrorCode::Busy);
-              assert!(error.is_retryable());
-              assert!(matches!(&error, CoreError::Busy(_)));
-              assert!(
-                  error
-                      .to_string()
-                      .to_ascii_lowercase()
-                      .contains("already locked by another process"),
-                  "unexpected lock-contention error: {error}"
-              );'''
-          child_probe = '''    let output = Command::new(
-                  std::env::current_exe().expect("locate persistent lock test binary"),
-              )
-              .arg("--exact")
-              .arg("persistent_surrealkv_child_connection_reports_retryable_busy")
-              .arg("--ignored")
-              .arg("--nocapture")
-              .env("ATHANOR_SURREALKV_LOCK_CHILD_URI", &uri)
-              .output()
-              .expect("spawn independent persistent SurrealKV lock probe");
-              assert!(
-                  output.status.success(),
-                  "independent lock probe failed\\nstdout:\\n{}\\nstderr:\\n{}",
-                  String::from_utf8_lossy(&output.stdout),
-                  String::from_utf8_lossy(&output.stderr)
-              );'''
-          if text.count(same_process_probe) != 1:
+          probe_start_marker = (
+              "    let error = SurrealKnowledgeStore::connect(&uri)\n"
+          )
+          probe_end_marker = "\n\n    drop(first);"
+          if text.count(probe_start_marker) != 1:
               raise SystemExit(
-                  "persistent lock test: expected one same-process probe, "
-                  f"found {text.count(same_process_probe)}"
+                  "persistent lock test: expected one probe start, "
+                  f"found {text.count(probe_start_marker)}"
               )
-          text = text.replace(same_process_probe, child_probe, 1)
+          probe_start = text.index(probe_start_marker)
+          probe_end = text.index(probe_end_marker, probe_start)
+          child_probe = (
+              "    let output = Command::new(\n"
+              "        std::env::current_exe().expect(\"locate persistent lock test binary\"),\n"
+              "    )\n"
+              "    .arg(\"--exact\")\n"
+              "    .arg(\"persistent_surrealkv_child_connection_reports_retryable_busy\")\n"
+              "    .arg(\"--ignored\")\n"
+              "    .arg(\"--nocapture\")\n"
+              "    .env(\"ATHANOR_SURREALKV_LOCK_CHILD_URI\", &uri)\n"
+              "    .output()\n"
+              "    .expect(\"spawn independent persistent SurrealKV lock probe\");\n"
+              "    assert!(\n"
+              "        output.status.success(),\n"
+              "        \"independent lock probe failed\\nstdout:\\n{}\\nstderr:\\n{}\",\n"
+              "        String::from_utf8_lossy(&output.stdout),\n"
+              "        String::from_utf8_lossy(&output.stderr)\n"
+              "    );"
+          )
+          text = text[:probe_start] + child_probe + text[probe_end:]
 
           helper_anchor = "fn unique_store_path() -> PathBuf {"
-          child_test = '''#[tokio::test]
-          #[ignore = "spawned as an independent process by the persistent lock regression"]
-          async fn persistent_surrealkv_child_connection_reports_retryable_busy() {
-              let uri = std::env::var("ATHANOR_SURREALKV_LOCK_CHILD_URI")
-                  .expect("child persistent lock probe URI");
-              let error = SurrealKnowledgeStore::connect(&uri)
-                  .await
-                  .expect_err("independent persistent connection must fail while locked");
-
-              assert_eq!(error.code(), CoreErrorCode::Busy);
-              assert!(error.is_retryable());
-              assert!(matches!(&error, CoreError::Busy(_)));
-              assert!(
-                  error
-                      .to_string()
-                      .to_ascii_lowercase()
-                      .contains("already locked by another process"),
-                  "unexpected lock-contention error: {error}"
-              );
-          }
-
-          fn unique_store_path() -> PathBuf {'''
+          child_test = (
+              "#[tokio::test]\n"
+              "#[ignore = \"spawned as an independent process by the persistent lock regression\"]\n"
+              "async fn persistent_surrealkv_child_connection_reports_retryable_busy() {\n"
+              "    let uri = std::env::var(\"ATHANOR_SURREALKV_LOCK_CHILD_URI\")\n"
+              "        .expect(\"child persistent lock probe URI\");\n"
+              "    let error = SurrealKnowledgeStore::connect(&uri)\n"
+              "        .await\n"
+              "        .expect_err(\"independent persistent connection must fail while locked\");\n"
+              "\n"
+              "    assert_eq!(error.code(), CoreErrorCode::Busy);\n"
+              "    assert!(error.is_retryable());\n"
+              "    assert!(matches!(&error, CoreError::Busy(_)));\n"
+              "    assert!(\n"
+              "        error\n"
+              "            .to_string()\n"
+              "            .to_ascii_lowercase()\n"
+              "            .contains(\"already locked by another process\"),\n"
+              "        \"unexpected lock-contention error: {error}\"\n"
+              "    );\n"
+              "}\n"
+              "\n"
+              "fn unique_store_path() -> PathBuf {"
+          )
           if text.count(helper_anchor) != 1:
               raise SystemExit(
                   "persistent lock test: expected one helper anchor, "
