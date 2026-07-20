@@ -1,0 +1,166 @@
+name: Matrix Diagnostics V26
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/matrix-diagnostics-v26.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: matrix-diagnostics-v26-main
+  cancel-in-progress: true
+
+jobs:
+  windows-workspace:
+    name: Windows workspace diagnostics
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Install Rust toolchain
+        uses: ./.github/actions/setup-rust
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
+      - name: Run workspace tests with diagnostics
+        id: tests
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo test --workspace --quiet --locked 2>&1 | tee "$RUNNER_TEMP/windows-workspace.log"
+      - name: Upload Windows workspace diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: windows-workspace-diagnostics
+          path: ${{ runner.temp }}/windows-workspace.log
+          if-no-files-found: error
+          retention-days: 14
+      - name: Preserve workspace conclusion
+        if: ${{ steps.tests.outcome == 'failure' }}
+        shell: bash
+        run: exit 1
+
+  editable-docs:
+    name: Editable documentation diagnostics
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Install Rust toolchain
+        uses: ./.github/actions/setup-rust
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
+      - name: Run editable documentation check
+        id: docs
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo run -p ath --quiet --locked -- docs check 2>&1 | tee "$RUNNER_TEMP/editable-docs.log"
+      - name: Upload editable documentation diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: editable-docs-diagnostics
+          path: ${{ runner.temp }}/editable-docs.log
+          if-no-files-found: error
+          retention-days: 14
+      - name: Preserve documentation conclusion
+        if: ${{ steps.docs.outcome == 'failure' }}
+        shell: bash
+        run: exit 1
+
+  store-surreal:
+    name: Store Surreal feature diagnostics
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Install Rust toolchain
+        uses: ./.github/actions/setup-rust
+        with:
+          components: clippy
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
+      - name: Run Store Surreal feature graph
+        id: feature
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          {
+            cargo check --workspace --features store-surreal --locked
+            cargo test --workspace --quiet --features store-surreal --locked
+            cargo clippy --workspace --all-targets --features store-surreal --locked -- -D warnings
+          } 2>&1 | tee "$RUNNER_TEMP/store-surreal.log"
+      - name: Upload Store Surreal diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: store-surreal-diagnostics
+          path: ${{ runner.temp }}/store-surreal.log
+          if-no-files-found: error
+          retention-days: 14
+      - name: Preserve feature conclusion
+        if: ${{ steps.feature.outcome == 'failure' }}
+        shell: bash
+        run: exit 1
+
+  publish-status:
+    name: Publish diagnostic status
+    if: ${{ always() }}
+    needs: [windows-workspace, editable-docs, store-surreal]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish exact diagnostic status
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WINDOWS_RESULT: ${{ needs.windows-workspace.result }}
+          DOCS_RESULT: ${{ needs.editable-docs.result }}
+          SURREAL_RESULT: ${{ needs.store-surreal.result }}
+        run: |
+          set -euo pipefail
+          state="failure"
+          description="Remaining matrix diagnostics captured"
+          if [[ "$WINDOWS_RESULT" == "success" && "$DOCS_RESULT" == "success" && "$SURREAL_RESULT" == "success" ]]; then
+            state="success"
+            description="Remaining matrix diagnostics passed"
+          fi
+          export STATE="$state"
+          export DESCRIPTION="$description"
+          python - <<'PY' > status.json
+          import json
+          import os
+          print(json.dumps({
+              "state": os.environ["STATE"],
+              "target_url": (
+                  f"{os.environ['GITHUB_SERVER_URL']}/"
+                  f"{os.environ['GITHUB_REPOSITORY']}/actions/runs/"
+                  f"{os.environ['GITHUB_RUN_ID']}"
+              ),
+              "description": os.environ["DESCRIPTION"],
+              "context": "athanor/matrix-diagnostics-v26",
+          }))
+          PY
+          curl --fail-with-body --location --request POST \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            --data @status.json
