@@ -60,6 +60,22 @@ jobs:
               compile(script, "test-remediation-v14", "exec"),
               {"__builtins__": __builtins__},
           )
+
+          inventory = Path("crates/athanor-app/tests/context_composition_inventory.rs")
+          inventory_text = inventory.read_text()
+          old = '''    assert!(
+              CONTEXT_OPERATION_SOURCE.contains("composition.build_search_index_with_operation_context")
+          );'''
+          new = '''    assert!(CONTEXT_OPERATION_SOURCE.contains("composition.clone()"));
+              assert!(
+              CONTEXT_OPERATION_SOURCE.contains(".build_search_index_with_operation_context(")
+          );'''
+          if inventory_text.count(old) != 1:
+              raise SystemExit(
+                  "context composition inventory: expected one stale single-line call assertion"
+              )
+          inventory.write_text(inventory_text.replace(old, new, 1))
+
           Path(".github/workflows/test-remediation-v14.yml").unlink()
           PY
             cargo fmt --all
@@ -87,6 +103,7 @@ jobs:
           crates/athanor-app/src/repair_composition/direct.rs
           crates/athanor-app/src/runtime/process_runner.rs
           crates/athanor-app/src/search_operation.rs
+          crates/athanor-app/tests/context_composition_inventory.rs
           EOF
           sort -o "$RUNNER_TEMP/allowed-paths" "$RUNNER_TEMP/allowed-paths"
           diff -u "$RUNNER_TEMP/allowed-paths" "$RUNNER_TEMP/actual-paths"
