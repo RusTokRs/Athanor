@@ -264,6 +264,16 @@ mod tests {
     fn recovers_both_staged_tombstones_idempotently() {
         let root = test_root("both");
         let tombstone = stage_pair(&root, "gen_snap_both", "77-1000");
+        let expected_tombstone = IndexCleanupTombstone {
+            generation: tombstone.generation.clone(),
+            token: tombstone.token.clone(),
+            read_model: tombstone.read_model.as_ref().map(|path| {
+                crate::project_path::normalize_canonical_path(path.canonicalize().unwrap())
+            }),
+            index_state: tombstone.index_state.as_ref().map(|path| {
+                crate::project_path::normalize_canonical_path(path.canonicalize().unwrap())
+            }),
+        };
 
         let plan = recover_index_cleanup(RepairRecoverIndexCleanupOptions {
             root: root.clone(),
@@ -272,7 +282,7 @@ mod tests {
         .unwrap();
         assert!(plan.needed);
         assert!(!plan.recovered);
-        assert_eq!(plan.tombstones, vec![tombstone.clone()]);
+        assert_eq!(plan.tombstones, vec![expected_tombstone]);
 
         let applied = recover_index_cleanup(RepairRecoverIndexCleanupOptions {
             root: root.clone(),
