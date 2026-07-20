@@ -248,7 +248,6 @@ jobs:
           .github/workflows/test-remediation-v18.yml
           .github/workflows/test-remediation-v19.yml
           .github/workflows/test-remediation-v20.yml
-          Cargo.lock
           crates/athanor-app/src/index_publication_finalize_tests_inner.rs
           crates/athanor-app/src/repair_composition/direct.rs
           crates/athanor-app/src/runtime/process_runner.rs
