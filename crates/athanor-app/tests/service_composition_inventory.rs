@@ -3,7 +3,6 @@ const API_DIRECT_SOURCE: &str = include_str!("../src/application_report_composit
 const DOCS_ROOT_SOURCE: &str = include_str!("../src/docs.rs");
 const DOCS_MODEL_SOURCE: &str = include_str!("../src/docs/model.rs");
 const DOCS_CHECK_SOURCE: &str = include_str!("../src/docs/check.rs");
-const DOCS_SERVICE_SOURCE: &str = include_str!("../src/docs/service.rs");
 const DOCS_PROPOSAL_SOURCE: &str = include_str!("../src/docs/proposal.rs");
 const DOCS_PROPOSAL_API_SOURCE: &str = include_str!("../src/docs/proposal/api.rs");
 const DOCS_OPERATIONS_SOURCE: &str = include_str!("../src/docs/operations.rs");
@@ -79,15 +78,14 @@ fn docs_engine_is_conventional_and_has_no_legacy_include() {
         "model",
         "operations",
         "proposal",
-        "service",
     ] {
         assert!(DOCS_ROOT_SOURCE.contains(&format!("mod {module};")));
     }
+    assert!(!DOCS_ROOT_SOURCE.contains("mod service;"));
     for source in [
         DOCS_ROOT_SOURCE,
         DOCS_MODEL_SOURCE,
         DOCS_CHECK_SOURCE,
-        DOCS_SERVICE_SOURCE,
         DOCS_PROPOSAL_SOURCE,
         DOCS_PROPOSAL_API_SOURCE,
         DOCS_OPERATIONS_SOURCE,
@@ -110,7 +108,6 @@ fn direct_service_and_docs_engine_modules_remain_bounded() {
         ("Docs root", DOCS_ROOT_SOURCE, 40),
         ("Docs model", DOCS_MODEL_SOURCE, 140),
         ("Docs check", DOCS_CHECK_SOURCE, 260),
-        ("Docs service", DOCS_SERVICE_SOURCE, 220),
         ("Docs proposal root", DOCS_PROPOSAL_SOURCE, 120),
         ("Docs proposal API", DOCS_PROPOSAL_API_SOURCE, 180),
         ("Docs operations", DOCS_OPERATIONS_SOURCE, 260),
