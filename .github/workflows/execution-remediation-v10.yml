@@ -37,6 +37,7 @@ jobs:
             set -euo pipefail
             python - <<'PY'
           from pathlib import Path
+          import os
           import subprocess
           import textwrap
 
@@ -44,7 +45,7 @@ jobs:
               [
                   "git",
                   "show",
-                  "14b7789d3aae0ddda472b03720c204fd85541c4d:"
+                  "31c1cca0da2540aa271c4b16d06f2c3211581142:"
                   ".github/workflows/execution-remediation-v10.yml",
               ],
               text=True,
@@ -61,18 +62,36 @@ jobs:
               {"__builtins__": __builtins__},
           )
 
-          cli_test = Path("apps/ath/src/direct_validate_changed_cli.rs")
-          cli_text = cli_test.read_text()
-          old_import = "use std::path::{Path, PathBuf};"
-          new_import = "use std::path::PathBuf;"
-          old_compare = 'path == Path::new("repo")'
-          new_compare = 'path == std::path::Path::new("repo")'
-          if cli_text.count(old_import) != 1 or cli_text.count(old_compare) != 1:
-              raise SystemExit(
-                  "validate-changed CLI test: expected one test-only Path cleanup"
-              )
-          cli_text = cli_text.replace(old_import, new_import, 1)
-          cli_test.write_text(cli_text.replace(old_compare, new_compare, 1))
+          inventory = Path("crates/athanor-app/tests/publication_recovery_matrix.rs")
+          inventory_text = inventory.read_text()
+          replacements = [
+              (
+                  'include_str!("../src/repair_retention.rs")',
+                  'include_str!("../src/repair/cleanup_recovery/recovery/'
+                  'retention_guard/retention.rs")',
+              ),
+              (
+                  'include_str!("../src/repair_cleanup_recovery.rs")',
+                  'include_str!("../src/repair/cleanup_recovery.rs")',
+              ),
+          ]
+          for old_path, new_path in replacements:
+              if inventory_text.count(old_path) != 1:
+                  raise SystemExit(
+                      "publication recovery inventory: expected one migrated path "
+                      f"for {old_path!r}"
+                  )
+              inventory_text = inventory_text.replace(old_path, new_path, 1)
+          inventory.write_text(inventory_text)
+
+          allowed_path = Path(os.environ["RUNNER_TEMP"]).joinpath("allowed-paths")
+          allowed = {
+              line.strip()
+              for line in allowed_path.read_text().splitlines()
+              if line.strip()
+          }
+          allowed.add(inventory.as_posix())
+          allowed_path.write_text("\n".join(sorted(allowed)) + "\n")
           PY
             cargo update -p oxc_parser@0.138.0 --precise 0.139.0
             cargo fmt --all
