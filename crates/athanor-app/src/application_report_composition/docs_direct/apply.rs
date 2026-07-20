@@ -1,15 +1,13 @@
-use std::collections::BTreeMap;
 use std::fs;
-use std::path::{Component, Path, PathBuf};
-
-use anyhow::{Context, Result};
-use serde_json::Value;
 
 use crate::composition::RuntimeComposition;
-use crate::docs::{
-    DOCS_PATCH_SCHEMA, DocsApplyPatchOptions, DocsApplyPatchReport, DocsFrontmatterChange,
-    DocsPatchProposal,
+use crate::docs::frontmatter::{
+    apply_frontmatter_changes, resolve_docs_patch_path, safe_project_path,
 };
+use crate::docs::{
+    DOCS_PATCH_SCHEMA, DocsApplyPatchOptions, DocsApplyPatchReport, DocsPatchProposal,
+};
+use anyhow::{Context, Result};
 
 use super::snapshot;
 
@@ -90,86 +88,4 @@ pub(crate) async fn apply(
         files_changed,
         changes_applied,
     })
-}
-
-fn resolve_docs_patch_path(root: &Path, patch: &str) -> Result<PathBuf> {
-    let path = Path::new(patch);
-    if path.is_absolute() || patch.contains('/') || patch.contains('\\') || patch.ends_with(".json")
-    {
-        return resolve_project_output(root, path);
-    }
-    Ok(root
-        .join(".athanor/patches/docs")
-        .join(format!("{patch}.json")))
-}
-
-fn resolve_project_output(root: &Path, output: &Path) -> Result<PathBuf> {
-    if output.is_absolute() {
-        return Ok(output.to_path_buf());
-    }
-    safe_project_path(root, output.to_string_lossy().as_ref())
-}
-
-fn safe_project_path(root: &Path, relative: &str) -> Result<PathBuf> {
-    let path = Path::new(relative);
-    if path.is_absolute() {
-        anyhow::bail!("project-relative path expected, got `{relative}`");
-    }
-    for component in path.components() {
-        match component {
-            Component::Normal(_) | Component::CurDir => {}
-            Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
-                anyhow::bail!("unsafe project path `{relative}`")
-            }
-        }
-    }
-    Ok(root.join(path))
-}
-
-fn apply_frontmatter_changes(content: &str, changes: &[DocsFrontmatterChange]) -> Result<String> {
-    let (frontmatter, body) = split_frontmatter(content)?;
-    let mut frontmatter = frontmatter
-        .map(|yaml| {
-            if yaml.trim().is_empty() {
-                Ok(BTreeMap::<String, Value>::new())
-            } else {
-                serde_yaml_ng::from_str::<BTreeMap<String, Value>>(yaml)
-                    .context("invalid existing frontmatter YAML")
-            }
-        })
-        .transpose()?
-        .unwrap_or_default();
-    for change in changes {
-        frontmatter.insert(change.field.clone(), change.new_value.clone());
-    }
-    let yaml = serde_yaml_ng::to_string(&frontmatter).context("failed to serialize frontmatter")?;
-    let mut updated = String::new();
-    updated.push_str("---\n");
-    updated.push_str(&yaml);
-    if !yaml.ends_with('\n') {
-        updated.push('\n');
-    }
-    updated.push_str("---\n");
-    updated.push_str(body.strip_prefix(['\r', '\n']).unwrap_or(body));
-    Ok(updated)
-}
-
-fn split_frontmatter(content: &str) -> Result<(Option<&str>, &str)> {
-    let mut lines = content.split_inclusive('\n');
-    let Some(first) = lines.next() else {
-        return Ok((None, content));
-    };
-    if first.trim_end_matches(['\r', '\n']) != "---" {
-        return Ok((None, content));
-    }
-    let yaml_start = first.len();
-    let mut cursor = yaml_start;
-    for line in lines {
-        let line_start = cursor;
-        cursor += line.len();
-        if line.trim_end_matches(['\r', '\n']) == "---" {
-            return Ok((Some(&content[yaml_start..line_start]), &content[cursor..]));
-        }
-    }
-    anyhow::bail!("Markdown frontmatter is missing its closing `---` delimiter")
 }

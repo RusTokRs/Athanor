@@ -20,7 +20,7 @@ pub(super) fn docs_patch_id(snapshot: &str) -> String {
     format!("docs_patch_{safe_snapshot}")
 }
 
-pub(super) fn allocate_docs_patch_path(root: &Path, id: &str) -> Result<PathBuf> {
+pub(crate) fn allocate_docs_patch_path(root: &Path, id: &str) -> Result<PathBuf> {
     let dir = root.join(".athanor/patches/docs");
     for index in 0.. {
         let suffix = if index == 0 {
@@ -36,14 +36,14 @@ pub(super) fn allocate_docs_patch_path(root: &Path, id: &str) -> Result<PathBuf>
     unreachable!("unbounded docs patch path allocation should always return")
 }
 
-pub(super) fn resolve_project_output(root: &Path, output: &Path) -> Result<PathBuf> {
+pub(crate) fn resolve_project_output(root: &Path, output: &Path) -> Result<PathBuf> {
     if output.is_absolute() {
         return Ok(output.to_path_buf());
     }
     safe_project_path(root, output.to_string_lossy().as_ref())
 }
 
-pub(super) fn resolve_docs_patch_path(root: &Path, patch: &str) -> Result<PathBuf> {
+pub(crate) fn resolve_docs_patch_path(root: &Path, patch: &str) -> Result<PathBuf> {
     let path = Path::new(patch);
     if path.is_absolute() || patch.contains('/') || patch.contains('\\') || patch.ends_with(".json")
     {
@@ -54,7 +54,7 @@ pub(super) fn resolve_docs_patch_path(root: &Path, patch: &str) -> Result<PathBu
         .join(format!("{patch}.json")))
 }
 
-pub(super) fn safe_project_path(root: &Path, relative: &str) -> Result<PathBuf> {
+pub(crate) fn safe_project_path(root: &Path, relative: &str) -> Result<PathBuf> {
     let path = Path::new(relative);
     if path.is_absolute() {
         anyhow::bail!("project-relative path expected, got `{relative}`");
@@ -70,7 +70,7 @@ pub(super) fn safe_project_path(root: &Path, relative: &str) -> Result<PathBuf> 
     Ok(root.join(path))
 }
 
-pub(super) fn apply_frontmatter_changes(
+pub(crate) fn apply_frontmatter_changes(
     content: &str,
     changes: &[DocsFrontmatterChange],
 ) -> Result<String> {

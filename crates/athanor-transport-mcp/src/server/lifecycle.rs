@@ -13,8 +13,8 @@ use super::protocol::{
     handle_initialize, handle_notification, handle_request, parse_request, response_json,
 };
 use super::types::{
-    ActiveReads, DispatchError, JsonRpcRequest, McpServerLimits, McpSessionPhase, RequestTasks,
-    RpcError, SessionState,
+    ActiveReads, DispatchError, JsonRpcRequest, McpServerLimits, McpSessionPhase, RequestRuntime,
+    RequestTasks, RpcError,
 };
 
 /// Runs the MCP stdio server with explicit runtime dependencies.
@@ -44,16 +44,21 @@ where
     W: AsyncWrite + Send + Unpin + 'static,
 {
     let limits = limits.validate()?;
-    let root = Arc::new(root);
-    let active_reads = ActiveReads::default();
-    let session = Arc::new(Mutex::new(McpSessionPhase::AwaitingInitialize));
     let (responses_tx, responses_rx) = mpsc::channel::<String>(limits.response_queue_capacity);
+    let runtime = RequestRuntime::new(
+        Arc::new(root),
+        composition,
+        ActiveReads::default(),
+        Arc::new(Mutex::new(McpSessionPhase::AwaitingInitialize)),
+        responses_tx,
+        limits.max_in_flight_requests,
+    );
     let writer_task = tokio::spawn(write_responses(writer, responses_rx));
     let mut requests = RequestTasks::new();
     let mut lines = reader.lines();
     let mut stdin_open = true;
 
-    eprintln!("Athanor MCP server starting in {}", root.display());
+    eprintln!("Athanor MCP server starting in {}", runtime.root.display());
 
     while stdin_open || !requests.is_empty() {
         if stdin_open {
@@ -62,19 +67,10 @@ where
                 line = lines.next_line() => {
                     match line? {
                         Some(line) => {
-                            process_line(
-                                &root,
-                                &composition,
-                                &active_reads,
-                                &session,
-                                &responses_tx,
-                                &mut requests,
-                                limits.max_in_flight_requests,
-                                line,
-                            )
+                            process_line(&runtime, &mut requests, line)
                             .await?;
                         }
-                        None => close_stdin(&active_reads, &mut stdin_open).await,
+                        None => close_stdin(&runtime.active_reads, &mut stdin_open).await,
                     }
                 }
                 joined = requests.join_next(), if !requests.is_empty() => {
@@ -88,8 +84,8 @@ where
         }
     }
 
-    cancel_all(&active_reads).await;
-    drop(responses_tx);
+    cancel_all(&runtime.active_reads).await;
+    drop(runtime);
     writer_task
         .await
         .context("MCP response writer task terminated unexpectedly")?
@@ -98,13 +94,8 @@ where
 }
 
 pub(super) async fn process_line(
-    root: &Arc<PathBuf>,
-    composition: &Arc<RuntimeComposition>,
-    active_reads: &ActiveReads,
-    session: &SessionState,
-    responses_tx: &mpsc::Sender<String>,
+    runtime: &RequestRuntime,
     requests: &mut RequestTasks,
-    max_in_flight_requests: usize,
     line: String,
 ) -> Result<()> {
     if line.trim().is_empty() {
@@ -114,14 +105,14 @@ pub(super) async fn process_line(
     let request = match parse_request(&line) {
         Ok(request) => request,
         Err(failure) => {
-            admit_inline_response(responses_tx, failure.response(), "protocol error");
+            admit_inline_response(&runtime.responses_tx, failure.response(), "protocol error");
             return Ok(());
         }
     };
 
     // Notifications are control-plane input. They bypass ordinary request and response capacity.
     if request.id.is_notification() {
-        handle_notification(active_reads, session, request).await;
+        handle_notification(&runtime.active_reads, &runtime.session, request).await;
         return Ok(());
     }
 
@@ -130,12 +121,16 @@ pub(super) async fn process_line(
     // remain observable.
     if request.method == "initialize" {
         let id = request.id.response_value();
-        let result = handle_initialize(request.params, session).await;
-        admit_inline_response(responses_tx, response_json(id, result), "initialize");
+        let result = handle_initialize(request.params, &runtime.session).await;
+        admit_inline_response(
+            &runtime.responses_tx,
+            response_json(id, result),
+            "initialize",
+        );
         return Ok(());
     }
 
-    if requests.len() >= max_in_flight_requests {
+    if requests.len() >= runtime.max_in_flight_requests {
         let id = request
             .id
             .into_value()
@@ -143,47 +138,33 @@ pub(super) async fn process_line(
         let response = response_json(
             id,
             Err(DispatchError::Protocol(RpcError::server_busy(
-                max_in_flight_requests,
+                runtime.max_in_flight_requests,
             ))),
         );
-        admit_inline_response(responses_tx, response, "overload rejection");
+        admit_inline_response(&runtime.responses_tx, response, "overload rejection");
         return Ok(());
     }
 
-    requests.spawn(run_request_task(
-        Arc::clone(root),
-        Arc::clone(composition),
-        Arc::clone(active_reads),
-        Arc::clone(session),
-        responses_tx.clone(),
-        request,
-    ));
+    requests.spawn(run_request_task(runtime.clone(), request));
     Ok(())
 }
 
-async fn run_request_task(
-    root: Arc<PathBuf>,
-    composition: Arc<RuntimeComposition>,
-    active_reads: ActiveReads,
-    session: SessionState,
-    responses_tx: mpsc::Sender<String>,
-    request: JsonRpcRequest,
-) -> Result<()> {
+async fn run_request_task(runtime: RequestRuntime, request: JsonRpcRequest) -> Result<()> {
     let id = request
         .id
         .into_value()
         .expect("request tasks only contain explicit ids");
     let response = handle_request(
-        &root,
-        &composition,
+        runtime.root.as_path(),
+        runtime.composition.as_ref(),
         request.method,
         request.params,
         &id,
-        &active_reads,
-        &session,
+        &runtime.active_reads,
+        &runtime.session,
     )
     .await;
-    send_response(&responses_tx, response_json(id, response)).await
+    send_response(&runtime.responses_tx, response_json(id, response)).await
 }
 
 pub(super) async fn close_stdin(active_reads: &ActiveReads, stdin_open: &mut bool) {

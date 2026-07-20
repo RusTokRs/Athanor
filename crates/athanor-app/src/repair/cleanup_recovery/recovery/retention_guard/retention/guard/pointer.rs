@@ -7,11 +7,7 @@ use athanor_domain::{GenerationId, SnapshotId};
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::RuntimeComposition;
-
-mod legacy {
-    include!("repair.rs");
-}
+mod legacy;
 
 pub use legacy::{
     CanonicalRepairState, GeneratedRepairState, RepairApplyOptions, RepairApplyReport,
@@ -88,42 +84,6 @@ pub fn cleanup_repair(options: RepairCleanupOptions) -> Result<RepairCleanupRepo
     report.remaining_issues = inspection.issues.clone();
     report.inspection = inspection;
     Ok(report)
-}
-
-pub async fn apply_repair(
-    options: RepairApplyOptions,
-    composition: &RuntimeComposition,
-) -> Result<RepairApplyReport> {
-    let canonical = recover_canonical_repair(RepairRecoverCanonicalOptions {
-        root: options.root.clone(),
-        dry_run: options.dry_run,
-    })?;
-    let root = canonical.root.clone();
-    let generated = regenerate_repair(
-        RepairRegenerateOptions {
-            root: root.clone(),
-            dry_run: options.dry_run,
-        },
-        composition,
-    )
-    .await?;
-    let cleanup = cleanup_repair(RepairCleanupOptions {
-        root: root.clone(),
-        dry_run: options.dry_run,
-        keep_canonical: options.keep_canonical,
-        keep_generated: options.keep_generated,
-        generated_only: options.generated_only,
-    })?;
-
-    Ok(RepairApplyReport {
-        schema: "athanor.repair_apply.v2".to_string(),
-        root,
-        dry_run: options.dry_run,
-        canonical,
-        generated,
-        remaining_issues: cleanup.remaining_issues.clone(),
-        cleanup,
-    })
 }
 
 fn inspect_index_current(
@@ -280,10 +240,7 @@ fn inspect_pointer(
             .as_deref()
             .context("missing manifest checksum")
             .and_then(|digest| {
-                crate::artifact_checksum::validate_read_model(
-                    &root.join(&expected_read),
-                    digest,
-                )
+                crate::artifact_checksum::validate_read_model(&root.join(&expected_read), digest)
             })
             .and_then(|_| {
                 crate::artifact_checksum::validate_file_digest(

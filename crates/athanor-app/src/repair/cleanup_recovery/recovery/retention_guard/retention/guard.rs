@@ -4,11 +4,9 @@ use anyhow::{Result, bail};
 
 use crate::RuntimeComposition;
 
-mod current {
-    include!("repair_pointer.rs");
-}
+mod pointer;
 
-pub use current::{
+pub use pointer::{
     CanonicalRepairState, GeneratedRepairState, RepairApplyOptions, RepairApplyReport,
     RepairCleanupOptions, RepairCleanupRemoval, RepairCleanupRemovalKind, RepairCleanupReport,
     RepairCleanupRetained, RepairInspectOptions, RepairInspectReport, RepairIssue,
@@ -19,7 +17,7 @@ pub use current::{
 const POINTER_PATH: &str = ".athanor/state/index-current.json";
 
 pub fn inspect_repair(options: RepairInspectOptions) -> Result<RepairInspectReport> {
-    let mut report = current::inspect_repair(options)?;
+    let mut report = pointer::inspect_repair(options)?;
     let pointer_exists = report.root.join(POINTER_PATH).is_file();
     let canonical_pointer_invalid = report.issues.iter().any(|issue| {
         matches!(
@@ -59,7 +57,7 @@ pub fn cleanup_repair(options: RepairCleanupOptions) -> Result<RepairCleanupRepo
             blocker.path.display()
         );
     }
-    let mut report = current::cleanup_repair(options)?;
+    let mut report = pointer::cleanup_repair(options)?;
     let inspection = inspect_repair(RepairInspectOptions {
         root: report.root.clone(),
     })?;

@@ -2,7 +2,6 @@ use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
 
-use anyhow::{Result, bail};
 use athanor_core::CanonicalSnapshot;
 use athanor_domain::{DiagnosticStatus, Entity, EntityId, EntityKind, Relation};
 use serde::{Deserialize, Serialize};
@@ -220,17 +219,6 @@ pub fn build_rustok_architecture_context(
             evidence: total_evidence.saturating_sub(options.max_evidence),
         },
     }
-}
-
-fn validate_limits(options: &RustokArchitectureContextOptions) -> Result<()> {
-    if options.max_modules == 0
-        || options.max_contracts == 0
-        || options.max_interactions == 0
-        || options.max_evidence == 0
-    {
-        bail!("Rustok architecture context limits must be greater than zero");
-    }
-    Ok(())
 }
 
 fn entity_modules(entity: &Entity) -> Vec<(String, String)> {

@@ -72,6 +72,7 @@ pub struct JsonContractDescriptor {
     pub rust_type: &'static str,
 }
 
+#[cfg(test)]
 macro_rules! descriptor {
     ($schema:ident, $rust_type:literal) => {
         JsonContractDescriptor {
@@ -81,6 +82,7 @@ macro_rules! descriptor {
     };
 }
 
+#[cfg(test)]
 pub const VERSIONED_JSON_CONTRACTS: &[JsonContractDescriptor] = &[
     descriptor!(OVERVIEW_SCHEMA_V1, "RepositoryOverview"),
     descriptor!(SEARCH_SCHEMA_V1, "SearchReport"),

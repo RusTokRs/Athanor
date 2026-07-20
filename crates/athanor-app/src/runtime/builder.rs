@@ -29,7 +29,7 @@ impl RuntimeBuilder {
 
         #[cfg(test)]
         {
-            return Self::from_composition(root, &crate::test_runtime::composition());
+            Self::from_composition(root, &crate::test_runtime::composition())
         }
 
         #[cfg(not(test))]

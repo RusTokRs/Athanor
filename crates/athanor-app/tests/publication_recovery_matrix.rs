@@ -1,5 +1,6 @@
-const RETENTION: &str = include_str!("../src/repair_retention.rs");
-const CLEANUP_RECOVERY: &str = include_str!("../src/repair_cleanup_recovery.rs");
+const RETENTION: &str =
+    include_str!("../src/repair/cleanup_recovery/recovery/retention_guard/retention.rs");
+const CLEANUP_RECOVERY: &str = include_str!("../src/repair/cleanup_recovery.rs");
 
 #[test]
 fn retention_rolls_back_the_first_tombstone_when_second_staging_fails() {

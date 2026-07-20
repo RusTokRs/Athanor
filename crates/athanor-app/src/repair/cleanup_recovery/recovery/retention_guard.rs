@@ -1,10 +1,8 @@
 use anyhow::{Result, bail};
 
-mod current {
-    include!("repair_retention.rs");
-}
+mod retention;
 
-pub use current::{
+pub use retention::{
     CanonicalRepairState, GeneratedRepairState, IndexGenerationCleanupOptions,
     IndexGenerationCleanupReport, IndexGenerationCleanupRow, RepairApplyOptions, RepairApplyReport,
     RepairCleanupOptions, RepairCleanupRemoval, RepairCleanupRemovalKind, RepairCleanupReport,
@@ -18,7 +16,7 @@ const POINTER_PATH: &str = ".athanor/state/index-current.json";
 
 /// Distinguishes an unpointed canonical-latest generation from a disposable orphan.
 pub fn inspect_repair(options: RepairInspectOptions) -> Result<RepairInspectReport> {
-    let mut report = current::inspect_repair(options)?;
+    let mut report = retention::inspect_repair(options)?;
     if report.root.join(POINTER_PATH).exists() {
         return Ok(report);
     }
@@ -56,7 +54,7 @@ pub fn cleanup_index_generations(
             recoverable.path.display()
         );
     }
-    current::cleanup_index_generations(options)
+    retention::cleanup_index_generations(options)
 }
 
 #[cfg(test)]
@@ -81,7 +79,10 @@ mod tests {
         )
         .unwrap();
         fs::write(
-            canonical.join("snapshots").join(snapshot).join("manifest.json"),
+            canonical
+                .join("snapshots")
+                .join(snapshot)
+                .join("manifest.json"),
             serde_json::to_vec_pretty(&json!({
                 "schema": "athanor.canonical_snapshot.v1",
                 "snapshot": snapshot

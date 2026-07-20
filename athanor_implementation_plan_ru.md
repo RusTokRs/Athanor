@@ -145,6 +145,19 @@ ChangeMap, API, Overview, Capabilities, Impact, Coverage, Check, Graph, Repair, 
 - [x] Bot commit `b82eff9dee595394cf5b36a8ad8aa983e944db6c` изменил только `Cargo.lock` после `cargo check --workspace --locked` и cargo-deny success.
 - [x] Одноцелевой lock remediation workflow удалён после применения.
 
+### 3.11 `VERIFY-001F` — validated execution remediation V10
+
+- [x] Run `29739854537` подтвердил Rust 1.95 setup, formatting и cargo-deny; workspace/feature execution остановилась на source blockers.
+- [x] Run `29741168520` повторно подтвердил formatting и security, сохранив exact failed matrix evidence для оставшегося compile path.
+- [x] Run `29744943097` подтвердил OXC family 0.139 с `--all-features`, executable CLI JSON regression и прохождение Repair cleanup до Clippy.
+- [x] Run `29754747369` подтвердил targeted MCP suite, default Clippy и all-features Clippy; source publication остановилась только на дефектном evidence anchor.
+- [x] Run `29755384879` повторно подтвердил remediation и успешно записал plan evidence; publication остановилась только на overly strict path equality gate.
+- [x] `RequestRuntime` владеет MCP lifecycle dependencies; `process_line` больше не имеет восемь аргументов.
+- [x] Tool dispatch принимает `&Path`; `ProtocolFailure` хранит boxed `RpcError` без изменения parser signature и JSON-RPC поведения.
+- [x] Targeted MCP suite, default/all-features check и Clippy повторно выполнены успешно в publication run `29756009418`.
+- [x] Временные execution/source-warning remediation workflows физически удалены из validated source commit.
+- [ ] Полная `athanor/verification-matrix` должна стать successful на опубликованном architecture commit до повышения пакетов до `[x] verified`.
+
 ## 4. Следующие активные пакеты
 
 ### 4.1 `VERIFY-001` — execution matrix
@@ -184,6 +197,7 @@ ChangeMap, API, Overview, Capabilities, Impact, Coverage, Check, Graph, Repair, 
 | `VERIFY-001C` | P1 | `[x] implemented` | Workflow toolchain matches Rust 1.95 |
 | `VERIFY-001D` | P1 | `[x] implemented` | Failed fmt/compile/security output is retrievable |
 | `VERIFY-001E` | P1 | `[x] implemented` | Fmt, compile owners and advisory lockfile remediated |
+| `VERIFY-001F` | P1 | `[x] implemented` | Structural MCP and execution blockers closed by validated V10 |
 | `VERIFY-001` | P1 | `[!] blocked` | Exact successful status or JSON evidence identifies one commit |
 
 ## 6. Verification matrix
@@ -236,6 +250,16 @@ cargo run -p ath --quiet --locked -- docs check
 matrix для architecture commit.
 
 ## 7. Последние изменения
+
+### 2026-07-20 — Validated execution remediation V10
+
+- Diagnostic runs `29739854537`, `29741168520` и `29744943097` сведены в один source remediation.
+- Run `29754747369` доказал successful targeted MCP suite и оба Clippy; publication была заблокирована только evidence writer.
+- Run `29755384879` повторно подтвердил source и plan evidence; commit был заблокирован только overly strict equality gate.
+- MCP lifecycle, path ownership, protocol error size и физическая Repair migration исправлены структурно, без lint suppressions.
+- Publication run `29756009418` повторно проверил source patch до прямой публикации в `main`.
+- Временные remediation workflows удалены.
+- Status — implemented; полная exact verification matrix остаётся обязательной.
 
 ### 2026-07-20 — Project-level CI remediation
 

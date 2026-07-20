@@ -112,7 +112,7 @@ mod tests {
                 path,
                 files,
                 json: true,
-            } if path == PathBuf::from("repo") && files.len() == 2
+            } if path == std::path::Path::new("repo") && files.len() == 2
         ));
     }
 }

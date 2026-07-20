@@ -1,10 +1,12 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{Result, bail};
+use athanor_app::RuntimeComposition;
 use athanor_core::CancellationHandle;
 use serde_json::{Map, Value, json};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, mpsc};
 use tokio::task::JoinSet;
 
 use crate::transport_contract::JSON_RPC_VERSION;
@@ -15,6 +17,36 @@ pub const DEFAULT_RESPONSE_QUEUE_CAPACITY: usize = 32;
 pub(super) type ActiveReads = Arc<Mutex<HashMap<String, CancellationHandle>>>;
 pub(super) type SessionState = Arc<Mutex<McpSessionPhase>>;
 pub(super) type RequestTasks = JoinSet<Result<()>>;
+
+#[derive(Clone)]
+pub(super) struct RequestRuntime {
+    pub(super) root: Arc<PathBuf>,
+    pub(super) composition: Arc<RuntimeComposition>,
+    pub(super) active_reads: ActiveReads,
+    pub(super) session: SessionState,
+    pub(super) responses_tx: mpsc::Sender<String>,
+    pub(super) max_in_flight_requests: usize,
+}
+
+impl RequestRuntime {
+    pub(super) fn new(
+        root: Arc<PathBuf>,
+        composition: Arc<RuntimeComposition>,
+        active_reads: ActiveReads,
+        session: SessionState,
+        responses_tx: mpsc::Sender<String>,
+        max_in_flight_requests: usize,
+    ) -> Self {
+        Self {
+            root,
+            composition,
+            active_reads,
+            session,
+            responses_tx,
+            max_in_flight_requests,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct McpServerLimits {
@@ -157,21 +189,21 @@ impl RpcError {
 #[derive(Debug)]
 pub(super) struct ProtocolFailure {
     pub(super) id: Value,
-    pub(super) error: RpcError,
+    pub(super) error: Box<RpcError>,
 }
 
 impl ProtocolFailure {
     pub(super) fn parse(error: &serde_json::Error) -> Self {
         Self {
             id: Value::Null,
-            error: RpcError::parse(error),
+            error: Box::new(RpcError::parse(error)),
         }
     }
 
     pub(super) fn invalid_request(id: Value, message: impl Into<String>) -> Self {
         Self {
             id,
-            error: RpcError::invalid_request(message),
+            error: Box::new(RpcError::invalid_request(message)),
         }
     }
 

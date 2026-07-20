@@ -2,11 +2,9 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 
-mod current {
-    include!("repair_retention_guard.rs");
-}
+mod retention_guard;
 
-pub use current::*;
+pub use retention_guard::*;
 
 #[derive(Debug, Clone)]
 pub struct RepairRecoverIndexOptions {

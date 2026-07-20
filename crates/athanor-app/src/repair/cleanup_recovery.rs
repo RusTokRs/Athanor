@@ -6,11 +6,9 @@ use anyhow::{Context, Result, bail};
 use fs2::FileExt;
 use serde::Serialize;
 
-mod current {
-    include!("repair_recovery.rs");
-}
+mod recovery;
 
-pub use current::*;
+pub use recovery::*;
 
 const READ_ROOT: &str = ".athanor/generated/index-generations";
 const STATE_ROOT: &str = ".athanor/state";
@@ -99,11 +97,7 @@ fn report(
 
 fn scan_tombstones(root: &Path) -> Result<Vec<IndexCleanupTombstone>> {
     let mut rows = BTreeMap::<String, IndexCleanupTombstone>::new();
-    scan_root(
-        &root.join(READ_ROOT),
-        TombstoneKind::ReadModel,
-        &mut rows,
-    )?;
+    scan_root(&root.join(READ_ROOT), TombstoneKind::ReadModel, &mut rows)?;
     scan_root(&root.join(STATE_ROOT), TombstoneKind::IndexState, &mut rows)?;
     Ok(rows.into_values().collect())
 }
@@ -128,7 +122,10 @@ fn scan_root(
         let entry = entry.with_context(|| format!("failed to inspect {}", root.display()))?;
         let file_type = entry.file_type()?;
         if file_type.is_symlink() {
-            bail!("refusing index cleanup tombstone symlink {}", entry.path().display());
+            bail!(
+                "refusing index cleanup tombstone symlink {}",
+                entry.path().display()
+            );
         }
         let name = entry.file_name().to_string_lossy().into_owned();
         let token = match kind {

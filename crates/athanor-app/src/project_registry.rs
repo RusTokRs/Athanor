@@ -237,14 +237,14 @@ fn write_registry(path: &Path, registry: &ProjectRegistry) -> Result<()> {
         return Err(error)
             .with_context(|| format!("failed to publish project registry {}", path.display()));
     }
-    if backup.exists() {
-        if let Err(error) = fs::remove_file(&backup) {
-            warn!(
-                backup = %backup.display(),
-                error = %error,
-                "project registry was published but backup cleanup failed"
-            );
-        }
+    if backup.exists()
+        && let Err(error) = fs::remove_file(&backup)
+    {
+        warn!(
+            backup = %backup.display(),
+            error = %error,
+            "project registry was published but backup cleanup failed"
+        );
     }
     Ok(())
 }

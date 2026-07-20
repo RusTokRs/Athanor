@@ -22,7 +22,7 @@ fn stdin_and_notifications_bypass_ordinary_request_saturation() {
         .find("if request.id.is_notification()")
         .expect("notification dispatch");
     let request_limit = LIFECYCLE
-        .find("if requests.len() >= max_in_flight_requests")
+        .find("if requests.len() >= runtime.max_in_flight_requests")
         .expect("ordinary request admission");
     assert!(
         notification < request_limit,
@@ -41,7 +41,10 @@ fn inline_responses_never_hold_the_only_stdin_reader() {
     assert!(
         LIFECYCLE.contains("Ordinary request tasks retain bounded `send().await` backpressure")
     );
-    assert!(LIFECYCLE.contains("send_response(&responses_tx, response_json(id, response)).await"));
+    assert!(
+        LIFECYCLE
+            .contains("send_response(&runtime.responses_tx, response_json(id, response)).await")
+    );
     assert!(
         !LIFECYCLE
             .contains("try_send(response)\n            .context(\"MCP response queue is saturated")
@@ -50,7 +53,9 @@ fn inline_responses_never_hold_the_only_stdin_reader() {
 
 #[test]
 fn disconnect_cancels_registered_operations_before_task_drain() {
-    assert!(LIFECYCLE.contains("None => close_stdin(&active_reads, &mut stdin_open).await"));
+    assert!(
+        LIFECYCLE.contains("None => close_stdin(&runtime.active_reads, &mut stdin_open).await")
+    );
     assert!(LIFECYCLE.contains(
         "pub(super) async fn close_stdin(active_reads: &ActiveReads, stdin_open: &mut bool)"
     ));
@@ -72,6 +77,32 @@ fn saturation_and_disconnect_regressions_are_present() {
             "missing MCP control-plane regression {regression}"
         );
     }
+}
+
+#[test]
+fn request_runtime_owns_lifecycle_dependencies_and_lint_fixes() {
+    assert!(TYPES.contains("pub(super) struct RequestRuntime"));
+    for field in [
+        "pub(super) root: Arc<PathBuf>",
+        "pub(super) composition: Arc<RuntimeComposition>",
+        "pub(super) active_reads: ActiveReads",
+        "pub(super) session: SessionState",
+        "pub(super) responses_tx: mpsc::Sender<String>",
+        "pub(super) max_in_flight_requests: usize",
+    ] {
+        assert!(
+            TYPES.contains(field),
+            "missing request runtime field {field}"
+        );
+    }
+    assert!(LIFECYCLE.contains(
+        "pub(super) async fn process_line(\n    runtime: &RequestRuntime,\n    requests: &mut RequestTasks,\n    line: String,"
+    ));
+    assert!(!LIFECYCLE.contains("root: &Arc<PathBuf>"));
+    assert!(OPERATION.contains("root: &Path,"));
+    assert!(!OPERATION.contains("root: &PathBuf,"));
+    assert!(PROTOCOL.contains("root: &Path,"));
+    assert!(TYPES.contains("pub(super) error: Box<RpcError>"));
 }
 
 #[test]

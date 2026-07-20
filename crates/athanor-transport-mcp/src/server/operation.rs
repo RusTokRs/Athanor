@@ -1,5 +1,5 @@
 use std::future::Future;
-use std::path::PathBuf;
+use std::path::Path;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
@@ -12,7 +12,7 @@ use crate::tools;
 use super::types::{ActiveReads, DispatchError, DispatchResult};
 
 pub(super) async fn handle_tool_call(
-    root: &PathBuf,
+    root: &Path,
     composition: &RuntimeComposition,
     request_id: &Value,
     params: Option<Value>,

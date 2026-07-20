@@ -6,11 +6,9 @@ use anyhow::{Context, Result, bail};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
-mod current {
-    include!("repair_guard.rs");
-}
+mod guard;
 
-pub use current::*;
+pub use guard::*;
 
 const INDEX_RETENTION_SCHEMA: &str = "athanor.index_generation_cleanup.v1";
 const INDEX_GENERATIONS_PATH: &str = ".athanor/generated/index-generations";
@@ -66,7 +64,8 @@ pub fn cleanup_index_generations(
     let remove_count = candidates.len().saturating_sub(options.keep);
     let retained = candidates.split_off(remove_count);
     let removed = candidates;
-    let expected_token = (!removed.is_empty()).then(|| confirmation_token(&root, options.keep, &removed));
+    let expected_token =
+        (!removed.is_empty()).then(|| confirmation_token(&root, options.keep, &removed));
 
     if !options.dry_run && !removed.is_empty() {
         if options.confirmation_token.as_deref() != expected_token.as_deref() {
@@ -138,9 +137,9 @@ fn generation_row(root: &Path, generation: &str) -> IndexGenerationCleanupRow {
     IndexGenerationCleanupRow {
         generation: generation.to_string(),
         read_model: root.join(INDEX_GENERATIONS_PATH).join(generation),
-        index_state: root
-            .join(".athanor/state")
-            .join(format!("{INDEX_STATE_PREFIX}{generation}{INDEX_STATE_SUFFIX}")),
+        index_state: root.join(".athanor/state").join(format!(
+            "{INDEX_STATE_PREFIX}{generation}{INDEX_STATE_SUFFIX}"
+        )),
     }
 }
 
@@ -212,7 +211,10 @@ fn ensure_direct_child(root: &Path, path: &Path, directory: bool) -> Result<()> 
         );
     }
     if directory && !path.is_dir() {
-        bail!("index generation target is not a directory: {}", path.display());
+        bail!(
+            "index generation target is not a directory: {}",
+            path.display()
+        );
     }
     if !directory && !path.is_file() {
         bail!("index generation target is not a file: {}", path.display());
@@ -293,20 +295,28 @@ mod tests {
             let root = test_root(case);
             write_canonical(&root, "snap_current");
             match case {
-                "schema" => write_generation_with_pointer(&root, "snap_current", json!({
-                    "schema": "athanor.index_current.v999",
-                    "generation": "gen_snap_current",
-                    "snapshot": "snap_current",
-                    "read_model": ".athanor/generated/index-generations/gen_snap_current/jsonl",
-                    "index_state": ".athanor/state/index-state-gen_snap_current.json"
-                })),
-                "path" => write_generation_with_pointer(&root, "snap_current", json!({
-                    "schema": crate::index_current::INDEX_CURRENT_SCHEMA,
-                    "generation": "gen_snap_current",
-                    "snapshot": "snap_current",
-                    "read_model": "../foreign",
-                    "index_state": ".athanor/state/index-state-gen_snap_current.json"
-                })),
+                "schema" => write_generation_with_pointer(
+                    &root,
+                    "snap_current",
+                    json!({
+                        "schema": "athanor.index_current.v999",
+                        "generation": "gen_snap_current",
+                        "snapshot": "snap_current",
+                        "read_model": ".athanor/generated/index-generations/gen_snap_current/jsonl",
+                        "index_state": ".athanor/state/index-state-gen_snap_current.json"
+                    }),
+                ),
+                "path" => write_generation_with_pointer(
+                    &root,
+                    "snap_current",
+                    json!({
+                        "schema": crate::index_current::INDEX_CURRENT_SCHEMA,
+                        "generation": "gen_snap_current",
+                        "snapshot": "snap_current",
+                        "read_model": "../foreign",
+                        "index_state": ".athanor/state/index-state-gen_snap_current.json"
+                    }),
+                ),
                 "stale" => {
                     write_generation(&root, "snap_old", false);
                     write_pointer(&root, "snap_old", "gen_snap_old");
@@ -317,9 +327,9 @@ mod tests {
                 }
                 "manifest" => {
                     write_generation(&root, "snap_current", true);
-                    fs::remove_file(
-                        root.join(".athanor/generated/index-generations/gen_snap_current/jsonl/manifest.json"),
-                    )
+                    fs::remove_file(root.join(
+                        ".athanor/generated/index-generations/gen_snap_current/jsonl/manifest.json",
+                    ))
                     .unwrap();
                 }
                 "state" => {
@@ -336,9 +346,8 @@ mod tests {
                     .unwrap();
                 }
                 "half" => {
-                    let read_model = root.join(
-                        ".athanor/generated/index-generations/gen_snap_half/jsonl",
-                    );
+                    let read_model =
+                        root.join(".athanor/generated/index-generations/gen_snap_half/jsonl");
                     fs::create_dir_all(&read_model).unwrap();
                     fs::write(
                         read_model.join("manifest.json"),
@@ -438,7 +447,10 @@ mod tests {
         )
         .unwrap();
         fs::write(
-            canonical.join("snapshots").join(snapshot).join("manifest.json"),
+            canonical
+                .join("snapshots")
+                .join(snapshot)
+                .join("manifest.json"),
             serde_json::to_vec_pretty(&json!({
                 "schema": "athanor.canonical_snapshot.v1",
                 "snapshot": snapshot

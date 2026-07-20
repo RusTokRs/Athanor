@@ -6,12 +6,12 @@ use anyhow::{Context, Result};
 use athanor_projector_support::replace_output_file;
 use serde::{Deserialize, Serialize};
 
+use crate::RuntimeComposition;
 use crate::generation::{
     CurrentGeneration, GENERATED_CURRENT_SCHEMA, GENERATED_GENERATION_SCHEMA, GenerationOptions,
     GenerationReport, generate_project_with_composition,
 };
 use crate::project_path::normalize_canonical_path;
-use crate::RuntimeComposition;
 
 #[derive(Debug, Clone)]
 pub struct RepairInspectOptions {
@@ -355,52 +355,6 @@ pub fn recover_canonical_repair(
         recovered_snapshot,
         remaining_issues,
         inspection,
-    })
-}
-
-pub async fn apply_repair(
-    options: RepairApplyOptions,
-    composition: &RuntimeComposition,
-) -> Result<RepairApplyReport> {
-    let root = normalize_canonical_path(
-        options
-            .root
-            .canonicalize()
-            .with_context(|| format!("failed to canonicalize {}", options.root.display()))?,
-    );
-    let canonical = recover_canonical_repair(RepairRecoverCanonicalOptions {
-        root: root.clone(),
-        dry_run: options.dry_run,
-    })?;
-    let generated = regenerate_repair(
-        RepairRegenerateOptions {
-            root: root.clone(),
-            dry_run: options.dry_run,
-        },
-        composition,
-    )
-    .await?;
-    let cleanup = cleanup_repair(RepairCleanupOptions {
-        root: root.clone(),
-        dry_run: options.dry_run,
-        keep_canonical: options.keep_canonical,
-        keep_generated: options.keep_generated,
-        generated_only: options.generated_only,
-    })?;
-    let remaining_issues = if options.dry_run {
-        cleanup.remaining_issues.clone()
-    } else {
-        inspect_repair(RepairInspectOptions { root: root.clone() })?.issues
-    };
-
-    Ok(RepairApplyReport {
-        schema: "athanor.repair_apply.v1".to_string(),
-        root,
-        dry_run: options.dry_run,
-        canonical,
-        generated,
-        cleanup,
-        remaining_issues,
     })
 }
 
@@ -818,6 +772,7 @@ mod tests {
     use athanor_store_jsonl::JsonlKnowledgeStore;
 
     use super::*;
+    use crate::apply_repair;
 
     #[test]
     fn detects_orphan_and_stale_generated_generation() {

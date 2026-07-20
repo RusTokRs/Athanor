@@ -2,7 +2,7 @@
 
 mod api_docs;
 mod check;
-mod frontmatter;
+pub(crate) mod frontmatter;
 mod model;
 mod operations;
 mod proposal;

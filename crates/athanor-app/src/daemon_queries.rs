@@ -18,10 +18,6 @@ use crate::{
     build_repository_overview, generate_context_pack,
 };
 
-pub(crate) async fn latest_snapshot(state: &Arc<DaemonState>) -> Result<CanonicalSnapshot> {
-    latest_snapshot_with_operation_context(state, &OperationContext::default()).await
-}
-
 pub(crate) async fn latest_snapshot_with_operation_context(
     state: &Arc<DaemonState>,
     operation: &OperationContext,
@@ -63,16 +59,6 @@ pub(crate) async fn latest_snapshot_with_operation_context(
 
 pub(crate) fn composition(state: &DaemonState) -> RuntimeComposition {
     state.composition.clone()
-}
-
-pub(crate) async fn context(
-    state: &Arc<DaemonState>,
-    task: &str,
-    level: ContextLevel,
-    overrides: &ContextLimitOverrides,
-) -> Result<ContextReport> {
-    context_with_operation_context(state, task, level, overrides, &OperationContext::default())
-        .await
 }
 
 pub(crate) async fn context_with_operation_context(
@@ -144,10 +130,6 @@ pub(crate) async fn context_with_operation_context(
     Ok(ContextReport::from(pack))
 }
 
-pub(crate) async fn overview(state: &Arc<DaemonState>, top: usize) -> Result<RepositoryOverview> {
-    overview_with_operation_context(state, top, &OperationContext::default()).await
-}
-
 pub(crate) async fn overview_with_operation_context(
     state: &Arc<DaemonState>,
     top: usize,
@@ -178,13 +160,6 @@ pub(crate) async fn overview_with_operation_context(
     Ok(overview)
 }
 
-pub(crate) async fn explain(
-    state: &Arc<DaemonState>,
-    stable_key: &str,
-) -> Result<crate::explain::EntityExplanation> {
-    explain_with_operation_context(state, stable_key, &OperationContext::default()).await
-}
-
 pub(crate) async fn explain_with_operation_context(
     state: &Arc<DaemonState>,
     stable_key: &str,
@@ -197,25 +172,6 @@ pub(crate) async fn explain_with_operation_context(
     )?;
     check_active(operation)?;
     Ok(explanation)
-}
-
-pub(crate) async fn search(
-    state: &Arc<DaemonState>,
-    query: String,
-    limit: usize,
-) -> Result<crate::search::SearchReport> {
-    let operation = OperationContext::default();
-    let snapshot = latest_snapshot(state).await?;
-    let index = search_index(state, &snapshot)?;
-    search_snapshot_with_index_and_operation_context(
-        &state.endpoint.root,
-        &snapshot,
-        query,
-        limit,
-        index.as_ref(),
-        &operation,
-    )
-    .await
 }
 
 pub(crate) async fn search_with_operation_context(
@@ -272,10 +228,6 @@ fn snapshot_id(snapshot: &CanonicalSnapshot) -> Result<String> {
         .as_ref()
         .map(|snapshot| snapshot.0.clone())
         .ok_or_else(|| anyhow::anyhow!("latest canonical snapshot has no snapshot id"))
-}
-
-fn search_index(state: &DaemonState, snapshot: &CanonicalSnapshot) -> Result<Arc<dyn SearchIndex>> {
-    search_index_with_operation_context(state, snapshot, &OperationContext::default())
 }
 
 fn search_index_with_operation_context(

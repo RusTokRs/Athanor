@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::Path;
 
 use athanor_app::RuntimeComposition;
 use serde_json::{Map, Value, json};
@@ -120,7 +120,7 @@ pub(super) async fn handle_initialize(
 }
 
 pub(super) async fn handle_request(
-    root: &PathBuf,
+    root: &Path,
     composition: &RuntimeComposition,
     method: String,
     params: Option<Value>,

@@ -16,7 +16,7 @@ use super::operation::{
 };
 use super::types::{
     ActiveReads, DEFAULT_MAX_IN_FLIGHT_REQUESTS, DEFAULT_RESPONSE_QUEUE_CAPACITY, McpServerLimits,
-    McpSessionPhase, RequestTasks, SessionState,
+    McpSessionPhase, RequestRuntime, RequestTasks, SessionState,
 };
 
 #[tokio::test]
@@ -102,17 +102,16 @@ async fn cancellation_notification_bypasses_saturated_request_limit() {
     requests.spawn(pending::<Result<()>>());
     let (responses_tx, _responses_rx) = mpsc::channel(1);
     let session: SessionState = Arc::new(Mutex::new(McpSessionPhase::Ready));
-    let root = Arc::new(PathBuf::from("."));
-    let composition = Arc::new(athanor_runtime_defaults::production());
+    let runtime = request_runtime(
+        Arc::clone(&active_reads),
+        Arc::clone(&session),
+        responses_tx,
+        1,
+    );
 
     process_line(
-        &root,
-        &composition,
-        &active_reads,
-        &session,
-        &responses_tx,
+        &runtime,
         &mut requests,
-        1,
         r#"{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":"saturated"}}"#.to_string(),
     )
     .await
@@ -137,30 +136,24 @@ async fn full_request_and_response_capacity_does_not_starve_cancellation() {
     let (responses_tx, mut responses_rx) = mpsc::channel(1);
     responses_tx.send("occupied".to_string()).await.unwrap();
     let session: SessionState = Arc::new(Mutex::new(McpSessionPhase::Ready));
-    let root = Arc::new(PathBuf::from("."));
-    let composition = Arc::new(athanor_runtime_defaults::production());
+    let runtime = request_runtime(
+        Arc::clone(&active_reads),
+        Arc::clone(&session),
+        responses_tx,
+        1,
+    );
 
     process_line(
-        &root,
-        &composition,
-        &active_reads,
-        &session,
-        &responses_tx,
+        &runtime,
         &mut requests,
-        1,
         r#"{"jsonrpc":"2.0","id":9,"method":"tools/list"}"#.to_string(),
     )
     .await
     .expect("overload rejection must not terminate the reader loop");
 
     process_line(
-        &root,
-        &composition,
-        &active_reads,
-        &session,
-        &responses_tx,
+        &runtime,
         &mut requests,
-        1,
         r#"{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":"fully-saturated"}}"#.to_string(),
     )
     .await
@@ -187,30 +180,20 @@ async fn inline_protocol_error_does_not_block_saturated_control_plane() {
     let (responses_tx, _responses_rx) = mpsc::channel(1);
     responses_tx.send("occupied".to_string()).await.unwrap();
     let session: SessionState = Arc::new(Mutex::new(McpSessionPhase::Ready));
-    let root = Arc::new(PathBuf::from("."));
-    let composition = Arc::new(athanor_runtime_defaults::production());
+    let runtime = request_runtime(
+        Arc::clone(&active_reads),
+        Arc::clone(&session),
+        responses_tx,
+        1,
+    );
+
+    process_line(&runtime, &mut requests, "not-json".to_string())
+        .await
+        .expect("inline protocol response must fail open under queue saturation");
 
     process_line(
-        &root,
-        &composition,
-        &active_reads,
-        &session,
-        &responses_tx,
+        &runtime,
         &mut requests,
-        1,
-        "not-json".to_string(),
-    )
-    .await
-    .expect("inline protocol response must fail open under queue saturation");
-
-    process_line(
-        &root,
-        &composition,
-        &active_reads,
-        &session,
-        &responses_tx,
-        &mut requests,
-        1,
         r#"{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":"protocol-saturated"}}"#.to_string(),
     )
     .await
@@ -248,17 +231,16 @@ async fn saturated_ordinary_request_gets_retryable_server_busy_error() {
     requests.spawn(pending::<Result<()>>());
     let (responses_tx, mut responses_rx) = mpsc::channel(1);
     let session: SessionState = Arc::new(Mutex::new(McpSessionPhase::Ready));
-    let root = Arc::new(PathBuf::from("."));
-    let composition = Arc::new(athanor_runtime_defaults::production());
+    let runtime = request_runtime(
+        Arc::clone(&active_reads),
+        Arc::clone(&session),
+        responses_tx,
+        1,
+    );
 
     process_line(
-        &root,
-        &composition,
-        &active_reads,
-        &session,
-        &responses_tx,
+        &runtime,
         &mut requests,
-        1,
         r#"{"jsonrpc":"2.0","id":9,"method":"tools/list"}"#.to_string(),
     )
     .await
@@ -350,6 +332,22 @@ fn request_ids_distinguish_omitted_from_explicit_null() {
     assert_eq!(request_key(&json!("seven")).unwrap(), "\"seven\"");
     assert_eq!(request_key(&Value::Null).unwrap(), "null");
     assert!(request_key(&json!(true)).is_err());
+}
+
+fn request_runtime(
+    active_reads: ActiveReads,
+    session: SessionState,
+    responses_tx: mpsc::Sender<String>,
+    max_in_flight_requests: usize,
+) -> RequestRuntime {
+    RequestRuntime::new(
+        Arc::new(PathBuf::from(".")),
+        Arc::new(athanor_runtime_defaults::production()),
+        active_reads,
+        session,
+        responses_tx,
+        max_in_flight_requests,
+    )
 }
 
 async fn wait_until_registered(active_reads: &ActiveReads, key: &str) {

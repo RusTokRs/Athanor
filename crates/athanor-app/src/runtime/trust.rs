@@ -93,11 +93,6 @@ pub fn untrust_adapter_plugin(options: AdapterTrustOptions) -> Result<VersionedA
     })
 }
 
-#[cfg(test)]
-pub(super) fn read_adapter_plugin_manifest(path: PathBuf) -> Result<DiscoveredAdapterPlugin> {
-    super::plugin_discovery::read_manifest(path)
-}
-
 pub(super) fn trusted_plugin_record(
     plugin: &DiscoveredAdapterPlugin,
 ) -> Result<TrustedAdapterPlugin> {

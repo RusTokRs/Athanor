@@ -77,12 +77,14 @@ fn mcp_transport_registry_is_unique_and_separate_from_athanor_schema_registry() 
 
 #[test]
 fn active_mcp_server_is_bounded_and_reaps_request_tasks() {
-    assert!(DEFAULT_MAX_IN_FLIGHT_REQUESTS > 0);
-    assert!(DEFAULT_RESPONSE_QUEUE_CAPACITY > 0);
+    const {
+        assert!(DEFAULT_MAX_IN_FLIGHT_REQUESTS > 0);
+        assert!(DEFAULT_RESPONSE_QUEUE_CAPACITY > 0);
+    }
     let server_source = production_server_source();
     assert!(server_source.contains("mpsc::channel::<String>"));
     assert!(!server_source.contains("unbounded_channel"));
-    assert!(SERVER_LIFECYCLE_SOURCE.contains("requests.len() >= max_in_flight_requests"));
+    assert!(SERVER_LIFECYCLE_SOURCE.contains("requests.len() >= runtime.max_in_flight_requests"));
     assert!(SERVER_LIFECYCLE_SOURCE.contains("requests.join_next()"));
     assert!(SERVER_TESTS_SOURCE.contains("bounded_response_queue_applies_backpressure"));
     assert!(SERVER_TESTS_SOURCE.contains("completed_request_tasks_are_reaped"));
@@ -109,7 +111,7 @@ fn active_mcp_dispatch_is_explicitly_composed() {
     assert!(!RUNTIME_SOURCE.contains("include!("));
     let server_source = production_server_source();
     assert!(server_source.contains("Arc<RuntimeComposition>"));
-    assert!(server_source.contains("Arc::clone(composition)"));
+    assert!(server_source.contains("runtime.composition.as_ref()"));
     assert!(TOOLS_ROOT_SOURCE.contains("mod dispatch;"));
     assert!(TOOLS_ROOT_SOURCE.contains("mod schema;"));
     assert!(TOOLS_DISPATCH_SOURCE.contains("index_project_with_composition"));
@@ -131,7 +133,7 @@ fn mcp_production_modules_remain_bounded() {
         ("tools schema", TOOLS_SCHEMA_SOURCE, 220),
         ("tools dispatch", TOOLS_DISPATCH_SOURCE, 330),
         ("server mod", SERVER_MOD_SOURCE, 25),
-        ("server types", SERVER_TYPES_SOURCE, 220),
+        ("server types", SERVER_TYPES_SOURCE, 260),
         ("server protocol", SERVER_PROTOCOL_SOURCE, 260),
         ("server lifecycle", SERVER_LIFECYCLE_SOURCE, 280),
         ("server operation", SERVER_OPERATION_SOURCE, 340),

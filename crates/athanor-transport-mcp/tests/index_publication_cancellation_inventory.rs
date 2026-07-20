@@ -72,9 +72,9 @@ fn atomic_publication_reconciles_only_terminal_operation_errors() {
     );
     assert!(STORE_PUBLICATION_SOURCE.contains("load_snapshot(snapshot).await"));
     assert!(STORE_PUBLICATION_SOURCE.contains("canonical.snapshot.as_ref() == Some(snapshot)"));
-    assert!(
-        CORE_PUBLICATION_SOURCE.contains("They are not checked again after a successful publish")
-    );
+    assert!(CORE_PUBLICATION_SOURCE.contains(
+        "checked again after a successful publish because the durable commit has already happened"
+    ));
 }
 
 #[test]

@@ -3,11 +3,9 @@ use std::path::PathBuf;
 use athanor_core::CanonicalLatestIdentity;
 use serde::Serialize;
 
-mod current {
-    include!("repair_cleanup_recovery.rs");
-}
+mod cleanup_recovery;
 
-pub use current::*;
+pub use cleanup_recovery::*;
 
 #[derive(Debug, Clone)]
 pub struct RepairCanonicalLatestOptions {
