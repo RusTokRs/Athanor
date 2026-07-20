@@ -99,6 +99,23 @@ jobs:
               )
           runtime_inventory.write_text(runtime_text.replace(old_split, new_split, 1))
 
+          service_inventory = Path(
+              "crates/athanor-app/tests/service_composition_inventory.rs"
+          )
+          service_text = service_inventory.read_text()
+          old_budget = '("repair direct", REPAIR_DIRECT_SOURCE, 280),'
+          new_budget = (
+              '("repair direct", '
+              'REPAIR_DIRECT_SOURCE.split("#[cfg(test)]").next().unwrap_or(REPAIR_DIRECT_SOURCE), '
+              '280),'
+          )
+          if service_text.count(old_budget) != 1:
+              raise SystemExit(
+                  "service composition inventory: expected one repair direct budget, "
+                  f"found {service_text.count(old_budget)}"
+              )
+          service_inventory.write_text(service_text.replace(old_budget, new_budget, 1))
+
           Path(".github/workflows/test-remediation-v17.yml").unlink()
           PY
             cargo fmt --all
@@ -135,6 +152,7 @@ jobs:
           crates/athanor-app/tests/legacy_factory_migration.rs
           crates/athanor-app/tests/mcp_runtime_bootstrap_inventory.rs
           crates/athanor-app/tests/runtime_modularity_inventory.rs
+          crates/athanor-app/tests/service_composition_inventory.rs
           docs/development/json-contract-inventory.md
           EOF
           sort -o "$RUNNER_TEMP/allowed-paths" "$RUNNER_TEMP/allowed-paths"
