@@ -122,21 +122,17 @@ jobs:
               "index_publication_cancellation_inventory.rs"
           )
           inventory_text = cancellation_inventory.read_text()
-          old_inventory = '''    assert!(
-              CORE_PUBLICATION_SOURCE.contains("They are not checked again after a successful publish")
-          );'''
-          new_inventory = '''    assert!(CORE_PUBLICATION_SOURCE.contains(
-              "Cancellation and deadline are checked before entering the backend boundary"
-          ));
-              assert!(CORE_PUBLICATION_SOURCE.contains(
-              "checked again after a successful publish because the durable commit has already happened"
-          ));'''
-          if inventory_text.count(old_inventory) != 1:
+          old_phrase = '"They are not checked again after a successful publish"'
+          new_phrase = (
+              '"checked again after a successful publish because the durable commit '
+              'has already happened"'
+          )
+          if inventory_text.count(old_phrase) != 1:
               raise SystemExit(
-                  "index publication inventory: expected one stale comment assertion"
+                  "index publication inventory: expected one stale comment phrase"
               )
           cancellation_inventory.write_text(
-              inventory_text.replace(old_inventory, new_inventory, 1)
+              inventory_text.replace(old_phrase, new_phrase, 1)
           )
 
           allowed_path = Path(os.environ["RUNNER_TEMP"]).joinpath("allowed-paths")
