@@ -102,6 +102,7 @@ jobs:
           - [x] Run `29741168520` повторно подтвердил formatting и security, сохранив exact failed matrix evidence для оставшегося compile path.
           - [x] Run `29744943097` подтвердил OXC family 0.139 с `--all-features`, executable CLI JSON regression и прохождение Repair cleanup до Clippy.
           - [x] Run `29754747369` подтвердил targeted MCP suite, default Clippy и all-features Clippy; source publication остановилась только на дефектном evidence anchor.
+          - [x] Run `29755384879` повторно подтвердил remediation и успешно записал plan evidence; publication остановилась только на overly strict path equality gate.
           - [x] `RequestRuntime` владеет MCP lifecycle dependencies; `process_line` больше не имеет восемь аргументов.
           - [x] Tool dispatch принимает `&Path`; `ProtocolFailure` хранит boxed `RpcError` без изменения parser signature и JSON-RPC поведения.
           - [x] Targeted MCP suite, default/all-features check и Clippy повторно выполнены успешно в publication run `{run_id}`.
@@ -140,6 +141,7 @@ jobs:
 
           - Diagnostic runs `29739854537`, `29741168520` и `29744943097` сведены в один source remediation.
           - Run `29754747369` доказал successful targeted MCP suite и оба Clippy; publication была заблокирована только evidence writer.
+          - Run `29755384879` повторно подтвердил source и plan evidence; commit был заблокирован только overly strict equality gate.
           - MCP lifecycle, path ownership, protocol error size и физическая Repair migration исправлены структурно, без lint suppressions.
           - Publication run `{run_id}` повторно проверил source patch до прямой публикации в `main`.
           - Временные remediation workflows удалены.
@@ -156,13 +158,28 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git diff --name-only | sort > "$RUNNER_TEMP/actual-paths"
-          sort -o "$RUNNER_TEMP/allowed-paths" "$RUNNER_TEMP/allowed-paths"
-          diff -u "$RUNNER_TEMP/allowed-paths" "$RUNNER_TEMP/actual-paths"
+          git diff --name-only | sort -u > "$RUNNER_TEMP/actual-paths"
+          sort -u "$RUNNER_TEMP/allowed-paths" -o "$RUNNER_TEMP/allowed-paths"
+          comm -23 "$RUNNER_TEMP/actual-paths" "$RUNNER_TEMP/allowed-paths" > "$RUNNER_TEMP/unexpected-paths"
+          comm -13 "$RUNNER_TEMP/actual-paths" "$RUNNER_TEMP/allowed-paths" > "$RUNNER_TEMP/unused-allowed-paths"
+          echo "Changed paths:"
+          cat "$RUNNER_TEMP/actual-paths"
+          if [[ -s "$RUNNER_TEMP/unused-allowed-paths" ]]; then
+            echo "Allowed paths not changed in this idempotent run:"
+            cat "$RUNNER_TEMP/unused-allowed-paths"
+          fi
+          if [[ -s "$RUNNER_TEMP/unexpected-paths" ]]; then
+            echo "Unexpected changed paths:" >&2
+            cat "$RUNNER_TEMP/unexpected-paths" >&2
+            exit 1
+          fi
+          test -s "$RUNNER_TEMP/actual-paths"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add --all
           git commit -m "fix(ci): publish validated execution remediation"
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$GITHUB_SHA"
           git push origin HEAD:main
       - name: Upload remediation diagnostics
         if: ${{ failure() && steps.remediate.outcome == 'failure' }}
