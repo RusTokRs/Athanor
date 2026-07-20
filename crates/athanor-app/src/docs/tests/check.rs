@@ -32,7 +32,13 @@ fn completeness_reports_only_editable_policy_gaps() {
         report
             .policy_violations
             .iter()
-            .any(|issue| issue.field == "status")
+            .any(|issue| issue.field == "source_language")
+    );
+    assert!(
+        report
+            .policy_violations
+            .iter()
+            .all(|issue| issue.field != "status")
     );
 }
 
