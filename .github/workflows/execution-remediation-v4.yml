@@ -1,0 +1,231 @@
+name: Execution Remediation V4
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/execution-remediation-v4.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  statuses: write
+
+concurrency:
+  group: execution-remediation-v4-main
+  cancel-in-progress: false
+
+jobs:
+  remediate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+      - name: Install Rust toolchain
+        uses: ./.github/actions/setup-rust
+        with:
+          components: clippy rustfmt
+      - name: Apply bounded source and dependency cleanup
+        id: remediate
+        shell: bash
+        run: |
+          set -o pipefail
+          {
+            set -euo pipefail
+            python - <<'PY'
+          from pathlib import Path
+          import re
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file = Path(path)
+              text = file.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one exact match, found {count}")
+              file.write_text(text.replace(old, new, 1))
+
+          def sub_once(path: str, pattern: str, replacement: str = "") -> None:
+              file = Path(path)
+              text = file.read_text()
+              updated, count = re.subn(pattern, replacement, text, count=1, flags=re.MULTILINE | re.DOTALL)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one regex match for {pattern!r}, found {count}")
+              file.write_text(updated)
+
+          manifest = "Cargo.toml"
+          replace_once(manifest, 'oxc_ast = "0.138.0"', 'oxc_ast = "0.139.0"')
+          replace_once(manifest, 'oxc_parser = "0.138.0"', 'oxc_parser = "0.139.0"')
+          replace_once(manifest, 'oxc_syntax = "0.138.0"', 'oxc_syntax = "0.139.0"')
+
+          entry = "apps/ath/src/entry.rs"
+          replace_once(
+              entry,
+              '    let _ = fmt().with_env_filter(filter).with_target(false).try_init();',
+              '''    let _ = fmt()
+              .with_env_filter(filter)
+              .with_target(false)
+              .with_writer(std::io::stderr)
+              .try_init();''',
+          )
+
+          daemon = "crates/athanor-app/src/daemon_queries.rs"
+          for name in ["latest_snapshot", "context", "overview", "explain", "search"]:
+              sub_once(daemon, rf"^pub\(crate\) async fn {name}\(.*?^\}}\n\n")
+          sub_once(daemon, r"^fn search_index\(.*?^\}\n\n")
+
+          replace_once("crates/athanor-app/src/docs.rs", "mod frontmatter;", "pub(crate) mod frontmatter;")
+          frontmatter = "crates/athanor-app/src/docs/frontmatter.rs"
+          for name in [
+              "allocate_docs_patch_path",
+              "resolve_project_output",
+              "resolve_docs_patch_path",
+              "safe_project_path",
+              "apply_frontmatter_changes",
+          ]:
+              replace_once(frontmatter, f"pub(super) fn {name}", f"pub(crate) fn {name}")
+
+          propose = "crates/athanor-app/src/application_report_composition/docs_direct/propose.rs"
+          replace_once(propose, "use std::path::{Component, Path, PathBuf};\n\n", "")
+          replace_once(
+              propose,
+              "use crate::composition::RuntimeComposition;\n",
+              "use crate::composition::RuntimeComposition;\nuse crate::docs::frontmatter::{allocate_docs_patch_path, resolve_project_output};\n",
+          )
+          replace_once(
+              propose,
+              "        None => allocate_docs_patch_path(&root, &proposal.id),",
+              "        None => allocate_docs_patch_path(&root, &proposal.id)?,",
+          )
+          sub_once(propose, r"^fn allocate_docs_patch_path\(.*\Z", "")
+
+          apply = "crates/athanor-app/src/application_report_composition/docs_direct/apply.rs"
+          replace_once(apply, "use std::collections::BTreeMap;\n", "")
+          replace_once(apply, "use std::path::{Component, Path, PathBuf};\n", "")
+          replace_once(apply, "use serde_json::Value;\n\n", "")
+          replace_once(
+              apply,
+              "use crate::composition::RuntimeComposition;\n",
+              "use crate::composition::RuntimeComposition;\nuse crate::docs::frontmatter::{\n    apply_frontmatter_changes, resolve_docs_patch_path, safe_project_path,\n};\n",
+          )
+          sub_once(apply, r"^fn resolve_docs_patch_path\(.*\Z", "")
+
+          base = "crates/athanor-app/src/json_contract_base.rs"
+          replace_once(base, "macro_rules! descriptor {", "#[cfg(test)]\nmacro_rules! descriptor {")
+          replace_once(
+              base,
+              "pub const VERSIONED_JSON_CONTRACTS: &[JsonContractDescriptor] = &[",
+              "#[cfg(test)]\npub const VERSIONED_JSON_CONTRACTS: &[JsonContractDescriptor] = &[",
+          )
+
+          pointer = "crates/athanor-app/src/repair_pointer.rs"
+          replace_once(pointer, "\nuse crate::RuntimeComposition;\n", "\n")
+          sub_once(pointer, r"^pub async fn apply_repair\(.*?^\}\n\n(?=fn inspect_index_current)")
+          sub_once(
+              "crates/athanor-app/src/repair.rs",
+              r"^pub async fn apply_repair\(.*?^\}\n\n(?=fn inspect_canonical)",
+          )
+
+          architecture = "crates/athanor-app/src/rustok_architecture.rs"
+          replace_once(architecture, "use anyhow::{Result, bail};\n", "")
+          sub_once(architecture, r"^fn validate_limits\(.*?^\}\n\n")
+
+          trust = "crates/athanor-app/src/runtime/trust.rs"
+          sub_once(trust, r"^#\[cfg\(test\)\]\npub\(super\) fn read_adapter_plugin_manifest\(.*?^\}\n\n")
+
+          for workflow in [
+              ".github/workflows/source-warning-remediation-v2.yml",
+              ".github/workflows/source-warning-remediation-v3.yml",
+              ".github/workflows/execution-remediation-v4.yml",
+          ]:
+              Path(workflow).unlink()
+          PY
+            cargo update -p oxc_parser@0.138.0 --precise 0.139.0
+            cargo update -p oxc_ast@0.138.0 --precise 0.139.0
+            cargo update -p oxc_syntax@0.138.0 --precise 0.139.0
+            cargo fmt --all
+            cargo fmt --all -- --check
+            cargo check --workspace --all-features --locked
+            cargo test -p ath --test executable_shared_report_cli --locked
+            cargo clippy --workspace --all-targets --locked -- -D warnings
+            cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+          } 2>&1 | tee "$RUNNER_TEMP/execution-remediation-v4.log"
+      - name: Upload remediation diagnostics
+        if: ${{ failure() && steps.remediate.outcome == 'failure' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: execution-remediation-v4-diagnostics
+          path: ${{ runner.temp }}/execution-remediation-v4.log
+          if-no-files-found: error
+          retention-days: 14
+      - name: Commit validated remediation
+        id: commit
+        if: ${{ steps.remediate.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$RUNNER_TEMP/expected-paths"
+          cat > "$expected" <<'EOF'
+          .github/workflows/execution-remediation-v4.yml
+          .github/workflows/source-warning-remediation-v2.yml
+          .github/workflows/source-warning-remediation-v3.yml
+          Cargo.lock
+          Cargo.toml
+          apps/ath/src/entry.rs
+          crates/athanor-app/src/application_report_composition/docs_direct/apply.rs
+          crates/athanor-app/src/application_report_composition/docs_direct/propose.rs
+          crates/athanor-app/src/daemon_queries.rs
+          crates/athanor-app/src/docs.rs
+          crates/athanor-app/src/docs/frontmatter.rs
+          crates/athanor-app/src/json_contract_base.rs
+          crates/athanor-app/src/repair.rs
+          crates/athanor-app/src/repair_pointer.rs
+          crates/athanor-app/src/runtime/trust.rs
+          crates/athanor-app/src/rustok_architecture.rs
+          EOF
+          git diff --name-only | sort > "$RUNNER_TEMP/actual-paths"
+          diff -u "$expected" "$RUNNER_TEMP/actual-paths"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add --all
+          git commit -m "fix(ci): close execution blockers"
+          git push origin HEAD:main
+      - name: Publish exact remediation status
+        if: ${{ always() }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REMEDIATION_OUTCOME: ${{ steps.remediate.outcome }}
+          COMMIT_OUTCOME: ${{ steps.commit.outcome }}
+        run: |
+          set -euo pipefail
+          state="failure"
+          description="Execution remediation v4 failed"
+          if [[ "$REMEDIATION_OUTCOME" == "success" && "$COMMIT_OUTCOME" == "success" ]]; then
+            state="success"
+            description="Execution remediation v4 passed"
+          fi
+          export STATE="$state"
+          export DESCRIPTION="$description"
+          python - <<'PY' > status.json
+          import json
+          import os
+          print(json.dumps({
+              "state": os.environ["STATE"],
+              "target_url": (
+                  f"{os.environ['GITHUB_SERVER_URL']}/"
+                  f"{os.environ['GITHUB_REPOSITORY']}/actions/runs/"
+                  f"{os.environ['GITHUB_RUN_ID']}"
+              ),
+              "description": os.environ["DESCRIPTION"],
+              "context": "athanor/execution-remediation-v4",
+          }))
+          PY
+          curl --fail-with-body --location --request POST \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            --data @status.json
