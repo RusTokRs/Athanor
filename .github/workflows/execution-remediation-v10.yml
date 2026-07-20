@@ -45,7 +45,7 @@ jobs:
               [
                   "git",
                   "show",
-                  "aa47ab1959bd0f3a18c6c29ea945aefb7f2dd980:"
+                  "671ad1a8e91f49cfc7a88b35464fd3cd586a52ab:"
                   ".github/workflows/execution-remediation-v10.yml",
               ],
               text=True,
@@ -62,37 +62,45 @@ jobs:
               {"__builtins__": __builtins__},
           )
 
-          builder = Path("crates/athanor-app/src/runtime/builder.rs")
-          builder_text = builder.read_text()
-          old_builder = (
-              "            return Self::from_composition("
-              "root, &crate::test_runtime::composition());\n"
+          inventory = Path(
+              "crates/athanor-app/tests/read_service_composition_inventory.rs"
           )
-          new_builder = (
-              "            Self::from_composition("
-              "root, &crate::test_runtime::composition())\n"
-          )
-          if builder_text.count(old_builder) != 1:
-              raise SystemExit("runtime builder: expected one needless test return")
-          builder.write_text(builder_text.replace(old_builder, new_builder, 1))
+          inventory_text = inventory.read_text()
+          path_replacements = [
+              (
+                  'include_str!("../src/repair_latest.rs")',
+                  'include_str!("../src/repair/mod.rs")',
+              ),
+              (
+                  'include_str!("../src/repair_recovery.rs")',
+                  'include_str!("../src/repair/cleanup_recovery/recovery.rs")',
+              ),
+          ]
+          for old_path, new_path in path_replacements:
+              if inventory_text.count(old_path) != 1:
+                  raise SystemExit(
+                      "read-service inventory: expected one migrated Repair path "
+                      f"for {old_path!r}"
+                  )
+              inventory_text = inventory_text.replace(old_path, new_path, 1)
+          inventory.write_text(inventory_text)
 
-          transport_inventory = Path(
-              "crates/athanor-transport-mcp/tests/mcp_transport_contracts.rs"
-          )
-          transport_text = transport_inventory.read_text()
-          old_constants = '''    assert!(DEFAULT_MAX_IN_FLIGHT_REQUESTS > 0);
-              assert!(DEFAULT_RESPONSE_QUEUE_CAPACITY > 0);'''
-          new_constants = '''    const {
-              assert!(DEFAULT_MAX_IN_FLIGHT_REQUESTS > 0);
-              assert!(DEFAULT_RESPONSE_QUEUE_CAPACITY > 0);
-          }'''
-          if transport_text.count(old_constants) != 1:
+          cli_test = Path("apps/ath/src/direct_validate_changed_cli.rs")
+          cli_text = cli_test.read_text()
+          old_compare = 'path == PathBuf::from("repo")'
+          new_compare = 'path == Path::new("repo")'
+          if cli_text.count(old_compare) != 1:
               raise SystemExit(
-                  "MCP transport inventory: expected one runtime constant assertion block"
+                  "validate-changed CLI test: expected one owned path comparison"
               )
-          transport_inventory.write_text(
-              transport_text.replace(old_constants, new_constants, 1)
-          )
+          cli_text = cli_text.replace(old_compare, new_compare, 1)
+          old_import = "use std::path::PathBuf;"
+          new_import = "use std::path::{Path, PathBuf};"
+          if cli_text.count(old_import) != 1:
+              raise SystemExit(
+                  "validate-changed CLI test: expected one PathBuf import"
+              )
+          cli_test.write_text(cli_text.replace(old_import, new_import, 1))
 
           allowed_path = Path(os.environ["RUNNER_TEMP"]).joinpath("allowed-paths")
           allowed = {
@@ -100,7 +108,7 @@ jobs:
               for line in allowed_path.read_text().splitlines()
               if line.strip()
           }
-          allowed.update({builder.as_posix(), transport_inventory.as_posix()})
+          allowed.update({inventory.as_posix(), cli_test.as_posix()})
           allowed_path.write_text("\n".join(sorted(allowed)) + "\n")
           PY
             cargo update -p oxc_parser@0.138.0 --precise 0.139.0
