@@ -36,7 +36,6 @@ jobs:
           {
             set -euo pipefail
             python - <<'PY'
-          from pathlib import Path
           import subprocess
           import textwrap
 
@@ -53,6 +52,46 @@ jobs:
           start = workflow.index(marker) + len(marker)
           end = workflow.index("\n          PY", start)
           script = textwrap.dedent(workflow[start:end])
+
+          old_helper = '''def replace_once(path: str, old: str, new: str) -> None:
+              file_path = Path(path)
+              text = file_path.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one replacement target, found {count}")
+              file_path.write_text(text.replace(old, new, 1))
+          '''
+          new_helper = '''def replace_once(path: str, old: str, new: str) -> None:
+              file_path = Path(path)
+              text = file_path.read_text()
+              count = text.count(old)
+              if count == 1:
+                  file_path.write_text(text.replace(old, new, 1))
+                  return
+
+              needle = [line.strip() for line in old.splitlines()]
+              lines = text.splitlines(keepends=True)
+              matches = []
+              for index in range(len(lines) - len(needle) + 1):
+                  candidate = [
+                      line.rstrip("\\r\\n").strip()
+                      for line in lines[index : index + len(needle)]
+                  ]
+                  if candidate == needle:
+                      matches.append(index)
+              if len(matches) != 1:
+                  raise SystemExit(
+                      f"{path}: expected one exact or whitespace-normalized match, "
+                      f"found exact={count}, normalized={len(matches)} for {old!r}"
+                  )
+              index = matches[0]
+              offset = sum(len(line) for line in lines[:index])
+              matched = sum(len(line) for line in lines[index : index + len(needle)])
+              file_path.write_text(text[:offset] + new + text[offset + matched :])
+          '''
+          if script.count(old_helper) != 1:
+              raise SystemExit("execution-remediation-v10: replace_once helper anchor missing")
+          script = script.replace(old_helper, new_helper, 1)
 
           old = "    RequestTasks, RpcError, SessionState,\n"
           new = "    RequestTasks, RpcError,\n"
