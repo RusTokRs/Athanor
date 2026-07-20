@@ -15,8 +15,8 @@ use super::protocol::{
     handle_initialize, handle_notification, handle_request, parse_request, response_json,
 };
 use super::types::{
-    ActiveReads, DispatchError, McpServerLimits, McpSessionPhase, RequestTasks, RpcError,
-    SessionState,
+    ActiveReads, DispatchError, JsonRpcRequest, McpServerLimits, McpSessionPhase, RequestTasks,
+    RpcError, SessionState,
 };
 
 /// Runs the MCP stdio server with explicit runtime dependencies.
@@ -152,29 +152,40 @@ pub(super) async fn process_line(
         return Ok(());
     }
 
-    let root = Arc::clone(root);
-    let composition = Arc::clone(composition);
-    let active_reads = Arc::clone(active_reads);
-    let session = Arc::clone(session);
-    let responses_tx = responses_tx.clone();
-    requests.spawn(async move {
-        let id = request
-            .id
-            .into_value()
-            .expect("request tasks only contain explicit ids");
-        let response = handle_request(
-            &root,
-            &composition,
-            request.method,
-            request.params,
-            &id,
-            &active_reads,
-            &session,
-        )
-        .await;
-        send_response(&responses_tx, response_json(id, response)).await
-    });
+    requests.spawn(run_request_task(
+        Arc::clone(root),
+        Arc::clone(composition),
+        Arc::clone(active_reads),
+        Arc::clone(session),
+        responses_tx.clone(),
+        request,
+    ));
     Ok(())
+}
+
+async fn run_request_task(
+    root: Arc<PathBuf>,
+    composition: Arc<RuntimeComposition>,
+    active_reads: ActiveReads,
+    session: SessionState,
+    responses_tx: mpsc::Sender<String>,
+    request: JsonRpcRequest,
+) -> Result<()> {
+    let id = request
+        .id
+        .into_value()
+        .expect("request tasks only contain explicit ids");
+    let response = handle_request(
+        &root,
+        &composition,
+        request.method,
+        request.params,
+        &id,
+        &active_reads,
+        &session,
+    )
+    .await;
+    send_response(&responses_tx, response_json(id, response)).await
 }
 
 pub(super) async fn close_stdin(active_reads: &ActiveReads, stdin_open: &mut bool) {
