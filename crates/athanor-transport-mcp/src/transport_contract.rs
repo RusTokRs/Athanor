@@ -56,9 +56,9 @@ impl fmt::Display for McpTransportContractError {
 impl Error for McpTransportContractError {}
 
 pub fn validate_json_rpc_request(value: &Value) -> Result<(), McpTransportContractError> {
-    let object = object(value, "JSON-RPC request")?;
-    version(object.get("jsonrpc"), JSON_RPC_VERSION, "JSON-RPC request")?;
-    if object.get("method").and_then(Value::as_str).is_none() {
+    let request = object(value, "JSON-RPC request")?;
+    version(request.get("jsonrpc"), JSON_RPC_VERSION, "JSON-RPC request")?;
+    if request.get("method").and_then(Value::as_str).is_none() {
         return Err(McpTransportContractError(
             "JSON-RPC request requires string method".to_string(),
         ));
@@ -67,29 +67,29 @@ pub fn validate_json_rpc_request(value: &Value) -> Result<(), McpTransportContra
 }
 
 pub fn validate_json_rpc_response(value: &Value) -> Result<(), McpTransportContractError> {
-    let object = object(value, "JSON-RPC response")?;
-    version(object.get("jsonrpc"), JSON_RPC_VERSION, "JSON-RPC response")?;
-    let has_result = object.contains_key("result");
-    let has_error = object.contains_key("error");
+    let response = object(value, "JSON-RPC response")?;
+    version(response.get("jsonrpc"), JSON_RPC_VERSION, "JSON-RPC response")?;
+    let has_result = response.contains_key("result");
+    let has_error = response.contains_key("error");
     if has_result == has_error {
         return Err(McpTransportContractError(
             "JSON-RPC response requires exactly one of result or error".to_string(),
         ));
     }
-    if let Some(error) = object.get("error") {
+    if let Some(error) = response.get("error") {
         validate_json_rpc_error(error)?;
     }
     Ok(())
 }
 
 pub fn validate_json_rpc_error(value: &Value) -> Result<(), McpTransportContractError> {
-    let object = object(value, "JSON-RPC error")?;
-    if object.get("code").and_then(Value::as_i64).is_none() {
+    let error = object(value, "JSON-RPC error")?;
+    if error.get("code").and_then(Value::as_i64).is_none() {
         return Err(McpTransportContractError(
             "JSON-RPC error requires integer code".to_string(),
         ));
     }
-    if object.get("message").and_then(Value::as_str).is_none() {
+    if error.get("message").and_then(Value::as_str).is_none() {
         return Err(McpTransportContractError(
             "JSON-RPC error requires string message".to_string(),
         ));
@@ -98,13 +98,16 @@ pub fn validate_json_rpc_error(value: &Value) -> Result<(), McpTransportContract
 }
 
 pub fn validate_tool_call_result(value: &Value) -> Result<(), McpTransportContractError> {
-    let object = object(value, "MCP tool-call result")?;
-    if object.get("isError").is_some_and(|value| !value.is_boolean()) {
+    let result = object(value, "MCP tool-call result")?;
+    if result
+        .get("isError")
+        .is_some_and(|value| !value.is_boolean())
+    {
         return Err(McpTransportContractError(
             "MCP tool-call isError must be boolean".to_string(),
         ));
     }
-    let content = object
+    let content = result
         .get("content")
         .and_then(Value::as_array)
         .ok_or_else(|| {
@@ -132,9 +135,9 @@ pub fn validate_tool_call_result(value: &Value) -> Result<(), McpTransportContra
 }
 
 pub fn validate_initialize_result(value: &Value) -> Result<(), McpTransportContractError> {
-    let object = object(value, "MCP initialize result")?;
+    let result = object(value, "MCP initialize result")?;
     version(
-        object.get("protocolVersion"),
+        result.get("protocolVersion"),
         MCP_PROTOCOL_VERSION,
         "MCP initialize result",
     )
