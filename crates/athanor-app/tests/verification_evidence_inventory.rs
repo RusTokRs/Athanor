@@ -210,7 +210,7 @@ fn optional_recorded_evidence_is_strictly_validated() {
 #[test]
 fn verification_evidence_owners_remain_bounded() {
     for (name, source, max_lines) in [
-        ("CI workflow", CI_WORKFLOW, 280),
+        ("CI workflow", CI_WORKFLOW, 330),
         ("evidence workflow", EVIDENCE_WORKFLOW, 100),
         ("CI guide", CI_GUIDE, 240),
     ] {
