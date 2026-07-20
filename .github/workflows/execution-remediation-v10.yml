@@ -37,7 +37,6 @@ jobs:
             set -euo pipefail
             python - <<'PY'
           from pathlib import Path
-          import os
           import subprocess
           import textwrap
 
@@ -45,7 +44,7 @@ jobs:
               [
                   "git",
                   "show",
-                  "671ad1a8e91f49cfc7a88b35464fd3cd586a52ab:"
+                  "14b7789d3aae0ddda472b03720c204fd85541c4d:"
                   ".github/workflows/execution-remediation-v10.yml",
               ],
               text=True,
@@ -62,54 +61,18 @@ jobs:
               {"__builtins__": __builtins__},
           )
 
-          inventory = Path(
-              "crates/athanor-app/tests/read_service_composition_inventory.rs"
-          )
-          inventory_text = inventory.read_text()
-          path_replacements = [
-              (
-                  'include_str!("../src/repair_latest.rs")',
-                  'include_str!("../src/repair/mod.rs")',
-              ),
-              (
-                  'include_str!("../src/repair_recovery.rs")',
-                  'include_str!("../src/repair/cleanup_recovery/recovery.rs")',
-              ),
-          ]
-          for old_path, new_path in path_replacements:
-              if inventory_text.count(old_path) != 1:
-                  raise SystemExit(
-                      "read-service inventory: expected one migrated Repair path "
-                      f"for {old_path!r}"
-                  )
-              inventory_text = inventory_text.replace(old_path, new_path, 1)
-          inventory.write_text(inventory_text)
-
           cli_test = Path("apps/ath/src/direct_validate_changed_cli.rs")
           cli_text = cli_test.read_text()
-          old_compare = 'path == PathBuf::from("repo")'
-          new_compare = 'path == Path::new("repo")'
-          if cli_text.count(old_compare) != 1:
+          old_import = "use std::path::{Path, PathBuf};"
+          new_import = "use std::path::PathBuf;"
+          old_compare = 'path == Path::new("repo")'
+          new_compare = 'path == std::path::Path::new("repo")'
+          if cli_text.count(old_import) != 1 or cli_text.count(old_compare) != 1:
               raise SystemExit(
-                  "validate-changed CLI test: expected one owned path comparison"
+                  "validate-changed CLI test: expected one test-only Path cleanup"
               )
-          cli_text = cli_text.replace(old_compare, new_compare, 1)
-          old_import = "use std::path::PathBuf;"
-          new_import = "use std::path::{Path, PathBuf};"
-          if cli_text.count(old_import) != 1:
-              raise SystemExit(
-                  "validate-changed CLI test: expected one PathBuf import"
-              )
-          cli_test.write_text(cli_text.replace(old_import, new_import, 1))
-
-          allowed_path = Path(os.environ["RUNNER_TEMP"]).joinpath("allowed-paths")
-          allowed = {
-              line.strip()
-              for line in allowed_path.read_text().splitlines()
-              if line.strip()
-          }
-          allowed.update({inventory.as_posix(), cli_test.as_posix()})
-          allowed_path.write_text("\n".join(sorted(allowed)) + "\n")
+          cli_text = cli_text.replace(old_import, new_import, 1)
+          cli_test.write_text(cli_text.replace(old_compare, new_compare, 1))
           PY
             cargo update -p oxc_parser@0.138.0 --precise 0.139.0
             cargo fmt --all
