@@ -1,19 +1,28 @@
 use anyhow::Result;
 use athanor_app::{
-    IndexGenerationCleanupOptions, RepairCanonicalLatestOptions, RepairRecoverIndexCleanupOptions,
-    RepairRecoverIndexOptions,
+    IndexGenerationCleanupOptions, RepairCanonicalLatestOptions, RepairInspectOptions,
+    RepairRecoverIndexCleanupOptions, RepairRecoverIndexOptions,
 };
 
 use super::model::Command;
 use super::render::{
-    print_help, print_index_retention, print_recover_index, print_recover_index_cleanup,
-    print_repair_latest,
+    print_help, print_index_retention, print_inspect, print_recover_index,
+    print_recover_index_cleanup, print_repair_latest,
 };
 
 pub(crate) async fn run(command: Command) -> Result<()> {
     match command {
         Command::Help(topic) => {
             print_help(topic);
+            Ok(())
+        }
+        Command::Inspect { path, json } => {
+            let report = athanor_app::inspect_repair(RepairInspectOptions { root: path })?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                print_inspect(&report);
+            }
             Ok(())
         }
         Command::IndexRetention {
