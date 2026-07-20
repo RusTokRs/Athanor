@@ -13,13 +13,11 @@ verification matrix live in `athanor_implementation_plan_ru.md`; long-range prod
 
 ## Status Rules
 
-- **Implemented** means the code, documentation, and source-level regressions are present in `main`.
-- **Verified** means the required formatting, build, test, Clippy, and smoke matrix was executed on one
-  identified commit.
-- Documentation lifecycle status and historical snapshot metadata are not execution evidence for the
-  current repository commit.
-- The current architecture work remains implemented, not verified, until one complete matrix succeeds
-  and publishes exact evidence for its commit.
+- **Implemented means** the code, documentation, and source-level regressions are present in `main`.
+- **Verified** means the required formatting, build, test, Clippy, smoke, security, feature, and
+  coverage matrix was executed successfully on one identified commit.
+- Documentation lifecycle status and historical snapshot metadata are not execution evidence.
+- A failed matrix is useful diagnostic evidence, but it does not promote implementation to verified.
 
 ## Current Architecture
 
@@ -79,14 +77,21 @@ request tasks retain bounded response backpressure. EOF cancels registered opera
 
 ### Exact Verification Evidence
 
-The final push-CI job aggregates security, quality, feature-matrix, and coverage with `always()`. It
-publishes legacy commit status `athanor/verification-matrix` on the exact `GITHUB_SHA`; success is used
-only when every required job result is `success`.
+The main CI publishes legacy status `athanor/verification-matrix` on the exact push SHA after
+aggregating security, quality, feature-matrix, and coverage jobs. A successful run may additionally
+publish `docs/development/verification-evidence.json` with the same exact identity. Workflow source
+without a successful exact result remains implementation evidence only.
 
-After a successful push run on `main`, `verification-evidence.yml` may additionally publish
-`docs/development/verification-evidence.json` with exact `head_sha`, run identity, URL, completion time,
-and matrix description. Failed, cancelled, pull-request, and non-main runs cannot publish successful
-evidence. The evidence-only path is ignored by push-CI, preventing recursive runs.
+### Workflow Toolchain Ownership
+
+The workspace MSRV is Rust `1.95`. CI, production, and release now use the repository-owned
+`.github/actions/setup-rust/action.yml`, which installs exact Rust `1.95.0` with optional components and
+targets. Active workflows no longer use the version-encoded `dtolnay/rust-toolchain` commit that
+silently selected Rust `1.100.0`.
+
+Run `29701756503` on commit `9fda772436f50b55b2e4d9b11b18b7ec1e43a091` recorded failure before
+project compilation: all quality/feature/coverage jobs stopped at the old toolchain setup. Cargo-deny
+now emits a concise log and uploads `cargo-deny-diagnostics` when the security check fails.
 
 ## Implemented Architecture Packages
 
@@ -109,7 +114,7 @@ evidence. The evidence-only path is ignored by push-CI, preventing recursive run
 ### `JSON-003`
 
 - recursive workspace schema inventory;
-- public/non-public/adapter/automation lifecycle separation;
+- public/general/adapter/automation lifecycle separation;
 - qualified schema validation and legacy-input normalization;
 - persisted/generated/interchange fixtures;
 - typed public report transport parity.
@@ -132,19 +137,25 @@ evidence. The evidence-only path is ignored by push-CI, preventing recursive run
 
 ### `VERIFY-001A`
 
-- successful main-CI can publish connector-visible exact commit status;
-- status aggregation is restricted to push runs on `main`;
-- versioned JSON evidence remains a persisted secondary channel;
+- exact JSON and legacy commit-status evidence channels;
+- successful status requires all required job results to succeed;
 - evidence-only commits cannot recursively trigger CI;
-- status workflow, evidence workflow, and schema are source-enforced.
+- workflow, schema, and status contracts are source-enforced.
 
 ### `VERIFY-001B`
 
-- completeness lifecycle is separated from snapshot verification age;
+- completeness lifecycle separated from snapshot verification age;
 - root/default/init policies share one current contract;
 - `ath init` emits a parseable current configuration;
-- golden config reports reflect lifecycle-aware defaults;
-- lifecycle policy parity is source-enforced.
+- golden config reports reflect lifecycle-aware defaults.
+
+### `VERIFY-001C`
+
+- repository-owned Rust 1.95 setup shared by CI, production, and release;
+- explicit components/targets and bounded install retry;
+- version-encoded third-party toolchain setup removed;
+- cargo-deny failure diagnostics retained as an artifact;
+- `workflow_toolchain_inventory` prevents regression.
 
 ## Active Work
 
@@ -152,13 +163,12 @@ evidence. The evidence-only path is ignored by push-CI, preventing recursive run
 
 The remaining architecture task is one exact successful matrix:
 
-1. final push-CI completes;
-2. `athanor/verification-matrix` reports success or valid JSON evidence is published;
-3. the evidence SHA is matched to the architecture commit being claimed;
-4. only those implemented packages are promoted to verified.
+1. a new final push-CI reaches the actual Rust checks;
+2. any remaining failure is resolved from exact job logs or diagnostic artifacts;
+3. `athanor/verification-matrix` reports success, or valid JSON evidence is published;
+4. only packages covered by that exact SHA are promoted to verified.
 
-The current runtime has no local checkout or GitHub CLI. Until one exact success channel is present,
-the package remains blocked rather than inferred from workflow source.
+Until a successful exact result exists, the architecture remains implemented, not verified.
 
 ## Product Backlog
 
