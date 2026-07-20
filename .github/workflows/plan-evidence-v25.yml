@@ -1,5 +1,6 @@
 name: Plan Evidence V25
 
+# Activation commit ensures this newly introduced workflow receives a push event.
 on:
   push:
     branches: [main]
