@@ -43,6 +43,12 @@ The evidence-only commit changes only that JSON file. The main CI workflow ignor
 prevents an evidence commit from recursively creating another CI run. The evidence file proves the
 recorded `head_sha`; it does not automatically prove unrelated later changes.
 
+A remediation workflow may publish a validated source commit through the repository `GITHUB_TOKEN`
+without recursively starting a second CI run. That source commit remains implemented, not verified,
+until an explicit dispatch or a subsequent non-recursive evidence/documentation push runs the full
+matrix on a descendant HEAD containing the same source. A successful run for the workflow commit
+must never be attributed to the later bot-published source commit.
+
 A verified claim must cite an exact SHA with either a successful `athanor/verification-matrix` status
 or a valid versioned evidence file for the same successful CI run. If neither channel is present and
 valid, the current architecture status remains implemented, not verified.
