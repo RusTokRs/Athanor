@@ -192,11 +192,13 @@ mod tests {
         .expect_err("pre-cancelled read must fail");
 
         assert!(matches!(error, CoreError::Cancelled(_)));
-        assert!(index
-            .cancellation
-            .lock()
-            .expect("cancellation fixture lock")
-            .is_some());
+        assert!(
+            index
+                .cancellation
+                .lock()
+                .expect("cancellation fixture lock")
+                .is_some()
+        );
     }
 
     #[test]

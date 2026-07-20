@@ -4,12 +4,12 @@ use std::path::{Path, PathBuf};
 use athanor_app::{
     CanonicalRepairState, GeneratedRepairState, INDEX_GENERATION_CLEANUP_SCHEMA_V1,
     IndexGenerationCleanupReport, REPAIR_APPLY_SCHEMA_V2, REPAIR_CANONICAL_LATEST_SCHEMA_V1,
-    REPAIR_CLEANUP_SCHEMA_V2, REPAIR_INSPECT_SCHEMA_V2,
-    REPAIR_RECOVER_CANONICAL_SCHEMA_V1, REPAIR_RECOVER_INDEX_CLEANUP_SCHEMA_V1,
-    REPAIR_RECOVER_INDEX_SCHEMA_V1, REPAIR_REGENERATE_SCHEMA_V1, RepairApplyReport,
-    RepairCanonicalLatestReport, RepairCleanupReport, RepairInspectReport,
-    RepairRecoverCanonicalReport, RepairRecoverIndexCleanupReport, RepairRecoverIndexReport,
-    RepairRegenerateReport, RepairStatus, VersionedJsonContract,
+    REPAIR_CLEANUP_SCHEMA_V2, REPAIR_INSPECT_SCHEMA_V2, REPAIR_RECOVER_CANONICAL_SCHEMA_V1,
+    REPAIR_RECOVER_INDEX_CLEANUP_SCHEMA_V1, REPAIR_RECOVER_INDEX_SCHEMA_V1,
+    REPAIR_REGENERATE_SCHEMA_V1, RepairApplyReport, RepairCanonicalLatestReport,
+    RepairCleanupReport, RepairInspectReport, RepairRecoverCanonicalReport,
+    RepairRecoverIndexCleanupReport, RepairRecoverIndexReport, RepairRegenerateReport,
+    RepairStatus, VersionedJsonContract,
 };
 use athanor_core::CanonicalLatestIdentity;
 use athanor_domain::SnapshotId;
@@ -72,15 +72,21 @@ fn repair_reports_match_golden_fixture() {
         remaining_issues: Vec::new(),
     };
 
-    inspect.validate_contract().expect("valid repair inspect contract");
-    cleanup.validate_contract().expect("valid repair cleanup contract");
+    inspect
+        .validate_contract()
+        .expect("valid repair inspect contract");
+    cleanup
+        .validate_contract()
+        .expect("valid repair cleanup contract");
     regenerate
         .validate_contract()
         .expect("valid repair regenerate contract");
     recover_canonical
         .validate_contract()
         .expect("valid repair canonical recovery contract");
-    apply.validate_contract().expect("valid repair apply contract");
+    apply
+        .validate_contract()
+        .expect("valid repair apply contract");
     index_cleanup
         .validate_contract()
         .expect("valid index cleanup contract");
@@ -104,8 +110,14 @@ fn repair_reports_match_golden_fixture() {
             serde_json::to_value(recover_canonical).unwrap(),
         ),
         ("apply", serde_json::to_value(apply).unwrap()),
-        ("index_cleanup", serde_json::to_value(index_cleanup).unwrap()),
-        ("recover_index", serde_json::to_value(recover_index).unwrap()),
+        (
+            "index_cleanup",
+            serde_json::to_value(index_cleanup).unwrap(),
+        ),
+        (
+            "recover_index",
+            serde_json::to_value(recover_index).unwrap(),
+        ),
         (
             "recover_index_cleanup",
             serde_json::to_value(recover_index_cleanup).unwrap(),

@@ -1,7 +1,7 @@
 use serde_json::Value;
 
-use super::super::frontmatter::{apply_frontmatter_changes, safe_project_path};
 use super::super::DocsFrontmatterChange;
+use super::super::frontmatter::{apply_frontmatter_changes, safe_project_path};
 
 #[test]
 fn frontmatter_changes_preserve_markdown_body() {

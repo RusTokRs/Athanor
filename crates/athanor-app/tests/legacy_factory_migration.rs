@@ -24,8 +24,7 @@ const APPLICATION_COMPOSITION_SOURCE: &str =
     include_str!("../src/application_report_composition.rs");
 const INDEX_CLI_SOURCE: &str = include_str!("../../../apps/ath/src/index_cli.rs");
 const SEARCH_CLI_SOURCE: &str = include_str!("../../../apps/ath/src/direct_search_cli.rs");
-const GENERATION_CLI_SOURCE: &str =
-    include_str!("../../../apps/ath/src/direct_generation_cli.rs");
+const GENERATION_CLI_SOURCE: &str = include_str!("../../../apps/ath/src/direct_generation_cli.rs");
 const MCP_CLI_SOURCE: &str = include_str!("../../../apps/ath/src/mcp_cli.rs");
 const MIGRATION_DOC: &str =
     include_str!("../../../docs/development/legacy-runtime-compatibility.md");
@@ -126,18 +125,29 @@ fn dead_no_composition_wrappers_are_removed() {
     assert!(!SEARCH_FACADE_SOURCE.contains("pub async fn get_or_build_search_index("));
     assert!(!SEARCH_FACADE_SOURCE.contains("pub fn get_or_build_search_index_sync("));
 
-    for source in [INDEX_SOURCE, GENERATION_SOURCE, WIKI_SOURCE, REPORT_SOURCE, BENCH_SOURCE] {
+    for source in [
+        INDEX_SOURCE,
+        GENERATION_SOURCE,
+        WIKI_SOURCE,
+        REPORT_SOURCE,
+        BENCH_SOURCE,
+    ] {
         assert!(!source.contains("Option<RuntimeComposition>"));
         assert!(!source.contains("Option<&RuntimeComposition>"));
     }
     assert!(!INDEX_SOURCE.contains("pub async fn index_project("));
     assert!(!INDEX_SOURCE.contains("pub async fn index_project_with_operation_context("));
     assert!(!INDEX_SOURCE.contains("pub async fn index_project_cancellable("));
-    assert!(!INDEX_SOURCE.contains("pub async fn index_project_cancellable_with_operation_context("));
+    assert!(
+        !INDEX_SOURCE.contains("pub async fn index_project_cancellable_with_operation_context(")
+    );
     assert!(!GENERATION_SOURCE.contains("pub async fn generate_project("));
     assert!(!GENERATION_SOURCE.contains("pub async fn generate_project_with_operation_context("));
     assert!(!GENERATION_SOURCE.contains("pub async fn generate_project_cancellable("));
-    assert!(!GENERATION_SOURCE.contains("pub async fn generate_project_cancellable_with_operation_context("));
+    assert!(
+        !GENERATION_SOURCE
+            .contains("pub async fn generate_project_cancellable_with_operation_context(")
+    );
     assert!(!WIKI_SOURCE.contains("pub async fn project_wiki("));
     assert!(!WIKI_SOURCE.contains("pub async fn project_wiki_with_operation_context("));
     assert!(!WIKI_SOURCE.contains("pub async fn project_wiki_cancellable("));
@@ -145,7 +155,10 @@ fn dead_no_composition_wrappers_are_removed() {
     assert!(!REPORT_SOURCE.contains("pub async fn project_html_report("));
     assert!(!REPORT_SOURCE.contains("pub async fn project_html_report_with_operation_context("));
     assert!(!REPORT_SOURCE.contains("pub async fn project_html_report_cancellable("));
-    assert!(!REPORT_SOURCE.contains("pub async fn project_html_report_cancellable_with_operation_context("));
+    assert!(
+        !REPORT_SOURCE
+            .contains("pub async fn project_html_report_cancellable_with_operation_context(")
+    );
     assert!(!BENCH_SOURCE.contains("pub async fn benchmark_index("));
 
     assert!(MIGRATION_DOC.contains("COMP-003C2B1"));
@@ -154,18 +167,12 @@ fn dead_no_composition_wrappers_are_removed() {
 
 #[test]
 fn parallel_isolation_matrix_covers_every_composed_factory_family() {
-    assert!(COMPOSITION_ISOLATION_SOURCE.contains(
-        "parallel_compositions_do_not_cross_store_search_or_projector_factories"
-    ));
+    assert!(
+        COMPOSITION_ISOLATION_SOURCE
+            .contains("parallel_compositions_do_not_cross_store_search_or_projector_factories")
+    );
     for token in [
-        "store_a",
-        "store_b",
-        "search_a",
-        "search_b",
-        "wiki_a",
-        "wiki_b",
-        "html_a",
-        "html_b",
+        "store_a", "store_b", "search_a", "search_b", "wiki_a", "wiki_b", "html_a", "html_b",
     ] {
         assert!(COMPOSITION_ISOLATION_SOURCE.contains(token));
     }

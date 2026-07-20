@@ -100,9 +100,7 @@ fn default_search_index_with_operation_context(
 ) -> anyhow::Result<std::sync::Arc<dyn SearchIndex>> {
     let index = if let Some(documents) = documents {
         athanor_search_tantivy::TantivySearchIndex::rebuild_with_operation_context(
-            index_dir,
-            documents,
-            operation,
+            index_dir, documents, operation,
         )?
     } else {
         athanor_search_tantivy::TantivySearchIndex::open_or_create(index_dir)?
@@ -169,14 +167,20 @@ pub fn default_adapter_registry() -> AdapterRegistry {
         .register_extractor_id("builtin.extractor.markdown", || Box::new(MarkdownExtractor))
         .register_extractor_id("builtin.extractor.openapi", || Box::new(OpenApiExtractor))
         .register_extractor_id("builtin.extractor.graphql", || Box::new(GraphQlExtractor))
-        .register_extractor_id("builtin.extractor.operations", || Box::new(OperationsExtractor))
+        .register_extractor_id("builtin.extractor.operations", || {
+            Box::new(OperationsExtractor)
+        })
         .register_extractor_id("builtin.extractor.js_ts", || Box::new(JsTsExtractor))
         .register_extractor_id("builtin.extractor.rust", || Box::new(RustExtractor))
         .register_linker_id("builtin.linker.markdown_containment", || {
             Box::new(MarkdownContainmentLinker)
         })
-        .register_linker_id("builtin.linker.api_knowledge", || Box::new(ApiKnowledgeLinker))
-        .register_linker_id("builtin.linker.js_ts_imports", || Box::new(JsTsImportLinker))
+        .register_linker_id("builtin.linker.api_knowledge", || {
+            Box::new(ApiKnowledgeLinker)
+        })
+        .register_linker_id("builtin.linker.js_ts_imports", || {
+            Box::new(JsTsImportLinker)
+        })
         .register_linker_id("builtin.linker.rust", || Box::new(RustLinker))
         .register_checker_id("builtin.checker.markdown_structure", || {
             Box::new(MarkdownStructureChecker)
@@ -185,7 +189,9 @@ pub fn default_adapter_registry() -> AdapterRegistry {
             Box::new(ApiConsistencyChecker)
         })
         .register_checker_id("builtin.checker.env_docs", || Box::new(EnvDocsChecker))
-        .register_checker_id("builtin.checker.script_docs", || Box::new(ScriptDocsChecker))
+        .register_checker_id("builtin.checker.script_docs", || {
+            Box::new(ScriptDocsChecker)
+        })
         .register_checker_id("builtin.checker.deployment_docs", || {
             Box::new(DeploymentDocsChecker)
         })
@@ -214,14 +220,12 @@ pub fn resolve_builtin_adapter(
             }),
         ),
         (AdapterPluginKind::Extractor, "builtin.extractor.openapi") => Some(
-            registry.register_extractor_id("builtin.extractor.openapi", || {
-                Box::new(OpenApiExtractor)
-            }),
+            registry
+                .register_extractor_id("builtin.extractor.openapi", || Box::new(OpenApiExtractor)),
         ),
         (AdapterPluginKind::Extractor, "builtin.extractor.graphql") => Some(
-            registry.register_extractor_id("builtin.extractor.graphql", || {
-                Box::new(GraphQlExtractor)
-            }),
+            registry
+                .register_extractor_id("builtin.extractor.graphql", || Box::new(GraphQlExtractor)),
         ),
         (AdapterPluginKind::Extractor, "builtin.extractor.operations") => Some(
             registry.register_extractor_id("builtin.extractor.operations", || {
@@ -264,9 +268,9 @@ pub fn resolve_builtin_adapter(
                 Box::new(JsTsImportLinker)
             }),
         ),
-        (AdapterPluginKind::Linker, "builtin.linker.rust") => Some(
-            registry.register_linker_id("builtin.linker.rust", || Box::new(RustLinker)),
-        ),
+        (AdapterPluginKind::Linker, "builtin.linker.rust") => {
+            Some(registry.register_linker_id("builtin.linker.rust", || Box::new(RustLinker)))
+        }
         (AdapterPluginKind::Linker, "builtin.linker.rustok_ffa") => Some(
             registry.register_linker_id("builtin.linker.rustok_ffa", || Box::new(RustokFfaLinker)),
         ),
@@ -307,14 +311,12 @@ pub fn resolve_builtin_adapter(
             }),
         ),
         (AdapterPluginKind::Checker, "builtin.checker.rustok_ffa") => Some(
-            registry.register_checker_id("builtin.checker.rustok_ffa", || {
-                Box::new(RustokFfaChecker)
-            }),
+            registry
+                .register_checker_id("builtin.checker.rustok_ffa", || Box::new(RustokFfaChecker)),
         ),
         (AdapterPluginKind::Checker, "builtin.checker.rustok_fba") => Some(
-            registry.register_checker_id("builtin.checker.rustok_fba", || {
-                Box::new(RustokFbaChecker)
-            }),
+            registry
+                .register_checker_id("builtin.checker.rustok_fba", || Box::new(RustokFbaChecker)),
         ),
         (AdapterPluginKind::Checker, "builtin.checker.rustok_page_builder") => Some(
             registry.register_checker_id("builtin.checker.rustok_page_builder", || {

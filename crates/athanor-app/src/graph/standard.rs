@@ -5,8 +5,8 @@ use athanor_core::{CanonicalSnapshot, OperationContext};
 use athanor_domain::{Entity, Relation};
 
 use super::model::{
-    GRAPH_EXPORT_SCHEMA, GRAPH_HUBS_SCHEMA, GraphCycles, GraphEdge, GraphExport, GraphHub, GraphHubs,
-    GraphNode, GraphOmitted, GraphPageRank, GraphPath, GraphRelated,
+    GRAPH_EXPORT_SCHEMA, GRAPH_HUBS_SCHEMA, GraphCycles, GraphEdge, GraphExport, GraphHub,
+    GraphHubs, GraphNode, GraphOmitted, GraphPageRank, GraphPath, GraphRelated,
 };
 
 pub fn build_graph_export(

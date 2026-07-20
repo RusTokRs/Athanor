@@ -2,9 +2,7 @@ use std::future::Future;
 use std::sync::Arc;
 
 use anyhow::Result;
-use athanor_core::{
-    CoreError, CoreResult, OperationContext, OperationContextCancellation,
-};
+use athanor_core::{CoreError, CoreResult, OperationContext, OperationContextCancellation};
 use athanor_domain::SnapshotId;
 use serde_json::Value;
 

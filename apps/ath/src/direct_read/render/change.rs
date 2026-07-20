@@ -162,6 +162,9 @@ pub(crate) fn print_change_map(report: &ChangeMapReport) -> Result<()> {
             report.completeness.candidate_limit
         );
     }
-    println!("Inspect coverage: {}", report.completeness.suggested_command);
+    println!(
+        "Inspect coverage: {}",
+        report.completeness.suggested_command
+    );
     Ok(())
 }

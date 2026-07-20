@@ -13,9 +13,7 @@ use crate::project_path::normalize_canonical_path;
 use crate::search::search_snapshot_with_composition;
 
 use super::evidence::entity_files;
-use super::model::{
-    ChangeMapLimits, ChangeMapOptions, ChangeMapQuery, ChangeMapReport, Seed,
-};
+use super::model::{ChangeMapLimits, ChangeMapOptions, ChangeMapQuery, ChangeMapReport, Seed};
 use super::ranking::build_change_map;
 
 /// Builds a bounded change map with explicitly supplied runtime dependencies.

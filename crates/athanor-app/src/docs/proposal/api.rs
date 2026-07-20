@@ -6,14 +6,14 @@ use serde_json::Value;
 
 use crate::config::DocsConfig;
 
-use super::shared::{operation, push_change, read_project_file};
+use super::super::DocsPatchOperation;
 use super::super::api_docs::{
     api_doc_content, api_doc_path, documented_api_pages, explicit_api_entity_reference_change,
     is_api_documentation_page, stale_api_route_mentions, upsert_api_doc_managed_section,
     upsert_api_docs_coordination_section, upsert_api_narrative_review_section,
 };
 use super::super::check::page_path;
-use super::super::DocsPatchOperation;
+use super::shared::{operation, push_change, read_project_file};
 
 pub(super) fn add_missing(
     changes: &mut BTreeMap<String, DocsPatchOperation>,
@@ -47,12 +47,7 @@ pub(super) fn add_missing(
                 stable_key: format!("doc://{path}"),
                 create: true,
                 content: Some(api_doc_content(
-                    snapshot,
-                    endpoint,
-                    diagnostic,
-                    &path,
-                    entities,
-                    relations,
+                    snapshot, endpoint, diagnostic, &path, entities, relations,
                 )),
                 changes: Vec::new(),
             },
@@ -103,7 +98,11 @@ pub(super) fn update_existing(
         }
     }
 
-    for page in pages.iter().copied().filter(|page| is_api_documentation_page(page)) {
+    for page in pages
+        .iter()
+        .copied()
+        .filter(|page| is_api_documentation_page(page))
+    {
         let Some(path) = page_path(page) else {
             continue;
         };

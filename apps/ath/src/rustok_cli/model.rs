@@ -128,7 +128,9 @@ pub(crate) fn parse(args: &[String]) -> Result<Option<Command>> {
         [first, second, third, rest @ ..]
             if first == "graph" && second == "page-builder" && third == "provider" =>
         {
-            Some(Command::PageBuilderProvider(parse_manual_flags(rest, true)?))
+            Some(Command::PageBuilderProvider(parse_manual_flags(
+                rest, true,
+            )?))
         }
         [first, second, third, module, rest @ ..]
             if first == "graph" && second == "page-builder" && third == "consumer" =>
@@ -141,7 +143,9 @@ pub(crate) fn parse(args: &[String]) -> Result<Option<Command>> {
         [first, second, third, rest @ ..]
             if first == "graph" && second == "page-builder" && third == "violations" =>
         {
-            Some(Command::PageBuilderViolations(parse_manual_flags(rest, true)?))
+            Some(Command::PageBuilderViolations(parse_manual_flags(
+                rest, true,
+            )?))
         }
         _ => None,
     };

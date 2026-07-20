@@ -102,11 +102,10 @@ fn every_workspace_production_schema_literal_is_explicitly_classified() {
         let source = fs::read_to_string(&path)
             .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
         for schema in extract_schema_literals(production_prefix(&source)) {
-            observed.entry(schema).or_default().insert(
-                path.strip_prefix(&workspace)
-                    .unwrap_or(&path)
-                    .to_path_buf(),
-            );
+            observed
+                .entry(schema)
+                .or_default()
+                .insert(path.strip_prefix(&workspace).unwrap_or(&path).to_path_buf());
         }
     }
 
@@ -194,11 +193,17 @@ fn production_rust_sources(workspace: &Path) -> Vec<PathBuf> {
 fn collect_rust_sources(path: &Path, sources: &mut Vec<PathBuf>) {
     let entries = match fs::read_dir(path) {
         Ok(entries) => entries,
-        Err(error) => panic!("failed to read source directory {}: {error}", path.display()),
+        Err(error) => panic!(
+            "failed to read source directory {}: {error}",
+            path.display()
+        ),
     };
     for entry in entries {
         let entry = entry.unwrap_or_else(|error| {
-            panic!("failed to inspect source directory {}: {error}", path.display())
+            panic!(
+                "failed to inspect source directory {}: {error}",
+                path.display()
+            )
         });
         let child = entry.path();
         let file_type = entry.file_type().unwrap_or_else(|error| {
@@ -213,7 +218,10 @@ fn collect_rust_sources(path: &Path, sources: &mut Vec<PathBuf>) {
         if !file_type.is_file() || child.extension().and_then(OsStr::to_str) != Some("rs") {
             continue;
         }
-        let stem = child.file_stem().and_then(OsStr::to_str).unwrap_or_default();
+        let stem = child
+            .file_stem()
+            .and_then(OsStr::to_str)
+            .unwrap_or_default();
         if stem == "tests" || stem.ends_with("_test") || stem.ends_with("_tests") {
             continue;
         }

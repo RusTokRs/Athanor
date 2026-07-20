@@ -5,9 +5,9 @@ use serde_json::Value;
 
 use crate::config::DocsConfig;
 
-use super::shared::push_change;
 use super::super::check::{build_docs_check_report, build_docs_drift_report};
 use super::super::{DocsFrontmatterChange, DocsPatchOperation, DocsPolicyViolation};
+use super::shared::push_change;
 
 pub(super) fn add(
     changes: &mut BTreeMap<String, DocsPatchOperation>,
@@ -17,18 +17,8 @@ pub(super) fn add(
     entities: &[Entity],
     diagnostics: &[Diagnostic],
 ) {
-    let check = build_docs_check_report(
-        snapshot.to_string(),
-        entities,
-        diagnostics,
-        config,
-    );
-    let drift = build_docs_drift_report(
-        snapshot.to_string(),
-        None,
-        entities,
-        config,
-    );
+    let check = build_docs_check_report(snapshot.to_string(), entities, diagnostics, config);
+    let drift = build_docs_drift_report(snapshot.to_string(), None, entities, config);
 
     for violation in check.policy_violations {
         let Some(page) = pages.get(&violation.path) else {
@@ -76,16 +66,14 @@ fn change_for_violation(
                 .as_ref()
                 .map_or_else(|| "en".to_string(), |language| language.0.clone()),
         ),
-        "source_language" => Value::String(
-            page.payload["source_language"].as_str().map_or_else(
-                || {
-                    page.language
-                        .as_ref()
-                        .map_or_else(|| "en".to_string(), |language| language.0.clone())
-                },
-                str::to_string,
-            ),
-        ),
+        "source_language" => Value::String(page.payload["source_language"].as_str().map_or_else(
+            || {
+                page.language
+                    .as_ref()
+                    .map_or_else(|| "en".to_string(), |language| language.0.clone())
+            },
+            str::to_string,
+        )),
         "last_verified_snapshot" => Value::String(snapshot.to_string()),
         "status" => Value::String(
             config

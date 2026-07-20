@@ -3,8 +3,8 @@ use std::sync::Arc;
 
 use athanor_core::{CoreResult, OperationContext, ProcessOutput, ProcessRequest, ProcessRunner};
 
-use crate::runtime::TokioProcessRunner;
 use crate::CancellationToken;
+use crate::runtime::TokioProcessRunner;
 
 /// Application process-runner extension that carries cancellation and operation deadlines through
 /// an external adapter lifecycle.
@@ -120,11 +120,19 @@ mod tests {
 
         let first_task = tokio::spawn(with_process_runner(first, async {
             tokio::task::yield_now().await;
-            current_process_runner().run(request()).await.unwrap().stdout
+            current_process_runner()
+                .run(request())
+                .await
+                .unwrap()
+                .stdout
         }));
         let second_task = tokio::spawn(with_process_runner(second, async {
             tokio::task::yield_now().await;
-            current_process_runner().run(request()).await.unwrap().stdout
+            current_process_runner()
+                .run(request())
+                .await
+                .unwrap()
+                .stdout
         }));
 
         assert_eq!(first_task.await.unwrap(), vec![1]);

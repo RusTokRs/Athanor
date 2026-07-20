@@ -8,11 +8,8 @@ use serde::{Deserialize, Serialize};
 
 pub type SearchIndexFactory =
     fn(&Path, Option<Vec<SearchDocument>>) -> Result<Arc<dyn SearchIndex>>;
-pub type SearchIndexOperationFactory = fn(
-    &Path,
-    Option<Vec<SearchDocument>>,
-    &OperationContext,
-) -> Result<Arc<dyn SearchIndex>>;
+pub type SearchIndexOperationFactory =
+    fn(&Path, Option<Vec<SearchDocument>>, &OperationContext) -> Result<Arc<dyn SearchIndex>>;
 
 #[derive(Debug, Clone)]
 pub struct SearchOptions {

@@ -43,12 +43,15 @@ impl CanonicalLatestPointer for JsonlKnowledgeStore {
         let Some(identity) = read_latest_identity(&self.root)? else {
             return Ok(None);
         };
-        let exact = self.load_snapshot(&identity.snapshot).await?.ok_or_else(|| {
-            CoreError::NotFound(format!(
-                "latest snapshot {} has no committed generation",
-                identity.snapshot.0
-            ))
-        })?;
+        let exact = self
+            .load_snapshot(&identity.snapshot)
+            .await?
+            .ok_or_else(|| {
+                CoreError::NotFound(format!(
+                    "latest snapshot {} has no committed generation",
+                    identity.snapshot.0
+                ))
+            })?;
         if exact.snapshot.as_ref() != Some(&identity.snapshot) {
             return Err(CoreError::AdapterProtocol(format!(
                 "latest pointer resolved identity {:?}, expected {}",
@@ -66,9 +69,10 @@ impl CanonicalLatestPointer for JsonlKnowledgeStore {
         identity.validate()?;
         let snapshot_dir = self.snapshot_dir(&identity.snapshot);
         validate_repair_target(&snapshot_dir, &identity.snapshot)?;
-        let exact = self.load_snapshot(&identity.snapshot).await?.ok_or_else(|| {
-            CoreError::NotFound(format!("snapshot {}", identity.snapshot.0))
-        })?;
+        let exact = self
+            .load_snapshot(&identity.snapshot)
+            .await?
+            .ok_or_else(|| CoreError::NotFound(format!("snapshot {}", identity.snapshot.0)))?;
         if exact.snapshot.as_ref() != Some(&identity.snapshot) {
             return Err(CoreError::AdapterProtocol(format!(
                 "exact JSONL snapshot returned identity {:?}, expected {}",

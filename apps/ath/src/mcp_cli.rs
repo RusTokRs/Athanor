@@ -28,7 +28,12 @@ pub(crate) fn parse(args: &[String]) -> Result<Option<Command>> {
         .collect::<Vec<_>>();
     match McpCli::try_parse_from(argv) {
         Ok(cli) => Ok(Some(cli.command)),
-        Err(error) if matches!(error.kind(), ErrorKind::DisplayHelp | ErrorKind::DisplayVersion) => {
+        Err(error)
+            if matches!(
+                error.kind(),
+                ErrorKind::DisplayHelp | ErrorKind::DisplayVersion
+            ) =>
+        {
             error.print().context("failed to print MCP help")?;
             std::process::exit(0);
         }

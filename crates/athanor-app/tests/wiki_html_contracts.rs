@@ -29,8 +29,10 @@ fn wiki_and_html_reports_match_golden_fixture() {
         open_diagnostics: 2,
     };
 
-    wiki.validate_contract().expect("valid Wiki report contract");
-    html.validate_contract().expect("valid HTML report contract");
+    wiki.validate_contract()
+        .expect("valid Wiki report contract");
+    html.validate_contract()
+        .expect("valid HTML report contract");
 
     let fixture = read_fixture("wiki_html_contracts.v1.json");
     assert_eq!(serde_json::to_value(wiki).unwrap(), fixture["wiki"]);

@@ -22,8 +22,18 @@ fn completeness_reports_only_editable_policy_gaps() {
     );
     assert_eq!(report.editable_documents, 1);
     assert!(!report.passed);
-    assert!(report.policy_violations.iter().any(|issue| issue.field == "kind"));
-    assert!(report.policy_violations.iter().any(|issue| issue.field == "status"));
+    assert!(
+        report
+            .policy_violations
+            .iter()
+            .any(|issue| issue.field == "kind")
+    );
+    assert!(
+        report
+            .policy_violations
+            .iter()
+            .any(|issue| issue.field == "status")
+    );
 }
 
 #[test]

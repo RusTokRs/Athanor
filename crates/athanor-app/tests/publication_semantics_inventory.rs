@@ -1,10 +1,8 @@
 const INVENTORY: &str =
     include_str!("../../../docs/development/publication-semantics-inventory.md");
-const PROJECTOR_SUPPORT: &str =
-    include_str!("../../athanor-projector-support/src/lib.rs");
+const PROJECTOR_SUPPORT: &str = include_str!("../../athanor-projector-support/src/lib.rs");
 const DAEMON_ENDPOINT: &str = include_str!("../src/daemon_endpoint.rs");
-const PLUGIN_TRUST_REGISTRY: &str =
-    include_str!("../src/runtime/plugin_trust_registry.rs");
+const PLUGIN_TRUST_REGISTRY: &str = include_str!("../src/runtime/plugin_trust_registry.rs");
 const RUNTIME_PROJECTOR: &str =
     include_str!("../../athanor-runtime-defaults/src/projector_operation.rs");
 const TANTIVY_SEARCH: &str = include_str!("../../athanor-search-tantivy/src/lib.rs");
@@ -12,8 +10,7 @@ const READ_MODEL: &str = include_str!("../src/read_model.rs");
 const INDEX_STATE: &str = include_str!("../src/index_state.rs");
 const PROJECT_REGISTRY: &str = include_str!("../src/project_registry.rs");
 const PUBLICATION_JOURNAL: &str = include_str!("../src/index_publication_journal.rs");
-const JSONL_POINTER: &str =
-    include_str!("../../athanor-store-jsonl/src/pointer_publication.rs");
+const JSONL_POINTER: &str = include_str!("../../athanor-store-jsonl/src/pointer_publication.rs");
 const JSONL_LIB: &str = include_str!("../../athanor-store-jsonl/src/lib.rs");
 const JSONL_STORE: &str = include_str!("../../athanor-store-jsonl/src/store.rs");
 
@@ -36,7 +33,10 @@ fn inventory_covers_every_confirmed_publication_owner() {
         "athanor-app/repair_cleanup_recovery.rs",
         "apps/athd",
     ] {
-        assert!(INVENTORY.contains(owner), "missing publication owner {owner}");
+        assert!(
+            INVENTORY.contains(owner),
+            "missing publication owner {owner}"
+        );
     }
     assert!(INVENTORY.contains("PUB-004"));
     assert!(INVENTORY.contains("PUB-005"));
@@ -46,18 +46,21 @@ fn inventory_covers_every_confirmed_publication_owner() {
 fn generic_replacement_commits_before_best_effort_cleanup() {
     assert!(PROJECTOR_SUPPORT.contains("cleanup_backup_after_publish"));
     assert!(PROJECTOR_SUPPORT.contains("output was published but backup cleanup failed"));
-    assert!(PROJECTOR_SUPPORT.contains("cleanup_backup_after_publish(&backup, output_kind);\n    Ok(())"));
+    assert!(
+        PROJECTOR_SUPPORT
+            .contains("cleanup_backup_after_publish(&backup, output_kind);\n    Ok(())")
+    );
 }
 
 #[test]
 fn generic_replacement_has_deterministic_post_commit_fault_coverage() {
     assert!(PROJECTOR_SUPPORT.contains("INJECT_BACKUP_CLEANUP_FAILURE"));
-    assert!(PROJECTOR_SUPPORT.contains(
-        "post_commit_cleanup_failure_keeps_new_directory_published"
-    ));
-    assert!(PROJECTOR_SUPPORT.contains(
-        "output was published but backup cleanup failed (injected)"
-    ));
+    assert!(
+        PROJECTOR_SUPPORT.contains("post_commit_cleanup_failure_keeps_new_directory_published")
+    );
+    assert!(
+        PROJECTOR_SUPPORT.contains("output was published but backup cleanup failed (injected)")
+    );
 }
 
 #[test]
@@ -103,9 +106,7 @@ fn app_publication_cleanup_is_non_fatal_after_commit() {
 fn jsonl_pointer_cleanup_is_shared_and_non_fatal_after_commit() {
     assert!(JSONL_POINTER.contains("cleanup_backup_after_commit"));
     assert!(JSONL_POINTER.contains("was published but backup cleanup failed"));
-    assert!(JSONL_POINTER.contains(
-        "post_commit_cleanup_failure_keeps_new_pointer_published"
-    ));
+    assert!(JSONL_POINTER.contains("post_commit_cleanup_failure_keeps_new_pointer_published"));
     assert!(JSONL_POINTER.contains("existing target is not a file"));
     assert!(!JSONL_POINTER.contains("failed to remove previous latest pointer"));
     assert!(!JSONL_POINTER.contains("failed to remove previous latest identity"));
@@ -115,9 +116,10 @@ fn jsonl_pointer_cleanup_is_shared_and_non_fatal_after_commit() {
 
 #[test]
 fn previously_safe_publishers_keep_non_fatal_cleanup() {
-    assert!(PLUGIN_TRUST_REGISTRY.contains(
-        "adapter trust registry was published but backup cleanup failed"
-    ));
+    assert!(
+        PLUGIN_TRUST_REGISTRY
+            .contains("adapter trust registry was published but backup cleanup failed")
+    );
     assert!(RUNTIME_PROJECTOR.contains("let _ = remove_path_if_exists(&backup)"));
     assert!(TANTIVY_SEARCH.contains("let _ = std::fs::remove_dir_all(backup)"));
 }

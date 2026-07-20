@@ -39,10 +39,7 @@ impl CanonicalLatestPointer for SurrealKnowledgeStore {
         if &latest != identity {
             return Err(CoreError::Conflict(format!(
                 "SurrealDB derives latest as {} / {}, requested {} / {}",
-                latest.snapshot.0,
-                latest.generation,
-                identity.snapshot.0,
-                identity.generation
+                latest.snapshot.0, latest.generation, identity.snapshot.0, identity.generation
             )));
         }
         Ok(())
@@ -75,7 +72,10 @@ mod tests {
         store.commit_snapshot(second.clone()).await.unwrap();
 
         let target = CanonicalLatestIdentity::for_snapshot(second.clone());
-        assert_eq!(store.discover_latest_identity().await.unwrap(), Some(target.clone()));
+        assert_eq!(
+            store.discover_latest_identity().await.unwrap(),
+            Some(target.clone())
+        );
         store.validate_latest_identity(&target).await.unwrap();
         store.repair_latest_identity(target).await.unwrap();
 

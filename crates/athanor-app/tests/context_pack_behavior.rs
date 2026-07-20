@@ -59,7 +59,10 @@ fn selects_direct_matches_relational_neighbors_and_diagnostics() {
 
     assert_eq!(pack.entities, vec![file.id, section.id]);
     assert_eq!(pack.files, vec!["docs/auth.md", "tests/login.rs"]);
-    assert_eq!(pack.diagnostics, vec![DiagnosticId("diag_login".to_string())]);
+    assert_eq!(
+        pack.diagnostics,
+        vec![DiagnosticId("diag_login".to_string())]
+    );
     assert_eq!(pack.payload["snapshot"], "snap_test");
     assert!(pack.confidence > 0.0);
 }
@@ -135,7 +138,10 @@ fn explicit_limits_bound_files_entities_and_diagnostics() {
     assert_eq!(pack.files.len(), 1);
     assert_eq!(pack.diagnostics.len(), 1);
     assert!(pack.payload["estimated_tokens"].as_u64().unwrap() <= 2_000);
-    assert_eq!(pack.payload["omitted"]["reason"], "relevance_or_context_limits");
+    assert_eq!(
+        pack.payload["omitted"]["reason"],
+        "relevance_or_context_limits"
+    );
 }
 
 fn entity(id: &str, stable_key: &str, name: &str, path: &str) -> Entity {

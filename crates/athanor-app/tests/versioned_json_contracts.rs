@@ -8,13 +8,13 @@ use athanor_app::{
     CoverageLimits, CoverageOmitted, CoverageReport, CoverageTotals, DIAGNOSTIC_CHECK_SCHEMA_V1,
     DiagnosticCheckReport, DiagnosticCounts, DiagnosticScope, DocsOverview,
     ENTITY_EXPLANATION_SCHEMA_V1, GRAPH_CYCLES_SCHEMA_V1, GRAPH_EXPORT_SCHEMA_V1,
-    GRAPH_HUBS_SCHEMA_V1, GRAPH_PAGERANK_SCHEMA_V1, GRAPH_PATH_SCHEMA_V1,
-    GRAPH_RELATED_SCHEMA_V1, GraphCycles, GraphExport, GraphHubs, GraphNode, GraphOmitted,
-    GraphPageRank, GraphPath, GraphRelated, GraphRelatedNode, IMPACT_ANALYSIS_SCHEMA_V1,
-    OPERATIONS_DOCS_CHECK_SCHEMA_V1, OperationsDocsCheckReport, OperationsOverview,
-    OVERVIEW_SCHEMA_V1, OverviewTotals, PROJECT_RESOLUTION_SCHEMA_V1, ProjectRegistration,
-    ProjectResolutionReport, RepositoryOverview, SEARCH_SCHEMA_V1, SearchOmissions, SearchReport,
-    VersionedJsonContract, explain_snapshot, impact_snapshot,
+    GRAPH_HUBS_SCHEMA_V1, GRAPH_PAGERANK_SCHEMA_V1, GRAPH_PATH_SCHEMA_V1, GRAPH_RELATED_SCHEMA_V1,
+    GraphCycles, GraphExport, GraphHubs, GraphNode, GraphOmitted, GraphPageRank, GraphPath,
+    GraphRelated, GraphRelatedNode, IMPACT_ANALYSIS_SCHEMA_V1, OPERATIONS_DOCS_CHECK_SCHEMA_V1,
+    OVERVIEW_SCHEMA_V1, OperationsDocsCheckReport, OperationsOverview, OverviewTotals,
+    PROJECT_RESOLUTION_SCHEMA_V1, ProjectRegistration, ProjectResolutionReport, RepositoryOverview,
+    SEARCH_SCHEMA_V1, SearchOmissions, SearchReport, VersionedJsonContract, explain_snapshot,
+    impact_snapshot,
 };
 use athanor_core::CanonicalSnapshot;
 use athanor_domain::{
@@ -87,10 +87,7 @@ fn entity_explanation_v1_matches_golden_fixture() {
         .expect("fixture entity must be explainable");
 
     assert_eq!(report.schema, ENTITY_EXPLANATION_SCHEMA_V1);
-    assert_matches_fixture(
-        &report,
-        include_str!("fixtures/entity_explanation.v1.json"),
-    );
+    assert_matches_fixture(&report, include_str!("fixtures/entity_explanation.v1.json"));
 }
 
 #[test]
@@ -191,10 +188,9 @@ fn capabilities_v1_matches_golden_fixture() {
 
 #[test]
 fn second_wave_contracts_match_golden_fixture() {
-    let fixture: Value = serde_json::from_str(include_str!(
-        "fixtures/json_contract_second_wave.v1.json"
-    ))
-    .expect("second-wave golden fixture must be valid JSON");
+    let fixture: Value =
+        serde_json::from_str(include_str!("fixtures/json_contract_second_wave.v1.json"))
+            .expect("second-wave golden fixture must be valid JSON");
 
     let change_map = ChangeMapReport {
         schema: CHANGE_MAP_SCHEMA_V1.to_string(),

@@ -1,7 +1,5 @@
-const APPLICATION_FACADE_SOURCE: &str =
-    include_str!("../src/application_report_composition.rs");
-const API_DIRECT_SOURCE: &str =
-    include_str!("../src/application_report_composition/api_direct.rs");
+const APPLICATION_FACADE_SOURCE: &str = include_str!("../src/application_report_composition.rs");
+const API_DIRECT_SOURCE: &str = include_str!("../src/application_report_composition/api_direct.rs");
 const DOCS_ROOT_SOURCE: &str = include_str!("../src/docs.rs");
 const DOCS_MODEL_SOURCE: &str = include_str!("../src/docs/model.rs");
 const DOCS_CHECK_SOURCE: &str = include_str!("../src/docs/check.rs");
@@ -34,7 +32,11 @@ fn api_and_repair_services_initialize_store_directly() {
     assert!(REPAIR_FACADE_SOURCE.contains("direct::recover_index"));
     assert!(REPAIR_FACADE_SOURCE.contains("direct::repair_latest"));
     assert!(REPAIR_DIRECT_SOURCE.contains("composition.init_store"));
-    for source in [API_DIRECT_SOURCE, REPAIR_FACADE_SOURCE, REPAIR_DIRECT_SOURCE] {
+    for source in [
+        API_DIRECT_SOURCE,
+        REPAIR_FACADE_SOURCE,
+        REPAIR_DIRECT_SOURCE,
+    ] {
         assert!(!source.contains("with_store_composition"));
     }
 }
@@ -71,7 +73,13 @@ fn every_docs_direct_service_uses_explicit_composition() {
 #[test]
 fn docs_engine_is_conventional_and_has_no_legacy_include() {
     for module in [
-        "api_docs", "check", "frontmatter", "model", "operations", "proposal", "service",
+        "api_docs",
+        "check",
+        "frontmatter",
+        "model",
+        "operations",
+        "proposal",
+        "service",
     ] {
         assert!(DOCS_ROOT_SOURCE.contains(&format!("mod {module};")));
     }

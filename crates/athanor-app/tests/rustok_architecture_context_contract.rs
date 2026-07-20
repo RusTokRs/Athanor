@@ -2,10 +2,10 @@ use std::fs;
 use std::path::Path;
 
 use athanor_app::{
-    RUSTOK_ARCHITECTURE_CONTEXT_SCHEMA_V1, RustokArchitectureContext,
-    RustokArchitectureContract, RustokArchitectureDiagnostic, RustokArchitectureEvidence,
-    RustokArchitectureInteraction, RustokArchitectureModule, RustokArchitectureOmitted,
-    RustokArchitectureResolution, RustokArchitectureTest, VersionedJsonContract,
+    RUSTOK_ARCHITECTURE_CONTEXT_SCHEMA_V1, RustokArchitectureContext, RustokArchitectureContract,
+    RustokArchitectureDiagnostic, RustokArchitectureEvidence, RustokArchitectureInteraction,
+    RustokArchitectureModule, RustokArchitectureOmitted, RustokArchitectureResolution,
+    RustokArchitectureTest, VersionedJsonContract,
 };
 use serde_json::Value;
 

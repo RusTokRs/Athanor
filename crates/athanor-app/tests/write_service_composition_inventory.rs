@@ -6,8 +6,7 @@ const REPORT_SOURCE: &str = include_str!("../src/report.rs");
 const BENCH_SOURCE: &str = include_str!("../src/bench.rs");
 const PROJECTION_SOURCE: &str = include_str!("../src/projection.rs");
 const INDEX_CLI_SOURCE: &str = include_str!("../../../apps/ath/src/index_cli.rs");
-const GENERATION_CLI_SOURCE: &str =
-    include_str!("../../../apps/ath/src/direct_generation_cli.rs");
+const GENERATION_CLI_SOURCE: &str = include_str!("../../../apps/ath/src/direct_generation_cli.rs");
 
 #[test]
 fn public_write_services_are_composition_only() {

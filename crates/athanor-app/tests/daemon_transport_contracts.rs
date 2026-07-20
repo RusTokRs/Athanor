@@ -3,11 +3,11 @@ use std::fs;
 use std::path::Path;
 
 use athanor_app::{
-    DAEMON_JOBS_CONTRACT_SCHEMA_V1, DAEMON_REQUEST_CONTRACT_SCHEMA_V3,
-    DAEMON_REQUEST_SCHEMA_V1, DAEMON_REQUEST_SCHEMA_V2, DAEMON_RESPONSE_CONTRACT_SCHEMA_V3,
-    DAEMON_RESPONSE_SCHEMA_V2, DaemonCommand, DaemonError, DaemonErrorCode, DaemonJob,
-    DaemonJobKind, DaemonJobStatus, DaemonJobsReport, DaemonRequest, DaemonResponse,
-    VERSIONED_JSON_CONTRACTS, VersionedJsonContract,
+    DAEMON_JOBS_CONTRACT_SCHEMA_V1, DAEMON_REQUEST_CONTRACT_SCHEMA_V3, DAEMON_REQUEST_SCHEMA_V1,
+    DAEMON_REQUEST_SCHEMA_V2, DAEMON_RESPONSE_CONTRACT_SCHEMA_V3, DAEMON_RESPONSE_SCHEMA_V2,
+    DaemonCommand, DaemonError, DaemonErrorCode, DaemonJob, DaemonJobKind, DaemonJobStatus,
+    DaemonJobsReport, DaemonRequest, DaemonResponse, VERSIONED_JSON_CONTRACTS,
+    VersionedJsonContract,
 };
 use serde_json::{Value, json};
 
@@ -80,7 +80,8 @@ fn daemon_transport_contracts_match_golden_fixture() {
     failure
         .validate_contract()
         .expect("valid daemon error response contract");
-    jobs.validate_contract().expect("valid daemon jobs contract");
+    jobs.validate_contract()
+        .expect("valid daemon jobs contract");
 
     let fixture = read_fixture("daemon_transport_contracts.v1.json");
     assert_eq!(serde_json::to_value(request).unwrap(), fixture["request"]);

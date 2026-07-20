@@ -5,9 +5,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result};
 use serde::Serialize;
 
-use crate::{
-    IndexOptions, IndexReport, RuntimeComposition, index_project_with_composition,
-};
+use crate::{IndexOptions, IndexReport, RuntimeComposition, index_project_with_composition};
 
 pub const INDEX_BENCHMARK_SCHEMA: &str = "athanor.index_benchmark.v1";
 

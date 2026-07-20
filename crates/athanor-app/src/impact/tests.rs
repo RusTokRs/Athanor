@@ -121,10 +121,7 @@ fn traverses_impact_correctly() {
         doc_impact.path_steps[0].from.stable_key,
         callee.stable_key.0
     );
-    assert_eq!(
-        doc_impact.path_steps[0].to.stable_key,
-        caller.stable_key.0
-    );
+    assert_eq!(doc_impact.path_steps[0].to.stable_key, caller.stable_key.0);
     assert_eq!(doc_impact.path_steps[2].relation_id, "rel_doc");
     assert_eq!(
         doc_impact.path_steps[2].from.stable_key,

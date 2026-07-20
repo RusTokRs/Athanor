@@ -79,9 +79,8 @@ pub fn build_check_report(
         })
         .cloned()
         .collect::<Vec<_>>();
-    diagnostics.sort_by_key(|diagnostic| {
-        (severity_rank(diagnostic.severity), diagnostic.id.0.clone())
-    });
+    diagnostics
+        .sort_by_key(|diagnostic| (severity_rank(diagnostic.severity), diagnostic.id.0.clone()));
 
     DiagnosticCheckReport {
         schema: DIAGNOSTIC_CHECK_SCHEMA_V1.to_string(),

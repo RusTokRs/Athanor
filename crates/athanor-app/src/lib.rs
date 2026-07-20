@@ -40,9 +40,9 @@ mod daemon_read_dispatch_tests;
 mod daemon_recovery;
 pub mod daemon_runtime;
 mod daemon_watcher;
-mod daemon_write_jobs;
 #[cfg(test)]
 mod daemon_write_job_contract_tests;
+mod daemon_write_jobs;
 pub mod derived_read_operation;
 pub mod docs;
 pub mod explain;
@@ -170,7 +170,9 @@ pub mod projects {
 
 pub use adapter_contract::*;
 pub use api::*;
-pub use api_registry::{API_REGISTRY_SCHEMA, ApiRegistryEndpoint, ApiRegistryOptions, ApiRegistryReport};
+pub use api_registry::{
+    API_REGISTRY_SCHEMA, ApiRegistryEndpoint, ApiRegistryOptions, ApiRegistryReport,
+};
 pub use application_report_composition::*;
 pub use automation_contract::*;
 pub use bench::*;

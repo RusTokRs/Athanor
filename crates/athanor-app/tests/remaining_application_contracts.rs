@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use athanor_app::{
-    API_SNAPSHOT_SCHEMA_V1, DOCS_PATCH_SCHEMA, DOCS_PROPOSE_FIX_SCHEMA_V1, ApiSnapshotReport,
+    API_SNAPSHOT_SCHEMA_V1, ApiSnapshotReport, DOCS_PATCH_SCHEMA, DOCS_PROPOSE_FIX_SCHEMA_V1,
     DocsFrontmatterChange, DocsPatchOperation, DocsPatchProposal, DocsProposeFixReport,
     VersionedApiSnapshotReport, VersionedDocsProposeFixReport, VersionedJsonContract,
 };

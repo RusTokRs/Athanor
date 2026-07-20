@@ -4,9 +4,7 @@ use anyhow::{Context, Result};
 use clap::error::ErrorKind;
 use clap::{Parser, Subcommand};
 
-use athanor_app::{
-    ChangedValidationOptions, validate_changed_with_composition,
-};
+use athanor_app::{ChangedValidationOptions, validate_changed_with_composition};
 
 #[derive(Debug, Parser)]
 #[command(name = "ath", disable_version_flag = true)]
@@ -40,7 +38,12 @@ pub(crate) fn parse(args: &[String]) -> Result<Option<Command>> {
         .collect::<Vec<_>>();
     match DirectValidateChangedCli::try_parse_from(argv) {
         Ok(cli) => Ok(Some(cli.command)),
-        Err(error) if matches!(error.kind(), ErrorKind::DisplayHelp | ErrorKind::DisplayVersion) => {
+        Err(error)
+            if matches!(
+                error.kind(),
+                ErrorKind::DisplayHelp | ErrorKind::DisplayVersion
+            ) =>
+        {
             error
                 .print()
                 .context("failed to print direct validate-changed help")?;

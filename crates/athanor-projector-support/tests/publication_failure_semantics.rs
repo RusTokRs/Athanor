@@ -39,7 +39,9 @@ fn failed_commit_restores_previous_directory_and_removes_backup() {
     let error = publish_staged_directory(&target, "test report", |staging| {
         write_output_file(&staging.join("candidate.txt"), "candidate")?;
         fs::remove_dir_all(staging).map_err(|error| {
-            CoreError::Adapter(format!("failed to inject missing staged candidate: {error}"))
+            CoreError::Adapter(format!(
+                "failed to inject missing staged candidate: {error}"
+            ))
         })?;
         Ok(())
     })

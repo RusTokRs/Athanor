@@ -101,7 +101,12 @@ pub(crate) fn parse(args: &[String]) -> Result<Option<Command>> {
         Ok(ApiCli {
             command: RootCommand::Api { command },
         }) => Ok(Some(command)),
-        Err(error) if matches!(error.kind(), ErrorKind::DisplayHelp | ErrorKind::DisplayVersion) => {
+        Err(error)
+            if matches!(
+                error.kind(),
+                ErrorKind::DisplayHelp | ErrorKind::DisplayVersion
+            ) =>
+        {
             error.print().context("failed to print API help")?;
             std::process::exit(0);
         }
@@ -123,12 +128,7 @@ pub(crate) async fn run(command: Command) -> Result<()> {
             let report = athanor_app::snapshot_api_contract_with_composition(
                 ApiSnapshotOptions {
                     root: path,
-                    retention: retention_overrides(
-                        cleanup,
-                        no_cleanup,
-                        keep_snapshots,
-                        keep_diffs,
-                    ),
+                    retention: retention_overrides(cleanup, no_cleanup, keep_snapshots, keep_diffs),
                 },
                 &composition,
             )
@@ -150,12 +150,7 @@ pub(crate) async fn run(command: Command) -> Result<()> {
                 root: path,
                 from,
                 to,
-                retention: retention_overrides(
-                    cleanup,
-                    no_cleanup,
-                    keep_snapshots,
-                    keep_diffs,
-                ),
+                retention: retention_overrides(cleanup, no_cleanup, keep_snapshots, keep_diffs),
             })?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&diff)?);

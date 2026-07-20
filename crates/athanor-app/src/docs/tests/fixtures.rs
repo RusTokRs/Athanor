@@ -193,13 +193,7 @@ fn diagnostic(
     }
 }
 
-fn basic_entity(
-    id: &str,
-    key: &str,
-    kind: EntityKind,
-    name: &str,
-    path: &str,
-) -> Entity {
+fn basic_entity(id: &str, key: &str, kind: EntityKind, name: &str, path: &str) -> Entity {
     Entity {
         id: EntityId(id.to_string()),
         stable_key: StableKey(key.to_string()),

@@ -9,31 +9,26 @@ mod base;
 
 pub use base::{
     AFFECTED_CHECK_SCHEMA_V1, API_CLEANUP_SCHEMA_V1, API_CONTRACT_DIFF_SCHEMA_V2,
-    CAPABILITIES_SCHEMA_V1, CHANGED_VALIDATION_SCHEMA_V1, CHANGE_MAP_SCHEMA_V1,
-    CONFIG_DOCTOR_SCHEMA_V1, CONFIG_VALIDATE_SCHEMA_V1, CONTEXT_PACK_SCHEMA_V1,
-    COVERAGE_SCHEMA_V1, DIAGNOSTIC_CHECK_SCHEMA_V1, DOCS_APPLY_PATCH_SCHEMA_V1,
-    DOCS_CHECK_SCHEMA_V1, DOCS_DRIFT_SCHEMA_V1, ENTITY_EXPLANATION_SCHEMA_V1,
-    GENERATION_SCHEMA_V1, GRAPH_CYCLES_SCHEMA_V1, GRAPH_EXPORT_SCHEMA_V1,
-    GRAPH_HUBS_SCHEMA_V1, GRAPH_PAGERANK_SCHEMA_V1, GRAPH_PATH_SCHEMA_V1,
-    GRAPH_RELATED_SCHEMA_V1, HTML_REPORT_SCHEMA_V1, IMPACT_ANALYSIS_SCHEMA_V1,
-    INDEX_BENCHMARK_SCHEMA_V1, INDEX_REPORT_SCHEMA_V1, JsonContractDescriptor,
-    JsonContractError, OPERATIONS_DOCS_CHECK_SCHEMA_V1, OVERVIEW_SCHEMA_V1,
+    CAPABILITIES_SCHEMA_V1, CHANGE_MAP_SCHEMA_V1, CHANGED_VALIDATION_SCHEMA_V1,
+    CONFIG_DOCTOR_SCHEMA_V1, CONFIG_VALIDATE_SCHEMA_V1, CONTEXT_PACK_SCHEMA_V1, COVERAGE_SCHEMA_V1,
+    DIAGNOSTIC_CHECK_SCHEMA_V1, DOCS_APPLY_PATCH_SCHEMA_V1, DOCS_CHECK_SCHEMA_V1,
+    DOCS_DRIFT_SCHEMA_V1, ENTITY_EXPLANATION_SCHEMA_V1, GENERATION_SCHEMA_V1,
+    GRAPH_CYCLES_SCHEMA_V1, GRAPH_EXPORT_SCHEMA_V1, GRAPH_HUBS_SCHEMA_V1, GRAPH_PAGERANK_SCHEMA_V1,
+    GRAPH_PATH_SCHEMA_V1, GRAPH_RELATED_SCHEMA_V1, HTML_REPORT_SCHEMA_V1,
+    IMPACT_ANALYSIS_SCHEMA_V1, INDEX_BENCHMARK_SCHEMA_V1, INDEX_REPORT_SCHEMA_V1,
+    JsonContractDescriptor, JsonContractError, OPERATIONS_DOCS_CHECK_SCHEMA_V1, OVERVIEW_SCHEMA_V1,
     PROJECT_REGISTRY_REPORT_SCHEMA_V1, PROJECT_RESOLUTION_SCHEMA_V1,
     RUSTOK_ARCHITECTURE_CONTEXT_SCHEMA_V1, RUSTOK_FBA_AUDIT_SCHEMA_V1,
     RUSTOK_FBA_DEPENDENCIES_GRAPH_SCHEMA_V1, RUSTOK_FBA_MODULE_GRAPH_SCHEMA_V1,
     RUSTOK_FBA_PORT_GRAPH_SCHEMA_V1, RUSTOK_FBA_VIOLATIONS_GRAPH_SCHEMA_V1,
     RUSTOK_FFA_AUDIT_SCHEMA_V1, RUSTOK_FFA_SURFACE_GRAPH_SCHEMA_V1,
     RUSTOK_FFA_VIOLATIONS_GRAPH_SCHEMA_V1, RUSTOK_PAGE_BUILDER_AUDIT_SCHEMA_V1,
-    RUSTOK_PAGE_BUILDER_CONSUMER_GRAPH_SCHEMA_V1,
-    RUSTOK_PAGE_BUILDER_PROVIDER_GRAPH_SCHEMA_V1,
-    RUSTOK_PAGE_BUILDER_VIOLATIONS_GRAPH_SCHEMA_V1, SEARCH_SCHEMA_V1,
-    VersionedJsonContract, WIKI_REPORT_SCHEMA_V1, validate_contract_registry,
-    validate_contract_value,
+    RUSTOK_PAGE_BUILDER_CONSUMER_GRAPH_SCHEMA_V1, RUSTOK_PAGE_BUILDER_PROVIDER_GRAPH_SCHEMA_V1,
+    RUSTOK_PAGE_BUILDER_VIOLATIONS_GRAPH_SCHEMA_V1, SEARCH_SCHEMA_V1, VersionedJsonContract,
+    WIKI_REPORT_SCHEMA_V1, validate_contract_registry, validate_contract_value,
 };
 
-use crate::adapter_contract::{
-    ADAPTER_TRUST_REPORT_SCHEMA_V1, VersionedAdapterTrustReport,
-};
+use crate::adapter_contract::{ADAPTER_TRUST_REPORT_SCHEMA_V1, VersionedAdapterTrustReport};
 
 #[path = "response_contract.rs"]
 mod response_contract;
@@ -47,9 +42,8 @@ pub use response_contract::{
 mod repair_contract;
 
 pub use repair_contract::{
-    INDEX_GENERATION_CLEANUP_SCHEMA_V1, REPAIR_APPLY_SCHEMA_V2,
-    REPAIR_CANONICAL_LATEST_SCHEMA_V1, REPAIR_CLEANUP_SCHEMA_V2,
-    REPAIR_INSPECT_SCHEMA_V2, REPAIR_RECOVER_CANONICAL_SCHEMA_V1,
+    INDEX_GENERATION_CLEANUP_SCHEMA_V1, REPAIR_APPLY_SCHEMA_V2, REPAIR_CANONICAL_LATEST_SCHEMA_V1,
+    REPAIR_CLEANUP_SCHEMA_V2, REPAIR_INSPECT_SCHEMA_V2, REPAIR_RECOVER_CANONICAL_SCHEMA_V1,
     REPAIR_RECOVER_INDEX_CLEANUP_SCHEMA_V1, REPAIR_RECOVER_INDEX_SCHEMA_V1,
     REPAIR_REGENERATE_SCHEMA_V1,
 };
@@ -96,11 +90,19 @@ fn validate_qualified_schema_id(schema: &str) -> Option<u32> {
     if parts.len() < 3 {
         return None;
     }
-    let major = parts.first()?.parse::<u32>().ok().filter(|major| *major > 0)?;
+    let major = parts
+        .first()?
+        .parse::<u32>()
+        .ok()
+        .filter(|major| *major > 0)?;
     let revision = parts.last()?.strip_prefix('v')?;
     if revision.is_empty()
         || !revision.chars().all(|digit| digit.is_ascii_digit())
-        || revision.parse::<u32>().ok().filter(|value| *value > 0).is_none()
+        || revision
+            .parse::<u32>()
+            .ok()
+            .filter(|value| *value > 0)
+            .is_none()
     {
         return None;
     }
@@ -149,7 +151,10 @@ pub const VERSIONED_JSON_CONTRACTS: &[JsonContractDescriptor] = &[
     descriptor!(API_SNAPSHOT_SCHEMA_V1, "VersionedApiSnapshotReport"),
     descriptor!(API_CONTRACT_DIFF_SCHEMA_V2, "ApiContractDiff"),
     descriptor!(API_CLEANUP_SCHEMA_V1, "ApiCleanupReport"),
-    descriptor!(ADAPTER_TRUST_REPORT_SCHEMA_V1, "VersionedAdapterTrustReport"),
+    descriptor!(
+        ADAPTER_TRUST_REPORT_SCHEMA_V1,
+        "VersionedAdapterTrustReport"
+    ),
     descriptor!(REPAIR_INSPECT_SCHEMA_V2, "RepairInspectReport"),
     descriptor!(REPAIR_CLEANUP_SCHEMA_V2, "RepairCleanupReport"),
     descriptor!(REPAIR_REGENERATE_SCHEMA_V1, "RepairRegenerateReport"),
@@ -182,12 +187,24 @@ pub const VERSIONED_JSON_CONTRACTS: &[JsonContractDescriptor] = &[
     descriptor!(GRAPH_HUBS_SCHEMA_V1, "GraphHubs"),
     descriptor!(GRAPH_PAGERANK_SCHEMA_V1, "GraphPageRank"),
     descriptor!(GRAPH_CYCLES_SCHEMA_V1, "GraphCycles"),
-    descriptor!(RUSTOK_ARCHITECTURE_CONTEXT_SCHEMA_V1, "RustokArchitectureContext"),
+    descriptor!(
+        RUSTOK_ARCHITECTURE_CONTEXT_SCHEMA_V1,
+        "RustokArchitectureContext"
+    ),
     descriptor!(RUSTOK_FFA_AUDIT_SCHEMA_V1, "RustokFfaAudit"),
-    descriptor!(RUSTOK_FFA_SURFACE_GRAPH_SCHEMA_V1, "RustokFfaSurfaceGraphReport"),
-    descriptor!(RUSTOK_FFA_VIOLATIONS_GRAPH_SCHEMA_V1, "RustokFfaViolationsGraphReport"),
+    descriptor!(
+        RUSTOK_FFA_SURFACE_GRAPH_SCHEMA_V1,
+        "RustokFfaSurfaceGraphReport"
+    ),
+    descriptor!(
+        RUSTOK_FFA_VIOLATIONS_GRAPH_SCHEMA_V1,
+        "RustokFfaViolationsGraphReport"
+    ),
     descriptor!(RUSTOK_FBA_AUDIT_SCHEMA_V1, "RustokFbaAudit"),
-    descriptor!(RUSTOK_FBA_MODULE_GRAPH_SCHEMA_V1, "RustokFbaModuleGraphReport"),
+    descriptor!(
+        RUSTOK_FBA_MODULE_GRAPH_SCHEMA_V1,
+        "RustokFbaModuleGraphReport"
+    ),
     descriptor!(RUSTOK_FBA_PORT_GRAPH_SCHEMA_V1, "RustokFbaPortGraphReport"),
     descriptor!(
         RUSTOK_FBA_DEPENDENCIES_GRAPH_SCHEMA_V1,
@@ -197,7 +214,10 @@ pub const VERSIONED_JSON_CONTRACTS: &[JsonContractDescriptor] = &[
         RUSTOK_FBA_VIOLATIONS_GRAPH_SCHEMA_V1,
         "RustokFbaViolationsGraphReport"
     ),
-    descriptor!(RUSTOK_PAGE_BUILDER_AUDIT_SCHEMA_V1, "RustokPageBuilderAudit"),
+    descriptor!(
+        RUSTOK_PAGE_BUILDER_AUDIT_SCHEMA_V1,
+        "RustokPageBuilderAudit"
+    ),
     descriptor!(
         RUSTOK_PAGE_BUILDER_PROVIDER_GRAPH_SCHEMA_V1,
         "RustokPageBuilderProviderGraphReport"

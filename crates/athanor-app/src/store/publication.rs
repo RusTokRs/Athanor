@@ -24,9 +24,9 @@ impl AthanorStore {
                     )))
                 }
             }
-            Ok(None)
-            | Err(CoreError::NotFound(_))
-            | Err(CoreError::SnapshotNotCommitted(_)) => Err(error),
+            Ok(None) | Err(CoreError::NotFound(_)) | Err(CoreError::SnapshotNotCommitted(_)) => {
+                Err(error)
+            }
             Err(status_error) => Err(CoreError::Adapter(format!(
                 "{error}; failed to determine exact publication state for {}: {status_error}",
                 snapshot.0

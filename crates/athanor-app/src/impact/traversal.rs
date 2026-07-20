@@ -47,7 +47,8 @@ pub fn impact_snapshot(
                         direction: FlowDirection::Forward,
                     });
                     queue.push_back((next_id.clone(), depth + 1, next_path.clone()));
-                    if let Some(next_entity) = snapshot.entities.iter().find(|entity| entity.id == next_id)
+                    if let Some(next_entity) =
+                        snapshot.entities.iter().find(|entity| entity.id == next_id)
                     {
                         impacted_entities.push(ImpactedEntity {
                             entity: next_entity.clone(),
@@ -69,7 +70,8 @@ pub fn impact_snapshot(
                         direction: FlowDirection::Backward,
                     });
                     queue.push_back((next_id.clone(), depth + 1, next_path.clone()));
-                    if let Some(next_entity) = snapshot.entities.iter().find(|entity| entity.id == next_id)
+                    if let Some(next_entity) =
+                        snapshot.entities.iter().find(|entity| entity.id == next_id)
                     {
                         impacted_entities.push(ImpactedEntity {
                             entity: next_entity.clone(),

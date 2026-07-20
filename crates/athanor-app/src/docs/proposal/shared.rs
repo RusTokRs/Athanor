@@ -22,7 +22,9 @@ pub(super) fn push_change(
         *existing = change;
     } else {
         operation.changes.push(change);
-        operation.changes.sort_by(|left, right| left.field.cmp(&right.field));
+        operation
+            .changes
+            .sort_by(|left, right| left.field.cmp(&right.field));
     }
 }
 
@@ -31,13 +33,15 @@ pub(super) fn operation<'a>(
     path: &str,
     page: &Entity,
 ) -> &'a mut DocsPatchOperation {
-    changes.entry(path.to_string()).or_insert_with(|| DocsPatchOperation {
-        path: path.to_string(),
-        stable_key: page.stable_key.0.clone(),
-        create: false,
-        content: None,
-        changes: Vec::new(),
-    })
+    changes
+        .entry(path.to_string())
+        .or_insert_with(|| DocsPatchOperation {
+            path: path.to_string(),
+            stable_key: page.stable_key.0.clone(),
+            create: false,
+            content: None,
+            changes: Vec::new(),
+        })
 }
 
 pub(super) fn read_project_file(root: &Path, relative: &str) -> Option<String> {

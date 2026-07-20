@@ -94,10 +94,9 @@ fn bridge_recovery_upgrades_pre_checksum_generation_and_is_idempotent() {
 #[test]
 fn extra_selected_read_model_file_is_rejected() {
     let root = indexed_root("extra-file");
-    let pointer: Value = serde_json::from_slice(
-        &fs::read(root.join(".athanor/state/index-current.json")).unwrap(),
-    )
-    .unwrap();
+    let pointer: Value =
+        serde_json::from_slice(&fs::read(root.join(".athanor/state/index-current.json")).unwrap())
+            .unwrap();
     let read_model = root.join(pointer["read_model"].as_str().unwrap());
     fs::write(read_model.join("substituted.jsonl"), "{}\n").unwrap();
 

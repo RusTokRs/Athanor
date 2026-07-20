@@ -61,10 +61,7 @@ pub(super) fn dedupe_evidence(evidence: &mut Vec<Evidence>) {
     });
 }
 
-pub(super) fn annotations_from_payload(
-    payload: &Value,
-    message: &str,
-) -> Vec<ChangeMapAnnotation> {
+pub(super) fn annotations_from_payload(payload: &Value, message: &str) -> Vec<ChangeMapAnnotation> {
     let Some(schema) = payload.get("schema").and_then(Value::as_str) else {
         return Vec::new();
     };

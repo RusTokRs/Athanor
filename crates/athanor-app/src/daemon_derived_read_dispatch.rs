@@ -171,13 +171,7 @@ fn finish_read<T: Serialize>(
 ) -> (DaemonResponse, bool) {
     match result {
         Ok(result) => {
-            let _ = finish(
-                state,
-                job_id,
-                DaemonJobStatus::Succeeded,
-                None,
-                None,
-            );
+            let _ = finish(state, job_id, DaemonJobStatus::Succeeded, None, None);
             (
                 success_response(
                     request_id,

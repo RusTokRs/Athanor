@@ -1,8 +1,7 @@
 const CLI_INDEX_SOURCE: &str = include_str!("../../../apps/ath/src/index_cli.rs");
 const DAEMON_WRITE_SOURCE: &str = include_str!("../src/daemon_write_jobs.rs");
 const DAEMON_PARITY_TESTS: &str = include_str!("../src/daemon_write_job_contract_tests.rs");
-const MCP_DISPATCH_SOURCE: &str =
-    include_str!("../../athanor-transport-mcp/src/tools/dispatch.rs");
+const MCP_DISPATCH_SOURCE: &str = include_str!("../../athanor-transport-mcp/src/tools/dispatch.rs");
 const MCP_INDEX_INVENTORY: &str =
     include_str!("../../athanor-transport-mcp/tests/index_publication_cancellation_inventory.rs");
 
@@ -11,24 +10,16 @@ fn index_report_uses_one_typed_payload_across_cli_daemon_and_mcp() {
     assert!(CLI_INDEX_SOURCE.contains("fn render_index(report: &IndexReport"));
     assert!(CLI_INDEX_SOURCE.contains("serde_json::to_string_pretty(report)"));
 
-    assert!(DAEMON_WRITE_SOURCE.contains(
-        "pub(crate) fn index_job_result(report: &IndexReport)"
-    ));
+    assert!(DAEMON_WRITE_SOURCE.contains("pub(crate) fn index_job_result(report: &IndexReport)"));
     assert!(DAEMON_WRITE_SOURCE.contains("serialize_job_result(report)"));
 
-    assert!(MCP_DISPATCH_SOURCE.contains(
-        "index_project_with_composition_and_operation_context"
-    ));
-    assert!(MCP_DISPATCH_SOURCE.contains(
-        "return Ok(serde_json::to_string_pretty(&report)?);"
-    ));
+    assert!(MCP_DISPATCH_SOURCE.contains("index_project_with_composition_and_operation_context"));
+    assert!(MCP_DISPATCH_SOURCE.contains("return Ok(serde_json::to_string_pretty(&report)?);"));
 
-    assert!(MCP_INDEX_INVENTORY.contains(
-        "cli_daemon_and_mcp_share_the_public_index_report_payload"
-    ));
-    assert!(MCP_INDEX_INVENTORY.contains(
-        "daemon_index_result_matches_public_index_report_shape"
-    ));
+    assert!(
+        MCP_INDEX_INVENTORY.contains("cli_daemon_and_mcp_share_the_public_index_report_payload")
+    );
+    assert!(MCP_INDEX_INVENTORY.contains("daemon_index_result_matches_public_index_report_shape"));
     assert!(MCP_INDEX_INVENTORY.contains("assert_eq!(daemon, direct)"));
 }
 

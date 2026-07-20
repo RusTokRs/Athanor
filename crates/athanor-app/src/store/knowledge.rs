@@ -3,9 +3,7 @@ use athanor_core::{
     AtomicSnapshotPublication, CoreResult, DiagnosticQuery, EntityQuery, KnowledgeStore,
     OperationContext, OperationContextCancellation, RelationQuery, SnapshotBatch, SnapshotSelector,
 };
-use athanor_domain::{
-    Diagnostic, Entity, Fact, Relation, RepoId, SnapshotBase, SnapshotId,
-};
+use athanor_domain::{Diagnostic, Entity, Fact, Relation, RepoId, SnapshotBase, SnapshotId};
 
 use super::AthanorStore;
 

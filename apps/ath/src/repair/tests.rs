@@ -48,8 +48,7 @@ fn parses_exact_retention_plan_and_apply_forms() {
 #[test]
 fn parses_repair_commands_without_intercepting_legacy_commands() {
     assert_eq!(
-        parse(&args(&["repair", "recover-index", "project", "--dry-run"]))
-            .unwrap(),
+        parse(&args(&["repair", "recover-index", "project", "--dry-run"])).unwrap(),
         Some(Command::RecoverIndex {
             path: PathBuf::from("project"),
             dry_run: true,

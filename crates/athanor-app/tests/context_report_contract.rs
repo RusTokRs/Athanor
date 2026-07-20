@@ -1,7 +1,5 @@
 use athanor_app::{CONTEXT_PACK_SCHEMA_V1, ContextReport, VersionedJsonContract};
-use athanor_domain::{
-    ContextLevel, ContextPack, ContextPackId, DiagnosticId, EntityId,
-};
+use athanor_domain::{ContextLevel, ContextPack, ContextPackId, DiagnosticId, EntityId};
 use serde_json::{Value, json};
 
 #[test]
@@ -36,5 +34,8 @@ fn context_report_v1_matches_golden_fixture() {
     assert_eq!(actual, expected);
     assert_eq!(actual["schema"], CONTEXT_PACK_SCHEMA_V1);
     assert_eq!(actual["payload"]["schema"], CONTEXT_PACK_SCHEMA_V1);
-    assert!(actual.get("pack").is_none(), "flattening must preserve the existing top-level context fields");
+    assert!(
+        actual.get("pack").is_none(),
+        "flattening must preserve the existing top-level context fields"
+    );
 }

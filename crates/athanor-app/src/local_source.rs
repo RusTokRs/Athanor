@@ -31,8 +31,8 @@ fn discover_source_files_inner(
 
     while let Some(current) = pending.pop() {
         poller.step()?;
-        let entries =
-            fs::read_dir(&current).with_context(|| format!("failed to read {}", current.display()))?;
+        let entries = fs::read_dir(&current)
+            .with_context(|| format!("failed to read {}", current.display()))?;
         let mut child_directories = Vec::new();
 
         for entry in entries {
@@ -51,7 +51,8 @@ fn discover_source_files_inner(
                 let relative = path.strip_prefix(&root).with_context(|| {
                     format!("failed to strip root prefix for {}", path.display())
                 })?;
-                if let Some(source) = read_source_file_at_with_poller(&root, relative, &mut poller)? {
+                if let Some(source) = read_source_file_at_with_poller(&root, relative, &mut poller)?
+                {
                     files.push(source);
                 }
             }

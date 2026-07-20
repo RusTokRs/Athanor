@@ -77,10 +77,9 @@ async fn sequence_and_indexes_survive_the_module_split() {
     first.commit_snapshot(first_snapshot.clone()).await.unwrap();
 
     let snapshot_dir = root.join("snapshots").join(first_snapshot.0);
-    let stable: StableKeyIndex = serde_json::from_slice(
-        &std::fs::read(snapshot_dir.join("stable_key_index.json")).unwrap(),
-    )
-    .unwrap();
+    let stable: StableKeyIndex =
+        serde_json::from_slice(&std::fs::read(snapshot_dir.join("stable_key_index.json")).unwrap())
+            .unwrap();
     assert_eq!(stable.entries["file://README.md"], "ent_file_readme");
     let paths: PathIndex =
         serde_json::from_slice(&std::fs::read(snapshot_dir.join("path_index.json")).unwrap())
@@ -105,7 +104,11 @@ async fn startup_removes_only_known_staging_files() {
         .await
         .unwrap();
 
-    assert!(!snapshots.join(".snap_jsonl_00000099.staging-crash").exists());
+    assert!(
+        !snapshots
+            .join(".snap_jsonl_00000099.staging-crash")
+            .exists()
+    );
     assert!(!root.join(".latest.json.staging-crash").exists());
     assert!(!root.join(".latest.json.identity-staging-crash").exists());
     assert!(!root.join(".snapshot-sequence.staging-crash").exists());

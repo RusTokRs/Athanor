@@ -300,11 +300,7 @@ fn success_optional_job(
     )
 }
 
-fn invalid_input(
-    state: &DaemonState,
-    request_id: &str,
-    message: &str,
-) -> (DaemonResponse, bool) {
+fn invalid_input(state: &DaemonState, request_id: &str, message: &str) -> (DaemonResponse, bool) {
     (
         error_response_with_code(
             request_id,
@@ -330,11 +326,7 @@ fn busy(state: &DaemonState, request_id: &str, message: &str) -> (DaemonResponse
     )
 }
 
-fn failed(
-    state: &DaemonState,
-    request_id: &str,
-    error: &anyhow::Error,
-) -> (DaemonResponse, bool) {
+fn failed(state: &DaemonState, request_id: &str, error: &anyhow::Error) -> (DaemonResponse, bool) {
     (
         error_response_from_anyhow(request_id, &state.endpoint.project_id, error),
         false,

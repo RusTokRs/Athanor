@@ -61,7 +61,9 @@ pub(crate) fn declare_commit_marker_requirement(
     fs::write(
         &path,
         serde_json::to_vec_pretty(&manifest).map_err(|error| {
-            CoreError::Adapter(format!("failed to serialize atomic snapshot manifest: {error}"))
+            CoreError::Adapter(format!(
+                "failed to serialize atomic snapshot manifest: {error}"
+            ))
         })?,
     )
     .map_err(|error| {
@@ -81,18 +83,15 @@ pub(crate) fn write_commit_marker(snapshot_dir: &Path, snapshot: &SnapshotId) ->
     fs::write(
         snapshot_dir.join("commit.json"),
         serde_json::to_vec_pretty(&marker).map_err(|error| {
-            CoreError::Adapter(format!("failed to serialize snapshot commit marker: {error}"))
+            CoreError::Adapter(format!(
+                "failed to serialize snapshot commit marker: {error}"
+            ))
         })?,
     )
-    .map_err(|error| {
-        CoreError::Adapter(format!("failed to write snapshot commit marker: {error}"))
-    })
+    .map_err(|error| CoreError::Adapter(format!("failed to write snapshot commit marker: {error}")))
 }
 
-pub(crate) fn validate_commit_marker(
-    snapshot_dir: &Path,
-    snapshot: &SnapshotId,
-) -> CoreResult<()> {
+pub(crate) fn validate_commit_marker(snapshot_dir: &Path, snapshot: &SnapshotId) -> CoreResult<()> {
     validate_commit_marker_inner(snapshot_dir, snapshot, None)
 }
 

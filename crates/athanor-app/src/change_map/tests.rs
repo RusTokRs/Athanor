@@ -10,9 +10,7 @@ use serde_json::json;
 
 use super::evidence::entity_evidence;
 use super::execution::validate_options;
-use super::model::{
-    ChangeMapLimits, ChangeMapOptions, ChangeMapQuery, ChangeMapTestStatus, Seed,
-};
+use super::model::{ChangeMapLimits, ChangeMapOptions, ChangeMapQuery, ChangeMapTestStatus, Seed};
 use super::ranking::build_change_map;
 use crate::json_contract::CHANGE_MAP_SCHEMA_V1;
 
@@ -418,13 +416,7 @@ fn ranks_implemented_by_higher_than_contains() {
             &function,
             None,
         ),
-        relation(
-            "contains",
-            RelationKind::Contains,
-            &function,
-            &module,
-            None,
-        ),
+        relation("contains", RelationKind::Contains, &function, &module, None),
     ];
     let snapshot = CanonicalSnapshot {
         snapshot: Some(SnapshotId("snap-1".to_string())),

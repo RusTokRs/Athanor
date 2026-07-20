@@ -2,8 +2,9 @@ use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use athanor_core::{
-    CanonicalSnapshot, CanonicalSnapshotStore, CanonicalSnapshotStoreOperationExt, OperationContext,
-    OperationContextCancellation, SearchIndex, SearchIndexOperationExt, SearchQuery,
+    CanonicalSnapshot, CanonicalSnapshotStore, CanonicalSnapshotStoreOperationExt,
+    OperationContext, OperationContextCancellation, SearchIndex, SearchIndexOperationExt,
+    SearchQuery,
 };
 use athanor_domain::Entity;
 
@@ -18,13 +19,12 @@ mod index;
 mod model;
 
 pub use index::entity_text;
+pub(crate) use index::{
+    get_or_build_search_index_with_factory, get_or_build_search_index_with_factory_and_operation,
+};
 pub use model::{
     SearchIndexFactory, SearchIndexOperationFactory, SearchItem, SearchOmissions, SearchOptions,
     SearchReport,
-};
-pub(crate) use index::{
-    get_or_build_search_index_with_factory,
-    get_or_build_search_index_with_factory_and_operation,
 };
 
 pub async fn search_project_with_composition(
@@ -58,9 +58,11 @@ async fn search_project_inner(
     let config = load_config(&root)?;
     let store = composition.init_store(&root, &config).await?;
     let snapshot = match operation {
-        Some(operation) => store
-            .load_latest_snapshot_with_operation_context(operation)
-            .await,
+        Some(operation) => {
+            store
+                .load_latest_snapshot_with_operation_context(operation)
+                .await
+        }
         None => store.load_latest_snapshot().await,
     }
     .context("failed to load latest canonical snapshot")?
@@ -131,18 +133,22 @@ pub async fn search_snapshot_with_composition_and_operation_context(
             &index_dir,
             &operation_for_worker,
             |directory, documents, operation| {
-                composition.build_search_index_with_operation_context(
-                    directory,
-                    documents,
-                    operation,
-                )
+                composition
+                    .build_search_index_with_operation_context(directory, documents, operation)
             },
         )
     })
     .await
     .context("search index rebuild worker terminated unexpectedly")??;
-    search_snapshot_with_index_inner(root, snapshot, query, limit, index.as_ref(), Some(operation))
-        .await
+    search_snapshot_with_index_inner(
+        root,
+        snapshot,
+        query,
+        limit,
+        index.as_ref(),
+        Some(operation),
+    )
+    .await
 }
 
 pub async fn search_snapshot_with_index(
@@ -171,7 +177,11 @@ async fn search_snapshot_with_index_inner(
         limit: limit.saturating_add(1),
     };
     let results = match operation {
-        Some(operation) => index.search_with_operation_context(search_query, operation).await,
+        Some(operation) => {
+            index
+                .search_with_operation_context(search_query, operation)
+                .await
+        }
         None => index.search(search_query).await,
     }
     .context("failed to query search index")?;

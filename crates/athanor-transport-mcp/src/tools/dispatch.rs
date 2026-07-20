@@ -4,12 +4,10 @@ use std::path::Path;
 use anyhow::{Context, Result, bail};
 use athanor_app::{
     ChangeMapOptions, ContextLimitOverrides, ContextOptions, DiagnosticCheckOptions,
-    DiagnosticScope, ExplainOptions, ImpactOptions, IndexOptions, RuntimeComposition, SearchOptions,
-    RustokArchitectureContextOptions,
+    DiagnosticScope, ExplainOptions, ImpactOptions, IndexOptions, RuntimeComposition,
+    RustokArchitectureContextOptions, SearchOptions,
 };
-use athanor_core::{
-    CoreError, CoreErrorCode, OperationContext, OperationContextCancellation,
-};
+use athanor_core::{CoreError, CoreErrorCode, OperationContext, OperationContextCancellation};
 use serde_json::{Value, json};
 
 pub(crate) fn call<'a>(
@@ -33,18 +31,17 @@ async fn call_inner(
     operation.check_active().map_err(anyhow::Error::new)?;
     let result = match name {
         "index" => {
-            let report =
-                athanor_app::index_project_with_composition_and_operation_context(
-                    IndexOptions {
-                        root: root.to_path_buf(),
-                        validation_report: None,
-                        validation_result: None,
-                        validate_only: bool_arg(&args, "validate_only", false),
-                    },
-                    composition,
-                    operation.clone(),
-                )
-                .await?;
+            let report = athanor_app::index_project_with_composition_and_operation_context(
+                IndexOptions {
+                    root: root.to_path_buf(),
+                    validation_report: None,
+                    validation_result: None,
+                    validate_only: bool_arg(&args, "validate_only", false),
+                },
+                composition,
+                operation.clone(),
+            )
+            .await?;
             // Index publication has a durable commit boundary. Once the application returns a report,
             // a transport-level cancellation that races after commit must not replace that success.
             return Ok(serde_json::to_string_pretty(&report)?);

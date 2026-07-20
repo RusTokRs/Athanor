@@ -15,9 +15,7 @@ use serde_json::Value;
 use crate::boundary_contract::{
     BoundaryLifecycle, JsonBoundaryClass, NonPublicJsonContractDescriptor,
 };
-use crate::json_contract::{
-    JsonContractDescriptor, VersionedJsonContract, validate_schema_id,
-};
+use crate::json_contract::{JsonContractDescriptor, VersionedJsonContract, validate_schema_id};
 use crate::runtime::{
     AdapterPluginManifest, AdapterTrustListOptions, AdapterTrustOptions, AdapterTrustRegistry,
     AdapterTrustStatus, list_adapter_plugin_trust, trust_adapter_plugin, untrust_adapter_plugin,
@@ -170,10 +168,7 @@ pub fn validate_adapter_non_public_contract_value(
     value: &Value,
 ) -> Result<(), AdapterContractError> {
     let object = value.as_object().ok_or_else(|| {
-        AdapterContractError::Inventory(format!(
-            "{} document must be an object",
-            descriptor.schema
-        ))
+        AdapterContractError::Inventory(format!("{} document must be an object", descriptor.schema))
     })?;
     let actual = object
         .get("schema")

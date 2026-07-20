@@ -77,8 +77,9 @@ impl JsonlKnowledgeStore {
         let path = self.root.join(".writer.lock");
         let lock = File::create(&path)
             .map_err(|error| CoreError::Adapter(format!("failed to open writer lock: {error}")))?;
-        lock.lock_exclusive()
-            .map_err(|error| CoreError::Adapter(format!("failed to acquire writer lock: {error}")))?;
+        lock.lock_exclusive().map_err(|error| {
+            CoreError::Adapter(format!("failed to acquire writer lock: {error}"))
+        })?;
         Ok(lock)
     }
 
@@ -194,10 +195,7 @@ impl State {
             .ok_or_else(|| CoreError::NotFound(format!("snapshot {}", snapshot.0)))
     }
 
-    pub(crate) fn snapshot_mut(
-        &mut self,
-        snapshot: &SnapshotId,
-    ) -> CoreResult<&mut SnapshotData> {
+    pub(crate) fn snapshot_mut(&mut self, snapshot: &SnapshotId) -> CoreResult<&mut SnapshotData> {
         self.snapshots
             .get_mut(snapshot)
             .ok_or_else(|| CoreError::NotFound(format!("snapshot {}", snapshot.0)))
@@ -248,8 +246,9 @@ fn read_snapshot_sequence(path: &Path) -> CoreResult<u64> {
     if !path.exists() {
         return Ok(0);
     }
-    let content = fs::read_to_string(path)
-        .map_err(|error| CoreError::Adapter(format!("failed to read snapshot sequence: {error}")))?;
+    let content = fs::read_to_string(path).map_err(|error| {
+        CoreError::Adapter(format!("failed to read snapshot sequence: {error}"))
+    })?;
     serde_json::from_str::<SnapshotSequence>(&content)
         .map(|sequence| sequence.next_snapshot)
         .map_err(|error| CoreError::Adapter(format!("failed to parse snapshot sequence: {error}")))

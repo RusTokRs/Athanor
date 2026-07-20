@@ -25,12 +25,7 @@ fn standard_graph_help_exposes_deadline() {
 
 #[test]
 fn malformed_graph_deadline_fails_before_project_access() {
-    let output = run(&[
-        "graph",
-        "pagerank",
-        "--deadline-unix-ms",
-        "tomorrow",
-    ]);
+    let output = run(&["graph", "pagerank", "--deadline-unix-ms", "tomorrow"]);
     assert!(!output.status.success());
     assert!(stderr(&output).contains("invalid value 'tomorrow'"));
 }
@@ -44,13 +39,7 @@ fn manual_rustok_graph_help_exposes_deadline() {
 
 #[test]
 fn malformed_rustok_deadline_fails_before_project_access() {
-    let output = run(&[
-        "rustok",
-        "ffa",
-        "audit",
-        "--deadline-unix-ms",
-        "tomorrow",
-    ]);
+    let output = run(&["rustok", "ffa", "audit", "--deadline-unix-ms", "tomorrow"]);
     assert!(!output.status.success());
     assert!(stderr(&output).contains("--deadline-unix-ms must be an unsigned integer"));
 }
@@ -67,7 +56,10 @@ fn expired_rustok_deadline_fails_before_project_access() {
     ]);
     assert!(!output.status.success());
     let error = stderr(&output);
-    assert!(error.contains("deadline exceeded"), "unexpected error: {error}");
+    assert!(
+        error.contains("deadline exceeded"),
+        "unexpected error: {error}"
+    );
     assert!(!error.contains("failed to canonicalize"));
 }
 

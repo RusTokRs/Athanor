@@ -165,8 +165,9 @@ pub(crate) fn read_jsonl<T: serde::de::DeserializeOwned>(path: &Path) -> CoreRes
             continue;
         }
         items.push(
-            serde_json::from_str(trimmed)
-                .map_err(|error| CoreError::Adapter(format!("failed to parse JSONL item: {error}")))?,
+            serde_json::from_str(trimmed).map_err(|error| {
+                CoreError::Adapter(format!("failed to parse JSONL item: {error}"))
+            })?,
         );
     }
     Ok(items)
@@ -196,9 +197,9 @@ fn write_jsonl<T: Serialize>(path: &Path, items: &[T]) -> CoreResult<()> {
     for item in items {
         serde_json::to_writer(&mut writer, item)
             .map_err(|error| CoreError::Adapter(format!("failed to write JSONL item: {error}")))?;
-        writer
-            .write_all(b"\n")
-            .map_err(|error| CoreError::Adapter(format!("failed to write JSONL newline: {error}")))?;
+        writer.write_all(b"\n").map_err(|error| {
+            CoreError::Adapter(format!("failed to write JSONL newline: {error}"))
+        })?;
     }
     writer
         .flush()

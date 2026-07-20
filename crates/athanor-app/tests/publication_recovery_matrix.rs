@@ -3,15 +3,11 @@ const CLEANUP_RECOVERY: &str = include_str!("../src/repair_cleanup_recovery.rs")
 
 #[test]
 fn retention_rolls_back_the_first_tombstone_when_second_staging_fails() {
-    assert!(RETENTION.contains(
-        "if let Err(error) = fs::rename(&row.index_state, &state_tombstone)"
-    ));
-    assert!(RETENTION.contains(
-        "let _ = fs::rename(&read_tombstone, &row.read_model);"
-    ));
-    assert!(RETENTION.contains(
-        "failed to stage index state generation"
-    ));
+    assert!(
+        RETENTION.contains("if let Err(error) = fs::rename(&row.index_state, &state_tombstone)")
+    );
+    assert!(RETENTION.contains("let _ = fs::rename(&read_tombstone, &row.read_model);"));
+    assert!(RETENTION.contains("failed to stage index state generation"));
 }
 
 #[test]
@@ -41,13 +37,7 @@ fn cleanup_recovery_covers_complete_and_partial_tombstone_states() {
 
 #[test]
 fn cleanup_recovery_fails_closed_on_live_artifact_conflicts() {
-    assert!(CLEANUP_RECOVERY.contains(
-        "refusing cleanup recovery because live {kind}"
-    ));
-    assert!(CLEANUP_RECOVERY.contains(
-        "index cleanup recovery left staged tombstones behind"
-    ));
-    assert!(CLEANUP_RECOVERY.contains(
-        "empty index cleanup tombstone row"
-    ));
+    assert!(CLEANUP_RECOVERY.contains("refusing cleanup recovery because live {kind}"));
+    assert!(CLEANUP_RECOVERY.contains("index cleanup recovery left staged tombstones behind"));
+    assert!(CLEANUP_RECOVERY.contains("empty index cleanup tombstone row"));
 }

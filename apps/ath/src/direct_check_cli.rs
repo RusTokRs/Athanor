@@ -104,7 +104,12 @@ pub(crate) fn parse(args: &[String]) -> Result<Option<Command>> {
             strict,
             deadline_unix_ms,
         })),
-        Err(error) if matches!(error.kind(), ErrorKind::DisplayHelp | ErrorKind::DisplayVersion) => {
+        Err(error)
+            if matches!(
+                error.kind(),
+                ErrorKind::DisplayHelp | ErrorKind::DisplayVersion
+            ) =>
+        {
             error.print().context("failed to print direct check help")?;
             std::process::exit(0);
         }
@@ -124,9 +129,7 @@ pub(crate) async fn run(command: Command) -> Result<()> {
             &operation,
             cancellation,
             athanor_app::check_affected_with_composition(
-                AffectedCheckOptions {
-                    root: command.path,
-                },
+                AffectedCheckOptions { root: command.path },
                 &composition,
             ),
         )

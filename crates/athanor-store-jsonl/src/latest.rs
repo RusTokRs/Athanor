@@ -117,9 +117,7 @@ pub(crate) fn read_compatible_latest_snapshot(root: &Path) -> CoreResult<Option<
     Ok(Some(snapshot))
 }
 
-pub(crate) fn discover_latest_identity(
-    root: &Path,
-) -> CoreResult<Option<CanonicalLatestIdentity>> {
+pub(crate) fn discover_latest_identity(root: &Path) -> CoreResult<Option<CanonicalLatestIdentity>> {
     let snapshots = root.join("snapshots");
     let entries = match fs::read_dir(&snapshots) {
         Ok(entries) => entries,
@@ -219,10 +217,7 @@ pub(crate) fn validate_exact_generation(
     }
 }
 
-pub(crate) fn validate_repair_target(
-    snapshot_dir: &Path,
-    snapshot: &SnapshotId,
-) -> CoreResult<()> {
+pub(crate) fn validate_repair_target(snapshot_dir: &Path, snapshot: &SnapshotId) -> CoreResult<()> {
     let manifest_path = snapshot_dir.join("manifest.json");
     let manifest: Value = serde_json::from_slice(&fs::read(&manifest_path).map_err(|error| {
         CoreError::Adapter(format!(
@@ -236,8 +231,7 @@ pub(crate) fn validate_repair_target(
             manifest_path.display()
         ))
     })?;
-    if manifest.get("commit_marker_schema").and_then(Value::as_str)
-        != Some(SNAPSHOT_COMMIT_SCHEMA)
+    if manifest.get("commit_marker_schema").and_then(Value::as_str) != Some(SNAPSHOT_COMMIT_SCHEMA)
     {
         return Err(CoreError::AdapterProtocol(format!(
             "latest repair target {} must declare commit marker schema {}",

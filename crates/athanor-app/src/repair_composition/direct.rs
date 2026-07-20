@@ -42,9 +42,7 @@ pub(super) async fn recover_index(
     let needed = has_pending_publication(&root);
     let before = inspect_repair(RepairInspectOptions { root: root.clone() })?;
     if !needed {
-        return Ok(recovery_report(
-            root, false, false, false, pending, before,
-        ));
+        return Ok(recovery_report(root, false, false, false, pending, before));
     }
 
     let config = crate::config::load_config(&root)?;
@@ -68,13 +66,7 @@ pub(super) async fn repair_latest(
     if options.dry_run {
         let config = crate::config::load_config(&root)?;
         let store = composition.init_store(&root, &config).await?;
-        return repair_latest_with_store(
-            &root,
-            true,
-            options.snapshot.as_deref(),
-            &store,
-        )
-        .await;
+        return repair_latest_with_store(&root, true, options.snapshot.as_deref(), &store).await;
     }
 
     let _lock = RepairLock::acquire(root.join(PUBLICATION_LOCK_PATH))?;
@@ -149,8 +141,7 @@ async fn resolve_target(
             snapshot.to_string(),
         )))
     } else {
-        crate::index_current::IndexCurrent::load(root)?
-            .map(|current| current.canonical_identity())
+        crate::index_current::IndexCurrent::load(root)?.map(|current| current.canonical_identity())
     };
     let discovered = store
         .discover_latest_identity()
@@ -214,8 +205,9 @@ fn pending_identity(root: &Path) -> Result<Option<PendingPointerJournal>> {
         return Ok(None);
     }
     serde_json::from_slice(
-        &fs::read(&path)
-            .with_context(|| format!("failed to read pending pointer journal {}", path.display()))?,
+        &fs::read(&path).with_context(|| {
+            format!("failed to read pending pointer journal {}", path.display())
+        })?,
     )
     .with_context(|| format!("failed to parse pending pointer journal {}", path.display()))
     .map(Some)
@@ -275,35 +267,24 @@ mod tests {
             .publish_snapshot_batch(second.clone(), SnapshotBatch::default())
             .await
             .unwrap();
-        fs::write(
-            root.join(".athanor/store/canonical/jsonl/latest.json"),
-            "{",
-        )
-        .unwrap();
+        fs::write(root.join(".athanor/store/canonical/jsonl/latest.json"), "{").unwrap();
         let store = crate::AthanorStore::new_with_latest_pointer(backend);
 
-        let plan = repair_latest_with_store(
-            &root,
-            true,
-            Some(second.0.as_str()),
-            &store,
-        )
-        .await
-        .unwrap();
+        let plan = repair_latest_with_store(&root, true, Some(second.0.as_str()), &store)
+            .await
+            .unwrap();
         assert!(plan.needed);
         assert!(!plan.repaired);
         assert!(plan.previous_error.is_some());
 
-        let applied = repair_latest_with_store(
-            &root,
-            false,
-            Some(second.0.as_str()),
-            &store,
-        )
-        .await
-        .unwrap();
+        let applied = repair_latest_with_store(&root, false, Some(second.0.as_str()), &store)
+            .await
+            .unwrap();
         assert!(applied.repaired);
-        assert_eq!(store.load_latest_identity().await.unwrap(), Some(applied.target));
+        assert_eq!(
+            store.load_latest_identity().await.unwrap(),
+            Some(applied.target)
+        );
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -329,14 +310,9 @@ mod tests {
             .unwrap();
         let store = crate::AthanorStore::new_with_latest_pointer(backend);
 
-        let error = repair_latest_with_store(
-            &root,
-            true,
-            Some(first.0.as_str()),
-            &store,
-        )
-        .await
-        .expect_err("repair must not rewind canonical latest");
+        let error = repair_latest_with_store(&root, true, Some(first.0.as_str()), &store)
+            .await
+            .expect_err("repair must not rewind canonical latest");
         assert!(error.to_string().contains("not authoritative"));
         fs::remove_dir_all(root).unwrap();
     }
@@ -348,10 +324,7 @@ mod tests {
             root.join(".athanor/store/canonical/jsonl"),
         ));
         let snapshot = store
-            .begin_snapshot(
-                RepoId("repo_repair_recovery".to_string()),
-                snapshot_base(),
-            )
+            .begin_snapshot(RepoId("repo_repair_recovery".to_string()), snapshot_base())
             .await
             .unwrap();
         store.commit_snapshot(snapshot.clone()).await.unwrap();

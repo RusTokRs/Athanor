@@ -38,7 +38,8 @@ pub(super) async fn handle_tool_call(
         ));
     }
 
-    let operation = operation_context(request_id, &arguments).map_err(DispatchError::Application)?;
+    let operation =
+        operation_context(request_id, &arguments).map_err(DispatchError::Application)?;
     let request_key = request_key(request_id).map_err(DispatchError::Application)?;
     let result = if is_durable_commit_tool(tool_name) {
         let future = tools::call(root, tool_name, arguments, composition, &operation);
@@ -210,11 +211,7 @@ fn is_drained_operation_tool(tool_name: &str) -> bool {
 }
 
 pub(super) async fn cancel_notification(active_reads: &ActiveReads, params: Option<&Value>) {
-    let request_id = params.and_then(|params| {
-        params
-            .get("requestId")
-            .or_else(|| params.get("id"))
-    });
+    let request_id = params.and_then(|params| params.get("requestId").or_else(|| params.get("id")));
     let Some(request_id) = request_id else {
         return;
     };

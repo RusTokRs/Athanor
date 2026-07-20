@@ -17,8 +17,7 @@ pub use core::{
     SearchReport, entity_text,
 };
 pub(crate) use core::{
-    get_or_build_search_index_with_factory,
-    get_or_build_search_index_with_factory_and_operation,
+    get_or_build_search_index_with_factory, get_or_build_search_index_with_factory_and_operation,
 };
 
 pub async fn search_project_with_composition(
@@ -33,7 +32,8 @@ pub async fn search_project_with_composition_and_operation_context(
     composition: &RuntimeComposition,
     operation: &OperationContext,
 ) -> Result<SearchReport> {
-    core::search_project_with_composition_and_operation_context(options, composition, operation).await
+    core::search_project_with_composition_and_operation_context(options, composition, operation)
+        .await
 }
 
 pub async fn search_snapshot_with_composition(

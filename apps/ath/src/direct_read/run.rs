@@ -6,9 +6,7 @@ use athanor_app::{
 
 use super::model::Command;
 use super::operation::{await_cli_operation, operation};
-use super::render::{
-    print_change_map, print_explanation, print_impact_analysis, print_overview,
-};
+use super::render::{print_change_map, print_explanation, print_impact_analysis, print_overview};
 
 pub(crate) async fn run(command: Command) -> Result<()> {
     let composition = athanor_runtime_defaults::production();
@@ -190,11 +188,14 @@ pub(crate) async fn run(command: Command) -> Result<()> {
             let report = await_cli_operation(
                 &operation,
                 cancellation,
-                athanor_app::search_project_with_composition(SearchOptions {
-                    root: path,
-                    query,
-                    limit,
-                }, &composition),
+                athanor_app::search_project_with_composition(
+                    SearchOptions {
+                        root: path,
+                        query,
+                        limit,
+                    },
+                    &composition,
+                ),
             )
             .await?;
             if json {

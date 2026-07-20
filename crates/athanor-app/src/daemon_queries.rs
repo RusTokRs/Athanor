@@ -71,14 +71,8 @@ pub(crate) async fn context(
     level: ContextLevel,
     overrides: &ContextLimitOverrides,
 ) -> Result<ContextReport> {
-    context_with_operation_context(
-        state,
-        task,
-        level,
-        overrides,
-        &OperationContext::default(),
-    )
-    .await
+    context_with_operation_context(state, task, level, overrides, &OperationContext::default())
+        .await
 }
 
 pub(crate) async fn context_with_operation_context(
@@ -315,11 +309,7 @@ fn search_index_with_operation_context(
         &index_dir,
         operation,
         |directory, documents, operation| {
-            composition.build_search_index_with_operation_context(
-                directory,
-                documents,
-                operation,
-            )
+            composition.build_search_index_with_operation_context(directory, documents, operation)
         },
     )?;
     check_active(operation)?;
@@ -337,7 +327,10 @@ fn check_active(operation: &OperationContext) -> Result<()> {
 fn is_operation_termination(error: &anyhow::Error) -> bool {
     error.chain().any(|cause| {
         cause.downcast_ref::<CoreError>().is_some_and(|error| {
-            matches!(error, CoreError::Cancelled(_) | CoreError::DeadlineExceeded(_))
+            matches!(
+                error,
+                CoreError::Cancelled(_) | CoreError::DeadlineExceeded(_)
+            )
         })
     })
 }

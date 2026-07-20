@@ -38,7 +38,11 @@ pub(crate) fn print_path(report: &GraphPath) {
         println!(
             "No path found after visiting {} entities{}",
             report.visited,
-            if report.truncated { " (search truncated)" } else { "" }
+            if report.truncated {
+                " (search truncated)"
+            } else {
+                ""
+            }
         );
         return;
     }
@@ -47,7 +51,11 @@ pub(crate) fn print_path(report: &GraphPath) {
         "{} hops after visiting {} entities{}",
         report.hops.unwrap_or_default(),
         report.visited,
-        if report.truncated { " (search truncated)" } else { "" }
+        if report.truncated {
+            " (search truncated)"
+        } else {
+            ""
+        }
     );
     for (index, node) in report.nodes.iter().enumerate() {
         let source = node.source.as_deref().unwrap_or("unknown source");
@@ -127,7 +135,11 @@ pub(crate) fn print_cycles(report: &GraphCycles) {
     if report.cycles.is_empty() {
         println!(
             "  (none{})",
-            if report.truncated { "; search truncated" } else { "" }
+            if report.truncated {
+                "; search truncated"
+            } else {
+                ""
+            }
         );
         return;
     }

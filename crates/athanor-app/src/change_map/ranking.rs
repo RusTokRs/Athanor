@@ -7,9 +7,7 @@ use athanor_domain::{
 
 use crate::json_contract::CHANGE_MAP_SCHEMA_V1;
 
-use super::evidence::{
-    annotations_from_payload, dedupe_evidence, entity_evidence, entity_files,
-};
+use super::evidence::{annotations_from_payload, dedupe_evidence, entity_evidence, entity_files};
 use super::model::{
     Candidate, ChangeMapCompleteness, ChangeMapCounts, ChangeMapEndpoint, ChangeMapFile,
     ChangeMapItem, ChangeMapLimits, ChangeMapPathStep, ChangeMapQuery, ChangeMapReport,
@@ -93,7 +91,10 @@ pub(super) fn build_change_map(
             let (next, direction) = if relation.from == current_id {
                 (relation.to.clone(), crate::impact::FlowDirection::Forward)
             } else {
-                (relation.from.clone(), crate::impact::FlowDirection::Backward)
+                (
+                    relation.from.clone(),
+                    crate::impact::FlowDirection::Backward,
+                )
             };
             if candidates.contains_key(&next) || !entities.contains_key(&next) {
                 continue;

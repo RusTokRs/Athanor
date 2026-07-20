@@ -24,14 +24,9 @@ pub(crate) fn build_rustok_ffa_surface_graph_with_operation_context(
     max_edges: usize,
     operation: &OperationContext,
 ) -> Result<RustokFfaGraph> {
-    build_ffa_surface_with_checkpoint(
-        snapshot,
-        module,
-        surface,
-        max_nodes,
-        max_edges,
-        || operation.check_active().map_err(anyhow::Error::new),
-    )
+    build_ffa_surface_with_checkpoint(snapshot, module, surface, max_nodes, max_edges, || {
+        operation.check_active().map_err(anyhow::Error::new)
+    })
 }
 
 pub(crate) fn build_rustok_ffa_violations_graph_with_operation_context(
@@ -42,14 +37,9 @@ pub(crate) fn build_rustok_ffa_violations_graph_with_operation_context(
     max_edges: usize,
     operation: &OperationContext,
 ) -> Result<RustokFfaGraph> {
-    build_ffa_violations_with_checkpoint(
-        snapshot,
-        module,
-        surface,
-        max_nodes,
-        max_edges,
-        || operation.check_active().map_err(anyhow::Error::new),
-    )
+    build_ffa_violations_with_checkpoint(snapshot, module, surface, max_nodes, max_edges, || {
+        operation.check_active().map_err(anyhow::Error::new)
+    })
 }
 
 pub(crate) fn build_rustok_fba_module_graph_with_operation_context(
@@ -171,12 +161,7 @@ fn build_ffa_surface_with_checkpoint(
                     && matches!(file_relation.kind, RelationKind::ImplementedBy)
                 {
                     selected_ids.insert(file_relation.to.0.clone());
-                    push_ffa_edge(
-                        &mut edges,
-                        file_relation,
-                        &entity_by_id,
-                        &mut poller,
-                    )?;
+                    push_ffa_edge(&mut edges, file_relation, &entity_by_id, &mut poller)?;
                 }
             }
         }
@@ -357,9 +342,8 @@ fn build_fba_module_with_checkpoint(
         poller.step()?;
         let from = entity_by_id.get(relation.from.0.as_str());
         let to = entity_by_id.get(relation.to.0.as_str());
-        let touches_module = relation.from == module_entity.id
-            || relation.to == module_entity.id
-            || {
+        let touches_module =
+            relation.from == module_entity.id || relation.to == module_entity.id || {
                 let from_key = from
                     .map(|entity| entity.stable_key.0.as_str())
                     .unwrap_or("");
@@ -1250,8 +1234,8 @@ where
 mod tests {
     use athanor_core::CoreError;
     use athanor_domain::{
-        DiagnosticId, DiagnosticStatus, EntityId, EntityKind, RelationId, RelationStatus,
-        Severity, SnapshotId, StableKey,
+        DiagnosticId, DiagnosticStatus, EntityId, EntityKind, RelationId, RelationStatus, Severity,
+        SnapshotId, StableKey,
     };
     use serde_json::json;
 
@@ -1278,11 +1262,7 @@ mod tests {
         );
         let file = entity("file", "file://src/product.rs", "file");
         let fba_catalog = entity("fba-catalog", "fba_module://catalog", "rustok_fba_module");
-        let fba_consumer = entity(
-            "fba-consumer",
-            "fba_module://consumer",
-            "rustok_fba_module",
-        );
+        let fba_consumer = entity("fba-consumer", "fba_module://consumer", "rustok_fba_module");
         let fba_port = entity("fba-port", "fba_port://catalog/read", "rustok_fba_port");
         let fba_operation = entity(
             "fba-operation",
@@ -1371,16 +1351,10 @@ mod tests {
 
         assert_eq!(
             build_rustok_ffa_surface_graph_with_operation_context(
-                &snapshot,
-                "catalog",
-                "product",
-                100,
-                100,
-                &operation,
+                &snapshot, "catalog", "product", 100, 100, &operation,
             )
             .unwrap(),
-            build_rustok_ffa_surface_graph(&snapshot, "catalog", "product", 100, 100)
-                .unwrap()
+            build_rustok_ffa_surface_graph(&snapshot, "catalog", "product", 100, 100).unwrap()
         );
         assert_eq!(
             build_rustok_ffa_violations_graph_with_operation_context(

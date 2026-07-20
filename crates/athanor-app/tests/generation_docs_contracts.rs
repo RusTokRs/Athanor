@@ -2,10 +2,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use athanor_app::{
-    DOCS_APPLY_PATCH_SCHEMA_V1, DOCS_CHECK_SCHEMA_V1, DOCS_DRIFT_SCHEMA_V1,
-    DOCS_PATCH_SCHEMA, DocsApplyPatchReport, DocsCheckReport, DocsDriftReport,
-    DocsFrontmatterChange, DocsPatchOperation, DocsPatchProposal, DocsPolicyViolation,
-    DriftedDocument, GENERATION_SCHEMA_V1, GenerationMetrics, GenerationReport, GenerationStatus,
+    DOCS_APPLY_PATCH_SCHEMA_V1, DOCS_CHECK_SCHEMA_V1, DOCS_DRIFT_SCHEMA_V1, DOCS_PATCH_SCHEMA,
+    DocsApplyPatchReport, DocsCheckReport, DocsDriftReport, DocsFrontmatterChange,
+    DocsPatchOperation, DocsPatchProposal, DocsPolicyViolation, DriftedDocument,
+    GENERATION_SCHEMA_V1, GenerationMetrics, GenerationReport, GenerationStatus,
     VersionedJsonContract, validate_contract_value,
 };
 use serde_json::{Value, json};

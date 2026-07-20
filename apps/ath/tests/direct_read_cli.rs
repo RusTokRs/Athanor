@@ -9,7 +9,14 @@ fn run(args: &[&str]) -> Output {
 
 #[test]
 fn read_help_exposes_optional_deadline() {
-    for command in ["context", "explain", "overview", "impact", "change-map", "search"] {
+    for command in [
+        "context",
+        "explain",
+        "overview",
+        "impact",
+        "change-map",
+        "search",
+    ] {
         let output = run(&[command, "--help"]);
         assert!(
             output.status.success(),
@@ -38,9 +45,7 @@ fn malformed_environment_deadline_fails_closed() {
         .output()
         .expect("run ath CLI");
     assert!(!output.status.success());
-    assert!(
-        stderr(&output).contains("ATHANOR_DEADLINE_UNIX_MS must be an unsigned integer")
-    );
+    assert!(stderr(&output).contains("ATHANOR_DEADLINE_UNIX_MS must be an unsigned integer"));
 }
 
 #[test]

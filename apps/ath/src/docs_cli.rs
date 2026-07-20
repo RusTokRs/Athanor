@@ -2,9 +2,9 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
 use athanor_app::{
-    DocsApplyPatchOptions, DocsApplyPatchReport, DocsCheckOptions, DocsCheckReport, DocsDriftOptions,
-    DocsDriftReport, DocsProposeFixOptions, OperationsDocsCheckOptions, OperationsDocsCheckReport,
-    VersionedDocsProposeFixReport, check_docs_with_composition,
+    DocsApplyPatchOptions, DocsApplyPatchReport, DocsCheckOptions, DocsCheckReport,
+    DocsDriftOptions, DocsDriftReport, DocsProposeFixOptions, OperationsDocsCheckOptions,
+    OperationsDocsCheckReport, VersionedDocsProposeFixReport, check_docs_with_composition,
     check_operations_docs_with_composition, docs_apply_patch_with_composition,
     docs_drift_with_composition,
 };
@@ -84,7 +84,12 @@ pub(crate) fn parse(args: &[String]) -> Result<Option<Command>> {
         Ok(DocsCli {
             command: RootCommand::Docs { command },
         }) => Ok(Some(command)),
-        Err(error) if matches!(error.kind(), ErrorKind::DisplayHelp | ErrorKind::DisplayVersion) => {
+        Err(error)
+            if matches!(
+                error.kind(),
+                ErrorKind::DisplayHelp | ErrorKind::DisplayVersion
+            ) =>
+        {
             error.print().context("failed to print docs help")?;
             std::process::exit(0);
         }
@@ -96,22 +101,16 @@ pub(crate) async fn run(command: Command) -> Result<()> {
     let composition = athanor_runtime_defaults::production();
     match command {
         Command::Check { path, json } => {
-            let report = check_docs_with_composition(
-                DocsCheckOptions { root: path },
-                &composition,
-            )
-            .await?;
+            let report =
+                check_docs_with_composition(DocsCheckOptions { root: path }, &composition).await?;
             render_check(&report, json)?;
             if !report.passed {
                 bail!("documentation completeness gate failed");
             }
         }
         Command::Drift { path, json } => {
-            let report = docs_drift_with_composition(
-                DocsDriftOptions { root: path },
-                &composition,
-            )
-            .await?;
+            let report =
+                docs_drift_with_composition(DocsDriftOptions { root: path }, &composition).await?;
             render_drift(&report, json)?;
         }
         Command::ProposeFix { path, output, json } => {

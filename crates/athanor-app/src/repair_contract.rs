@@ -7,8 +7,7 @@ pub const REPAIR_RECOVER_CANONICAL_SCHEMA_V1: &str = "athanor.repair_recover_can
 pub const REPAIR_APPLY_SCHEMA_V2: &str = "athanor.repair_apply.v2";
 pub const INDEX_GENERATION_CLEANUP_SCHEMA_V1: &str = "athanor.index_generation_cleanup.v1";
 pub const REPAIR_RECOVER_INDEX_SCHEMA_V1: &str = "athanor.repair_recover_index.v1";
-pub const REPAIR_RECOVER_INDEX_CLEANUP_SCHEMA_V1: &str =
-    "athanor.repair_recover_index_cleanup.v1";
+pub const REPAIR_RECOVER_INDEX_CLEANUP_SCHEMA_V1: &str = "athanor.repair_recover_index_cleanup.v1";
 pub const REPAIR_CANONICAL_LATEST_SCHEMA_V1: &str = "athanor.repair_canonical_latest.v1";
 
 macro_rules! impl_repair_contract {

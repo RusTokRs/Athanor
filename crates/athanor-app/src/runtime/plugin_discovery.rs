@@ -5,8 +5,7 @@ use anyhow::{Context, Result};
 
 use super::{AdapterPluginManifest, DiscoveredAdapterPlugin};
 use crate::adapter_contract::{
-    ADAPTER_MANIFEST_SCHEMA_V1, normalize_adapter_manifest_schema,
-    validate_adapter_manifest_schema,
+    ADAPTER_MANIFEST_SCHEMA_V1, normalize_adapter_manifest_schema, validate_adapter_manifest_schema,
 };
 
 /// Discovers adapter manifests from the project-local adapter and plugin directories.

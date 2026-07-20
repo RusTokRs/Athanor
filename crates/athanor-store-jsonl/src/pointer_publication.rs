@@ -117,12 +117,17 @@ mod tests {
 
         result.unwrap();
         assert_eq!(fs::read_to_string(&target).unwrap(), "new");
-        assert!(fs::read_dir(&root).unwrap().filter_map(Result::ok).any(|entry| {
-            entry
-                .file_name()
-                .to_str()
-                .is_some_and(|name| name.starts_with("latest.json.backup-"))
-        }));
+        assert!(
+            fs::read_dir(&root)
+                .unwrap()
+                .filter_map(Result::ok)
+                .any(|entry| {
+                    entry
+                        .file_name()
+                        .to_str()
+                        .is_some_and(|name| name.starts_with("latest.json.backup-"))
+                })
+        );
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -145,9 +150,6 @@ mod tests {
     }
 
     fn test_root(label: &str) -> std::path::PathBuf {
-        std::env::temp_dir().join(format!(
-            "athanor-jsonl-pointer-{label}-{}",
-            unique_suffix()
-        ))
+        std::env::temp_dir().join(format!("athanor-jsonl-pointer-{label}-{}", unique_suffix()))
     }
 }

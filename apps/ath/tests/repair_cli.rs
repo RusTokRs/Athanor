@@ -21,9 +21,7 @@ fn repair_help_lists_transactional_commands() {
 
     let output = run(&["repair", "index-retention", "--help"]);
     assert!(output.status.success(), "stderr: {}", stderr(&output));
-    assert!(
-        String::from_utf8_lossy(&output.stdout).contains("--confirmation-token")
-    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("--confirmation-token"));
 
     let output = run(&["repair", "repair-latest", "--help"]);
     assert!(output.status.success(), "stderr: {}", stderr(&output));

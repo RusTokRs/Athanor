@@ -66,6 +66,9 @@ mod tests {
             snapshot,
             generation: GenerationId("gen_other".to_string()),
         };
-        assert!(matches!(invalid.validate(), Err(CoreError::InvalidInput(_))));
+        assert!(matches!(
+            invalid.validate(),
+            Err(CoreError::InvalidInput(_))
+        ));
     }
 }

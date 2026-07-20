@@ -355,10 +355,12 @@ mod tests {
             ["active", "implemented", "planned", "draft", "verified"]
         );
         assert!(!policy.require_current_snapshot);
-        assert!(!policy
-            .required_fields
-            .iter()
-            .any(|field| field == "last_verified_snapshot"));
+        assert!(
+            !policy
+                .required_fields
+                .iter()
+                .any(|field| field == "last_verified_snapshot")
+        );
     }
 
     #[test]
@@ -366,8 +368,8 @@ mod tests {
         let root = PathBuf::from("project");
         let validation = validate_project_config(ConfigReportOptions { root: root.clone() })
             .expect("default validation report");
-        let doctor = doctor_project_config(ConfigReportOptions { root })
-            .expect("default doctor report");
+        let doctor =
+            doctor_project_config(ConfigReportOptions { root }).expect("default doctor report");
 
         let validation = serde_json::to_value(validation).expect("serialize validation report");
         assert_eq!(validation["schema"], CONFIG_VALIDATE_SCHEMA);

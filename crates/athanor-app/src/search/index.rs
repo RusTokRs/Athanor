@@ -3,13 +3,11 @@ use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use athanor_core::{
-    CanonicalSnapshot, OperationContext, SearchDocument, SearchIndex,
-};
+use athanor_core::{CanonicalSnapshot, OperationContext, SearchDocument, SearchIndex};
 use athanor_domain::Entity;
 
-use super::model::IndexMeta;
 use super::check_active;
+use super::model::IndexMeta;
 
 const SEARCH_REBUILD_POLL_DOCUMENTS: usize = 256;
 
@@ -35,13 +33,7 @@ pub(crate) fn get_or_build_search_index_with_factory_and_operation(
         &OperationContext,
     ) -> Result<Arc<dyn SearchIndex>>,
 ) -> Result<Arc<dyn SearchIndex>> {
-    get_or_build_search_index_inner(
-        snapshot,
-        snapshot_id,
-        index_dir,
-        Some(operation),
-        factory,
-    )
+    get_or_build_search_index_inner(snapshot, snapshot_id, index_dir, Some(operation), factory)
 }
 
 fn get_or_build_search_index_inner(
@@ -93,8 +85,8 @@ fn get_or_build_search_index_inner(
         return Ok(index);
     }
 
-    let index = factory(index_dir, None, operation_for_factory)
-        .context("failed to open search index")?;
+    let index =
+        factory(index_dir, None, operation_for_factory).context("failed to open search index")?;
     check_active(operation)?;
     Ok(index)
 }
@@ -108,10 +100,18 @@ pub fn entity_text(entity: &Entity) -> String {
         parts.push(&source.path);
     }
     parts.extend(entity.aliases.iter().map(String::as_str));
-    if let Some(description) = entity.payload.get("description").and_then(|value| value.as_str()) {
+    if let Some(description) = entity
+        .payload
+        .get("description")
+        .and_then(|value| value.as_str())
+    {
         parts.push(description);
     }
-    if let Some(summary) = entity.payload.get("summary").and_then(|value| value.as_str()) {
+    if let Some(summary) = entity
+        .payload
+        .get("summary")
+        .and_then(|value| value.as_str())
+    {
         parts.push(summary);
     }
     parts.join(" ").to_lowercase()

@@ -16,12 +16,7 @@ fn check_help_exposes_deadline() {
 
 #[test]
 fn malformed_check_deadline_fails_before_project_access() {
-    let output = run(&[
-        "check",
-        "api",
-        "--deadline-unix-ms",
-        "tomorrow",
-    ]);
+    let output = run(&["check", "api", "--deadline-unix-ms", "tomorrow"]);
     assert!(!output.status.success());
     assert!(stderr(&output).contains("invalid value 'tomorrow'"));
 }

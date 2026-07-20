@@ -177,10 +177,7 @@ async fn assert_published(fixture: &Fixture) {
         .state_store
         .load()
         .expect("load pointer-selected index state");
-    assert_eq!(
-        state.snapshot.as_deref(),
-        Some(fixture.snapshot.0.as_str())
-    );
+    assert_eq!(state.snapshot.as_deref(), Some(fixture.snapshot.0.as_str()));
 
     let manifest: serde_json::Value = serde_json::from_slice(
         &fs::read(fixture.output_dir.join("manifest.json")).expect("read current manifest"),

@@ -62,19 +62,15 @@ fn executable_shared_reports_preserve_registered_shapes() {
     assert_eq!(generation["snapshot"].as_str(), Some(snapshot.as_str()));
     assert!(generation["metrics"].is_object());
 
-    let wiki = run_json(&[
-        "wiki",
-        root_arg,
-        "--output",
-        "parity-wiki",
-        "--json",
-    ]);
+    let wiki = run_json(&["wiki", root_arg, "--output", "parity-wiki", "--json"]);
     assert_eq!(wiki["schema"], "athanor.wiki_report.v1");
     assert_eq!(wiki["snapshot"].as_str(), Some(snapshot.as_str()));
-    assert!(wiki["output_dir"]
-        .as_str()
-        .expect("wiki output directory")
-        .ends_with("parity-wiki"));
+    assert!(
+        wiki["output_dir"]
+            .as_str()
+            .expect("wiki output directory")
+            .ends_with("parity-wiki")
+    );
 
     let html = run_json(&[
         "report",
@@ -86,10 +82,12 @@ fn executable_shared_reports_preserve_registered_shapes() {
     ]);
     assert_eq!(html["schema"], "athanor.html_report.v1");
     assert_eq!(html["snapshot"].as_str(), Some(snapshot.as_str()));
-    assert!(html["output_dir"]
-        .as_str()
-        .expect("HTML output directory")
-        .ends_with("parity-html"));
+    assert!(
+        html["output_dir"]
+            .as_str()
+            .expect("HTML output directory")
+            .ends_with("parity-html")
+    );
 
     for report in [&wiki, &html] {
         assert!(report["entities"].is_number());

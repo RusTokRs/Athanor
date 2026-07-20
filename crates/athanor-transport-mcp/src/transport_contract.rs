@@ -68,7 +68,11 @@ pub fn validate_json_rpc_request(value: &Value) -> Result<(), McpTransportContra
 
 pub fn validate_json_rpc_response(value: &Value) -> Result<(), McpTransportContractError> {
     let response = object(value, "JSON-RPC response")?;
-    version(response.get("jsonrpc"), JSON_RPC_VERSION, "JSON-RPC response")?;
+    version(
+        response.get("jsonrpc"),
+        JSON_RPC_VERSION,
+        "JSON-RPC response",
+    )?;
     let has_result = response.contains_key("result");
     let has_error = response.contains_key("error");
     if has_result == has_error {

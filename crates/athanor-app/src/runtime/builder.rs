@@ -4,9 +4,7 @@ use anyhow::{Result, bail};
 use athanor_core::{KnowledgeStore, SourceProvider};
 use tracing::warn;
 
-use super::process_adapter_support::{
-    ProcessCommand, resolve_external_process_allowlist,
-};
+use super::process_adapter_support::{ProcessCommand, resolve_external_process_allowlist};
 use super::{AdapterRegistry, BuiltinAdapterResolver};
 use crate::{IndexPipeline, RuntimeComposition};
 

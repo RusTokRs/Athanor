@@ -45,9 +45,8 @@ pub(super) fn build_affected_check_report(
         })
         .cloned()
         .collect::<Vec<_>>();
-    diagnostics.sort_by_key(|diagnostic| {
-        (severity_rank(diagnostic.severity), diagnostic.id.0.clone())
-    });
+    diagnostics
+        .sort_by_key(|diagnostic| (severity_rank(diagnostic.severity), diagnostic.id.0.clone()));
 
     Ok(AffectedCheckReport {
         schema: AFFECTED_CHECK_SCHEMA_V1.to_string(),

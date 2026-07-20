@@ -263,18 +263,10 @@ fn publish_current_generation(root: &Path, journal: &IndexCurrentPublicationJour
         &journal.generation,
         "immutable index state",
     )?;
-    crate::artifact_checksum::validate_read_model_matches(
-        &source_read_model,
-        &target_read_model,
-    )?;
-    crate::artifact_checksum::validate_file_matches(
-        &source_state,
-        &target_state,
-        "index state",
-    )?;
+    crate::artifact_checksum::validate_read_model_matches(&source_read_model, &target_read_model)?;
+    crate::artifact_checksum::validate_file_matches(&source_state, &target_state, "index state")?;
 
-    let read_model_manifest_sha256 =
-        crate::artifact_checksum::seal_read_model(&target_read_model)?;
+    let read_model_manifest_sha256 = crate::artifact_checksum::seal_read_model(&target_read_model)?;
     let index_state_sha256 = crate::artifact_checksum::sha256_file(&target_state)?;
     let current = IndexCurrent::for_snapshot_with_checksums(
         journal.snapshot.clone(),

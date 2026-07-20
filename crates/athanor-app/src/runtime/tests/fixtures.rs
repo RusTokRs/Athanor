@@ -54,7 +54,10 @@ fn sh_json_command(json: &str) -> AdapterProcessCommand {
         program: sh_path().display().to_string(),
         args: vec![
             "-c".to_string(),
-            format!("cat >/dev/null; printf '%s' '{}'", json.replace('\'', "'\\''")),
+            format!(
+                "cat >/dev/null; printf '%s' '{}'",
+                json.replace('\'', "'\\''")
+            ),
         ],
     }
 }
@@ -135,8 +138,7 @@ pub(super) fn failing_command() -> ProcessCommand {
         args: vec![
             "-NoProfile".to_string(),
             "-Command".to_string(),
-            "$input | Out-Null; [Console]::Error.Write('intentional failure'); exit 7"
-                .to_string(),
+            "$input | Out-Null; [Console]::Error.Write('intentional failure'); exit 7".to_string(),
         ],
         working_dir: test_working_dir(),
         expected_content_hash: None,
@@ -163,7 +165,11 @@ pub(super) fn failing_command() -> ProcessCommand {
 #[cfg(windows)]
 pub(super) fn powershell_path() -> PathBuf {
     let path = PathBuf::from(r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe");
-    assert!(path.is_file(), "powershell.exe not found at {}", path.display());
+    assert!(
+        path.is_file(),
+        "powershell.exe not found at {}",
+        path.display()
+    );
     path
 }
 

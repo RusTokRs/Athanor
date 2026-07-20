@@ -67,7 +67,12 @@ pub(crate) fn parse(args: &[String]) -> Result<Option<Command>> {
         Ok(ProjectsCli {
             command: RootCommand::Projects { command },
         }) => Ok(Some(command)),
-        Err(error) if matches!(error.kind(), ErrorKind::DisplayHelp | ErrorKind::DisplayVersion) => {
+        Err(error)
+            if matches!(
+                error.kind(),
+                ErrorKind::DisplayHelp | ErrorKind::DisplayVersion
+            ) =>
+        {
             error.print().context("failed to print projects help")?;
             std::process::exit(0);
         }

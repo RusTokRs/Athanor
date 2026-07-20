@@ -10,9 +10,7 @@ use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{Mutex, mpsc};
 
-use super::lifecycle::{
-    close_stdin, log_request_task, process_line, run_mcp_server_io,
-};
+use super::lifecycle::{close_stdin, log_request_task, process_line, run_mcp_server_io};
 use super::operation::{
     cancel_notification, request_key, run_registered_drained_read, run_registered_read,
 };
@@ -46,18 +44,14 @@ async fn protocol_errors_use_standard_json_rpc_codes() {
         -32600
     );
     assert_eq!(
-        exchange(&[r#"{"jsonrpc":"2.0","id":8,"method":"tools/list"}"#])
-            .await[0]["error"]["code"],
+        exchange(&[r#"{"jsonrpc":"2.0","id":8,"method":"tools/list"}"#]).await[0]["error"]["code"],
         -32002
     );
 }
 
 #[tokio::test]
 async fn omitted_id_is_notification_but_explicit_null_receives_response() {
-    let notification = exchange(&[
-        r#"{"jsonrpc":"2.0","method":"unknown/notification"}"#,
-    ])
-    .await;
+    let notification = exchange(&[r#"{"jsonrpc":"2.0","method":"unknown/notification"}"#]).await;
     assert!(notification.is_empty());
     let explicit_null = exchange(&[
         r#"{"jsonrpc":"2.0","id":null,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}"#,
@@ -292,11 +286,7 @@ async fn cancellation_notification_terminates_registered_read() {
         .await
     });
     wait_until_registered(&active_reads, "\"request-1\"").await;
-    cancel_notification(
-        &active_reads,
-        Some(&json!({ "requestId": "request-1" })),
-    )
-    .await;
+    cancel_notification(&active_reads, Some(&json!({ "requestId": "request-1" }))).await;
     let error = task.await.unwrap().expect_err("cancelled read must fail");
     assert!(error.chain().any(|cause| matches!(
         cause.downcast_ref::<CoreError>(),
@@ -344,8 +334,14 @@ async fn drained_read_waits_for_operation_future_cleanup() {
 #[test]
 fn default_server_limits_are_bounded() {
     let limits = McpServerLimits::default().validate().unwrap();
-    assert_eq!(limits.max_in_flight_requests, DEFAULT_MAX_IN_FLIGHT_REQUESTS);
-    assert_eq!(limits.response_queue_capacity, DEFAULT_RESPONSE_QUEUE_CAPACITY);
+    assert_eq!(
+        limits.max_in_flight_requests,
+        DEFAULT_MAX_IN_FLIGHT_REQUESTS
+    );
+    assert_eq!(
+        limits.response_queue_capacity,
+        DEFAULT_RESPONSE_QUEUE_CAPACITY
+    );
 }
 
 #[test]

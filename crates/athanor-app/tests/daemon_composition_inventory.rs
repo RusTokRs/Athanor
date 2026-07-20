@@ -29,10 +29,10 @@ fn daemon_query_and_derived_read_paths_use_total_composition() {
     assert!(!QUERIES_SOURCE.contains("use crate::store::init_store"));
     assert!(!QUERIES_SOURCE.contains("get_or_build_search_index_with_operation_context"));
 
-    assert!(DERIVED_READ_SOURCE
-        .contains("context_project_with_composition_and_operation_context"));
-    assert!(DERIVED_READ_SOURCE
-        .contains("change_map_project_with_composition_and_operation_context"));
+    assert!(DERIVED_READ_SOURCE.contains("context_project_with_composition_and_operation_context"));
+    assert!(
+        DERIVED_READ_SOURCE.contains("change_map_project_with_composition_and_operation_context")
+    );
     assert!(!DERIVED_READ_SOURCE.contains("match crate::daemon_queries::composition"));
     assert!(!DERIVED_READ_SOURCE.contains("daemon runtime composition is unavailable"));
     assert!(!DERIVED_READ_SOURCE.contains("context_project_with_operation_context,"));
@@ -49,9 +49,10 @@ fn daemon_write_jobs_use_total_composition() {
     ] {
         assert!(WRITE_JOBS_SOURCE.contains(symbol));
     }
-    assert!(WRITE_JOBS_SOURCE.contains(
-        "fn required_composition(state: &DaemonState) -> crate::RuntimeComposition"
-    ));
+    assert!(
+        WRITE_JOBS_SOURCE
+            .contains("fn required_composition(state: &DaemonState) -> crate::RuntimeComposition")
+    );
     assert!(!WRITE_JOBS_SOURCE.contains("daemon runtime composition is unavailable"));
     assert!(!WRITE_JOBS_SOURCE.contains("required_composition(state)?"));
     assert!(!WRITE_JOBS_SOURCE.contains("match composition"));
@@ -74,7 +75,10 @@ fn daemon_dispatch_ownership_is_bounded() {
     assert!(READ_TEST_SOURCE.contains("hard_deadline_returns_stable_error_and_fails_job"));
     assert!(READ_TEST_SOURCE.contains("composition: crate::test_runtime::composition()"));
     assert!(WRITE_TEST_SOURCE.contains("daemon_index_result_matches_public_index_report_shape"));
-    assert!(WRITE_TEST_SOURCE.contains("daemon_generation_result_matches_public_generation_report_shape"));
+    assert!(
+        WRITE_TEST_SOURCE
+            .contains("daemon_generation_result_matches_public_generation_report_shape")
+    );
     assert!(WRITE_TEST_SOURCE.contains("daemon_html_result_matches_public_html_report_shape"));
     assert!(WRITE_TEST_SOURCE.contains("daemon_wiki_result_matches_public_wiki_report_shape"));
 

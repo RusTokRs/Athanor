@@ -5,9 +5,7 @@ use anyhow::{Context, Result};
 use athanor_core::CanonicalSnapshotStore;
 use athanor_domain::{EntityKind, RelationKind};
 
-use crate::api::{
-    ApiSnapshotOptions, ApiSnapshotReport, publish_api_contract_snapshot,
-};
+use crate::api::{ApiSnapshotOptions, ApiSnapshotReport, publish_api_contract_snapshot};
 use crate::api_registry::{ApiRegistryEndpoint, ApiRegistryOptions, ApiRegistryReport};
 use crate::composition::RuntimeComposition;
 use crate::config::load_config;
@@ -25,12 +23,7 @@ pub(super) async fn snapshot(
         .await
         .context("failed to load latest canonical snapshot")?
         .ok_or_else(|| anyhow::anyhow!("no canonical snapshot found; run `ath index` first"))?;
-    publish_api_contract_snapshot(
-        &root,
-        &canonical,
-        &config.api.retention,
-        &options.retention,
-    )
+    publish_api_contract_snapshot(&root, &canonical, &config.api.retention, &options.retention)
 }
 
 pub(super) async fn registry(

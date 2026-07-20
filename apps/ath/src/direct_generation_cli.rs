@@ -103,7 +103,12 @@ pub(crate) fn parse(args: &[String]) -> Result<Option<Command>> {
         Ok(DirectGenerationCli {
             command: RootCommand::Generate { path, json },
         }) => Ok(Some(Command::Generate { path, json })),
-        Err(error) if matches!(error.kind(), ErrorKind::DisplayHelp | ErrorKind::DisplayVersion) => {
+        Err(error)
+            if matches!(
+                error.kind(),
+                ErrorKind::DisplayHelp | ErrorKind::DisplayVersion
+            ) =>
+        {
             error
                 .print()
                 .context("failed to print direct generation help")?;
@@ -118,11 +123,9 @@ pub(crate) async fn run(command: Command) -> Result<()> {
 
     match command {
         Command::Wiki { path, output, json } => {
-            let report = project_wiki_with_composition(
-                WikiOptions { root: path, output },
-                &composition,
-            )
-            .await?;
+            let report =
+                project_wiki_with_composition(WikiOptions { root: path, output }, &composition)
+                    .await?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {

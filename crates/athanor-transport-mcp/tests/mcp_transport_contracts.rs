@@ -39,12 +39,10 @@ fn standard_mcp_transport_fixture_is_valid() {
     validate_json_rpc_request(&fixture["request"]).expect("valid JSON-RPC request");
     validate_json_rpc_response(&fixture["success_response"])
         .expect("valid JSON-RPC success response");
-    validate_json_rpc_response(&fixture["error_response"])
-        .expect("valid JSON-RPC error response");
+    validate_json_rpc_response(&fixture["error_response"]).expect("valid JSON-RPC error response");
     validate_tool_call_result(&fixture["tool_success"]).expect("valid MCP tool success result");
     validate_tool_call_result(&fixture["tool_error"]).expect("valid MCP tool error result");
-    validate_initialize_result(&fixture["initialize_result"])
-        .expect("valid MCP initialize result");
+    validate_initialize_result(&fixture["initialize_result"]).expect("valid MCP initialize result");
 
     assert_eq!(fixture["request"]["jsonrpc"], JSON_RPC_VERSION);
     assert_eq!(
@@ -117,12 +115,13 @@ fn active_mcp_dispatch_is_explicitly_composed() {
     assert!(TOOLS_ROOT_SOURCE.contains("mod dispatch;"));
     assert!(TOOLS_ROOT_SOURCE.contains("mod schema;"));
     assert!(TOOLS_DISPATCH_SOURCE.contains("index_project_with_composition"));
-    assert!(TOOLS_DISPATCH_SOURCE.contains(
-        "search_project_with_composition_and_operation_context"
-    ));
-    assert!(TOOLS_DISPATCH_SOURCE.contains(
-        "rustok_architecture_context_with_composition_and_operation_context"
-    ));
+    assert!(
+        TOOLS_DISPATCH_SOURCE.contains("search_project_with_composition_and_operation_context")
+    );
+    assert!(
+        TOOLS_DISPATCH_SOURCE
+            .contains("rustok_architecture_context_with_composition_and_operation_context")
+    );
     assert!(!TOOLS_DISPATCH_SOURCE.contains("athanor_runtime_defaults::install()"));
 }
 

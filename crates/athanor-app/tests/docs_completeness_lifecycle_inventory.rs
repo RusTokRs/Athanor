@@ -4,8 +4,7 @@ const ROOT_CONFIG: &str = include_str!("../../../athanor.toml");
 const CONFIG_SOURCE: &str = include_str!("../src/config.rs");
 const INIT_SOURCE: &str = include_str!("../src/init.rs");
 const CHECK_SOURCE: &str = include_str!("../src/docs/check.rs");
-const POLICY_GUIDE: &str =
-    include_str!("../../../docs/development/docs-completeness-policy.md");
+const POLICY_GUIDE: &str = include_str!("../../../docs/development/docs-completeness-policy.md");
 
 const REQUIRED_FIELDS: &[&str] = &["id", "kind", "language", "source_language", "status"];
 const ALLOWED_STATUSES: &[&str] = &["active", "implemented", "planned", "draft", "verified"];
@@ -52,9 +51,9 @@ fn defaults_init_template_and_repository_policy_share_one_lifecycle() {
         ));
     }
     assert!(INIT_SOURCE.contains("generated_config_parses_as_the_current_contract"));
-    assert!(CONFIG_SOURCE.contains(
-        "default_docs_policy_separates_completeness_from_snapshot_drift"
-    ));
+    assert!(
+        CONFIG_SOURCE.contains("default_docs_policy_separates_completeness_from_snapshot_drift")
+    );
 }
 
 #[test]
@@ -71,7 +70,10 @@ fn completeness_and_snapshot_drift_remain_separate_contracts() {
         "allowed_statuses` is a lifecycle vocabulary, not execution evidence",
         "Snapshot freshness remains separately observable through",
     ] {
-        assert!(POLICY_GUIDE.contains(statement), "policy guide omits {statement}");
+        assert!(
+            POLICY_GUIDE.contains(statement),
+            "policy guide omits {statement}"
+        );
     }
 }
 

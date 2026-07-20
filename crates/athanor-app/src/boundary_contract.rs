@@ -12,8 +12,7 @@ use serde_json::Value;
 
 use crate::json_contract::{JsonContractDescriptor, validate_schema_id};
 
-pub const PROCESS_ADAPTER_FRAMING: &str =
-    "newline-terminated-json-stdin/single-json-stdout";
+pub const PROCESS_ADAPTER_FRAMING: &str = "newline-terminated-json-stdin/single-json-stdout";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JsonBoundaryClass {
@@ -130,7 +129,13 @@ pub const NON_PUBLIC_JSON_CONTRACTS: &[NonPublicJsonContractDescriptor] = &[
         "IndexCurrent",
         Persisted,
         LegacyInput,
-        ["schema", "generation", "snapshot", "read_model", "index_state"]
+        [
+            "schema",
+            "generation",
+            "snapshot",
+            "read_model",
+            "index_state"
+        ]
     ),
     boundary!(
         "athanor.index_state.v46",
@@ -151,7 +156,14 @@ pub const NON_PUBLIC_JSON_CONTRACTS: &[NonPublicJsonContractDescriptor] = &[
         "IndexPublicationJournal",
         Persisted,
         Current,
-        ["schema", "prepared", "generation", "id", "read_model", "index_state"]
+        [
+            "schema",
+            "prepared",
+            "generation",
+            "id",
+            "read_model",
+            "index_state"
+        ]
     ),
     boundary!(
         crate::index_publication_journal::INDEX_PUBLICATION_JOURNAL_SCHEMA_V2,
@@ -469,7 +481,10 @@ pub fn validate_non_public_contract_value(
     let object = value.as_object().ok_or_else(|| {
         BoundaryContractError(format!("{} document must be an object", descriptor.schema))
     })?;
-    let actual = object.get("schema").and_then(Value::as_str).unwrap_or("<missing>");
+    let actual = object
+        .get("schema")
+        .and_then(Value::as_str)
+        .unwrap_or("<missing>");
     if actual != descriptor.schema {
         return Err(BoundaryContractError(format!(
             "document schema {actual} does not match {}",
@@ -492,8 +507,18 @@ pub fn validate_process_protocol_value(
     request: &Value,
     response: &Value,
 ) -> Result<(), BoundaryContractError> {
-    validate_shape(descriptor.name, "request", descriptor.request_shape, request)?;
-    validate_shape(descriptor.name, "response", descriptor.response_shape, response)
+    validate_shape(
+        descriptor.name,
+        "request",
+        descriptor.request_shape,
+        request,
+    )?;
+    validate_shape(
+        descriptor.name,
+        "response",
+        descriptor.response_shape,
+        response,
+    )
 }
 
 fn validate_shape(

@@ -84,11 +84,7 @@ pub(super) fn operation_doc_diagnostic_shape(
     }
 }
 
-pub(super) fn operation_doc_path(
-    editable_path: &str,
-    prefix: &str,
-    entity: &Entity,
-) -> String {
+pub(super) fn operation_doc_path(editable_path: &str, prefix: &str, entity: &Entity) -> String {
     let slug = slug_for_path(&entity.stable_key.0, entity.name.as_str());
     format!(
         "{}/operations/{}-{}.md",

@@ -3,9 +3,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use athanor_app::RuntimeComposition;
-use tokio::io::{
-    self, AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader,
-};
+use tokio::io::{self, AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{Mutex, mpsc};
 use tokio::task::JoinError;
@@ -197,11 +195,7 @@ pub(super) async fn close_stdin(active_reads: &ActiveReads, stdin_open: &mut boo
 ///
 /// Ordinary request tasks retain bounded `send().await` backpressure. Inline responses must not hold
 /// the only stdin reader while the queue is full, because that would starve cancellation and EOF.
-fn admit_inline_response(
-    responses: &mpsc::Sender<String>,
-    response: String,
-    response_kind: &str,
-) {
+fn admit_inline_response(responses: &mpsc::Sender<String>, response: String, response_kind: &str) {
     match responses.try_send(response) {
         Ok(()) => {}
         Err(TrySendError::Full(_)) => eprintln!(
@@ -213,10 +207,7 @@ fn admit_inline_response(
     }
 }
 
-async fn write_responses<W>(
-    mut writer: W,
-    mut responses: mpsc::Receiver<String>,
-) -> io::Result<()>
+async fn write_responses<W>(mut writer: W, mut responses: mpsc::Receiver<String>) -> io::Result<()>
 where
     W: AsyncWrite + Unpin,
 {

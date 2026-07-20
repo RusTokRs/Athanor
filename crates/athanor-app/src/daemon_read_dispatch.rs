@@ -39,7 +39,11 @@ pub(crate) async fn execute(
             deadline_unix_ms,
         } => {
             if top == 0 || top > 100 {
-                return invalid_input(&state, &request_id, "overview top must be between 1 and 100");
+                return invalid_input(
+                    &state,
+                    &request_id,
+                    "overview top must be between 1 and 100",
+                );
             }
             let operation = operation_context("overview", &request_id, deadline_unix_ms);
             let job_id = match start_read_job(
@@ -96,7 +100,11 @@ pub(crate) async fn execute(
                 return invalid_input(&state, &request_id, "search query must not be empty");
             }
             if limit == 0 || limit > 100 {
-                return invalid_input(&state, &request_id, "search limit must be between 1 and 100");
+                return invalid_input(
+                    &state,
+                    &request_id,
+                    "search limit must be between 1 and 100",
+                );
             }
             let query = query.trim().to_string();
             let operation = operation_context("search", &request_id, deadline_unix_ms);
@@ -112,10 +120,7 @@ pub(crate) async fn execute(
             let result = within_operation_deadline(
                 &operation,
                 crate::daemon_queries::search_with_operation_context(
-                    &state,
-                    query,
-                    limit,
-                    &operation,
+                    &state, query, limit, &operation,
                 ),
             )
             .await;
@@ -144,11 +149,7 @@ pub(crate) async fn execute(
             let result = within_operation_deadline(
                 &operation,
                 crate::daemon_queries::context_with_operation_context(
-                    &state,
-                    &task,
-                    level,
-                    &limits,
-                    &operation,
+                    &state, &task, level, &limits, &operation,
                 ),
             )
             .await;
@@ -215,13 +216,7 @@ fn finish_read<T: Serialize>(
 ) -> (DaemonResponse, bool) {
     match result {
         Ok(result) => {
-            let _ = finish(
-                state,
-                job_id,
-                DaemonJobStatus::Succeeded,
-                None,
-                None,
-            );
+            let _ = finish(state, job_id, DaemonJobStatus::Succeeded, None, None);
             (
                 success_response(
                     request_id,
@@ -240,11 +235,7 @@ fn finish_read<T: Serialize>(
     }
 }
 
-fn invalid_input(
-    state: &DaemonState,
-    request_id: &str,
-    message: &str,
-) -> (DaemonResponse, bool) {
+fn invalid_input(state: &DaemonState, request_id: &str, message: &str) -> (DaemonResponse, bool) {
     (
         error_response_with_code(
             request_id,

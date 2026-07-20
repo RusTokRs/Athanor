@@ -57,20 +57,18 @@ fn index_publishes_checksum_bound_pointer_and_repair_detects_tampering() {
 
     fs::remove_dir_all(&root).unwrap();
     let root = indexed_root("missing-file");
-    let pointer: Value = serde_json::from_slice(
-        &fs::read(root.join(".athanor/state/index-current.json")).unwrap(),
-    )
-    .unwrap();
+    let pointer: Value =
+        serde_json::from_slice(&fs::read(root.join(".athanor/state/index-current.json")).unwrap())
+            .unwrap();
     let read_model = root.join(pointer["read_model"].as_str().unwrap());
     fs::remove_file(read_model.join("facts.jsonl")).unwrap();
     assert_checksum_issue(&root);
 
     fs::remove_dir_all(&root).unwrap();
     let root = indexed_root("state-tamper");
-    let pointer: Value = serde_json::from_slice(
-        &fs::read(root.join(".athanor/state/index-current.json")).unwrap(),
-    )
-    .unwrap();
+    let pointer: Value =
+        serde_json::from_slice(&fs::read(root.join(".athanor/state/index-current.json")).unwrap())
+            .unwrap();
     fs::write(root.join(pointer["index_state"].as_str().unwrap()), "{}\n").unwrap();
     assert_checksum_issue(&root);
     fs::remove_dir_all(root).unwrap();

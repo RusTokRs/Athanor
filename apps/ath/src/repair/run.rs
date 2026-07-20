@@ -1,7 +1,7 @@
 use anyhow::Result;
 use athanor_app::{
-    IndexGenerationCleanupOptions, RepairCanonicalLatestOptions,
-    RepairRecoverIndexCleanupOptions, RepairRecoverIndexOptions,
+    IndexGenerationCleanupOptions, RepairCanonicalLatestOptions, RepairRecoverIndexCleanupOptions,
+    RepairRecoverIndexOptions,
 };
 
 use super::model::Command;

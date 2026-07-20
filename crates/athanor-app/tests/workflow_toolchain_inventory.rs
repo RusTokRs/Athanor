@@ -31,7 +31,9 @@ fn active_workflows_use_the_local_setup_without_version_encoded_action_pins() {
             !workflow.contains("dtolnay/rust-toolchain@"),
             "{name} retains a version-encoded rust-toolchain action"
         );
-        let uses = workflow.matches("uses: ./.github/actions/setup-rust").count();
+        let uses = workflow
+            .matches("uses: ./.github/actions/setup-rust")
+            .count();
         assert!(
             uses >= minimum_uses,
             "{name} has only {uses} repository-owned Rust setup uses"

@@ -9,8 +9,7 @@ use serde::Serialize;
 use crate::RuntimeComposition;
 use crate::project_path::normalize_canonical_path;
 
-pub const ENTITY_EXPLANATION_SCHEMA: &str =
-    crate::json_contract::ENTITY_EXPLANATION_SCHEMA_V1;
+pub const ENTITY_EXPLANATION_SCHEMA: &str = crate::json_contract::ENTITY_EXPLANATION_SCHEMA_V1;
 
 #[derive(Debug, Clone)]
 pub struct ExplainOptions {

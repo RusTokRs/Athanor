@@ -99,13 +99,7 @@ pub async fn index_project_with_composition(
     options: IndexOptions,
     composition: &RuntimeComposition,
 ) -> Result<IndexReport> {
-    index_project_inner(
-        options,
-        None,
-        composition,
-        OperationContext::new("index"),
-    )
-    .await
+    index_project_inner(options, None, composition, OperationContext::new("index")).await
 }
 
 /// Indexes with explicit dependencies and transport-neutral operation metadata.

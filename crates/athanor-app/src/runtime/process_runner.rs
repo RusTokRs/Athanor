@@ -10,7 +10,7 @@ use athanor_core::{
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
 
-use crate::{CancellationToken, CancellableProcessRunner};
+use crate::{CancellableProcessRunner, CancellationToken};
 
 /// Tokio implementation of the transport-neutral [`ProcessRunner`] port.
 #[derive(Debug, Default, Clone, Copy)]
@@ -84,9 +84,10 @@ async fn execute_process(
     })?;
     let mut stdout_reader = tokio::spawn(read_limited(stdout, request.limits.max_stdout_bytes));
     let mut stderr_reader = tokio::spawn(read_limited(stderr, request.limits.max_stderr_bytes));
-    let mut stdin = child.stdin.take().ok_or_else(|| {
-        CoreError::Adapter(format!("failed to open stdin for {}", request.label))
-    })?;
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| CoreError::Adapter(format!("failed to open stdin for {}", request.label)))?;
     let deadline = tokio::time::Instant::now() + Duration::from_millis(request.limits.timeout_ms);
 
     let write_result = tokio::select! {

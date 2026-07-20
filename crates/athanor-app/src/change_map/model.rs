@@ -1,9 +1,7 @@
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-use athanor_domain::{
-    Diagnostic, DiagnosticId, Entity, EntityId, Evidence, Relation,
-};
+use athanor_domain::{Diagnostic, DiagnosticId, Entity, EntityId, Evidence, Relation};
 use serde::{Deserialize, Serialize};
 
 use crate::impact::FlowDirection;

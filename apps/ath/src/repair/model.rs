@@ -187,10 +187,7 @@ fn parse_repair_latest(args: &[String]) -> Result<Command> {
     })
 }
 
-fn parse_recovery_flags(
-    args: &[String],
-    command: &str,
-) -> Result<(PathBuf, bool, bool, bool)> {
+fn parse_recovery_flags(args: &[String], command: &str) -> Result<(PathBuf, bool, bool, bool)> {
     if args.iter().any(|arg| arg == "--help" || arg == "-h") {
         return Ok((PathBuf::from("."), false, false, true));
     }

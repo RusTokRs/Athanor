@@ -49,7 +49,10 @@ fn automation_registry_owns_the_evidence_document() {
     assert_eq!(AUTOMATION_JSON_CONTRACTS.len(), 1);
     let contract = AUTOMATION_JSON_CONTRACTS[0];
     assert_eq!(contract.schema, VERIFICATION_EVIDENCE_SCHEMA_V1);
-    assert_eq!(contract.owner, ".github/workflows/verification-evidence.yml");
+    assert_eq!(
+        contract.owner,
+        ".github/workflows/verification-evidence.yml"
+    );
     for field in [
         "schema",
         "workflow",
@@ -71,12 +74,8 @@ fn automation_registry_owns_the_evidence_document() {
 fn evidence_only_commit_cannot_create_a_ci_loop() {
     assert!(CI_WORKFLOW.contains("paths-ignore:"));
     assert!(CI_WORKFLOW.contains("docs/development/verification-evidence.json"));
-    assert!(EVIDENCE_WORKFLOW.contains(
-        "git add docs/development/verification-evidence.json"
-    ));
-    assert!(EVIDENCE_WORKFLOW.contains(
-        "chore(verification): record CI evidence [skip ci]"
-    ));
+    assert!(EVIDENCE_WORKFLOW.contains("git add docs/development/verification-evidence.json"));
+    assert!(EVIDENCE_WORKFLOW.contains("chore(verification): record CI evidence [skip ci]"));
     assert!(!EVIDENCE_WORKFLOW.contains("git add ."));
 }
 
@@ -153,10 +152,7 @@ fn optional_recorded_evidence_is_strictly_validated() {
     let bytes = fs::read(&path)
         .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
     let payload: Value = serde_json::from_slice(&bytes).unwrap_or_else(|error| {
-        panic!(
-            "invalid verification evidence {}: {error}",
-            path.display()
-        )
+        panic!("invalid verification evidence {}: {error}", path.display())
     });
 
     assert_eq!(

@@ -5,8 +5,8 @@ use athanor_domain::{DiagnosticStatus, Entity, EntityKind, RelationKind, Severit
 
 use super::model::{
     ApiOverview, DiagnosticOverview, DocsOverview, EntityOverview, IntegrationBoundaryOverview,
-    ModuleOverview, NamedCount, OperationsOverview, OverviewTotals, RepositoryOverview,
-    OVERVIEW_SCHEMA,
+    ModuleOverview, NamedCount, OVERVIEW_SCHEMA, OperationsOverview, OverviewTotals,
+    RepositoryOverview,
 };
 
 pub fn build_repository_overview(snapshot: &CanonicalSnapshot, top: usize) -> RepositoryOverview {
@@ -265,10 +265,13 @@ fn diagnostic_overviews(snapshot: &CanonicalSnapshot, top: usize) -> Vec<Diagnos
             severity: severity_rank_name(diagnostic.severity).to_string(),
             title: diagnostic.title.clone(),
             source: diagnostic.evidence.iter().find_map(|evidence| {
-                evidence.source_file.as_ref().map(|path| match evidence.line_start {
-                    Some(line) => format!("{path}:{line}"),
-                    None => path.clone(),
-                })
+                evidence
+                    .source_file
+                    .as_ref()
+                    .map(|path| match evidence.line_start {
+                        Some(line) => format!("{path}:{line}"),
+                        None => path.clone(),
+                    })
             }),
         })
         .collect::<Vec<_>>();
@@ -319,10 +322,13 @@ fn entity_overview(entity: &Entity, degree: usize) -> EntityOverview {
 }
 
 fn entity_source_anchor(entity: &Entity) -> Option<String> {
-    entity.source.as_ref().map(|source| match source.line_start {
-        Some(line) => format!("{}:{line}", source.path),
-        None => source.path.clone(),
-    })
+    entity
+        .source
+        .as_ref()
+        .map(|source| match source.line_start {
+            Some(line) => format!("{}:{line}", source.path),
+            None => source.path.clone(),
+        })
 }
 
 fn top_counts(values: impl IntoIterator<Item = String>, top: usize) -> Vec<NamedCount> {

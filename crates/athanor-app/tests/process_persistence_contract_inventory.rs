@@ -171,12 +171,12 @@ fn collect_rust_sources(path: &Path, sources: &mut Vec<PathBuf>) {
     let entries = fs::read_dir(path)
         .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
     for entry in entries {
-        let entry = entry
-            .unwrap_or_else(|error| panic!("failed to inspect {}: {error}", path.display()));
+        let entry =
+            entry.unwrap_or_else(|error| panic!("failed to inspect {}: {error}", path.display()));
         let child = entry.path();
-        let file_type = entry.file_type().unwrap_or_else(|error| {
-            panic!("failed to inspect {}: {error}", child.display())
-        });
+        let file_type = entry
+            .file_type()
+            .unwrap_or_else(|error| panic!("failed to inspect {}: {error}", child.display()));
         if file_type.is_dir() {
             if child.file_name().and_then(OsStr::to_str) != Some("target") {
                 collect_rust_sources(&child, sources);
@@ -186,7 +186,10 @@ fn collect_rust_sources(path: &Path, sources: &mut Vec<PathBuf>) {
         if !file_type.is_file() || child.extension().and_then(OsStr::to_str) != Some("rs") {
             continue;
         }
-        let stem = child.file_stem().and_then(OsStr::to_str).unwrap_or_default();
+        let stem = child
+            .file_stem()
+            .and_then(OsStr::to_str)
+            .unwrap_or_default();
         if stem == "tests" || stem.ends_with("_test") || stem.ends_with("_tests") {
             continue;
         }

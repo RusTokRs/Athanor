@@ -62,11 +62,7 @@ fn representative_ffa_contracts_match_golden_fixture() {
         surface: Some("products".to_string()),
         nodes: vec![
             node("core", "Catalog core", "src/catalog/core.rs"),
-            node(
-                "transport",
-                "Catalog transport",
-                "src/catalog/transport.rs",
-            ),
+            node("transport", "Catalog transport", "src/catalog/transport.rs"),
         ],
         edges: vec![RustokFfaGraphEdge {
             from: "core".to_string(),

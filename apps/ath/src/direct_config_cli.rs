@@ -56,8 +56,15 @@ pub(crate) fn parse(args: &[String]) -> Result<Option<Command>> {
         Ok(DirectConfigCli {
             command: RootCommand::Config { command },
         }) => Ok(Some(command)),
-        Err(error) if matches!(error.kind(), ErrorKind::DisplayHelp | ErrorKind::DisplayVersion) => {
-            error.print().context("failed to print direct config help")?;
+        Err(error)
+            if matches!(
+                error.kind(),
+                ErrorKind::DisplayHelp | ErrorKind::DisplayVersion
+            ) =>
+        {
+            error
+                .print()
+                .context("failed to print direct config help")?;
             std::process::exit(0);
         }
         Err(error) => Err(error.into()),

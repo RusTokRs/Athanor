@@ -5,9 +5,7 @@ use anyhow::{Context, Result, bail};
 use super::{
     AdapterTrustListOptions, AdapterTrustOptions, DiscoveredAdapterPlugin, TrustedAdapterPlugin,
 };
-use crate::adapter_contract::{
-    ADAPTER_TRUST_REPORT_SCHEMA_V1, VersionedAdapterTrustReport,
-};
+use crate::adapter_contract::{ADAPTER_TRUST_REPORT_SCHEMA_V1, VersionedAdapterTrustReport};
 
 pub fn discover_adapter_plugins(root: impl AsRef<Path>) -> Result<Vec<DiscoveredAdapterPlugin>> {
     super::plugin_discovery::discover(root)
@@ -29,9 +27,7 @@ pub fn list_adapter_plugin_trust(
     let registry = super::plugin_trust_registry::load(&options.trust_path)?;
     let mut plugins = discover_adapter_plugins(root)?
         .into_iter()
-        .map(|plugin| {
-            super::plugin_trust_status::status(&registry, &plugin, trusted_plugin_record)
-        })
+        .map(|plugin| super::plugin_trust_status::status(&registry, &plugin, trusted_plugin_record))
         .collect::<Result<Vec<_>>>()?;
     plugins.sort_by(|left, right| left.manifest_path.cmp(&right.manifest_path));
 
@@ -42,9 +38,7 @@ pub fn list_adapter_plugin_trust(
     })
 }
 
-pub fn trust_adapter_plugin(
-    options: AdapterTrustOptions,
-) -> Result<VersionedAdapterTrustReport> {
+pub fn trust_adapter_plugin(options: AdapterTrustOptions) -> Result<VersionedAdapterTrustReport> {
     let plugin = super::plugin_discovery::read_manifest(options.manifest_path)?;
     let mut registry = super::plugin_trust_registry::load(&options.trust_path)?;
     let trusted = trusted_plugin_record(&plugin)?;
@@ -67,9 +61,7 @@ pub fn trust_adapter_plugin(
     })
 }
 
-pub fn untrust_adapter_plugin(
-    options: AdapterTrustOptions,
-) -> Result<VersionedAdapterTrustReport> {
+pub fn untrust_adapter_plugin(options: AdapterTrustOptions) -> Result<VersionedAdapterTrustReport> {
     let plugin = super::plugin_discovery::read_manifest(options.manifest_path)?;
     let mut registry = super::plugin_trust_registry::load(&options.trust_path)?;
     let manifest_path = plugin.manifest_path.canonicalize().with_context(|| {

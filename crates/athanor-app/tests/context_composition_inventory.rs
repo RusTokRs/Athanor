@@ -27,23 +27,27 @@ fn context_module_routes_to_the_composition_first_owner() {
 fn operation_aware_context_core_requires_composition() {
     assert!(CONTEXT_OPERATION_SOURCE.contains("composition: &RuntimeComposition"));
     assert!(CONTEXT_OPERATION_SOURCE.contains("composition.init_store"));
-    assert!(CONTEXT_OPERATION_SOURCE.contains(
-        "composition.build_search_index_with_operation_context"
-    ));
+    assert!(
+        CONTEXT_OPERATION_SOURCE.contains("composition.build_search_index_with_operation_context")
+    );
     assert!(!CONTEXT_OPERATION_SOURCE.contains("Option<&RuntimeComposition>"));
     assert!(!CONTEXT_OPERATION_SOURCE.contains("Option<RuntimeComposition>"));
     assert!(!CONTEXT_OPERATION_SOURCE.contains("crate::store::init_store"));
-    assert!(!CONTEXT_OPERATION_SOURCE.contains(
-        "get_or_build_search_index_with_operation_context"
-    ));
+    assert!(!CONTEXT_OPERATION_SOURCE.contains("get_or_build_search_index_with_operation_context"));
     assert!(!CONTEXT_OPERATION_SOURCE.contains("match composition"));
 
-    assert!(DERIVED_READ_SOURCE.contains(
-        "context_project_with_operation_context_impl(options, composition, operation)"
-    ));
+    assert!(
+        DERIVED_READ_SOURCE.contains(
+            "context_project_with_operation_context_impl(options, composition, operation)"
+        )
+    );
     assert!(!DERIVED_READ_SOURCE.contains("pub async fn context_project_with_operation_context("));
-    assert!(!DERIVED_READ_SOURCE.contains("pub async fn change_map_project_with_operation_context("));
-    assert!(!SEARCH_OPERATION_SOURCE.contains("pub async fn search_project_with_operation_context("));
+    assert!(
+        !DERIVED_READ_SOURCE.contains("pub async fn change_map_project_with_operation_context(")
+    );
+    assert!(
+        !SEARCH_OPERATION_SOURCE.contains("pub async fn search_project_with_operation_context(")
+    );
 }
 
 #[test]
@@ -56,9 +60,10 @@ fn rustok_context_execution_is_owned_by_the_composition_service() {
     assert!(RUSTOK_COMPOSITION_SOURCE.contains(
         "pub async fn rustok_architecture_context_with_composition_and_operation_context("
     ));
-    assert!(RUSTOK_COMPOSITION_SOURCE.contains(
-        "context_project_with_composition_and_operation_context"
-    ));
+    assert!(
+        RUSTOK_COMPOSITION_SOURCE
+            .contains("context_project_with_composition_and_operation_context")
+    );
     assert!(RUSTOK_COMPOSITION_SOURCE.contains("composition.init_store"));
 }
 

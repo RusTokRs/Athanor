@@ -364,10 +364,7 @@ fn architecture_interaction(
     })
 }
 
-fn relation_endpoints(
-    relation: &Relation,
-    entities: &HashMap<EntityId, &Entity>,
-) -> String {
+fn relation_endpoints(relation: &Relation, entities: &HashMap<EntityId, &Entity>) -> String {
     let from = entities
         .get(&relation.from)
         .map_or(relation.from.0.as_str(), |entity| {
@@ -494,9 +491,21 @@ mod tests {
 
     #[test]
     fn cooperative_builder_matches_legacy_output() {
-        let product = entity("product", "fba_module://product", EntityKind::Other("rustok_fba_module".to_string()));
-        let contract = entity("contract", "fba_contract://product/catalog.v1", EntityKind::Other("rustok_fba_contract".to_string()));
-        let dependency = entity("dependency", "fba_dependency://search/product/native", EntityKind::Dependency);
+        let product = entity(
+            "product",
+            "fba_module://product",
+            EntityKind::Other("rustok_fba_module".to_string()),
+        );
+        let contract = entity(
+            "contract",
+            "fba_contract://product/catalog.v1",
+            EntityKind::Other("rustok_fba_contract".to_string()),
+        );
+        let dependency = entity(
+            "dependency",
+            "fba_dependency://search/product/native",
+            EntityKind::Dependency,
+        );
         let test = entity("test", "test://catalog", EntityKind::TestCase);
         let snapshot = CanonicalSnapshot {
             snapshot: Some(SnapshotId("snap_test".to_string())),

@@ -18,15 +18,11 @@ fn remaining_application_wrapper_schemas_are_registered_and_owned() {
         .collect::<BTreeSet<_>>();
 
     assert!(contracts.contains(&(API_SNAPSHOT_SCHEMA_V1, "VersionedApiSnapshotReport")));
-    assert!(contracts.contains(&(
-        DOCS_PROPOSE_FIX_SCHEMA_V1,
-        "VersionedDocsProposeFixReport"
-    )));
+    assert!(contracts.contains(&(DOCS_PROPOSE_FIX_SCHEMA_V1, "VersionedDocsProposeFixReport")));
 
-    let source = fs::read_to_string(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("src/response_contract.rs"),
-    )
-    .expect("read response contract source");
+    let source =
+        fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/response_contract.rs"))
+            .expect("read response contract source");
     assert!(source.contains("\"athanor.api_snapshot.v1\""));
     assert!(source.contains("\"athanor.docs_propose_fix.v1\""));
 }

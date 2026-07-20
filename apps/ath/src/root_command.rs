@@ -105,7 +105,10 @@ fn print_help() {
         ("index", "Index project files and export read models"),
         ("bench", "Run synthetic indexing benchmarks"),
         ("update", "Update the project index from changed files"),
-        ("validate-changed", "Validate changed files without publishing"),
+        (
+            "validate-changed",
+            "Validate changed files without publishing",
+        ),
         ("context", "Build task-focused project context"),
         ("explain", "Explain one canonical entity"),
         ("overview", "Summarize the latest canonical snapshot"),

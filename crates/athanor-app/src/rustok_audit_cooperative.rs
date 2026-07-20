@@ -194,9 +194,8 @@ fn build_fba_with_checkpoint(
         let operations_implemented = has_declared_operations.then(|| {
             port_traits_are_present && diagnostic_absent("rustok_fba_port_operation_missing")
         });
-        let context_present = has_declared_ports.then(|| {
-            port_traits_are_present && diagnostic_absent("rustok_fba_context_missing")
-        });
+        let context_present = has_declared_ports
+            .then(|| port_traits_are_present && diagnostic_absent("rustok_fba_context_missing"));
         let error_present = has_declared_ports
             .then(|| port_traits_are_present && diagnostic_absent("rustok_fba_error_missing"));
         let policy_present = details
@@ -210,8 +209,8 @@ fn build_fba_with_checkpoint(
         let write_idempotency_present = details
             .requires_idempotency
             .then(|| diagnostic_absent("rustok_fba_write_idempotency_missing"));
-        let dependencies_resolved = has_dependencies
-            .then(|| diagnostic_absent("rustok_fba_consumer_provider_unresolved"));
+        let dependencies_resolved =
+            has_dependencies.then(|| diagnostic_absent("rustok_fba_consumer_provider_unresolved"));
         let requirement_values = [
             port_code_present,
             port_traits_present,

@@ -21,9 +21,8 @@ pub(super) fn load(path: &Path) -> Result<AdapterTrustRegistry> {
         fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
     let mut registry: AdapterTrustRegistry = serde_json::from_str(&content)
         .with_context(|| format!("failed to parse {}", path.display()))?;
-    normalize_adapter_trust_registry_schema(&mut registry).with_context(|| {
-        format!("unsupported adapter trust registry in {}", path.display())
-    })?;
+    normalize_adapter_trust_registry_schema(&mut registry)
+        .with_context(|| format!("unsupported adapter trust registry in {}", path.display()))?;
     for entry in &registry.trusted_plugins {
         if !entry.manifest_path.is_absolute() || entry.content_hash.trim().is_empty() {
             bail!(

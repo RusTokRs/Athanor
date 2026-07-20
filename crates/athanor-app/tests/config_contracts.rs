@@ -2,8 +2,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use athanor_app::{
-    CONFIG_DOCTOR_SCHEMA_V1, CONFIG_VALIDATE_SCHEMA_V1, ConfigReportOptions,
-    VersionedJsonContract, doctor_project_config, validate_project_config,
+    CONFIG_DOCTOR_SCHEMA_V1, CONFIG_VALIDATE_SCHEMA_V1, ConfigReportOptions, VersionedJsonContract,
+    doctor_project_config, validate_project_config,
 };
 use serde_json::Value;
 
@@ -12,8 +12,8 @@ fn config_reports_match_golden_fixture() {
     let root = PathBuf::from("project");
     let validation = validate_project_config(ConfigReportOptions { root: root.clone() })
         .expect("default validation report");
-    let doctor = doctor_project_config(ConfigReportOptions { root })
-        .expect("default doctor report");
+    let doctor =
+        doctor_project_config(ConfigReportOptions { root }).expect("default doctor report");
 
     validation
         .validate_contract()

@@ -4,8 +4,8 @@ use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use athanor_domain::{
-    Diagnostic, DiagnosticId, DiagnosticKind, DiagnosticStatus, Evidence, EvidenceStatus, Ownership,
-    Severity, SnapshotId,
+    Diagnostic, DiagnosticId, DiagnosticKind, DiagnosticStatus, Evidence, EvidenceStatus,
+    Ownership, Severity, SnapshotId,
 };
 use athanor_projector_support::replace_output_file;
 use serde_json::Value;

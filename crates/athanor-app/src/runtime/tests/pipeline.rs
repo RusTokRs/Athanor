@@ -28,7 +28,12 @@ async fn builds_builtin_index_pipeline() {
         .unwrap();
 
     assert_eq!(output.files.len(), 1);
-    assert!(output.entities.iter().any(|entity| entity.kind == EntityKind::File));
+    assert!(
+        output
+            .entities
+            .iter()
+            .any(|entity| entity.kind == EntityKind::File)
+    );
     assert!(
         output
             .relations

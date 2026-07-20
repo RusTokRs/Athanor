@@ -118,13 +118,8 @@ fn build_diff_context(
     } else {
         options.task.clone()
     };
-    let mut pack = generate_context_pack(
-        snapshot,
-        &task,
-        options.level,
-        limits,
-        Some(direct_matches),
-    );
+    let mut pack =
+        generate_context_pack(snapshot, &task, options.level, limits, Some(direct_matches));
     if let Some(payload) = pack.payload.as_object_mut() {
         payload.insert(
             "diff".to_string(),
@@ -204,11 +199,8 @@ async fn build_search_index(
             &index_dir,
             &operation,
             |directory, documents, operation| {
-                composition.build_search_index_with_operation_context(
-                    directory,
-                    documents,
-                    operation,
-                )
+                composition
+                    .build_search_index_with_operation_context(directory, documents, operation)
             },
         )
     })
@@ -219,7 +211,10 @@ async fn build_search_index(
 fn is_operation_termination(error: &anyhow::Error) -> bool {
     error.chain().any(|cause| {
         cause.downcast_ref::<CoreError>().is_some_and(|error| {
-            matches!(error, CoreError::Cancelled(_) | CoreError::DeadlineExceeded(_))
+            matches!(
+                error,
+                CoreError::Cancelled(_) | CoreError::DeadlineExceeded(_)
+            )
         })
     })
 }

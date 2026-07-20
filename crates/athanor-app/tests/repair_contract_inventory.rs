@@ -1,9 +1,8 @@
 use std::collections::BTreeSet;
 
 use athanor_app::{
-    INDEX_GENERATION_CLEANUP_SCHEMA_V1, REPAIR_APPLY_SCHEMA_V2,
-    REPAIR_CANONICAL_LATEST_SCHEMA_V1, REPAIR_CLEANUP_SCHEMA_V2,
-    REPAIR_INSPECT_SCHEMA_V2, REPAIR_RECOVER_CANONICAL_SCHEMA_V1,
+    INDEX_GENERATION_CLEANUP_SCHEMA_V1, REPAIR_APPLY_SCHEMA_V2, REPAIR_CANONICAL_LATEST_SCHEMA_V1,
+    REPAIR_CLEANUP_SCHEMA_V2, REPAIR_INSPECT_SCHEMA_V2, REPAIR_RECOVER_CANONICAL_SCHEMA_V1,
     REPAIR_RECOVER_INDEX_CLEANUP_SCHEMA_V1, REPAIR_RECOVER_INDEX_SCHEMA_V1,
     REPAIR_REGENERATE_SCHEMA_V1, VERSIONED_JSON_CONTRACTS, validate_contract_registry,
 };
@@ -40,7 +39,10 @@ fn repair_public_reports_are_registered_and_embedded_types_are_not() {
             "RepairCanonicalLatestReport",
         ),
     ] {
-        assert!(contracts.contains(&expected), "missing repair owner {expected:?}");
+        assert!(
+            contracts.contains(&expected),
+            "missing repair owner {expected:?}"
+        );
     }
 
     let registered_types = VERSIONED_JSON_CONTRACTS

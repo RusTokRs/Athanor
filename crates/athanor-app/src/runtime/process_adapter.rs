@@ -13,7 +13,7 @@ use super::process_adapter_support::{
     ProcessCommand, ProcessLimits, normalize_extension, process_output_excerpt,
 };
 use crate::{
-    CancellationToken, CancellableProcessRunner, current_process_execution_context,
+    CancellableProcessRunner, CancellationToken, current_process_execution_context,
     current_process_runner, default_process_runner,
 };
 

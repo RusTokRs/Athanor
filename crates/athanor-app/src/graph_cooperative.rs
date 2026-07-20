@@ -6,8 +6,8 @@ use athanor_domain::{Entity, Relation};
 use serde::Serialize;
 
 use crate::graph::{
-    GRAPH_CYCLES_SCHEMA, GRAPH_PAGERANK_SCHEMA, GRAPH_PATH_SCHEMA, GRAPH_RELATED_SCHEMA, GraphCycle,
-    GraphCycles, GraphEdge, GraphNode, GraphPageRank, GraphPageRankEntry,
+    GRAPH_CYCLES_SCHEMA, GRAPH_PAGERANK_SCHEMA, GRAPH_PATH_SCHEMA, GRAPH_RELATED_SCHEMA,
+    GraphCycle, GraphCycles, GraphEdge, GraphNode, GraphPageRank, GraphPageRankEntry,
     GraphPageRankRelationTrace, GraphPath, GraphRelated, GraphRelatedNode,
 };
 
@@ -89,13 +89,7 @@ pub fn build_graph_cycles_with_operation_context(
     operation: &OperationContext,
 ) -> Result<GraphCycles> {
     let mut poller = OperationPoller::new(operation, COOPERATIVE_POLL_INTERVAL)?;
-    let report = build_graph_cycles_inner(
-        snapshot,
-        limit,
-        max_depth,
-        max_starts,
-        &mut poller,
-    )?;
+    let report = build_graph_cycles_inner(snapshot, limit, max_depth, max_starts, &mut poller)?;
     poller.finish()?;
     Ok(report)
 }
@@ -152,7 +146,9 @@ fn build_related_graph_inner(
         .entities
         .iter()
         .find(|entity| entity.stable_key.0 == stable_key)
-        .ok_or_else(|| anyhow::anyhow!("canonical entity not found for stable key `{stable_key}`"))?;
+        .ok_or_else(|| {
+            anyhow::anyhow!("canonical entity not found for stable key `{stable_key}`")
+        })?;
     let degree_by_id = degree_by_id(snapshot);
     let mut adjacency = HashMap::<&str, Vec<(&Relation, &Entity)>>::new();
     for relation in &snapshot.relations {
@@ -471,8 +467,7 @@ fn build_graph_pagerank_inner(
                 dangling += *score;
             }
         }
-        let base =
-            (1.0 - damping) / entity_count as f64 + damping * dangling / entity_count as f64;
+        let base = (1.0 - damping) / entity_count as f64 + damping * dangling / entity_count as f64;
         let mut next = vec![base; entity_count];
         for (from, targets) in outgoing.iter().enumerate() {
             poller.step()?;
@@ -717,18 +712,8 @@ fn search_cycles<'a>(
         path.push(target.to_string());
         edges.push(*relation);
         search_cycles(
-            start,
-            target,
-            adjacency,
-            path,
-            edges,
-            on_path,
-            max_depth,
-            limit,
-            discovered,
-            cycles,
-            truncated,
-            poller,
+            start, target, adjacency, path, edges, on_path, max_depth, limit, discovered, cycles,
+            truncated, poller,
         )?;
         edges.pop();
         path.pop();
@@ -821,7 +806,10 @@ fn canonical_cycle_key(relations: &[&Relation]) -> String {
 }
 
 fn cycle_key_from_edges(edges: &[GraphEdge]) -> String {
-    let ids = edges.iter().map(|edge| edge.id.as_str()).collect::<Vec<_>>();
+    let ids = edges
+        .iter()
+        .map(|edge| edge.id.as_str())
+        .collect::<Vec<_>>();
     minimum_rotation(&ids)
 }
 

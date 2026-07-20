@@ -15,10 +15,8 @@ pub const RUSTOK_FFA_VIOLATIONS_GRAPH_SCHEMA: &str = "athanor.rustok_ffa_violati
 pub const RUSTOK_FBA_AUDIT_SCHEMA: &str = "athanor.rustok_fba_audit.v1";
 pub const RUSTOK_FBA_MODULE_GRAPH_SCHEMA: &str = "athanor.rustok_fba_module_graph.v1";
 pub const RUSTOK_FBA_PORT_GRAPH_SCHEMA: &str = "athanor.rustok_fba_port_graph.v1";
-pub const RUSTOK_FBA_DEPENDENCIES_GRAPH_SCHEMA: &str =
-    "athanor.rustok_fba_dependencies_graph.v1";
-pub const RUSTOK_FBA_VIOLATIONS_GRAPH_SCHEMA: &str =
-    "athanor.rustok_fba_violations_graph.v1";
+pub const RUSTOK_FBA_DEPENDENCIES_GRAPH_SCHEMA: &str = "athanor.rustok_fba_dependencies_graph.v1";
+pub const RUSTOK_FBA_VIOLATIONS_GRAPH_SCHEMA: &str = "athanor.rustok_fba_violations_graph.v1";
 pub const RUSTOK_PAGE_BUILDER_AUDIT_SCHEMA: &str = "athanor.rustok_page_builder_audit.v1";
 pub const RUSTOK_PAGE_BUILDER_PROVIDER_GRAPH_SCHEMA: &str =
     "athanor.rustok_page_builder_provider_graph.v1";

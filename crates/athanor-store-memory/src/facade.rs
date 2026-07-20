@@ -45,10 +45,7 @@ impl CanonicalLatestPointer for MemoryKnowledgeStore {
         if &latest != identity {
             return Err(CoreError::Conflict(format!(
                 "memory latest is {} / {}, requested {} / {}",
-                latest.snapshot.0,
-                latest.generation,
-                identity.snapshot.0,
-                identity.generation
+                latest.snapshot.0, latest.generation, identity.snapshot.0, identity.generation
             )));
         }
         Ok(())

@@ -35,13 +35,7 @@ pub async fn project_wiki_with_composition(
     options: WikiOptions,
     composition: &RuntimeComposition,
 ) -> Result<WikiReport> {
-    project_wiki_inner(
-        options,
-        None,
-        composition,
-        OperationContext::new("wiki"),
-    )
-    .await
+    project_wiki_inner(options, None, composition, OperationContext::new("wiki")).await
 }
 
 /// Projects the wiki with explicit runtime dependencies and operation metadata.

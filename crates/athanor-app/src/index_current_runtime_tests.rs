@@ -45,7 +45,10 @@ async fn production_index_publishes_valid_immutable_current_generation() {
         &fs::read(IndexCurrent::path(&root)).expect("read checksum-bound pointer"),
     )
     .expect("parse checksum-bound pointer");
-    assert_eq!(pointer["schema"], crate::index_current::INDEX_CURRENT_SCHEMA);
+    assert_eq!(
+        pointer["schema"],
+        crate::index_current::INDEX_CURRENT_SCHEMA
+    );
     assert!(
         pointer["read_model_manifest_sha256"]
             .as_str()

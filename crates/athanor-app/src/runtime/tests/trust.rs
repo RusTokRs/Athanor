@@ -1,11 +1,9 @@
 use std::fs;
 
-use crate::adapter_contract::{
-    ADAPTER_TRUST_REGISTRY_SCHEMA_V2, ADAPTER_TRUST_REPORT_SCHEMA_V1,
-};
+use crate::adapter_contract::{ADAPTER_TRUST_REGISTRY_SCHEMA_V2, ADAPTER_TRUST_REPORT_SCHEMA_V1};
 
-use super::fixtures::{empty_output_command, empty_output_program};
 use super::super::*;
+use super::fixtures::{empty_output_command, empty_output_program};
 
 #[test]
 fn external_process_plugins_require_opt_in_trust_and_allowlist() {
@@ -25,7 +23,11 @@ fn external_process_plugins_require_opt_in_trust_and_allowlist() {
             supports_extensions: vec!["rs".to_string()],
         }],
     };
-    fs::write(&manifest_path, serde_json::to_string_pretty(&manifest).unwrap()).unwrap();
+    fs::write(
+        &manifest_path,
+        serde_json::to_string_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
     let trust_path = root.join("state/adapter-trust.json");
 
     let error = RuntimeBuilder::new(&root)
@@ -33,7 +35,11 @@ fn external_process_plugins_require_opt_in_trust_and_allowlist() {
         .with_discovered_plugins()
         .err()
         .expect("external process adapter should be rejected by default");
-    assert!(error.to_string().contains("external process adapters are disabled"));
+    assert!(
+        error
+            .to_string()
+            .contains("external process adapters are disabled")
+    );
 
     let error = RuntimeBuilder::new(&root)
         .adapter_trust_path(&trust_path)
@@ -90,7 +96,11 @@ fn trust_report_is_versioned_and_manifest_changes_invalidate_trust() {
             supports_extensions: vec!["rs".to_string()],
         }],
     };
-    fs::write(&manifest_path, serde_json::to_string_pretty(&manifest).unwrap()).unwrap();
+    fs::write(
+        &manifest_path,
+        serde_json::to_string_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
     let trust_path = root.join("state/adapter-trust.json");
     trust_adapter_plugin(AdapterTrustOptions {
         trust_path: trust_path.clone(),
@@ -107,7 +117,11 @@ fn trust_report_is_versioned_and_manifest_changes_invalidate_trust() {
     assert!(trusted.plugins[0].trusted);
 
     manifest.version = Some("0.2.0".to_string());
-    fs::write(&manifest_path, serde_json::to_string_pretty(&manifest).unwrap()).unwrap();
+    fs::write(
+        &manifest_path,
+        serde_json::to_string_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
     let changed = list_adapter_plugin_trust(AdapterTrustListOptions {
         root: root.clone(),
         trust_path,

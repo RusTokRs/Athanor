@@ -52,12 +52,8 @@ pub(crate) fn seal_read_model(directory: &Path) -> Result<String> {
         })?,
     );
     let content = serde_json::to_string_pretty(&manifest)?;
-    replace_output_file(
-        &manifest_path,
-        &content,
-        "checksummed read-model manifest",
-    )
-    .map_err(anyhow::Error::new)?;
+    replace_output_file(&manifest_path, &content, "checksummed read-model manifest")
+        .map_err(anyhow::Error::new)?;
     sha256_file(&manifest_path)
 }
 
@@ -223,9 +219,7 @@ fn read_model_files(directory: &Path) -> Result<BTreeMap<String, PathBuf>> {
         .map(str::to_string)
         .collect::<BTreeSet<_>>();
     if actual != expected {
-        bail!(
-            "read-model data file set is invalid: actual={actual:?}, expected={expected:?}"
-        );
+        bail!("read-model data file set is invalid: actual={actual:?}, expected={expected:?}");
     }
     Ok(files)
 }

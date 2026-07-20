@@ -18,7 +18,8 @@ use athanor_linker_rust::RustLinker;
 use athanor_source_fs::LocalFileSystemSource;
 
 use crate::{
-    AdapterPluginKind, AdapterRegistry, AthanorStore, ProjectConfig, RuntimeComposition, StorageMode,
+    AdapterPluginKind, AdapterRegistry, AthanorStore, ProjectConfig, RuntimeComposition,
+    StorageMode,
 };
 
 pub(crate) fn composition() -> RuntimeComposition {

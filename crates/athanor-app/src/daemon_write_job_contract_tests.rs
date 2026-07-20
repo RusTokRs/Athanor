@@ -1,10 +1,10 @@
 use std::path::PathBuf;
 
 use crate::{
-    GENERATION_SCHEMA_V1, HTML_REPORT_SCHEMA_V1, INDEX_METRICS_SCHEMA,
-    INDEX_REPORT_METRICS_SCHEMA, INDEX_REPORT_SCHEMA, WIKI_REPORT_SCHEMA_V1, GenerationMetrics,
-    GenerationReport, GenerationStatus, HtmlReport, IndexPipelineMetrics, IndexReport,
-    IndexReportMetrics, WikiReport,
+    GENERATION_SCHEMA_V1, GenerationMetrics, GenerationReport, GenerationStatus,
+    HTML_REPORT_SCHEMA_V1, HtmlReport, INDEX_METRICS_SCHEMA, INDEX_REPORT_METRICS_SCHEMA,
+    INDEX_REPORT_SCHEMA, IndexPipelineMetrics, IndexReport, IndexReportMetrics,
+    WIKI_REPORT_SCHEMA_V1, WikiReport,
 };
 
 #[test]

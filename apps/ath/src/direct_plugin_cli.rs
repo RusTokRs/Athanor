@@ -134,7 +134,12 @@ pub(crate) fn parse(args: &[String]) -> Result<Option<Command>> {
             trust_store,
             json,
         })),
-        Err(error) if matches!(error.kind(), ErrorKind::DisplayHelp | ErrorKind::DisplayVersion) => {
+        Err(error)
+            if matches!(
+                error.kind(),
+                ErrorKind::DisplayHelp | ErrorKind::DisplayVersion
+            ) =>
+        {
             error
                 .print()
                 .context("failed to print direct plugin help")?;

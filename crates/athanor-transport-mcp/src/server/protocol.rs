@@ -12,10 +12,9 @@ use super::types::{
     RequestId, RpcError, SessionState,
 };
 
-pub(super) fn parse_request(
-    line: &str,
-) -> std::result::Result<JsonRpcRequest, ProtocolFailure> {
-    let value: Value = serde_json::from_str(line).map_err(|error| ProtocolFailure::parse(&error))?;
+pub(super) fn parse_request(line: &str) -> std::result::Result<JsonRpcRequest, ProtocolFailure> {
+    let value: Value =
+        serde_json::from_str(line).map_err(|error| ProtocolFailure::parse(&error))?;
     let object = value.as_object().ok_or_else(|| {
         ProtocolFailure::invalid_request(Value::Null, "JSON-RPC request must be an object")
     })?;
@@ -142,14 +141,7 @@ pub(super) async fn handle_request(
         }
         "tools/call" => {
             require_ready(session).await?;
-            handle_tool_call(
-                root,
-                composition,
-                request_id,
-                params,
-                active_reads,
-            )
-            .await
+            handle_tool_call(root, composition, request_id, params, active_reads).await
         }
         other => Err(DispatchError::Protocol(RpcError::method_not_found(other))),
     }

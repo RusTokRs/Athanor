@@ -41,6 +41,9 @@ mod tests {
             GenerationId::for_snapshot(&snapshot),
             GenerationId("gen_snap_test_0001".to_string())
         );
-        assert_eq!(GenerationId::for_snapshot(&snapshot).as_str(), "gen_snap_test_0001");
+        assert_eq!(
+            GenerationId::for_snapshot(&snapshot).as_str(),
+            "gen_snap_test_0001"
+        );
     }
 }

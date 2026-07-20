@@ -31,11 +31,8 @@ pub(crate) async fn run(command: Command) -> Result<()> {
         Command::ArchitectureContext { intent, flags } => {
             let (operation, cancellation) =
                 operation("rustok-architecture-context", flags.deadline_unix_ms)?;
-            let mut options = RustokArchitectureContextOptions::bounded(
-                flags.path,
-                intent,
-                flags.module,
-            );
+            let mut options =
+                RustokArchitectureContextOptions::bounded(flags.path, intent, flags.module);
             options.max_modules = flags.max_modules;
             options.max_contracts = flags.max_contracts;
             options.max_interactions = flags.max_interactions;
@@ -192,10 +189,9 @@ pub(crate) async fn run(command: Command) -> Result<()> {
             render_fba_graph(&report, flags.json)?;
         }
         Command::FbaDependencies(flags) => {
-            let module = flags
-                .module
-                .clone()
-                .ok_or_else(|| anyhow::anyhow!("graph fba dependencies requires --module <module>"))?;
+            let module = flags.module.clone().ok_or_else(|| {
+                anyhow::anyhow!("graph fba dependencies requires --module <module>")
+            })?;
             let (operation, cancellation) =
                 operation("graph-fba-dependencies", flags.deadline_unix_ms)?;
             let report = await_drained_operation(
@@ -271,10 +267,8 @@ pub(crate) async fn run(command: Command) -> Result<()> {
             render_page_builder_graph(&report, flags.json)?;
         }
         Command::PageBuilderViolations(flags) => {
-            let (operation, cancellation) = operation(
-                "graph-page-builder-violations",
-                flags.deadline_unix_ms,
-            )?;
+            let (operation, cancellation) =
+                operation("graph-page-builder-violations", flags.deadline_unix_ms)?;
             let report = await_drained_operation(
                 cancellation,
                 graph_page_builder_violations_with_composition_and_operation_context(

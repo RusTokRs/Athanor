@@ -89,9 +89,7 @@ mod tests {
     use std::sync::Mutex;
 
     use async_trait::async_trait;
-    use athanor_core::{
-        CancellationHandle, CoreError, CoreResult, SearchDocument, SearchResult,
-    };
+    use athanor_core::{CancellationHandle, CoreError, CoreResult, SearchDocument, SearchResult};
     use athanor_domain::SnapshotId;
 
     use super::*;
@@ -144,8 +142,9 @@ mod tests {
         .await
         .expect_err("cancelled search must not return a report");
 
-        assert!(error
-            .chain()
-            .any(|cause| matches!(cause.downcast_ref::<CoreError>(), Some(CoreError::Cancelled(_)))));
+        assert!(error.chain().any(|cause| matches!(
+            cause.downcast_ref::<CoreError>(),
+            Some(CoreError::Cancelled(_))
+        )));
     }
 }

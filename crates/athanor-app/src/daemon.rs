@@ -27,17 +27,15 @@ use crate::daemon_connection::{
 };
 use crate::daemon_endpoint::{read as read_endpoint, write as write_endpoint};
 use crate::daemon_jobs_support::unix_time_ms;
-use crate::daemon_lifecycle::{
-    cancel_active_jobs, drain_active_jobs, set as set_lifecycle,
-};
+use crate::daemon_lifecycle::{cancel_active_jobs, drain_active_jobs, set as set_lifecycle};
 use crate::daemon_protocol::{validate_limit, validate_request_shape};
 use crate::daemon_recovery::cleanup_known_staging_artifacts;
 use crate::daemon_runtime::BoundedCache;
 use crate::daemon_watcher::{start_file_watcher, start_watcher_index_job};
 use crate::{
-    CancellationToken, ContextLimitOverrides, ContextLimits, DaemonRuntimeLock,
-    DaemonRuntimePaths, RepositoryOverview, RuntimeComposition, RuntimeFileGuard,
-    create_daemon_token, read_daemon_token,
+    CancellationToken, ContextLimitOverrides, ContextLimits, DaemonRuntimeLock, DaemonRuntimePaths,
+    RepositoryOverview, RuntimeComposition, RuntimeFileGuard, create_daemon_token,
+    read_daemon_token,
 };
 
 pub const DAEMON_ENDPOINT_SCHEMA: &str = "athanor.daemon_endpoint.v3";

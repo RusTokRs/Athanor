@@ -29,9 +29,10 @@ fn api_root_has_conventional_bounded_owners() {
 
 #[test]
 fn api_snapshot_execution_requires_explicit_composition() {
-    assert!(APPLICATION_REPORT_COMPOSITION.contains(
-        "pub async fn snapshot_api_contract_with_composition("
-    ));
+    assert!(
+        APPLICATION_REPORT_COMPOSITION
+            .contains("pub async fn snapshot_api_contract_with_composition(")
+    );
     assert!(!API_ROOT.contains("pub async fn snapshot_api_contract("));
     assert!(!API_ROOT.contains("crate::store::init_store"));
     assert!(!API_ROOT.contains("Option<&RuntimeComposition>"));

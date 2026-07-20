@@ -47,7 +47,10 @@ fn documentation_entrypoint_routes_to_current_status_owners() {
         "development/legacy-runtime-compatibility.md",
         "development/direct-operation-context.md",
     ] {
-        assert!(DOCS_INDEX.contains(target), "documentation map omits {target}");
+        assert!(
+            DOCS_INDEX.contains(target),
+            "documentation map omits {target}"
+        );
     }
     assert!(!DOCS_INDEX.contains("current verified implementation status"));
 }
@@ -101,8 +104,13 @@ fn implementation_plan_matches_documentation_status() {
 
     let active_work = ROADMAP.find("## Active Work").expect("roadmap active work");
     for package in ["### `DOC-001` / `DOC-002`", "### `MCP-004`"] {
-        let position = ROADMAP.find(package).unwrap_or_else(|| panic!("roadmap omits {package}"));
-        assert!(position < active_work, "completed package {package} remains active");
+        let position = ROADMAP
+            .find(package)
+            .unwrap_or_else(|| panic!("roadmap omits {package}"));
+        assert!(
+            position < active_work,
+            "completed package {package} remains active"
+        );
     }
     assert!(ROADMAP[active_work..].contains("### `VERIFY-001`"));
 }
@@ -123,9 +131,11 @@ fn mcp_control_plane_documentation_matches_implementation_status() {
             "operation context guide omits {invariant}"
         );
     }
-    assert!(!OPERATION_CONTEXT.contains(
-        "Resolve control-plane responsiveness under full ordinary-request saturation"
-    ));
+    assert!(
+        !OPERATION_CONTEXT.contains(
+            "Resolve control-plane responsiveness under full ordinary-request saturation"
+        )
+    );
 }
 
 #[test]
@@ -144,7 +154,10 @@ fn removed_monoliths_and_legacy_services_do_not_return_to_status_docs() {
             ("roadmap", ROADMAP),
             ("pipeline", PIPELINE),
         ] {
-            assert!(!source.contains(stale), "{name} contains stale claim {stale}");
+            assert!(
+                !source.contains(stale),
+                "{name} contains stale claim {stale}"
+            );
         }
     }
 }

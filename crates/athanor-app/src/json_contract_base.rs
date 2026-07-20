@@ -44,13 +44,11 @@ pub const GRAPH_CYCLES_SCHEMA_V1: &str = crate::graph::GRAPH_CYCLES_SCHEMA;
 pub const RUSTOK_ARCHITECTURE_CONTEXT_SCHEMA_V1: &str =
     crate::rustok_architecture::RUSTOK_ARCHITECTURE_CONTEXT_SCHEMA;
 pub const RUSTOK_FFA_AUDIT_SCHEMA_V1: &str = crate::graph::RUSTOK_FFA_AUDIT_SCHEMA;
-pub const RUSTOK_FFA_SURFACE_GRAPH_SCHEMA_V1: &str =
-    crate::graph::RUSTOK_FFA_SURFACE_GRAPH_SCHEMA;
+pub const RUSTOK_FFA_SURFACE_GRAPH_SCHEMA_V1: &str = crate::graph::RUSTOK_FFA_SURFACE_GRAPH_SCHEMA;
 pub const RUSTOK_FFA_VIOLATIONS_GRAPH_SCHEMA_V1: &str =
     crate::graph::RUSTOK_FFA_VIOLATIONS_GRAPH_SCHEMA;
 pub const RUSTOK_FBA_AUDIT_SCHEMA_V1: &str = crate::graph::RUSTOK_FBA_AUDIT_SCHEMA;
-pub const RUSTOK_FBA_MODULE_GRAPH_SCHEMA_V1: &str =
-    crate::graph::RUSTOK_FBA_MODULE_GRAPH_SCHEMA;
+pub const RUSTOK_FBA_MODULE_GRAPH_SCHEMA_V1: &str = crate::graph::RUSTOK_FBA_MODULE_GRAPH_SCHEMA;
 pub const RUSTOK_FBA_PORT_GRAPH_SCHEMA_V1: &str = crate::graph::RUSTOK_FBA_PORT_GRAPH_SCHEMA;
 pub const RUSTOK_FBA_DEPENDENCIES_GRAPH_SCHEMA_V1: &str =
     crate::graph::RUSTOK_FBA_DEPENDENCIES_GRAPH_SCHEMA;
@@ -66,8 +64,7 @@ pub const RUSTOK_PAGE_BUILDER_VIOLATIONS_GRAPH_SCHEMA_V1: &str =
     crate::graph::RUSTOK_PAGE_BUILDER_VIOLATIONS_GRAPH_SCHEMA;
 pub const PROJECT_REGISTRY_REPORT_SCHEMA_V1: &str =
     crate::project_registry::PROJECT_REGISTRY_REPORT_SCHEMA;
-pub const PROJECT_RESOLUTION_SCHEMA_V1: &str =
-    crate::project_registry::PROJECT_RESOLUTION_SCHEMA;
+pub const PROJECT_RESOLUTION_SCHEMA_V1: &str = crate::project_registry::PROJECT_RESOLUTION_SCHEMA;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct JsonContractDescriptor {
@@ -115,19 +112,37 @@ pub const VERSIONED_JSON_CONTRACTS: &[JsonContractDescriptor] = &[
     descriptor!(GRAPH_HUBS_SCHEMA_V1, "GraphHubs"),
     descriptor!(GRAPH_PAGERANK_SCHEMA_V1, "GraphPageRank"),
     descriptor!(GRAPH_CYCLES_SCHEMA_V1, "GraphCycles"),
-    descriptor!(RUSTOK_ARCHITECTURE_CONTEXT_SCHEMA_V1, "RustokArchitectureContext"),
+    descriptor!(
+        RUSTOK_ARCHITECTURE_CONTEXT_SCHEMA_V1,
+        "RustokArchitectureContext"
+    ),
     descriptor!(RUSTOK_FFA_AUDIT_SCHEMA_V1, "RustokFfaAudit"),
-    descriptor!(RUSTOK_FFA_SURFACE_GRAPH_SCHEMA_V1, "RustokFfaSurfaceGraphReport"),
-    descriptor!(RUSTOK_FFA_VIOLATIONS_GRAPH_SCHEMA_V1, "RustokFfaViolationsGraphReport"),
+    descriptor!(
+        RUSTOK_FFA_SURFACE_GRAPH_SCHEMA_V1,
+        "RustokFfaSurfaceGraphReport"
+    ),
+    descriptor!(
+        RUSTOK_FFA_VIOLATIONS_GRAPH_SCHEMA_V1,
+        "RustokFfaViolationsGraphReport"
+    ),
     descriptor!(RUSTOK_FBA_AUDIT_SCHEMA_V1, "RustokFbaAudit"),
-    descriptor!(RUSTOK_FBA_MODULE_GRAPH_SCHEMA_V1, "RustokFbaModuleGraphReport"),
+    descriptor!(
+        RUSTOK_FBA_MODULE_GRAPH_SCHEMA_V1,
+        "RustokFbaModuleGraphReport"
+    ),
     descriptor!(RUSTOK_FBA_PORT_GRAPH_SCHEMA_V1, "RustokFbaPortGraphReport"),
     descriptor!(
         RUSTOK_FBA_DEPENDENCIES_GRAPH_SCHEMA_V1,
         "RustokFbaDependenciesGraphReport"
     ),
-    descriptor!(RUSTOK_FBA_VIOLATIONS_GRAPH_SCHEMA_V1, "RustokFbaViolationsGraphReport"),
-    descriptor!(RUSTOK_PAGE_BUILDER_AUDIT_SCHEMA_V1, "RustokPageBuilderAudit"),
+    descriptor!(
+        RUSTOK_FBA_VIOLATIONS_GRAPH_SCHEMA_V1,
+        "RustokFbaViolationsGraphReport"
+    ),
+    descriptor!(
+        RUSTOK_PAGE_BUILDER_AUDIT_SCHEMA_V1,
+        "RustokPageBuilderAudit"
+    ),
     descriptor!(
         RUSTOK_PAGE_BUILDER_PROVIDER_GRAPH_SCHEMA_V1,
         "RustokPageBuilderProviderGraphReport"
@@ -201,9 +216,15 @@ macro_rules! impl_transparent_schema_contract {
 
 impl_owned_schema_contract!(crate::overview::RepositoryOverview, OVERVIEW_SCHEMA_V1);
 impl_owned_schema_contract!(crate::search::SearchReport, SEARCH_SCHEMA_V1);
-impl_owned_schema_contract!(crate::explain::EntityExplanation, ENTITY_EXPLANATION_SCHEMA_V1);
+impl_owned_schema_contract!(
+    crate::explain::EntityExplanation,
+    ENTITY_EXPLANATION_SCHEMA_V1
+);
 impl_owned_schema_contract!(crate::impact::ImpactAnalysis, IMPACT_ANALYSIS_SCHEMA_V1);
-impl_owned_schema_contract!(crate::check::DiagnosticCheckReport, DIAGNOSTIC_CHECK_SCHEMA_V1);
+impl_owned_schema_contract!(
+    crate::check::DiagnosticCheckReport,
+    DIAGNOSTIC_CHECK_SCHEMA_V1
+);
 impl_owned_schema_contract!(crate::check::AffectedCheckReport, AFFECTED_CHECK_SCHEMA_V1);
 impl_owned_schema_contract!(
     crate::check::OperationsDocsCheckReport,
@@ -224,11 +245,17 @@ impl_static_schema_contract!(
     CHANGED_VALIDATION_SCHEMA_V1
 );
 impl_static_schema_contract!(crate::generation::GenerationReport, GENERATION_SCHEMA_V1);
-impl_static_schema_contract!(crate::config::ConfigValidateReport, CONFIG_VALIDATE_SCHEMA_V1);
+impl_static_schema_contract!(
+    crate::config::ConfigValidateReport,
+    CONFIG_VALIDATE_SCHEMA_V1
+);
 impl_static_schema_contract!(crate::config::ConfigDoctorReport, CONFIG_DOCTOR_SCHEMA_V1);
 impl_owned_schema_contract!(crate::docs::DocsCheckReport, DOCS_CHECK_SCHEMA_V1);
 impl_owned_schema_contract!(crate::docs::DocsDriftReport, DOCS_DRIFT_SCHEMA_V1);
-impl_owned_schema_contract!(crate::docs::DocsApplyPatchReport, DOCS_APPLY_PATCH_SCHEMA_V1);
+impl_owned_schema_contract!(
+    crate::docs::DocsApplyPatchReport,
+    DOCS_APPLY_PATCH_SCHEMA_V1
+);
 impl_owned_schema_contract!(crate::api::ApiContractDiff, API_CONTRACT_DIFF_SCHEMA_V2);
 impl_owned_schema_contract!(crate::api::ApiCleanupReport, API_CLEANUP_SCHEMA_V1);
 impl_static_schema_contract!(crate::wiki::WikiReport, WIKI_REPORT_SCHEMA_V1);
@@ -294,7 +321,10 @@ impl_owned_schema_contract!(
     PROJECT_RESOLUTION_SCHEMA_V1
 );
 impl_static_schema_contract!(crate::coverage::CoverageReport, COVERAGE_SCHEMA_V1);
-impl_static_schema_contract!(crate::capabilities::CapabilitiesReport, CAPABILITIES_SCHEMA_V1);
+impl_static_schema_contract!(
+    crate::capabilities::CapabilitiesReport,
+    CAPABILITIES_SCHEMA_V1
+);
 
 pub fn validate_schema_id(schema: &str) -> Result<u32, JsonContractError> {
     let segments = schema.split('.').collect::<Vec<_>>();
@@ -407,13 +437,22 @@ impl fmt::Display for JsonContractError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidSchemaId { schema, reason } => {
-                write!(formatter, "invalid JSON contract schema `{schema}`: {reason}")
+                write!(
+                    formatter,
+                    "invalid JSON contract schema `{schema}`: {reason}"
+                )
             }
             Self::DuplicateSchemaId { schema } => {
-                write!(formatter, "duplicate JSON contract schema owner for `{schema}`")
+                write!(
+                    formatter,
+                    "duplicate JSON contract schema owner for `{schema}`"
+                )
             }
             Self::DuplicateRustTypeOwner { rust_type } => {
-                write!(formatter, "duplicate JSON contract Rust type owner `{rust_type}`")
+                write!(
+                    formatter,
+                    "duplicate JSON contract Rust type owner `{rust_type}`"
+                )
             }
             Self::TopLevelDocumentRequired => {
                 formatter.write_str("versioned JSON contract must serialize as an object")
@@ -429,7 +468,10 @@ impl fmt::Display for JsonContractError {
                 "versioned JSON contract schema mismatch: expected `{expected}`, got `{actual}`"
             ),
             Self::Serialization(message) => {
-                write!(formatter, "failed to serialize versioned JSON contract: {message}")
+                write!(
+                    formatter,
+                    "failed to serialize versioned JSON contract: {message}"
+                )
             }
         }
     }
@@ -461,7 +503,10 @@ mod tests {
     #[test]
     fn accepts_stable_positive_major_schema_ids() {
         assert_eq!(validate_schema_id("athanor.search.v1"), Ok(1));
-        assert_eq!(validate_schema_id("athanor.rustok_architecture.v12"), Ok(12));
+        assert_eq!(
+            validate_schema_id("athanor.rustok_architecture.v12"),
+            Ok(12)
+        );
         assert_eq!(validate_schema_id("athanor.api-contract.diff.v2"), Ok(2));
     }
 
@@ -518,29 +563,44 @@ mod tests {
             CAPABILITIES_SCHEMA_V1
         );
         assert_eq!(crate::index::INDEX_REPORT_SCHEMA, INDEX_REPORT_SCHEMA_V1);
-        assert_eq!(crate::bench::INDEX_BENCHMARK_SCHEMA, INDEX_BENCHMARK_SCHEMA_V1);
+        assert_eq!(
+            crate::bench::INDEX_BENCHMARK_SCHEMA,
+            INDEX_BENCHMARK_SCHEMA_V1
+        );
         assert_eq!(
             crate::validate_changed::CHANGED_VALIDATION_SCHEMA,
             CHANGED_VALIDATION_SCHEMA_V1
         );
-        assert_eq!(crate::config::CONFIG_VALIDATE_SCHEMA, CONFIG_VALIDATE_SCHEMA_V1);
+        assert_eq!(
+            crate::config::CONFIG_VALIDATE_SCHEMA,
+            CONFIG_VALIDATE_SCHEMA_V1
+        );
         assert_eq!(crate::config::CONFIG_DOCTOR_SCHEMA, CONFIG_DOCTOR_SCHEMA_V1);
         assert_eq!(crate::docs::DOCS_CHECK_SCHEMA, DOCS_CHECK_SCHEMA_V1);
         assert_eq!(crate::docs::DOCS_DRIFT_SCHEMA, DOCS_DRIFT_SCHEMA_V1);
-        assert_eq!(crate::api::API_CONTRACT_DIFF_SCHEMA, API_CONTRACT_DIFF_SCHEMA_V2);
+        assert_eq!(
+            crate::api::API_CONTRACT_DIFF_SCHEMA,
+            API_CONTRACT_DIFF_SCHEMA_V2
+        );
         assert_eq!(crate::wiki::WIKI_REPORT_SCHEMA, WIKI_REPORT_SCHEMA_V1);
         assert_eq!(crate::report::HTML_REPORT_SCHEMA, HTML_REPORT_SCHEMA_V1);
         assert_eq!(crate::graph::GRAPH_EXPORT_SCHEMA, GRAPH_EXPORT_SCHEMA_V1);
         assert_eq!(crate::graph::GRAPH_RELATED_SCHEMA, GRAPH_RELATED_SCHEMA_V1);
         assert_eq!(crate::graph::GRAPH_PATH_SCHEMA, GRAPH_PATH_SCHEMA_V1);
         assert_eq!(crate::graph::GRAPH_HUBS_SCHEMA, GRAPH_HUBS_SCHEMA_V1);
-        assert_eq!(crate::graph::GRAPH_PAGERANK_SCHEMA, GRAPH_PAGERANK_SCHEMA_V1);
+        assert_eq!(
+            crate::graph::GRAPH_PAGERANK_SCHEMA,
+            GRAPH_PAGERANK_SCHEMA_V1
+        );
         assert_eq!(crate::graph::GRAPH_CYCLES_SCHEMA, GRAPH_CYCLES_SCHEMA_V1);
         assert_eq!(
             crate::rustok_architecture::RUSTOK_ARCHITECTURE_CONTEXT_SCHEMA,
             RUSTOK_ARCHITECTURE_CONTEXT_SCHEMA_V1
         );
-        assert_eq!(crate::graph::RUSTOK_FFA_AUDIT_SCHEMA, RUSTOK_FFA_AUDIT_SCHEMA_V1);
+        assert_eq!(
+            crate::graph::RUSTOK_FFA_AUDIT_SCHEMA,
+            RUSTOK_FFA_AUDIT_SCHEMA_V1
+        );
         assert_eq!(
             crate::graph::RUSTOK_FFA_SURFACE_GRAPH_SCHEMA,
             RUSTOK_FFA_SURFACE_GRAPH_SCHEMA_V1
@@ -549,7 +609,10 @@ mod tests {
             crate::graph::RUSTOK_FFA_VIOLATIONS_GRAPH_SCHEMA,
             RUSTOK_FFA_VIOLATIONS_GRAPH_SCHEMA_V1
         );
-        assert_eq!(crate::graph::RUSTOK_FBA_AUDIT_SCHEMA, RUSTOK_FBA_AUDIT_SCHEMA_V1);
+        assert_eq!(
+            crate::graph::RUSTOK_FBA_AUDIT_SCHEMA,
+            RUSTOK_FBA_AUDIT_SCHEMA_V1
+        );
         assert_eq!(
             crate::graph::RUSTOK_FBA_MODULE_GRAPH_SCHEMA,
             RUSTOK_FBA_MODULE_GRAPH_SCHEMA_V1

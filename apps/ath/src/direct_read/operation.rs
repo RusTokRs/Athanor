@@ -121,17 +121,13 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_millis() as u64;
-        let operation = OperationContext::new("cli:test-timeout")
-            .with_deadline_unix_ms(now.saturating_add(50));
+        let operation =
+            OperationContext::new("cli:test-timeout").with_deadline_unix_ms(now.saturating_add(50));
         let cancellation = operation.cancellation_handle().unwrap();
 
-        let error = await_cli_operation(
-            &operation,
-            cancellation,
-            pending::<Result<()>>(),
-        )
-        .await
-        .expect_err("deadline must terminate pending read");
+        let error = await_cli_operation(&operation, cancellation, pending::<Result<()>>())
+            .await
+            .expect_err("deadline must terminate pending read");
 
         assert!(error.chain().any(|cause| matches!(
             cause.downcast_ref::<CoreError>(),

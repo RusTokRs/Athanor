@@ -31,10 +31,14 @@ fn proposal_repairs_policy_and_snapshot_drift() {
         None,
     );
     let operation = &proposal.operations[0];
-    assert!(operation.changes.iter().any(|change| change.field == "kind"));
+    assert!(
+        operation
+            .changes
+            .iter()
+            .any(|change| change.field == "kind")
+    );
     assert!(operation.changes.iter().any(|change| {
-        change.field == "last_verified_snapshot"
-            && change.new_value == json!("snap_current")
+        change.field == "last_verified_snapshot" && change.new_value == json!("snap_current")
     }));
 }
 
@@ -47,7 +51,13 @@ fn missing_api_page_contains_graph_context() {
     let example = api_example(&endpoint);
     let diagnostic = missing_api_diagnostic(&endpoint);
     let relations = vec![
-        relation("impl", RelationKind::ImplementedBy, &endpoint, &handler, json!({})),
+        relation(
+            "impl",
+            RelationKind::ImplementedBy,
+            &endpoint,
+            &handler,
+            json!({}),
+        ),
         relation(
             "request",
             RelationKind::SchemaForRequest,
@@ -62,7 +72,13 @@ fn missing_api_page_contains_graph_context() {
             &response,
             json!({"status_code": "200", "media_type": "application/json"}),
         ),
-        relation("example", RelationKind::ExampleFor, &example, &endpoint, json!({})),
+        relation(
+            "example",
+            RelationKind::ExampleFor,
+            &example,
+            &endpoint,
+            json!({}),
+        ),
     ];
     let proposal = build_docs_patch_proposal(
         "snap_current".to_string(),
@@ -126,7 +142,10 @@ fn missing_operational_docs_create_bounded_pages() {
         "snap_current".to_string(),
         &[env.clone(), script.clone()],
         &[],
-        &[missing_env_diagnostic(&env), missing_script_diagnostic(&script)],
+        &[
+            missing_env_diagnostic(&env),
+            missing_script_diagnostic(&script),
+        ],
         &DocsConfig::default(),
         None,
     );
@@ -135,7 +154,9 @@ fn missing_operational_docs_create_bounded_pages() {
         operation.path == "docs/operations/env-database-url.md" && operation.create
     }));
     assert!(proposal.operations.iter().any(|operation| {
-        operation.path.contains("script-script-command-makefile-target-deploy")
+        operation
+            .path
+            .contains("script-script-command-makefile-target-deploy")
             && operation.create
     }));
 }

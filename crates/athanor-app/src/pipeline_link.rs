@@ -34,10 +34,8 @@ pub(crate) async fn link(
             "running linker"
         );
         let started = std::time::Instant::now();
-        let output = crate::with_process_execution_context(
-            operation.clone(),
-            cancellation.clone(),
-            async {
+        let output =
+            crate::with_process_execution_context(operation.clone(), cancellation.clone(), async {
                 within_operation_deadline(
                     operation,
                     linker_name,
@@ -52,12 +50,11 @@ pub(crate) async fn link(
                     ),
                 )
                 .await
-            },
-        )
-        .instrument(span)
-        .await
-        .inspect_err(|error| error!(linker = linker.name(), %error, "linker failed"))
-        .with_context(|| format!("linker {} failed", linker_name))?;
+            })
+            .instrument(span)
+            .await
+            .inspect_err(|error| error!(linker = linker.name(), %error, "linker failed"))
+            .with_context(|| format!("linker {} failed", linker_name))?;
         validate_relations(linker_name, &output)?;
         let mut adapter_metrics = adapter_run("linker", linker_name, elapsed_ms(started.elapsed()));
         adapter_metrics.input_entities = entities.len();

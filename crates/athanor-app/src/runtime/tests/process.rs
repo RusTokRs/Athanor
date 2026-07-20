@@ -2,19 +2,17 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use athanor_core::{
-    CoreError, ProcessLimits as CoreProcessLimits, ProcessRequest, ProcessRunner,
-};
+use athanor_core::{CoreError, ProcessLimits as CoreProcessLimits, ProcessRequest, ProcessRunner};
 use serde_json::Value;
 
-use crate::CancellationToken;
-use super::fixtures::{failing_command, sleep_command, stdout_bytes_command, test_working_dir};
-#[cfg(unix)]
-use super::fixtures::sh_path;
 use super::super::{
     AdapterProcessCommand, TokioProcessRunner, process_adapter,
     process_adapter_support::{ProcessCommand, ProcessLimits},
 };
+#[cfg(unix)]
+use super::fixtures::sh_path;
+use super::fixtures::{failing_command, sleep_command, stdout_bytes_command, test_working_dir};
+use crate::CancellationToken;
 
 #[test]
 fn rejects_bare_and_parent_directory_process_commands() {

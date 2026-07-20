@@ -3,7 +3,8 @@ use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
 use athanor_core::{
-    CoreError, CoreResult, OperationContext, OperationContextCancellation, SourceFile, SourceProvider,
+    CoreError, CoreResult, OperationContext, OperationContextCancellation, SourceFile,
+    SourceProvider,
 };
 
 const DISCOVERY_POLL_INTERVAL: usize = 64;
@@ -38,7 +39,10 @@ impl SourceProvider for LocalFileSystemSource {
     }
 }
 
-fn discover_files(root: &Path, operation: Option<&OperationContext>) -> CoreResult<Vec<SourceFile>> {
+fn discover_files(
+    root: &Path,
+    operation: Option<&OperationContext>,
+) -> CoreResult<Vec<SourceFile>> {
     let mut poller = DiscoveryPoller::new(operation, DISCOVERY_POLL_INTERVAL)?;
     let root = root
         .canonicalize()
@@ -70,8 +74,7 @@ fn discover_files(root: &Path, operation: Option<&OperationContext>) -> CoreResu
                 let relative = path.strip_prefix(&root).map_err(|err| {
                     CoreError::Adapter(format!("failed to strip root prefix: {err}"))
                 })?;
-                if let Some(source) =
-                    read_source_file_at_with_poller(&root, relative, &mut poller)?
+                if let Some(source) = read_source_file_at_with_poller(&root, relative, &mut poller)?
                 {
                     files.push(source);
                 }

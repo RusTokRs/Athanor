@@ -2,8 +2,8 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use athanor_app::{
-    GraphCyclesOptions, GraphExportOptions, GraphHubsOptions, GraphPageRankOptions, GraphPathOptions,
-    GraphRelatedOptions,
+    GraphCyclesOptions, GraphExportOptions, GraphHubsOptions, GraphPageRankOptions,
+    GraphPathOptions, GraphRelatedOptions,
 };
 use clap::error::ErrorKind;
 use clap::{Parser, Subcommand, ValueEnum};
@@ -144,7 +144,12 @@ pub(crate) fn parse(args: &[String]) -> Result<Option<Command>> {
         Ok(DirectGraphCli {
             command: RootCommand::Graph { command },
         }) => Ok(Some(command)),
-        Err(error) if matches!(error.kind(), ErrorKind::DisplayHelp | ErrorKind::DisplayVersion) => {
+        Err(error)
+            if matches!(
+                error.kind(),
+                ErrorKind::DisplayHelp | ErrorKind::DisplayVersion
+            ) =>
+        {
             error.print().context("failed to print direct graph help")?;
             std::process::exit(0);
         }

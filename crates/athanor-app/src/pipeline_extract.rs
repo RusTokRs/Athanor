@@ -86,10 +86,8 @@ pub(crate) async fn extract(
                 let started = std::time::Instant::now();
                 let span =
                     debug_span!("extract_source", extractor = %extractor_name, file = %source.path);
-                let output = crate::with_process_execution_context(
-                    operation.clone(),
-                    cancellation,
-                    async {
+                let output =
+                    crate::with_process_execution_context(operation.clone(), cancellation, async {
                         within_operation_deadline(
                             &operation,
                             &extractor_name,
@@ -104,18 +102,14 @@ pub(crate) async fn extract(
                         )
                         .await
                         .with_context(|| format!("extractor {extractor_name} failed"))
-                    },
-                )
-                .instrument(span)
-                .await?;
+                    })
+                    .instrument(span)
+                    .await?;
                 validate_entities(&extractor_name, &output.entities)?;
                 validate_facts(&extractor_name, &output.facts)?;
                 validate_diagnostics(&extractor_name, &output.diagnostics)?;
-                let mut metrics = adapter_run(
-                    "extractor",
-                    &extractor_name,
-                    elapsed_ms(started.elapsed()),
-                );
+                let mut metrics =
+                    adapter_run("extractor", &extractor_name, elapsed_ms(started.elapsed()));
                 metrics.input_files = 1;
                 metrics.output_entities = output.entities.len();
                 metrics.output_facts = output.facts.len();

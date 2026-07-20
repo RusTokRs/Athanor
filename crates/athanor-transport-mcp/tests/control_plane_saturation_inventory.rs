@@ -13,7 +13,10 @@ fn stdin_and_notifications_bypass_ordinary_request_saturation() {
         .find("joined = requests.join_next()")
         .expect("request reaping branch");
     assert!(LIFECYCLE.contains("tokio::select! {\n                biased;"));
-    assert!(line_branch < join_branch, "stdin must be selected before task reaping");
+    assert!(
+        line_branch < join_branch,
+        "stdin must be selected before task reaping"
+    );
 
     let notification = LIFECYCLE
         .find("if request.id.is_notification()")
@@ -35,22 +38,19 @@ fn inline_responses_never_hold_the_only_stdin_reader() {
     assert!(LIFECYCLE.contains("responses.try_send(response)"));
     assert!(LIFECYCLE.contains("TrySendError::Full(_)"));
     assert!(LIFECYCLE.contains("TrySendError::Closed(_)"));
-    assert!(LIFECYCLE.contains(
-        "Ordinary request tasks retain bounded `send().await` backpressure"
-    ));
-    assert!(LIFECYCLE.contains(
-        "send_response(&responses_tx, response_json(id, response)).await"
-    ));
-    assert!(!LIFECYCLE.contains(
-        "try_send(response)\n            .context(\"MCP response queue is saturated"
-    ));
+    assert!(
+        LIFECYCLE.contains("Ordinary request tasks retain bounded `send().await` backpressure")
+    );
+    assert!(LIFECYCLE.contains("send_response(&responses_tx, response_json(id, response)).await"));
+    assert!(
+        !LIFECYCLE
+            .contains("try_send(response)\n            .context(\"MCP response queue is saturated")
+    );
 }
 
 #[test]
 fn disconnect_cancels_registered_operations_before_task_drain() {
-    assert!(LIFECYCLE.contains(
-        "None => close_stdin(&active_reads, &mut stdin_open).await"
-    ));
+    assert!(LIFECYCLE.contains("None => close_stdin(&active_reads, &mut stdin_open).await"));
     assert!(LIFECYCLE.contains(
         "pub(super) async fn close_stdin(active_reads: &ActiveReads, stdin_open: &mut bool)"
     ));

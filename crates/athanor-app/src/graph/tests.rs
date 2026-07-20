@@ -33,12 +33,7 @@ fn exports_bounded_graph_by_degree_then_stable_key() {
         entities: vec![handler.clone(), orphan, doc.clone(), endpoint.clone()],
         relations: vec![
             relation("rel_docs", RelationKind::Documents, &doc, &endpoint),
-            relation(
-                "rel_impl",
-                RelationKind::ImplementedBy,
-                &endpoint,
-                &handler,
-            ),
+            relation("rel_impl", RelationKind::ImplementedBy, &endpoint, &handler),
         ],
         ..CanonicalSnapshot::default()
     };
@@ -128,12 +123,7 @@ fn pure_related_graph_uses_canonical_cooperative_traversal() {
         entities: vec![handler.clone(), doc.clone(), endpoint.clone()],
         relations: vec![
             relation("rel_docs", RelationKind::Documents, &doc, &endpoint),
-            relation(
-                "rel_impl",
-                RelationKind::ImplementedBy,
-                &endpoint,
-                &handler,
-            ),
+            relation("rel_impl", RelationKind::ImplementedBy, &endpoint, &handler),
         ],
         ..CanonicalSnapshot::default()
     };

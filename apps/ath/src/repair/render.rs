@@ -12,21 +12,31 @@ pub(super) fn print_help(topic: HelpTopic) {
             println!("  index-retention       Plan or apply immutable index-generation retention");
             println!("  recover-index         Recover a pending transactional index publication");
             println!("  recover-index-cleanup Finish an interrupted confirmed index cleanup");
-            println!("  repair-latest         Repair canonical latest to the authoritative generation");
+            println!(
+                "  repair-latest         Repair canonical latest to the authoritative generation"
+            );
             println!();
-            println!("Existing commands remain available: inspect, cleanup, regenerate, recover-canonical, apply");
+            println!(
+                "Existing commands remain available: inspect, cleanup, regenerate, recover-canonical, apply"
+            );
         }
         HelpTopic::IndexRetention => {
             println!("Plan or apply immutable index-generation retention");
             println!();
             println!("Usage:");
             println!("  ath repair index-retention [PATH] --dry-run [--keep <N>] [--json]");
-            println!("  ath repair index-retention [PATH] --confirmation-token <TOKEN> [--keep <N>] [--json]");
+            println!(
+                "  ath repair index-retention [PATH] --confirmation-token <TOKEN> [--keep <N>] [--json]"
+            );
             println!();
-            println!("A destructive invocation requires the token emitted by an exact dry-run plan.");
+            println!(
+                "A destructive invocation requires the token emitted by an exact dry-run plan."
+            );
         }
         HelpTopic::RecoverIndex => {
-            println!("Recover a pending transactional index publication without running the indexing pipeline");
+            println!(
+                "Recover a pending transactional index publication without running the indexing pipeline"
+            );
             println!();
             println!("Usage: ath repair recover-index [PATH] [--dry-run] [--json]");
         }
@@ -38,9 +48,13 @@ pub(super) fn print_help(topic: HelpTopic) {
         HelpTopic::RepairLatest => {
             println!("Repair canonical latest to the authoritative newest committed generation");
             println!();
-            println!("Usage: ath repair repair-latest [PATH] [--snapshot <ID>] [--dry-run] [--json]");
+            println!(
+                "Usage: ath repair repair-latest [PATH] [--snapshot <ID>] [--dry-run] [--json]"
+            );
             println!();
-            println!("An explicit snapshot is accepted only when backend discovery confirms it is authoritative.");
+            println!(
+                "An explicit snapshot is accepted only when backend discovery confirms it is authoritative."
+            );
         }
     }
 }
@@ -91,7 +105,10 @@ pub(super) fn print_repair_latest(report: &RepairCanonicalLatestReport) {
         report.target.snapshot.0, report.target.generation
     );
     if let Some(previous) = &report.previous {
-        println!("  previous: {} ({})", previous.snapshot.0, previous.generation);
+        println!(
+            "  previous: {} ({})",
+            previous.snapshot.0, previous.generation
+        );
     }
     if let Some(error) = &report.previous_error {
         println!("  previous pointer error: {error}");

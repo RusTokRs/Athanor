@@ -82,8 +82,15 @@ pub(crate) fn parse(args: &[String]) -> Result<Option<Command>> {
         .collect::<Vec<_>>();
     match IndexCli::try_parse_from(argv) {
         Ok(cli) => Ok(Some(cli.command)),
-        Err(error) if matches!(error.kind(), ErrorKind::DisplayHelp | ErrorKind::DisplayVersion) => {
-            error.print().context("failed to print index command help")?;
+        Err(error)
+            if matches!(
+                error.kind(),
+                ErrorKind::DisplayHelp | ErrorKind::DisplayVersion
+            ) =>
+        {
+            error
+                .print()
+                .context("failed to print index command help")?;
             std::process::exit(0);
         }
         Err(error) => Err(error.into()),
@@ -232,8 +239,10 @@ mod tests {
             parse(&["index".to_string(), ".".to_string()]).unwrap(),
             Some(Command::Index { .. })
         ));
-        assert!(parse(&["docs".to_string(), "check".to_string()])
-            .unwrap()
-            .is_none());
+        assert!(
+            parse(&["docs".to_string(), "check".to_string()])
+                .unwrap()
+                .is_none()
+        );
     }
 }

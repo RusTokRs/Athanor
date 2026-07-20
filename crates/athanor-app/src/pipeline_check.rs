@@ -37,10 +37,8 @@ pub(crate) async fn check(
             "running checker"
         );
         let started = std::time::Instant::now();
-        let output = crate::with_process_execution_context(
-            operation.clone(),
-            cancellation.clone(),
-            async {
+        let output =
+            crate::with_process_execution_context(operation.clone(), cancellation.clone(), async {
                 within_operation_deadline(
                     operation,
                     checker_name,
@@ -56,12 +54,11 @@ pub(crate) async fn check(
                     ),
                 )
                 .await
-            },
-        )
-        .instrument(span)
-        .await
-        .inspect_err(|error| error!(checker = checker.name(), %error, "checker failed"))
-        .with_context(|| format!("checker {} failed", checker_name))?;
+            })
+            .instrument(span)
+            .await
+            .inspect_err(|error| error!(checker = checker.name(), %error, "checker failed"))
+            .with_context(|| format!("checker {} failed", checker_name))?;
         validate_diagnostics(checker_name, &output)?;
         let mut adapter_metrics =
             adapter_run("checker", checker_name, elapsed_ms(started.elapsed()));

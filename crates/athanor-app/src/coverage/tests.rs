@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use athanor_core::CanonicalSnapshot;
 use athanor_domain::{
     Diagnostic, DiagnosticId, DiagnosticKind, DiagnosticStatus, Entity, EntityId, EntityKind,
-    Evidence, EvidenceStatus, Fact, FactId, FactKind, LanguageCode, Ownership, Severity, SnapshotId,
-    StableKey,
+    Evidence, EvidenceStatus, Fact, FactId, FactKind, LanguageCode, Ownership, Severity,
+    SnapshotId, StableKey,
 };
 use serde_json::json;
 

@@ -10,6 +10,7 @@ use athanor_core::{
 };
 use serde_json::Value;
 use tantivy::{
+    Index, IndexReader, IndexWriter, TantivyDocument, TantivyError,
     collector::TopDocs,
     doc,
     indexer::NoMergePolicy,
@@ -18,7 +19,6 @@ use tantivy::{
         Field, IndexRecordOption, STORED, STRING, Schema, TextFieldIndexing, TextOptions,
         Value as TantivyValue,
     },
-    Index, IndexReader, IndexWriter, TantivyDocument, TantivyError,
 };
 
 const COMMIT_PERMISSION_RETRIES: usize = 3;
@@ -248,10 +248,7 @@ impl SearchIndex for TantivySearchIndex {
         let mut writer = self.writer.lock().map_err(|error| {
             CoreError::Adapter(format!("Failed to acquire Tantivy writer lock: {error}"))
         })?;
-        writer.delete_term(tantivy::Term::from_field_text(
-            self.id_field,
-            &document.id,
-        ));
+        writer.delete_term(tantivy::Term::from_field_text(self.id_field, &document.id));
         writer
             .add_document(doc!(
                 self.id_field => document.id,

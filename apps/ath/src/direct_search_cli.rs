@@ -39,8 +39,15 @@ pub(crate) fn parse(args: &[String]) -> Result<Option<Command>> {
         .collect::<Vec<_>>();
     match DirectSearchCli::try_parse_from(argv) {
         Ok(cli) => Ok(Some(cli.command)),
-        Err(error) if matches!(error.kind(), ErrorKind::DisplayHelp | ErrorKind::DisplayVersion) => {
-            error.print().context("failed to print direct search help")?;
+        Err(error)
+            if matches!(
+                error.kind(),
+                ErrorKind::DisplayHelp | ErrorKind::DisplayVersion
+            ) =>
+        {
+            error
+                .print()
+                .context("failed to print direct search help")?;
             std::process::exit(0);
         }
         Err(error) => Err(error.into()),

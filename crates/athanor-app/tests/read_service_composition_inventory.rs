@@ -76,18 +76,15 @@ fn assert_composition_execution(source: &str, entrypoint: &str, legacy_entrypoin
 
 #[test]
 fn search_compatibility_apis_are_removed() {
-    assert!(SEARCH_FACADE_SOURCE.contains(
-        "pub async fn search_snapshot_with_composition_and_operation_context("
-    ));
-    assert!(SEARCH_FACADE_SOURCE.contains(
-        "get_or_build_search_index_with_factory_and_operation"
-    ));
-    assert!(!SEARCH_FACADE_SOURCE.contains(
-        "pub async fn search_snapshot_with_operation_context("
-    ));
-    assert!(!SEARCH_FACADE_SOURCE.contains(
-        "pub fn get_or_build_search_index_with_operation_context("
-    ));
+    assert!(
+        SEARCH_FACADE_SOURCE
+            .contains("pub async fn search_snapshot_with_composition_and_operation_context(")
+    );
+    assert!(SEARCH_FACADE_SOURCE.contains("get_or_build_search_index_with_factory_and_operation"));
+    assert!(!SEARCH_FACADE_SOURCE.contains("pub async fn search_snapshot_with_operation_context("));
+    assert!(
+        !SEARCH_FACADE_SOURCE.contains("pub fn get_or_build_search_index_with_operation_context(")
+    );
     assert!(!SEARCH_FACADE_SOURCE.contains("pub async fn search_snapshot("));
     assert!(!SEARCH_FACADE_SOURCE.contains("pub(crate) async fn search_snapshot("));
     assert!(!SEARCH_FACADE_SOURCE.contains("crate::test_runtime::composition()"));
@@ -119,9 +116,9 @@ fn graph_operation_reads_require_explicit_composition() {
     }
     assert!(GRAPH_OPERATION_SOURCE.contains("composition: &RuntimeComposition"));
     assert!(GRAPH_OPERATION_SOURCE.contains("composition.init_store(&root, &config)"));
-    assert!(GRAPH_OPERATION_SOURCE.contains(
-        "load_latest_snapshot_with_operation_context(operation)"
-    ));
+    assert!(
+        GRAPH_OPERATION_SOURCE.contains("load_latest_snapshot_with_operation_context(operation)")
+    );
     assert!(!GRAPH_OPERATION_SOURCE.contains("Option<&RuntimeComposition>"));
     assert!(!GRAPH_OPERATION_SOURCE.contains("crate::store::init_store"));
     assert!(!GRAPH_OPERATION_SOURCE.contains("match composition"));
@@ -147,8 +144,12 @@ fn repair_has_one_composition_execution_owner() {
     ] {
         assert!(REPAIR_COMPOSITION_SOURCE.contains(entrypoint));
     }
-    assert!(REPAIR_COMPOSITION_SOURCE.contains("direct::repair_latest(options, composition).await"));
-    assert!(REPAIR_COMPOSITION_SOURCE.contains("direct::recover_index(options, composition).await"));
+    assert!(
+        REPAIR_COMPOSITION_SOURCE.contains("direct::repair_latest(options, composition).await")
+    );
+    assert!(
+        REPAIR_COMPOSITION_SOURCE.contains("direct::recover_index(options, composition).await")
+    );
     assert!(REPAIR_DIRECT_SOURCE.contains("pub(super) async fn repair_latest("));
     assert!(REPAIR_DIRECT_SOURCE.contains("pub(super) async fn recover_index("));
     assert!(REPAIR_DIRECT_SOURCE.contains("composition: &RuntimeComposition"));
@@ -207,9 +208,7 @@ fn change_map_is_bounded_and_composition_only() {
         "pub async fn change_map_project_with_composition(",
         "pub async fn change_map_project(",
     );
-    assert!(CHANGE_MAP_EXECUTION.contains(
-        "use crate::search::search_snapshot_with_composition;"
-    ));
+    assert!(CHANGE_MAP_EXECUTION.contains("use crate::search::search_snapshot_with_composition;"));
     assert!(CHANGE_MAP_EXECUTION.contains("let search = search_snapshot_with_composition("));
 }
 
@@ -331,9 +330,17 @@ fn read_service_modules_remain_bounded() {
         ("Repair latest model", REPAIR_LATEST_SOURCE, 60),
         ("Repair recovery model", REPAIR_RECOVERY_SOURCE, 60),
         ("Repair composition root", REPAIR_COMPOSITION_SOURCE, 50),
-        ("Repair direct execution and tests", REPAIR_DIRECT_SOURCE, 520),
+        (
+            "Repair direct execution and tests",
+            REPAIR_DIRECT_SOURCE,
+            520,
+        ),
         ("Docs root", DOCS_ROOT_SOURCE, 30),
-        ("Application report composition", APPLICATION_REPORT_COMPOSITION_SOURCE, 80),
+        (
+            "Application report composition",
+            APPLICATION_REPORT_COMPOSITION_SOURCE,
+            80,
+        ),
         ("Docs direct root", DOCS_DIRECT_ROOT_SOURCE, 20),
         ("Docs snapshot", DOCS_SNAPSHOT_SOURCE, 60),
         ("Docs check", DOCS_CHECK_SOURCE, 220),

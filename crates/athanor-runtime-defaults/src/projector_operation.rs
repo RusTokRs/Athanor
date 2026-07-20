@@ -43,21 +43,16 @@ pub(crate) fn publish_projector_output_cancellable(
 
     let had_existing = target.exists();
     if had_existing {
-        fs::rename(target, &backup).with_context(|| {
-            format!(
-                "stage previous {output_kind} output {}",
-                target.display()
-            )
-        })?;
+        fs::rename(target, &backup)
+            .with_context(|| format!("stage previous {output_kind} output {}", target.display()))?;
     }
     if let Err(error) = fs::rename(&staging, target) {
         if had_existing {
             let _ = fs::rename(&backup, target);
         }
         let _ = remove_path_if_exists(&staging);
-        return Err(error).with_context(|| {
-            format!("publish {output_kind} output {}", target.display())
-        });
+        return Err(error)
+            .with_context(|| format!("publish {output_kind} output {}", target.display()));
     }
     if had_existing {
         let _ = remove_path_if_exists(&backup);
@@ -77,8 +72,7 @@ fn remove_path_if_exists(path: &Path) -> Result<()> {
         fs::remove_dir_all(path)
             .with_context(|| format!("remove output directory {}", path.display()))?;
     } else if path.exists() {
-        fs::remove_file(path)
-            .with_context(|| format!("remove output file {}", path.display()))?;
+        fs::remove_file(path).with_context(|| format!("remove output file {}", path.display()))?;
     }
     Ok(())
 }

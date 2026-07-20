@@ -2,11 +2,11 @@ use std::fs;
 use std::path::PathBuf;
 
 use athanor_app::{
-    ADAPTER_MANIFEST_SCHEMA_LEGACY, ADAPTER_MANIFEST_SCHEMA_V1,
-    ADAPTER_NON_PUBLIC_JSON_CONTRACTS, ADAPTER_TRUST_REGISTRY_SCHEMA_LEGACY_V2,
-    ADAPTER_TRUST_REGISTRY_SCHEMA_V2, ADAPTER_TRUST_REPORT_SCHEMA_V1, AdapterTrustListOptions,
-    AdapterTrustOptions, BoundaryLifecycle, VERSIONED_JSON_CONTRACTS,
-    discover_adapter_plugins, list_adapter_plugin_trust_versioned, trust_adapter_plugin_versioned,
+    ADAPTER_MANIFEST_SCHEMA_LEGACY, ADAPTER_MANIFEST_SCHEMA_V1, ADAPTER_NON_PUBLIC_JSON_CONTRACTS,
+    ADAPTER_TRUST_REGISTRY_SCHEMA_LEGACY_V2, ADAPTER_TRUST_REGISTRY_SCHEMA_V2,
+    ADAPTER_TRUST_REPORT_SCHEMA_V1, AdapterTrustListOptions, AdapterTrustOptions,
+    BoundaryLifecycle, VERSIONED_JSON_CONTRACTS, discover_adapter_plugins,
+    list_adapter_plugin_trust_versioned, trust_adapter_plugin_versioned,
     validate_adapter_contract_inventory, validate_adapter_non_public_contract_value,
     validate_contract_value,
 };
@@ -102,8 +102,8 @@ fn legacy_manifest_and_trust_registry_migrate_to_current_owners() {
     .expect("trust operation writes current registry and report schemas");
     assert_eq!(report.schema, ADAPTER_TRUST_REPORT_SCHEMA_V1);
 
-    let persisted: Value =
-        serde_json::from_slice(&fs::read(&trust_path).unwrap()).expect("valid persisted trust JSON");
+    let persisted: Value = serde_json::from_slice(&fs::read(&trust_path).unwrap())
+        .expect("valid persisted trust JSON");
     assert_eq!(persisted["schema"], ADAPTER_TRUST_REGISTRY_SCHEMA_V2);
 
     fs::remove_dir_all(root).unwrap();

@@ -38,9 +38,10 @@ fn mcp_runtime_composition_is_explicit_end_to_end() {
 #[test]
 fn mcp_control_plane_stays_readable_under_request_saturation() {
     assert!(MCP_SERVER_LIFECYCLE_SOURCE.contains("lines.next_line()"));
-    assert!(!MCP_SERVER_LIFECYCLE_SOURCE.contains(
-        "stdin_open && requests.len() < limits.max_in_flight_requests"
-    ));
+    assert!(
+        !MCP_SERVER_LIFECYCLE_SOURCE
+            .contains("stdin_open && requests.len() < limits.max_in_flight_requests")
+    );
     assert!(MCP_SERVER_LIFECYCLE_SOURCE.contains("requests.len() >= max_in_flight_requests"));
     assert!(MCP_SERVER_LIFECYCLE_SOURCE.contains("RpcError::server_busy"));
     assert!(MCP_SERVER_TYPES_SOURCE.contains("\"retryable\": true"));

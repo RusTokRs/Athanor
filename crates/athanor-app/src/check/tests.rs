@@ -120,7 +120,10 @@ fn reports_stale_snapshot_manifests_for_affected_artifacts() {
 
     assert!(wiki_stale && html_stale && api_stale);
     assert_eq!(
-        statuses.iter().map(|status| status.kind).collect::<Vec<_>>(),
+        statuses
+            .iter()
+            .map(|status| status.kind)
+            .collect::<Vec<_>>(),
         vec![
             AffectedArtifactKind::Wiki,
             AffectedArtifactKind::HtmlReport,

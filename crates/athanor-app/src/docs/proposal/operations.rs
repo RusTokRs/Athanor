@@ -5,11 +5,11 @@ use serde_json::Value;
 
 use crate::config::DocsConfig;
 
+use super::super::DocsPatchOperation;
 use super::super::operations::{
     env_doc_content, env_doc_path, operation_doc_content, operation_doc_diagnostic_shape,
     operation_doc_path,
 };
-use super::super::DocsPatchOperation;
 
 pub(super) fn add_missing(
     changes: &mut BTreeMap<String, DocsPatchOperation>,
@@ -26,9 +26,10 @@ pub(super) fn add_missing(
         let Some(key) = diagnostic.payload.get("env_var").and_then(Value::as_str) else {
             continue;
         };
-        let Some(entity) = entities.iter().find(|entity| {
-            entity.kind == EntityKind::EnvVar && entity.stable_key.0 == key
-        }) else {
+        let Some(entity) = entities
+            .iter()
+            .find(|entity| entity.kind == EntityKind::EnvVar && entity.stable_key.0 == key)
+        else {
             continue;
         };
         let path = env_doc_path(&config.editable_path, entity);
