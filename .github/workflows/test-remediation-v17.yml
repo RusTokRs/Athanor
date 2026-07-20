@@ -86,6 +86,19 @@ jobs:
               text = text.replace(old, new, 1)
           inventory.write_text(text)
 
+          runtime_inventory = Path(
+              "crates/athanor-app/tests/runtime_modularity_inventory.rs"
+          )
+          runtime_text = runtime_inventory.read_text()
+          old_split = '.split("ProcessCommand {")'
+          new_split = '.split("\\n    ProcessCommand {")'
+          if runtime_text.count(old_split) != 1:
+              raise SystemExit(
+                  "runtime modularity inventory: expected one broad ProcessCommand split, "
+                  f"found {runtime_text.count(old_split)}"
+              )
+          runtime_inventory.write_text(runtime_text.replace(old_split, new_split, 1))
+
           Path(".github/workflows/test-remediation-v17.yml").unlink()
           PY
             cargo fmt --all
@@ -121,6 +134,7 @@ jobs:
           crates/athanor-app/tests/json_contract_inventory.rs
           crates/athanor-app/tests/legacy_factory_migration.rs
           crates/athanor-app/tests/mcp_runtime_bootstrap_inventory.rs
+          crates/athanor-app/tests/runtime_modularity_inventory.rs
           docs/development/json-contract-inventory.md
           EOF
           sort -o "$RUNNER_TEMP/allowed-paths" "$RUNNER_TEMP/allowed-paths"
