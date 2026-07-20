@@ -30,7 +30,8 @@ Rust execution evidence.
 - `VERIFY-001A` — exact JSON evidence и `athanor/verification-matrix` status channels;
 - `VERIFY-001B` — lifecycle-aware docs completeness и current `ath init` config;
 - `VERIFY-001C` — repository-owned Rust 1.95 setup для CI, production и release;
-- `VERIFY-001D` — fail-only artifacts для fmt, default feature compile и cargo-deny diagnostics.
+- `VERIFY-001D` — fail-only artifacts для fmt, default feature compile и cargo-deny diagnostics;
+- `VERIFY-001E` — canonical formatting, compile-owner cleanup и patched advisory lockfile.
 
 Composition-only execution действует для Index, Generation, Wiki, HTML, Search, Context, Explain,
 ChangeMap, API, Overview, Capabilities, Impact, Coverage, Check, Graph, Repair, Docs и daemon work.
@@ -129,18 +130,32 @@ ChangeMap, API, Overview, Capabilities, Impact, Coverage, Check, Graph, Repair, 
   - `anyhow 1.0.102` / `RUSTSEC-2026-0190`;
   - `crossbeam-epoch 0.9.18` / `RUSTSEC-2026-0204`.
 - [x] CI сохраняет `cargo-fmt-diagnostics`, `default-feature-diagnostics` и `cargo-deny-diagnostics` только при failure.
-- [x] Source guards фиксируют artifact conditions, paths, retention и bounded owners.
+
+### 3.10 `VERIFY-001E` — project-level remediation
+
+- [x] Run `29722608851` предоставил exact formatting diff и compile diagnostics.
+- [x] MCP visibility, transport helper shadowing, request-task ownership и extraction queue ownership исправлены.
+- [x] Canonical `cargo fmt` применён к workspace; run `29727776673` подтвердил formatting success на Linux, macOS и Windows.
+- [x] Неиспользуемый duplicate `docs/service.rs` удалён; единственный composition owner остаётся в `application_report_composition/docs_direct`.
+- [x] Production-only warnings устранены: Store trait import удалён, adapter report type ограничен `cfg(test)`.
+- [x] Cargo 1.95 сгенерировал и проверил patched lockfile:
+  - `anyhow 1.0.103`;
+  - `ammonia 4.1.3` и согласованный HTML/CSS dependency graph;
+  - `crossbeam-epoch 0.9.20`.
+- [x] Bot commit `b82eff9dee595394cf5b36a8ad8aa983e944db6c` изменил только `Cargo.lock` после `cargo check --workspace --locked` и cargo-deny success.
+- [x] Одноцелевой lock remediation workflow удалён после применения.
 
 ## 4. Следующие активные пакеты
 
 ### 4.1 `VERIFY-001` — execution matrix
 
-- [x] Toolchain infrastructure failure устранён и подтверждён следующим run.
-- [x] Project-level fmt/compile/security failures обнаружены exact matrix.
-- [ ] получить и применить exact cargo-fmt diff;
-- [ ] исправить exact default-feature compile error;
-- [ ] безопасно обновить lockfile до patched `ammonia`, `anyhow`, `crossbeam-epoch` versions;
-- [ ] повторить matrix и разобрать remaining tests/Clippy/smoke failures;
+- [x] Toolchain infrastructure failure устранён.
+- [x] Canonical formatting применён и подтверждён на трёх ОС.
+- [x] Известные project compile blockers и warnings устранены.
+- [x] Advisory lockfile обновлён и проверен cargo-deny.
+- [ ] получить exact matrix result для текущего HEAD;
+- [ ] разобрать remaining tests/Clippy/coverage/smoke failures, если они останутся;
+- [ ] сверить successful evidence SHA с architecture commit;
 - [ ] повысить только доказанные packages до `[x] verified`.
 
 ### 4.2 Product backlog
@@ -168,6 +183,7 @@ ChangeMap, API, Overview, Capabilities, Impact, Coverage, Check, Graph, Repair, 
 | `VERIFY-001B` | P1 | `[x] implemented` | Docs gate matches lifecycle semantics |
 | `VERIFY-001C` | P1 | `[x] implemented` | Workflow toolchain matches Rust 1.95 |
 | `VERIFY-001D` | P1 | `[x] implemented` | Failed fmt/compile/security output is retrievable |
+| `VERIFY-001E` | P1 | `[x] implemented` | Fmt, compile owners and advisory lockfile remediated |
 | `VERIFY-001` | P1 | `[!] blocked` | Exact successful status or JSON evidence identifies one commit |
 
 ## 6. Verification matrix
@@ -221,11 +237,12 @@ matrix для architecture commit.
 
 ## 7. Последние изменения
 
-### 2026-07-20 — Project-level CI diagnostics
+### 2026-07-20 — Project-level CI remediation
 
-- Rust 1.95 setup confirmed by exact failed run.
-- Formatting, compile and advisory failures now retain focused artifacts.
-- Status — implemented; exact fixes and successful matrix pending.
+- Canonical formatting применён и подтверждён на Linux, macOS и Windows.
+- Duplicate Docs service owner и known compile warnings удалены.
+- Advisory dependency graph обновлён exact Cargo 1.95 resolver-ом и проверен cargo-deny.
+- Status — implemented; final exact matrix pending.
 
 ## 8. Historical status
 
