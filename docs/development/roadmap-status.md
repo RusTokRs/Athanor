@@ -82,6 +82,11 @@ aggregating security, quality, feature-matrix, and coverage jobs. A successful r
 publish `docs/development/verification-evidence.json` with the same exact identity. Workflow source
 without a successful exact result remains implementation evidence only.
 
+Run `29770365670` on workflow commit `09b49ba4f0496f9faf9c248e7225aa0a7507f93b` successfully executed
+workspace tests, all-features check, default Clippy, and all-features Clippy, then published validated
+source commit `2b38618e4b53e3c5cbd3fc2d7c2eb2cc2cd16c43`. The bot source push did not recursively start the
+main matrix; this ordinary ledger update is the trigger for exact push-CI on the unchanged source tree.
+
 ### Workflow Toolchain Ownership
 
 The workspace MSRV is Rust `1.95`. CI, production, and release now use the repository-owned
@@ -161,9 +166,10 @@ now emits a concise log and uploads `cargo-deny-diagnostics` when the security c
 
 ### `VERIFY-001`
 
-The remaining architecture task is one exact successful matrix:
+The complete remediation gate is successful. The remaining architecture task is one exact successful
+main verification matrix:
 
-1. a new final push-CI reaches the actual Rust checks;
+1. this ordinary push-CI reaches the required security, quality, feature, and coverage jobs;
 2. any remaining failure is resolved from exact job logs or diagnostic artifacts;
 3. `athanor/verification-matrix` reports success, or valid JSON evidence is published;
 4. only packages covered by that exact SHA are promoted to verified.
