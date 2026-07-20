@@ -98,13 +98,11 @@ jobs:
               text=True,
           )
           marker = "          python - <<'PY'\n"
-          first = workflow.index(marker) + len(marker)
-          first_end = workflow.index("\n          PY", first)
-          second = workflow.index(marker, first_end) + len(marker)
-          second_end = workflow.index("\n          PY", second)
+          start = workflow.index(marker) + len(marker)
+          end = workflow.index("\n          PY", start)
           exec(
               compile(
-                  textwrap.dedent(workflow[second:second_end]),
+                  textwrap.dedent(workflow[start:end]),
                   "execution-remediation-v10-evidence",
                   "exec",
               )
