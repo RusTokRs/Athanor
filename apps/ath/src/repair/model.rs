@@ -5,6 +5,10 @@ use anyhow::{Context, Result, bail};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Command {
     Help(HelpTopic),
+    Inspect {
+        path: PathBuf,
+        json: bool,
+    },
     IndexRetention {
         path: PathBuf,
         dry_run: bool,
@@ -33,6 +37,7 @@ pub(crate) enum Command {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum HelpTopic {
     Repair,
+    Inspect,
     IndexRetention,
     RecoverIndex,
     RecoverIndexCleanup,
@@ -51,12 +56,36 @@ pub(crate) fn parse(args: &[String]) -> Result<Option<Command>> {
     };
     match subcommand.as_str() {
         "--help" | "-h" => Ok(Some(Command::Help(HelpTopic::Repair))),
+        "inspect" => parse_inspect(&args[2..]).map(Some),
         "index-retention" | "cleanup-index" => parse_index_retention(&args[2..]).map(Some),
         "recover-index" => parse_recover_index(&args[2..]).map(Some),
         "recover-index-cleanup" => parse_recover_index_cleanup(&args[2..]).map(Some),
         "repair-latest" => parse_repair_latest(&args[2..]).map(Some),
         _ => Ok(None),
     }
+}
+
+fn parse_inspect(args: &[String]) -> Result<Command> {
+    if args.iter().any(|arg| arg == "--help" || arg == "-h") {
+        return Ok(Command::Help(HelpTopic::Inspect));
+    }
+    let mut path = None;
+    let mut json = false;
+    for arg in args {
+        match arg.as_str() {
+            "--json" => json = true,
+            value if value.starts_with('-') => bail!("unknown inspect option `{value}`"),
+            value => {
+                if path.replace(PathBuf::from(value)).is_some() {
+                    bail!("inspect accepts at most one project path");
+                }
+            }
+        }
+    }
+    Ok(Command::Inspect {
+        path: path.unwrap_or_else(|| PathBuf::from(".")),
+        json,
+    })
 }
 
 fn parse_index_retention(args: &[String]) -> Result<Command> {
