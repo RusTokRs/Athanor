@@ -1,7 +1,6 @@
 use async_trait::async_trait;
 use athanor_core::{
-    AtomicSnapshotPublication, CanonicalSnapshotStore, CoreError, CoreResult, OperationContext,
-    SnapshotBatch,
+    AtomicSnapshotPublication, CoreError, CoreResult, OperationContext, SnapshotBatch,
 };
 use athanor_domain::{RepoId, SnapshotBase, SnapshotId};
 
