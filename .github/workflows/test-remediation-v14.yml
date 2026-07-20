@@ -78,6 +78,28 @@ jobs:
               )
           inventory.write_text(inventory_text.replace(old_phrase, new_phrase, 1))
 
+          docs_inventory = Path(
+              "crates/athanor-app/tests/docs_completeness_lifecycle_inventory.rs"
+          )
+          docs_text = docs_inventory.read_text()
+          for old_docs, new_docs in [
+              (
+                  'CHECK_SOURCE.contains("policy.required_fields")',
+                  'CHECK_SOURCE.contains(".required_fields")',
+              ),
+              (
+                  'CHECK_SOURCE.contains("policy.allowed_statuses")',
+                  'CHECK_SOURCE.contains(".allowed_statuses")',
+              ),
+          ]:
+              if docs_text.count(old_docs) != 1:
+                  raise SystemExit(
+                      "docs lifecycle inventory: expected one stale assertion for "
+                      f"{old_docs!r}, found {docs_text.count(old_docs)}"
+                  )
+              docs_text = docs_text.replace(old_docs, new_docs, 1)
+          docs_inventory.write_text(docs_text)
+
           Path(".github/workflows/test-remediation-v14.yml").unlink()
           PY
             cargo fmt --all
@@ -106,6 +128,7 @@ jobs:
           crates/athanor-app/src/runtime/process_runner.rs
           crates/athanor-app/src/search_operation.rs
           crates/athanor-app/tests/context_composition_inventory.rs
+          crates/athanor-app/tests/docs_completeness_lifecycle_inventory.rs
           EOF
           sort -o "$RUNNER_TEMP/allowed-paths" "$RUNNER_TEMP/allowed-paths"
           diff -u "$RUNNER_TEMP/allowed-paths" "$RUNNER_TEMP/actual-paths"
