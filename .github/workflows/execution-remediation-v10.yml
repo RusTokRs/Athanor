@@ -13,7 +13,7 @@ permissions:
 
 concurrency:
   group: execution-remediation-v10-main
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   remediate:
@@ -37,452 +37,31 @@ jobs:
             set -euo pipefail
             python - <<'PY'
           from pathlib import Path
-          import os
+          import subprocess
           import textwrap
 
-          def replace_once(path: str, old: str, new: str) -> None:
-              file_path = Path(path)
-              text = file_path.read_text()
-              count = text.count(old)
-              if count != 1:
-                  raise SystemExit(f"{path}: expected one replacement target, found {count}")
-              file_path.write_text(text.replace(old, new, 1))
-
-          # Reapply the validated V9 remediation chain. V9 deliberately did not publish source
-          # because Clippy found the three MCP blockers fixed below.
-          workflow = Path(".github/workflows/execution-remediation-v9.yml").read_text()
+          workflow = subprocess.check_output(
+              [
+                  "git",
+                  "show",
+                  "1d41f56155445872aadc8d9cbd0fa0f294908c53:"
+                  ".github/workflows/execution-remediation-v10.yml",
+              ],
+              text=True,
+          )
           marker = "            python - <<'PY'\n"
           start = workflow.index(marker) + len(marker)
           end = workflow.index("\n          PY", start)
-          exec(compile(textwrap.dedent(workflow[start:end]), "execution-remediation-v10-base", "exec"))
+          script = textwrap.dedent(workflow[start:end])
 
-          types = "crates/athanor-transport-mcp/src/server/types.rs"
-          replace_once(
-              types,
-              "use std::collections::HashMap;\nuse std::sync::Arc;\n",
-              "use std::collections::HashMap;\nuse std::path::PathBuf;\nuse std::sync::Arc;\n",
-          )
-          replace_once(
-              types,
-              "use anyhow::{Result, bail};\nuse athanor_core::CancellationHandle;\n",
-              "use anyhow::{Result, bail};\nuse athanor_app::RuntimeComposition;\nuse athanor_core::CancellationHandle;\n",
-          )
-          replace_once(
-              types,
-              "use tokio::sync::Mutex;\n",
-              "use tokio::sync::{Mutex, mpsc};\n",
-          )
-          replace_once(
-              types,
-              "pub(super) type RequestTasks = JoinSet<Result<()>>;\n\n",
-              """pub(super) type RequestTasks = JoinSet<Result<()>>;
-
-          #[derive(Clone)]
-          pub(super) struct RequestRuntime {
-              pub(super) root: Arc<PathBuf>,
-              pub(super) composition: Arc<RuntimeComposition>,
-              pub(super) active_reads: ActiveReads,
-              pub(super) session: SessionState,
-              pub(super) responses_tx: mpsc::Sender<String>,
-              pub(super) max_in_flight_requests: usize,
-          }
-
-          impl RequestRuntime {
-              pub(super) fn new(
-                  root: Arc<PathBuf>,
-                  composition: Arc<RuntimeComposition>,
-                  active_reads: ActiveReads,
-                  session: SessionState,
-                  responses_tx: mpsc::Sender<String>,
-                  max_in_flight_requests: usize,
-              ) -> Self {
-                  Self {
-                      root,
-                      composition,
-                      active_reads,
-                      session,
-                      responses_tx,
-                      max_in_flight_requests,
-                  }
-              }
-          }
-
-          """,
-          )
-          replace_once(
-              types,
-              "    pub(super) error: RpcError,\n",
-              "    pub(super) error: Box<RpcError>,\n",
-          )
-          replace_once(
-              types,
-              "            error: RpcError::parse(error),\n",
-              "            error: Box::new(RpcError::parse(error)),\n",
-          )
-          replace_once(
-              types,
-              "            error: RpcError::invalid_request(message),\n",
-              "            error: Box::new(RpcError::invalid_request(message)),\n",
-          )
-
-          operation = "crates/athanor-transport-mcp/src/server/operation.rs"
-          replace_once(operation, "use std::path::PathBuf;\n", "use std::path::Path;\n")
-          replace_once(operation, "    root: &PathBuf,\n", "    root: &Path,\n")
-
-          protocol = "crates/athanor-transport-mcp/src/server/protocol.rs"
-          replace_once(protocol, "use std::path::PathBuf;\n", "use std::path::Path;\n")
-          replace_once(protocol, "    root: &PathBuf,\n", "    root: &Path,\n")
-
-          lifecycle = "crates/athanor-transport-mcp/src/server/lifecycle.rs"
-          replace_once(
-              lifecycle,
-              """    ActiveReads, DispatchError, JsonRpcRequest, McpServerLimits, McpSessionPhase, RequestTasks,
-              RpcError, SessionState,
-          """,
-              """    ActiveReads, DispatchError, JsonRpcRequest, McpServerLimits, McpSessionPhase, RequestRuntime,
-              RequestTasks, RpcError, SessionState,
-          """,
-          )
-          replace_once(
-              lifecycle,
-              """    let root = Arc::new(root);
-              let active_reads = ActiveReads::default();
-              let session = Arc::new(Mutex::new(McpSessionPhase::AwaitingInitialize));
-              let (responses_tx, responses_rx) = mpsc::channel::<String>(limits.response_queue_capacity);
-              let writer_task = tokio::spawn(write_responses(writer, responses_rx));
-              let mut requests = RequestTasks::new();
-          """,
-              """    let (responses_tx, responses_rx) = mpsc::channel::<String>(limits.response_queue_capacity);
-              let runtime = RequestRuntime::new(
-                  Arc::new(root),
-                  composition,
-                  ActiveReads::default(),
-                  Arc::new(Mutex::new(McpSessionPhase::AwaitingInitialize)),
-                  responses_tx,
-                  limits.max_in_flight_requests,
-              );
-              let writer_task = tokio::spawn(write_responses(writer, responses_rx));
-              let mut requests = RequestTasks::new();
-          """,
-          )
-          replace_once(
-              lifecycle,
-              '    eprintln!("Athanor MCP server starting in {}", root.display());\n',
-              '    eprintln!("Athanor MCP server starting in {}", runtime.root.display());\n',
-          )
-          replace_once(
-              lifecycle,
-              """                            process_line(
-                                              &root,
-                                              &composition,
-                                              &active_reads,
-                                              &session,
-                                              &responses_tx,
-                                              &mut requests,
-                                              limits.max_in_flight_requests,
-                                              line,
-                                          )
-          """,
-              """                            process_line(&runtime, &mut requests, line)
-          """,
-          )
-          replace_once(
-              lifecycle,
-              "                        None => close_stdin(&active_reads, &mut stdin_open).await,\n",
-              "                        None => close_stdin(&runtime.active_reads, &mut stdin_open).await,\n",
-          )
-          replace_once(
-              lifecycle,
-              """    cancel_all(&active_reads).await;
-              drop(responses_tx);
-          """,
-              """    cancel_all(&runtime.active_reads).await;
-              drop(runtime);
-          """,
-          )
-          replace_once(
-              lifecycle,
-              """pub(super) async fn process_line(
-              root: &Arc<PathBuf>,
-              composition: &Arc<RuntimeComposition>,
-              active_reads: &ActiveReads,
-              session: &SessionState,
-              responses_tx: &mpsc::Sender<String>,
-              requests: &mut RequestTasks,
-              max_in_flight_requests: usize,
-              line: String,
-          ) -> Result<()> {
-          """,
-              """pub(super) async fn process_line(
-              runtime: &RequestRuntime,
-              requests: &mut RequestTasks,
-              line: String,
-          ) -> Result<()> {
-          """,
-          )
-          replace_once(
-              lifecycle,
-              '            admit_inline_response(responses_tx, failure.response(), "protocol error");\n',
-              '            admit_inline_response(&runtime.responses_tx, failure.response(), "protocol error");\n',
-          )
-          replace_once(
-              lifecycle,
-              "        handle_notification(active_reads, session, request).await;\n",
-              "        handle_notification(&runtime.active_reads, &runtime.session, request).await;\n",
-          )
-          replace_once(
-              lifecycle,
-              """        let result = handle_initialize(request.params, session).await;
-              admit_inline_response(responses_tx, response_json(id, result), "initialize");
-          """,
-              """        let result = handle_initialize(request.params, &runtime.session).await;
-              admit_inline_response(
-                  &runtime.responses_tx,
-                  response_json(id, result),
-                  "initialize",
-              );
-          """,
-          )
-          replace_once(
-              lifecycle,
-              "    if requests.len() >= max_in_flight_requests {\n",
-              "    if requests.len() >= runtime.max_in_flight_requests {\n",
-          )
-          replace_once(
-              lifecycle,
-              """            max_in_flight_requests,
-                      ))),
-                  );
-                  admit_inline_response(responses_tx, response, "overload rejection");
-          """,
-              """            runtime.max_in_flight_requests,
-                      ))),
-                  );
-                  admit_inline_response(&runtime.responses_tx, response, "overload rejection");
-          """,
-          )
-          replace_once(
-              lifecycle,
-              """    requests.spawn(run_request_task(
-                  Arc::clone(root),
-                  Arc::clone(composition),
-                  Arc::clone(active_reads),
-                  Arc::clone(session),
-                  responses_tx.clone(),
-                  request,
-              ));
-          """,
-              """    requests.spawn(run_request_task(runtime.clone(), request));
-          """,
-          )
-          replace_once(
-              lifecycle,
-              """async fn run_request_task(
-              root: Arc<PathBuf>,
-              composition: Arc<RuntimeComposition>,
-              active_reads: ActiveReads,
-              session: SessionState,
-              responses_tx: mpsc::Sender<String>,
-              request: JsonRpcRequest,
-          ) -> Result<()> {
-          """,
-              """async fn run_request_task(runtime: RequestRuntime, request: JsonRpcRequest) -> Result<()> {
-          """,
-          )
-          replace_once(
-              lifecycle,
-              """    let response = handle_request(
-                  &root,
-                  &composition,
-                  request.method,
-                  request.params,
-                  &id,
-                  &active_reads,
-                  &session,
+          old = "    RequestTasks, RpcError, SessionState,\n"
+          new = "    RequestTasks, RpcError,\n"
+          if script.count(old) != 1:
+              raise SystemExit(
+                  "execution-remediation-v10: expected one lifecycle SessionState import"
               )
-              .await;
-              send_response(&responses_tx, response_json(id, response)).await
-          """,
-              """    let response = handle_request(
-                  runtime.root.as_path(),
-                  runtime.composition.as_ref(),
-                  request.method,
-                  request.params,
-                  &id,
-                  &runtime.active_reads,
-                  &runtime.session,
-              )
-              .await;
-              send_response(&runtime.responses_tx, response_json(id, response)).await
-          """,
-          )
-
-          tests = "crates/athanor-transport-mcp/src/server/tests.rs"
-          replace_once(
-              tests,
-              """    ActiveReads, DEFAULT_MAX_IN_FLIGHT_REQUESTS, DEFAULT_RESPONSE_QUEUE_CAPACITY, McpServerLimits,
-              McpSessionPhase, RequestTasks, SessionState,
-          """,
-              """    ActiveReads, DEFAULT_MAX_IN_FLIGHT_REQUESTS, DEFAULT_RESPONSE_QUEUE_CAPACITY, McpServerLimits,
-              McpSessionPhase, RequestRuntime, RequestTasks, SessionState,
-          """,
-          )
-          for old in [
-              """    let root = Arc::new(PathBuf::from("."));
-              let composition = Arc::new(athanor_runtime_defaults::production());
-
-              process_line(
-                  &root,
-                  &composition,
-                  &active_reads,
-                  &session,
-                  &responses_tx,
-                  &mut requests,
-                  1,
-          """,
-              """    let root = Arc::new(PathBuf::from("."));
-              let composition = Arc::new(athanor_runtime_defaults::production());
-
-              process_line(
-                  &root,
-                  &composition,
-                  &active_reads,
-                  &session,
-                  &responses_tx,
-                  &mut requests,
-                  1,
-          """,
-          ]:
-              pass
-
-          repeated = """    let root = Arc::new(PathBuf::from("."));
-              let composition = Arc::new(athanor_runtime_defaults::production());
-
-          """
-          runtime_decl = """    let runtime = request_runtime(
-                  Arc::clone(&active_reads),
-                  Arc::clone(&session),
-                  responses_tx,
-                  1,
-              );
-
-          """
-          test_text = Path(tests).read_text()
-          count = test_text.count(repeated)
-          if count != 4:
-              raise SystemExit(f"{tests}: expected four direct runtime declarations, found {count}")
-          test_text = test_text.replace(repeated, runtime_decl)
-          direct_call = """    process_line(
-                  &root,
-                  &composition,
-                  &active_reads,
-                  &session,
-                  &responses_tx,
-                  &mut requests,
-                  1,
-          """
-          call_count = test_text.count(direct_call)
-          if call_count != 6:
-              raise SystemExit(f"{tests}: expected six direct process_line calls, found {call_count}")
-          test_text = test_text.replace(
-              direct_call,
-              """    process_line(
-                  &runtime,
-                  &mut requests,
-          """,
-          )
-          helper_marker = "async fn wait_until_registered(active_reads: &ActiveReads, key: &str) {\n"
-          if test_text.count(helper_marker) != 1:
-              raise SystemExit(f"{tests}: request runtime helper marker missing")
-          helper = """fn request_runtime(
-              active_reads: ActiveReads,
-              session: SessionState,
-              responses_tx: mpsc::Sender<String>,
-              max_in_flight_requests: usize,
-          ) -> RequestRuntime {
-              RequestRuntime::new(
-                  Arc::new(PathBuf::from(".")),
-                  Arc::new(athanor_runtime_defaults::production()),
-                  active_reads,
-                  session,
-                  responses_tx,
-                  max_in_flight_requests,
-              )
-          }
-
-          """
-          Path(tests).write_text(test_text.replace(helper_marker, helper + helper_marker, 1))
-
-          inventory = "crates/athanor-transport-mcp/tests/control_plane_saturation_inventory.rs"
-          replace_once(
-              inventory,
-              '        .find("if requests.len() >= max_in_flight_requests")\n',
-              '        .find("if requests.len() >= runtime.max_in_flight_requests")\n',
-          )
-          replace_once(
-              inventory,
-              '    assert!(LIFECYCLE.contains("send_response(&responses_tx, response_json(id, response)).await"));\n',
-              '    assert!(LIFECYCLE.contains("send_response(&runtime.responses_tx, response_json(id, response)).await"));\n',
-          )
-          inventory_text = Path(inventory).read_text()
-          marker = "#[test]\nfn control_plane_owners_remain_bounded() {\n"
-          if inventory_text.count(marker) != 1:
-              raise SystemExit(f"{inventory}: bounded owner marker missing")
-          regression = """#[test]
-          fn request_runtime_owns_lifecycle_dependencies_and_lint_fixes() {
-              assert!(TYPES.contains("pub(super) struct RequestRuntime"));
-              for field in [
-                  "pub(super) root: Arc<PathBuf>",
-                  "pub(super) composition: Arc<RuntimeComposition>",
-                  "pub(super) active_reads: ActiveReads",
-                  "pub(super) session: SessionState",
-                  "pub(super) responses_tx: mpsc::Sender<String>",
-                  "pub(super) max_in_flight_requests: usize",
-              ] {
-                  assert!(TYPES.contains(field), "missing request runtime field {field}");
-              }
-              assert!(LIFECYCLE.contains(
-                  "pub(super) async fn process_line(\\n    runtime: &RequestRuntime,\\n    requests: &mut RequestTasks,\\n    line: String,"
-              ));
-              assert!(!LIFECYCLE.contains("root: &Arc<PathBuf>"));
-              assert!(OPERATION.contains("root: &Path,"));
-              assert!(!OPERATION.contains("root: &PathBuf,"));
-              assert!(PROTOCOL.contains("root: &Path,"));
-              assert!(TYPES.contains("pub(super) error: Box<RpcError>"));
-          }
-
-          """
-          Path(inventory).write_text(inventory_text.replace(marker, regression + marker, 1))
-
-          # The V9 chain records the exact allowed V8/V9 source paths. Extend that fail-closed set
-          # with the structural MCP files, plan evidence, and V10 itself.
-          allowed_path = Path(os.environ["RUNNER_TEMP"]).joinpath("allowed-paths")
-          allowed = {
-              line.strip()
-              for line in allowed_path.read_text().splitlines()
-              if line.strip()
-          }
-          allowed.update({
-              ".github/workflows/execution-remediation-v10.yml",
-              "athanor_implementation_plan_ru.md",
-              lifecycle,
-              operation,
-              protocol,
-              types,
-              tests,
-              inventory,
-          })
-
-          # All one-purpose remediation workflows must disappear in the validated source commit.
-          for pattern in [
-              ".github/workflows/execution-remediation-v*.yml",
-              ".github/workflows/source-warning-remediation-v*.yml",
-          ]:
-              for workflow_path in Path(".").glob(pattern):
-                  allowed.add(workflow_path.as_posix())
-                  workflow_path.unlink()
-
-          allowed_path.write_text("\n".join(sorted(allowed)) + "\n")
+          script = script.replace(old, new, 1)
+          exec(compile(script, "execution-remediation-v10", "exec"))
           PY
             cargo update -p oxc_parser@0.138.0 --precise 0.139.0
             cargo fmt --all
@@ -506,71 +85,30 @@ jobs:
         run: |
           set -euo pipefail
           python - <<'PY'
-          from pathlib import Path
-          import os
+          import subprocess
+          import textwrap
 
-          plan = Path("athanor_implementation_plan_ru.md")
-          text = plan.read_text()
-
-          old = """### 3.10 `VERIFY-001E` — project-level remediation
-
-          - [x] Run `29722608851` предоставил exact formatting diff и compile diagnostics.
-          - [x] MCP visibility, transport helper shadowing, request-task ownership и extraction queue ownership исправлены.
-          - [x] Canonical `cargo fmt` применён к workspace; run `29727776673` подтвердил formatting success на Linux, macOS и Windows.
-          - [x] Неиспользуемый duplicate `docs/service.rs` удалён; единственный composition owner остаётся в `application_report_composition/docs_direct`.
-          - [x] Production-only warnings устранены: Store trait import удалён, adapter report type ограничен `cfg(test)`.
-          - [x] Cargo 1.95 сгенерировал и проверил patched lockfile:
-            - `anyhow 1.0.103`;
-            - `ammonia 4.1.3` и согласованный HTML/CSS dependency graph;
-            - `crossbeam-epoch 0.9.20`.
-          - [x] Bot commit `b82eff9dee595394cf5b36a8ad8aa983e944db6c` изменил только `Cargo.lock` после `cargo check --workspace --locked` и cargo-deny success.
-          - [x] Одноцелевой lock remediation workflow удалён после применения.
-
-          ## 4. Следующие активные пакеты
-          """
-          run_id = os.environ["GITHUB_RUN_ID"]
-          new = old.replace(
-              "\n## 4. Следующие активные пакеты\n",
-              f"""
-          ### 3.11 `VERIFY-001F` — validated execution remediation V10
-
-          - [x] Run `29739854537` подтвердил Rust 1.95 setup, formatting и cargo-deny; workspace/feature execution остановилась на source blockers.
-          - [x] Run `29741168520` повторно подтвердил formatting и security, сохранив exact failed matrix evidence для оставшегося compile path.
-          - [x] Run `29744943097` в изолированном workspace подтвердил OXC family 0.139 с `--all-features`, executable CLI JSON regression и прохождение накопленного Repair cleanup до Clippy.
-          - [x] `RequestRuntime` владеет MCP lifecycle dependencies; `process_line` больше не имеет восемь аргументов.
-          - [x] Tool dispatch принимает `&Path`; `ProtocolFailure` хранит boxed `RpcError` без изменения parser signature и JSON-RPC поведения.
-          - [x] Targeted MCP suite, default/all-features check и Clippy выполнены successful в remediation run `{run_id}`.
-          - [x] Временные execution/source-warning remediation workflows физически удалены из validated source commit.
-          - [ ] Полная `athanor/verification-matrix` должна стать successful на опубликованном architecture commit до повышения пакетов до `[x] verified`.
-
-          ## 4. Следующие активные пакеты
-          """,
-              1,
+          workflow = subprocess.check_output(
+              [
+                  "git",
+                  "show",
+                  "1d41f56155445872aadc8d9cbd0fa0f294908c53:"
+                  ".github/workflows/execution-remediation-v10.yml",
+              ],
+              text=True,
           )
-          if new == old:
-              raise SystemExit("plan: VERIFY-001E anchor not replaced")
-          text = text.replace(old, new, 1)
-          text = text.replace(
-              "| `VERIFY-001E` | P1 | `[x] implemented` | Fmt, compile owners and advisory lockfile remediated |\n",
-              "| `VERIFY-001E` | P1 | `[x] implemented` | Fmt, compile owners and advisory lockfile remediated |\n"
-              "| `VERIFY-001F` | P1 | `[x] implemented` | Structural MCP lint blockers closed by validated V10 |\n",
-              1,
+          marker = "          python - <<'PY'\n"
+          first = workflow.index(marker) + len(marker)
+          first_end = workflow.index("\n          PY", first)
+          second = workflow.index(marker, first_end) + len(marker)
+          second_end = workflow.index("\n          PY", second)
+          exec(
+              compile(
+                  textwrap.dedent(workflow[second:second_end]),
+                  "execution-remediation-v10-evidence",
+                  "exec",
+              )
           )
-          text = text.replace(
-              "### 2026-07-20 — Project-level CI remediation\n",
-              f"""### 2026-07-20 — Validated execution remediation V10
-
-          - Diagnostic runs `29739854537`, `29741168520` и `29744943097` сведены в один source remediation.
-          - MCP lifecycle, path ownership и protocol error size исправлены структурно, без lint suppressions.
-          - Targeted MCP tests и default/all-features Clippy прошли в run `{run_id}` до публикации source commit.
-          - Временные remediation workflows удалены.
-          - Status — implemented; полная exact verification matrix остаётся обязательной.
-
-          ### 2026-07-20 — Project-level CI remediation
-          """,
-              1,
-          )
-          plan.write_text(text)
           PY
       - name: Commit validated source remediation
         id: commit
