@@ -19,15 +19,39 @@ jobs:
   security:
     name: Security & License Checks
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Check out repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
+      - name: Install Rust toolchain
+        uses: ./.github/actions/setup-rust
+      - name: Install cargo-deny
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/cargo-deny-bin"
+          curl --proto '=https' --tlsv1.2 --retry 5 --retry-all-errors \
+            --location --silent --show-error --fail \
+            https://github.com/EmbarkStudios/cargo-deny/releases/download/0.20.2/cargo-deny-0.20.2-x86_64-unknown-linux-musl.tar.gz \
+            | tar -xz -C "$RUNNER_TEMP/cargo-deny-bin" --strip-components=1
+          "$RUNNER_TEMP/cargo-deny-bin/cargo-deny" --version
       - name: Run cargo-deny
-        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2
+        id: cargo-deny
+        shell: bash
+        run: |
+          set -o pipefail
+          "$RUNNER_TEMP/cargo-deny-bin/cargo-deny" check 2>&1 \
+            | tee "$RUNNER_TEMP/cargo-deny.log"
+      - name: Upload cargo-deny diagnostics
+        if: ${{ failure() && steps.cargo-deny.outcome == 'failure' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          command: check
+          name: cargo-deny-diagnostics
+          path: ${{ runner.temp }}/cargo-deny.log
+          if-no-files-found: error
+          retention-days: 14
 
   quality:
     name: Rust 1.95 / ${{ matrix.os }}
@@ -46,10 +70,9 @@ jobs:
         with:
           persist-credentials: false
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@81507be746c04af74ed35958a57969a1cfe076b5 # 1.100.0
+        uses: ./.github/actions/setup-rust
         with:
-          toolchain: "1.95.0"
-          components: clippy, rustfmt
+          components: clippy rustfmt
       - name: Restore Rust cache
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
       - name: Check formatting
@@ -136,9 +159,8 @@ jobs:
         with:
           persist-credentials: false
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@81507be746c04af74ed35958a57969a1cfe076b5 # 1.100.0
+        uses: ./.github/actions/setup-rust
         with:
-          toolchain: "1.95.0"
           components: clippy
       - name: Restore Rust cache
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
@@ -167,9 +189,8 @@ jobs:
         with:
           persist-credentials: false
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@81507be746c04af74ed35958a57969a1cfe076b5 # 1.100.0
+        uses: ./.github/actions/setup-rust
         with:
-          toolchain: "1.95.0"
           components: llvm-tools-preview
       - name: Restore Rust cache
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
