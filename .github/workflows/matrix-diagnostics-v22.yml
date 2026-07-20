@@ -1,0 +1,95 @@
+name: Matrix Diagnostics V22
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/matrix-diagnostics-v22.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: matrix-diagnostics-v22-main
+  cancel-in-progress: true
+
+jobs:
+  workspace-tests:
+    name: Workspace diagnostics / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Install Rust toolchain
+        uses: ./.github/actions/setup-rust
+      - name: Run workspace tests with diagnostics
+        id: tests
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo test --workspace --quiet --locked 2>&1 | tee "$RUNNER_TEMP/workspace-tests.log"
+      - name: Upload workspace diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: workspace-tests-${{ runner.os }}
+          path: ${{ runner.temp }}/workspace-tests.log
+          if-no-files-found: error
+          retention-days: 14
+      - name: Preserve test conclusion
+        if: ${{ steps.tests.outcome == 'failure' }}
+        shell: bash
+        run: exit 1
+
+  linux-installer:
+    name: Linux installer diagnostics
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Run installer checksum regression
+        id: installer
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euxo pipefail
+          {
+            test_dir="$(mktemp -d)"
+            trap 'rm -rf "$test_dir"' EXIT
+            cp install.sh "$test_dir/"
+            printf 'ath-test\n' > "$test_dir/ath"
+            printf 'athd-test\n' > "$test_dir/athd"
+            (cd "$test_dir" && sha256sum ath athd > SHA256SUMS)
+            ATHANOR_INSTALL_DIR="$test_dir/install" "$test_dir/install.sh"
+            cmp "$test_dir/ath" "$test_dir/install/ath"
+            cmp "$test_dir/athd" "$test_dir/install/athd"
+            printf 'tampered\n' >> "$test_dir/ath"
+            if ATHANOR_INSTALL_DIR="$test_dir/rejected" "$test_dir/install.sh"; then
+              echo "tampered Linux binary was accepted" >&2
+              exit 1
+            fi
+          } 2>&1 | tee "$RUNNER_TEMP/linux-installer.log"
+      - name: Upload installer diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: linux-installer-diagnostics
+          path: ${{ runner.temp }}/linux-installer.log
+          if-no-files-found: error
+          retention-days: 14
+      - name: Preserve installer conclusion
+        if: ${{ steps.installer.outcome == 'failure' }}
+        shell: bash
+        run: exit 1
