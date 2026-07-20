@@ -76,7 +76,19 @@ jobs:
       - name: Restore Rust cache
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
       - name: Check formatting
-        run: cargo fmt --all -- --check
+        id: format
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo fmt --all -- --check 2>&1 | tee "$RUNNER_TEMP/cargo-fmt.log"
+      - name: Upload formatting diagnostics
+        if: ${{ failure() && steps.format.outcome == 'failure' && runner.os == 'Linux' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: cargo-fmt-diagnostics
+          path: ${{ runner.temp }}/cargo-fmt.log
+          if-no-files-found: error
+          retention-days: 14
       - name: Run workspace tests
         run: cargo test --workspace --quiet --locked
       - name: Run Clippy
@@ -165,16 +177,28 @@ jobs:
       - name: Restore Rust cache
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
       - name: Check feature graph
+        id: feature-check
         shell: bash
         run: |
+          set -o pipefail
           case "${{ matrix.features }}" in
             default) FEATURES="" ;;
             all-features) FEATURES="--all-features" ;;
             *) FEATURES="--features ${{ matrix.features }}" ;;
           esac
-          cargo check --workspace ${FEATURES} --locked
-          cargo test --workspace --quiet ${FEATURES} --locked
-          cargo clippy --workspace --all-targets ${FEATURES} --locked -- -D warnings
+          {
+            cargo check --workspace ${FEATURES} --locked
+            cargo test --workspace --quiet ${FEATURES} --locked
+            cargo clippy --workspace --all-targets ${FEATURES} --locked -- -D warnings
+          } 2>&1 | tee "$RUNNER_TEMP/feature-check.log"
+      - name: Upload default feature diagnostics
+        if: ${{ failure() && steps.feature-check.outcome == 'failure' && matrix.features == 'default' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: default-feature-diagnostics
+          path: ${{ runner.temp }}/feature-check.log
+          if-no-files-found: error
+          retention-days: 14
 
   coverage:
     name: Source coverage baseline
