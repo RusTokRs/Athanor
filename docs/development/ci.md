@@ -47,6 +47,24 @@ A verified claim must cite an exact SHA with either a successful `athanor/verifi
 or a valid versioned evidence file for the same successful CI run. If neither channel is present and
 valid, the current architecture status remains implemented, not verified.
 
+## Toolchain ownership and failure diagnostics
+
+The workspace MSRV is Rust `1.95`. CI, production, and release install it through the repository-owned
+`.github/actions/setup-rust/action.yml`. The action installs exactly `1.95.0`, accepts optional rustup
+components and targets, retries transient installation failures, and prints the installed Rust and
+Cargo versions.
+
+Run `29701756503` for commit `9fda772436f50b55b2e4d9b11b18b7ec1e43a091` recorded a failed
+`athanor/verification-matrix`. Quality, feature-matrix, and coverage jobs stopped at toolchain setup
+before project compilation. The previous immutable `dtolnay/rust-toolchain` commit encoded toolchain
+`1.100.0`; its action contract did not expose the workflow's `toolchain: 1.95.0` field as an input, so
+that field was ignored. The version-encoded action is no longer used by active workflows.
+
+Cargo-deny is downloaded directly as the pinned `0.20.2` release binary. Its output is concise, and a
+failed check uploads `cargo-deny-diagnostics` for retrieval instead of burying the result in a Docker
+build log. `workflow_toolchain_inventory.rs` enforces the local setup, workflow coverage, diagnostic
+artifact, and owner line budgets.
+
 ## Workspace quality
 
 ```bash
@@ -188,7 +206,8 @@ threshold.
 
 Configured checks include `cargo-deny`, dependency review, CodeQL Rust security-extended,
 full-history Gitleaks, blocking Zizmor, CycloneDX SBOM, checksums, Sigstore signing, provenance, and
-release verification before publish. All workflow `uses:` references are immutable SHA pins.
+release verification before publish. All external workflow `uses:` references are immutable SHA pins;
+the Rust setup is a repository-owned local composite action.
 
 ```bash
 cargo install zizmor --version 1.26.1 --locked
