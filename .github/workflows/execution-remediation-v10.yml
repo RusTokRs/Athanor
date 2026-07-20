@@ -28,7 +28,7 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           components: clippy rustfmt
-      - name: Apply structural MCP remediation
+      - name: Apply structural MCP and Repair remediation
         id: remediate
         shell: bash
         run: |
@@ -45,7 +45,7 @@ jobs:
               [
                   "git",
                   "show",
-                  "1d41f56155445872aadc8d9cbd0fa0f294908c53:"
+                  "1806d28f6cae1bc1e94a11ea547fff0fafdb30e7:"
                   ".github/workflows/execution-remediation-v10.yml",
               ],
               text=True,
@@ -53,128 +53,32 @@ jobs:
           marker = "            python - <<'PY'\n"
           start = workflow.index(marker) + len(marker)
           end = workflow.index("\n          PY", start)
-          script = textwrap.dedent(workflow[start:end])
-
-          old_base_exec = (
-              'exec(compile(textwrap.dedent(workflow[start:end]), '
-              '"execution-remediation-v10-base", "exec"))'
-          )
-          new_base_exec = (
-              'exec(compile(textwrap.dedent(workflow[start:end]), '
-              '"execution-remediation-v10-base", "exec"), '
-              '{"__builtins__": __builtins__})'
-          )
-          if script.count(old_base_exec) != 1:
-              raise SystemExit("execution-remediation-v10: base exec anchor missing")
-          script = script.replace(old_base_exec, new_base_exec, 1)
-
-          old_helper = '''def replace_once(path: str, old: str, new: str) -> None:
-              file_path = Path(path)
-              text = file_path.read_text()
-              count = text.count(old)
-              if count != 1:
-                  raise SystemExit(f"{path}: expected one replacement target, found {count}")
-              file_path.write_text(text.replace(old, new, 1))
-          '''
-          new_helper = '''def replace_once(path: str, old: str, new: str) -> None:
-              file_path = Path(path)
-              text = file_path.read_text()
-              count = text.count(old)
-              if count == 1:
-                  file_path.write_text(text.replace(old, new, 1))
-                  return
-
-              needle = [line.strip() for line in old.splitlines()]
-              lines = text.splitlines(keepends=True)
-              matches = []
-              for index in range(len(lines) - len(needle) + 1):
-                  candidate = [
-                      line.rstrip("\\r\\n").strip()
-                      for line in lines[index : index + len(needle)]
-                  ]
-                  if candidate == needle:
-                      matches.append(index)
-              if len(matches) != 1:
-                  raise SystemExit(
-                      f"{path}: expected one exact or whitespace-normalized match, "
-                      f"found exact={count}, normalized={len(matches)} for {old!r}"
-                  )
-              index = matches[0]
-              offset = sum(len(line) for line in lines[:index])
-              matched = sum(len(line) for line in lines[index : index + len(needle)])
-              file_path.write_text(text[:offset] + new + text[offset + matched :])
-          '''
-          if script.count(old_helper) != 1:
-              raise SystemExit("execution-remediation-v10: replace_once helper anchor missing")
-          script = script.replace(old_helper, new_helper, 1)
-
-          old = "    RequestTasks, RpcError, SessionState,\n"
-          new = "    RequestTasks, RpcError,\n"
-          if script.count(old) != 1:
-              raise SystemExit(
-                  "execution-remediation-v10: expected one lifecycle SessionState import"
-              )
-          script = script.replace(old, new, 1)
-          exec(compile(script, "execution-remediation-v10", "exec"))
-
-          cancellation_inventory = Path(
-              "crates/athanor-transport-mcp/tests/"
-              "index_publication_cancellation_inventory.rs"
-          )
-          inventory_text = cancellation_inventory.read_text()
-          old_phrase = '"They are not checked again after a successful publish"'
-          new_phrase = (
-              '"checked again after a successful publish because the durable commit '
-              'has already happened"'
-          )
-          if inventory_text.count(old_phrase) != 1:
-              raise SystemExit(
-                  "index publication inventory: expected one stale comment phrase"
-              )
-          cancellation_inventory.write_text(
-              inventory_text.replace(old_phrase, new_phrase, 1)
-          )
-
-          control_inventory = Path(
-              "crates/athanor-transport-mcp/tests/"
-              "control_plane_saturation_inventory.rs"
-          )
-          control_text = control_inventory.read_text()
-          old_control = "None => close_stdin(&active_reads, &mut stdin_open).await"
-          new_control = "None => close_stdin(&runtime.active_reads, &mut stdin_open).await"
-          if control_text.count(old_control) != 1:
-              raise SystemExit(
-                  "control plane inventory: expected one stale close_stdin assertion"
-              )
-          control_inventory.write_text(
-              control_text.replace(old_control, new_control, 1)
-          )
-
-          transport_inventory = Path(
-              "crates/athanor-transport-mcp/tests/mcp_transport_contracts.rs"
-          )
-          transport_text = transport_inventory.read_text()
-          replacements = [
-              (
-                  "requests.len() >= max_in_flight_requests",
-                  "requests.len() >= runtime.max_in_flight_requests",
+          exec(
+              compile(
+                  textwrap.dedent(workflow[start:end]),
+                  "execution-remediation-v10-base",
+                  "exec",
               ),
-              ("Arc::clone(composition)", "runtime.composition.as_ref()"),
-              (
-                  '("server types", SERVER_TYPES_SOURCE, 220)',
-                  '("server types", SERVER_TYPES_SOURCE, 260)',
-              ),
-          ]
-          for old_transport, new_transport in replacements:
-              if transport_text.count(old_transport) != 1:
-                  raise SystemExit(
-                      "MCP transport inventory: expected one stale assertion for "
-                      f"{old_transport!r}"
-                  )
-              transport_text = transport_text.replace(
-                  old_transport, new_transport, 1
+              {"__builtins__": __builtins__},
+          )
+
+          legacy = Path(
+              "crates/athanor-app/src/repair/cleanup_recovery/recovery/"
+              "retention_guard/retention/guard/pointer/legacy.rs"
+          )
+          legacy_text = legacy.read_text()
+          marker = "    use super::*;\n"
+          if legacy_text.count(marker) != 1:
+              raise SystemExit(
+                  "repair legacy tests: expected one super import anchor"
               )
-          transport_inventory.write_text(transport_text)
+          legacy.write_text(
+              legacy_text.replace(
+                  marker,
+                  marker + "    use crate::apply_repair;\n",
+                  1,
+              )
+          )
 
           allowed_path = Path(os.environ["RUNNER_TEMP"]).joinpath("allowed-paths")
           allowed = {
@@ -182,13 +86,7 @@ jobs:
               for line in allowed_path.read_text().splitlines()
               if line.strip()
           }
-          allowed.update(
-              {
-                  cancellation_inventory.as_posix(),
-                  control_inventory.as_posix(),
-                  transport_inventory.as_posix(),
-              }
-          )
+          allowed.add(legacy.as_posix())
           allowed_path.write_text("\n".join(sorted(allowed)) + "\n")
           PY
             cargo update -p oxc_parser@0.138.0 --precise 0.139.0
