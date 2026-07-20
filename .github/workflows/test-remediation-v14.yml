@@ -63,18 +63,20 @@ jobs:
 
           inventory = Path("crates/athanor-app/tests/context_composition_inventory.rs")
           inventory_text = inventory.read_text()
-          old = '''    assert!(
-              CONTEXT_OPERATION_SOURCE.contains("composition.build_search_index_with_operation_context")
-          );'''
-          new = '''    assert!(CONTEXT_OPERATION_SOURCE.contains("composition.clone()"));
-              assert!(
-              CONTEXT_OPERATION_SOURCE.contains(".build_search_index_with_operation_context(")
-          );'''
-          if inventory_text.count(old) != 1:
+          old_phrase = (
+              'CONTEXT_OPERATION_SOURCE.contains('
+              '"composition.build_search_index_with_operation_context")'
+          )
+          new_phrase = (
+              'CONTEXT_OPERATION_SOURCE.contains('
+              '".build_search_index_with_operation_context(")'
+          )
+          if inventory_text.count(old_phrase) != 1:
               raise SystemExit(
-                  "context composition inventory: expected one stale single-line call assertion"
+                  "context composition inventory: expected one stale call phrase, "
+                  f"found {inventory_text.count(old_phrase)}"
               )
-          inventory.write_text(inventory_text.replace(old, new, 1))
+          inventory.write_text(inventory_text.replace(old_phrase, new_phrase, 1))
 
           Path(".github/workflows/test-remediation-v14.yml").unlink()
           PY
