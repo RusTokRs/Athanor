@@ -63,7 +63,9 @@ jobs:
                   f"found {json_text.count(loop_line)}"
               )
           loop_replacement = loop_line + (
-              "            if validate_schema_id(&schema).is_err() {\n"
+              "            if validate_schema_id(&schema).is_err()\n"
+              "                && !classified.contains(schema.as_str())\n"
+              "            {\n"
               "                continue;\n"
               "            }\n"
           )
@@ -92,6 +94,23 @@ jobs:
               compile(script, "test-remediation-v15", "exec"),
               {"__builtins__": __builtins__},
           )
+
+          contract_doc = Path("docs/development/json-contract-inventory.md")
+          contract_text = contract_doc.read_text()
+          old_doc = (
+              "are not schema ids and are excluded only after\n"
+              "`validate_schema_id` rejects them."
+          )
+          new_doc = (
+              "are not schema ids and are excluded only when they are not explicitly classified and\n"
+              "`validate_schema_id` rejects them. Registered legacy ids remain observable."
+          )
+          if contract_text.count(old_doc) != 1:
+              raise SystemExit(
+                  "json contract guide: expected one non-schema scanner explanation"
+              )
+          contract_doc.write_text(contract_text.replace(old_doc, new_doc, 1))
+
           Path(".github/workflows/test-remediation-v15.yml").unlink()
           PY
             cargo fmt --all
