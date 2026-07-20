@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: read
+  statuses: write
 
 concurrency:
   group: matrix-diagnostics-v22-main
@@ -93,3 +94,46 @@ jobs:
         if: ${{ steps.installer.outcome == 'failure' }}
         shell: bash
         run: exit 1
+
+  publish-status:
+    name: Publish diagnostic status
+    if: ${{ always() }}
+    needs: [workspace-tests, linux-installer]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish exact diagnostic status
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WORKSPACE_RESULT: ${{ needs.workspace-tests.result }}
+          INSTALLER_RESULT: ${{ needs.linux-installer.result }}
+        run: |
+          set -euo pipefail
+          state="failure"
+          description="Matrix diagnostics captured"
+          if [[ "$WORKSPACE_RESULT" == "success" && "$INSTALLER_RESULT" == "success" ]]; then
+            state="success"
+            description="Matrix diagnostics passed"
+          fi
+          export STATE="$state"
+          export DESCRIPTION="$description"
+          python - <<'PY' > status.json
+          import json
+          import os
+          print(json.dumps({
+              "state": os.environ["STATE"],
+              "target_url": (
+                  f"{os.environ['GITHUB_SERVER_URL']}/"
+                  f"{os.environ['GITHUB_REPOSITORY']}/actions/runs/"
+                  f"{os.environ['GITHUB_RUN_ID']}"
+              ),
+              "description": os.environ["DESCRIPTION"],
+              "context": "athanor/matrix-diagnostics-v22",
+          }))
+          PY
+          curl --fail-with-body --location --request POST \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            --data @status.json
