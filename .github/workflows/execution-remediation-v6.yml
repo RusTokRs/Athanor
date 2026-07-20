@@ -1,0 +1,235 @@
+name: Execution Remediation V6
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/execution-remediation-v6.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  statuses: write
+
+concurrency:
+  group: execution-remediation-v6-main
+  cancel-in-progress: false
+
+jobs:
+  remediate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+      - name: Install Rust toolchain
+        uses: ./.github/actions/setup-rust
+        with:
+          components: clippy rustfmt
+      - name: Apply and validate remediation
+        id: remediate
+        shell: bash
+        run: |
+          set -o pipefail
+          {
+            set -euo pipefail
+            python - <<'PY'
+          from pathlib import Path
+          import textwrap
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file = Path(path)
+              text = file.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one exact match, found {count}")
+              file.write_text(text.replace(old, new, 1))
+
+          workflow = Path(".github/workflows/execution-remediation-v4.yml").read_text()
+          marker = "            python - <<'PY'\n"
+          start = workflow.index(marker) + len(marker)
+          end = workflow.index("\n          PY", start)
+          script = textwrap.dedent(workflow[start:end])
+          exec(compile(script, "execution-remediation-v4", "exec"))
+
+          apply = "crates/athanor-app/src/application_report_composition/docs_direct/apply.rs"
+          replace_once(apply, ", DocsFrontmatterChange", "")
+
+          registry = "crates/athanor-app/src/project_registry.rs"
+          replace_once(
+              registry,
+              '''    if backup.exists() {
+              if let Err(error) = fs::remove_file(&backup) {
+                  warn!(
+                      backup = %backup.display(),
+                      error = %error,
+                      "project registry was published but backup cleanup failed"
+                  );
+              }
+          }''',
+              '''    if backup.exists()
+              && let Err(error) = fs::remove_file(&backup)
+          {
+              warn!(
+                  backup = %backup.display(),
+                  error = %error,
+                  "project registry was published but backup cleanup failed"
+              );
+          }''',
+          )
+
+          moves = [
+              ("crates/athanor-app/src/repair_latest.rs", "crates/athanor-app/src/repair/mod.rs"),
+              ("crates/athanor-app/src/repair_cleanup_recovery.rs", "crates/athanor-app/src/repair/cleanup_recovery.rs"),
+              ("crates/athanor-app/src/repair_recovery.rs", "crates/athanor-app/src/repair/cleanup_recovery/recovery.rs"),
+              ("crates/athanor-app/src/repair_retention_guard.rs", "crates/athanor-app/src/repair/cleanup_recovery/recovery/retention_guard.rs"),
+              ("crates/athanor-app/src/repair_retention.rs", "crates/athanor-app/src/repair/cleanup_recovery/recovery/retention_guard/retention.rs"),
+              ("crates/athanor-app/src/repair_guard.rs", "crates/athanor-app/src/repair/cleanup_recovery/recovery/retention_guard/retention/guard.rs"),
+              ("crates/athanor-app/src/repair_pointer.rs", "crates/athanor-app/src/repair/cleanup_recovery/recovery/retention_guard/retention/guard/pointer.rs"),
+              ("crates/athanor-app/src/repair.rs", "crates/athanor-app/src/repair/cleanup_recovery/recovery/retention_guard/retention/guard/pointer/legacy.rs"),
+          ]
+          for source, target in moves:
+              target_path = Path(target)
+              target_path.parent.mkdir(parents=True, exist_ok=True)
+              Path(source).rename(target_path)
+
+          wrappers = [
+              ("crates/athanor-app/src/repair/mod.rs", "repair_cleanup_recovery.rs", "cleanup_recovery"),
+              ("crates/athanor-app/src/repair/cleanup_recovery.rs", "repair_recovery.rs", "recovery"),
+              ("crates/athanor-app/src/repair/cleanup_recovery/recovery.rs", "repair_retention_guard.rs", "retention_guard"),
+              ("crates/athanor-app/src/repair/cleanup_recovery/recovery/retention_guard.rs", "repair_retention.rs", "retention"),
+              ("crates/athanor-app/src/repair/cleanup_recovery/recovery/retention_guard/retention.rs", "repair_guard.rs", "guard"),
+              ("crates/athanor-app/src/repair/cleanup_recovery/recovery/retention_guard/retention/guard.rs", "repair_pointer.rs", "pointer"),
+              ("crates/athanor-app/src/repair/cleanup_recovery/recovery/retention_guard/retention/guard/pointer.rs", "repair.rs", "legacy"),
+          ]
+          for path, included, module in wrappers:
+              replace_once(
+                  path,
+                  f'''mod current {{
+              include!("{included}");
+          }}
+
+          pub use current::*;''',
+                  f'''mod {module};
+
+          pub use {module}::*;''',
+              )
+
+          replace_once(
+              "crates/athanor-app/src/lib.rs",
+              '#[path = "repair_latest.rs"]\npub mod repair;',
+              'pub mod repair;',
+          )
+
+          for workflow_path in [
+              ".github/workflows/execution-remediation-v5.yml",
+              ".github/workflows/execution-remediation-v6.yml",
+          ]:
+              Path(workflow_path).unlink()
+          PY
+            cargo update -p oxc_parser@0.138.0 --precise 0.139.0
+            cargo fmt --all
+            cargo fmt --all -- --check
+            cargo check --workspace --all-features --locked
+            cargo test -p ath --test executable_shared_report_cli --locked
+            cargo clippy --workspace --all-targets --locked -- -D warnings
+            cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+          } 2>&1 | tee "$RUNNER_TEMP/execution-remediation-v6.log"
+      - name: Upload remediation diagnostics
+        if: ${{ failure() && steps.remediate.outcome == 'failure' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: execution-remediation-v6-diagnostics
+          path: ${{ runner.temp }}/execution-remediation-v6.log
+          if-no-files-found: error
+          retention-days: 14
+      - name: Commit validated remediation
+        id: commit
+        if: ${{ steps.remediate.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          allowed="$RUNNER_TEMP/allowed-paths"
+          cat > "$allowed" <<'EOF'
+          .github/workflows/execution-remediation-v4.yml
+          .github/workflows/execution-remediation-v5.yml
+          .github/workflows/execution-remediation-v6.yml
+          .github/workflows/source-warning-remediation-v2.yml
+          .github/workflows/source-warning-remediation-v3.yml
+          Cargo.lock
+          Cargo.toml
+          apps/ath/src/entry.rs
+          crates/athanor-app/src/application_report_composition/docs_direct/apply.rs
+          crates/athanor-app/src/application_report_composition/docs_direct/propose.rs
+          crates/athanor-app/src/daemon_queries.rs
+          crates/athanor-app/src/docs.rs
+          crates/athanor-app/src/docs/frontmatter.rs
+          crates/athanor-app/src/json_contract_base.rs
+          crates/athanor-app/src/lib.rs
+          crates/athanor-app/src/project_registry.rs
+          crates/athanor-app/src/repair.rs
+          crates/athanor-app/src/repair/mod.rs
+          crates/athanor-app/src/repair/cleanup_recovery.rs
+          crates/athanor-app/src/repair/cleanup_recovery/recovery.rs
+          crates/athanor-app/src/repair/cleanup_recovery/recovery/retention_guard.rs
+          crates/athanor-app/src/repair/cleanup_recovery/recovery/retention_guard/retention.rs
+          crates/athanor-app/src/repair/cleanup_recovery/recovery/retention_guard/retention/guard.rs
+          crates/athanor-app/src/repair/cleanup_recovery/recovery/retention_guard/retention/guard/pointer.rs
+          crates/athanor-app/src/repair/cleanup_recovery/recovery/retention_guard/retention/guard/pointer/legacy.rs
+          crates/athanor-app/src/repair_cleanup_recovery.rs
+          crates/athanor-app/src/repair_guard.rs
+          crates/athanor-app/src/repair_latest.rs
+          crates/athanor-app/src/repair_pointer.rs
+          crates/athanor-app/src/repair_recovery.rs
+          crates/athanor-app/src/repair_retention.rs
+          crates/athanor-app/src/repair_retention_guard.rs
+          crates/athanor-app/src/runtime/trust.rs
+          crates/athanor-app/src/rustok_architecture.rs
+          EOF
+          sort -o "$allowed" "$allowed"
+          git diff --name-only | sort > "$RUNNER_TEMP/actual-paths"
+          diff -u "$allowed" "$RUNNER_TEMP/actual-paths"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add --all
+          git commit -m "fix(ci): close execution blockers"
+          git push origin HEAD:main
+      - name: Publish exact remediation status
+        if: ${{ always() }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REMEDIATION_OUTCOME: ${{ steps.remediate.outcome }}
+          COMMIT_OUTCOME: ${{ steps.commit.outcome }}
+        run: |
+          set -euo pipefail
+          state="failure"
+          description="Execution remediation v6 failed"
+          if [[ "$REMEDIATION_OUTCOME" == "success" && "$COMMIT_OUTCOME" == "success" ]]; then
+            state="success"
+            description="Execution remediation v6 passed"
+          fi
+          export STATE="$state"
+          export DESCRIPTION="$description"
+          python - <<'PY' > status.json
+          import json
+          import os
+          print(json.dumps({
+              "state": os.environ["STATE"],
+              "target_url": (
+                  f"{os.environ['GITHUB_SERVER_URL']}/"
+                  f"{os.environ['GITHUB_REPOSITORY']}/actions/runs/"
+                  f"{os.environ['GITHUB_RUN_ID']}"
+              ),
+              "description": os.environ["DESCRIPTION"],
+              "context": "athanor/execution-remediation-v6",
+          }))
+          PY
+          curl --fail-with-body --location --request POST \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            --data @status.json
