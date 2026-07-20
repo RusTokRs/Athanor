@@ -1,0 +1,288 @@
+name: Test Remediation V12
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/test-remediation-v12.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  statuses: write
+
+concurrency:
+  group: test-remediation-v12-main
+  cancel-in-progress: true
+
+jobs:
+  remediate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+      - name: Install Rust toolchain
+        uses: ./.github/actions/setup-rust
+        with:
+          components: clippy rustfmt
+      - name: Apply deterministic test remediation
+        id: remediate
+        shell: bash
+        run: |
+          set -o pipefail
+          {
+            set -euo pipefail
+            python - <<'PY'
+          from pathlib import Path
+
+          def insert_after_once(path: str, needle: str, inserted_lines: list[str]) -> None:
+              file_path = Path(path)
+              text = file_path.read_text()
+              if text.count(needle) != 1:
+                  raise SystemExit(
+                      f"{path}: expected one insertion anchor, found {text.count(needle)}: {needle!r}"
+                  )
+              insertion = needle + "\n".join(inserted_lines) + "\n"
+              file_path.write_text(text.replace(needle, insertion, 1))
+
+          direct = "crates/athanor-app/src/repair_composition/direct.rs"
+          insert_after_once(
+              direct,
+              '        fs::create_dir_all(root.join(".athanor/state")).unwrap();\n',
+              [
+                  "        for file in [",
+                  '            "entities.jsonl",',
+                  '            "facts.jsonl",',
+                  '            "relations.jsonl",',
+                  '            "diagnostics.jsonl",',
+                  "        ] {",
+                  '            fs::write(read_model.join(file), "").unwrap();',
+                  "        }",
+              ],
+          )
+
+          search = "crates/athanor-app/src/search_operation.rs"
+          insert_after_once(
+              search,
+              "        let cancellation = operation.cancellation_handle().unwrap();\n",
+              ["        let cancellation_lease = cancellation.clone();"],
+          )
+          insert_after_once(
+              search,
+              '        .expect_err("cancelled search must not return a report");\n',
+              ["        drop(cancellation_lease);"],
+          )
+
+          process_runner = "crates/athanor-app/src/runtime/process_runner.rs"
+          insert_after_once(
+              process_runner,
+              "        let cancellation = operation.cancellation_handle().unwrap();\n",
+              ["        let cancellation_lease = cancellation.clone();"],
+          )
+          insert_after_once(
+              process_runner,
+              "        cancel_task.await.unwrap();\n",
+              ["        drop(cancellation_lease);"],
+          )
+
+          finalize = Path("crates/athanor-app/src/index_publication_finalize_tests_inner.rs")
+          finalize_text = finalize.read_text()
+          start_marker = (
+              "#[tokio::test]\n"
+              "async fn read_model_finalize_failure_recovers_committed_generation() {\n"
+          )
+          end_marker = "\nstruct PublicationFixture {\n"
+          if finalize_text.count(start_marker) != 1 or finalize_text.count(end_marker) != 1:
+              raise SystemExit("finalization tests: expected one replaceable test section")
+          start = finalize_text.index(start_marker)
+          end = finalize_text.index(end_marker, start)
+          replacement = "\n".join(
+              [
+                  "#[tokio::test]",
+                  "async fn read_model_backup_cleanup_failure_keeps_committed_generation() {",
+                  "    assert_backup_cleanup_failure_is_non_fatal(SabotageMode::ReadModelFinalize).await;",
+                  "}",
+                  "",
+                  "#[tokio::test]",
+                  "async fn index_state_backup_cleanup_failure_keeps_committed_generation() {",
+                  "    assert_backup_cleanup_failure_is_non_fatal(SabotageMode::IndexStateFinalize).await;",
+                  "}",
+                  "",
+                  "#[tokio::test]",
+                  "async fn journal_clear_failure_recovers_committed_generation() {",
+                  "    assert_finalize_failure_recovers(",
+                  "        SabotageMode::JournalClear,",
+                  '        "failed to clear publication journal",',
+                  "    )",
+                  "    .await;",
+                  "}",
+                  "",
+                  "async fn assert_backup_cleanup_failure_is_non_fatal(mode: SabotageMode) {",
+                  "    let root = test_root(mode.label());",
+                  "    let PublicationFixture {",
+                  "        backend,",
+                  "        store,",
+                  "        snapshot,",
+                  "        output,",
+                  "        operation,",
+                  "        state_store,",
+                  "        output_dir,",
+                  "    } = snapshot_fixture(&root, mode).await;",
+                  "",
+                  "    publish_index_snapshot(",
+                  "        &root,",
+                  "        &store,",
+                  "        &state_store,",
+                  "        &output_dir,",
+                  "        &output,",
+                  "        snapshot.clone(),",
+                  "        &operation,",
+                  "    )",
+                  "    .await",
+                  '    .expect("backup cleanup failure must not override durable publication success");',
+                  "",
+                  "    assert_latest_snapshot(&store, &snapshot).await;",
+                  "    assert_current_generation(&root, &snapshot);",
+                  "    assert!(!publication_journal(&root).exists());",
+                  "",
+                  "    backend.repair();",
+                  '    fs::remove_dir_all(root).expect("remove backup cleanup fault fixture");',
+                  "}",
+                  "",
+                  "async fn assert_finalize_failure_recovers(mode: SabotageMode, expected_error: &str) {",
+                  "    let root = test_root(mode.label());",
+                  "    let PublicationFixture {",
+                  "        backend,",
+                  "        store,",
+                  "        snapshot,",
+                  "        output,",
+                  "        operation,",
+                  "        state_store,",
+                  "        output_dir,",
+                  "    } = snapshot_fixture(&root, mode).await;",
+                  "",
+                  "    let error = publish_index_snapshot(",
+                  "        &root,",
+                  "        &store,",
+                  "        &state_store,",
+                  "        &output_dir,",
+                  "        &output,",
+                  "        snapshot.clone(),",
+                  "        &operation,",
+                  "    )",
+                  "    .await",
+                  '    .expect_err("injected finalization fault must fail publication");',
+                  "",
+                  "    assert!(",
+                  "        error",
+                  "            .chain()",
+                  "            .any(|cause| cause.to_string().contains(expected_error)),",
+                  '        "expected `{expected_error}` in error chain: {error:#}"',
+                  "    );",
+                  "    assert_latest_snapshot(&store, &snapshot).await;",
+                  "    assert_current_generation(&root, &snapshot);",
+                  "    assert!(publication_journal(&root).exists());",
+                  "",
+                  "    backend.repair();",
+                  "    recover_interrupted_publication(&root, &store)",
+                  "        .await",
+                  '        .expect("recover committed generation after transient finalization fault");',
+                  "",
+                  "    assert_latest_snapshot(&store, &snapshot).await;",
+                  "    assert_current_generation(&root, &snapshot);",
+                  "    assert!(!publication_journal(&root).exists());",
+                  "",
+                  '    fs::remove_dir_all(root).expect("remove finalization fault fixture");',
+                  "}",
+                  "",
+              ]
+          )
+          finalize.write_text(finalize_text[:start] + replacement + finalize_text[end:])
+
+          for workflow in [
+              ".github/workflows/test-remediation-v11.yml",
+              ".github/workflows/test-remediation-v12.yml",
+          ]:
+              Path(workflow).unlink()
+          PY
+            cargo fmt --all
+            cargo fmt --all -- --check
+            cargo test -p athanor-app --lib --locked
+            cargo test -p ath --test index_checksum_cli --locked
+            cargo test --workspace --quiet --locked
+            cargo check --workspace --all-features --locked
+            cargo clippy --workspace --all-targets --locked -- -D warnings
+            cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+          } 2>&1 | tee "$RUNNER_TEMP/test-remediation-v12.log"
+      - name: Commit validated remediation
+        id: commit
+        if: ${{ steps.remediate.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --name-only | sort > "$RUNNER_TEMP/actual-paths"
+          cat > "$RUNNER_TEMP/allowed-paths" <<'EOF'
+          .github/workflows/test-remediation-v11.yml
+          .github/workflows/test-remediation-v12.yml
+          crates/athanor-app/src/index_publication_finalize_tests_inner.rs
+          crates/athanor-app/src/repair_composition/direct.rs
+          crates/athanor-app/src/runtime/process_runner.rs
+          crates/athanor-app/src/search_operation.rs
+          EOF
+          sort -o "$RUNNER_TEMP/allowed-paths" "$RUNNER_TEMP/allowed-paths"
+          diff -u "$RUNNER_TEMP/allowed-paths" "$RUNNER_TEMP/actual-paths"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add --all
+          git commit -m "test(app): align deterministic publication and cancellation fixtures"
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$GITHUB_SHA"
+          git push origin HEAD:main
+      - name: Upload diagnostics
+        if: ${{ failure() && steps.remediate.outcome == 'failure' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: test-remediation-v12-diagnostics
+          path: ${{ runner.temp }}/test-remediation-v12.log
+          if-no-files-found: error
+          retention-days: 14
+      - name: Publish exact remediation status
+        if: ${{ always() }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REMEDIATION_OUTCOME: ${{ steps.remediate.outcome }}
+          COMMIT_OUTCOME: ${{ steps.commit.outcome }}
+        run: |
+          set -euo pipefail
+          state="failure"
+          description="Test remediation V12 failed"
+          if [[ "$REMEDIATION_OUTCOME" == "success" && "$COMMIT_OUTCOME" == "success" ]]; then
+            state="success"
+            description="Test remediation V12 passed"
+          fi
+          export STATE="$state"
+          export DESCRIPTION="$description"
+          python - <<'PY' > status.json
+          import json
+          import os
+          print(json.dumps({
+              "state": os.environ["STATE"],
+              "target_url": (
+                  f"{os.environ['GITHUB_SERVER_URL']}/"
+                  f"{os.environ['GITHUB_REPOSITORY']}/actions/runs/"
+                  f"{os.environ['GITHUB_RUN_ID']}"
+              ),
+              "description": os.environ["DESCRIPTION"],
+              "context": "athanor/test-remediation-v12",
+          }))
+          PY
+          curl --fail-with-body --location --request POST \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            --data @status.json
