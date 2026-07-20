@@ -1,0 +1,225 @@
+name: Platform Remediation V23
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/platform-remediation-v23.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  statuses: write
+
+concurrency:
+  group: platform-remediation-v23-main
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Install Rust toolchain
+        uses: ./.github/actions/setup-rust
+        with:
+          components: rustfmt
+      - name: Apply cross-platform remediation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("crates/athanor-app/src/repair/cleanup_recovery.rs")
+          text = path.read_text()
+          anchor = '''        let tombstone = stage_pair(&root, "gen_snap_both", "77-1000");
+
+              let plan = recover_index_cleanup'''
+          replacement = '''        let tombstone = stage_pair(&root, "gen_snap_both", "77-1000");
+              let expected_tombstone = IndexCleanupTombstone {
+                  generation: tombstone.generation.clone(),
+                  token: tombstone.token.clone(),
+                  read_model: tombstone
+                      .read_model
+                      .as_ref()
+                      .map(|path| path.canonicalize().unwrap()),
+                  index_state: tombstone
+                      .index_state
+                      .as_ref()
+                      .map(|path| path.canonicalize().unwrap()),
+              };
+
+              let plan = recover_index_cleanup'''
+          if text.count(anchor) != 1:
+              raise SystemExit(
+                  "cleanup recovery fixture: expected one insertion anchor, "
+                  f"found {text.count(anchor)}"
+              )
+          text = text.replace(anchor, replacement, 1)
+          assertion = "        assert_eq!(plan.tombstones, vec![tombstone.clone()]);"
+          if text.count(assertion) != 1:
+              raise SystemExit(
+                  "cleanup recovery fixture: expected one stale assertion, "
+                  f"found {text.count(assertion)}"
+              )
+          path.write_text(
+              text.replace(
+                  assertion,
+                  "        assert_eq!(plan.tombstones, vec![expected_tombstone]);",
+                  1,
+              )
+          )
+          PY
+          chmod +x install.sh
+          cargo fmt --all
+          cargo fmt --all -- --check
+          cargo test -p athanor-app --lib --locked
+          git diff --check
+      - name: Test Linux installer checksum verification
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test_dir="$(mktemp -d)"
+          trap 'rm -rf "$test_dir"' EXIT
+          cp install.sh "$test_dir/"
+          printf 'ath-test\n' > "$test_dir/ath"
+          printf 'athd-test\n' > "$test_dir/athd"
+          (cd "$test_dir" && sha256sum ath athd > SHA256SUMS)
+          ATHANOR_INSTALL_DIR="$test_dir/install" "$test_dir/install.sh"
+          cmp "$test_dir/ath" "$test_dir/install/ath"
+          cmp "$test_dir/athd" "$test_dir/install/athd"
+          printf 'tampered\n' >> "$test_dir/ath"
+          if ATHANOR_INSTALL_DIR="$test_dir/rejected" "$test_dir/install.sh"; then
+            echo "tampered Linux binary was accepted" >&2
+            exit 1
+          fi
+
+  publish:
+    name: Publish validated source
+    if: ${{ always() }}
+    needs: [validate]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        if: ${{ needs.validate.result == 'success' }}
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+      - name: Apply and publish remediation
+        id: commit
+        if: ${{ needs.validate.result == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("crates/athanor-app/src/repair/cleanup_recovery.rs")
+          text = path.read_text()
+          anchor = '''        let tombstone = stage_pair(&root, "gen_snap_both", "77-1000");
+
+              let plan = recover_index_cleanup'''
+          replacement = '''        let tombstone = stage_pair(&root, "gen_snap_both", "77-1000");
+              let expected_tombstone = IndexCleanupTombstone {
+                  generation: tombstone.generation.clone(),
+                  token: tombstone.token.clone(),
+                  read_model: tombstone
+                      .read_model
+                      .as_ref()
+                      .map(|path| path.canonicalize().unwrap()),
+                  index_state: tombstone
+                      .index_state
+                      .as_ref()
+                      .map(|path| path.canonicalize().unwrap()),
+              };
+
+              let plan = recover_index_cleanup'''
+          if text.count(anchor) != 1:
+              raise SystemExit(
+                  "cleanup recovery fixture: expected one insertion anchor, "
+                  f"found {text.count(anchor)}"
+              )
+          text = text.replace(anchor, replacement, 1)
+          assertion = "        assert_eq!(plan.tombstones, vec![tombstone.clone()]);"
+          if text.count(assertion) != 1:
+              raise SystemExit(
+                  "cleanup recovery fixture: expected one stale assertion, "
+                  f"found {text.count(assertion)}"
+              )
+          path.write_text(
+              text.replace(
+                  assertion,
+                  "        assert_eq!(plan.tombstones, vec![expected_tombstone]);",
+                  1,
+              )
+          )
+          Path(".github/workflows/matrix-diagnostics-v22.yml").unlink()
+          Path(".github/workflows/platform-remediation-v23.yml").unlink()
+          PY
+          chmod +x install.sh
+          cargo fmt --all
+          git diff --name-only | sort > "$RUNNER_TEMP/actual-paths"
+          cat > "$RUNNER_TEMP/expected-paths" <<'EOF'
+          .github/workflows/matrix-diagnostics-v22.yml
+          .github/workflows/platform-remediation-v23.yml
+          crates/athanor-app/src/repair/cleanup_recovery.rs
+          install.sh
+          EOF
+          sort -o "$RUNNER_TEMP/expected-paths" "$RUNNER_TEMP/expected-paths"
+          diff -u "$RUNNER_TEMP/expected-paths" "$RUNNER_TEMP/actual-paths"
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add --all
+          git commit -m "fix(ci): normalize cleanup paths and package installer executable"
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$GITHUB_SHA"
+          git push origin HEAD:main
+      - name: Publish exact remediation status
+        if: ${{ always() }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VALIDATE_RESULT: ${{ needs.validate.result }}
+          COMMIT_OUTCOME: ${{ steps.commit.outcome }}
+        run: |
+          set -euo pipefail
+          state="failure"
+          description="Platform remediation V23 failed"
+          if [[ "$VALIDATE_RESULT" == "success" && "$COMMIT_OUTCOME" == "success" ]]; then
+            state="success"
+            description="Platform remediation V23 passed"
+          fi
+          export STATE="$state"
+          export DESCRIPTION="$description"
+          python - <<'PY' > status.json
+          import json
+          import os
+          print(json.dumps({
+              "state": os.environ["STATE"],
+              "target_url": (
+                  f"{os.environ['GITHUB_SERVER_URL']}/"
+                  f"{os.environ['GITHUB_REPOSITORY']}/actions/runs/"
+                  f"{os.environ['GITHUB_RUN_ID']}"
+              ),
+              "description": os.environ["DESCRIPTION"],
+              "context": "athanor/platform-remediation-v23",
+          }))
+          PY
+          curl --fail-with-body --location --request POST \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            --data @status.json
