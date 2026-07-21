@@ -45,9 +45,10 @@ sources are scanned recursively. CLI, daemon, and MCP Index serialize one typed 
 
 ### API Protocol Identity
 
-GraphQL operations use canonical `protocol = graphql`. The active `API-001` slice adds the symmetric
-`protocol = openapi` boundary to real OpenAPI endpoint entities, allowing the existing response-field
-drift checker to consume canonical entities instead of fixture-only protocol annotations.
+GraphQL operations use canonical `protocol = graphql`; OpenAPI operations use the symmetric
+`protocol = openapi` boundary. The verified first `API-001` slice lets response-field drift consume
+real canonical entities. The active second slice compares request-body properties with GraphQL
+variables or matching named input objects after scalar, list, and required/nullability normalization.
 
 ### Documentation Lifecycle Policy
 
@@ -121,11 +122,12 @@ Current verified architecture evidence is run `29836572040` on commit
 The architecture audit remains closed. Product development now advances GraphQL and cross-protocol API
 consistency in bounded slices:
 
-1. normalize OpenAPI endpoint protocol identity at the adapter boundary;
-2. verify the existing normalized-name response-field comparison on real canonical entities;
-3. add request argument and input-type parity;
-4. extend compatibility to schemas, status codes, authentication, and permissions;
-5. promote the package only after one exact successful matrix covers its complete Definition of Done.
+1. [x] normalize OpenAPI endpoint protocol identity at the adapter boundary;
+2. [x] verify normalized-name response-field comparison on real canonical entities;
+3. [-] compare request-body arguments and named input types;
+4. [ ] add OpenAPI path/query/header parameter and response schema compatibility;
+5. [ ] extend compatibility to status codes, authentication, and permissions;
+6. [ ] promote the package only after one exact successful matrix covers its complete Definition of Done.
 
 ## Product Backlog
 

@@ -9,6 +9,8 @@ use athanor_domain::{
 use athanor_extractor_basic::stable_hash;
 use serde_json::json;
 
+mod request_parity;
+
 #[derive(Debug, Clone, Default)]
 pub struct ApiConsistencyChecker;
 
@@ -180,6 +182,12 @@ impl Checker for ApiConsistencyChecker {
             &input.snapshot,
             self.name(),
         ));
+        diagnostics.extend(request_parity::detect_openapi_graphql_request_drift(
+            &endpoints,
+            &schemas,
+            &input.snapshot,
+            self.name(),
+        ));
 
         Ok(diagnostics)
     }
@@ -342,7 +350,7 @@ fn detect_openapi_graphql_drift(
             ep.payload
                 .get("protocol")
                 .and_then(serde_json::Value::as_str)
-                .is_some_and(|p| p != "graphql")
+                .is_some_and(|p| p == "openapi")
         })
         .copied()
         .collect();
