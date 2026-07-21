@@ -45,12 +45,7 @@ const PERMISSION_ARGUMENTS: &[&str] = &[
     "scopes",
 ];
 
-const AUTH_FAMILY_ARGUMENTS: &[&str] = &[
-    "authentication",
-    "provider",
-    "scheme",
-    "type",
-];
+const AUTH_FAMILY_ARGUMENTS: &[&str] = &["authentication", "provider", "scheme", "type"];
 
 pub(super) fn detect_openapi_graphql_security_drift(
     endpoints: &[&Entity],
@@ -363,9 +358,7 @@ fn graphql_permissions(endpoint: &Entity) -> BTreeSet<String> {
             application
                 .get("name")
                 .and_then(Value::as_str)
-                .is_some_and(|name| {
-                    PERMISSION_DIRECTIVES.contains(&normalize_token(name).as_str())
-                })
+                .is_some_and(|name| PERMISSION_DIRECTIVES.contains(&normalize_token(name).as_str()))
         })
         .flat_map(|application| {
             application
@@ -378,9 +371,7 @@ fn graphql_permissions(endpoint: &Entity) -> BTreeSet<String> {
             argument
                 .get("name")
                 .and_then(Value::as_str)
-                .is_some_and(|name| {
-                    PERMISSION_ARGUMENTS.contains(&normalize_token(name).as_str())
-                })
+                .is_some_and(|name| PERMISSION_ARGUMENTS.contains(&normalize_token(name).as_str()))
         })
         .flat_map(|argument| flatten_permission_values(argument.get("value")))
         .map(|value| normalize_permission(&value))
@@ -548,12 +539,14 @@ mod tests {
             }),
         );
         let endpoints = [&openapi, &graphql];
-        assert!(detect_openapi_graphql_security_drift(
-            &endpoints,
-            &SnapshotId("snap".to_string()),
-            "api-consistency",
-        )
-        .is_empty());
+        assert!(
+            detect_openapi_graphql_security_drift(
+                &endpoints,
+                &SnapshotId("snap".to_string()),
+                "api-consistency",
+            )
+            .is_empty()
+        );
     }
 
     #[test]
@@ -601,26 +594,23 @@ mod tests {
         assert_eq!(diagnostics.len(), 3);
         assert!(diagnostics.iter().any(|diagnostic| {
             diagnostic.kind
-                == DiagnosticKind::Other(
-                    "api_openapi_graphql_status_code_drift".to_string(),
-                )
+                == DiagnosticKind::Other("api_openapi_graphql_status_code_drift".to_string())
         }));
         assert!(diagnostics.iter().any(|diagnostic| {
             diagnostic.kind
-                == DiagnosticKind::Other(
-                    "api_openapi_graphql_authentication_drift".to_string(),
-                )
+                == DiagnosticKind::Other("api_openapi_graphql_authentication_drift".to_string())
         }));
         let permission = diagnostics
             .iter()
             .find(|diagnostic| {
                 diagnostic.kind
-                    == DiagnosticKind::Other(
-                        "api_openapi_graphql_permission_drift".to_string(),
-                    )
+                    == DiagnosticKind::Other("api_openapi_graphql_permission_drift".to_string())
             })
             .expect("permission diagnostic");
-        assert_eq!(permission.payload["missing_in_graphql"], json!(["users:write"]));
+        assert_eq!(
+            permission.payload["missing_in_graphql"],
+            json!(["users:write"])
+        );
         assert_eq!(permission.payload["missing_in_openapi"], json!(["admin"]));
     }
 
@@ -661,9 +651,7 @@ mod tests {
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(
             diagnostics[0].kind,
-            DiagnosticKind::Other(
-                "api_openapi_graphql_authentication_drift".to_string(),
-            )
+            DiagnosticKind::Other("api_openapi_graphql_authentication_drift".to_string(),)
         );
     }
 

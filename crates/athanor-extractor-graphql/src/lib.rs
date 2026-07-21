@@ -191,6 +191,7 @@ impl Extractor for GraphQlExtractor {
                     declaration.inline_type_conditions.clone(),
                     declaration.arguments.clone(),
                     declaration.directives.clone(),
+                    declaration.directive_applications.clone(),
                 ),
                 GraphQlDeclarationKind::Schema { schema_kind } => schema_entity(
                     &input.source.path,
@@ -286,6 +287,7 @@ struct GraphQlDeclaration<'a> {
     fragment_spreads: Vec<String>,
     inline_type_conditions: Vec<String>,
     directives: Vec<String>,
+    directive_applications: Vec<Value>,
     deprecation_reason: Option<String>,
     deprecated_members: Vec<DeprecatedMember>,
     member_types: Vec<MemberType>,
@@ -736,6 +738,7 @@ fn parse_graphql_declarations(content: &str) -> Vec<GraphQlDeclaration<'_>> {
                 fragment_spreads: Vec::new(),
                 inline_type_conditions: Vec::new(),
                 directives: graphql_directive_names(line),
+                directive_applications: graphql_directive_application_values(line),
                 deprecation_reason: None,
                 deprecated_members: Vec::new(),
                 member_types: Vec::new(),
@@ -760,6 +763,7 @@ fn parse_graphql_declarations(content: &str) -> Vec<GraphQlDeclaration<'_>> {
                 fragment_spreads: Vec::new(),
                 inline_type_conditions: Vec::new(),
                 directives: Vec::new(),
+                directive_applications: Vec::new(),
                 deprecation_reason: None,
                 deprecated_members: Vec::new(),
                 member_types: Vec::new(),
@@ -783,6 +787,7 @@ fn parse_graphql_declarations(content: &str) -> Vec<GraphQlDeclaration<'_>> {
                 fragment_spreads: Vec::new(),
                 inline_type_conditions: Vec::new(),
                 directives: graphql_directive_names(line),
+                directive_applications: graphql_directive_application_values(line),
                 deprecation_reason: parse_deprecation_reason(line),
                 deprecated_members: Vec::new(),
                 member_types: Vec::new(),
@@ -807,6 +812,7 @@ fn parse_graphql_declarations(content: &str) -> Vec<GraphQlDeclaration<'_>> {
                 fragment_spreads: Vec::new(),
                 inline_type_conditions: Vec::new(),
                 directives: graphql_directive_names(line),
+                directive_applications: graphql_directive_application_values(line),
                 deprecation_reason: None,
                 deprecated_members: Vec::new(),
                 member_types: Vec::new(),
@@ -1687,6 +1693,108 @@ fn graphql_directive_names(line: &str) -> Vec<String> {
         })
 }
 
+fn graphql_directive_application_values(line: &str) -> Vec<Value> {
+    line.split('@')
+        .skip(1)
+        .filter_map(|after_at| {
+            let trimmed = after_at.trim_start();
+            let name = leading_graphql_name(trimmed)?;
+            let rest = trimmed[name.len()..].trim_start();
+            let arguments = rest
+                .strip_prefix('(')
+                .and_then(|after_open| after_open.split_once(')'))
+                .map(|(inside, _)| graphql_directive_argument_values(inside))
+                .unwrap_or_default();
+            Some(json!({
+                "name": name,
+                "arguments": arguments,
+            }))
+        })
+        .take(64)
+        .collect()
+}
+
+fn graphql_directive_argument_values(input: &str) -> Vec<Value> {
+    split_graphql_value_list(input)
+        .into_iter()
+        .filter_map(|argument| {
+            let (name, value) = argument.split_once(':')?;
+            let name = leading_graphql_name(name.trim())?;
+            Some(json!({
+                "name": name,
+                "value": graphql_directive_value(value.trim()),
+            }))
+        })
+        .take(64)
+        .collect()
+}
+
+fn graphql_directive_value(value: &str) -> Value {
+    let value = value.trim();
+    if let Some(inner) = value
+        .strip_prefix('[')
+        .and_then(|value| value.strip_suffix(']'))
+    {
+        return Value::Array(
+            split_graphql_value_list(inner)
+                .into_iter()
+                .map(|value| graphql_directive_value(value.trim()))
+                .collect(),
+        );
+    }
+    if let Some(value) = value
+        .strip_prefix('"')
+        .and_then(|value| value.strip_suffix('"'))
+    {
+        return Value::String(value.to_string());
+    }
+    match value {
+        "true" => Value::Bool(true),
+        "false" => Value::Bool(false),
+        _ => Value::String(value.to_string()),
+    }
+}
+
+fn split_graphql_value_list(input: &str) -> Vec<&str> {
+    let mut output = Vec::new();
+    let mut start = 0;
+    let mut depth = 0_u32;
+    let mut quoted = false;
+    let mut escaped = false;
+    for (index, character) in input.char_indices() {
+        if quoted {
+            if escaped {
+                escaped = false;
+                continue;
+            }
+            match character {
+                '\\' => escaped = true,
+                '"' => quoted = false,
+                _ => {}
+            }
+            continue;
+        }
+        match character {
+            '"' => quoted = true,
+            '[' | '{' | '(' => depth += 1,
+            ']' | '}' | ')' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => {
+                let value = input[start..index].trim();
+                if !value.is_empty() {
+                    output.push(value);
+                }
+                start = index + character.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    let value = input[start..].trim();
+    if !value.is_empty() {
+        output.push(value);
+    }
+    output
+}
+
 fn graphql_directive_applications(line: &str) -> Vec<(String, Vec<String>)> {
     line.split('@')
         .skip(1)
@@ -2025,6 +2133,7 @@ fn operation_entity(
     inline_type_conditions: Vec<String>,
     arguments: Vec<String>,
     directives: Vec<String>,
+    directive_applications: Vec<Value>,
 ) -> Entity {
     let normalized_type = operation_type.to_ascii_uppercase();
     let stable_key = StableKey(format!("api://GRAPHQL_{normalized_type}:{name}"));
@@ -2055,6 +2164,7 @@ fn operation_entity(
             "fragment_spreads": fragment_spreads,
             "inline_type_conditions": inline_type_conditions,
             "directives": directives,
+            "directive_applications": directive_applications,
         }),
     }
 }
@@ -2401,12 +2511,53 @@ query GetUser($id: ID!) @auth {
                     == json!([{ "name": "id", "type": "ID!" }])
                 && entity.payload["arguments"] == json!(["id"])
                 && entity.payload["directives"] == json!(["auth"])
+                && entity.payload["directive_applications"]
+                    == json!([{"name": "auth", "arguments": []}])
                 && entity.payload["fragment_spreads"] == json!(["UserFields"])
                 && entity.payload["inline_type_conditions"] == json!(["Admin"])
         }));
         assert_eq!(output.facts.len(), 3);
         assert!(output.facts.iter().all(|fact| !fact.evidence.is_empty()));
         assert!(output.facts.iter().all(|fact| !fact.ownership.is_empty()));
+    }
+
+    #[tokio::test]
+    async fn extracts_graphql_directive_argument_values() {
+        let output = GraphQlExtractor
+            .extract(ExtractInput {
+                repo: RepoId("repo_test".to_string()),
+                snapshot: SnapshotId("snap_test".to_string()),
+                source: SourceFile {
+                    path: "schema.graphql".to_string(),
+                    language_hint: Some("graphql".to_string()),
+                    content_hash: Some("hash".to_string()),
+                    content: Some(
+                        r#"query GetUser @auth(type: OAUTH2, scopes: ["users:read", "users:write"], role: ADMIN) {
+  user { id }
+}"#
+                        .to_string(),
+                    ),
+                },
+            })
+            .await
+            .unwrap();
+
+        let operation = output
+            .entities
+            .iter()
+            .find(|entity| entity.kind == EntityKind::ApiEndpoint)
+            .unwrap();
+        assert_eq!(
+            operation.payload["directive_applications"],
+            json!([{
+                "name": "auth",
+                "arguments": [
+                    {"name": "type", "value": "OAUTH2"},
+                    {"name": "scopes", "value": ["users:read", "users:write"]},
+                    {"name": "role", "value": "ADMIN"}
+                ]
+            }])
+        );
     }
 
     #[tokio::test]

@@ -102,7 +102,7 @@ pub(crate) fn parse_openapi_document(
         }
     })?;
 
-    let (backend, root) = if version.starts_with("3.1.") {
+    let (backend, mut normalized_root) = if version.starts_with("3.1.") {
         (ParserBackend::Oas3, Oas3Parser.parse(content, path)?)
     } else if version.starts_with("3.0.") {
         (
@@ -114,12 +114,54 @@ pub(crate) fn parse_openapi_document(
             "OpenAPI document {path} uses unsupported version {version}; expected 3.0.x or 3.1.x"
         )));
     };
+    restore_explicit_security_overrides(&preflight, &mut normalized_root);
 
     Ok(NormalizedOpenApiDocument {
-        root,
+        root: normalized_root,
         version: version.to_string(),
         backend,
     })
+}
+
+fn restore_explicit_security_overrides(source: &Value, normalized: &mut Value) {
+    if let Some(security) = source.get("security")
+        && let Some(root) = normalized.as_object_mut()
+    {
+        root.insert("security".to_string(), security.clone());
+    }
+
+    let Some(source_paths) = source.get("paths").and_then(Value::as_object) else {
+        return;
+    };
+    let Some(normalized_paths) = normalized.get_mut("paths").and_then(Value::as_object_mut) else {
+        return;
+    };
+    for (path, source_item) in source_paths {
+        let Some(source_item) = source_item.as_object() else {
+            continue;
+        };
+        let Some(normalized_item) = normalized_paths.get_mut(path).and_then(Value::as_object_mut)
+        else {
+            continue;
+        };
+        for method in [
+            "get", "put", "post", "delete", "options", "head", "patch", "trace",
+        ] {
+            let Some(security) = source_item
+                .get(method)
+                .and_then(Value::as_object)
+                .and_then(|operation| operation.get("security"))
+            else {
+                continue;
+            };
+            if let Some(operation) = normalized_item
+                .get_mut(method)
+                .and_then(Value::as_object_mut)
+            {
+                operation.insert("security".to_string(), security.clone());
+            }
+        }
+    }
 }
 
 pub(crate) fn has_openapi_root_marker(content: &str) -> bool {

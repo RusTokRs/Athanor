@@ -11,6 +11,7 @@ use serde_json::json;
 
 mod contract_parity;
 mod request_parity;
+mod security_parity;
 
 #[derive(Debug, Clone, Default)]
 pub struct ApiConsistencyChecker;
@@ -192,6 +193,11 @@ impl Checker for ApiConsistencyChecker {
         diagnostics.extend(contract_parity::detect_openapi_graphql_contract_drift(
             &endpoints,
             &schemas,
+            &input.snapshot,
+            self.name(),
+        ));
+        diagnostics.extend(security_parity::detect_openapi_graphql_security_drift(
+            &endpoints,
             &input.snapshot,
             self.name(),
         ));
