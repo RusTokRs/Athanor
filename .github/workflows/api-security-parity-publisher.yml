@@ -45,7 +45,19 @@ jobs:
         run: cargo fmt --all
 
       - name: Test affected packages
-        run: cargo test -p athanor-extractor-openapi -p athanor-extractor-graphql -p athanor-checker-api --locked
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo test -p athanor-extractor-openapi -p athanor-extractor-graphql -p athanor-checker-api --locked 2>&1 | tee api-security-tests.log
+
+      - name: Upload test diagnostics
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4.6.2
+        with:
+          name: api-security-parity-test-diagnostics
+          path: api-security-tests.log
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Lint affected packages
         run: cargo clippy -p athanor-extractor-openapi -p athanor-extractor-graphql -p athanor-checker-api --all-targets --locked -- -D warnings
