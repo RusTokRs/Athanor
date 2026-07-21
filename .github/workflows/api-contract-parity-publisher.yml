@@ -15,7 +15,7 @@ concurrency:
 jobs:
   publish:
     if: github.head_ref == 'automation/api-001-contract-parity'
-    runs-on: ubuntu-latest
+    runs-on: macos-15-intel
     timeout-minutes: 45
     steps:
       - name: Check out head branch
