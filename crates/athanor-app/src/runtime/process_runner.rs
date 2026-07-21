@@ -192,6 +192,8 @@ async fn wait_for_termination(
 /// group signal. Windows `taskkill /T` reaches child processes spawned by batch files and adapter
 /// launchers; Job Object containment remains a future hardening step.
 async fn terminate_external_process_tree(child: &mut tokio::process::Child) {
+    let _ = child.kill().await;
+
     #[cfg(unix)]
     if let Some(pid) = child.id() {
         let process_group = format!("-{pid}");
@@ -216,8 +218,6 @@ async fn terminate_external_process_tree(child: &mut tokio::process::Child) {
             .output()
             .await;
     }
-
-    let _ = child.kill().await;
 }
 
 async fn read_limited(
@@ -397,7 +397,7 @@ mod tests {
     #[test]
     #[ignore]
     fn helper_process_writes_completion_after_delay() {
-        std::thread::sleep(Duration::from_millis(250));
+        std::thread::sleep(Duration::from_millis(1000));
         fs::write("completed.marker", b"completed").unwrap();
     }
 
