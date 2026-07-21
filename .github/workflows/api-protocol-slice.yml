@@ -1,0 +1,119 @@
+name: API Protocol Slice
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/api-protocol-slice.yml"
+
+permissions:
+  actions: write
+  contents: write
+  statuses: write
+
+concurrency:
+  group: api-protocol-slice-main
+  cancel-in-progress: true
+
+jobs:
+  apply:
+    name: Apply and validate canonical API protocol identity
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Publish pending status
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --method POST \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -f state=pending \
+            -f context=athanor/api-protocol-slice \
+            -f description="Canonical API protocol slice is running" \
+            -f target_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+
+      - name: Check out current main
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Cancel sibling standard CI for temporary trigger
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 20); do
+            ids="$(gh run list --workflow ci.yml --commit "$GITHUB_SHA" --json databaseId,status --jq '.[] | select(.status != "completed") | .databaseId')"
+            if [[ -n "$ids" ]]; then
+              while read -r id; do
+                [[ -n "$id" ]] && gh run cancel "$id" || true
+              done <<< "$ids"
+              exit 0
+            fi
+            sleep 2
+          done
+
+      - name: Install Rust toolchain
+        uses: ./.github/actions/setup-rust
+        with:
+          components: clippy rustfmt
+
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
+
+      - name: Apply source and documentation slice
+        id: patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python .github/scripts/api_protocol_slice.py --publish
+          cargo fmt --all
+          cargo fmt --all -- --check
+          git diff --check
+
+      - name: Run targeted regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p athanor-extractor-openapi --locked
+          cargo test -p athanor-checker-api --locked
+          cargo test -p athanor-app --test documentation_status_inventory --locked
+          cargo run -p ath --quiet --locked -- docs check
+
+      - name: Publish validated source branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat(api): canonicalize cross-protocol identities"
+          git push --force origin HEAD:refs/heads/automation/api-protocol-source
+
+      - name: Publish final status
+        if: ${{ always() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          state=failure
+          description="Canonical API protocol slice failed"
+          if [[ "$JOB_STATUS" == "success" ]]; then
+            state=success
+            description="Canonical API protocol source branch published"
+          fi
+          gh api --method POST \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -f state="$state" \
+            -f context=athanor/api-protocol-slice \
+            -f description="$description" \
+            -f target_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          test "$state" = success
