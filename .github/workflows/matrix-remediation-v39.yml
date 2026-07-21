@@ -1,0 +1,339 @@
+name: Matrix Remediation V39
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/matrix-remediation-v39.yml"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: write
+  statuses: write
+
+concurrency:
+  group: matrix-remediation-v39-main
+  cancel-in-progress: true
+
+jobs:
+  start-status:
+    name: Publish running status
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish pending status
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --method POST \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -f state="pending" \
+            -f context="athanor/matrix-remediation-v39" \
+            -f description="V39 cross-platform validation: running" \
+            -f target_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+
+  quality:
+    name: Final quality / ${{ matrix.os }}
+    needs: [start-status]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Install Rust toolchain
+        uses: ./.github/actions/setup-rust
+        with:
+          components: clippy rustfmt
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
+      - name: Apply deterministic remediation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python .github/scripts/matrix_remediation_v28.py
+          python .github/scripts/matrix_remediation_v30.py
+          python .github/scripts/matrix_remediation_v31.py
+          python .github/scripts/matrix_remediation_v33.py
+          python .github/scripts/matrix_remediation_v35.py
+          python .github/scripts/matrix_remediation_v37.py
+          python .github/scripts/matrix_remediation_v39.py
+          cargo fmt --all
+          cargo fmt --all -- --check
+      - name: Run workspace tests
+        if: runner.os != 'Windows'
+        run: cargo test --workspace --quiet --locked
+      - name: Run Windows workspace tests and capture log
+        if: runner.os == 'Windows'
+        id: windows-workspace
+        shell: bash
+        run: |
+          set +e
+          cargo test --workspace --locked -- --nocapture 2>&1 | tee "$RUNNER_TEMP/windows-workspace-v39.log"
+          status=${PIPESTATUS[0]}
+          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+      - name: Upload Windows workspace diagnostics
+        if: runner.os == 'Windows' && always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: windows-workspace-v39
+          path: ${{ runner.temp }}/windows-workspace-v39.log
+          if-no-files-found: error
+          retention-days: 14
+      - name: Enforce Windows workspace result
+        if: runner.os == 'Windows'
+        shell: bash
+        run: test "${{ steps.windows-workspace.outputs.exit_code }}" = "0"
+      - name: Run Clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Test Linux installer checksum verification
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test_dir="$(mktemp -d)"
+          trap 'rm -rf "$test_dir"' EXIT
+          cp install.sh "$test_dir/"
+          printf 'ath-test\n' > "$test_dir/ath"
+          printf 'athd-test\n' > "$test_dir/athd"
+          (cd "$test_dir" && sha256sum ath athd > SHA256SUMS)
+          ATHANOR_INSTALL_DIR="$test_dir/install" "$test_dir/install.sh"
+          cmp "$test_dir/ath" "$test_dir/install/ath"
+          cmp "$test_dir/athd" "$test_dir/install/athd"
+          printf 'tampered\n' >> "$test_dir/ath"
+          if ATHANOR_INSTALL_DIR="$test_dir/rejected" "$test_dir/install.sh"; then
+            echo "tampered Linux binary was accepted" >&2
+            exit 1
+          fi
+      - name: Test Windows installer checksum verification
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $testDir = Join-Path $env:RUNNER_TEMP "athanor-installer-test"
+          Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $testDir
+          New-Item -ItemType Directory -Force $testDir | Out-Null
+          Copy-Item install.ps1 $testDir
+          Set-Content -LiteralPath (Join-Path $testDir "ath.exe") -Value "ath-test" -Encoding ascii
+          Set-Content -LiteralPath (Join-Path $testDir "athd.exe") -Value "athd-test" -Encoding ascii
+          $manifest = foreach ($file in @("ath.exe", "athd.exe")) {
+            $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $testDir $file)).Hash.ToLowerInvariant()
+            "$hash  $file"
+          }
+          $manifest | Set-Content -LiteralPath (Join-Path $testDir "SHA256SUMS") -Encoding ascii
+          & (Join-Path $testDir "install.ps1") -InstallDir (Join-Path $testDir "install")
+          foreach ($file in @("ath.exe", "athd.exe")) {
+            $sourceHash = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $testDir $file)).Hash
+            $installedHash = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path (Join-Path $testDir "install") $file)).Hash
+            if ($sourceHash -ne $installedHash) { throw "installed file differs: $file" }
+          }
+          Add-Content -LiteralPath (Join-Path $testDir "ath.exe") -Value "tampered" -Encoding ascii
+          $rejected = $false
+          try {
+            & (Join-Path $testDir "install.ps1") -InstallDir (Join-Path $testDir "rejected")
+          } catch {
+            $rejected = $true
+          }
+          if (-not $rejected) { throw "tampered Windows binary was accepted" }
+      - name: Run indexing smoke test
+        run: cargo run -p ath --quiet --locked -- index .
+      - name: Check editable documentation
+        run: cargo run -p ath --quiet --locked -- docs check
+
+  store-surreal:
+    name: Final Store Surreal feature gate
+    needs: [start-status]
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Install Rust toolchain
+        uses: ./.github/actions/setup-rust
+        with:
+          components: clippy rustfmt
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
+      - name: Apply deterministic remediation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python .github/scripts/matrix_remediation_v28.py
+          python .github/scripts/matrix_remediation_v30.py
+          python .github/scripts/matrix_remediation_v31.py
+          python .github/scripts/matrix_remediation_v33.py
+          python .github/scripts/matrix_remediation_v35.py
+          python .github/scripts/matrix_remediation_v37.py
+          python .github/scripts/matrix_remediation_v39.py
+          cargo fmt --all
+          cargo fmt --all -- --check
+      - name: Run feature graph
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo check --workspace --features store-surreal --locked
+          cargo test --workspace --quiet --features store-surreal --locked
+          cargo clippy --workspace --all-targets --features store-surreal --locked -- -D warnings
+
+  surreal-stress:
+    name: Final Surreal allocation stress
+    needs: [start-status]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Install Rust toolchain
+        uses: ./.github/actions/setup-rust
+        with:
+          components: rustfmt
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
+      - name: Apply deterministic remediation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python .github/scripts/matrix_remediation_v28.py
+          python .github/scripts/matrix_remediation_v30.py
+          python .github/scripts/matrix_remediation_v31.py
+          python .github/scripts/matrix_remediation_v33.py
+          python .github/scripts/matrix_remediation_v35.py
+          python .github/scripts/matrix_remediation_v37.py
+          python .github/scripts/matrix_remediation_v39.py
+          cargo fmt --all
+          cargo fmt --all -- --check
+      - name: Repeat exact concurrency regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 12); do
+            cargo test -p athanor-store-surrealdb \
+              backend::tests::atomic_counter_survives_independent_writer_gates \
+              --locked -- --exact --nocapture
+          done
+
+  publish:
+    name: Publish validated source and plan evidence
+    if: ${{ always() }}
+    needs: [start-status, quality, store-surreal, surreal-stress]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        if: ${{ needs.quality.result == 'success' && needs.store-surreal.result == 'success' && needs.surreal-stress.result == 'success' }}
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+      - name: Apply, document, and publish remediation
+        id: commit
+        if: ${{ needs.quality.result == 'success' && needs.store-surreal.result == 'success' && needs.surreal-stress.result == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$GITHUB_SHA"
+          python .github/scripts/matrix_remediation_v28.py
+          python .github/scripts/matrix_remediation_v30.py
+          python .github/scripts/matrix_remediation_v31.py
+          python .github/scripts/matrix_remediation_v33.py
+          python .github/scripts/matrix_remediation_v35.py
+          python .github/scripts/matrix_remediation_v37.py
+          python .github/scripts/matrix_remediation_v39.py --publish
+          cargo fmt --all
+          git diff --check
+          git diff --name-only | sort > "$RUNNER_TEMP/actual-paths"
+          cat > "$RUNNER_TEMP/allowed-paths" <<'EOF'
+          .github/scripts/matrix_remediation_v28.py
+          .github/scripts/matrix_remediation_v30.py
+          .github/scripts/matrix_remediation_v31.py
+          .github/scripts/matrix_remediation_v33.py
+          .github/scripts/matrix_remediation_v35.py
+          .github/scripts/matrix_remediation_v37.py
+          .github/scripts/matrix_remediation_v39.py
+          .github/workflows/matrix-diagnostics-v26.yml
+          .github/workflows/matrix-diagnostics-v30.yml
+          .github/workflows/matrix-diagnostics-v32.yml
+          .github/workflows/matrix-diagnostics-v36.yml
+          .github/workflows/matrix-diagnostics-v38.yml
+          .github/workflows/matrix-remediation-v27.yml
+          .github/workflows/matrix-remediation-v28.yml
+          .github/workflows/matrix-remediation-v29.yml
+          .github/workflows/matrix-remediation-v31.yml
+          .github/workflows/matrix-remediation-v33.yml
+          .github/workflows/matrix-remediation-v35.yml
+          .github/workflows/matrix-remediation-v37.yml
+          .github/workflows/matrix-remediation-v39.yml
+          .github/workflows/plan-evidence-v25.yml
+          athanor_implementation_plan_ru.md
+          crates/athanor-app/src/index_runtime.rs
+          crates/athanor-app/src/index_runtime_tests.rs
+          crates/athanor-app/src/runtime/process_runner.rs
+          crates/athanor-app/src/runtime/tests/process.rs
+          crates/athanor-app/tests/api_composition_inventory.rs
+          crates/athanor-app/tests/check_composition_inventory.rs
+          crates/athanor-app/tests/context_composition_inventory.rs
+          crates/athanor-app/tests/graph_composition_inventory.rs
+          crates/athanor-app/tests/json_contract_inventory.rs
+          crates/athanor-app/tests/publication_semantics_inventory.rs
+          crates/athanor-app/tests/read_service_composition_inventory.rs
+          crates/athanor-store-surrealdb/src/backend_store.rs
+          crates/athanor-transport-mcp/tests/control_plane_saturation_inventory.rs
+          crates/athanor-transport-mcp/tests/index_publication_cancellation_inventory.rs
+          docs/development/legacy-runtime-compatibility.md
+          docs/development/publication-semantics-inventory.md
+          docs/operations/script-script-command-github-workflows-ci-yml-github-actions-job-quality-step-5-run.md
+          EOF
+          sort -o "$RUNNER_TEMP/allowed-paths" "$RUNNER_TEMP/allowed-paths"
+          if [[ -n "$(comm -23 "$RUNNER_TEMP/actual-paths" "$RUNNER_TEMP/allowed-paths")" ]]; then
+            echo "unexpected changed paths:" >&2
+            comm -23 "$RUNNER_TEMP/actual-paths" "$RUNNER_TEMP/allowed-paths" >&2
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix(runtime): close Windows process lifecycle blockers"
+          git push origin HEAD:main
+          bot_sha="$(git rev-parse HEAD)"
+          echo "bot_sha=$bot_sha" >> "$GITHUB_OUTPUT"
+          gh workflow run ci.yml --ref main
+      - name: Publish exact remediation status
+        if: ${{ always() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          QUALITY_RESULT: ${{ needs.quality.result }}
+          FEATURE_RESULT: ${{ needs.store-surreal.result }}
+          STRESS_RESULT: ${{ needs.surreal-stress.result }}
+          BOT_SHA: ${{ steps.commit.outputs.bot_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          state=failure
+          description="V39 validation failed"
+          if [[ "$QUALITY_RESULT" == success && "$FEATURE_RESULT" == success && "$STRESS_RESULT" == success && -n "$BOT_SHA" ]]; then
+            state=success
+            description="V39 validated and published ${BOT_SHA:0:12}"
+          fi
+          gh api --method POST \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -f state="$state" \
+            -f context="athanor/matrix-remediation-v39" \
+            -f description="$description" \
+            -f target_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          test "$state" = success
