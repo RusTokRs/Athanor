@@ -26,9 +26,16 @@ It also validates extracted OpenAPI `ApiExample` values against their declared s
 `api_example_invalid` diagnostics.
 
 When both OpenAPI and GraphQL endpoints are present, the checker detects response field drift
-between REST and GraphQL operations that share a normalized name (e.g., `getUser` REST endpoint
-and `GetUser` GraphQL query). It emits `api_openapi_graphql_drift` diagnostics with evidence
-from both endpoints and the specific fields missing in each protocol.
+between operations that share a normalized name (e.g., `getUser` REST endpoint and `GetUser`
+GraphQL query). It emits `api_openapi_graphql_drift` diagnostics with evidence from both endpoints
+and the specific fields missing in each protocol.
+
+The second `API-001` slice also emits `api_openapi_graphql_request_drift`. It compares OpenAPI
+request-body component properties with GraphQL operation variables. When a GraphQL variable refers
+to a named input object matching the OpenAPI component name, it compares the two input schemas
+instead of flattening the body. Scalar families, list structure, required properties, and GraphQL
+non-null markers are normalized before comparison. External references and path/query/header
+parameters remain deferred.
 
 Documentation is satisfied by `documents_api`, `documents_operation`, or a verified generic
 `documents` relation such as an exact Markdown frontmatter declaration.
@@ -106,8 +113,9 @@ validation cannot read files or use the network. Compiled validators are cached 
 during one checker run. External schema references are skipped, and OpenAPI 3.0 keywords beyond
 Draft 4 compatibility remain a documented limitation.
 
-The checker is local and side-effect free. Deeper OpenAPI/GraphQL schema drift, status-code,
-authentication, permission, breaking-change, rollout, and step dependency checks are deferred.
+The checker is local and side-effect free. External request references, OpenAPI parameter parity,
+response schema compatibility, status-code, authentication, permission, breaking-change, rollout,
+and step dependency checks are deferred.
 
 ## Configuration & Policy Enforcement
 

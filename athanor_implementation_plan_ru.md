@@ -96,7 +96,7 @@ OpenAPI/GraphQL response-field checker работал на реальных cano
 - [x] OpenAPI operations нормализуются до canonical `protocol = openapi` через fail-closed adapter boundary.
 - [x] Existing checker сравнивает response fields операций с одинаковым normalized name.
 - [x] Первый slice подтверждён стандартной main matrix: run `29845490657` succeeded on `cb2db0bb374f845fa0dbd086b120a0def82b0d9d`.
-- [ ] сравнить request arguments и input types;
+- [-] request-body arguments и named input types реализуются во втором bounded slice; external refs и OpenAPI parameters остаются следующими подэтапами;
 - [ ] расширить schema compatibility, status-code, authentication и permission drift;
 - [ ] повысить полный `API-001` до verified только после exact successful matrix на его Definition of Done.
 
@@ -148,5 +148,5 @@ cargo run -p ath --quiet --locked -- docs check
 
 ## 7. Текущий следующий шаг
 
-Реализовать второй `API-001` slice: canonical request argument и input-type parity для сопоставленных
-OpenAPI/GraphQL операций, добавить regressions и подтвердить изменения обычной main matrix.
+Завершить второй `API-001` slice: подтвердить request-body argument и named input-type parity
+стандартной main matrix, затем перейти к OpenAPI parameter и response schema compatibility.

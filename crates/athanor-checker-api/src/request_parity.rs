@@ -1,39 +1,4 @@
-#!/usr/bin/env python3
-from pathlib import Path
-
-
-def replace_once(text: str, old: str, new: str, label: str) -> str:
-    count = text.count(old)
-    if count != 1:
-        raise SystemExit(f"{label}: expected one match, found {count}")
-    return text.replace(old, new, 1)
-
-
-root = Path(__file__).resolve().parents[2]
-checker = root / "crates/athanor-checker-api/src/lib.rs"
-text = checker.read_text()
-text = replace_once(
-    text,
-    "use serde_json::json;\n",
-    "use serde_json::json;\n\nmod request_parity;\n",
-    "checker module declaration",
-)
-text = replace_once(
-    text,
-    """        diagnostics.extend(detect_openapi_graphql_drift(\n            &endpoints,\n            &schemas,\n            &input.snapshot,\n            self.name(),\n        ));\n\n        Ok(diagnostics)\n""",
-    """        diagnostics.extend(detect_openapi_graphql_drift(\n            &endpoints,\n            &schemas,\n            &input.snapshot,\n            self.name(),\n        ));\n        diagnostics.extend(request_parity::detect_openapi_graphql_request_drift(\n            &endpoints,\n            &schemas,\n            &input.snapshot,\n            self.name(),\n        ));\n\n        Ok(diagnostics)\n""",
-    "request parity dispatch",
-)
-text = replace_once(
-    text,
-    ".is_some_and(|p| p != \"graphql\")",
-    ".is_some_and(|p| p == \"openapi\")",
-    "exact OpenAPI dispatch",
-)
-checker.write_text(text)
-
-request_parity = root / "crates/athanor-checker-api/src/request_parity.rs"
-request_parity.write_text(r'''use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet};
 
 use athanor_domain::{
     Diagnostic, DiagnosticId, DiagnosticKind, DiagnosticStatus, Entity, EntityKind, Evidence,
@@ -297,7 +262,10 @@ fn graphql_input_shape(type_name: &str) -> InputShape {
 
 fn graphql_type_family(type_name: &str) -> String {
     let trimmed = type_name.trim().trim_end_matches('!');
-    if let Some(inner) = trimmed.strip_prefix('[').and_then(|value| value.strip_suffix(']')) {
+    if let Some(inner) = trimmed
+        .strip_prefix('[')
+        .and_then(|value| value.strip_suffix(']'))
+    {
         return format!("list<{}>", graphql_type_family(inner));
     }
     match trimmed {
@@ -329,9 +297,7 @@ fn openapi_type_family(schema: &Value) -> Option<String> {
             .get("items")
             .and_then(openapi_type_family)
             .map(|item| format!("list<{item}>")),
-        "integer" | "number" | "string" | "boolean" | "object" => {
-            Some(type_name.to_string())
-        }
+        "integer" | "number" | "string" | "boolean" | "object" => Some(type_name.to_string()),
         other => Some(other.to_string()),
     }
 }
@@ -623,13 +589,7 @@ mod tests {
         entity
     }
 
-    fn entity(
-        id: &str,
-        stable_key: &str,
-        kind: EntityKind,
-        path: &str,
-        payload: Value,
-    ) -> Entity {
+    fn entity(id: &str, stable_key: &str, kind: EntityKind, path: &str, payload: Value) -> Entity {
         Entity {
             id: EntityId(id.to_string()),
             stable_key: StableKey(stable_key.to_string()),
@@ -648,85 +608,3 @@ mod tests {
         }
     }
 }
-''')
-
-doc = root / "docs/adapters/checker-api.md"
-doc_text = doc.read_text()
-doc_text = replace_once(
-    doc_text,
-    """When both OpenAPI and GraphQL endpoints are present, the checker detects response field drift
-between REST and GraphQL operations that share a normalized name (e.g., `getUser` REST endpoint
-and `GetUser` GraphQL query). It emits `api_openapi_graphql_drift` diagnostics with evidence
-from both endpoints and the specific fields missing in each protocol.
-""",
-    """When both OpenAPI and GraphQL endpoints are present, the checker detects response field drift
-between operations that share a normalized name (e.g., `getUser` REST endpoint and `GetUser`
-GraphQL query). It emits `api_openapi_graphql_drift` diagnostics with evidence from both endpoints
-and the specific fields missing in each protocol.
-
-The second `API-001` slice also emits `api_openapi_graphql_request_drift`. It compares OpenAPI
-request-body component properties with GraphQL operation variables. When a GraphQL variable refers
-to a named input object matching the OpenAPI component name, it compares the two input schemas
-instead of flattening the body. Scalar families, list structure, required properties, and GraphQL
-non-null markers are normalized before comparison. External references and path/query/header
-parameters remain deferred.
-""",
-    "checker API cross-protocol docs",
-)
-doc_text = replace_once(
-    doc_text,
-    "The checker is local and side-effect free. Deeper OpenAPI/GraphQL schema drift, status-code,\nauthentication, permission, breaking-change, rollout, and step dependency checks are deferred.",
-    "The checker is local and side-effect free. External request references, OpenAPI parameter parity,\nresponse schema compatibility, status-code, authentication, permission, breaking-change, rollout,\nand step dependency checks are deferred.",
-    "checker API deferred scope",
-)
-doc.write_text(doc_text)
-
-plan = root / "athanor_implementation_plan_ru.md"
-plan_text = plan.read_text()
-plan_text = replace_once(
-    plan_text,
-    "- [ ] сравнить request arguments и input types;",
-    "- [-] request-body arguments и named input types реализуются во втором bounded slice; external refs и OpenAPI parameters остаются следующими подэтапами;",
-    "implementation plan request parity status",
-)
-plan_text = replace_once(
-    plan_text,
-    "Реализовать второй `API-001` slice: canonical request argument и input-type parity для сопоставленных\nOpenAPI/GraphQL операций, добавить regressions и подтвердить изменения обычной main matrix.",
-    "Завершить второй `API-001` slice: подтвердить request-body argument и named input-type parity\nстандартной main matrix, затем перейти к OpenAPI parameter и response schema compatibility.",
-    "implementation plan next step",
-)
-plan.write_text(plan_text)
-
-roadmap = root / "docs/development/roadmap-status.md"
-roadmap_text = roadmap.read_text()
-roadmap_text = replace_once(
-    roadmap_text,
-    """GraphQL operations use canonical `protocol = graphql`. The active `API-001` slice adds the symmetric
-`protocol = openapi` boundary to real OpenAPI endpoint entities, allowing the existing response-field
-drift checker to consume canonical entities instead of fixture-only protocol annotations.
-""",
-    """GraphQL operations use canonical `protocol = graphql`; OpenAPI operations use the symmetric
-`protocol = openapi` boundary. The verified first `API-001` slice lets response-field drift consume
-real canonical entities. The active second slice compares request-body properties with GraphQL
-variables or matching named input objects after scalar, list, and required/nullability normalization.
-""",
-    "roadmap protocol identity section",
-)
-roadmap_text = replace_once(
-    roadmap_text,
-    """1. normalize OpenAPI endpoint protocol identity at the adapter boundary;
-2. verify the existing normalized-name response-field comparison on real canonical entities;
-3. add request argument and input-type parity;
-4. extend compatibility to schemas, status codes, authentication, and permissions;
-5. promote the package only after one exact successful matrix covers its complete Definition of Done.
-""",
-    """1. [x] normalize OpenAPI endpoint protocol identity at the adapter boundary;
-2. [x] verify normalized-name response-field comparison on real canonical entities;
-3. [-] compare request-body arguments and named input types;
-4. [ ] add OpenAPI path/query/header parameter and response schema compatibility;
-5. [ ] extend compatibility to status codes, authentication, and permissions;
-6. [ ] promote the package only after one exact successful matrix covers its complete Definition of Done.
-""",
-    "roadmap API-001 checklist",
-)
-roadmap.write_text(roadmap_text)
