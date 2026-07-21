@@ -46,9 +46,9 @@ sources are scanned recursively. CLI, daemon, and MCP Index serialize one typed 
 ### API Protocol Identity
 
 GraphQL operations use canonical `protocol = graphql`; OpenAPI operations use the symmetric
-`protocol = openapi` boundary. The verified first `API-001` slice lets response-field drift consume
-real canonical entities. The active second slice compares request-body properties with GraphQL
-variables or matching named input objects after scalar, list, and required/nullability normalization.
+`protocol = openapi` boundary. Request bodies, parameters, repository-owned external references, and
+response schema shapes are implemented. The active fourth `API-001` slice adds effective OpenAPI
+security requirements, GraphQL directive argument values, and status/authentication/permission drift.
 
 ### Documentation Lifecycle Policy
 

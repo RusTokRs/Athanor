@@ -63,11 +63,19 @@ impl Extractor for OpenApiExtractor {
         let file_id = file_entity(&input.source, &input.snapshot.0).id;
         let mut entities = Vec::new();
         let mut facts = Vec::new();
-        let component_parameters = root
-            .get("components")
-            .and_then(Value::as_object)
+        let components = root.get("components").and_then(Value::as_object);
+        let component_parameters = components
             .and_then(|components| components.get("parameters"))
             .and_then(Value::as_object);
+        let security_schemes = components
+            .and_then(|components| components.get("securitySchemes"))
+            .and_then(Value::as_object);
+        let root_security = root.get("security");
+        let document_context = OpenApiDocumentContext {
+            component_parameters,
+            root_security,
+            security_schemes,
+        };
 
         if let Some(paths) = root.get("paths").and_then(Value::as_object) {
             for (path, path_item) in paths {
@@ -86,7 +94,7 @@ impl Extractor for OpenApiExtractor {
                         path,
                         operation,
                         path_parameters,
-                        component_parameters,
+                        document_context,
                         line,
                     );
                     facts.push(declaration_fact(
@@ -302,13 +310,20 @@ struct OpenApiSourceContext<'a> {
     parser_backend: &'a str,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct OpenApiDocumentContext<'a> {
+    component_parameters: Option<&'a Map<String, Value>>,
+    root_security: Option<&'a Value>,
+    security_schemes: Option<&'a Map<String, Value>>,
+}
+
 fn endpoint_entity(
     source: OpenApiSourceContext<'_>,
     method: &str,
     path: &str,
     operation: &Map<String, Value>,
     path_parameters: Option<&Value>,
-    component_parameters: Option<&Map<String, Value>>,
+    document: OpenApiDocumentContext<'_>,
     line: Option<u32>,
 ) -> Entity {
     let method = method.to_uppercase();
@@ -323,8 +338,13 @@ fn endpoint_entity(
         .unwrap_or_default();
     let request_schemas = request_schema_references(operation);
     let response_schemas = response_schema_references(operation);
-    let parameters = operation_parameters(path_parameters, operation, component_parameters);
+    let parameters =
+        operation_parameters(path_parameters, operation, document.component_parameters);
     let path_parameter_count = array_len(path_parameters);
+    let effective_security = operation.get("security").or(document.root_security);
+    let security_requirements =
+        normalize_security_requirements(effective_security, document.security_schemes);
+    let authentication_required = authentication_required(effective_security);
     let aliases = operation_id.iter().cloned().collect();
 
     Entity {
@@ -363,7 +383,9 @@ fn endpoint_entity(
             "request_schemas": request_schemas,
             "responses": responses,
             "response_schemas": response_schemas,
-            "security": operation.get("security").cloned(),
+            "security": effective_security.cloned(),
+            "security_requirements": security_requirements,
+            "authentication_required": authentication_required,
         }),
     }
 }
@@ -448,6 +470,66 @@ fn normalize_inline_parameter(parameter: &Value) -> Option<Value> {
         "required": required,
         "schema": object.get("schema").cloned(),
     }))
+}
+
+fn authentication_required(security: Option<&Value>) -> bool {
+    security
+        .and_then(Value::as_array)
+        .is_some_and(|requirements| {
+            !requirements.is_empty()
+                && requirements.iter().all(|requirement| {
+                    requirement
+                        .as_object()
+                        .is_some_and(|requirement| !requirement.is_empty())
+                })
+        })
+}
+
+fn normalize_security_requirements(
+    security: Option<&Value>,
+    security_schemes: Option<&Map<String, Value>>,
+) -> Vec<Value> {
+    let mut output = Vec::new();
+    for (alternative, requirement) in security
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .enumerate()
+    {
+        let Some(requirement) = requirement.as_object() else {
+            continue;
+        };
+        for (scheme_name, scopes) in requirement {
+            let definition = security_schemes.and_then(|schemes| schemes.get(scheme_name));
+            let kind = definition
+                .and_then(|definition| definition.get("type"))
+                .and_then(Value::as_str);
+            let scheme = definition
+                .and_then(|definition| definition.get("scheme"))
+                .and_then(Value::as_str);
+            let bearer_format = definition
+                .and_then(|definition| definition.get("bearerFormat"))
+                .and_then(Value::as_str);
+            let mut scopes = scopes
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect::<Vec<_>>();
+            scopes.sort();
+            scopes.dedup();
+            output.push(json!({
+                "alternative": alternative,
+                "scheme_name": scheme_name,
+                "kind": kind,
+                "scheme": scheme,
+                "bearer_format": bearer_format,
+                "scopes": scopes,
+            }));
+        }
+    }
+    output
 }
 
 fn request_schema_references(operation: &Map<String, Value>) -> Vec<Value> {
@@ -803,6 +885,67 @@ components:
             endpoint.payload["response_schemas"][0]["schema"]["$ref"],
             "#/components/schemas/User"
         );
+    }
+
+    #[tokio::test]
+    async fn extracts_effective_security_requirements_and_scopes() {
+        let output = OpenApiExtractor
+            .extract(input(
+                "openapi.yaml",
+                r#"openapi: 3.1.0
+info: { title: Users, version: '1' }
+security:
+  - oauth: [users:read]
+paths:
+  /users:
+    get:
+      operationId: getUsers
+      responses:
+        '200': { description: ok }
+    post:
+      operationId: createUser
+      security: []
+      responses:
+        '201': { description: created }
+components:
+  securitySchemes:
+    oauth:
+      type: oauth2
+      flows:
+        clientCredentials:
+          tokenUrl: https://example.test/token
+          scopes:
+            users:read: read users
+"#,
+            ))
+            .await
+            .unwrap();
+
+        let get_users = output
+            .entities
+            .iter()
+            .find(|entity| entity.stable_key.0 == "api://GET:/users")
+            .unwrap();
+        assert_eq!(get_users.payload["authentication_required"], true);
+        assert_eq!(
+            get_users.payload["security_requirements"],
+            json!([{
+                "alternative": 0,
+                "scheme_name": "oauth",
+                "kind": "oauth2",
+                "scheme": null,
+                "bearer_format": null,
+                "scopes": ["users:read"]
+            }])
+        );
+
+        let create_user = output
+            .entities
+            .iter()
+            .find(|entity| entity.stable_key.0 == "api://POST:/users")
+            .unwrap();
+        assert_eq!(create_user.payload["authentication_required"], false);
+        assert_eq!(create_user.payload["security_requirements"], json!([]));
     }
 
     #[tokio::test]

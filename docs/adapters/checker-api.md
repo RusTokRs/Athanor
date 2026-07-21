@@ -46,6 +46,14 @@ are inferred from one top-level selection and the Query, Mutation, or Subscripti
 URL references, unresolved external parameter references, and multi-root GraphQL selections remain
 explicitly deferred.
 
+The fourth slice publishes effective OpenAPI security requirements after operation-level override or
+root inheritance, including scheme kind, HTTP scheme, bearer format, and required scopes. GraphQL
+operations preserve directive applications and scalar/list argument values. The checker emits
+`api_openapi_graphql_status_code_drift`, `api_openapi_graphql_authentication_drift`, and
+`api_openapi_graphql_permission_drift`. Status compatibility is policy-based by GraphQL operation
+type; authentication directives and permission argument names use a documented bounded vocabulary.
+Custom directive semantics outside that vocabulary remain deferred.
+
 Documentation is satisfied by `documents_api`, `documents_operation`, or a verified generic
 `documents` relation such as an exact Markdown frontmatter declaration.
 
@@ -122,9 +130,9 @@ validation cannot read files or use the network. Compiled validators are cached 
 during one checker run. External schema references are skipped, and OpenAPI 3.0 keywords beyond
 Draft 4 compatibility remain a documented limitation.
 
-The checker is local and side-effect free. External request references, OpenAPI parameter parity,
-response schema compatibility, status-code, authentication, permission, breaking-change, rollout,
-and step dependency checks are deferred.
+The checker is local and side-effect free. Remote references, unresolved external parameter
+references, custom GraphQL authentication directive semantics, multi-root response selection,
+breaking-change, rollout, and step dependency checks are deferred.
 
 ## Configuration & Policy Enforcement
 
