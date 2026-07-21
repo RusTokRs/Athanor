@@ -67,6 +67,9 @@ None. The adapter runs in-process without commands or network access.
 
 ## Test
 
+The suite includes a boundary regression proving every emitted operation carries canonical
+`protocol = "openapi"` before shared API consistency checks consume it.
+
 ```bash
 cargo test -p athanor-extractor-openapi
 ```
