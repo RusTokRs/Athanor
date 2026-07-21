@@ -75,7 +75,19 @@ jobs:
           retention-days: 7
 
       - name: Lint affected packages
-        run: cargo clippy -p athanor-extractor-openapi -p athanor-extractor-graphql -p athanor-checker-api --all-targets --locked -- -D warnings
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo clippy -p athanor-extractor-openapi -p athanor-extractor-graphql -p athanor-checker-api --all-targets --locked -- -D warnings 2>&1 | tee api-security-clippy.log
+
+      - name: Upload Clippy diagnostics
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4.6.2
+        with:
+          name: api-security-parity-clippy-diagnostics
+          path: api-security-clippy.log
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Publish clean product tree
         shell: bash
