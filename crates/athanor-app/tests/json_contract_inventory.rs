@@ -350,7 +350,8 @@ fn collect_rust_sources(path: &Path, sources: &mut Vec<PathBuf>) {
 
 fn production_prefix(source: &str) -> &str {
     source
-        .find("#[cfg(test)]\nmod tests")
+        .find("#[cfg(test)]\r\nmod tests")
+        .or_else(|| source.find("#[cfg(test)]\nmod tests"))
         .map(|offset| &source[..offset])
         .unwrap_or(source)
 }

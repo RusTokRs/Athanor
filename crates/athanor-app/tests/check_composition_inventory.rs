@@ -18,7 +18,11 @@ fn check_root_has_conventional_bounded_owners() {
     ] {
         assert!(CHECK_ROOT.contains(export));
     }
-    assert!(CHECK_ROOT.contains("#[cfg(test)]\nmod tests;"));
+    assert!(
+        CHECK_ROOT
+            .replace("\r\n", "\n")
+            .contains("#[cfg(test)]\nmod tests;")
+    );
     assert!(!CHECK_ROOT.contains("include!("));
     assert!(!CHECK_ROOT.contains("facade"));
 }

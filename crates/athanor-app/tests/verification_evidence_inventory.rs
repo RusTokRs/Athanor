@@ -27,7 +27,7 @@ fn successful_main_ci_is_the_only_evidence_publisher() {
         "docs/development/verification-evidence.json",
     ] {
         assert!(
-            EVIDENCE_WORKFLOW.contains(required),
+            EVIDENCE_WORKFLOW.replace("\r\n", "\n").contains(required),
             "verification evidence workflow omits {required}"
         );
     }

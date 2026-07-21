@@ -59,7 +59,10 @@ fn assert_conventional_root(root: &str, modules: &[&str], exports: &[&str]) {
     for export in exports {
         assert!(root.contains(export));
     }
-    assert!(root.contains("#[cfg(test)]\nmod tests;"));
+    assert!(
+        root.replace("\r\n", "\n")
+            .contains("#[cfg(test)]\nmod tests;")
+    );
     assert!(!root.contains("include!("));
     assert!(!root.contains("facade"));
 }

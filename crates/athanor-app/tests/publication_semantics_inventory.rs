@@ -48,6 +48,7 @@ fn generic_replacement_commits_before_best_effort_cleanup() {
     assert!(PROJECTOR_SUPPORT.contains("output was published but backup cleanup failed"));
     assert!(
         PROJECTOR_SUPPORT
+            .replace("\r\n", "\n")
             .contains("cleanup_backup_after_publish(&backup, output_kind);\n    Ok(())")
     );
 }
