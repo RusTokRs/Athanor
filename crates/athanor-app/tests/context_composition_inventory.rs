@@ -10,11 +10,8 @@ const RUSTOK_COMPOSITION_SOURCE: &str = include_str!("../src/rustok_composition_
 
 #[test]
 fn context_module_routes_to_the_composition_first_owner() {
-    assert!(
-        APP_LIB_SOURCE
-            .replace("\r\n", "\n")
-            .contains("#[path = \"context_composition.rs\"]\npub mod context;")
-    );
+    let normalized_app_lib = APP_LIB_SOURCE.replace("\r\n", "\n");
+    assert!(normalized_app_lib.contains("#[path = \"context_composition.rs\"]\npub mod context;"));
     assert_eq!(APP_LIB_SOURCE.matches("pub mod context;").count(), 1);
 
     assert!(ACTIVE_CONTEXT_SOURCE.contains("composition.init_store"));

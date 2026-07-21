@@ -1,6 +1,8 @@
 #[cfg(unix)]
 use std::fs;
 use std::path::Path;
+#[cfg(unix)]
+use std::path::PathBuf;
 use std::time::Duration;
 
 use athanor_core::{CoreError, ProcessLimits as CoreProcessLimits, ProcessRequest, ProcessRunner};
@@ -12,7 +14,7 @@ use super::super::{
 };
 use super::fixtures::{failing_command, sleep_command, stdout_bytes_command};
 #[cfg(unix)]
-use super::fixtures::{sh_path, temp_root, test_working_dir};
+use super::fixtures::{sh_path, test_working_dir};
 use crate::CancellationToken;
 
 #[test]
@@ -217,4 +219,15 @@ async fn clean_environment_process_profile_removes_inherited_environment() {
     .expect("clean-environment process should run");
     assert!(output.success);
     assert!(output.stdout.is_empty());
+}
+
+#[cfg(unix)]
+fn temp_root(label: &str) -> PathBuf {
+    std::env::temp_dir().join(format!(
+        "athanor-{label}-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ))
 }

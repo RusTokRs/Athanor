@@ -22,11 +22,8 @@ fn api_root_has_conventional_bounded_owners() {
     ] {
         assert!(API_ROOT.contains(export));
     }
-    assert!(
-        API_ROOT
-            .replace("\r\n", "\n")
-            .contains("#[cfg(test)]\nmod tests;")
-    );
+    let normalized_root = API_ROOT.replace("\r\n", "\n");
+    assert!(normalized_root.contains("#[cfg(test)]\nmod tests;"));
     assert!(!API_ROOT.contains("include!("));
     assert!(!API_ROOT.contains("facade"));
 }

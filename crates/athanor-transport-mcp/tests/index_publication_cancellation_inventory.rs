@@ -47,15 +47,13 @@ fn cli_daemon_and_mcp_share_the_public_index_report_payload() {
 
 #[test]
 fn pre_commit_pipeline_boundaries_check_operation_before_and_after_work() {
+    let pipeline_support = PIPELINE_SUPPORT_SOURCE.replace("\r\n", "\n");
     assert!(
-        PIPELINE_SUPPORT_SOURCE
-            .replace("\r\n", "\n")
+        pipeline_support
             .contains("operation.check_active()?;\n    let result = match operation.remaining()")
     );
     assert!(
-        PIPELINE_SUPPORT_SOURCE
-            .replace("\r\n", "\n")
-            .contains("None => future.await,\n    }?;\n    operation.check_active()?;")
+        pipeline_support.contains("None => future.await,\n    }?;\n    operation.check_active()?;")
     );
     assert!(PIPELINE_SUPPORT_SOURCE.contains("Durable commit boundaries must not use this helper"));
     for regression in [

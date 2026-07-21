@@ -12,20 +12,14 @@ const STORE_FACADE_SOURCE: &str = include_str!("../src/store_facade.rs");
 
 #[test]
 fn graph_routes_to_conventional_bounded_owners() {
-    assert!(
-        APP_LIB_SOURCE
-            .replace("\r\n", "\n")
-            .contains("#[path = \"graph/mod.rs\"]\npub mod graph;")
-    );
+    let normalized_app_lib = APP_LIB_SOURCE.replace("\r\n", "\n");
+    let normalized_graph_root = GRAPH_ROOT_SOURCE.replace("\r\n", "\n");
+    assert!(normalized_app_lib.contains("#[path = \"graph/mod.rs\"]\npub mod graph;"));
     for module in ["model", "rustok", "standard"] {
         assert!(GRAPH_ROOT_SOURCE.contains(&format!("mod {module};")));
         assert!(GRAPH_ROOT_SOURCE.contains(&format!("pub use {module}::*;")));
     }
-    assert!(
-        GRAPH_ROOT_SOURCE
-            .replace("\r\n", "\n")
-            .contains("#[cfg(test)]\nmod tests;")
-    );
+    assert!(normalized_graph_root.contains("#[cfg(test)]\nmod tests;"));
     assert!(!GRAPH_ROOT_SOURCE.contains("include!("));
     assert!(!GRAPH_ROOT_SOURCE.contains("facade"));
 

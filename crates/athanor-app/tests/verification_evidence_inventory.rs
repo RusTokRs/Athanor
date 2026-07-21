@@ -12,6 +12,7 @@ const PLAN: &str = include_str!("../../../athanor_implementation_plan_ru.md");
 
 #[test]
 fn successful_main_ci_is_the_only_evidence_publisher() {
+    let normalized_workflow = EVIDENCE_WORKFLOW.replace("\r\n", "\n");
     for required in [
         "workflow_run:",
         "workflows: [\"CI\"]",
@@ -27,7 +28,7 @@ fn successful_main_ci_is_the_only_evidence_publisher() {
         "docs/development/verification-evidence.json",
     ] {
         assert!(
-            EVIDENCE_WORKFLOW.replace("\r\n", "\n").contains(required),
+            normalized_workflow.contains(required),
             "verification evidence workflow omits {required}"
         );
     }
@@ -38,7 +39,7 @@ fn successful_main_ci_is_the_only_evidence_publisher() {
         "conclusion != 'failure'",
     ] {
         assert!(
-            !EVIDENCE_WORKFLOW.contains(forbidden),
+            !normalized_workflow.contains(forbidden),
             "verification evidence workflow contains unsafe trigger/condition {forbidden}"
         );
     }

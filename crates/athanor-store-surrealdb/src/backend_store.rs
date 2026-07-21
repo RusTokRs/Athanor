@@ -1,4 +1,6 @@
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
 use athanor_core::{
@@ -69,6 +71,16 @@ where
         surrealdb::sql::Id::String(value) => Ok(value),
         other => Ok(other.to_string()),
     }
+}
+
+fn snapshot_allocation_nonce() -> String {
+    static NEXT_NONCE: AtomicU64 = AtomicU64::new(0);
+    let counter = NEXT_NONCE.fetch_add(1, Ordering::Relaxed);
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    format!("{timestamp:032x}{:08x}{counter:016x}", std::process::id())
 }
 
 impl SurrealKnowledgeStore {
@@ -228,6 +240,11 @@ fn is_retryable_counter_conflict(message: &str) -> bool {
     message.contains("read or write conflict") || message.contains("can be retried")
 }
 
+fn is_snapshot_record_collision(message: &str) -> bool {
+    let message = message.to_ascii_lowercase();
+    message.contains("database record") && message.contains("already exists")
+}
+
 fn validate_committed_generation(
     record: &SnapshotRecord,
     snapshot: &SnapshotId,
@@ -303,50 +320,82 @@ where
 impl KnowledgeStore for SurrealKnowledgeStore {
     async fn begin_snapshot(&self, repo: RepoId, base: SnapshotBase) -> CoreResult<SnapshotId> {
         let _guard = self.write_gate.lock().await;
-        let sequence = self.allocate_snapshot_sequence().await?;
-        let snapshot_id = format!("snap_surreal_{sequence:08}");
-        let record = SnapshotRecord {
-            id: snapshot_id.clone(),
-            repo: repo.0,
-            base_branch: base.branch,
-            base_commit: base.commit,
-            base_parent_snapshot: base.parent_snapshot.map(|snapshot| snapshot.0),
-            base_working_tree: base.working_tree,
-            sequence,
-            prepared: false,
-            committed: false,
-            generation: None,
-            allocation_operation_id: None,
-            allocation_created_at_unix_ms: None,
-        };
+        let repo = repo.0;
+        let base_branch = base.branch;
+        let base_commit = base.commit;
+        let base_parent_snapshot = base.parent_snapshot.map(|snapshot| snapshot.0);
+        let base_working_tree = base.working_tree;
 
-        const MAX_ATTEMPTS: usize = 8;
+        const MAX_ATTEMPTS: usize = 32;
         for attempt in 0..MAX_ATTEMPTS {
-            let result: Result<Option<SnapshotRecord>, _> = self
+            let sequence = self.allocate_snapshot_sequence().await?;
+            let snapshot_id = format!(
+    "snap_surreal_{sequence:08}_{}",
+    snapshot_allocation_nonce()
+);
+            let record = SnapshotRecord {
+                id: snapshot_id.clone(),
+                repo: repo.clone(),
+                base_branch: base_branch.clone(),
+                base_commit: base_commit.clone(),
+                base_parent_snapshot: base_parent_snapshot.clone(),
+                base_working_tree,
+                sequence,
+                prepared: false,
+                committed: false,
+                generation: None,
+                allocation_operation_id: None,
+                allocation_created_at_unix_ms: None,
+            };
+
+            let response = self
                 .db
-                .create(("snapshot", &snapshot_id))
-                .content(record.clone())
-                .await;
-            match result {
-                Ok(_) => break,
+                .query(
+                    "CREATE ONLY type::thing('snapshot', $snapshot_id) "
+                        .to_owned()
+                        + "CONTENT $record RETURN AFTER;",
+                )
+                .bind(("snapshot_id", snapshot_id.clone()))
+                .bind(("record", record))
+                .await
+                .map_err(|error| {
+                    CoreError::Adapter(format!(
+                        "failed to execute snapshot record allocation: {error}"
+                    ))
+                })?;
+            let mut response = match response.check() {
+                Ok(response) => response,
                 Err(error)
                     if attempt + 1 < MAX_ATTEMPTS
-                        && is_retryable_counter_conflict(&error.to_string()) =>
+                        && (is_retryable_counter_conflict(&error.to_string())
+                            || is_snapshot_record_collision(&error.to_string())) =>
                 {
-                    sleep(Duration::from_millis(
-                        2_u64.saturating_pow(attempt as u32),
-                    ))
-                    .await;
+                    sleep(Duration::from_millis(1_u64 << attempt.min(6))).await;
+                    continue;
                 }
                 Err(error) => {
                     return Err(CoreError::Adapter(format!(
                         "failed to create snapshot record: {error}"
                     )));
                 }
+            };
+            let created: Option<SnapshotRecord> = response.take(0).map_err(|error| {
+                CoreError::Adapter(format!(
+                    "failed to parse created snapshot record: {error}"
+                ))
+            })?;
+            if created.is_some() {
+                return Ok(SnapshotId(snapshot_id));
             }
+            if attempt + 1 < MAX_ATTEMPTS {
+                sleep(Duration::from_millis(1_u64 << attempt.min(6))).await;
+                continue;
+            }
+            return Err(CoreError::Conflict(format!(
+                "snapshot record {snapshot_id} was not created after {MAX_ATTEMPTS} attempts"
+            )));
         }
-
-        Ok(SnapshotId(snapshot_id))
+        unreachable!("snapshot allocation retry loop always returns");
     }
 
     async fn put_entities(&self, snapshot: SnapshotId, entities: Vec<Entity>) -> CoreResult<()> {

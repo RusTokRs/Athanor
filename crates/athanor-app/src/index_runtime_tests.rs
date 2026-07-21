@@ -54,6 +54,42 @@ async fn production_index_runtime_publishes_one_typed_generation() {
 }
 
 #[tokio::test]
+async fn missing_canonical_snapshot_invalidates_stale_incremental_state() {
+    let root = test_root("missing-canonical");
+    fs::create_dir_all(root.join("src")).expect("create source directory");
+    fs::write(root.join("src/lib.rs"), "pub fn recovered() {}\n").expect("write source file");
+    let composition = crate::test_runtime::composition();
+
+    let first = run_index(&root, &composition).await;
+    let canonical_root = root.join(".athanor/store/canonical/jsonl");
+    fs::remove_dir_all(&canonical_root).expect("remove canonical store only");
+    assert!(root.join(".athanor/state/index-state.json").is_file());
+
+    let rebuilt = run_index(&root, &composition).await;
+    assert_eq!(rebuilt.changed_files, 1);
+    let latest = JsonlKnowledgeStore::new(&canonical_root)
+        .load_latest_snapshot()
+        .await
+        .expect("load rebuilt canonical snapshot")
+        .expect("rebuilt canonical snapshot exists");
+    assert_eq!(
+        latest.snapshot.as_ref().map(|snapshot| snapshot.0.as_str()),
+        Some(rebuilt.snapshot.as_str())
+    );
+    let docs = crate::check_docs_with_composition(
+        crate::DocsCheckOptions { root: root.clone() },
+        &composition,
+    )
+    .await
+    .expect("docs check loads rebuilt canonical snapshot");
+    assert_eq!(docs.snapshot, rebuilt.snapshot);
+    assert!(docs.passed);
+    assert_eq!(first.files_indexed, rebuilt.files_indexed);
+
+    fs::remove_dir_all(root).expect("remove missing-canonical fixture");
+}
+
+#[tokio::test]
 async fn cancelled_index_does_not_publish_snapshot_state_or_read_model() {
     let root = test_root("cancelled");
     fs::create_dir_all(root.join("src")).expect("create source directory");

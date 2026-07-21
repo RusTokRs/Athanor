@@ -167,6 +167,15 @@ async fn index_project_inner(
             .context("failed to load previous canonical snapshot")?,
         None => None,
     };
+    let has_previous_canonical_snapshot = previous_snapshot.is_some();
+    let incremental = if previous_state.snapshot.is_some() && !has_previous_canonical_snapshot {
+        IncrementalIndexContext::default()
+    } else {
+        IncrementalIndexContext {
+            previous_state: previous_state.clone(),
+            previous_snapshot,
+        }
+    };
 
     let output_result = if options.validate_only {
         let pipeline = runtime_builder(&root, composition)
@@ -202,10 +211,7 @@ async fn index_project_inner(
                         parent_snapshot: None,
                         working_tree: true,
                     },
-                    IncrementalIndexContext {
-                        previous_state: previous_state.clone(),
-                        previous_snapshot,
-                    },
+                    incremental.clone(),
                     operation.clone(),
                     cancellation,
                 )
@@ -220,10 +226,7 @@ async fn index_project_inner(
                         parent_snapshot: None,
                         working_tree: true,
                     },
-                    IncrementalIndexContext {
-                        previous_state: previous_state.clone(),
-                        previous_snapshot,
-                    },
+                    incremental.clone(),
                     operation.clone(),
                 )
                 .await
@@ -262,10 +265,7 @@ async fn index_project_inner(
                         parent_snapshot: None,
                         working_tree: true,
                     },
-                    IncrementalIndexContext {
-                        previous_state: previous_state.clone(),
-                        previous_snapshot,
-                    },
+                    incremental.clone(),
                     operation.clone(),
                     cancellation,
                 )
@@ -280,10 +280,7 @@ async fn index_project_inner(
                         parent_snapshot: None,
                         working_tree: true,
                     },
-                    IncrementalIndexContext {
-                        previous_state: previous_state.clone(),
-                        previous_snapshot,
-                    },
+                    incremental.clone(),
                     operation.clone(),
                 )
                 .await
@@ -339,7 +336,8 @@ async fn index_project_inner(
 
     // The incremental pipeline deliberately reuses the previous committed snapshot when source
     // discovery finds no changes. There is no new snapshot to publish in that case.
-    if previous_state.snapshot.as_deref() == Some(output.snapshot.0.as_str())
+    if has_previous_canonical_snapshot
+        && previous_state.snapshot.as_deref() == Some(output.snapshot.0.as_str())
         && output.affected_files.changed.is_empty()
         && output.affected_files.removed.is_empty()
     {
