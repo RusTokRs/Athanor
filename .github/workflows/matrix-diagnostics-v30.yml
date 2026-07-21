@@ -38,6 +38,7 @@ jobs:
           set -euo pipefail
           python .github/scripts/matrix_remediation_v28.py
           python .github/scripts/matrix_remediation_v30.py
+          python .github/scripts/matrix_remediation_v31.py
           cargo fmt --all
           cargo fmt --all -- --check
       - name: Stress Surreal allocation
