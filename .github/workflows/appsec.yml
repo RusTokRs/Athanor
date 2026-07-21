@@ -8,34 +8,36 @@ permissions:
   contents: read
 
 jobs:
-  dependency-graph-api-diagnostic:
-    name: Dependency graph API diagnostic
+  dependency-graph-public-diagnostic:
+    name: Public dependency graph API diagnostic
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Query dependency graph comparison
+      - name: Query dependency graph comparison without authentication
         env:
-          GH_TOKEN: ${{ github.token }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         shell: bash
         run: |
           set +e
-          mkdir -p "$RUNNER_TEMP/dependency-graph-api"
-          gh api \
+          mkdir -p "$RUNNER_TEMP/dependency-graph-public"
+          curl --silent --show-error --location \
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
-            "/repos/${GITHUB_REPOSITORY}/dependency-graph/compare/${BASE_SHA}...${HEAD_SHA}" \
-            > "$RUNNER_TEMP/dependency-graph-api/response.json" \
-            2> "$RUNNER_TEMP/dependency-graph-api/error.txt"
+            -H "User-Agent: Athanor-AppSec" \
+            -D "$RUNNER_TEMP/dependency-graph-public/headers.txt" \
+            -o "$RUNNER_TEMP/dependency-graph-public/response.json" \
+            -w '%{http_code}\n' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/dependency-graph/compare/${BASE_SHA}...${HEAD_SHA}" \
+            > "$RUNNER_TEMP/dependency-graph-public/http-status.txt"
           status=$?
-          printf '%s\n' "$status" > "$RUNNER_TEMP/dependency-graph-api/exit-status.txt"
-          printf '%s...%s\n' "$BASE_SHA" "$HEAD_SHA" > "$RUNNER_TEMP/dependency-graph-api/range.txt"
+          printf '%s\n' "$status" > "$RUNNER_TEMP/dependency-graph-public/curl-exit-status.txt"
+          printf '%s...%s\n' "$BASE_SHA" "$HEAD_SHA" > "$RUNNER_TEMP/dependency-graph-public/range.txt"
           exit 0
-      - name: Upload dependency graph API diagnostics
+      - name: Upload public dependency graph diagnostics
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: api-001-dependency-graph-api
-          path: ${{ runner.temp }}/dependency-graph-api
+          name: api-001-dependency-graph-public
+          path: ${{ runner.temp }}/dependency-graph-public
           if-no-files-found: error
           retention-days: 14
