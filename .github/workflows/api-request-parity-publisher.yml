@@ -11,7 +11,7 @@ permissions:
 jobs:
   publish:
     if: github.head_ref == 'automation/api-001-request-parity'
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     timeout-minutes: 45
     steps:
       - name: Check out head branch
