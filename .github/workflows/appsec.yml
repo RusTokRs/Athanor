@@ -26,8 +26,25 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          fetch-depth: 0
           persist-credentials: false
+      - name: Detect dependency manifest changes
+        id: dependency-files
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          pattern='(^|/)(Cargo\.toml|Cargo\.lock|package\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|requirements[^/]*\.txt|poetry\.lock|Pipfile|Pipfile\.lock|go\.mod|go\.sum|pom\.xml|build\.gradle|build\.gradle\.kts|Gemfile|Gemfile\.lock|composer\.json|composer\.lock)$'
+          if git diff --name-only "$BASE_SHA" "$HEAD_SHA" | grep -Eq "$pattern"; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No dependency manifest or lockfile changes; dependency review API is not required." >> "$GITHUB_STEP_SUMMARY"
+          fi
       - name: Reject newly introduced vulnerable dependencies
+        if: steps.dependency-files.outputs.changed == 'true'
         uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4.9.0
         with:
           fail-on-severity: moderate
