@@ -3,7 +3,9 @@ use std::fs;
 use athanor_domain::{EntityKind, RelationKind, RepoId, SnapshotBase};
 
 use super::super::*;
-use super::fixtures::{empty_array_command, empty_output_command, source_output_command};
+use super::fixtures::{
+    empty_array_command, empty_output_command, source_output_command, temp_root,
+};
 use crate::transient_store::TransientKnowledgeStore;
 
 #[tokio::test]
@@ -178,14 +180,4 @@ fn discovers_adapter_plugin_manifests() {
     assert_eq!(plugins[0].manifest_path, manifest_path);
     assert!(plugins[0].manifest.adapters[0].enabled);
     fs::remove_dir_all(root).unwrap();
-}
-
-fn temp_root(label: &str) -> std::path::PathBuf {
-    std::env::temp_dir().join(format!(
-        "athanor-{label}-{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ))
 }

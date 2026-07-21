@@ -187,3 +187,13 @@ pub(super) fn sh_path() -> PathBuf {
 pub(super) fn test_working_dir() -> PathBuf {
     std::env::current_dir().expect("test process has a current directory")
 }
+
+pub(super) fn temp_root(label: &str) -> PathBuf {
+    std::env::temp_dir().join(format!(
+        "athanor-{label}-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ))
+}

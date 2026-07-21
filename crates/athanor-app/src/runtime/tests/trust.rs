@@ -3,7 +3,7 @@ use std::fs;
 use crate::adapter_contract::{ADAPTER_TRUST_REGISTRY_SCHEMA_V2, ADAPTER_TRUST_REPORT_SCHEMA_V1};
 
 use super::super::*;
-use super::fixtures::{empty_output_command, empty_output_program};
+use super::fixtures::{empty_output_command, empty_output_program, temp_root};
 
 #[test]
 fn external_process_plugins_require_opt_in_trust_and_allowlist() {
@@ -143,14 +143,4 @@ fn rejects_unknown_manifest_fields() {
     let error = serde_json::from_str::<AdapterPluginManifest>(&content)
         .expect_err("unknown manifest field should fail deserialization");
     assert!(error.to_string().contains("unknown field"));
-}
-
-fn temp_root(label: &str) -> std::path::PathBuf {
-    std::env::temp_dir().join(format!(
-        "athanor-{label}-{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ))
 }
