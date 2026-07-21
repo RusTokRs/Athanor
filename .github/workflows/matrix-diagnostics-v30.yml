@@ -1,0 +1,134 @@
+name: Matrix Diagnostics V30
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/matrix-diagnostics-v30.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: matrix-diagnostics-v30-main
+  cancel-in-progress: true
+
+jobs:
+  diagnose:
+    name: Final blocker diagnostics
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Install Rust toolchain
+        uses: ./.github/actions/setup-rust
+        with:
+          components: clippy rustfmt
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
+      - name: Apply deterministic remediation
+        id: patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python .github/scripts/matrix_remediation_v28.py
+          python .github/scripts/matrix_remediation_v30.py
+          cargo fmt --all
+          cargo fmt --all -- --check
+      - name: Stress Surreal allocation
+        id: surreal
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          for attempt in $(seq 1 12); do
+            echo "=== attempt $attempt ==="
+            cargo test -p athanor-store-surrealdb atomic_counter_survives_independent_writer_gates --locked -- --exact --nocapture
+          done 2>&1 | tee "$RUNNER_TEMP/surreal-stress.log"
+      - name: Index repository
+        id: index
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo run -p ath --quiet --locked -- index . 2>&1 | tee "$RUNNER_TEMP/index.log"
+      - name: Capture documentation diagnostics
+        if: ${{ always() && steps.index.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp .athanor/generated/current/jsonl/diagnostics.jsonl "$RUNNER_TEMP/diagnostics.jsonl"
+          python - <<'PY' > "$RUNNER_TEMP/documentation-reference-diagnostics.json"
+          import json
+          from pathlib import Path
+
+          matches = []
+          for line in Path(".athanor/generated/current/jsonl/diagnostics.jsonl").read_text().splitlines():
+              value = json.loads(line)
+              if value.get("kind") == "documentation_reference_unresolved":
+                  matches.append(value)
+          print(json.dumps(matches, indent=2, ensure_ascii=False))
+          PY
+      - name: Check editable documentation
+        id: docs
+        if: ${{ steps.index.outcome == 'success' }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo run -p ath --quiet --locked -- docs check --json 2>&1 | tee "$RUNNER_TEMP/docs.json"
+      - name: Upload final diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: matrix-diagnostics-v30
+          path: |
+            ${{ runner.temp }}/surreal-stress.log
+            ${{ runner.temp }}/index.log
+            ${{ runner.temp }}/diagnostics.jsonl
+            ${{ runner.temp }}/documentation-reference-diagnostics.json
+            ${{ runner.temp }}/docs.json
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Preserve diagnostic conclusion
+        if: ${{ always() }}
+        env:
+          PATCH_OUTCOME: ${{ steps.patch.outcome }}
+          SURREAL_OUTCOME: ${{ steps.surreal.outcome }}
+          INDEX_OUTCOME: ${{ steps.index.outcome }}
+          DOCS_OUTCOME: ${{ steps.docs.outcome }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$PATCH_OUTCOME" = success
+          test "$SURREAL_OUTCOME" = success
+          test "$INDEX_OUTCOME" = success
+          test "$DOCS_OUTCOME" = success
+
+  status:
+    name: Publish diagnostic status
+    if: ${{ always() }}
+    needs: [diagnose]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish exact status
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESULT: ${{ needs.diagnose.result }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          state=failure
+          if [[ "$RESULT" == success ]]; then state=success; fi
+          gh api --method POST \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -f state="$state" \
+            -f context="athanor/matrix-diagnostics-v30" \
+            -f description="V30 final blocker diagnostics: $state" \
+            -f target_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
