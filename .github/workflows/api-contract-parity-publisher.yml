@@ -72,6 +72,13 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("athanor_implementation_plan_ru.md")
+          text = path.read_text(encoding="utf-8")
+          if not text.endswith("\n"):
+              path.write_text(text + "\n", encoding="utf-8")
+          PY
           python3 scripts/automation/api_contract_parity_patch.py 2>&1 \
             | tee "$RUNNER_TEMP/api-contract-parity-patch.log"
 
