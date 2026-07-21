@@ -48,7 +48,9 @@ jobs:
           set -o pipefail
           for attempt in $(seq 1 12); do
             echo "=== attempt $attempt ==="
-            cargo test -p athanor-store-surrealdb atomic_counter_survives_independent_writer_gates --locked -- --exact --nocapture
+            cargo test -p athanor-store-surrealdb \
+              backend::tests::atomic_counter_survives_independent_writer_gates \
+              --locked -- --exact --nocapture
           done 2>&1 | tee "$RUNNER_TEMP/surreal-stress.log"
       - name: Index repository
         id: index
