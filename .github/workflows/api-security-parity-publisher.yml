@@ -39,7 +39,19 @@ jobs:
           python3 -m py_compile scripts/automation/api_security_parity_patch.py
 
       - name: Apply bounded API security parity patch
-        run: python3 scripts/automation/api_security_parity_patch.py
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/automation/api_security_parity_patch.py
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("crates/athanor-extractor-openapi/src/implementation.rs")
+          source = path.read_text(encoding="utf-8")
+          old = "tokenUrl: /token"
+          if source.count(old) != 1:
+              raise SystemExit(f"expected one OAuth test token URL, found {source.count(old)}")
+          path.write_text(source.replace(old, "tokenUrl: https://example.test/token"), encoding="utf-8")
+          PY
 
       - name: Format workspace
         run: cargo fmt --all
