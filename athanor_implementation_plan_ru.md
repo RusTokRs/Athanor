@@ -101,12 +101,14 @@ OpenAPI/GraphQL response-field checker работал на реальных cano
 - [x] Четвёртый slice публикует effective OpenAPI security requirements, сохраняет GraphQL directive argument values и сравнивает status-code policy, authentication families и permission scopes; слит в `13ec9bc8b92e02ca15a8c7d7258f4aa2d9e58397` после successful CI `29861948723`, AppSec `29861948815` и Store Conformance `29861948791` на PR head `ad66c8b1bbd43f2ede1ea1d6b089debb58ac5600`.
 - [-] Пятый bounded slice опубликован в `main`, но exact verification ещё не завершена:
   - [x] исправлена ошибка четвёртого slice: scopes больше не объединяются между mutually exclusive OpenAPI security alternatives (`97805cda6d8996af247fd0e30fdbfee3386a9ce9`);
+  - [x] исправлена AND-семантика OpenAPI: все security schemes внутри одного alternative должны быть представлены GraphQL authentication families (`49f56c991a1dcf61ae438b2f3e8f7c4e83a8942b`);
   - [x] добавлена configurable GraphQL security-directive mapping через canonical metadata или `@athanorSecurity` / `@athanorSecurityMapping`;
   - [x] repository-owned `components.parameters` публикуются также из partial component documents (`3b5cb1ea60c16c1a125ddfe54fcc997d587d2976`);
   - [x] external parameter refs разрешаются по normalized repository path, remote URL refs остаются explicit local-checker boundary;
   - [x] multi-root GraphQL responses выбираются по минимальному contract drift без ложного diagnostic, когда один root совместим (`615b306729c62d95a043e66a83b137798663dc91`);
   - [x] сохранены прежние diagnostic payload fields и regressions предыдущих contract slices;
-  - [ ] получить successful CI, AppSec и Store Conformance evidence на exact active `main` implementation SHA.
+  - [x] active implementation SHA пятого slice: `49f56c991a1dcf61ae438b2f3e8f7c4e83a8942b`;
+  - [ ] получить successful CI, AppSec и Store Conformance evidence на exact active implementation SHA.
 - [ ] повысить полный `API-001` до verified только после закрытия remaining Definition of Done и exact successful main matrix.
 
 ### 4.3 Product backlog
@@ -158,6 +160,7 @@ cargo run -p ath --quiet --locked -- docs check
 
 ## 7. Текущий следующий шаг
 
-Получить exact successful main matrix для пятого bounded `API-001` slice. При failure сначала
-устранить конкретную regression и обновить эту отметку; при success отметить slice `[x]`, записать
-run IDs и затем проверить оставшийся Definition of Done всего `API-001`.
+Получить exact successful main matrix для пятого bounded `API-001` slice на
+`49f56c991a1dcf61ae438b2f3e8f7c4e83a8942b`. При failure сначала устранить конкретную regression и
+обновить эту отметку; при success отметить slice `[x]`, записать run IDs и затем проверить
+оставшийся Definition of Done всего `API-001`.
