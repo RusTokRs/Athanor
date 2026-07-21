@@ -95,8 +95,8 @@ def patch_mcp_control_inventory() -> None:
     )
     replace_once(
         path,
-        '        LIFECYCLE\n            .contains("try_send(response)\\n            .context(\\"MCP response queue is saturated")',
-        '        lifecycle\n            .contains("try_send(response)\\n            .context(\\"MCP response queue is saturated")',
+        '        !LIFECYCLE\n            .contains("try_send(response)\\n            .context(\\"MCP response queue is saturated")',
+        '        !lifecycle\n            .contains("try_send(response)\\n            .context(\\"MCP response queue is saturated")',
     )
     replace_once(
         path,
