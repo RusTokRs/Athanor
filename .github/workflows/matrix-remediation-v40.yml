@@ -1,5 +1,4 @@
-# Registration activation commit for the already-installed workflow.
-name: Matrix Remediation V40
+name: Matrix Remediation V41
 
 on:
   push:
@@ -14,7 +13,7 @@ permissions:
   statuses: write
 
 concurrency:
-  group: matrix-remediation-v40-main
+  group: matrix-remediation-v41-main
   cancel-in-progress: true
 
 jobs:
@@ -32,8 +31,8 @@ jobs:
             -H "Accept: application/vnd.github+json" \
             "/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
             -f state="pending" \
-            -f context="athanor/matrix-remediation-v40" \
-            -f description="V40 cross-platform validation: running" \
+            -f context="athanor/matrix-remediation-v41" \
+            -f description="V41 cross-platform validation: running" \
             -f target_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
 
   quality:
@@ -68,6 +67,7 @@ jobs:
           python .github/scripts/matrix_remediation_v37.py
           python .github/scripts/matrix_remediation_v39.py
           python .github/scripts/matrix_remediation_v40.py
+          python .github/scripts/matrix_remediation_v41.py
           cargo fmt --all
           cargo fmt --all -- --check
       - name: Run workspace tests
@@ -79,7 +79,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          cargo test --workspace --locked -- --nocapture 2>&1 | tee "$RUNNER_TEMP/windows-workspace-v40.log"
+          cargo test --workspace --locked -- --nocapture 2>&1 | tee "$RUNNER_TEMP/windows-workspace-v41.log"
           status=${PIPESTATUS[0]}
           echo "exit_code=$status" >> "$GITHUB_OUTPUT"
           exit 0
@@ -87,8 +87,8 @@ jobs:
         if: runner.os == 'Windows' && always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: windows-workspace-v40
-          path: ${{ runner.temp }}/windows-workspace-v40.log
+          name: windows-workspace-v41
+          path: ${{ runner.temp }}/windows-workspace-v41.log
           if-no-files-found: error
           retention-days: 14
       - name: Enforce Windows workspace result
@@ -179,6 +179,7 @@ jobs:
           python .github/scripts/matrix_remediation_v37.py
           python .github/scripts/matrix_remediation_v39.py
           python .github/scripts/matrix_remediation_v40.py
+          python .github/scripts/matrix_remediation_v41.py
           cargo fmt --all
           cargo fmt --all -- --check
       - name: Run feature graph
@@ -217,6 +218,7 @@ jobs:
           python .github/scripts/matrix_remediation_v37.py
           python .github/scripts/matrix_remediation_v39.py
           python .github/scripts/matrix_remediation_v40.py
+          python .github/scripts/matrix_remediation_v41.py
           cargo fmt --all
           cargo fmt --all -- --check
       - name: Repeat exact concurrency regression
@@ -258,7 +260,8 @@ jobs:
           python .github/scripts/matrix_remediation_v35.py
           python .github/scripts/matrix_remediation_v37.py
           python .github/scripts/matrix_remediation_v39.py
-          python .github/scripts/matrix_remediation_v40.py --publish
+          python .github/scripts/matrix_remediation_v40.py
+          python .github/scripts/matrix_remediation_v41.py --publish
           cargo fmt --all
           git diff --check
           git diff --name-only | sort > "$RUNNER_TEMP/actual-paths"
@@ -271,6 +274,7 @@ jobs:
           .github/scripts/matrix_remediation_v37.py
           .github/scripts/matrix_remediation_v39.py
           .github/scripts/matrix_remediation_v40.py
+          .github/scripts/matrix_remediation_v41.py
           .github/workflows/matrix-diagnostics-v26.yml
           .github/workflows/matrix-diagnostics-v30.yml
           .github/workflows/matrix-diagnostics-v32.yml
@@ -300,6 +304,7 @@ jobs:
           crates/athanor-app/tests/read_service_composition_inventory.rs
           crates/athanor-app/tests/verification_evidence_inventory.rs
           crates/athanor-store-surrealdb/src/backend_store.rs
+          crates/athanor-store-surrealdb/src/facade.rs
           crates/athanor-transport-mcp/tests/control_plane_saturation_inventory.rs
           crates/athanor-transport-mcp/tests/index_publication_cancellation_inventory.rs
           docs/development/legacy-runtime-compatibility.md
@@ -315,10 +320,11 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -m "fix(ci): close final cross-platform verification blockers"
+          git commit -m "fix(storage): close final cross-platform verification blockers"
           git push origin HEAD:main
           bot_sha="$(git rev-parse HEAD)"
           echo "bot_sha=$bot_sha" >> "$GITHUB_OUTPUT"
+          gh api --method DELETE "/repos/${GITHUB_REPOSITORY}/git/refs/heads/automation/v40-trigger" || true
           gh workflow run ci.yml --ref main
       - name: Publish exact remediation status
         if: ${{ always() }}
@@ -332,16 +338,16 @@ jobs:
         run: |
           set -euo pipefail
           state=failure
-          description="V40 validation failed"
+          description="V41 validation failed"
           if [[ "$QUALITY_RESULT" == success && "$FEATURE_RESULT" == success && "$STRESS_RESULT" == success && -n "$BOT_SHA" ]]; then
             state=success
-            description="V40 validated and published ${BOT_SHA:0:12}"
+            description="V41 validated and published ${BOT_SHA:0:12}"
           fi
           gh api --method POST \
             -H "Accept: application/vnd.github+json" \
             "/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
             -f state="$state" \
-            -f context="athanor/matrix-remediation-v40" \
+            -f context="athanor/matrix-remediation-v41" \
             -f description="$description" \
             -f target_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           test "$state" = success
