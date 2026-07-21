@@ -1,4 +1,5 @@
 name: Final Architecture Audit Metadata Dispatcher
+# Content activation V3 for the registered workflow path.
 
 on:
   push:
