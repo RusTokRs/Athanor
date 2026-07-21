@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use athanor_domain::{
     Diagnostic, DiagnosticId, DiagnosticKind, DiagnosticStatus, Entity, Evidence, EvidenceStatus,
@@ -46,6 +46,45 @@ const PERMISSION_ARGUMENTS: &[&str] = &[
 ];
 
 const AUTH_FAMILY_ARGUMENTS: &[&str] = &["authentication", "provider", "scheme", "type"];
+const MAPPING_DIRECTIVES: &[&str] = &["athanorsecurity", "athanorsecuritymapping"];
+
+#[derive(Debug, Clone)]
+struct DirectiveMapping {
+    authentication_directives: BTreeSet<String>,
+    permission_directives: BTreeSet<String>,
+    permission_arguments: BTreeSet<String>,
+    authentication_family_arguments: BTreeSet<String>,
+}
+
+impl Default for DirectiveMapping {
+    fn default() -> Self {
+        Self {
+            authentication_directives: AUTH_DIRECTIVES
+                .iter()
+                .map(|value| (*value).to_string())
+                .collect(),
+            permission_directives: PERMISSION_DIRECTIVES
+                .iter()
+                .map(|value| (*value).to_string())
+                .collect(),
+            permission_arguments: PERMISSION_ARGUMENTS
+                .iter()
+                .map(|value| (*value).to_string())
+                .collect(),
+            authentication_family_arguments: AUTH_FAMILY_ARGUMENTS
+                .iter()
+                .map(|value| (*value).to_string())
+                .collect(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+struct SecurityAlternative {
+    index: usize,
+    families: BTreeSet<String>,
+    permissions: BTreeSet<String>,
+}
 
 pub(super) fn detect_openapi_graphql_security_drift(
     endpoints: &[&Entity],
@@ -73,19 +112,28 @@ pub(super) fn detect_openapi_graphql_security_drift(
             if normalize_endpoint_name(graphql_endpoint) != normalized {
                 continue;
             }
+            let mapping = directive_mapping(graphql_endpoint);
             if let Some(diagnostic) =
                 status_code_diagnostic(openapi_endpoint, graphql_endpoint, snapshot, checker)
             {
                 diagnostics.push(diagnostic);
             }
-            if let Some(diagnostic) =
-                authentication_diagnostic(openapi_endpoint, graphql_endpoint, snapshot, checker)
-            {
+            if let Some(diagnostic) = authentication_diagnostic(
+                openapi_endpoint,
+                graphql_endpoint,
+                &mapping,
+                snapshot,
+                checker,
+            ) {
                 diagnostics.push(diagnostic);
             }
-            if let Some(diagnostic) =
-                permission_diagnostic(openapi_endpoint, graphql_endpoint, snapshot, checker)
-            {
+            if let Some(diagnostic) = permission_diagnostic(
+                openapi_endpoint,
+                graphql_endpoint,
+                &mapping,
+                snapshot,
+                checker,
+            ) {
                 diagnostics.push(diagnostic);
             }
         }
@@ -125,11 +173,7 @@ fn status_code_diagnostic(
             || expected_success.iter().any(|expected| status == expected)
     });
 
-    let authentication_required = openapi
-        .payload
-        .get("authentication_required")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
+    let authentication_required = openapi_authentication_required(openapi);
     let missing_auth_status_codes = if authentication_required {
         ["401", "403"]
             .into_iter()
@@ -169,26 +213,25 @@ fn status_code_diagnostic(
 fn authentication_diagnostic(
     openapi: &Entity,
     graphql: &Entity,
+    mapping: &DirectiveMapping,
     snapshot: &SnapshotId,
     checker: &str,
 ) -> Option<Diagnostic> {
-    let openapi_required = openapi
-        .payload
-        .get("authentication_required")
-        .and_then(Value::as_bool)
-        .unwrap_or_else(|| {
-            openapi
-                .payload
-                .get("security_requirements")
-                .and_then(Value::as_array)
-                .is_some_and(|requirements| !requirements.is_empty())
+    let openapi_required = openapi_authentication_required(openapi);
+    let graphql_required = graphql_authentication_required(graphql, mapping);
+    let alternatives = openapi_security_alternatives(openapi);
+    let graphql_families = graphql_auth_families(graphql, mapping);
+    let comparable_families = openapi_required
+        && graphql_required
+        && !graphql_families.is_empty()
+        && alternatives
+            .iter()
+            .any(|alternative| !alternative.families.is_empty());
+    let family_mismatch = comparable_families
+        && !alternatives.iter().any(|alternative| {
+            alternative.families.is_empty()
+                || !alternative.families.is_disjoint(&graphql_families)
         });
-    let graphql_required = graphql_authentication_required(graphql);
-
-    let openapi_families = openapi_auth_families(openapi);
-    let graphql_families = graphql_auth_families(graphql);
-    let comparable_families = !openapi_families.is_empty() && !graphql_families.is_empty();
-    let family_mismatch = comparable_families && openapi_families.is_disjoint(&graphql_families);
 
     if openapi_required == graphql_required && !family_mismatch {
         return None;
@@ -197,7 +240,7 @@ fn authentication_diagnostic(
     Some(parity_diagnostic(
         "api_openapi_graphql_authentication_drift",
         "OpenAPI and GraphQL authentication requirements drift",
-        "Align authentication presence and, when declared by both protocols, the authentication family.",
+        "Align authentication presence and ensure at least one OpenAPI security alternative is compatible with the configured GraphQL authentication directive family.",
         openapi,
         graphql,
         snapshot,
@@ -205,7 +248,7 @@ fn authentication_diagnostic(
         json!({
             "openapi_authentication_required": openapi_required,
             "graphql_authentication_required": graphql_required,
-            "openapi_authentication_families": openapi_families,
+            "openapi_security_alternatives": alternatives.iter().map(security_alternative_json).collect::<Vec<_>>(),
             "graphql_authentication_families": graphql_families,
             "authentication_family_mismatch": family_mismatch,
         }),
@@ -215,15 +258,49 @@ fn authentication_diagnostic(
 fn permission_diagnostic(
     openapi: &Entity,
     graphql: &Entity,
+    mapping: &DirectiveMapping,
     snapshot: &SnapshotId,
     checker: &str,
 ) -> Option<Diagnostic> {
-    let openapi_permissions = openapi_permissions(openapi);
-    let graphql_permissions = graphql_permissions(graphql);
-    if openapi_permissions.is_empty() && graphql_permissions.is_empty() {
+    let openapi_required = openapi_authentication_required(openapi);
+    let graphql_required = graphql_authentication_required(graphql, mapping);
+    if openapi_required != graphql_required || (!openapi_required && !graphql_required) {
         return None;
     }
 
+    let alternatives = openapi_security_alternatives(openapi);
+    let graphql_families = graphql_auth_families(graphql, mapping);
+    let graphql_permissions = graphql_permissions(graphql, mapping);
+    let mut candidates = alternatives
+        .iter()
+        .filter(|alternative| {
+            graphql_families.is_empty()
+                || alternative.families.is_empty()
+                || !alternative.families.is_disjoint(&graphql_families)
+        })
+        .collect::<Vec<_>>();
+    if candidates.is_empty() {
+        candidates = alternatives.iter().collect();
+    }
+    if candidates
+        .iter()
+        .any(|alternative| alternative.permissions == graphql_permissions)
+    {
+        return None;
+    }
+    if candidates.is_empty() && graphql_permissions.is_empty() {
+        return None;
+    }
+
+    let closest = candidates.into_iter().min_by_key(|alternative| {
+        alternative
+            .permissions
+            .symmetric_difference(&graphql_permissions)
+            .count()
+    });
+    let openapi_permissions = closest
+        .map(|alternative| alternative.permissions.clone())
+        .unwrap_or_default();
     let missing_in_graphql = openapi_permissions
         .difference(&graphql_permissions)
         .cloned()
@@ -239,126 +316,182 @@ fn permission_diagnostic(
     Some(parity_diagnostic(
         "api_openapi_graphql_permission_drift",
         "OpenAPI security scopes and GraphQL permissions drift",
-        "Align OpenAPI OAuth/OpenID scopes with GraphQL role, scope, or permission directive values.",
+        "Align GraphQL permissions with one compatible OpenAPI security alternative rather than the union of mutually exclusive alternatives.",
         openapi,
         graphql,
         snapshot,
         checker,
         json!({
+            "selected_openapi_alternative": closest.map(|alternative| alternative.index),
             "openapi_permissions": openapi_permissions,
             "graphql_permissions": graphql_permissions,
             "missing_in_graphql": missing_in_graphql,
             "missing_in_openapi": missing_in_openapi,
+            "openapi_security_alternatives": alternatives.iter().map(security_alternative_json).collect::<Vec<_>>(),
         }),
     ))
 }
 
-fn graphql_authentication_required(endpoint: &Entity) -> bool {
-    directive_applications(endpoint).any(|application| {
-        application
-            .get("name")
-            .and_then(Value::as_str)
-            .is_some_and(|name| AUTH_DIRECTIVES.contains(&normalize_token(name).as_str()))
-    })
-}
-
-fn openapi_auth_families(endpoint: &Entity) -> BTreeSet<String> {
+fn openapi_authentication_required(endpoint: &Entity) -> bool {
     endpoint
         .payload
-        .get("security_requirements")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|requirement| {
-            let kind = requirement.get("kind").and_then(Value::as_str);
-            let scheme = requirement.get("scheme").and_then(Value::as_str);
-            normalize_auth_family(kind, scheme)
-        })
-        .collect()
-}
-
-fn graphql_auth_families(endpoint: &Entity) -> BTreeSet<String> {
-    directive_applications(endpoint)
-        .filter(|application| {
-            application
-                .get("name")
-                .and_then(Value::as_str)
-                .is_some_and(|name| AUTH_DIRECTIVES.contains(&normalize_token(name).as_str()))
-        })
-        .flat_map(|application| {
-            application
-                .get("arguments")
+        .get("authentication_required")
+        .and_then(Value::as_bool)
+        .unwrap_or_else(|| {
+            endpoint
+                .payload
+                .get("security_requirements")
                 .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
+                .is_some_and(|requirements| !requirements.is_empty())
         })
-        .filter_map(|argument| {
-            let name = argument.get("name").and_then(Value::as_str)?;
-            if !AUTH_FAMILY_ARGUMENTS.contains(&normalize_token(name).as_str()) {
-                return None;
-            }
-            argument
-                .get("value")
-                .and_then(Value::as_str)
-                .and_then(|value| normalize_auth_family(Some(value), Some(value)))
-        })
-        .collect()
 }
 
-fn normalize_auth_family(kind: Option<&str>, scheme: Option<&str>) -> Option<String> {
-    let kind = kind.map(normalize_token).unwrap_or_default();
-    let scheme = scheme.map(normalize_token).unwrap_or_default();
-    let value = if scheme.contains("bearer")
-        || scheme.contains("jwt")
-        || kind.contains("bearer")
-        || kind.contains("jwt")
-    {
-        "bearer"
-    } else if scheme.contains("basic") || kind.contains("basic") {
-        "basic"
-    } else if kind.contains("oauth") {
-        "oauth2"
-    } else if kind.contains("openid") || scheme.contains("openid") {
-        "openid"
-    } else if kind.contains("apikey") || scheme.contains("apikey") {
-        "api_key"
-    } else if !scheme.is_empty() {
-        scheme.as_str()
-    } else if !kind.is_empty() {
-        kind.as_str()
-    } else {
-        return None;
-    };
-    Some(value.to_string())
-}
-
-fn openapi_permissions(endpoint: &Entity) -> BTreeSet<String> {
-    endpoint
+fn openapi_security_alternatives(endpoint: &Entity) -> Vec<SecurityAlternative> {
+    let mut alternatives = BTreeMap::<usize, SecurityAlternative>::new();
+    for requirement in endpoint
         .payload
         .get("security_requirements")
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
-        .flat_map(|requirement| {
+    {
+        let index = requirement
+            .get("alternative")
+            .and_then(Value::as_u64)
+            .and_then(|value| usize::try_from(value).ok())
+            .unwrap_or_default();
+        let alternative = alternatives.entry(index).or_insert_with(|| SecurityAlternative {
+            index,
+            ..SecurityAlternative::default()
+        });
+        if let Some(family) = normalize_auth_family(
+            requirement.get("kind").and_then(Value::as_str),
+            requirement.get("scheme").and_then(Value::as_str),
+        ) {
+            alternative.families.insert(family);
+        }
+        alternative.permissions.extend(
             requirement
                 .get("scopes")
                 .and_then(Value::as_array)
                 .into_iter()
                 .flatten()
-        })
-        .filter_map(Value::as_str)
-        .map(normalize_permission)
-        .filter(|value| !value.is_empty())
-        .collect()
+                .filter_map(Value::as_str)
+                .map(normalize_permission)
+                .filter(|value| !value.is_empty()),
+        );
+    }
+    alternatives.into_values().collect()
 }
 
-fn graphql_permissions(endpoint: &Entity) -> BTreeSet<String> {
+fn security_alternative_json(alternative: &SecurityAlternative) -> Value {
+    json!({
+        "alternative": alternative.index,
+        "families": &alternative.families,
+        "permissions": &alternative.permissions,
+    })
+}
+
+fn directive_mapping(endpoint: &Entity) -> DirectiveMapping {
+    let mut mapping = DirectiveMapping::default();
+    if let Some(config) = endpoint
+        .payload
+        .get("security_directive_mapping")
+        .and_then(Value::as_object)
+    {
+        apply_mapping_object(&mut mapping, config);
+    }
+    for application in directive_applications(endpoint) {
+        let Some(name) = application.get("name").and_then(Value::as_str) else {
+            continue;
+        };
+        if !MAPPING_DIRECTIVES.contains(&normalize_token(name).as_str()) {
+            continue;
+        }
+        if let Some(arguments) = application.get("arguments").and_then(Value::as_array) {
+            apply_mapping_arguments(&mut mapping, arguments);
+        }
+    }
+    mapping
+}
+
+fn apply_mapping_object(mapping: &mut DirectiveMapping, object: &serde_json::Map<String, Value>) {
+    replace_mapping_set(
+        &mut mapping.authentication_directives,
+        object.get("authentication_directives"),
+    );
+    replace_mapping_set(
+        &mut mapping.permission_directives,
+        object.get("permission_directives"),
+    );
+    replace_mapping_set(
+        &mut mapping.permission_arguments,
+        object.get("permission_arguments"),
+    );
+    replace_mapping_set(
+        &mut mapping.authentication_family_arguments,
+        object.get("authentication_family_arguments"),
+    );
+}
+
+fn apply_mapping_arguments(mapping: &mut DirectiveMapping, arguments: &[Value]) {
+    for argument in arguments {
+        let Some(name) = argument.get("name").and_then(Value::as_str) else {
+            continue;
+        };
+        let target = match normalize_token(name).as_str() {
+            "authenticationdirectives" => Some(&mut mapping.authentication_directives),
+            "permissiondirectives" => Some(&mut mapping.permission_directives),
+            "permissionarguments" => Some(&mut mapping.permission_arguments),
+            "authenticationfamilyarguments" => {
+                Some(&mut mapping.authentication_family_arguments)
+            }
+            _ => None,
+        };
+        if let Some(target) = target {
+            replace_mapping_set(target, argument.get("value"));
+        }
+    }
+}
+
+fn replace_mapping_set(target: &mut BTreeSet<String>, value: Option<&Value>) {
+    let replacement = flatten_values(value)
+        .into_iter()
+        .map(|value| normalize_token(&value))
+        .filter(|value| !value.is_empty())
+        .collect::<BTreeSet<_>>();
+    if !replacement.is_empty() {
+        *target = replacement;
+    }
+}
+
+fn graphql_authentication_required(endpoint: &Entity, mapping: &DirectiveMapping) -> bool {
+    directive_applications(endpoint).any(|application| {
+        application
+            .get("name")
+            .and_then(Value::as_str)
+            .is_some_and(|name| {
+                mapping
+                    .authentication_directives
+                    .contains(&normalize_token(name))
+            })
+    })
+}
+
+fn graphql_auth_families(
+    endpoint: &Entity,
+    mapping: &DirectiveMapping,
+) -> BTreeSet<String> {
     directive_applications(endpoint)
         .filter(|application| {
             application
                 .get("name")
                 .and_then(Value::as_str)
-                .is_some_and(|name| PERMISSION_DIRECTIVES.contains(&normalize_token(name).as_str()))
+                .is_some_and(|name| {
+                    mapping
+                        .authentication_directives
+                        .contains(&normalize_token(name))
+                })
         })
         .flat_map(|application| {
             application
@@ -371,9 +504,47 @@ fn graphql_permissions(endpoint: &Entity) -> BTreeSet<String> {
             argument
                 .get("name")
                 .and_then(Value::as_str)
-                .is_some_and(|name| PERMISSION_ARGUMENTS.contains(&normalize_token(name).as_str()))
+                .is_some_and(|name| {
+                    mapping
+                        .authentication_family_arguments
+                        .contains(&normalize_token(name))
+                })
         })
-        .flat_map(|argument| flatten_permission_values(argument.get("value")))
+        .flat_map(|argument| flatten_values(argument.get("value")))
+        .filter_map(|value| normalize_auth_family(Some(&value), Some(&value)))
+        .collect()
+}
+
+fn graphql_permissions(endpoint: &Entity, mapping: &DirectiveMapping) -> BTreeSet<String> {
+    directive_applications(endpoint)
+        .filter(|application| {
+            application
+                .get("name")
+                .and_then(Value::as_str)
+                .is_some_and(|name| {
+                    mapping
+                        .permission_directives
+                        .contains(&normalize_token(name))
+                })
+        })
+        .flat_map(|application| {
+            application
+                .get("arguments")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+        })
+        .filter(|argument| {
+            argument
+                .get("name")
+                .and_then(Value::as_str)
+                .is_some_and(|name| {
+                    mapping
+                        .permission_arguments
+                        .contains(&normalize_token(name))
+                })
+        })
+        .flat_map(|argument| flatten_values(argument.get("value")))
         .map(|value| normalize_permission(&value))
         .filter(|value| !value.is_empty())
         .collect()
@@ -388,17 +559,44 @@ fn directive_applications(endpoint: &Entity) -> impl Iterator<Item = &Value> {
         .flatten()
 }
 
-fn flatten_permission_values(value: Option<&Value>) -> Vec<String> {
+fn flatten_values(value: Option<&Value>) -> Vec<String> {
     match value {
         Some(Value::String(value)) => vec![value.clone()],
         Some(Value::Array(values)) => values
             .iter()
-            .flat_map(|value| flatten_permission_values(Some(value)))
+            .flat_map(|value| flatten_values(Some(value)))
             .collect(),
         Some(Value::Bool(value)) => vec![value.to_string()],
         Some(Value::Number(value)) => vec![value.to_string()],
         _ => Vec::new(),
     }
+}
+
+fn normalize_auth_family(kind: Option<&str>, scheme: Option<&str>) -> Option<String> {
+    let kind = kind.map(normalize_token).unwrap_or_default();
+    let scheme = scheme.map(normalize_token).unwrap_or_default();
+    let value = if scheme.contains("bearer")
+        || scheme.contains("jwt")
+        || kind.contains("bearer")
+        || kind.contains("jwt")
+    {
+        "bearer"
+    } else if scheme.contains("basic") || kind.contains("basic") {
+        "basic"
+    } else if kind.contains("oauth") || scheme.contains("oauth") {
+        "oauth2"
+    } else if kind.contains("openid") || scheme.contains("openid") {
+        "openid"
+    } else if kind.contains("apikey") || scheme.contains("apikey") {
+        "api_key"
+    } else if !scheme.is_empty() {
+        scheme.as_str()
+    } else if !kind.is_empty() {
+        kind.as_str()
+    } else {
+        return None;
+    };
+    Some(value.to_string())
 }
 
 fn string_set(value: Option<&Value>) -> BTreeSet<String> {
@@ -514,6 +712,7 @@ mod tests {
                 "responses": ["200", "401", "403"],
                 "authentication_required": true,
                 "security_requirements": [{
+                    "alternative": 0,
                     "scheme_name": "oauth",
                     "kind": "oauth2",
                     "scheme": null,
@@ -550,6 +749,114 @@ mod tests {
     }
 
     #[test]
+    fn accepts_one_matching_security_alternative_without_unioning_scopes() {
+        let openapi = endpoint(
+            "ent_openapi",
+            "api://GET:/get-user",
+            "openapi.yaml",
+            json!({
+                "protocol": "openapi",
+                "operation_id": "getUser",
+                "responses": ["200", "401", "403"],
+                "authentication_required": true,
+                "security_requirements": [
+                    {"alternative": 0, "kind": "oauth2", "scheme": null, "scopes": ["users:read"]},
+                    {"alternative": 1, "kind": "apiKey", "scheme": null, "scopes": []}
+                ]
+            }),
+        );
+        let graphql = endpoint(
+            "ent_graphql",
+            "api://GRAPHQL_QUERY:GetUser",
+            "schema.graphql",
+            json!({
+                "protocol": "graphql",
+                "operation_type": "query",
+                "operation_name": "GetUser",
+                "directive_applications": [{
+                    "name": "auth",
+                    "arguments": [{"name": "type", "value": "apiKey"}]
+                }]
+            }),
+        );
+        let diagnostics = detect_openapi_graphql_security_drift(
+            &[&openapi, &graphql],
+            &SnapshotId("snap".to_string()),
+            "api-consistency",
+        );
+        assert!(!has_kind(
+            &diagnostics,
+            "api_openapi_graphql_authentication_drift"
+        ));
+        assert!(!has_kind(
+            &diagnostics,
+            "api_openapi_graphql_permission_drift"
+        ));
+    }
+
+    #[test]
+    fn operation_mapping_directive_configures_custom_security_vocabulary() {
+        let openapi = endpoint(
+            "ent_openapi",
+            "api://GET:/get-user",
+            "openapi.yaml",
+            json!({
+                "protocol": "openapi",
+                "operation_id": "getUser",
+                "responses": ["200", "401", "403"],
+                "authentication_required": true,
+                "security_requirements": [{
+                    "alternative": 0,
+                    "kind": "oauth2",
+                    "scheme": null,
+                    "scopes": ["users:read"]
+                }]
+            }),
+        );
+        let graphql = endpoint(
+            "ent_graphql",
+            "api://GRAPHQL_QUERY:GetUser",
+            "schema.graphql",
+            json!({
+                "protocol": "graphql",
+                "operation_type": "query",
+                "operation_name": "GetUser",
+                "directive_applications": [
+                    {
+                        "name": "athanorSecurity",
+                        "arguments": [
+                            {"name": "authenticationDirectives", "value": ["secured"]},
+                            {"name": "permissionDirectives", "value": ["secured"]},
+                            {"name": "permissionArguments", "value": ["policy"]},
+                            {"name": "authenticationFamilyArguments", "value": ["provider"]}
+                        ]
+                    },
+                    {
+                        "name": "secured",
+                        "arguments": [
+                            {"name": "provider", "value": "oauth2"},
+                            {"name": "policy", "value": ["users:read"]}
+                        ]
+                    }
+                ]
+            }),
+        );
+        let diagnostics = detect_openapi_graphql_security_drift(
+            &[&openapi, &graphql],
+            &SnapshotId("snap".to_string()),
+            "api-consistency",
+        );
+        assert!(!has_kind(
+            &diagnostics,
+            "api_openapi_graphql_authentication_drift"
+        ));
+        assert!(!has_kind(
+            &diagnostics,
+            "api_openapi_graphql_permission_drift"
+        ));
+    }
+
+    #[test]
     fn reports_status_authentication_and_permission_drift() {
         let openapi = endpoint(
             "ent_openapi",
@@ -561,6 +868,7 @@ mod tests {
                 "responses": ["400"],
                 "authentication_required": true,
                 "security_requirements": [{
+                    "alternative": 0,
                     "scheme_name": "oauth",
                     "kind": "oauth2",
                     "scheme": null,
@@ -585,21 +893,20 @@ mod tests {
                 }]
             }),
         );
-        let endpoints = [&openapi, &graphql];
         let diagnostics = detect_openapi_graphql_security_drift(
-            &endpoints,
+            &[&openapi, &graphql],
             &SnapshotId("snap".to_string()),
             "api-consistency",
         );
         assert_eq!(diagnostics.len(), 3);
-        assert!(diagnostics.iter().any(|diagnostic| {
-            diagnostic.kind
-                == DiagnosticKind::Other("api_openapi_graphql_status_code_drift".to_string())
-        }));
-        assert!(diagnostics.iter().any(|diagnostic| {
-            diagnostic.kind
-                == DiagnosticKind::Other("api_openapi_graphql_authentication_drift".to_string())
-        }));
+        assert!(has_kind(
+            &diagnostics,
+            "api_openapi_graphql_status_code_drift"
+        ));
+        assert!(has_kind(
+            &diagnostics,
+            "api_openapi_graphql_authentication_drift"
+        ));
         let permission = diagnostics
             .iter()
             .find(|diagnostic| {
@@ -642,17 +949,22 @@ mod tests {
                 }]
             }),
         );
-        let endpoints = [&openapi, &graphql];
         let diagnostics = detect_openapi_graphql_security_drift(
-            &endpoints,
+            &[&openapi, &graphql],
             &SnapshotId("snap".to_string()),
             "api-consistency",
         );
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(
             diagnostics[0].kind,
-            DiagnosticKind::Other("api_openapi_graphql_authentication_drift".to_string(),)
+            DiagnosticKind::Other("api_openapi_graphql_authentication_drift".to_string())
         );
+    }
+
+    fn has_kind(diagnostics: &[Diagnostic], kind: &str) -> bool {
+        diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == DiagnosticKind::Other(kind.to_string())
+        })
     }
 
     fn endpoint(id: &str, stable_key: &str, path: &str, payload: Value) -> Entity {
