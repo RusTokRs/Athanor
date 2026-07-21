@@ -1,6 +1,8 @@
 #[cfg(unix)]
 use std::fs;
 use std::path::Path;
+#[cfg(unix)]
+use std::path::PathBuf;
 use std::time::Duration;
 
 use athanor_core::{CoreError, ProcessLimits as CoreProcessLimits, ProcessRequest, ProcessRunner};
