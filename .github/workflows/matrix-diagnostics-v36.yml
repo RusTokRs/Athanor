@@ -16,12 +16,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  windows-workspace:
-    name: Windows workspace diagnostic
-    runs-on: windows-latest
-    timeout-minutes: 120
+  start-status:
+    name: Publish running status
+    runs-on: ubuntu-latest
     steps:
-      - name: Publish running status
+      - name: Publish pending status
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -34,6 +33,13 @@ jobs:
             -f context="athanor/matrix-diagnostics-v36" \
             -f description="Windows workspace diagnostic: running" \
             -f target_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+
+  windows-workspace:
+    name: Windows workspace diagnostic
+    needs: [start-status]
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
       - name: Check out repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -118,7 +124,7 @@ jobs:
   status:
     name: Publish diagnostic status
     if: ${{ always() }}
-    needs: [windows-workspace]
+    needs: [start-status, windows-workspace]
     runs-on: ubuntu-latest
     steps:
       - name: Publish exact status
