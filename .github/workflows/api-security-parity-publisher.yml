@@ -1,0 +1,71 @@
+name: API Security Parity Publisher
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: api-security-parity-publisher-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    if: github.head_ref == 'automation/api-001-security-parity'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out head branch
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Install repository Rust toolchain
+        uses: ./.github/actions/setup-rust
+        with:
+          components: clippy rustfmt
+
+      - name: Verify staged source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object scripts/automation/api_security_parity_patch.py)" = "f9b96fb7a1a0196856da7d7683ac8e46fbb2d2de"
+          test "$(git hash-object crates/athanor-checker-api/src/security_parity.rs)" = "16ccd256ced26b8b322e8ad92af573fb0596afac"
+          python3 -m py_compile scripts/automation/api_security_parity_patch.py
+
+      - name: Apply bounded API security parity patch
+        run: python3 scripts/automation/api_security_parity_patch.py
+
+      - name: Format workspace
+        run: cargo fmt --all
+
+      - name: Test affected packages
+        run: cargo test -p athanor-extractor-openapi -p athanor-extractor-graphql -p athanor-checker-api --locked
+
+      - name: Lint affected packages
+        run: cargo clippy -p athanor-extractor-openapi -p athanor-extractor-graphql -p athanor-checker-api --all-targets --locked -- -D warnings
+
+      - name: Publish clean product tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/api-security-parity-publisher.yml
+          rm scripts/automation/api_security_parity_patch.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add crates/athanor-extractor-openapi/src/implementation.rs \
+                  crates/athanor-extractor-graphql/src/lib.rs \
+                  crates/athanor-checker-api/src/lib.rs \
+                  crates/athanor-checker-api/src/security_parity.rs \
+                  docs/adapters/checker-api.md \
+                  docs/development/roadmap-status.md \
+                  athanor_implementation_plan_ru.md \
+                  .github/workflows/api-security-parity-publisher.yml \
+                  scripts/automation/api_security_parity_patch.py
+          git commit -m "feat(api): compare status and security contracts"
+          git push origin HEAD:${{ github.head_ref }}
