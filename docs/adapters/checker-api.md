@@ -34,8 +34,17 @@ The second `API-001` slice also emits `api_openapi_graphql_request_drift`. It co
 request-body component properties with GraphQL operation variables. When a GraphQL variable refers
 to a named input object matching the OpenAPI component name, it compares the two input schemas
 instead of flattening the body. Scalar families, list structure, required properties, and GraphQL
-non-null markers are normalized before comparison. External references and path/query/header
-parameters remain deferred.
+non-null markers are normalized before comparison.
+
+The third slice adds canonical OpenAPI parameter metadata and repository-owned contract resolution.
+Relative request and response schema references can resolve to `ApiSchema` entities emitted from
+other OpenAPI documents in the repository. `api_openapi_graphql_parameter_drift` compares path,
+query, and header parameters with GraphQL variables; `api_openapi_graphql_external_request_drift`
+covers external request schemas; and `api_openapi_graphql_response_schema_drift` compares response
+containers, fields, scalar/list families, and required/nullability semantics. GraphQL response types
+are inferred from one top-level selection and the Query, Mutation, or Subscription schema. Remote
+URL references, unresolved external parameter references, and multi-root GraphQL selections remain
+explicitly deferred.
 
 Documentation is satisfied by `documents_api`, `documents_operation`, or a verified generic
 `documents` relation such as an exact Markdown frontmatter declaration.
