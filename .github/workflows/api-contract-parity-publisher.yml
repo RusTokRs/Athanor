@@ -68,7 +68,21 @@ jobs:
           PY
 
       - name: Apply bounded API contract parity patch
-        run: python3 scripts/automation/api_contract_parity_patch.py
+        id: apply
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 scripts/automation/api_contract_parity_patch.py 2>&1 \
+            | tee "$RUNNER_TEMP/api-contract-parity-patch.log"
+
+      - name: Upload patch diagnostics
+        if: ${{ failure() && steps.apply.outcome == 'failure' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: api-contract-parity-patch-diagnostics
+          path: ${{ runner.temp }}/api-contract-parity-patch.log
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Format workspace
         run: cargo fmt --all
