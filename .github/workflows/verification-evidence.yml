@@ -100,6 +100,14 @@ jobs:
           PY
           bash /tmp/materialize-final-audit.sh
 
+      - name: Prepare exact final workflow tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          git show e9be33c01e51a0aca718ff3e9cacd0b76876e2ca:.github/workflows/verification-evidence.yml > .github/workflows/verification-evidence.yml
+          rm .github/workflows/finalize-audit-metadata.yml
+          git diff --check
+
       - name: Validate metadata contracts
         shell: bash
         run: |
@@ -112,8 +120,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git show e9be33c01e51a0aca718ff3e9cacd0b76876e2ca:.github/workflows/verification-evidence.yml > .github/workflows/verification-evidence.yml
-          rm .github/workflows/finalize-audit-metadata.yml
           git diff --check
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
