@@ -145,6 +145,17 @@ def patch_docs_frontmatter() -> None:
         file_path.write_text(frontmatter + text)
 
 
+def remove_stale_operations_page() -> None:
+    stale = Path(
+        "docs/operations/"
+        "script-script-command-github-workflows-ci-yml-"
+        "github-actions-job-quality-step-5-run.md"
+    )
+    if not stale.is_file():
+        raise SystemExit(f"stale operations page missing: {stale}")
+    stale.unlink()
+
+
 def patch_plan_and_cleanup() -> None:
     path = Path("athanor_implementation_plan_ru.md")
     text = path.read_text()
@@ -194,6 +205,7 @@ def main() -> None:
 
     patch_surreal_create_only()
     patch_docs_frontmatter()
+    remove_stale_operations_page()
     if args.publish:
         patch_plan_and_cleanup()
 
