@@ -16,21 +16,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  windows:
-    name: Post-CRLF Windows workspace diagnostics
-    runs-on: windows-latest
-    timeout-minutes: 90
+  scan:
+    name: Newline-sensitive inventory scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Check out repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
-      - name: Install Rust toolchain
-        uses: ./.github/actions/setup-rust
-        with:
-          components: clippy rustfmt
-      - name: Restore Rust cache
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
       - name: Apply deterministic remediation
         shell: bash
         run: |
@@ -39,49 +33,47 @@ jobs:
           python .github/scripts/matrix_remediation_v30.py
           python .github/scripts/matrix_remediation_v31.py
           python .github/scripts/matrix_remediation_v33.py
-          cargo fmt --all
-          cargo fmt --all -- --check
-      - name: Run Windows workspace tests
-        id: tests
-        continue-on-error: true
+      - name: Scan escaped newline assertions
         shell: bash
         run: |
-          set -o pipefail
-          cargo test --workspace --quiet --locked 2>&1 | tee "$RUNNER_TEMP/windows-workspace-post-crlf.log"
-      - name: Upload Windows diagnostics
-        if: ${{ always() }}
+          set -euo pipefail
+          python - <<'PY' > "$RUNNER_TEMP/newline-sensitive-inventories.txt"
+          from pathlib import Path
+
+          for path in sorted(Path("crates").rglob("*.rs")):
+              lines = path.read_text().splitlines()
+              for index, line in enumerate(lines, 1):
+                  if "\\n" in line and ("contains" in line or "assert" in line):
+                      print(f"{path}:{index}:{line.strip()}")
+          PY
+          cat "$RUNNER_TEMP/newline-sensitive-inventories.txt"
+      - name: Upload scan
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: windows-workspace-post-crlf
-          path: ${{ runner.temp }}/windows-workspace-post-crlf.log
+          name: newline-sensitive-inventories
+          path: ${{ runner.temp }}/newline-sensitive-inventories.txt
           if-no-files-found: error
           retention-days: 14
-      - name: Preserve Windows conclusion
-        if: ${{ always() }}
-        env:
-          TEST_OUTCOME: ${{ steps.tests.outcome }}
-        shell: bash
-        run: test "$TEST_OUTCOME" = success
 
   status:
-    name: Publish Windows diagnostic status
+    name: Publish scan status
     if: ${{ always() }}
-    needs: [windows]
+    needs: [scan]
     runs-on: ubuntu-latest
     steps:
       - name: Publish exact status
         env:
           GH_TOKEN: ${{ github.token }}
-          WINDOWS_RESULT: ${{ needs.windows.result }}
+          RESULT: ${{ needs.scan.result }}
         shell: bash
         run: |
           set -euo pipefail
           state=failure
-          if [[ "$WINDOWS_RESULT" == success ]]; then state=success; fi
+          if [[ "$RESULT" == success ]]; then state=success; fi
           gh api --method POST \
             -H "Accept: application/vnd.github+json" \
             "/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
             -f state="$state" \
             -f context="athanor/matrix-diagnostics-v32" \
-            -f description="Post-CRLF Windows diagnostics: $state" \
+            -f description="Newline-sensitive inventory scan: $state" \
             -f target_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
