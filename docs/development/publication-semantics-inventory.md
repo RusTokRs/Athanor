@@ -1,3 +1,10 @@
+---
+id: doc://docs/development/publication-semantics-inventory.md
+kind: architecture_inventory
+language: en
+source_language: en
+status: implemented
+---
 # Publication durability inventory
 
 Status: implementation complete; execution evidence is pending.

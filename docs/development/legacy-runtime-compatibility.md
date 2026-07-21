@@ -1,3 +1,10 @@
+---
+id: doc://docs/development/legacy-runtime-compatibility.md
+kind: developer_guide
+language: en
+source_language: en
+status: implemented
+---
 # Runtime composition migration
 
 Athanor active entrypoints create `athanor_runtime_defaults::production()` and pass a

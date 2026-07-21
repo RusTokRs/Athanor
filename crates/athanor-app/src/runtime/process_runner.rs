@@ -189,11 +189,9 @@ async fn wait_for_termination(
 ///
 /// `Child::kill` is retained as a fallback because a descendant may have already exited or the
 /// platform helper may be unavailable. Unix children run in their own process group and receive a
-/// group signal. Windows `taskkill /T` reaches child processes spawned by batch files and adapter
-/// launchers; Job Object containment remains a future hardening step.
+/// group signal. Windows starts `taskkill /T` for descendant cleanup, immediately signals the direct
+/// child, then waits for both cleanup and reaping; Job Object containment remains future hardening.
 async fn terminate_external_process_tree(child: &mut tokio::process::Child) {
-    let _ = child.kill().await;
-
     #[cfg(unix)]
     if let Some(pid) = child.id() {
         let process_group = format!("-{pid}");
@@ -210,13 +208,25 @@ async fn terminate_external_process_tree(child: &mut tokio::process::Child) {
     }
 
     #[cfg(windows)]
-    if let Some(pid) = child.id() {
-        let pid = pid.to_string();
-        let _ = Command::new("taskkill")
-            .args(["/PID", pid.as_str(), "/T", "/F"])
-            .kill_on_drop(true)
-            .output()
-            .await;
+    {
+        let mut tree_kill = child.id().and_then(|pid| {
+            let pid = pid.to_string();
+            Command::new("taskkill")
+                .args(["/PID", pid.as_str(), "/T", "/F"])
+                .kill_on_drop(true)
+                .spawn()
+                .ok()
+        });
+        let _ = child.start_kill();
+        if let Some(tree_kill) = tree_kill.as_mut() {
+            let _ = tree_kill.wait().await;
+        }
+        let _ = child.wait().await;
+    }
+
+    #[cfg(not(windows))]
+    {
+        let _ = child.kill().await;
     }
 }
 
@@ -397,7 +407,7 @@ mod tests {
     #[test]
     #[ignore]
     fn helper_process_writes_completion_after_delay() {
-        std::thread::sleep(Duration::from_millis(1000));
+        std::thread::sleep(Duration::from_millis(250));
         fs::write("completed.marker", b"completed").unwrap();
     }
 

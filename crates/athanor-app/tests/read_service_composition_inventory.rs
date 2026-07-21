@@ -53,16 +53,14 @@ const COVERAGE_AGGREGATION: &str = include_str!("../src/coverage/aggregation.rs"
 const COVERAGE_TESTS: &str = include_str!("../src/coverage/tests.rs");
 
 fn assert_conventional_root(root: &str, modules: &[&str], exports: &[&str]) {
+    let normalized_root = root.replace("\r\n", "\n");
     for module in modules {
         assert!(root.contains(&format!("mod {module};")));
     }
     for export in exports {
         assert!(root.contains(export));
     }
-    assert!(
-        root.replace("\r\n", "\n")
-            .contains("#[cfg(test)]\nmod tests;")
-    );
+    assert!(normalized_root.contains("#[cfg(test)]\nmod tests;"));
     assert!(!root.contains("include!("));
     assert!(!root.contains("facade"));
 }

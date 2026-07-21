@@ -241,6 +241,19 @@ fn every_workspace_production_schema_literal_is_explicitly_classified() {
 }
 
 #[test]
+fn production_prefix_excludes_test_modules_for_lf_and_crlf_sources() {
+    for newline in ["\n", "\r\n"] {
+        let source = format!(
+            "const CURRENT: &str = \"athanor.current.v1\";{newline}#[cfg(test)]{newline}mod tests {{{newline}const FIXTURE: &str = \"athanor.fixture.v999\";{newline}}}{newline}"
+        );
+        assert_eq!(
+            extract_schema_literals(production_prefix(&source)),
+            BTreeSet::from(["athanor.current.v1".to_string()])
+        );
+    }
+}
+
+#[test]
 fn qualified_feature_schema_is_versioned_without_changing_its_wire_id() {
     assert_eq!(
         validate_schema_id("athanor.index_state.v46-js-ts-precision-v1"),
@@ -349,9 +362,10 @@ fn collect_rust_sources(path: &Path, sources: &mut Vec<PathBuf>) {
 }
 
 fn production_prefix(source: &str) -> &str {
-    source
-        .find("#[cfg(test)]\r\nmod tests")
-        .or_else(|| source.find("#[cfg(test)]\nmod tests"))
+    ["#[cfg(test)]\nmod tests", "#[cfg(test)]\r\nmod tests"]
+        .into_iter()
+        .filter_map(|marker| source.find(marker))
+        .min()
         .map(|offset| &source[..offset])
         .unwrap_or(source)
 }

@@ -6,13 +6,14 @@ const SERVER_TESTS: &str = include_str!("../src/server/tests.rs");
 
 #[test]
 fn stdin_and_notifications_bypass_ordinary_request_saturation() {
+    let lifecycle = LIFECYCLE.replace("\r\n", "\n");
     let line_branch = LIFECYCLE
         .find("line = lines.next_line()")
         .expect("stdin branch");
     let join_branch = LIFECYCLE
         .find("joined = requests.join_next()")
         .expect("request reaping branch");
-    assert!(LIFECYCLE.contains("tokio::select! {\n                biased;"));
+    assert!(lifecycle.contains("tokio::select! {\n                biased;"));
     assert!(
         line_branch < join_branch,
         "stdin must be selected before task reaping"
@@ -34,6 +35,7 @@ fn stdin_and_notifications_bypass_ordinary_request_saturation() {
 
 #[test]
 fn inline_responses_never_hold_the_only_stdin_reader() {
+    let lifecycle = LIFECYCLE.replace("\r\n", "\n");
     assert!(LIFECYCLE.contains("fn admit_inline_response("));
     assert!(LIFECYCLE.contains("responses.try_send(response)"));
     assert!(LIFECYCLE.contains("TrySendError::Full(_)"));
@@ -46,20 +48,21 @@ fn inline_responses_never_hold_the_only_stdin_reader() {
             .contains("send_response(&runtime.responses_tx, response_json(id, response)).await")
     );
     assert!(
-        !LIFECYCLE
+        !lifecycle
             .contains("try_send(response)\n            .context(\"MCP response queue is saturated")
     );
 }
 
 #[test]
 fn disconnect_cancels_registered_operations_before_task_drain() {
+    let lifecycle = LIFECYCLE.replace("\r\n", "\n");
     assert!(
         LIFECYCLE.contains("None => close_stdin(&runtime.active_reads, &mut stdin_open).await")
     );
     assert!(LIFECYCLE.contains(
         "pub(super) async fn close_stdin(active_reads: &ActiveReads, stdin_open: &mut bool)"
     ));
-    assert!(LIFECYCLE.contains("*stdin_open = false;\n    cancel_all(active_reads).await;"));
+    assert!(lifecycle.contains("*stdin_open = false;\n    cancel_all(active_reads).await;"));
     assert!(OPERATION.contains("pub(super) async fn cancel_all"));
 }
 
@@ -81,6 +84,7 @@ fn saturation_and_disconnect_regressions_are_present() {
 
 #[test]
 fn request_runtime_owns_lifecycle_dependencies_and_lint_fixes() {
+    let lifecycle = LIFECYCLE.replace("\r\n", "\n");
     assert!(TYPES.contains("pub(super) struct RequestRuntime"));
     for field in [
         "pub(super) root: Arc<PathBuf>",
@@ -95,7 +99,7 @@ fn request_runtime_owns_lifecycle_dependencies_and_lint_fixes() {
             "missing request runtime field {field}"
         );
     }
-    assert!(LIFECYCLE.contains(
+    assert!(lifecycle.contains(
         "pub(super) async fn process_line(\n    runtime: &RequestRuntime,\n    requests: &mut RequestTasks,\n    line: String,"
     ));
     assert!(!LIFECYCLE.contains("root: &Arc<PathBuf>"));
