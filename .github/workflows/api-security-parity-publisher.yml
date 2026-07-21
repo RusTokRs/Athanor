@@ -36,9 +36,11 @@ jobs:
           set -euo pipefail
           test "$(git hash-object scripts/automation/api_security_parity_patch.py)" = "f9b96fb7a1a0196856da7d7683ac8e46fbb2d2de"
           test "$(git hash-object scripts/automation/api_security_parser_patch.py)" = "6e049364e9c08a6ce40117494e020a0139198b16"
+          test "$(git hash-object scripts/automation/api_security_clippy_patch.py)" = "7cc96b31b9fb5dd3ae5741cd8d264ddf8b15c3d1"
           test "$(git hash-object crates/athanor-checker-api/src/security_parity.rs)" = "16ccd256ced26b8b322e8ad92af573fb0596afac"
           python3 -m py_compile scripts/automation/api_security_parity_patch.py
           python3 -m py_compile scripts/automation/api_security_parser_patch.py
+          python3 -m py_compile scripts/automation/api_security_clippy_patch.py
 
       - name: Apply bounded API security parity patch
         shell: bash
@@ -46,6 +48,7 @@ jobs:
           set -euo pipefail
           python3 scripts/automation/api_security_parity_patch.py
           python3 scripts/automation/api_security_parser_patch.py
+          python3 scripts/automation/api_security_clippy_patch.py
           python3 - <<'PY'
           from pathlib import Path
           path = Path("crates/athanor-extractor-openapi/src/implementation.rs")
@@ -96,6 +99,7 @@ jobs:
           rm .github/workflows/api-security-parity-publisher.yml
           rm scripts/automation/api_security_parity_patch.py
           rm scripts/automation/api_security_parser_patch.py
+          rm scripts/automation/api_security_clippy_patch.py
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add crates/athanor-extractor-openapi/src/implementation.rs \
@@ -108,6 +112,7 @@ jobs:
                   athanor_implementation_plan_ru.md \
                   .github/workflows/api-security-parity-publisher.yml \
                   scripts/automation/api_security_parity_patch.py \
-                  scripts/automation/api_security_parser_patch.py
+                  scripts/automation/api_security_parser_patch.py \
+                  scripts/automation/api_security_clippy_patch.py
           git commit -m "feat(api): compare status and security contracts"
           git push origin HEAD:${{ github.head_ref }}
