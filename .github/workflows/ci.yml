@@ -13,7 +13,7 @@ concurrency:
 jobs:
   rustfmt-diagnostic:
     name: Capture exact Rust 1.95 formatting
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     timeout-minutes: 20
     steps:
       - name: Check out repository
