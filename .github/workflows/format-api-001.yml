@@ -1,5 +1,5 @@
 name: Format API-001
-# Activation commit for the registered branch workflow.
+# Git-data activation for the registered branch workflow.
 
 on:
   push:
