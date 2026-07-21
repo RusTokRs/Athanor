@@ -116,7 +116,6 @@ jobs:
                   docs/development/roadmap-status.md \
                   athanor_implementation_plan_ru.md \
                   .github/workflows/api-contract-parity-publisher.yml \
-                  scripts/automation/api_contract_parity_patch.py \
                   scripts/automation/api-contract-parity
           git commit -m "feat(api): compare external and response contracts"
           git push origin HEAD:${{ github.head_ref }}
