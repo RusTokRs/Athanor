@@ -98,7 +98,7 @@ OpenAPI/GraphQL response-field checker работал на реальных cano
 - [x] Первый slice подтверждён стандартной main matrix: run `29845490657` succeeded on `cb2db0bb374f845fa0dbd086b120a0def82b0d9d`.
 - [x] Второй slice сравнивает request-body properties с GraphQL variables или matching named input objects; scalar/list/required/nullability normalization и regressions слиты в `f20fcbbec9780975fc497b739e6df72d4f30901b` после successful CI `29848358160`, AppSec `29848358435` и Store Conformance `29848359149` на PR head `c4ffbc759adb8bbdbe7cda7afc1955343e828e81`.
 - [x] Третий slice публикует canonical OpenAPI path/query/header parameter metadata, разрешает repository-owned external request/response refs и сравнивает response schema containers, fields, scalar/list families и nullability; слит в `7b92cb2fe587f5134af5a417365bb63493885e19` после successful CI `29853853811`, AppSec `29853855239` и Store Conformance `29853854118` на PR head `d6209afc2b2b711d29924f26699aa88f6df431bd`.
-- [ ] расширить status-code, authentication и permission drift;
+- [-] Четвёртый bounded slice активен: status-code policy, effective authentication requirements и permission scope drift.
 - [ ] повысить полный `API-001` до verified только после exact successful matrix на его Definition of Done.
 
 ### 4.3 Product backlog
@@ -129,7 +129,7 @@ OpenAPI/GraphQL response-field checker работал на реальных cano
 | `VERIFY-001F` | P1 | `[x] implemented` | Structural execution blockers closed |
 | `VERIFY-001G` | P1 | `[x] implemented` | Cross-platform blockers closed by V21/V24/V41 |
 | `VERIFY-001` | P1 | `[x] verified` | Run `29836572040` succeeded on `c4a494f3a1c1af5dcbad4252c5eb69e00d558b3a` |
-| `API-001` | P1 | `[-] in progress` | Protocol identity, request inputs, parameters, external refs and response schemas implemented; status/auth/permission pending |
+| `API-001` | P1 | `[-] in progress` | Contract shapes implemented; status/auth/permission slice active |
 
 ## 6. Verification matrix
 
@@ -139,6 +139,7 @@ cargo fmt --all -- --check
 cargo test --workspace --quiet --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test -p athanor-extractor-openapi --locked
+cargo test -p athanor-extractor-graphql --locked
 cargo test -p athanor-checker-api --locked
 cargo test -p athanor-app --test documentation_status_inventory --locked
 cargo test -p athanor-app --test verification_evidence_inventory --locked
@@ -149,5 +150,5 @@ cargo run -p ath --quiet --locked -- docs check
 
 ## 7. Текущий следующий шаг
 
-Реализовать четвёртый bounded `API-001` slice: status-code compatibility,
-authentication и permission drift для сопоставленных OpenAPI/GraphQL операций.
+Завершить четвёртый bounded `API-001` slice: опубликовать effective OpenAPI security requirements,
+GraphQL directive argument values и deterministic status/auth/permission diagnostics.
