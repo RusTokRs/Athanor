@@ -1,0 +1,19 @@
+{
+  "schema": "athanor.verification_evidence.v1",
+  "workflow": "CI",
+  "head_sha": "e9be33c01e51a0aca718ff3e9cacd0b76876e2ca",
+  "run_id": 29830669460,
+  "run_url": "https://github.com/RusTokRs/Athanor/actions/runs/29830669460",
+  "conclusion": "success",
+  "completed_at": "2026-07-21T12:52:16Z",
+  "matrix": [
+    "cargo-deny check",
+    "cargo fmt --all -- --check",
+    "cargo test --workspace --quiet --locked",
+    "cargo clippy --workspace --all-targets --locked -- -D warnings",
+    "cargo run -p ath --quiet --locked -- index .",
+    "cargo run -p ath --quiet --locked -- docs check",
+    "feature matrix: default, store-surreal, js-ts-precision, all-features",
+    "source coverage baseline"
+  ]
+}
