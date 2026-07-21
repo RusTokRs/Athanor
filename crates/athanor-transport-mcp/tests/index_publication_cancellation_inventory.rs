@@ -49,10 +49,12 @@ fn cli_daemon_and_mcp_share_the_public_index_report_payload() {
 fn pre_commit_pipeline_boundaries_check_operation_before_and_after_work() {
     assert!(
         PIPELINE_SUPPORT_SOURCE
+            .replace("\r\n", "\n")
             .contains("operation.check_active()?;\n    let result = match operation.remaining()")
     );
     assert!(
         PIPELINE_SUPPORT_SOURCE
+            .replace("\r\n", "\n")
             .contains("None => future.await,\n    }?;\n    operation.check_active()?;")
     );
     assert!(PIPELINE_SUPPORT_SOURCE.contains("Durable commit boundaries must not use this helper"));

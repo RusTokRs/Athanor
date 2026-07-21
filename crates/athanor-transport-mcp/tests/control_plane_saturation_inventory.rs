@@ -12,7 +12,11 @@ fn stdin_and_notifications_bypass_ordinary_request_saturation() {
     let join_branch = LIFECYCLE
         .find("joined = requests.join_next()")
         .expect("request reaping branch");
-    assert!(LIFECYCLE.contains("tokio::select! {\n                biased;"));
+    assert!(
+        LIFECYCLE
+            .replace("\r\n", "\n")
+            .contains("tokio::select! {\n                biased;")
+    );
     assert!(
         line_branch < join_branch,
         "stdin must be selected before task reaping"
@@ -47,6 +51,7 @@ fn inline_responses_never_hold_the_only_stdin_reader() {
     );
     assert!(
         !LIFECYCLE
+            .replace("\r\n", "\n")
             .contains("try_send(response)\n            .context(\"MCP response queue is saturated")
     );
 }
@@ -59,7 +64,11 @@ fn disconnect_cancels_registered_operations_before_task_drain() {
     assert!(LIFECYCLE.contains(
         "pub(super) async fn close_stdin(active_reads: &ActiveReads, stdin_open: &mut bool)"
     ));
-    assert!(LIFECYCLE.contains("*stdin_open = false;\n    cancel_all(active_reads).await;"));
+    assert!(
+        LIFECYCLE
+            .replace("\r\n", "\n")
+            .contains("*stdin_open = false;\n    cancel_all(active_reads).await;")
+    );
     assert!(OPERATION.contains("pub(super) async fn cancel_all"));
 }
 
@@ -95,7 +104,7 @@ fn request_runtime_owns_lifecycle_dependencies_and_lint_fixes() {
             "missing request runtime field {field}"
         );
     }
-    assert!(LIFECYCLE.contains(
+    assert!(LIFECYCLE.replace("\r\n", "\n").contains(
         "pub(super) async fn process_line(\n    runtime: &RequestRuntime,\n    requests: &mut RequestTasks,\n    line: String,"
     ));
     assert!(!LIFECYCLE.contains("root: &Arc<PathBuf>"));
