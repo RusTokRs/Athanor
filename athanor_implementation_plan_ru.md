@@ -93,9 +93,9 @@ OpenAPI/GraphQL response-field checker работал на реальных cano
 собранных test fixtures.
 
 - [x] GraphQL operations публикуют canonical `protocol = graphql`.
-- [-] OpenAPI operations нормализуются до canonical `protocol = openapi` через fail-closed adapter boundary.
+- [x] OpenAPI operations нормализуются до canonical `protocol = openapi` через fail-closed adapter boundary.
 - [x] Existing checker сравнивает response fields операций с одинаковым normalized name.
-- [ ] подтвердить первый slice стандартной main matrix;
+- [x] Первый slice подтверждён стандартной main matrix: run `29845490657` succeeded on `cb2db0bb374f845fa0dbd086b120a0def82b0d9d`.
 - [ ] сравнить request arguments и input types;
 - [ ] расширить schema compatibility, status-code, authentication и permission drift;
 - [ ] повысить полный `API-001` до verified только после exact successful matrix на его Definition of Done.
@@ -128,7 +128,7 @@ OpenAPI/GraphQL response-field checker работал на реальных cano
 | `VERIFY-001F` | P1 | `[x] implemented` | Structural execution blockers closed |
 | `VERIFY-001G` | P1 | `[x] implemented` | Cross-platform blockers closed by V21/V24/V41 |
 | `VERIFY-001` | P1 | `[x] verified` | Run `29836572040` succeeded on `c4a494f3a1c1af5dcbad4252c5eb69e00d558b3a` |
-| `API-001` | P1 | `[-] in progress` | Canonical protocol identity slice active; deeper request/schema/auth drift pending |
+| `API-001` | P1 | `[-] in progress` | Protocol identity slice verified on `cb2db0bb`; request/schema/auth drift pending |
 
 ## 6. Verification matrix
 
@@ -148,5 +148,5 @@ cargo run -p ath --quiet --locked -- docs check
 
 ## 7. Текущий следующий шаг
 
-Опубликовать первый `API-001` source slice, получить обычную main matrix и затем перейти к
-request/input type parity. Архитектурный аудит остаётся закрытым; новый пакет не переоткрывает его.
+Реализовать второй `API-001` slice: canonical request argument и input-type parity для сопоставленных
+OpenAPI/GraphQL операций, добавить regressions и подтвердить изменения обычной main matrix.
