@@ -1,4 +1,5 @@
 name: API Protocol Source Publisher
+# Activation for the registered CI workflow path.
 
 on:
   push:
