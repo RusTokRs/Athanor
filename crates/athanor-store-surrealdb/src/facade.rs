@@ -106,7 +106,7 @@ fn acquire_persistent_lease(uri: &str) -> CoreResult<Option<Arc<File>>> {
             ))
         })?;
     FileExt::try_lock_exclusive(&file).map_err(|error| {
-        if error.kind() == std::io::ErrorKind::WouldBlock {
+        if is_lock_contention_error(&error) {
             CoreError::Busy(format!(
                 "persistent SurrealKV store {} is already locked by another process",
                 canonical_store.display()
@@ -119,6 +119,22 @@ fn acquire_persistent_lease(uri: &str) -> CoreResult<Option<Arc<File>>> {
         }
     })?;
     Ok(Some(Arc::new(file)))
+}
+
+fn is_lock_contention_error(error: &std::io::Error) -> bool {
+    if error.kind() == std::io::ErrorKind::WouldBlock {
+        return true;
+    }
+    if let Some(code) = error.raw_os_error() {
+        if code == 32 || code == 33 {
+            return true;
+        }
+    }
+    let message = error.to_string().to_ascii_lowercase();
+    message.contains("already locked")
+        || message.contains("lock_violation")
+        || message.contains("sharing_violation")
+        || message.contains("being used by another process")
 }
 
 fn classify_backend_result<T>(result: CoreResult<T>) -> CoreResult<T> {
