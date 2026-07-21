@@ -16,8 +16,7 @@ pub struct OpenApiExtractor;
 #[async_trait]
 impl Extractor for OpenApiExtractor {
     fn name(&self) -> &str {
-        let delegate = implementation::OpenApiExtractor;
-        delegate.name()
+        "openapi"
     }
 
     fn invalidation_policy(&self) -> InvalidationPolicy {
