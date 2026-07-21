@@ -41,18 +41,42 @@ Relative request and response schema references can resolve to `ApiSchema` entit
 other OpenAPI documents in the repository. `api_openapi_graphql_parameter_drift` compares path,
 query, and header parameters with GraphQL variables; `api_openapi_graphql_external_request_drift`
 covers external request schemas; and `api_openapi_graphql_response_schema_drift` compares response
-containers, fields, scalar/list families, and required/nullability semantics. GraphQL response types
-are inferred from one top-level selection and the Query, Mutation, or Subscription schema. Remote
-URL references, unresolved external parameter references, and multi-root GraphQL selections remain
-explicitly deferred.
+containers, fields, scalar/list families, and required/nullability semantics.
 
 The fourth slice publishes effective OpenAPI security requirements after operation-level override or
-root inheritance, including scheme kind, HTTP scheme, bearer format, and required scopes. GraphQL
-operations preserve directive applications and scalar/list argument values. The checker emits
-`api_openapi_graphql_status_code_drift`, `api_openapi_graphql_authentication_drift`, and
-`api_openapi_graphql_permission_drift`. Status compatibility is policy-based by GraphQL operation
-type; authentication directives and permission argument names use a documented bounded vocabulary.
-Custom directive semantics outside that vocabulary remain deferred.
+root inheritance, including scheme kind, HTTP scheme, bearer format, alternatives, and required
+scopes. GraphQL operations preserve directive applications and scalar/list argument values. The
+checker emits `api_openapi_graphql_status_code_drift`,
+`api_openapi_graphql_authentication_drift`, and `api_openapi_graphql_permission_drift`.
+
+The fifth slice extends repository-local contract resolution and corrects security alternative
+semantics:
+
+- OpenAPI `components.parameters` entries are emitted as canonical `ApiSchema` entities, including
+  partial repository-owned component documents that are not complete OpenAPI roots;
+- relative external parameter references are resolved by normalized repository path, while remote
+  URL references remain outside the local checker boundary;
+- multi-root GraphQL operations are compared against every resolvable top-level response selection,
+  and no response diagnostic is emitted when one candidate is fully compatible;
+- OpenAPI security alternatives remain alternatives: permission scopes are compared against one
+  compatible alternative instead of a union across mutually exclusive alternatives;
+- custom GraphQL security vocabulary can be supplied through canonical
+  `security_directive_mapping` metadata or an operation-level `@athanorSecurity` /
+  `@athanorSecurityMapping` directive.
+
+The mapping directive accepts list or scalar values for `authenticationDirectives`,
+`permissionDirectives`, `permissionArguments`, and `authenticationFamilyArguments`. For example:
+
+```graphql
+query GetUser @athanorSecurity(
+  authenticationDirectives: ["secured"]
+  permissionDirectives: ["secured"]
+  permissionArguments: ["policy"]
+  authenticationFamilyArguments: ["provider"]
+) @secured(provider: "oauth2", policy: ["users:read"]) {
+  getUser { id }
+}
+```
 
 Documentation is satisfied by `documents_api`, `documents_operation`, or a verified generic
 `documents` relation such as an exact Markdown frontmatter declaration.
@@ -119,9 +143,9 @@ cargo run -p ath --quiet -- check runbooks --json
 ```
 
 Diagnostics include evidence and ownership. Relevant function, documentation, environment, runtime
-configuration, script command, deployment, runbook, operation-target, and relation changes trigger reevaluation. File
-additions and removals force a full rebuild at the pipeline level to keep absence diagnostics
-correct.
+configuration, script command, deployment, runbook, operation-target, and relation changes trigger
+reevaluation. File additions and removals force a full rebuild at the pipeline level to keep absence
+diagnostics correct.
 
 Example validation is currently OpenAPI-specific. It uses adapter-private `jsonschema` 0.46.5 with
 Draft 4 for OpenAPI 3.0 and Draft 2020-12 for OpenAPI 3.1. Same-document component schemas are
@@ -130,9 +154,9 @@ validation cannot read files or use the network. Compiled validators are cached 
 during one checker run. External schema references are skipped, and OpenAPI 3.0 keywords beyond
 Draft 4 compatibility remain a documented limitation.
 
-The checker is local and side-effect free. Remote references, unresolved external parameter
-references, custom GraphQL authentication directive semantics, multi-root response selection,
-breaking-change, rollout, and step dependency checks are deferred.
+The checker is local and side-effect free. Remote URL references, unresolved repository references,
+unmapped custom GraphQL security semantics, breaking-change, rollout, and step dependency checks
+remain deferred. The fifth slice implementation remains pending exact successful `main` verification.
 
 ## Configuration & Policy Enforcement
 
