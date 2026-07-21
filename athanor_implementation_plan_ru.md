@@ -3,11 +3,12 @@
 > Репозиторий: `RusTokRs/Athanor`  
 > Ветка: `main`  
 > Актуализировано: 2026-07-21  
-> Статус: architecture audit verified
+> Статус: architecture audit verified; product development active
 
 ## 1. Статусы и evidence
 
 - `[x] implemented` — реализация опубликована, но отметка не заменяет execution evidence.
+- `[-] in progress` — пакет начат, но его Definition of Done закрыт частично.
 - `[x] verified` — реализация подтверждена successful matrix на одном exact commit.
 - `[ ] planned` — работа относится к следующему этапу.
 - `[!] blocked` — required matrix отсутствует или завершилась failure.
@@ -15,11 +16,11 @@
 Workflow YAML является implementation evidence, а не execution evidence. Exact verification требует
 успешного `athanor/verification-matrix` status либо schema-valid JSON evidence для того же SHA.
 
-## 2. Итог аудита
+## 2. Итог архитектурного аудита
 
-Architecture source commit: `e9be33c01e51a0aca718ff3e9cacd0b76876e2ca`.
-Стандартная CI matrix: run `29830669460`, conclusion `success`, completed at
-`2026-07-21T12:52:16Z`. Evidence записан в `docs/development/verification-evidence.json`.
+Architecture source commit: `c4a494f3a1c1af5dcbad4252c5eb69e00d558b3a`.
+Стандартная CI matrix: run `29836572040`, conclusion `success`, completed at
+`2026-07-21T14:06:12Z`. Evidence записан в `docs/development/verification-evidence.json`.
 
 Подтверждены cargo-deny, source coverage, default/store-surreal/js-ts-precision/all-features,
 formatting, workspace tests, Clippy, installers, index smoke и docs check на Linux, macOS и Windows.
@@ -72,23 +73,35 @@ formatting, workspace tests, Clippy, installers, index smoke и docs check на 
 - [x] V21/V24 закрыли full workspace, path aliases и executable mode на трёх ОС.
 - [x] V28–V35 закрыли stale incremental state, Surreal allocation и CRLF inventories.
 - [x] V36–V40 закрыли LF-only boundaries и Windows process lifecycle regressions.
-- [x] V41 подтвердил Linux/macOS/Windows quality, installer/index/docs, `store-surreal` и 12 stress runs.
-- [x] SurrealKV contention классифицирует `WouldBlock` и Win32 errors 32/33 как retryable `Busy`.
-- [x] Временные V25–V41 workflows и remediation scripts отсутствуют в финальном tree.
+- [x] V41 подтвердил Linux/macOS/Windows quality, installer/index/docs, `store-surreal` и stress runs.
+- [x] Временная remediation infrastructure отсутствует в verified tree.
 
-## 4. Следующие активные пакеты
+## 4. Активная разработка
 
 ### 4.1 `VERIFY-001` — execution matrix
 
 - [x] Security, coverage, feature slices и quality jobs завершились success.
-- [x] Exact commit: `e9be33c01e51a0aca718ff3e9cacd0b76876e2ca`.
-- [x] Exact run: `29830669460`.
+- [x] Exact commit: `c4a494f3a1c1af5dcbad4252c5eb69e00d558b3a`.
+- [x] Exact run: `29836572040`.
 - [x] Successful evidence SHA совпадает с architecture commit.
-- [x] `VERIFY-001` и `ARCH-AUDIT-001` повышены до `[x] verified`.
+- [x] `VERIFY-001` и `ARCH-AUDIT-001` имеют статус `[x] verified`.
 
-### 4.2 Product backlog
+### 4.2 `API-001` — GraphQL and cross-protocol API consistency
 
-- [ ] deeper GraphQL/cross-protocol API consistency;
+Первый bounded slice нормализует protocol identity на adapter boundary, чтобы уже существующий
+OpenAPI/GraphQL response-field checker работал на реальных canonical entities, а не только на вручную
+собранных test fixtures.
+
+- [x] GraphQL operations публикуют canonical `protocol = graphql`.
+- [-] OpenAPI operations нормализуются до canonical `protocol = openapi` через fail-closed adapter boundary.
+- [x] Existing checker сравнивает response fields операций с одинаковым normalized name.
+- [ ] подтвердить первый slice стандартной main matrix;
+- [ ] сравнить request arguments и input types;
+- [ ] расширить schema compatibility, status-code, authentication и permission drift;
+- [ ] повысить полный `API-001` до verified только после exact successful matrix на его Definition of Done.
+
+### 4.3 Product backlog
+
 - [ ] broader relationship/framework adapters;
 - [ ] richer analysis completeness reporting;
 - [ ] evidence-backed documentation generation;
@@ -99,7 +112,7 @@ formatting, workspace tests, Clippy, installers, index smoke и docs check на 
 
 | ID | Priority | Status | Результат / критерий закрытия |
 | --- | --- | --- | --- |
-| `ARCH-AUDIT-001` | P1 | `[x] verified` | Run `29830669460` succeeded on `e9be33c01e51a0aca718ff3e9cacd0b76876e2ca` |
+| `ARCH-AUDIT-001` | P1 | `[x] verified` | Run `29836572040` succeeded on `c4a494f3a1c1af5dcbad4252c5eb69e00d558b3a` |
 | `COMP-003` | P2 | `[x] implemented` | Runtime dependencies explicit |
 | `COMP-003C2B2C2B` | P2 | `[x] implemented` | Composition cleanup complete |
 | `MCP-007` | P1 | `[x] implemented` | Transactional cancellation preserves durable success |
@@ -114,7 +127,8 @@ formatting, workspace tests, Clippy, installers, index smoke и docs check на 
 | `VERIFY-001E` | P1 | `[x] implemented` | Formatting, owners and lockfile remediated |
 | `VERIFY-001F` | P1 | `[x] implemented` | Structural execution blockers closed |
 | `VERIFY-001G` | P1 | `[x] implemented` | Cross-platform blockers closed by V21/V24/V41 |
-| `VERIFY-001` | P1 | `[x] verified` | Run `29830669460` succeeded on `e9be33c01e51a0aca718ff3e9cacd0b76876e2ca` |
+| `VERIFY-001` | P1 | `[x] verified` | Run `29836572040` succeeded on `c4a494f3a1c1af5dcbad4252c5eb69e00d558b3a` |
+| `API-001` | P1 | `[-] in progress` | Canonical protocol identity slice active; deeper request/schema/auth drift pending |
 
 ## 6. Verification matrix
 
@@ -123,6 +137,8 @@ cargo-deny check
 cargo fmt --all -- --check
 cargo test --workspace --quiet --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo test -p athanor-extractor-openapi --locked
+cargo test -p athanor-checker-api --locked
 cargo test -p athanor-app --test documentation_status_inventory --locked
 cargo test -p athanor-app --test verification_evidence_inventory --locked
 cargo test -p athanor-transport-mcp --test control_plane_saturation_inventory --locked
@@ -130,8 +146,7 @@ cargo run -p ath --quiet --locked -- index .
 cargo run -p ath --quiet --locked -- docs check
 ```
 
-## 7. Итог
+## 7. Текущий следующий шаг
 
-Архитектурный аудит закрыт и verified. Source fixes опубликованы, временная remediation
-инфраструктура удалена, exact CI evidence записан. Шесть planned-направлений относятся к следующему
-этапу продуктового развития, а не к хвосту текущего аудита.
+Опубликовать первый `API-001` source slice, получить обычную main matrix и затем перейти к
+request/input type parity. Архитектурный аудит остаётся закрытым; новый пакет не переоткрывает его.

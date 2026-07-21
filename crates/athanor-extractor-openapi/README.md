@@ -12,9 +12,11 @@ Implements: `Extractor`
 - `FactKind::RouteDeclared` for operations
 - `FactKind::Other("api_schema_declared")` for component schemas
 
-Operation payloads include normalized request and response schema uses. Each use preserves the
-media type and local or external `$ref`; response uses also preserve the status code. References
-nested under arrays or composition keywords are collected recursively.
+Operation payloads include canonical `protocol = "openapi"` plus normalized request and response
+schema uses. The protocol discriminator is enforced at the adapter boundary so shared API checkers do
+not have to infer transport identity from stable keys, file names, or parser metadata. Each schema use
+preserves the media type and local or external `$ref`; response uses also preserve the status code.
+References nested under arrays or composition keywords are collected recursively.
 
 Example payloads retain their endpoint key, request/response direction, media type, optional
 response status, example name and value, plus the declared schema. External example objects and

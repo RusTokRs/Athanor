@@ -101,6 +101,7 @@ fn implementation_plan_matches_documentation_status() {
         assert!(PLAN.contains(completed), "plan is missing {completed}");
     }
     assert!(PLAN.contains("### 4.1 `VERIFY-001` — execution matrix"));
+    assert!(PLAN.contains("### 4.2 `API-001` — GraphQL and cross-protocol API consistency"));
 
     let active_work = ROADMAP.find("## Active Work").expect("roadmap active work");
     for package in ["### `DOC-001` / `DOC-002`", "### `MCP-004`"] {
@@ -112,7 +113,8 @@ fn implementation_plan_matches_documentation_status() {
             "completed package {package} remains active"
         );
     }
-    assert!(ROADMAP[active_work..].contains("### `VERIFY-001`"));
+    assert!(ROADMAP[active_work..].contains("### `API-001`"));
+    assert!(!ROADMAP[active_work..].contains("### `VERIFY-001`"));
 }
 
 #[test]
