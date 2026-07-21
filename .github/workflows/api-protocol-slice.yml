@@ -1,4 +1,5 @@
 name: API Protocol Slice
+# Activation commit for the registered workflow path.
 
 on:
   push:
