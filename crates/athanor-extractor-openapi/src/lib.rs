@@ -51,10 +51,7 @@ fn canonicalize_endpoint_protocol(output: &mut ExtractOutput) -> CoreResult<()> 
         })?;
         match payload.get("protocol") {
             None => {
-                payload.insert(
-                    "protocol".to_string(),
-                    Value::String("openapi".to_string()),
-                );
+                payload.insert("protocol".to_string(), Value::String("openapi".to_string()));
             }
             Some(Value::String(protocol)) if protocol == "openapi" => {}
             Some(protocol) => {

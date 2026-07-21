@@ -1,19 +1,24 @@
 name: CI
 
 on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "docs/development/verification-evidence.json"
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: api-001-rustfmt-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  rustfmt-diagnostic:
-    name: Capture exact Rust 1.95 formatting
-    runs-on: macos-latest
+  security:
+    name: Security & License Checks
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - name: Check out repository
@@ -22,19 +27,290 @@ jobs:
           persist-credentials: false
       - name: Install Rust toolchain
         uses: ./.github/actions/setup-rust
-        with:
-          components: rustfmt
-      - name: Materialize canonical formatting patch
+      - name: Install cargo-deny
         shell: bash
         run: |
           set -euo pipefail
-          cargo fmt --all
-          git diff --binary -- . ':(exclude).github/workflows/ci.yml' > "$RUNNER_TEMP/rustfmt.patch"
-          test -s "$RUNNER_TEMP/rustfmt.patch"
-      - name: Upload canonical formatting patch
+          mkdir -p "$RUNNER_TEMP/cargo-deny-bin"
+          curl --proto '=https' --tlsv1.2 --retry 5 --retry-all-errors \
+            --location --silent --show-error --fail \
+            https://github.com/EmbarkStudios/cargo-deny/releases/download/0.20.2/cargo-deny-0.20.2-x86_64-unknown-linux-musl.tar.gz \
+            | tar -xz -C "$RUNNER_TEMP/cargo-deny-bin" --strip-components=1
+          "$RUNNER_TEMP/cargo-deny-bin/cargo-deny" --version
+      - name: Run cargo-deny
+        id: cargo-deny
+        shell: bash
+        run: |
+          set -o pipefail
+          "$RUNNER_TEMP/cargo-deny-bin/cargo-deny" check 2>&1 \
+            | tee "$RUNNER_TEMP/cargo-deny.log"
+      - name: Upload cargo-deny diagnostics
+        if: ${{ failure() && steps.cargo-deny.outcome == 'failure' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: api-001-rustfmt-patch
-          path: ${{ runner.temp }}/rustfmt.patch
+          name: cargo-deny-diagnostics
+          path: ${{ runner.temp }}/cargo-deny.log
           if-no-files-found: error
           retention-days: 14
+      - name: Generate advisory lock remediation
+        id: advisory-lock
+        if: ${{ failure() && steps.cargo-deny.outcome == 'failure' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            cargo update -p anyhow --precise 1.0.103
+            cargo update -p ammonia --precise 4.1.3
+            cargo update -p crossbeam-epoch --precise 0.9.20
+            cargo metadata --locked --format-version 1 --no-deps >/dev/null
+          } 2>&1 | tee "$RUNNER_TEMP/advisory-lock-remediation.log"
+          cp Cargo.lock "$RUNNER_TEMP/Cargo.lock.advisory-remediation"
+      - name: Upload advisory lock remediation
+        if: ${{ always() && steps.advisory-lock.outcome == 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: advisory-lock-remediation
+          path: |
+            ${{ runner.temp }}/Cargo.lock.advisory-remediation
+            ${{ runner.temp }}/advisory-lock-remediation.log
+          if-no-files-found: error
+          retention-days: 14
+
+  quality:
+    name: Rust 1.95 / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    env:
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: 1
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Install Rust toolchain
+        uses: ./.github/actions/setup-rust
+        with:
+          components: clippy rustfmt
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
+      - name: Check formatting
+        id: format
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo fmt --all -- --check 2>&1 | tee "$RUNNER_TEMP/cargo-fmt.log"
+      - name: Upload formatting diagnostics
+        if: ${{ failure() && steps.format.outcome == 'failure' && runner.os == 'Linux' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: cargo-fmt-diagnostics
+          path: ${{ runner.temp }}/cargo-fmt.log
+          if-no-files-found: error
+          retention-days: 14
+      - name: Run workspace tests
+        run: cargo test --workspace --quiet --locked
+      - name: Run Clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Test Linux installer checksum verification
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test_dir="$(mktemp -d)"
+          trap 'rm -rf "$test_dir"' EXIT
+          cp install.sh "$test_dir/"
+          printf 'ath-test\n' > "$test_dir/ath"
+          printf 'athd-test\n' > "$test_dir/athd"
+          (cd "$test_dir" && sha256sum ath athd > SHA256SUMS)
+          ATHANOR_INSTALL_DIR="$test_dir/install" "$test_dir/install.sh"
+          cmp "$test_dir/ath" "$test_dir/install/ath"
+          cmp "$test_dir/athd" "$test_dir/install/athd"
+          printf 'tampered\n' >> "$test_dir/ath"
+          if ATHANOR_INSTALL_DIR="$test_dir/rejected" "$test_dir/install.sh"; then
+            echo "tampered Linux binary was accepted" >&2
+            exit 1
+          fi
+      - name: Test Windows installer checksum verification
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $testDir = Join-Path $env:RUNNER_TEMP "athanor-installer-test"
+          Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $testDir
+          New-Item -ItemType Directory -Force $testDir | Out-Null
+          Copy-Item install.ps1 $testDir
+          Set-Content -LiteralPath (Join-Path $testDir "ath.exe") -Value "ath-test" -Encoding ascii
+          Set-Content -LiteralPath (Join-Path $testDir "athd.exe") -Value "athd-test" -Encoding ascii
+          $manifest = foreach ($file in @("ath.exe", "athd.exe")) {
+            $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $testDir $file)).Hash.ToLowerInvariant()
+            "$hash  $file"
+          }
+          $manifest | Set-Content -LiteralPath (Join-Path $testDir "SHA256SUMS") -Encoding ascii
+          & (Join-Path $testDir "install.ps1") -InstallDir (Join-Path $testDir "install")
+          foreach ($file in @("ath.exe", "athd.exe")) {
+            $sourceHash = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $testDir $file)).Hash
+            $installedHash = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path (Join-Path $testDir "install") $file)).Hash
+            if ($sourceHash -ne $installedHash) {
+              throw "installed file differs: $file"
+            }
+          }
+          Add-Content -LiteralPath (Join-Path $testDir "ath.exe") -Value "tampered" -Encoding ascii
+          $rejected = $false
+          try {
+            & (Join-Path $testDir "install.ps1") -InstallDir (Join-Path $testDir "rejected")
+          } catch {
+            $rejected = $true
+          }
+          if (-not $rejected) {
+            throw "tampered Windows binary was accepted"
+          }
+      - name: Run indexing smoke test
+        run: cargo run -p ath --quiet --locked -- index .
+      - name: Check editable documentation
+        run: cargo run -p ath --quiet --locked -- docs check
+
+  feature-matrix:
+    name: Feature matrix / ${{ matrix.features }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        features:
+          - default
+          - store-surreal
+          - js-ts-precision
+          - all-features
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Install Rust toolchain
+        uses: ./.github/actions/setup-rust
+        with:
+          components: clippy
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
+      - name: Check feature graph
+        id: feature-check
+        shell: bash
+        run: |
+          set -o pipefail
+          case "${{ matrix.features }}" in
+            default) FEATURES="" ;;
+            all-features) FEATURES="--all-features" ;;
+            *) FEATURES="--features ${{ matrix.features }}" ;;
+          esac
+          {
+            cargo check --workspace ${FEATURES} --locked
+            cargo test --workspace --quiet ${FEATURES} --locked
+            cargo clippy --workspace --all-targets ${FEATURES} --locked -- -D warnings
+          } 2>&1 | tee "$RUNNER_TEMP/feature-check.log"
+      - name: Upload default feature diagnostics
+        if: ${{ failure() && steps.feature-check.outcome == 'failure' && matrix.features == 'default' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: default-feature-diagnostics
+          path: ${{ runner.temp }}/feature-check.log
+          if-no-files-found: error
+          retention-days: 14
+
+  coverage:
+    name: Source coverage baseline
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: 1
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Install Rust toolchain
+        uses: ./.github/actions/setup-rust
+        with:
+          components: llvm-tools-preview
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
+      - name: Install cargo-llvm-cov
+        run: cargo install cargo-llvm-cov --version 0.8.7 --locked
+      - name: Generate coverage reports
+        shell: bash
+        run: |
+          mkdir -p coverage
+          cargo llvm-cov --workspace --locked --lcov --output-path coverage/lcov.info
+          cargo llvm-cov report --json --summary-only --output-path coverage/summary.json
+          cargo llvm-cov report --html --output-dir coverage/html
+      - name: Upload coverage reports
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: rust-source-coverage
+          path: coverage/
+          if-no-files-found: error
+          retention-days: 14
+
+  verification-status:
+    name: Exact verification status
+    if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    needs: [security, quality, feature-matrix, coverage]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      statuses: write
+    env:
+      SECURITY_RESULT: ${{ needs.security.result }}
+      QUALITY_RESULT: ${{ needs.quality.result }}
+      FEATURE_RESULT: ${{ needs.feature-matrix.result }}
+      COVERAGE_RESULT: ${{ needs.coverage.result }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Publish exact matrix status
+        shell: bash
+        run: |
+          set -euo pipefail
+          state="success"
+          description="Athanor verification matrix passed"
+          for result in \
+            "$SECURITY_RESULT" \
+            "$QUALITY_RESULT" \
+            "$FEATURE_RESULT" \
+            "$COVERAGE_RESULT"
+          do
+            if [[ "$result" != "success" ]]; then
+              state="failure"
+              description="Athanor verification matrix failed"
+              break
+            fi
+          done
+          export STATE="$state"
+          export DESCRIPTION="$description"
+          python - <<'PY' > verification-status.json
+          import json
+          import os
+
+          print(json.dumps({
+              "state": os.environ["STATE"],
+              "target_url": (
+                  f"{os.environ['GITHUB_SERVER_URL']}/"
+                  f"{os.environ['GITHUB_REPOSITORY']}/actions/runs/"
+                  f"{os.environ['GITHUB_RUN_ID']}"
+              ),
+              "description": os.environ["DESCRIPTION"],
+              "context": "athanor/verification-matrix",
+          }))
+          PY
+          curl --fail-with-body --location --request POST \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            --data @verification-status.json
