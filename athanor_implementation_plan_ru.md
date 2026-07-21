@@ -96,7 +96,7 @@ OpenAPI/GraphQL response-field checker работал на реальных cano
 - [x] OpenAPI operations нормализуются до canonical `protocol = openapi` через fail-closed adapter boundary.
 - [x] Existing checker сравнивает response fields операций с одинаковым normalized name.
 - [x] Первый slice подтверждён стандартной main matrix: run `29845490657` succeeded on `cb2db0bb374f845fa0dbd086b120a0def82b0d9d`.
-- [-] Второй slice реализует request-body arguments и named input types на source SHA `85f355d70613b3e7f27271f8057fc56aee009919`; targeted fmt/test/clippy passed, standard PR matrix pending.
+- [x] Второй slice сравнивает request-body properties с GraphQL variables или matching named input objects; scalar/list/required/nullability normalization и regressions слиты в `f20fcbbec9780975fc497b739e6df72d4f30901b` после successful CI `29848358160`, AppSec `29848358435` и Store Conformance `29848359149` на PR head `c4ffbc759adb8bbdbe7cda7afc1955343e828e81`.
 - [ ] external request refs, OpenAPI path/query/header parameters и response schema compatibility;
 - [ ] расширить status-code, authentication и permission drift;
 - [ ] повысить полный `API-001` до verified только после exact successful matrix на его Definition of Done.
@@ -129,7 +129,7 @@ OpenAPI/GraphQL response-field checker работал на реальных cano
 | `VERIFY-001F` | P1 | `[x] implemented` | Structural execution blockers closed |
 | `VERIFY-001G` | P1 | `[x] implemented` | Cross-platform blockers closed by V21/V24/V41 |
 | `VERIFY-001` | P1 | `[x] verified` | Run `29836572040` succeeded on `c4a494f3a1c1af5dcbad4252c5eb69e00d558b3a` |
-| `API-001` | P1 | `[-] in progress` | Protocol identity verified; request input slice implemented on `85f355d7`, full matrix pending |
+| `API-001` | P1 | `[-] in progress` | Protocol identity and request-input slices implemented; external refs/parameters/response schemas/auth pending |
 
 ## 6. Verification matrix
 
@@ -149,5 +149,5 @@ cargo run -p ath --quiet --locked -- docs check
 
 ## 7. Текущий следующий шаг
 
-Подтвердить request-body argument и named input-type parity стандартной PR/main matrix, затем перейти
-к external request refs, OpenAPI parameter и response schema compatibility.
+Реализовать третий bounded `API-001` slice: external request references, OpenAPI path/query/header
+parameter parity и response schema compatibility для сопоставленных OpenAPI/GraphQL операций.
