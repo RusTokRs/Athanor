@@ -1,0 +1,101 @@
+name: API Contract Parity Publisher
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: api-contract-parity-publisher-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    if: github.head_ref == 'automation/api-001-contract-parity'
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out head branch
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Install repository Rust toolchain
+        uses: ./.github/actions/setup-rust
+        with:
+          components: clippy rustfmt
+
+      - name: Restore bounded source patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64
+          import glob
+          import hashlib
+          from pathlib import Path
+
+          def decode(pattern: str, target: str, expected_sha256: str) -> None:
+              encoded = "".join(
+                  Path(path).read_text(encoding="utf-8").strip()
+                  for path in sorted(glob.glob(pattern))
+              )
+              data = base64.b64decode(encoded, validate=True)
+              actual = hashlib.sha256(data).hexdigest()
+              if actual != expected_sha256:
+                  raise SystemExit(
+                      f"{target}: SHA-256 mismatch: expected {expected_sha256}, got {actual}"
+                  )
+              path = Path(target)
+              path.parent.mkdir(parents=True, exist_ok=True)
+              path.write_bytes(data)
+
+          decode(
+              "scripts/automation/api-contract-parity/contract_parity.rs.b64.*",
+              "crates/athanor-checker-api/src/contract_parity.rs",
+              "f8935ed2226612f4eec1c0c36e0faff6abb37cb71ea889390fda25f46e4fe5c3",
+          )
+          decode(
+              "scripts/automation/api-contract-parity/patch.py.b64.*",
+              "scripts/automation/api_contract_parity_patch.py",
+              "b07230e6e2390959d862546551c7ad624eded2e7a033717f343acd51ecf8dfbe",
+          )
+          PY
+
+      - name: Apply bounded API contract parity patch
+        run: python3 scripts/automation/api_contract_parity_patch.py
+
+      - name: Format workspace
+        run: cargo fmt --all
+
+      - name: Test affected packages
+        run: cargo test -p athanor-extractor-openapi -p athanor-checker-api --locked
+
+      - name: Lint affected packages
+        run: cargo clippy -p athanor-extractor-openapi -p athanor-checker-api --all-targets --locked -- -D warnings
+
+      - name: Publish clean product tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/api-contract-parity-publisher.yml
+          rm scripts/automation/api_contract_parity_patch.py
+          rm -rf scripts/automation/api-contract-parity
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add crates/athanor-extractor-openapi/src/implementation.rs \
+                  crates/athanor-checker-api/src/lib.rs \
+                  crates/athanor-checker-api/src/contract_parity.rs \
+                  docs/adapters/checker-api.md \
+                  docs/development/roadmap-status.md \
+                  athanor_implementation_plan_ru.md \
+                  .github/workflows/api-contract-parity-publisher.yml \
+                  scripts/automation/api_contract_parity_patch.py \
+                  scripts/automation/api-contract-parity
+          git commit -m "feat(api): compare external and response contracts"
+          git push origin HEAD:${{ github.head_ref }}
