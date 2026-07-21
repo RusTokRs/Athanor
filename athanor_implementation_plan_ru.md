@@ -97,7 +97,7 @@ OpenAPI/GraphQL response-field checker работал на реальных cano
 - [x] Existing checker сравнивает response fields операций с одинаковым normalized name.
 - [x] Первый slice подтверждён стандартной main matrix: run `29845490657` succeeded on `cb2db0bb374f845fa0dbd086b120a0def82b0d9d`.
 - [x] Второй slice сравнивает request-body properties с GraphQL variables или matching named input objects; scalar/list/required/nullability normalization и regressions слиты в `f20fcbbec9780975fc497b739e6df72d4f30901b` после successful CI `29848358160`, AppSec `29848358435` и Store Conformance `29848359149` на PR head `c4ffbc759adb8bbdbe7cda7afc1955343e828e81`.
-- [-] Третий bounded slice активен: repository-owned external request refs, OpenAPI path/query/header parameters и response schema compatibility.
+- [-] Третий bounded slice реализует repository-owned external request/response refs, canonical OpenAPI path/query/header parameter metadata и response schema compatibility; targeted matrix pending.
 - [ ] расширить status-code, authentication и permission drift;
 - [ ] повысить полный `API-001` до verified только после exact successful matrix на его Definition of Done.
 
@@ -149,5 +149,5 @@ cargo run -p ath --quiet --locked -- docs check
 
 ## 7. Текущий следующий шаг
 
-Завершить третий bounded `API-001` slice: опубликовать canonical OpenAPI parameter metadata,
-разрешить repository-owned external schema refs и добавить response schema compatibility regressions.
+Подтвердить третий bounded `API-001` slice targeted и standard matrix, затем перейти к
+status-code, authentication и permission drift.

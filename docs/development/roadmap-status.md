@@ -124,8 +124,8 @@ consistency in bounded slices:
 
 1. [x] normalize OpenAPI endpoint protocol identity at the adapter boundary;
 2. [x] verify normalized-name response-field comparison on real canonical entities;
-3. [-] compare request-body arguments and named input types;
-4. [ ] add OpenAPI path/query/header parameter and response schema compatibility;
+3. [x] compare request-body arguments and named input types;
+4. [-] resolve repository-owned external schemas and compare OpenAPI parameters and response shapes;
 5. [ ] extend compatibility to status codes, authentication, and permissions;
 6. [ ] promote the package only after one exact successful matrix covers its complete Definition of Done.
 

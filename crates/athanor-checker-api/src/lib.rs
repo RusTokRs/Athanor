@@ -9,6 +9,7 @@ use athanor_domain::{
 use athanor_extractor_basic::stable_hash;
 use serde_json::json;
 
+mod contract_parity;
 mod request_parity;
 
 #[derive(Debug, Clone, Default)]
@@ -183,6 +184,12 @@ impl Checker for ApiConsistencyChecker {
             self.name(),
         ));
         diagnostics.extend(request_parity::detect_openapi_graphql_request_drift(
+            &endpoints,
+            &schemas,
+            &input.snapshot,
+            self.name(),
+        ));
+        diagnostics.extend(contract_parity::detect_openapi_graphql_contract_drift(
             &endpoints,
             &schemas,
             &input.snapshot,

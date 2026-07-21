@@ -63,13 +63,18 @@ impl Extractor for OpenApiExtractor {
         let file_id = file_entity(&input.source, &input.snapshot.0).id;
         let mut entities = Vec::new();
         let mut facts = Vec::new();
+        let component_parameters = root
+            .get("components")
+            .and_then(Value::as_object)
+            .and_then(|components| components.get("parameters"))
+            .and_then(Value::as_object);
 
         if let Some(paths) = root.get("paths").and_then(Value::as_object) {
             for (path, path_item) in paths {
                 let Some(path_item) = path_item.as_object() else {
                     continue;
                 };
-                let path_parameter_count = array_len(path_item.get("parameters"));
+                let path_parameters = path_item.get("parameters");
                 for method in HTTP_METHODS {
                     let Some(operation) = path_item.get(*method).and_then(Value::as_object) else {
                         continue;
@@ -80,7 +85,8 @@ impl Extractor for OpenApiExtractor {
                         method,
                         path,
                         operation,
-                        path_parameter_count,
+                        path_parameters,
+                        component_parameters,
                         line,
                     );
                     facts.push(declaration_fact(
@@ -301,7 +307,8 @@ fn endpoint_entity(
     method: &str,
     path: &str,
     operation: &Map<String, Value>,
-    path_parameter_count: usize,
+    path_parameters: Option<&Value>,
+    component_parameters: Option<&Map<String, Value>>,
     line: Option<u32>,
 ) -> Entity {
     let method = method.to_uppercase();
@@ -316,6 +323,8 @@ fn endpoint_entity(
         .unwrap_or_default();
     let request_schemas = request_schema_references(operation);
     let response_schemas = response_schema_references(operation);
+    let parameters = operation_parameters(path_parameters, operation, component_parameters);
+    let path_parameter_count = array_len(path_parameters);
     let aliases = operation_id.iter().cloned().collect();
 
     Entity {
@@ -349,6 +358,7 @@ fn endpoint_entity(
             "deprecated": operation.get("deprecated").and_then(Value::as_bool).unwrap_or(false),
             "operation_parameter_count": array_len(operation.get("parameters")),
             "path_parameter_count": path_parameter_count,
+            "parameters": parameters,
             "has_request_body": operation.contains_key("requestBody"),
             "request_schemas": request_schemas,
             "responses": responses,
@@ -356,6 +366,88 @@ fn endpoint_entity(
             "security": operation.get("security").cloned(),
         }),
     }
+}
+
+fn operation_parameters(
+    path_parameters: Option<&Value>,
+    operation: &Map<String, Value>,
+    component_parameters: Option<&Map<String, Value>>,
+) -> Vec<Value> {
+    let mut output = Vec::new();
+    for parameter_source in [path_parameters, operation.get("parameters")] {
+        for parameter in parameter_source
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let Some(normalized) = normalize_parameter(parameter, component_parameters) else {
+                continue;
+            };
+            let name = normalized.get("name").and_then(Value::as_str);
+            let location = normalized.get("location").and_then(Value::as_str);
+            if let (Some(name), Some(location)) = (name, location) {
+                if let Some(existing) = output.iter().position(|candidate: &Value| {
+                    candidate.get("name").and_then(Value::as_str) == Some(name)
+                        && candidate.get("location").and_then(Value::as_str) == Some(location)
+                }) {
+                    output[existing] = normalized;
+                } else {
+                    output.push(normalized);
+                }
+                continue;
+            }
+            let reference = normalized.get("reference").and_then(Value::as_str);
+            if reference.is_some()
+                && !output.iter().any(|candidate| {
+                    candidate.get("reference").and_then(Value::as_str) == reference
+                })
+            {
+                output.push(normalized);
+            }
+        }
+    }
+    output
+}
+
+fn normalize_parameter(
+    parameter: &Value,
+    component_parameters: Option<&Map<String, Value>>,
+) -> Option<Value> {
+    let object = parameter.as_object()?;
+    if let Some(reference) = object.get("$ref").and_then(Value::as_str) {
+        if let Some(name) = reference.strip_prefix("#/components/parameters/")
+            && let Some(component) =
+                component_parameters.and_then(|parameters| parameters.get(name))
+            && let Some(mut normalized) = normalize_inline_parameter(component)
+        {
+            if let Some(payload) = normalized.as_object_mut() {
+                payload.insert(
+                    "reference".to_string(),
+                    Value::String(reference.to_string()),
+                );
+            }
+            return Some(normalized);
+        }
+        return Some(json!({ "reference": reference }));
+    }
+    normalize_inline_parameter(parameter)
+}
+
+fn normalize_inline_parameter(parameter: &Value) -> Option<Value> {
+    let object = parameter.as_object()?;
+    let name = object.get("name")?.as_str()?;
+    let location = object.get("in")?.as_str()?.to_ascii_lowercase();
+    let required = location == "path"
+        || object
+            .get("required")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+    Some(json!({
+        "name": name,
+        "location": location,
+        "required": required,
+        "schema": object.get("schema").cloned(),
+    }))
 }
 
 fn request_schema_references(operation: &Map<String, Value>) -> Vec<Value> {
@@ -370,10 +462,11 @@ fn request_schema_references(operation: &Map<String, Value>) -> Vec<Value> {
 
     media_schema_references(content)
         .into_iter()
-        .map(|(media_type, reference)| {
+        .map(|(media_type, reference, schema)| {
             json!({
                 "media_type": media_type,
                 "reference": reference,
+                "schema": schema,
             })
         })
         .collect()
@@ -393,29 +486,35 @@ fn response_schema_references(operation: &Map<String, Value>) -> Vec<Value> {
                 .map(media_schema_references)
                 .unwrap_or_default()
                 .into_iter()
-                .map(move |(media_type, reference)| {
+                .map(move |(media_type, reference, schema)| {
                     json!({
                         "status_code": status_code,
                         "media_type": media_type,
                         "reference": reference,
+                        "schema": schema,
                     })
                 })
         })
         .collect()
 }
 
-fn media_schema_references(content: &Map<String, Value>) -> Vec<(String, String)> {
+fn media_schema_references(content: &Map<String, Value>) -> Vec<(String, Option<String>, Value)> {
     content
         .iter()
         .flat_map(|(media_type, media)| {
+            let Some(schema) = media.get("schema") else {
+                return Vec::new();
+            };
             let mut references = Vec::new();
-            if let Some(schema) = media.get("schema") {
-                collect_schema_references(schema, &mut references);
+            collect_schema_references(schema, &mut references);
+            if references.is_empty() {
+                vec![(media_type.clone(), None, schema.clone())]
+            } else {
+                references
+                    .into_iter()
+                    .map(|reference| (media_type.clone(), Some(reference), schema.clone()))
+                    .collect()
             }
-            references
-                .into_iter()
-                .map(|reference| (media_type.clone(), reference))
-                .collect::<Vec<_>>()
         })
         .collect()
 }
@@ -618,6 +717,91 @@ mod tests {
                 .facts
                 .iter()
                 .any(|fact| fact.kind == FactKind::RouteDeclared)
+        );
+    }
+
+    #[tokio::test]
+    async fn extracts_parameter_metadata_and_preserves_raw_schema_uses() {
+        let output = OpenApiExtractor
+            .extract(input(
+                "openapi.yaml",
+                r#"openapi: 3.1.0
+info: { title: Users, version: '1' }
+paths:
+  /users/{id}:
+    parameters:
+      - name: id
+        in: path
+        schema: { type: string }
+    get:
+      operationId: getUser
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer }
+        - $ref: '#/components/parameters/TraceId'
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+components:
+  parameters:
+    TraceId:
+      name: X-Trace-Id
+      in: header
+      required: true
+      schema: { type: string }
+  schemas:
+    User:
+      type: object
+      properties:
+        id: { type: string }
+"#,
+            ))
+            .await
+            .unwrap();
+
+        let endpoint = output
+            .entities
+            .iter()
+            .find(|entity| entity.kind == EntityKind::ApiEndpoint)
+            .unwrap();
+        assert_eq!(endpoint.payload["path_parameter_count"], 1);
+        assert_eq!(endpoint.payload["operation_parameter_count"], 2);
+        assert_eq!(endpoint.payload["parameters"].as_array().unwrap().len(), 3);
+        assert!(
+            endpoint.payload["parameters"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|parameter| parameter["name"] == "id"
+                    && parameter["location"] == "path"
+                    && parameter["required"] == true)
+        );
+        assert!(
+            endpoint.payload["parameters"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|parameter| parameter["name"] == "limit"
+                    && parameter["location"] == "query"
+                    && parameter["schema"]["type"] == "integer")
+        );
+        assert!(
+            endpoint.payload["parameters"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|parameter| parameter["name"] == "X-Trace-Id"
+                    && parameter["location"] == "header"
+                    && parameter["reference"] == "#/components/parameters/TraceId")
+        );
+        assert_eq!(
+            endpoint.payload["response_schemas"][0]["schema"]["$ref"],
+            "#/components/schemas/User"
         );
     }
 
