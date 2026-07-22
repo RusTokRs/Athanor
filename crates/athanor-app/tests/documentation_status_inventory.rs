@@ -54,9 +54,10 @@ fn documentation_entrypoint_routes_to_current_status_owners() {
             "documentation map omits {target}"
         );
     }
-    assert!(DOCS_INDEX.contains(
-        "cargo test -p athanor-app --test release_readiness_inventory --locked"
-    ));
+    assert!(
+        DOCS_INDEX
+            .contains("cargo test -p athanor-app --test release_readiness_inventory --locked")
+    );
     assert!(!DOCS_INDEX.contains("current verified implementation status"));
 }
 
