@@ -4,9 +4,12 @@ use std::path::Path;
 use athanor_app::{AUTOMATION_JSON_CONTRACTS, VERIFICATION_EVIDENCE_SCHEMA_V1};
 use serde_json::Value;
 
+const APPSEC_WORKFLOW: &str = include_str!("../../../.github/workflows/appsec.yml");
 const CI_WORKFLOW: &str = include_str!("../../../.github/workflows/ci.yml");
 const EVIDENCE_WORKFLOW: &str =
     include_str!("../../../.github/workflows/verification-evidence.yml");
+const STORE_CONFORMANCE_WORKFLOW: &str =
+    include_str!("../../../.github/workflows/store-conformance.yml");
 const CI_GUIDE: &str = include_str!("../../../docs/development/ci.md");
 const PLAN: &str = include_str!("../../../athanor_implementation_plan_ru.md");
 
@@ -104,6 +107,52 @@ fn ci_publishes_exact_status_after_all_matrix_jobs() {
 }
 
 #[test]
+fn appsec_and_store_publish_exact_status_after_required_jobs() {
+    for required in [
+        "exact-status:",
+        "name: Exact AppSec status",
+        "if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}",
+        "needs: [dependency-review, codeql, secrets, workflow-audit]",
+        "statuses: write",
+        "DEPENDENCY_RESULT: ${{ needs.dependency-review.result }}",
+        "CODEQL_RESULT: ${{ needs.codeql.result }}",
+        "SECRETS_RESULT: ${{ needs.secrets.result }}",
+        "WORKFLOW_AUDIT_RESULT: ${{ needs.workflow-audit.result }}",
+        "context\": \"athanor/appsec",
+        "Athanor AppSec checks passed",
+        "Athanor AppSec checks failed",
+        "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA",
+    ] {
+        assert!(
+            APPSEC_WORKFLOW.contains(required),
+            "AppSec exact status owner omits {required}"
+        );
+    }
+    assert!(APPSEC_WORKFLOW.contains(
+        "$DEPENDENCY_RESULT\" != \"success\" && \"$DEPENDENCY_RESULT\" != \"skipped\""
+    ));
+
+    for required in [
+        "exact-status:",
+        "name: Exact Store Conformance status",
+        "if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}",
+        "needs: [backend, surrealdb-remote]",
+        "statuses: write",
+        "BACKEND_RESULT: ${{ needs.backend.result }}",
+        "REMOTE_RESULT: ${{ needs.surrealdb-remote.result }}",
+        "context\": \"athanor/store-conformance",
+        "Athanor store conformance passed",
+        "Athanor store conformance failed",
+        "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA",
+    ] {
+        assert!(
+            STORE_CONFORMANCE_WORKFLOW.contains(required),
+            "Store Conformance exact status owner omits {required}"
+        );
+    }
+}
+
+#[test]
 fn workflow_records_the_matrix_claimed_by_the_ci_guide() {
     for command in [
         "cargo-deny check",
@@ -129,6 +178,8 @@ fn workflow_records_the_matrix_claimed_by_the_ci_guide() {
         "athanor/verification-matrix",
         "legacy commit status",
         "implemented, not verified",
+        "athanor/appsec",
+        "athanor/store-conformance",
     ] {
         assert!(CI_GUIDE.contains(invariant), "CI guide omits {invariant}");
     }
