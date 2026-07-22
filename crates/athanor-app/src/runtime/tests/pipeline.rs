@@ -6,6 +6,7 @@ use super::super::*;
 use super::fixtures::{
     empty_array_command, empty_output_command, source_output_command, temp_root,
 };
+use crate::adapter_contract::ADAPTER_MANIFEST_SCHEMA_V1;
 use crate::transient_store::TransientKnowledgeStore;
 
 #[tokio::test]
@@ -51,7 +52,7 @@ async fn plugin_manifest_deduplicates_builtin_ids() {
     fs::create_dir_all(root.join("src")).unwrap();
     fs::write(root.join("src/lib.rs"), "pub fn hello() {}\n").unwrap();
     let manifest = AdapterPluginManifest {
-        schema: ADAPTER_MANIFEST_SCHEMA.to_string(),
+        schema: ADAPTER_MANIFEST_SCHEMA_V1.to_string(),
         name: "duplicate-builtins".to_string(),
         version: None,
         adapters: vec![AdapterPluginEntry {
@@ -100,7 +101,7 @@ async fn external_process_adapters_cover_all_four_ports() {
     fs::create_dir_all(root.join("src")).unwrap();
     fs::write(root.join("src/lib.rs"), "pub fn hello() {}\n").unwrap();
     let manifest = AdapterPluginManifest {
-        schema: ADAPTER_MANIFEST_SCHEMA.to_string(),
+        schema: ADAPTER_MANIFEST_SCHEMA_V1.to_string(),
         name: "process-ports".to_string(),
         version: None,
         adapters: vec![
@@ -167,7 +168,7 @@ fn discovers_adapter_plugin_manifests() {
     fs::write(
         &manifest_path,
         serde_json::json!({
-            "schema": ADAPTER_MANIFEST_SCHEMA,
+            "schema": ADAPTER_MANIFEST_SCHEMA_V1,
             "name": "files",
             "adapters": [{ "id": "builtin.extractor.file", "kind": "extractor" }]
         })

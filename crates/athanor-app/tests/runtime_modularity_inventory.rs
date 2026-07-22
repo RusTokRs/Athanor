@@ -4,6 +4,8 @@ const RUNTIME_REGISTRY: &str = include_str!("../src/runtime/registry.rs");
 const RUNTIME_BUILDER: &str = include_str!("../src/runtime/builder.rs");
 const RUNTIME_TRUST: &str = include_str!("../src/runtime/trust.rs");
 const RUNTIME_TEST_ROOT: &str = include_str!("../src/runtime/tests.rs");
+const RUNTIME_PIPELINE_TESTS: &str = include_str!("../src/runtime/tests/pipeline.rs");
+const RUNTIME_TRUST_TESTS: &str = include_str!("../src/runtime/tests/trust.rs");
 const RUNTIME_PROCESS_FIXTURES: &str = include_str!("../src/runtime/tests/fixtures.rs");
 const PROCESS_SCOPE: &str = include_str!("../src/process_execution_scope.rs");
 const ADAPTER_CONTRACT: &str = include_str!("../src/adapter_contract.rs");
@@ -34,6 +36,32 @@ fn runtime_trust_api_emits_only_the_public_report_schema() {
     assert!(!RUNTIME_TRUST.contains("ADAPTER_TRUST_SCHEMA"));
     assert!(!ADAPTER_CONTRACT.contains("impl From<AdapterTrustReport>"));
     assert!(ADAPTER_CONTRACT.contains("list_adapter_plugin_trust(options)"));
+}
+
+#[test]
+fn legacy_adapter_runtime_aliases_are_explicitly_deprecated() {
+    assert_eq!(RUNTIME_ROOT.matches("#[deprecated").count(), 3);
+    for replacement in [
+        "use adapter_contract::VersionedAdapterTrustReport",
+        "ADAPTER_MANIFEST_SCHEMA_V1 for current output",
+        "ADAPTER_TRUST_REGISTRY_SCHEMA_V2 for current persistence",
+    ] {
+        assert!(
+            RUNTIME_ROOT.contains(replacement),
+            "legacy runtime alias does not name its current replacement: {replacement}"
+        );
+    }
+
+    for source in [RUNTIME_PIPELINE_TESTS, RUNTIME_TRUST_TESTS] {
+        assert!(
+            !source.contains("ADAPTER_MANIFEST_SCHEMA.to_string()"),
+            "runtime fixtures must construct current manifests with ADAPTER_MANIFEST_SCHEMA_V1"
+        );
+        assert!(
+            !source.contains("\"schema\": ADAPTER_MANIFEST_SCHEMA,"),
+            "runtime JSON fixtures must emit ADAPTER_MANIFEST_SCHEMA_V1"
+        );
+    }
 }
 
 #[test]

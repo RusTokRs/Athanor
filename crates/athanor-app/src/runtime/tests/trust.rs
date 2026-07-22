@@ -1,6 +1,8 @@
 use std::fs;
 
-use crate::adapter_contract::{ADAPTER_TRUST_REGISTRY_SCHEMA_V2, ADAPTER_TRUST_REPORT_SCHEMA_V1};
+use crate::adapter_contract::{
+    ADAPTER_MANIFEST_SCHEMA_V1, ADAPTER_TRUST_REGISTRY_SCHEMA_V2, ADAPTER_TRUST_REPORT_SCHEMA_V1,
+};
 
 use super::super::*;
 use super::fixtures::{empty_output_command, empty_output_program, temp_root};
@@ -12,7 +14,7 @@ fn external_process_plugins_require_opt_in_trust_and_allowlist() {
     fs::create_dir_all(&manifest_dir).unwrap();
     let manifest_path = manifest_dir.join("external.json");
     let manifest = AdapterPluginManifest {
-        schema: ADAPTER_MANIFEST_SCHEMA.to_string(),
+        schema: ADAPTER_MANIFEST_SCHEMA_V1.to_string(),
         name: "external-policy".to_string(),
         version: None,
         adapters: vec![AdapterPluginEntry {
@@ -85,7 +87,7 @@ fn trust_report_is_versioned_and_manifest_changes_invalidate_trust() {
     fs::create_dir_all(&manifest_dir).unwrap();
     let manifest_path = manifest_dir.join("external.json");
     let mut manifest = AdapterPluginManifest {
-        schema: ADAPTER_MANIFEST_SCHEMA.to_string(),
+        schema: ADAPTER_MANIFEST_SCHEMA_V1.to_string(),
         name: "external-trust-hash".to_string(),
         version: None,
         adapters: vec![AdapterPluginEntry {
@@ -134,7 +136,7 @@ fn trust_report_is_versioned_and_manifest_changes_invalidate_trust() {
 #[test]
 fn rejects_unknown_manifest_fields() {
     let content = serde_json::json!({
-        "schema": ADAPTER_MANIFEST_SCHEMA,
+        "schema": ADAPTER_MANIFEST_SCHEMA_V1,
         "name": "unknown-field",
         "unexpected": true,
         "adapters": []
