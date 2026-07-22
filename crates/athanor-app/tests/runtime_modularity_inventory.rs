@@ -4,6 +4,8 @@ const RUNTIME_REGISTRY: &str = include_str!("../src/runtime/registry.rs");
 const RUNTIME_BUILDER: &str = include_str!("../src/runtime/builder.rs");
 const RUNTIME_TRUST: &str = include_str!("../src/runtime/trust.rs");
 const RUNTIME_TEST_ROOT: &str = include_str!("../src/runtime/tests.rs");
+const RUNTIME_PIPELINE_TESTS: &str = include_str!("../src/runtime/tests/pipeline.rs");
+const RUNTIME_TRUST_TESTS: &str = include_str!("../src/runtime/tests/trust.rs");
 const RUNTIME_PROCESS_FIXTURES: &str = include_str!("../src/runtime/tests/fixtures.rs");
 const PROCESS_SCOPE: &str = include_str!("../src/process_execution_scope.rs");
 const ADAPTER_CONTRACT: &str = include_str!("../src/adapter_contract.rs");
@@ -47,6 +49,17 @@ fn legacy_adapter_runtime_aliases_are_explicitly_deprecated() {
         assert!(
             RUNTIME_ROOT.contains(replacement),
             "legacy runtime alias does not name its current replacement: {replacement}"
+        );
+    }
+
+    for source in [RUNTIME_PIPELINE_TESTS, RUNTIME_TRUST_TESTS] {
+        assert!(
+            !source.contains("ADAPTER_MANIFEST_SCHEMA.to_string()"),
+            "runtime fixtures must construct current manifests with ADAPTER_MANIFEST_SCHEMA_V1"
+        );
+        assert!(
+            !source.contains("\"schema\": ADAPTER_MANIFEST_SCHEMA,"),
+            "runtime JSON fixtures must emit ADAPTER_MANIFEST_SCHEMA_V1"
         );
     }
 }
