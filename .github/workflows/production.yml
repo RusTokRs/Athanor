@@ -50,6 +50,37 @@ jobs:
           cargo run -p athd --quiet -- index production-e2e --registry $registry --json
           cargo run -p athd --quiet -- context production-e2e "production readiness" --registry $registry --json
           cargo run -p athd --quiet -- stop production-e2e --registry $registry --json
+      - name: Collect Windows daemon diagnostics
+        if: failure() && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $diagnostics = Join-Path "${{ runner.temp }}" "athanor-diagnostics"
+          $runtime = Join-Path "${{ runner.temp }}" "athanor-runtime"
+          $registry = Join-Path "${{ runner.temp }}" "projects.json"
+          New-Item -ItemType Directory -Force -Path $diagnostics | Out-Null
+
+          if (Test-Path -LiteralPath $registry) {
+            Copy-Item -LiteralPath $registry -Destination (Join-Path $diagnostics "projects.json")
+          }
+          if (Test-Path -LiteralPath $runtime) {
+            Copy-Item -Recurse -Force -LiteralPath $runtime -Destination (Join-Path $diagnostics "runtime")
+            Get-ChildItem -Recurse -Force -LiteralPath $runtime |
+              Select-Object FullName,Length,LastWriteTime |
+              Format-Table -AutoSize |
+              Out-File -LiteralPath (Join-Path $diagnostics "runtime-tree.txt") -Encoding utf8
+          }
+          Get-Process athd -ErrorAction SilentlyContinue |
+            Select-Object Id,ProcessName,Path,StartTime |
+            Format-Table -AutoSize |
+            Out-File -LiteralPath (Join-Path $diagnostics "athd-processes.txt") -Encoding utf8
+      - name: Upload Windows daemon diagnostics
+        if: failure() && runner.os == 'Windows'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: windows-daemon-diagnostics
+          path: ${{ runner.temp }}\athanor-diagnostics
+          if-no-files-found: warn
+          retention-days: 7
       - name: Windows per-user service lifecycle
         if: runner.os == 'Windows'
         shell: pwsh
