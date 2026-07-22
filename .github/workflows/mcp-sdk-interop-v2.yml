@@ -1,0 +1,172 @@
+name: MCP SDK Interoperability v2
+
+on:
+  push:
+    branches:
+      - agent/validate-mcp-sdk-interop-v2
+    paths-ignore:
+      - .github/mcp-sdk-interop-v2-result.md
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  typescript-sdk-stdio:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out validation head
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: true
+      - name: Install Rust toolchain
+        uses: ./.github/actions/setup-rust
+      - name: Build Athanor CLI
+        run: cargo build -p ath --locked
+      - name: Run official TypeScript SDK stdio client
+        id: interop
+        continue-on-error: true
+        shell: bash
+        env:
+          ATH_BIN: ${{ github.workspace }}/target/debug/ath
+          FIXTURE_ROOT: ${{ runner.temp }}/athanor-mcp-sdk-fixture
+        run: |
+          set -euo pipefail
+          mkdir -p "$FIXTURE_ROOT/src" "$RUNNER_TEMP/mcp-sdk-client"
+          cat > "$FIXTURE_ROOT/Cargo.toml" <<'TOML'
+          [package]
+          name = "athanor-mcp-sdk-fixture"
+          version = "0.1.0"
+          edition = "2024"
+          TOML
+          cat > "$FIXTURE_ROOT/src/lib.rs" <<'RS'
+          pub fn greeting(name: &str) -> String {
+              format!("Hello, {name}!")
+          }
+          RS
+
+          cd "$RUNNER_TEMP/mcp-sdk-client"
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund @modelcontextprotocol/sdk@1.29.0 zod@3 >/dev/null
+          cat > interop.mjs <<'JS'
+          import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+          import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+
+          const requiredTools = new Set(["index", "search", "context", "check"]);
+          const client = new Client({ name: "athanor-sdk-interop-v2", version: "1.0.0" });
+          const transport = new StdioClientTransport({
+            command: process.env.ATH_BIN,
+            args: ["mcp", process.env.FIXTURE_ROOT],
+            cwd: process.env.GITHUB_WORKSPACE,
+            stderr: "pipe",
+          });
+
+          if (transport.stderr) {
+            transport.stderr.on("data", chunk => process.stderr.write(`[ath stderr] ${chunk}`));
+          }
+
+          try {
+            await client.connect(transport);
+            console.log("initialize handshake: success");
+
+            const listed = await client.listTools();
+            const names = new Set(listed.tools.map(tool => tool.name));
+            for (const required of requiredTools) {
+              if (!names.has(required)) {
+                throw new Error(`missing MCP tool: ${required}; got ${[...names].join(", ")}`);
+              }
+            }
+            console.log(`tools/list: success (${listed.tools.length} tools)`);
+
+            const indexed = await client.callTool(
+              { name: "index", arguments: { validate_only: false } },
+              { timeout: 120_000 },
+            );
+            if (indexed.isError) {
+              throw new Error(`index returned isError: ${JSON.stringify(indexed.content)}`);
+            }
+            console.log("tools/call index: success");
+
+            const searched = await client.callTool(
+              { name: "search", arguments: { query: "greeting", limit: 5 } },
+              { timeout: 30_000 },
+            );
+            if (searched.isError) {
+              throw new Error(`search returned isError: ${JSON.stringify(searched.content)}`);
+            }
+            console.log("tools/call search: success");
+
+            let timeoutObserved = false;
+            try {
+              await client.callTool(
+                {
+                  name: "context",
+                  arguments: {
+                    task: "Build a complete context pack for the greeting function",
+                    level: "full",
+                    max_tokens: 100000,
+                  },
+                },
+                { timeout: 1 },
+              );
+            } catch (error) {
+              timeoutObserved = true;
+              console.log(`SDK timeout/cancellation observed: ${error?.code ?? error?.name ?? "error"}`);
+            }
+            if (!timeoutObserved) {
+              throw new Error("1 ms SDK request timeout did not trigger cancellation");
+            }
+
+            const afterCancellation = await client.listTools();
+            if (afterCancellation.tools.length !== listed.tools.length) {
+              throw new Error("session changed after cancellation notification");
+            }
+            console.log("post-cancellation session: success");
+          } finally {
+            await client.close();
+          }
+          JS
+          node interop.mjs 2>&1 | tee "$RUNNER_TEMP/mcp-sdk-interop-v2.log"
+      - name: Publish interoperability evidence
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INTEROP_OUTCOME: ${{ steps.interop.outcome }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          result_path=".github/mcp-sdk-interop-v2-result.md"
+          {
+            echo "# MCP SDK interoperability v2 result"
+            echo
+            echo "- Outcome: **$INTEROP_OUTCOME**"
+            echo "- Validation commit: \`$GITHUB_SHA\`"
+            echo "- Product head: \`011d6e074182d4405a7e266c3c4f2a91657d73d9\`"
+            echo "- Client: \`@modelcontextprotocol/sdk@1.29.0\`"
+            echo "- Run: $run_url"
+            echo "- Coverage: initialize, tools/list, index, search, SDK timeout cancellation, and post-cancellation session reuse"
+            echo
+            echo '<details><summary>Client log</summary>'
+            echo
+            echo '```text'
+            if [[ -f "$RUNNER_TEMP/mcp-sdk-interop-v2.log" ]]; then
+              cat "$RUNNER_TEMP/mcp-sdk-interop-v2.log"
+            else
+              echo "Client step did not produce a log."
+            fi
+            echo '```'
+            echo '</details>'
+          } > "$result_path"
+
+          gh issue comment 16 --body "Official TypeScript MCP SDK v1.29.0 stdio interoperability revalidation: **$INTEROP_OUTCOME** for PR #43 product head \`011d6e074182d4405a7e266c3c4f2a91657d73d9\`. Coverage: initialize, tools/list, index, search, SDK timeout cancellation, and post-cancellation session reuse. Run: $run_url"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$result_path"
+          git commit -m "chore(validation): record MCP SDK v2 evidence"
+          git push origin "HEAD:$GITHUB_REF_NAME"
+      - name: Enforce interoperability result
+        if: steps.interop.outcome != 'success'
+        run: exit 1
