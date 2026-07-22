@@ -33,11 +33,14 @@ pub struct SurrealKnowledgeStore {
 impl SurrealKnowledgeStore {
     pub async fn connect(uri: &str) -> CoreResult<Self> {
         let persistent_lease = acquire_persistent_lease(uri)?;
-        classify_backend_result(backend::SurrealKnowledgeStore::connect(uri).await)
-            .map(|inner| Self {
-                inner,
-                _persistent_lease: persistent_lease,
-            })
+        let inner = retry_busy(|| async {
+            classify_backend_result(backend::SurrealKnowledgeStore::connect(uri).await)
+        })
+        .await?;
+        Ok(Self {
+            inner,
+            _persistent_lease: persistent_lease,
+        })
     }
 }
 
@@ -146,6 +149,25 @@ fn is_retryable_surreal_message(message: &str) -> bool {
         || message.contains("transaction retry required")
         || message.contains("transaction conflict:")
         || message.contains("read or write conflict")
+}
+
+async fn retry_busy<T, F, Fut>(mut operation: F) -> CoreResult<T>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = CoreResult<T>>,
+{
+    let mut retry_index = 0usize;
+
+    loop {
+        match operation().await {
+            Ok(value) => return Ok(value),
+            Err(CoreError::Busy(_)) if retry_index < BUSY_RETRY_DELAYS_MS.len() => {
+                tokio::time::sleep(Duration::from_millis(BUSY_RETRY_DELAYS_MS[retry_index])).await;
+                retry_index += 1;
+            }
+            Err(error) => return Err(error),
+        }
+    }
 }
 
 async fn sleep_with_context(context: &OperationContext, delay: Duration) -> CoreResult<()> {
@@ -417,6 +439,7 @@ mod tests {
             "Transaction write conflict",
             "Transaction retry required: snapshot is older than the commit oracle's GC window",
             "Transaction conflict: concurrent update",
+            "Failed to commit transaction due to a read or write conflict. This transaction can be retried",
         ] {
             let error = classify_backend_error(CoreError::Adapter(message.to_string()));
             assert_eq!(error.code(), CoreErrorCode::Busy);
@@ -432,6 +455,27 @@ mod tests {
 
         assert_eq!(error.code(), CoreErrorCode::AdapterExecution);
         assert!(!error.is_retryable());
+    }
+
+    #[tokio::test]
+    async fn retries_busy_connect_initialization_with_bounded_backoff() {
+        let attempts = AtomicUsize::new(0);
+
+        let value = retry_busy(|| {
+            let attempt = attempts.fetch_add(1, Ordering::SeqCst);
+            async move {
+                if attempt < 2 {
+                    Err(CoreError::Busy("counter initialization conflict".to_string()))
+                } else {
+                    Ok("connected")
+                }
+            }
+        })
+        .await
+        .expect("retryable connection initialization should eventually succeed");
+
+        assert_eq!(value, "connected");
+        assert_eq!(attempts.load(Ordering::SeqCst), 3);
     }
 
     #[tokio::test]

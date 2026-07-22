@@ -50,6 +50,18 @@ jobs:
           cargo run -p athd --quiet -- index production-e2e --registry $registry --json
           cargo run -p athd --quiet -- context production-e2e "production readiness" --registry $registry --json
           cargo run -p athd --quiet -- stop production-e2e --registry $registry --json
+      - name: Collect Windows daemon diagnostics
+        if: failure() && runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/collect-windows-daemon-diagnostics.ps1
+      - name: Upload Windows daemon diagnostics
+        if: failure() && runner.os == 'Windows'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: windows-daemon-diagnostics
+          path: ${{ runner.temp }}\athanor-diagnostics
+          if-no-files-found: warn
+          retention-days: 7
       - name: Windows per-user service lifecycle
         if: runner.os == 'Windows'
         shell: pwsh

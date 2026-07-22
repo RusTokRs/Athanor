@@ -84,12 +84,28 @@ jobs:
           docker logs athanor-surrealdb
           exit 1
       - name: Run remote two-connection contract
+        id: remote-contract
+        shell: bash
         env:
           ATHANOR_SURREAL_REMOTE_URI: ws://127.0.0.1:8000
-        run: cargo test -p athanor-store-surrealdb --features remote --test remote --locked -- --ignored
-      - name: Show SurrealDB logs
+        run: |
+          set -o pipefail
+          cargo test -p athanor-store-surrealdb --features remote --test remote --locked -- --ignored --nocapture \
+            2>&1 | tee "$RUNNER_TEMP/surrealdb-remote.log"
+      - name: Capture SurrealDB logs
         if: always()
-        run: docker logs athanor-surrealdb || true
+        shell: bash
+        run: docker logs athanor-surrealdb 2>&1 | tee "$RUNNER_TEMP/surrealdb-server.log" || true
+      - name: Upload remote conformance diagnostics
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: surrealdb-remote-diagnostics
+          path: |
+            ${{ runner.temp }}/surrealdb-remote.log
+            ${{ runner.temp }}/surrealdb-server.log
+          if-no-files-found: warn
+          retention-days: 14
       - name: Stop SurrealDB test server
         if: always()
         run: docker rm --force athanor-surrealdb || true
