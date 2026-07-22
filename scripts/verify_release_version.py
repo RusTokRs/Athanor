@@ -7,6 +7,7 @@ import argparse
 import re
 import sys
 import tomllib
+from datetime import date
 from pathlib import Path
 
 SEMVER = re.compile(
@@ -78,6 +79,21 @@ def verify_versions(tag: str, manifests: list[Path]) -> str:
     return tag_version
 
 
+def verify_release_date(release_date: str, version: str) -> None:
+    if release_date == "Unreleased":
+        raise ValueError(f"changelog section [{version}] must be dated before release")
+    if not RELEASE_DATE.fullmatch(release_date):
+        raise ValueError(
+            f"changelog section [{version}] has invalid release date {release_date!r}"
+        )
+    try:
+        date.fromisoformat(release_date)
+    except ValueError as error:
+        raise ValueError(
+            f"changelog section [{version}] has invalid release date {release_date!r}"
+        ) from error
+
+
 def changelog_notes(changelog: Path, version: str) -> str:
     try:
         lines = changelog.read_text(encoding="utf-8").splitlines()
@@ -96,12 +112,7 @@ def changelog_notes(changelog: Path, version: str) -> str:
 
     if start is None or release_date is None:
         raise ValueError(f"{changelog} omits release section [{version}]")
-    if release_date == "Unreleased":
-        raise ValueError(f"changelog section [{version}] must be dated before release")
-    if not RELEASE_DATE.fullmatch(release_date):
-        raise ValueError(
-            f"changelog section [{version}] has invalid release date {release_date!r}"
-        )
+    verify_release_date(release_date, version)
 
     end = next(
         (index for index in range(start, len(lines)) if lines[index].startswith("## [")),
