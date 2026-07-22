@@ -161,7 +161,7 @@ where
     loop {
         match operation().await {
             Ok(value) => return Ok(value),
-            Err(error @ CoreError::Busy(_)) if retry_index < BUSY_RETRY_DELAYS_MS.len() => {
+            Err(CoreError::Busy(_)) if retry_index < BUSY_RETRY_DELAYS_MS.len() => {
                 tokio::time::sleep(Duration::from_millis(BUSY_RETRY_DELAYS_MS[retry_index])).await;
                 retry_index += 1;
             }
