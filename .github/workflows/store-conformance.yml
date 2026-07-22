@@ -109,3 +109,50 @@ jobs:
       - name: Stop SurrealDB test server
         if: always()
         run: docker rm --force athanor-surrealdb || true
+
+  exact-status:
+    name: Exact Store Conformance status
+    if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    needs: [backend, surrealdb-remote]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      statuses: write
+    env:
+      BACKEND_RESULT: ${{ needs.backend.result }}
+      REMOTE_RESULT: ${{ needs.surrealdb-remote.result }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Publish exact Store Conformance status
+        shell: bash
+        run: |
+          set -euo pipefail
+          state="success"
+          description="Athanor store conformance passed"
+          if [[ "$BACKEND_RESULT" != "success" || "$REMOTE_RESULT" != "success" ]]; then
+            state="failure"
+            description="Athanor store conformance failed"
+          fi
+          export STATE="$state"
+          export DESCRIPTION="$description"
+          python - <<'PY' > store-conformance-status.json
+          import json
+          import os
+
+          print(json.dumps({
+              "state": os.environ["STATE"],
+              "target_url": (
+                  f"{os.environ['GITHUB_SERVER_URL']}/"
+                  f"{os.environ['GITHUB_REPOSITORY']}/actions/runs/"
+                  f"{os.environ['GITHUB_RUN_ID']}"
+              ),
+              "description": os.environ["DESCRIPTION"],
+              "context": "athanor/store-conformance",
+          }))
+          PY
+          curl --fail-with-body --location --request POST \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            --data @store-conformance-status.json
