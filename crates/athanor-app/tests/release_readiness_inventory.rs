@@ -29,13 +29,10 @@ fn current_release_date<'a>(changelog: &'a str, version: &str) -> &'a str {
 
 fn is_iso_release_date(value: &str) -> bool {
     value.len() == 10
-        && value
-            .bytes()
-            .enumerate()
-            .all(|(index, byte)| match index {
-                4 | 7 => byte == b'-',
-                _ => byte.is_ascii_digit(),
-            })
+        && value.bytes().enumerate().all(|(index, byte)| match index {
+            4 | 7 => byte == b'-',
+            _ => byte.is_ascii_digit(),
+        })
 }
 
 #[test]
@@ -121,7 +118,10 @@ fn release_guard_fails_closed_on_invalid_or_mismatched_versions() {
 fn release_packages_and_changelog_share_a_dated_current_version() {
     let ath_version = package_version(ATH_MANIFEST);
     let athd_version = package_version(ATHD_MANIFEST);
-    assert_eq!(ath_version, athd_version, "release package versions diverged");
+    assert_eq!(
+        ath_version, athd_version,
+        "release package versions diverged"
+    );
 
     let release_prefix = format!("## [{ath_version}]");
     assert_eq!(
@@ -166,6 +166,7 @@ fn release_packages_and_changelog_share_a_dated_current_version() {
 
 #[test]
 fn release_runbook_matches_the_enforced_workflow() {
+    let normalized_guide = RELEASE_GUIDE.split_whitespace().collect::<Vec<_>>().join(" ");
     for invariant in [
         "athanor/verification-matrix",
         "athanor/appsec",
@@ -180,7 +181,7 @@ fn release_runbook_matches_the_enforced_workflow() {
         "Never replace assets",
     ] {
         assert!(
-            RELEASE_GUIDE.contains(invariant),
+            normalized_guide.contains(invariant),
             "release guide omits {invariant}"
         );
     }
