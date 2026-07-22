@@ -17,28 +17,21 @@ jobs:
           ref: ${{ github.head_ref }}
           fetch-depth: 0
           persist-credentials: true
-      - name: Cherry-pick validated implementation commits
+      - name: Cherry-pick SurrealDB remediation
         shell: bash
         run: |
           set -euo pipefail
-          commits=(
-            d57d6f7f345d945509752380f602947a1e9dfd0e
-            c1aae3ff533b1967b3aa6c3fbc136302ab0d5ad5
-            d7450b5423ea36a49d1bdf17cb2ce4a3b3902fc7
-            f8b27464721f19f9a3f2140502315c8a603a65a0
+          git fetch origin agent/fix-surrealdb-remote-conformance
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for commit in \
+            d7450b5423ea36a49d1bdf17cb2ce4a3b3902fc7 \
+            f8b27464721f19f9a3f2140502315c8a603a65a0 \
             3876fcc55071d0c80a2d830df172c4a6c04e36ac
-          )
-          git fetch origin agent/fix-windows-athd-stack agent/fix-surrealdb-remote-conformance
-          changed=false
-          for commit in "${commits[@]}"; do
+          do
             if git merge-base --is-ancestor "$commit" HEAD; then
               continue
             fi
             git cherry-pick "$commit"
-            changed=true
           done
-          if [[ "$changed" == false ]]; then
-            echo "Validated implementation commits already integrated"
-            exit 0
-          fi
           git push origin "HEAD:${{ github.head_ref }}"
