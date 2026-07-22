@@ -17,6 +17,26 @@ use tokio::task::JoinSet;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires ATHANOR_SURREAL_REMOTE_URI and a dedicated SurrealDB server"]
+async fn concurrent_remote_connections_initialize_shared_counter() {
+    let uri = remote_uri();
+    let mut tasks = JoinSet::new();
+
+    for _ in 0..8 {
+        let uri = uri.clone();
+        tasks.spawn(async move {
+            SurrealKnowledgeStore::connect(&uri)
+                .await
+                .expect("connect concurrent remote SurrealDB client");
+        });
+    }
+
+    while let Some(result) = tasks.join_next().await {
+        result.expect("join concurrent remote connect task");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires ATHANOR_SURREAL_REMOTE_URI and a dedicated SurrealDB server"]
 async fn independent_remote_connections_allocate_unique_snapshot_ids() {
     let uri = remote_uri();
     let writers = [
