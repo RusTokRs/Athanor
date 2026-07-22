@@ -9,7 +9,26 @@ permissions:
   contents: read
 
 jobs:
+  release-contract:
+    name: Verify release contract
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Verify release tag matches package versions
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: >-
+          python3 scripts/verify_release_version.py
+          --tag "$RELEASE_TAG"
+          apps/ath/Cargo.toml
+          apps/athd/Cargo.toml
+
   build:
+    needs: release-contract
     permissions:
       contents: read
       id-token: write
@@ -38,7 +57,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist/athanor
-          cp target/${{ matrix.target }}/release/ath target/${{ matrix.target }}/release/athd README.md LICENSE install.sh dist/athanor/
+          cp target/${{ matrix.target }}/release/ath target/${{ matrix.target }}/release/athd README.md CHANGELOG.md LICENSE install.sh dist/athanor/
           chmod +x dist/athanor/ath dist/athanor/athd dist/athanor/install.sh
           (cd dist/athanor && sha256sum ath athd > SHA256SUMS)
           tar -C dist -czf dist/${{ matrix.archive }} athanor
@@ -47,7 +66,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist/athanor | Out-Null
-          Copy-Item target/${{ matrix.target }}/release/ath.exe,target/${{ matrix.target }}/release/athd.exe,README.md,LICENSE,install.ps1 dist/athanor/
+          Copy-Item target/${{ matrix.target }}/release/ath.exe,target/${{ matrix.target }}/release/athd.exe,README.md,CHANGELOG.md,LICENSE,install.ps1 dist/athanor/
           $manifest = foreach ($file in @("ath.exe", "athd.exe")) {
             $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path "dist/athanor" $file)).Hash.ToLowerInvariant()
             "$hash  $file"
@@ -75,6 +94,7 @@ jobs:
 
   sbom:
     name: CycloneDX SBOM
+    needs: release-contract
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
