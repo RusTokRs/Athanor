@@ -132,11 +132,12 @@ Store Conformance run `29943452289` all completed successfully.
 1. [x] reject tags that do not match both binary package versions or Semantic Versioning;
 2. [x] require a dated version section and publish its maintained changelog notes;
 3. [x] package the changelog and document the supported artifacts, checklist, and recovery policy;
-4. [ ] verify the first release candidate from one exact tag commit.
+4. [x] freeze the `0.1.0` changelog section with the intentional candidate date;
+5. [ ] verify the first release candidate from one exact tag commit.
 
-The static contract and source-level regressions are implemented in `main`. `REL-001` remains active
-until an intentional tag run proves the complete build, SBOM, signature, provenance, verification, and
-publication chain.
+The static contract, source-level regressions, and dated candidate notes are implemented in `main`.
+`REL-001` remains active until an intentional tag run proves the complete build, SBOM, signature,
+provenance, verification, and publication chain.
 
 ## Product Backlog
 
