@@ -11,7 +11,7 @@ The `athanor-transport-mcp` adapter exposes Athanor's query and execution functi
 
 Implements: MCP Stdio JSON-RPC 2.0 Server.
 
-The current implementation is complete in source but remains pending Rust-enabled formatting, test, and Clippy execution for the current HEAD.
+The implementation is exercised by Rust-enabled formatting, workspace tests, contract tests, and Clippy. Representative real-client interoperability remains explicit release evidence.
 
 ## CLI Subcommand
 
@@ -80,7 +80,7 @@ AwaitingInitialize
   -> Ready
 ```
 
-`initialize` must request MCP protocol `2024-11-05`. Tools are unavailable until the client sends `notifications/initialized`; the legacy `initialized` spelling remains accepted for compatibility.
+The server supports MCP protocol revisions `2024-11-05`, `2025-03-26`, `2025-06-18`, and `2025-11-25`. When a client requests a supported revision, `initialize` echoes that revision. When the requested revision is unknown, the server proposes its latest supported revision, `2025-11-25`, and the client decides whether to continue. Tools remain unavailable until the client sends `notifications/initialized`; the legacy `initialized` spelling remains accepted for compatibility.
 
 A request with no `id` is a notification and receives no response. An explicitly present `null` id remains an explicit request id and receives a response with `id: null`.
 
