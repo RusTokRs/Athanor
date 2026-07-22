@@ -12,12 +12,9 @@ use super::types::{McpSessionPhase, SessionState};
 async fn initialize_echoes_each_supported_protocol_version() {
     for requested in MCP_SUPPORTED_PROTOCOL_VERSIONS {
         let session = awaiting_initialize();
-        let result = handle_initialize(
-            Some(json!({ "protocolVersion": requested })),
-            &session,
-        )
-        .await
-        .expect("supported MCP protocol version must initialize");
+        let result = handle_initialize(Some(json!({ "protocolVersion": requested })), &session)
+            .await
+            .expect("supported MCP protocol version must initialize");
 
         assert_eq!(result["protocolVersion"], *requested);
         assert_eq!(*session.lock().await, McpSessionPhase::AwaitingInitialized);
@@ -27,12 +24,9 @@ async fn initialize_echoes_each_supported_protocol_version() {
 #[tokio::test]
 async fn initialize_proposes_latest_version_when_requested_version_is_unknown() {
     let session = awaiting_initialize();
-    let result = handle_initialize(
-        Some(json!({ "protocolVersion": "2099-01-01" })),
-        &session,
-    )
-    .await
-    .expect("unknown client version must receive the latest supported server version");
+    let result = handle_initialize(Some(json!({ "protocolVersion": "2099-01-01" })), &session)
+        .await
+        .expect("unknown client version must receive the latest supported server version");
 
     assert_eq!(result["protocolVersion"], MCP_PROTOCOL_VERSION);
     assert_eq!(*session.lock().await, McpSessionPhase::AwaitingInitialized);
