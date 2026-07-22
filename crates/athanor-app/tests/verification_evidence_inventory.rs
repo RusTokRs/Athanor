@@ -8,8 +8,7 @@ const APPSEC_WORKFLOW: &str = include_str!("../../../.github/workflows/appsec.ym
 const CI_WORKFLOW: &str = include_str!("../../../.github/workflows/ci.yml");
 const EVIDENCE_WORKFLOW: &str =
     include_str!("../../../.github/workflows/verification-evidence.yml");
-const STORE_CONFORMANCE_WORKFLOW: &str =
-    include_str!("../../../.github/workflows/store-conformance.yml");
+const STORE_WORKFLOW: &str = include_str!("../../../.github/workflows/store-conformance.yml");
 const CI_GUIDE: &str = include_str!("../../../docs/development/ci.md");
 const PLAN: &str = include_str!("../../../athanor_implementation_plan_ru.md");
 
@@ -118,7 +117,9 @@ fn appsec_and_store_publish_exact_status_after_required_jobs() {
         "CODEQL_RESULT: ${{ needs.codeql.result }}",
         "SECRETS_RESULT: ${{ needs.secrets.result }}",
         "WORKFLOW_AUDIT_RESULT: ${{ needs.workflow-audit.result }}",
-        "context\": \"athanor/appsec",
+        r#""$DEPENDENCY_RESULT" != "success""#,
+        r#""$DEPENDENCY_RESULT" != "skipped""#,
+        r#""context": "athanor/appsec""#,
         "Athanor AppSec checks passed",
         "Athanor AppSec checks failed",
         "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA",
@@ -128,9 +129,6 @@ fn appsec_and_store_publish_exact_status_after_required_jobs() {
             "AppSec exact status owner omits {required}"
         );
     }
-    assert!(APPSEC_WORKFLOW.contains(
-        "$DEPENDENCY_RESULT\" != \"success\" && \"$DEPENDENCY_RESULT\" != \"skipped\""
-    ));
 
     for required in [
         "exact-status:",
@@ -140,13 +138,13 @@ fn appsec_and_store_publish_exact_status_after_required_jobs() {
         "statuses: write",
         "BACKEND_RESULT: ${{ needs.backend.result }}",
         "REMOTE_RESULT: ${{ needs.surrealdb-remote.result }}",
-        "context\": \"athanor/store-conformance",
+        r#""context": "athanor/store-conformance""#,
         "Athanor store conformance passed",
         "Athanor store conformance failed",
         "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA",
     ] {
         assert!(
-            STORE_CONFORMANCE_WORKFLOW.contains(required),
+            STORE_WORKFLOW.contains(required),
             "Store Conformance exact status owner omits {required}"
         );
     }
