@@ -84,6 +84,11 @@ fn release_guard_fails_closed_on_invalid_or_mismatched_versions() {
         "SEMVER = re.compile(",
         "RELEASE_DATE = re.compile(",
         "section_heading = re.compile(",
+        "def has_substantive_release_notes",
+        "flags=re.DOTALL",
+        "fence: tuple[str, int] | None",
+        "len(set(compact)) == 1",
+        "has_substantive_release_notes(note_lines)",
         "release tag must start with 'v'",
         "release tag is not v<semver>",
         "does not define package.version",
@@ -166,7 +171,7 @@ fn release_runbook_matches_the_enforced_workflow() {
         "v<package.version>",
         "valid ISO calendar date",
         "exactly one matching version section",
-        "substantive non-heading release note",
+        "HTML comments, thematic breaks, empty list markers, or empty fenced code blocks",
         "release-notes.md",
         "CycloneDX SBOM",
         "Do not move or reuse a published release tag",
@@ -183,7 +188,7 @@ fn release_runbook_matches_the_enforced_workflow() {
 fn release_readiness_owners_remain_bounded() {
     for (name, source, max_lines) in [
         ("release workflow", RELEASE_WORKFLOW, 230),
-        ("release guard", RELEASE_GUARD, 180),
+        ("release guard", RELEASE_GUARD, 200),
         ("release guide", RELEASE_GUIDE, 180),
         ("changelog", CHANGELOG, 120),
     ] {
