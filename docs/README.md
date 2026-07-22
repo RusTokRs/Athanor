@@ -44,6 +44,8 @@ does not prove that the current repository commit passed Rust verification.
 - [Coding standards](development/athanor-coding-standards.md): normative Rust and architecture rules.
 - [Definition of done](development/definition-of-done.md): completion requirements.
 - [Continuous integration](development/ci.md): intended GitHub Actions matrix and commands.
+- [Release procedure](development/release.md): version, changelog, artifact, publication, and recovery
+  contract.
 - [Production operation](development/production.md): daemon, runtime permissions, release, and
   external-adapter policy.
 - [Documentation completeness](development/docs-completeness-policy.md): editable documentation
@@ -155,6 +157,7 @@ status changes should include:
 
 ```bash
 cargo test -p athanor-app --test documentation_status_inventory --locked
+cargo test -p athanor-app --test release_readiness_inventory --locked
 cargo test -p athanor-app --test json_contract_inventory --locked
 cargo test -p athanor-app --test process_persistence_contract_inventory --locked
 cargo fmt --all -- --check
