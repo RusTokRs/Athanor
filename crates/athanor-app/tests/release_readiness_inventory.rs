@@ -80,6 +80,7 @@ fn release_workflow_gates_all_artifact_jobs_on_the_tag_contract() {
 #[test]
 fn release_guard_fails_closed_on_invalid_or_mismatched_versions() {
     for required in [
+        "from datetime import date",
         "SEMVER = re.compile(",
         "RELEASE_DATE = re.compile(",
         "release tag must start with 'v'",
@@ -90,6 +91,7 @@ fn release_guard_fails_closed_on_invalid_or_mismatched_versions() {
         "release package versions disagree",
         "omits release section",
         "must be dated before release",
+        "date.fromisoformat(release_date)",
         "has invalid release date",
         "has no release notes",
         "notes_output.write_text",
@@ -133,6 +135,7 @@ fn release_runbook_matches_the_enforced_workflow() {
         "athanor/appsec",
         "athanor/store-conformance",
         "v<package.version>",
+        "valid ISO calendar date",
         "release-notes.md",
         "CycloneDX SBOM",
         "Do not move or reuse a published release tag",
