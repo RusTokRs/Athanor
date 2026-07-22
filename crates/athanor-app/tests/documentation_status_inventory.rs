@@ -3,6 +3,7 @@ const ROADMAP: &str = include_str!("../../../docs/development/roadmap-status.md"
 const PIPELINE: &str = include_str!("../../../docs/architecture/pipeline.md");
 const OPERATION_CONTEXT: &str =
     include_str!("../../../docs/development/direct-operation-context.md");
+const RELEASE_GUIDE: &str = include_str!("../../../docs/development/release.md");
 const PLAN: &str = include_str!("../../../athanor_implementation_plan_ru.md");
 
 #[test]
@@ -46,12 +47,16 @@ fn documentation_entrypoint_routes_to_current_status_owners() {
         "development/json-contract-inventory.md",
         "development/legacy-runtime-compatibility.md",
         "development/direct-operation-context.md",
+        "development/release.md",
     ] {
         assert!(
             DOCS_INDEX.contains(target),
             "documentation map omits {target}"
         );
     }
+    assert!(DOCS_INDEX.contains(
+        "cargo test -p athanor-app --test release_readiness_inventory --locked"
+    ));
     assert!(!DOCS_INDEX.contains("current verified implementation status"));
 }
 
@@ -98,6 +103,7 @@ fn implementation_plan_matches_documentation_status() {
         "| `MCP-004` | P1 | `[x] implemented` |",
         "| `API-001` | P1 | `[x] verified` |",
         "cargo test -p athanor-app --test documentation_status_inventory --locked",
+        "cargo test -p athanor-app --test release_readiness_inventory --locked",
         "cargo test -p athanor-transport-mcp --test control_plane_saturation_inventory --locked",
     ] {
         assert!(PLAN.contains(completed), "plan is missing {completed}");
@@ -123,6 +129,30 @@ fn implementation_plan_matches_documentation_status() {
     assert!(ROADMAP[active_work..].contains("### `REL-001`"));
     assert!(!ROADMAP[active_work..].contains("### `VERIFY-001`"));
     assert!(!ROADMAP[active_work..].contains("### `API-001`"));
+}
+
+#[test]
+fn release_runbook_matches_the_repository_owned_contract() {
+    for invariant in [
+        "# Release Procedure",
+        "athanor/verification-matrix",
+        "athanor/appsec",
+        "athanor/store-conformance",
+        "apps/ath/Cargo.toml",
+        "apps/athd/Cargo.toml",
+        "CHANGELOG.md",
+        "v<package.version>",
+        "release-notes.md",
+        "CycloneDX SBOM",
+        "Never replace assets",
+    ] {
+        assert!(
+            RELEASE_GUIDE.contains(invariant),
+            "release guide omits {invariant}"
+        );
+    }
+    assert!(RELEASE_GUIDE.contains("status: active"));
+    assert!(!RELEASE_GUIDE.contains("status: verified"));
 }
 
 #[test]
@@ -179,6 +209,7 @@ fn architecture_status_documents_remain_bounded() {
         ("roadmap", ROADMAP, 240),
         ("pipeline", PIPELINE, 380),
         ("operation context", OPERATION_CONTEXT, 260),
+        ("release guide", RELEASE_GUIDE, 180),
         ("implementation plan", PLAN, 320),
     ] {
         let lines = source.lines().count();
