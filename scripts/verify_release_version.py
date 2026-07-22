@@ -95,11 +95,9 @@ def verify_release_date(release_date: str, version: str) -> None:
 
 
 def has_substantive_release_notes(lines: list[str]) -> bool:
-    visible_lines = re.sub(
-        r"<!--.*?(?:-->|$)", "", "\n".join(lines), flags=re.DOTALL
-    ).splitlines()
     fence: tuple[str, int] | None = None
-    for raw_line in visible_lines:
+    in_comment = False
+    for raw_line in lines:
         stripped = raw_line.strip()
         marker = stripped[:1]
         count = len(stripped) - len(stripped.lstrip(marker))
@@ -110,6 +108,30 @@ def has_substantive_release_notes(lines: list[str]) -> bool:
             elif stripped:
                 return True
             continue
+
+        visible: list[str] = []
+        remaining = raw_line
+        while remaining:
+            if in_comment:
+                end = remaining.find("-->")
+                if end < 0:
+                    remaining = ""
+                else:
+                    remaining = remaining[end + 3 :]
+                    in_comment = False
+            else:
+                start = remaining.find("<!--")
+                if start < 0:
+                    visible.append(remaining)
+                    remaining = ""
+                else:
+                    visible.append(remaining[:start])
+                    remaining = remaining[start + 4 :]
+                    in_comment = True
+
+        stripped = "".join(visible).strip()
+        marker = stripped[:1]
+        count = len(stripped) - len(stripped.lstrip(marker))
         if marker in ("`", "~") and count >= 3:
             fence = (marker, count)
             continue
