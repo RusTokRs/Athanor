@@ -4,7 +4,28 @@ use std::fmt;
 use serde_json::Value;
 
 pub const JSON_RPC_VERSION: &str = "2.0";
-pub const MCP_PROTOCOL_VERSION: &str = "2024-11-05";
+pub const MCP_PROTOCOL_VERSION_2024_11_05: &str = "2024-11-05";
+pub const MCP_PROTOCOL_VERSION_2025_03_26: &str = "2025-03-26";
+pub const MCP_PROTOCOL_VERSION_2025_06_18: &str = "2025-06-18";
+pub const MCP_PROTOCOL_VERSION: &str = "2025-11-25";
+pub const MCP_SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &[
+    MCP_PROTOCOL_VERSION,
+    MCP_PROTOCOL_VERSION_2025_06_18,
+    MCP_PROTOCOL_VERSION_2025_03_26,
+    MCP_PROTOCOL_VERSION_2024_11_05,
+];
+
+pub fn is_supported_mcp_protocol_version(version: &str) -> bool {
+    MCP_SUPPORTED_PROTOCOL_VERSIONS.contains(&version)
+}
+
+pub fn negotiate_mcp_protocol_version(requested: &str) -> &'static str {
+    MCP_SUPPORTED_PROTOCOL_VERSIONS
+        .iter()
+        .copied()
+        .find(|supported| *supported == requested)
+        .unwrap_or(MCP_PROTOCOL_VERSION)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum McpTransportBoundary {
@@ -140,11 +161,16 @@ pub fn validate_tool_call_result(value: &Value) -> Result<(), McpTransportContra
 
 pub fn validate_initialize_result(value: &Value) -> Result<(), McpTransportContractError> {
     let result = object(value, "MCP initialize result")?;
-    version(
-        result.get("protocolVersion"),
-        MCP_PROTOCOL_VERSION,
-        "MCP initialize result",
-    )
+    let actual = result
+        .get("protocolVersion")
+        .and_then(Value::as_str)
+        .unwrap_or("<missing>");
+    if !is_supported_mcp_protocol_version(actual) {
+        return Err(McpTransportContractError(format!(
+            "MCP initialize result protocol version {actual} is not supported"
+        )));
+    }
+    Ok(())
 }
 
 fn object<'a>(

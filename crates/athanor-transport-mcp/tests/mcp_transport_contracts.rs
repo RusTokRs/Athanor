@@ -2,8 +2,9 @@ use std::collections::BTreeSet;
 
 use athanor_transport_mcp::{
     DEFAULT_MAX_IN_FLIGHT_REQUESTS, DEFAULT_RESPONSE_QUEUE_CAPACITY, JSON_RPC_VERSION,
-    MCP_PROTOCOL_VERSION, MCP_TRANSPORT_CONTRACTS, validate_initialize_result,
-    validate_json_rpc_request, validate_json_rpc_response, validate_tool_call_result,
+    MCP_PROTOCOL_VERSION, MCP_SUPPORTED_PROTOCOL_VERSIONS, MCP_TRANSPORT_CONTRACTS,
+    negotiate_mcp_protocol_version, validate_initialize_result, validate_json_rpc_request,
+    validate_json_rpc_response, validate_tool_call_result,
 };
 use serde_json::Value;
 
@@ -14,6 +15,7 @@ const SERVER_PROTOCOL_SOURCE: &str = include_str!("../src/server/protocol.rs");
 const SERVER_LIFECYCLE_SOURCE: &str = include_str!("../src/server/lifecycle.rs");
 const SERVER_OPERATION_SOURCE: &str = include_str!("../src/server/operation.rs");
 const SERVER_TESTS_SOURCE: &str = include_str!("../src/server/tests.rs");
+const SERVER_VERSION_TESTS_SOURCE: &str = include_str!("../src/server/version_tests.rs");
 const TOOLS_ROOT_SOURCE: &str = include_str!("../src/tools.rs");
 const TOOLS_DISPATCH_SOURCE: &str = include_str!("../src/tools/dispatch.rs");
 const TOOLS_SCHEMA_SOURCE: &str = include_str!("../src/tools/schema.rs");
@@ -50,6 +52,26 @@ fn standard_mcp_transport_fixture_is_valid() {
 }
 
 #[test]
+fn mcp_protocol_version_negotiation_matches_the_lifecycle_contract() {
+    for supported in MCP_SUPPORTED_PROTOCOL_VERSIONS {
+        assert_eq!(negotiate_mcp_protocol_version(supported), *supported);
+        validate_initialize_result(&serde_json::json!({ "protocolVersion": supported }))
+            .expect("supported negotiated protocol version");
+    }
+
+    assert_eq!(
+        negotiate_mcp_protocol_version("2099-01-01"),
+        MCP_PROTOCOL_VERSION
+    );
+    assert!(
+        validate_initialize_result(&serde_json::json!({
+            "protocolVersion": "2099-01-01"
+        }))
+        .is_err()
+    );
+}
+
+#[test]
 fn mcp_transport_registry_is_unique_and_separate_from_athanor_schema_registry() {
     let names = MCP_TRANSPORT_CONTRACTS
         .iter()
@@ -64,7 +86,8 @@ fn mcp_transport_registry_is_unique_and_separate_from_athanor_schema_registry() 
     let server_source = production_server_source();
     assert!(server_source.contains("struct JsonRpcRequest"));
     assert!(server_source.contains("struct RpcError"));
-    assert!(server_source.contains("MCP_PROTOCOL_VERSION"));
+    assert!(server_source.contains("negotiate_mcp_protocol_version"));
+    assert!(!server_source.contains("unsupported MCP protocol version"));
     assert!(server_source.contains("\"isError\": true"));
     assert!(server_source.contains("\"type\": \"text\""));
     assert!(
@@ -73,6 +96,8 @@ fn mcp_transport_registry_is_unique_and_separate_from_athanor_schema_registry() 
             && !TOOLS_SCHEMA_SOURCE.contains("athanor.mcp_"),
         "standard MCP envelopes must not acquire an Athanor schema id"
     );
+    assert!(SERVER_VERSION_TESTS_SOURCE.contains("MCP_SUPPORTED_PROTOCOL_VERSIONS"));
+    assert!(SERVER_VERSION_TESTS_SOURCE.contains("2099-01-01"));
 }
 
 #[test]
