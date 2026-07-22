@@ -1,5 +1,6 @@
 const RELEASE_WORKFLOW: &str = include_str!("../../../.github/workflows/release.yml");
 const RELEASE_GUARD: &str = include_str!("../../../scripts/verify_release_version.py");
+const RELEASE_GUIDE: &str = include_str!("../../../docs/development/release.md");
 const CHANGELOG: &str = include_str!("../../../CHANGELOG.md");
 const ATH_MANIFEST: &str = include_str!("../../../apps/ath/Cargo.toml");
 const ATHD_MANIFEST: &str = include_str!("../../../apps/athd/Cargo.toml");
@@ -72,7 +73,10 @@ fn release_guard_fails_closed_on_invalid_or_mismatched_versions() {
         "notes_output.write_text",
         "return 1",
     ] {
-        assert!(RELEASE_GUARD.contains(required), "release guard omits {required}");
+        assert!(
+            RELEASE_GUARD.contains(required),
+            "release guard omits {required}"
+        );
     }
 
     assert!(!RELEASE_GUARD.contains("except Exception"));
@@ -97,10 +101,30 @@ fn release_packages_and_changelog_share_the_current_version() {
 }
 
 #[test]
+fn release_runbook_matches_the_enforced_workflow() {
+    for invariant in [
+        "athanor/verification-matrix",
+        "athanor/appsec",
+        "athanor/store-conformance",
+        "v<package.version>",
+        "release-notes.md",
+        "CycloneDX SBOM",
+        "Do not move or reuse a published release tag",
+        "Never replace assets",
+    ] {
+        assert!(
+            RELEASE_GUIDE.contains(invariant),
+            "release guide omits {invariant}"
+        );
+    }
+}
+
+#[test]
 fn release_readiness_owners_remain_bounded() {
     for (name, source, max_lines) in [
         ("release workflow", RELEASE_WORKFLOW, 230),
         ("release guard", RELEASE_GUARD, 180),
+        ("release guide", RELEASE_GUIDE, 180),
         ("changelog", CHANGELOG, 120),
     ] {
         let lines = source.lines().count();
