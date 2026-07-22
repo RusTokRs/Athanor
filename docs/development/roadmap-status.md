@@ -43,12 +43,13 @@ and state publication preserve rollback before durable commit and successful res
 Public, general non-public, adapter, and automation registries are mutually disjoint. Production Rust
 sources are scanned recursively. CLI, daemon, and MCP Index serialize one typed `IndexReport`.
 
-### API Protocol Identity
+### API Protocol Consistency
 
 GraphQL operations use canonical `protocol = graphql`; OpenAPI operations use the symmetric
-`protocol = openapi` boundary. Request bodies, parameters, repository-owned external references, and
-response schema shapes are implemented. The active fourth `API-001` slice adds effective OpenAPI
-security requirements, GraphQL directive argument values, and status/authentication/permission drift.
+`protocol = openapi` boundary. The verified `API-001` package compares request bodies, parameters,
+response schemas, status policy, authentication families, and permission scopes. Repository-owned
+external references, OpenAPI security-alternative semantics, configurable GraphQL security mappings,
+and compatible multi-root response selection are covered by source-level regressions.
 
 ### Documentation Lifecycle Policy
 
@@ -64,12 +65,14 @@ operations before request-task drain.
 
 ### Exact Verification Evidence
 
-The main CI publishes `athanor/verification-matrix` on the exact push SHA after aggregating security,
-quality, feature, and coverage jobs. `docs/development/verification-evidence.json` records the same
-identity. Workflow source without a successful exact result remains implementation evidence only.
+The push workflows publish `athanor/verification-matrix`, `athanor/appsec`, and
+`athanor/store-conformance` on the exact `main` SHA. `docs/development/verification-evidence.json`
+records the CI identity. Workflow source without successful exact results remains implementation
+evidence only.
 
-Current verified architecture evidence is run `29836572040` on commit
-`c4a494f3a1c1af5dcbad4252c5eb69e00d558b3a`.
+Current verified product evidence covers commit
+`f976239c0aa8b58abaf9222485bcf717a50c1ddf`: CI run `29943452118`, AppSec run `29943452179`, and
+Store Conformance run `29943452289` all completed successfully.
 
 ## Implemented Architecture Packages
 
@@ -110,31 +113,32 @@ Current verified architecture evidence is run `29836572040` on commit
 
 ### `VERIFY-001`
 
-- exact status and JSON evidence channels;
+- exact CI, AppSec, Store Conformance, and JSON evidence channels;
 - repository-owned Rust 1.95 setup;
 - cross-platform workspace, feature, coverage, installer, index, and docs verification;
-- architecture audit verified on one exact source commit.
-
-## Active Work
+- architecture and product packages verified on identified source commits.
 
 ### `API-001`
 
-The architecture audit remains closed. Product development now advances GraphQL and cross-protocol API
-consistency in bounded slices:
+- canonical GraphQL/OpenAPI protocol identity;
+- request, parameter, response, status, authentication, and permission comparison;
+- repository-local external reference resolution and explicit remote-reference boundary;
+- exact successful CI, AppSec, and Store Conformance evidence on the promoted `main` commit.
 
-1. [x] normalize OpenAPI endpoint protocol identity at the adapter boundary;
-2. [x] verify normalized-name response-field comparison on real canonical entities;
-3. [x] compare request-body arguments and named input types;
-4. [-] resolve repository-owned external schemas and compare OpenAPI parameters and response shapes;
-5. [ ] extend compatibility to status codes, authentication, and permissions;
-6. [ ] promote the package only after one exact successful matrix covers its complete Definition of Done.
+## Active Work
+
+### `REL-001` — Release Readiness
+
+1. [ ] reject release tags that do not match package versions;
+2. [ ] add a maintained changelog and release-note source;
+3. [ ] document the release checklist and supported artifact set;
+4. [ ] verify the first release candidate from one exact tag commit.
 
 ## Product Backlog
 
 - broader relationship and framework adapters;
 - richer analysis completeness reporting;
 - evidence-backed documentation generation;
-- release-readiness consolidation;
 - internationalization, concepts, and optional semantic/vector retrieval;
 - additional Rustok, community-module, language, and framework integrations.
 
