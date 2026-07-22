@@ -4,8 +4,9 @@ All notable user-visible changes to Athanor are recorded in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and release versions use
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The top `[Unreleased]` section collects
-changes after the latest frozen candidate. A version section must carry an ISO `YYYY-MM-DD` date before
-its matching `v<version>` tag may be published.
+changes after the latest frozen candidate. A release version must have exactly one section with an ISO
+`YYYY-MM-DD` date and at least one substantive non-heading note before its matching `v<version>` tag may
+be published.
 
 ## [Unreleased]
 
@@ -36,4 +37,5 @@ its matching `v<version>` tag may be published.
 
 - Exact commit statuses are published for the CI matrix, AppSec, and Store Conformance workflows.
 - Release workflows use pinned actions, least-privilege job permissions, signed assets, and provenance.
-- Release publication rejects malformed and impossible changelog calendar dates before artifact jobs run.
+- Release publication rejects malformed or impossible calendar dates, duplicate version sections, and
+  heading-only changelog notes before artifact jobs run.
