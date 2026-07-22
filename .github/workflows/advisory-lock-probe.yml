@@ -1,39 +1,39 @@
-name: Advisory Lock Probe
+name: Advisory Lock Finalizer
 
 on:
   pull_request:
-  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  ammonia-lock:
-    if: github.event_name == 'pull_request' && github.head_ref == 'agent/restore-ci-baseline' && github.event.pull_request.head.repo.full_name == github.repository
+  finalize:
+    if: github.head_ref == 'agent/restore-ci-baseline' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ github.head_ref }}
           persist-credentials: true
-      - uses: ./.github/actions/setup-rust
-      - name: Resolve safe ammonia patch
+      - name: Finalize permanent remediation
         shell: bash
         run: |
           set -euo pipefail
-          cargo update -p ammonia --precise 4.1.4
-          cargo metadata --locked --format-version 1 --no-deps >/dev/null
-      - name: Commit resolved lockfile
-        shell: bash
-        run: |
-          set -euo pipefail
-          git add Cargo.lock
-          if git diff --cached --quiet; then
-            echo "Cargo.lock already resolves ammonia 4.1.4"
-            exit 0
-          fi
+          python - <<'PY'
+          from pathlib import Path
+
+          workflow = Path('.github/workflows/ci.yml')
+          source = workflow.read_text()
+          old = 'cargo update -p ammonia --precise 4.1.3'
+          new = 'cargo update -p ammonia --precise 4.1.4'
+          if source.count(old) != 1:
+              raise SystemExit(f'expected exactly one stale ammonia remediation, found {source.count(old)}')
+          workflow.write_text(source.replace(old, new))
+          Path('.github/workflows/advisory-lock-probe.yml').unlink()
+          PY
+          git add .github/workflows/ci.yml .github/workflows/advisory-lock-probe.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "fix(security): update ammonia to 4.1.4"
+          git commit -m "ci(security): retain safe ammonia remediation"
           git push origin "HEAD:${{ github.head_ref }}"
