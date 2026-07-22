@@ -4,7 +4,7 @@ use athanor_app::RuntimeComposition;
 use serde_json::{Map, Value, json};
 
 use crate::tools;
-use crate::transport_contract::{JSON_RPC_VERSION, MCP_PROTOCOL_VERSION};
+use crate::transport_contract::{JSON_RPC_VERSION, negotiate_mcp_protocol_version};
 
 use super::operation::{cancel_notification, handle_tool_call};
 use super::types::{
@@ -95,11 +95,7 @@ pub(super) async fn handle_initialize(
                 "initialize requires string protocolVersion",
             ))
         })?;
-    if requested_version != MCP_PROTOCOL_VERSION {
-        return Err(DispatchError::Protocol(RpcError::invalid_params(format!(
-            "unsupported MCP protocol version {requested_version}; expected {MCP_PROTOCOL_VERSION}",
-        ))));
-    }
+    let negotiated_version = negotiate_mcp_protocol_version(requested_version);
 
     let mut phase = session.lock().await;
     if *phase != McpSessionPhase::AwaitingInitialize {
@@ -110,7 +106,7 @@ pub(super) async fn handle_initialize(
     *phase = McpSessionPhase::AwaitingInitialized;
 
     Ok(json!({
-        "protocolVersion": MCP_PROTOCOL_VERSION,
+        "protocolVersion": negotiated_version,
         "capabilities": { "tools": {} },
         "serverInfo": {
             "name": "athanor",
