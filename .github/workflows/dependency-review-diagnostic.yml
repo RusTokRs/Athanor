@@ -1,0 +1,21 @@
+name: Dependency Review Diagnostic
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4.9.0
+        with:
+          fail-on-severity: low
+          warn-only: true
+          comment-summary-in-pr: always
+          retry-on-snapshot-warnings: true
