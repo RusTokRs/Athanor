@@ -31,13 +31,15 @@ Before creating a release tag:
    that exact commit;
 3. confirm the candidate has no known Product Gate or installation regression;
 4. set the same Semantic Version in `apps/ath/Cargo.toml` and `apps/athd/Cargo.toml`;
-5. move the matching `CHANGELOG.md` section from `Unreleased` to a valid ISO calendar date
-   (`YYYY-MM-DD`);
-6. keep the top `## [Unreleased]` section for changes after the candidate.
+5. keep exactly one matching version section in `CHANGELOG.md` and freeze it with a valid ISO calendar
+   date (`YYYY-MM-DD`);
+6. include at least one substantive non-heading release note in that version section;
+7. keep the top `## [Unreleased]` section for changes after the candidate.
 
 The tag must be exactly `v<package.version>`. The release contract rejects missing `v` prefixes,
-non-Semantic-Version tags, package-version divergence, missing changelog sections, undated version
-sections, malformed or impossible calendar dates such as `2026-02-31`, and empty release notes.
+non-Semantic-Version tags, package-version divergence, missing or duplicate changelog sections, undated
+version sections, malformed or impossible calendar dates such as `2026-02-31`, empty release notes, and
+sections that contain Markdown headings but no substantive note content.
 
 ## Publish
 
