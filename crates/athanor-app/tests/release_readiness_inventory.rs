@@ -16,6 +16,28 @@ fn package_version(manifest: &str) -> &str {
         .expect("release package manifest must define a direct version")
 }
 
+fn current_release_date<'a>(changelog: &'a str, version: &str) -> &'a str {
+    let prefix = format!("## [{version}] - ");
+    let heading = changelog
+        .lines()
+        .find(|line| line.starts_with(&prefix))
+        .unwrap_or_else(|| panic!("changelog omits current release heading {prefix}<date>"));
+    heading
+        .strip_prefix(&prefix)
+        .expect("matched release heading must preserve its prefix")
+}
+
+fn is_iso_release_date(value: &str) -> bool {
+    value.len() == 10
+        && value
+            .bytes()
+            .enumerate()
+            .all(|(index, byte)| match index {
+                4 | 7 => byte == b'-',
+                _ => byte.is_ascii_digit(),
+            })
+}
+
 #[test]
 fn release_workflow_gates_all_artifact_jobs_on_the_tag_contract() {
     for required in [
@@ -84,15 +106,19 @@ fn release_guard_fails_closed_on_invalid_or_mismatched_versions() {
 }
 
 #[test]
-fn release_packages_and_changelog_share_the_current_version() {
+fn release_packages_and_changelog_share_a_dated_current_version() {
     let ath_version = package_version(ATH_MANIFEST);
     let athd_version = package_version(ATHD_MANIFEST);
     assert_eq!(ath_version, athd_version, "release package versions diverged");
 
-    let heading = format!("## [{ath_version}] - Unreleased");
+    let release_date = current_release_date(CHANGELOG, ath_version);
+    assert_ne!(
+        release_date, "Unreleased",
+        "current release section must be frozen before tagging"
+    );
     assert!(
-        CHANGELOG.contains(&heading),
-        "changelog omits current release section {heading}"
+        is_iso_release_date(release_date),
+        "current release date is not YYYY-MM-DD: {release_date}"
     );
     assert!(CHANGELOG.contains("## [Unreleased]"));
     assert!(CHANGELOG.contains("Semantic Versioning"));
