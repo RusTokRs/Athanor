@@ -92,19 +92,26 @@ fn implementation_plan_matches_documentation_status() {
     for completed in [
         "### 3.4 `DOC-001` / `DOC-002` — documentation status hygiene",
         "### 3.5 `MCP-004` — control-plane responsiveness",
+        "### 3.8 `API-001` — GraphQL and cross-protocol API consistency",
         "| `DOC-001` | P3 | `[x] implemented` |",
         "| `DOC-002` | P3 | `[x] implemented` |",
         "| `MCP-004` | P1 | `[x] implemented` |",
+        "| `API-001` | P1 | `[x] verified` |",
         "cargo test -p athanor-app --test documentation_status_inventory --locked",
         "cargo test -p athanor-transport-mcp --test control_plane_saturation_inventory --locked",
     ] {
         assert!(PLAN.contains(completed), "plan is missing {completed}");
     }
     assert!(PLAN.contains("### 4.1 `VERIFY-001` — execution matrix"));
-    assert!(PLAN.contains("### 4.2 `API-001` — GraphQL and cross-protocol API consistency"));
+    assert!(PLAN.contains("### 4.2 `REL-001` — release readiness consolidation"));
+    assert!(PLAN.contains("| `REL-001` | P1 | `[-] in progress` |"));
 
     let active_work = ROADMAP.find("## Active Work").expect("roadmap active work");
-    for package in ["### `DOC-001` / `DOC-002`", "### `MCP-004`"] {
+    for package in [
+        "### `DOC-001` / `DOC-002`",
+        "### `MCP-004`",
+        "### `API-001`",
+    ] {
         let position = ROADMAP
             .find(package)
             .unwrap_or_else(|| panic!("roadmap omits {package}"));
@@ -113,8 +120,9 @@ fn implementation_plan_matches_documentation_status() {
             "completed package {package} remains active"
         );
     }
-    assert!(ROADMAP[active_work..].contains("### `API-001`"));
+    assert!(ROADMAP[active_work..].contains("### `REL-001`"));
     assert!(!ROADMAP[active_work..].contains("### `VERIFY-001`"));
+    assert!(!ROADMAP[active_work..].contains("### `API-001`"));
 }
 
 #[test]
