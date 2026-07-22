@@ -36,3 +36,4 @@ its matching `v<version>` tag may be published.
 
 - Exact commit statuses are published for the CI matrix, AppSec, and Store Conformance workflows.
 - Release workflows use pinned actions, least-privilege job permissions, signed assets, and provenance.
+- Release publication rejects malformed and impossible changelog calendar dates before artifact jobs run.
