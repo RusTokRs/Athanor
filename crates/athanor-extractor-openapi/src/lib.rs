@@ -4,9 +4,7 @@ use async_trait::async_trait;
 use athanor_core::{
     CoreError, CoreResult, ExtractInput, ExtractOutput, Extractor, InvalidationPolicy, SourceFile,
 };
-use athanor_domain::{
-    Entity, EntityId, EntityKind, LanguageCode, SourceLocation, StableKey,
-};
+use athanor_domain::{Entity, EntityId, EntityKind, LanguageCode, SourceLocation, StableKey};
 use athanor_extractor_basic::{ownership_for_file, stable_hash};
 use serde_json::{Value, json};
 
@@ -114,10 +112,7 @@ fn repository_parameter_entities(source: &SourceFile) -> Vec<Entity> {
             let reference = format!("#/components/parameters/{component_name}");
             Some(Entity {
                 id: EntityId(format!("ent_api_parameter_{hash:016x}")),
-                stable_key: StableKey(format!(
-                    "api-parameter://{}#{component_name}",
-                    source.path
-                )),
+                stable_key: StableKey(format!("api-parameter://{}#{component_name}", source.path)),
                 kind: EntityKind::ApiSchema,
                 name: component_name.clone(),
                 title: None,
