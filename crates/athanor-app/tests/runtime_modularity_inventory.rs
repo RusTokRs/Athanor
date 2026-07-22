@@ -37,6 +37,21 @@ fn runtime_trust_api_emits_only_the_public_report_schema() {
 }
 
 #[test]
+fn legacy_adapter_runtime_aliases_are_explicitly_deprecated() {
+    assert_eq!(RUNTIME_ROOT.matches("#[deprecated").count(), 3);
+    for replacement in [
+        "use adapter_contract::VersionedAdapterTrustReport",
+        "ADAPTER_MANIFEST_SCHEMA_V1 for current output",
+        "ADAPTER_TRUST_REGISTRY_SCHEMA_V2 for current persistence",
+    ] {
+        assert!(
+            RUNTIME_ROOT.contains(replacement),
+            "legacy runtime alias does not name its current replacement: {replacement}"
+        );
+    }
+}
+
+#[test]
 fn process_context_and_test_commands_have_one_clear_environment_owner() {
     assert!(!PROCESS_SCOPE.contains("crate::runtime::with_process_cancellation"));
     assert!(!RUNTIME_ROOT.contains("PROCESS_CANCELLATION"));

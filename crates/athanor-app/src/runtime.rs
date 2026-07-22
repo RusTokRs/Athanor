@@ -30,8 +30,16 @@ pub use trust::{
     trust_adapter_plugin, untrust_adapter_plugin,
 };
 
+#[deprecated(note = "use adapter_contract::VersionedAdapterTrustReport")]
 pub type AdapterTrustReport = crate::adapter_contract::VersionedAdapterTrustReport;
 
+#[deprecated(
+    note = "use ADAPTER_MANIFEST_SCHEMA_V1 for current output or ADAPTER_MANIFEST_SCHEMA_LEGACY for legacy input normalization"
+)]
 pub const ADAPTER_MANIFEST_SCHEMA: &str = crate::adapter_contract::ADAPTER_MANIFEST_SCHEMA_LEGACY;
+
+#[deprecated(
+    note = "use ADAPTER_TRUST_REGISTRY_SCHEMA_V2 for current persistence or ADAPTER_TRUST_REGISTRY_SCHEMA_LEGACY_V2 for legacy input normalization"
+)]
 pub const ADAPTER_TRUST_SCHEMA: &str =
     crate::adapter_contract::ADAPTER_TRUST_REGISTRY_SCHEMA_LEGACY_V2;
