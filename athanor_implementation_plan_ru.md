@@ -3,7 +3,7 @@
 > Репозиторий: `RusTokRs/Athanor`  
 > Ветка: `main`  
 > Актуализировано: 2026-07-22  
-> Статус: architecture audit и `API-001` verified; release candidate prepared, tag verification pending
+> Статус: architecture audit и `API-001` verified; release candidate hardened, tag verification pending
 
 ## 1. Статусы и evidence
 
@@ -115,16 +115,16 @@ Clippy, installers, index smoke и docs check на Linux, macOS и Windows.
 
 - [x] Release workflow собирает Linux и Windows archives, checksums, signatures, provenance и SBOM.
 - [x] `scripts/verify_release_version.py` требует exact `v<semver>` и одинаковые версии `ath`/`athd`.
-- [x] Недатированная, отсутствующая или пустая version-section `CHANGELOG.md` блокирует release tag.
+- [x] Недатированная, отсутствующая, пустая или некалендарная version-section `CHANGELOG.md` блокирует release tag.
 - [x] Matching changelog section публикуется как `release-notes.md`, а changelog входит в binary archives.
 - [x] `docs/development/release.md` фиксирует supported artifacts, checklist и recovery policy.
 - [x] `release_readiness_inventory` защищает workflow, guard, package versions, changelog и runbook.
 - [x] Секция `0.1.0` заморожена с датой `2026-07-22`; release-hardening notes входят в candidate notes.
 - [ ] Первый release candidate должен пройти exact tag workflow целиком.
 
-Статический Definition of Done и датированные candidate notes реализованы. Пакет остаётся
-`[-] in progress`, поскольку source-level regressions не заменяют реальный tag-triggered build, SBOM,
-signature, provenance и publication run.
+Статический Definition of Done, строгая календарная валидация и датированные candidate notes
+реализованы. Пакет остаётся `[-] in progress`, поскольку source-level regressions не заменяют реальный
+tag-triggered build, SBOM, signature, provenance и publication run.
 
 ### 4.3 Product backlog
 
@@ -154,7 +154,7 @@ signature, provenance и publication run.
 | `VERIFY-001G` | P1 | `[x] implemented` | Cross-platform blockers closed by V21/V24/V41 |
 | `VERIFY-001` | P1 | `[x] verified` | Runs `29943452118`, `29943452179`, `29943452289` succeeded on `f976239c0aa8b58abaf9222485bcf717a50c1ddf` |
 | `API-001` | P1 | `[x] verified` | Five bounded slices and full exact CI/AppSec/Store evidence |
-| `REL-001` | P1 | `[-] in progress` | Dated `0.1.0` candidate committed; exact tag workflow pending |
+| `REL-001` | P1 | `[-] in progress` | Calendar-valid dated `0.1.0` candidate committed; exact tag workflow pending |
 
 ## 6. Verification matrix
 
