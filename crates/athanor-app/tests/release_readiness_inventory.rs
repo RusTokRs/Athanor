@@ -166,7 +166,10 @@ fn release_packages_and_changelog_share_a_dated_current_version() {
 
 #[test]
 fn release_runbook_matches_the_enforced_workflow() {
-    let normalized_guide = RELEASE_GUIDE.split_whitespace().collect::<Vec<_>>().join(" ");
+    let normalized_guide = RELEASE_GUIDE
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
     for invariant in [
         "athanor/verification-matrix",
         "athanor/appsec",
