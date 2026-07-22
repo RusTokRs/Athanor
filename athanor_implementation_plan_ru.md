@@ -3,7 +3,7 @@
 > Репозиторий: `RusTokRs/Athanor`  
 > Ветка: `main`  
 > Актуализировано: 2026-07-22  
-> Статус: architecture audit и `API-001` verified; release readiness active
+> Статус: architecture audit и `API-001` verified; release candidate prepared, tag verification pending
 
 ## 1. Статусы и evidence
 
@@ -119,10 +119,12 @@ Clippy, installers, index smoke и docs check на Linux, macOS и Windows.
 - [x] Matching changelog section публикуется как `release-notes.md`, а changelog входит в binary archives.
 - [x] `docs/development/release.md` фиксирует supported artifacts, checklist и recovery policy.
 - [x] `release_readiness_inventory` защищает workflow, guard, package versions, changelog и runbook.
+- [x] Секция `0.1.0` заморожена с датой `2026-07-22`; release-hardening notes входят в candidate notes.
 - [ ] Первый release candidate должен пройти exact tag workflow целиком.
 
-Статический Definition of Done реализован. Пакет остаётся `[-] in progress`, поскольку source-level
-regressions не заменяют реальный tag-triggered build, SBOM, signature, provenance и publication run.
+Статический Definition of Done и датированные candidate notes реализованы. Пакет остаётся
+`[-] in progress`, поскольку source-level regressions не заменяют реальный tag-triggered build, SBOM,
+signature, provenance и publication run.
 
 ### 4.3 Product backlog
 
@@ -152,7 +154,7 @@ regressions не заменяют реальный tag-triggered build, SBOM, si
 | `VERIFY-001G` | P1 | `[x] implemented` | Cross-platform blockers closed by V21/V24/V41 |
 | `VERIFY-001` | P1 | `[x] verified` | Runs `29943452118`, `29943452179`, `29943452289` succeeded on `f976239c0aa8b58abaf9222485bcf717a50c1ddf` |
 | `API-001` | P1 | `[x] verified` | Five bounded slices and full exact CI/AppSec/Store evidence |
-| `REL-001` | P1 | `[-] in progress` | Static release contract implemented; first exact tag candidate pending |
+| `REL-001` | P1 | `[-] in progress` | Dated `0.1.0` candidate committed; exact tag workflow pending |
 
 ## 6. Verification matrix
 
@@ -174,7 +176,6 @@ cargo run -p ath --quiet --locked -- docs check
 
 ## 7. Текущий следующий шаг
 
-Подготовить первый intentional release candidate: после successful exact `main` statuses заменить
-`## [0.1.0] - Unreleased` на датированную секцию, повторно дождаться required `main` checks и только
-затем создать annotated tag `v0.1.0`. После полного tag workflow записать run и promoted commit; при
-success повысить `REL-001` до `[x] verified`.
+Проверить текущий candidate commit локальной matrix и дождаться required exact `main` statuses. После
+этого создать annotated tag `v0.1.0`, проверить полный tag-triggered release workflow и записать run,
+tag и promoted commit. При success повысить `REL-001` до `[x] verified`.
