@@ -100,27 +100,40 @@ def changelog_notes(changelog: Path, version: str) -> str:
     except OSError as error:
         raise ValueError(f"cannot read {changelog}: {error}") from error
 
-    heading = re.compile(rf"^## \[{re.escape(version)}\] - (.+)$")
-    start = None
-    release_date = None
-    for index, line in enumerate(lines):
-        match = heading.fullmatch(line)
-        if match:
-            start = index + 1
-            release_date = match.group(1)
-            break
-
-    if start is None or release_date is None:
+    section_heading = re.compile(rf"^## \[{re.escape(version)}\](?:\s.*)?$")
+    matches = [
+        (index, line)
+        for index, line in enumerate(lines)
+        if section_heading.fullmatch(line)
+    ]
+    if not matches:
         raise ValueError(f"{changelog} omits release section [{version}]")
-    verify_release_date(release_date, version)
+    if len(matches) != 1:
+        raise ValueError(f"{changelog} defines multiple release sections [{version}]")
 
+    section_index, section_line = matches[0]
+    dated_heading = re.compile(rf"^## \[{re.escape(version)}\] - (.+)$")
+    heading_match = dated_heading.fullmatch(section_line)
+    if heading_match is None:
+        raise ValueError(f"changelog section [{version}] must be dated before release")
+
+    release_date = heading_match.group(1)
+    verify_release_date(release_date, version)
+    start = section_index + 1
     end = next(
         (index for index in range(start, len(lines)) if lines[index].startswith("## [")),
         len(lines),
     )
-    notes = "\n".join(lines[start:end]).strip()
+    note_lines = lines[start:end]
+    notes = "\n".join(note_lines).strip()
     if not notes:
         raise ValueError(f"changelog section [{version}] has no release notes")
+    if not any(
+        line.strip() and not line.lstrip().startswith("#") for line in note_lines
+    ):
+        raise ValueError(
+            f"changelog section [{version}] has no substantive release notes"
+        )
     return notes + "\n"
 
 
