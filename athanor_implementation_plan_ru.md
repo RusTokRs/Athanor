@@ -113,12 +113,16 @@ Clippy, installers, index smoke и docs check на Linux, macOS и Windows.
 
 ### 4.2 `REL-001` — release readiness consolidation
 
-- [-] Release workflow уже собирает Linux и Windows archives, checksums, signatures, provenance и SBOM.
-- [ ] Release tag обязан совпадать с версиями `ath` и `athd`.
-- [ ] Версии release binaries должны проверяться одним repository-owned guard.
-- [ ] Добавить maintained `CHANGELOG.md` и использовать его как release-note source.
-- [ ] Документировать supported artifacts и операторский release checklist.
+- [x] Release workflow собирает Linux и Windows archives, checksums, signatures, provenance и SBOM.
+- [x] `scripts/verify_release_version.py` требует exact `v<semver>` и одинаковые версии `ath`/`athd`.
+- [x] Недатированная, отсутствующая или пустая version-section `CHANGELOG.md` блокирует release tag.
+- [x] Matching changelog section публикуется как `release-notes.md`, а changelog входит в binary archives.
+- [x] `docs/development/release.md` фиксирует supported artifacts, checklist и recovery policy.
+- [x] `release_readiness_inventory` защищает workflow, guard, package versions, changelog и runbook.
 - [ ] Первый release candidate должен пройти exact tag workflow целиком.
+
+Статический Definition of Done реализован. Пакет остаётся `[-] in progress`, поскольку source-level
+regressions не заменяют реальный tag-triggered build, SBOM, signature, provenance и publication run.
 
 ### 4.3 Product backlog
 
@@ -148,7 +152,7 @@ Clippy, installers, index smoke и docs check на Linux, macOS и Windows.
 | `VERIFY-001G` | P1 | `[x] implemented` | Cross-platform blockers closed by V21/V24/V41 |
 | `VERIFY-001` | P1 | `[x] verified` | Runs `29943452118`, `29943452179`, `29943452289` succeeded on `f976239c0aa8b58abaf9222485bcf717a50c1ddf` |
 | `API-001` | P1 | `[x] verified` | Five bounded slices and full exact CI/AppSec/Store evidence |
-| `REL-001` | P1 | `[-] in progress` | Tag/version guard, changelog, checklist, first exact release candidate |
+| `REL-001` | P1 | `[-] in progress` | Static release contract implemented; first exact tag candidate pending |
 
 ## 6. Verification matrix
 
@@ -161,6 +165,7 @@ cargo test -p athanor-extractor-openapi --locked
 cargo test -p athanor-extractor-graphql --locked
 cargo test -p athanor-checker-api --locked
 cargo test -p athanor-app --test documentation_status_inventory --locked
+cargo test -p athanor-app --test release_readiness_inventory --locked
 cargo test -p athanor-app --test verification_evidence_inventory --locked
 cargo test -p athanor-transport-mcp --test control_plane_saturation_inventory --locked
 cargo run -p ath --quiet --locked -- index .
@@ -169,6 +174,7 @@ cargo run -p ath --quiet --locked -- docs check
 
 ## 7. Текущий следующий шаг
 
-Закрыть первый bounded slice `REL-001`: добавить fail-closed проверку соответствия release tag версиям
-`ath` и `athd`, затем добавить maintained `CHANGELOG.md`. После repository-level regressions обновить
-release checklist и только затем переходить к первому release candidate tag.
+Подготовить первый intentional release candidate: после successful exact `main` statuses заменить
+`## [0.1.0] - Unreleased` на датированную секцию, повторно дождаться required `main` checks и только
+затем создать annotated tag `v0.1.0`. После полного tag workflow записать run и promoted commit; при
+success повысить `REL-001` до `[x] verified`.
