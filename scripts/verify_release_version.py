@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify that a release tag exactly matches all release package versions."""
+"""Verify a release tag and prepare notes from the matching changelog section."""
 
 from __future__ import annotations
 
@@ -16,11 +16,14 @@ SEMVER = re.compile(
     r"(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
     r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$"
 )
+RELEASE_DATE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--tag", required=True, help="Git tag, for example v0.1.0")
+    parser.add_argument("--changelog", required=True, type=Path)
+    parser.add_argument("--notes-output", required=True, type=Path)
     parser.add_argument(
         "manifests",
         nargs="+",
@@ -45,7 +48,7 @@ def package_version(manifest: Path) -> str:
     return version
 
 
-def verify(tag: str, manifests: list[Path]) -> str:
+def verify_versions(tag: str, manifests: list[Path]) -> str:
     if not tag.startswith("v"):
         raise ValueError(f"release tag must start with 'v': {tag!r}")
 
@@ -75,16 +78,55 @@ def verify(tag: str, manifests: list[Path]) -> str:
     return tag_version
 
 
+def changelog_notes(changelog: Path, version: str) -> str:
+    try:
+        lines = changelog.read_text(encoding="utf-8").splitlines()
+    except OSError as error:
+        raise ValueError(f"cannot read {changelog}: {error}") from error
+
+    heading = re.compile(rf"^## \[{re.escape(version)}\] - (.+)$")
+    start = None
+    release_date = None
+    for index, line in enumerate(lines):
+        match = heading.fullmatch(line)
+        if match:
+            start = index + 1
+            release_date = match.group(1)
+            break
+
+    if start is None or release_date is None:
+        raise ValueError(f"{changelog} omits release section [{version}]")
+    if release_date == "Unreleased":
+        raise ValueError(f"changelog section [{version}] must be dated before release")
+    if not RELEASE_DATE.fullmatch(release_date):
+        raise ValueError(
+            f"changelog section [{version}] has invalid release date {release_date!r}"
+        )
+
+    end = next(
+        (index for index in range(start, len(lines)) if lines[index].startswith("## [")),
+        len(lines),
+    )
+    notes = "\n".join(lines[start:end]).strip()
+    if not notes:
+        raise ValueError(f"changelog section [{version}] has no release notes")
+    return notes + "\n"
+
+
 def main() -> int:
     args = parse_args()
     try:
-        version = verify(args.tag, args.manifests)
-    except ValueError as error:
-        print(f"release version verification failed: {error}", file=sys.stderr)
+        version = verify_versions(args.tag, args.manifests)
+        notes = changelog_notes(args.changelog, version)
+        args.notes_output.parent.mkdir(parents=True, exist_ok=True)
+        args.notes_output.write_text(notes, encoding="utf-8", newline="\n")
+    except (OSError, ValueError) as error:
+        print(f"release contract verification failed: {error}", file=sys.stderr)
         return 1
 
     packages = ", ".join(str(path) for path in args.manifests)
     print(f"release version {version} matches {packages}")
+    print(f"release notes written to {args.notes_output}")
     return 0
 
 
