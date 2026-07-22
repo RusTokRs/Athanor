@@ -80,3 +80,70 @@ fn external_process_plugins_require_opt_in_trust_and_allowlist() {
     assert_eq!(persisted["schema"], ADAPTER_TRUST_REGISTRY_SCHEMA_V2);
     fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn trust_report_is_versioned_and_manifest_changes_invalidate_trust() {
+    let root = temp_root("runtime-trust-hash");
+    let manifest_dir = root.join(".athanor/adapters");
+    fs::create_dir_all(&manifest_dir).unwrap();
+    let manifest_path = manifest_dir.join("external.json");
+    let mut manifest = AdapterPluginManifest {
+        schema: ADAPTER_MANIFEST_SCHEMA_V1.to_string(),
+        name: "external-trust-hash".to_string(),
+        version: None,
+        adapters: vec![AdapterPluginEntry {
+            id: "external.extractor.empty".to_string(),
+            kind: AdapterPluginKind::Extractor,
+            enabled: true,
+            command: Some(empty_output_command()),
+            supports_extensions: vec!["rs".to_string()],
+        }],
+    };
+    fs::write(
+        &manifest_path,
+        serde_json::to_string_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+    let trust_path = root.join("state/adapter-trust.json");
+    trust_adapter_plugin(AdapterTrustOptions {
+        trust_path: trust_path.clone(),
+        manifest_path: manifest_path.clone(),
+    })
+    .unwrap();
+
+    let trusted = list_adapter_plugin_trust(AdapterTrustListOptions {
+        root: root.clone(),
+        trust_path: trust_path.clone(),
+    })
+    .unwrap();
+    assert_eq!(trusted.schema, ADAPTER_TRUST_REPORT_SCHEMA_V1);
+    assert!(trusted.plugins[0].trusted);
+
+    manifest.version = Some("0.2.0".to_string());
+    fs::write(
+        &manifest_path,
+        serde_json::to_string_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+    let changed = list_adapter_plugin_trust(AdapterTrustListOptions {
+        root: root.clone(),
+        trust_path,
+    })
+    .unwrap();
+    assert!(!changed.plugins[0].trusted);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn rejects_unknown_manifest_fields() {
+    let content = serde_json::json!({
+        "schema": ADAPTER_MANIFEST_SCHEMA_V1,
+        "name": "unknown-field",
+        "unexpected": true,
+        "adapters": []
+    })
+    .to_string();
+    let error = serde_json::from_str::<AdapterPluginManifest>(&content)
+        .expect_err("unknown manifest field should fail deserialization");
+    assert!(error.to_string().contains("unknown field"));
+}
