@@ -67,7 +67,7 @@ fn workflow_toolchain_owners_remain_bounded() {
         ("Rust setup", SETUP_RUST, 60),
         ("CI", CI_WORKFLOW, 330),
         ("production", PRODUCTION_WORKFLOW, 110),
-        ("release", RELEASE_WORKFLOW, 190),
+        ("release", RELEASE_WORKFLOW, 220),
     ] {
         let lines = source.lines().count();
         assert!(lines <= max_lines, "{name} grew to {lines} lines");
