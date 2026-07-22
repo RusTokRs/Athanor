@@ -64,9 +64,9 @@ jobs:
             exit 0
           fi
           message="$(jq -r '.message // ""' "$response")"
-          if [[ "$status" == "403" ]]; then
+          if [[ "$status" == "403" || "$status" == "404" ]]; then
             echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::Dependency review skipped because the repository SBOM endpoint returned HTTP 403: $message"
+            echo "::warning::Dependency review skipped because the repository SBOM endpoint returned HTTP $status: $message"
             echo "Dependency review skipped because GitHub Dependency Graph is unavailable to a contents:read workflow token. Rust advisories remain enforced by cargo-deny in CI." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
