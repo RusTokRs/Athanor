@@ -129,10 +129,14 @@ Store Conformance run `29943452289` all completed successfully.
 
 ### `REL-001` — Release Readiness
 
-1. [ ] reject release tags that do not match package versions;
-2. [ ] add a maintained changelog and release-note source;
-3. [ ] document the release checklist and supported artifact set;
+1. [x] reject tags that do not match both binary package versions or Semantic Versioning;
+2. [x] require a dated version section and publish its maintained changelog notes;
+3. [x] package the changelog and document the supported artifacts, checklist, and recovery policy;
 4. [ ] verify the first release candidate from one exact tag commit.
+
+The static contract and source-level regressions are implemented in `main`. `REL-001` remains active
+until an intentional tag run proves the complete build, SBOM, signature, provenance, verification, and
+publication chain.
 
 ## Product Backlog
 
