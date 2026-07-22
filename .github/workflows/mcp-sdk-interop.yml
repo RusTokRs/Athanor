@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 jobs:
   typescript-sdk-stdio:
@@ -29,6 +30,8 @@ jobs:
           npm --version
           node -e 'const major = Number(process.versions.node.split(".")[0]); if (major < 20) process.exit(1)'
       - name: Run official TypeScript SDK stdio client
+        id: interop
+        continue-on-error: true
         shell: bash
         env:
           ATH_BIN: ${{ github.workspace }}/target/debug/ath
@@ -130,3 +133,16 @@ jobs:
           }
           JS
           node interop.mjs
+      - name: Publish interoperability evidence
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INTEROP_OUTCOME: ${{ steps.interop.outcome }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          gh issue comment 16 --body "Official TypeScript MCP SDK v1.29.0 stdio interoperability validation: **$INTEROP_OUTCOME** on validation commit \`$GITHUB_SHA\`. The scenario covers initialize, tools/list, index, search, SDK timeout cancellation, and post-cancellation session reuse. Run: $run_url"
+      - name: Enforce interoperability result
+        if: steps.interop.outcome != 'success'
+        run: exit 1
