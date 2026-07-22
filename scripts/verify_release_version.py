@@ -94,6 +94,36 @@ def verify_release_date(release_date: str, version: str) -> None:
         ) from error
 
 
+def has_substantive_release_notes(lines: list[str]) -> bool:
+    visible_lines = re.sub(
+        r"<!--.*?(?:-->|$)", "", "\n".join(lines), flags=re.DOTALL
+    ).splitlines()
+    fence: tuple[str, int] | None = None
+    for raw_line in visible_lines:
+        stripped = raw_line.strip()
+        marker = stripped[:1]
+        count = len(stripped) - len(stripped.lstrip(marker))
+        if fence is not None:
+            fence_marker, fence_length = fence
+            if marker == fence_marker and count >= fence_length and not stripped[count:].strip():
+                fence = None
+            elif stripped:
+                return True
+            continue
+        if marker in ("`", "~") and count >= 3:
+            fence = (marker, count)
+            continue
+        compact = stripped.replace(" ", "").replace("\t", "")
+        if not stripped or stripped.startswith("#"):
+            continue
+        if len(compact) >= 3 and len(set(compact)) == 1 and compact[0] in "-_*":
+            continue
+        if re.fullmatch(r"(?:[-+*]|\d+[.)])(?:\s+\[[ xX]\])?", stripped):
+            continue
+        return True
+    return False
+
+
 def changelog_notes(changelog: Path, version: str) -> str:
     try:
         lines = changelog.read_text(encoding="utf-8").splitlines()
@@ -128,9 +158,7 @@ def changelog_notes(changelog: Path, version: str) -> str:
     notes = "\n".join(note_lines).strip()
     if not notes:
         raise ValueError(f"changelog section [{version}] has no release notes")
-    if not any(
-        line.strip() and not line.lstrip().startswith("#") for line in note_lines
-    ):
+    if not has_substantive_release_notes(note_lines):
         raise ValueError(
             f"changelog section [{version}] has no substantive release notes"
         )
