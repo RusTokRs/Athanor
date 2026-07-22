@@ -83,6 +83,7 @@ fn release_guard_fails_closed_on_invalid_or_mismatched_versions() {
         "from datetime import date",
         "SEMVER = re.compile(",
         "RELEASE_DATE = re.compile(",
+        "section_heading = re.compile(",
         "release tag must start with 'v'",
         "release tag is not v<semver>",
         "does not define package.version",
@@ -90,10 +91,12 @@ fn release_guard_fails_closed_on_invalid_or_mismatched_versions() {
         "does not match release packages",
         "release package versions disagree",
         "omits release section",
+        "defines multiple release sections",
         "must be dated before release",
         "date.fromisoformat(release_date)",
         "has invalid release date",
         "has no release notes",
+        "has no substantive release notes",
         "notes_output.write_text",
         "return 1",
     ] {
@@ -113,6 +116,16 @@ fn release_packages_and_changelog_share_a_dated_current_version() {
     let athd_version = package_version(ATHD_MANIFEST);
     assert_eq!(ath_version, athd_version, "release package versions diverged");
 
+    let release_prefix = format!("## [{ath_version}]");
+    assert_eq!(
+        CHANGELOG
+            .lines()
+            .filter(|line| line.starts_with(&release_prefix))
+            .count(),
+        1,
+        "changelog must define the current release exactly once"
+    );
+
     let release_date = current_release_date(CHANGELOG, ath_version);
     assert_ne!(
         release_date, "Unreleased",
@@ -122,6 +135,22 @@ fn release_packages_and_changelog_share_a_dated_current_version() {
         is_iso_release_date(release_date),
         "current release date is not YYYY-MM-DD: {release_date}"
     );
+
+    let heading = format!("## [{ath_version}] - {release_date}");
+    let section = CHANGELOG
+        .split_once(&heading)
+        .expect("current release heading must delimit its notes")
+        .1
+        .split("\n## [")
+        .next()
+        .expect("current release notes must have a bounded section");
+    assert!(
+        section
+            .lines()
+            .any(|line| !line.trim().is_empty() && !line.trim_start().starts_with('#')),
+        "current release section must contain substantive notes"
+    );
+
     assert!(CHANGELOG.contains("## [Unreleased]"));
     assert!(CHANGELOG.contains("Semantic Versioning"));
     assert!(CHANGELOG.contains("Sigstore"));
@@ -136,6 +165,8 @@ fn release_runbook_matches_the_enforced_workflow() {
         "athanor/store-conformance",
         "v<package.version>",
         "valid ISO calendar date",
+        "exactly one matching version section",
+        "substantive non-heading release note",
         "release-notes.md",
         "CycloneDX SBOM",
         "Do not move or reuse a published release tag",
