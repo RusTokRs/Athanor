@@ -138,3 +138,55 @@ jobs:
         run: cargo install zizmor --version 1.26.1 --locked
       - name: Audit workflows
         run: zizmor --offline --strict-collection --min-severity high --min-confidence high --format github .
+
+  exact-status:
+    name: Exact AppSec status
+    if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    needs: [dependency-review, codeql, secrets, workflow-audit]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      statuses: write
+    env:
+      DEPENDENCY_RESULT: ${{ needs.dependency-review.result }}
+      CODEQL_RESULT: ${{ needs.codeql.result }}
+      SECRETS_RESULT: ${{ needs.secrets.result }}
+      WORKFLOW_AUDIT_RESULT: ${{ needs.workflow-audit.result }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Publish exact AppSec status
+        shell: bash
+        run: |
+          set -euo pipefail
+          state="success"
+          description="Athanor AppSec checks passed"
+          if [[ "$DEPENDENCY_RESULT" != "success" && "$DEPENDENCY_RESULT" != "skipped" ]] \
+            || [[ "$CODEQL_RESULT" != "success" ]] \
+            || [[ "$SECRETS_RESULT" != "success" ]] \
+            || [[ "$WORKFLOW_AUDIT_RESULT" != "success" ]]; then
+            state="failure"
+            description="Athanor AppSec checks failed"
+          fi
+          export STATE="$state"
+          export DESCRIPTION="$description"
+          python - <<'PY' > appsec-status.json
+          import json
+          import os
+
+          print(json.dumps({
+              "state": os.environ["STATE"],
+              "target_url": (
+                  f"{os.environ['GITHUB_SERVER_URL']}/"
+                  f"{os.environ['GITHUB_REPOSITORY']}/actions/runs/"
+                  f"{os.environ['GITHUB_RUN_ID']}"
+              ),
+              "description": os.environ["DESCRIPTION"],
+              "context": "athanor/appsec",
+          }))
+          PY
+          curl --fail-with-body --location --request POST \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            --data @appsec-status.json
