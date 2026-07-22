@@ -85,8 +85,10 @@ fn release_guard_fails_closed_on_invalid_or_mismatched_versions() {
         "RELEASE_DATE = re.compile(",
         "section_heading = re.compile(",
         "def has_substantive_release_notes",
-        "flags=re.DOTALL",
         "fence: tuple[str, int] | None",
+        "in_comment = False",
+        "remaining.find(\"<!--\")",
+        "remaining.find(\"-->\")",
         "len(set(compact)) == 1",
         "has_substantive_release_notes(note_lines)",
         "release tag must start with 'v'",
@@ -188,7 +190,7 @@ fn release_runbook_matches_the_enforced_workflow() {
 fn release_readiness_owners_remain_bounded() {
     for (name, source, max_lines) in [
         ("release workflow", RELEASE_WORKFLOW, 230),
-        ("release guard", RELEASE_GUARD, 200),
+        ("release guard", RELEASE_GUARD, 220),
         ("release guide", RELEASE_GUIDE, 180),
         ("changelog", CHANGELOG, 120),
     ] {
