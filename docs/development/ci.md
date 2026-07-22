@@ -27,6 +27,16 @@ coverage. For a push to `main`, it publishes the legacy commit status
 The status job has only `contents: read` and `statuses: write`. This channel is visible through the
 commit-status API even when check-run listing is unavailable to a client.
 
+The `AppSec` and `Store Conformance` workflows publish sibling exact statuses on pushes to `main`:
+
+- `athanor/appsec` requires successful CodeQL, secret scan, and workflow audit results; dependency
+  review may be `skipped` because that job is pull-request-only;
+- `athanor/store-conformance` requires both the backend matrix and the remote two-connection contract
+  to succeed.
+
+Both publishers use `if: always()`, fail closed for failed, cancelled, or unexpected skipped required
+jobs, and link the status to the exact workflow run for the same `GITHUB_SHA`.
+
 After a successful push run for `main`, `.github/workflows/verification-evidence.yml` also records:
 
 - schema `athanor.verification_evidence.v1`;
@@ -51,7 +61,9 @@ must never be attributed to the later bot-published source commit.
 
 A verified claim must cite an exact SHA with either a successful `athanor/verification-matrix` status
 or a valid versioned evidence file for the same successful CI run. If neither channel is present and
-valid, the current architecture status remains implemented, not verified.
+valid, the current architecture status remains implemented, not verified. Package-specific claims
+that require AppSec or Store Conformance must additionally cite successful `athanor/appsec` or
+`athanor/store-conformance` statuses on the same SHA.
 
 ## Toolchain ownership and failure diagnostics
 
