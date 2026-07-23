@@ -49,15 +49,22 @@ jobs:
               elif stripped.startswith('name = "') and stripped.endswith('"'):
                   package = stripped.removeprefix('name = "').removesuffix('"')
               elif package in changed and stripped.startswith('version = "'):
+                  if stripped == 'version = "0.2.0"':
+                      package = None
+                      continue
                   assert stripped == 'version = "0.1.0"', (package, stripped)
                   newline = "\n" if line.endswith("\n") else ""
                   lines[index] = 'version = "0.2.0"' + newline
                   changed[package] += 1
                   package = None
 
-          assert changed == {"ath": 1, "athd": 1}, changed
+          assert changed in ({"ath": 1, "athd": 1}, {"ath": 0, "athd": 0}), changed
           path.write_text("".join(lines), encoding="utf-8")
           PY
+
+          if git diff --quiet -- Cargo.lock; then
+            exit 0
+          fi
 
           diff_lines="$(git diff --unified=0 -- Cargo.lock | grep -E '^[+-]' || true)"
           old_count="$(printf '%s\n' "$diff_lines" | grep -c '^-version = "0.1.0"$' || true)"
@@ -67,13 +74,15 @@ jobs:
           test "$new_count" -eq 2
           test -z "$unexpected"
 
-      - name: Commit final candidate lockfile
+      - name: Commit synchronized lockfile
         shell: bash
         run: |
           set -euo pipefail
-          rm .github/workflows/prepare-release-lock.yml
+          if git diff --quiet -- Cargo.lock; then
+            exit 0
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Cargo.lock .github/workflows/prepare-release-lock.yml
-          git commit -m "build: synchronize 0.2.0 release lockfile"
+          git add Cargo.lock
+          git commit -m "build: synchronize 0.2.0 release lockfile [skip ci]"
           git push origin HEAD:main
