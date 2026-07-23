@@ -1,0 +1,64 @@
+{
+  "schema": "athanor.documentation_evaluation_corpus.v1",
+  "policy": {
+    "provider_opt_in": true,
+    "raw_file_explorer_tools": false,
+    "secrets_allowed": false
+  },
+  "quality_metrics": [
+    "citation_coverage",
+    "citation_validity",
+    "diagram_validity",
+    "unsupported_relation_disclosure",
+    "deterministic_repeatability",
+    "prompt_token_cost",
+    "human_review_score"
+  ],
+  "cases": [
+    {
+      "id": "minimal-rust-service",
+      "kind": "fixture_repository",
+      "revision": "fixture-v1",
+      "files": [
+        {
+          "path": "src/lib.rs",
+          "content": "pub struct Service;\n\nimpl Service {\n    pub fn run(&self) {}\n}\n"
+        },
+        {
+          "path": "README.md",
+          "content": "# Demo Service\n\nThe README documents the demo crate.\n"
+        }
+      ],
+      "expected_sections": ["overview", "relationships"],
+      "expected_citation_paths": ["src/lib.rs", "README.md"],
+      "expected_diagram_edges": [
+        {
+          "source_stable_key": "file://README.md",
+          "target_stable_key": "rust://crate/demo",
+          "relation": "documents"
+        }
+      ],
+      "known_gaps": ["No deployment evidence is present in the fixture."]
+    },
+    {
+      "id": "rustok-architecture-baseline",
+      "kind": "rustok_corpus",
+      "repository": "RusTokRs/RusTok",
+      "revision": "fixture-pinned-revision",
+      "files": [],
+      "expected_sections": ["overview", "components", "relationships", "diagnostics"],
+      "expected_citation_paths": ["composer.json", "app", "packages"],
+      "expected_diagram_edges": [
+        {
+          "source_stable_key": "rustok://application",
+          "target_stable_key": "rustok://module",
+          "relation": "contains"
+        }
+      ],
+      "known_gaps": [
+        "Unsupported relations must be disclosed rather than silently omitted.",
+        "Human review must score usefulness before additional profiles are added."
+      ]
+    }
+  ]
+}
