@@ -1,14 +1,13 @@
 use std::collections::BTreeSet;
 
 use athanor_app::{
-    DocumentationCitation, DocumentationContext, DocumentationDraft, DocumentationGenerationRequest,
-    DocumentationOutline, DocumentationValidationReport, validate_documentation_draft_chain,
-    validate_documentation_report_chain,
+    DocumentationCitation, DocumentationContext, DocumentationDraft,
+    DocumentationGenerationRequest, DocumentationOutline, DocumentationValidationReport,
+    validate_documentation_draft_chain, validate_documentation_report_chain,
 };
 use serde_json::Value;
 
-const CONTRACT_FIXTURE: &str =
-    include_str!("fixtures/documentation_generation_slice0b.v1.json");
+const CONTRACT_FIXTURE: &str = include_str!("fixtures/documentation_generation_slice0b.v1.json");
 const EVALUATION_CORPUS: &str =
     include_str!("fixtures/documentation_generation_evaluation_corpus.v1.json");
 
@@ -50,7 +49,9 @@ fn schema_policy_evidence_and_citation_failures_are_rejected() {
     assert!(serde_json::from_value::<DocumentationOutline>(unknown_outline).is_err());
 
     let mut duplicate_outline: DocumentationOutline = typed(&fixture, "outline");
-    duplicate_outline.sections.push(duplicate_outline.sections[0].clone());
+    duplicate_outline
+        .sections
+        .push(duplicate_outline.sections[0].clone());
     assert!(duplicate_outline.validate_for_request(&request).is_err());
 
     let mut unsafe_context: DocumentationContext = typed(&fixture, "context");
@@ -111,14 +112,8 @@ fn cross_contract_snapshot_section_and_report_drift_fail_closed() {
     let mut other_context = context.clone();
     other_context.snapshot = "snap-other".to_string();
     assert!(
-        validate_documentation_report_chain(
-            &request,
-            &outline,
-            &other_context,
-            &draft,
-            &report,
-        )
-        .is_err()
+        validate_documentation_report_chain(&request, &outline, &other_context, &draft, &report,)
+            .is_err()
     );
 }
 
@@ -146,14 +141,8 @@ fn validation_status_and_provider_metrics_fail_closed() {
     let mut invalid_score: DocumentationValidationReport = typed(&fixture, "validation_report");
     invalid_score.metrics.citation_validity_basis_points = 9_999;
     assert!(
-        validate_documentation_report_chain(
-            &request,
-            &outline,
-            &context,
-            &draft,
-            &invalid_score,
-        )
-        .is_err()
+        validate_documentation_report_chain(&request, &outline, &context, &draft, &invalid_score,)
+            .is_err()
     );
 
     let mut invalid_without_error: DocumentationValidationReport =
@@ -182,7 +171,9 @@ fn evaluation_corpus_is_bounded_reviewable_and_policy_protected() {
     assert_eq!(corpus["policy"]["raw_file_explorer_tools"], false);
     assert_eq!(corpus["policy"]["secrets_allowed"], false);
 
-    let metrics = corpus["quality_metrics"].as_array().expect("quality metrics");
+    let metrics = corpus["quality_metrics"]
+        .as_array()
+        .expect("quality metrics");
     let metric_names = metrics
         .iter()
         .map(|value| value.as_str().expect("metric name"))
@@ -196,7 +187,10 @@ fn evaluation_corpus_is_bounded_reviewable_and_policy_protected() {
         "prompt_token_cost",
         "human_review_score",
     ] {
-        assert!(metric_names.contains(required), "missing quality metric {required}");
+        assert!(
+            metric_names.contains(required),
+            "missing quality metric {required}"
+        );
     }
 
     let cases = corpus["cases"].as_array().expect("evaluation cases");
@@ -206,8 +200,18 @@ fn evaluation_corpus_is_bounded_reviewable_and_policy_protected() {
         let id = case["id"].as_str().expect("case id");
         assert!(ids.insert(id), "duplicate evaluation case {id}");
         assert!(!case["expected_sections"].as_array().unwrap().is_empty());
-        assert!(!case["expected_citation_paths"].as_array().unwrap().is_empty());
-        assert!(!case["expected_diagram_edges"].as_array().unwrap().is_empty());
+        assert!(
+            !case["expected_citation_paths"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            !case["expected_diagram_edges"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
         assert!(!case["known_gaps"].as_array().unwrap().is_empty());
 
         for path in case["expected_citation_paths"].as_array().unwrap() {
