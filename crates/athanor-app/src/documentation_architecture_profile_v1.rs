@@ -864,8 +864,7 @@ fn escape_mermaid(value: &str) -> String {
         .replace('"', "&quot;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
-        .replace('\n', " ")
-        .replace('\r', " ")
+        .replace(['\n', '\r'], " ")
 }
 
 fn sha256_hex(content: &[u8]) -> String {
