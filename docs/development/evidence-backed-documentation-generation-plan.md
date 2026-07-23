@@ -3,15 +3,19 @@ id: doc://docs/development/evidence-backed-documentation-generation-plan.md
 kind: developer_guide
 language: en
 source_language: en
-last_verified_snapshot: snap_jsonl_00000001
-status: verified
+status: active
 ---
 # Evidence-Backed Documentation Generation Plan
 
 ## Status
 
-Planned. This is a documentation-generation layer above Athanor's canonical snapshot, not a
-replacement indexing pipeline and not a new source of canonical truth.
+In progress. Slice 0A is implemented: Athanor now owns strict versioned
+`DocumentationGenerationRequest` and `DocumentationGenerationManifest` contracts plus fixture-backed
+inventory regressions. This slice adds no runtime generator, projector wiring, provider access, or new
+dependency. Slice 0B and the deterministic architecture profile remain planned.
+
+This is a documentation-generation layer above Athanor's canonical snapshot, not a replacement
+indexing pipeline and not a new source of canonical truth.
 
 ## Product Direction
 
@@ -216,10 +220,24 @@ current generated pointer.
 
 ## Delivery Slices
 
-### Slice 0: Contracts, Corpus, and Evaluation Policy
+### Slice 0A: Request And Manifest Contracts — Implemented
 
-- Define versioned request, outline, context, draft, citation, validation-report, and manifest
-  schemas in the app/projector boundary.
+- Define `athanor.documentation_generation_request.v1` with an exact snapshot id, the supported
+  `architecture` profile, and explicit non-zero entity/fact/relation/diagnostic limits.
+- Define `athanor.documentation_generation_manifest.v1` with request-schema identity, generation and
+  snapshot identity, effective limits, omitted counts, status, and checksum-bound document outputs.
+- Reject unknown fields, unsupported schema ids, untrimmed identities, zero limits, unsafe or
+  non-normalized output paths, duplicate ids/paths, invalid lowercase SHA-256 values, and
+  request/manifest mismatches.
+- Register both contracts in the public JSON contract inventory and protect them with one canonical
+  round-trip fixture plus negative regressions.
+- Keep the slice contract-only: no runtime generator, planner, projector integration, CLI command,
+  provider, or new dependency.
+
+### Slice 0B: Remaining Contracts, Corpus, And Evaluation Policy — Planned
+
+- Define versioned outline, context, draft, citation, and validation-report schemas in the
+  app/projector boundary.
 - Create small fixture repositories and a Rustok evaluation corpus with expected outline sections,
   evidence links, diagram edges, and known documentation gaps.
 - Define quality measurements: citation coverage, citation validity, diagram validity, unsupported
@@ -294,4 +312,4 @@ replacement path. A CLI from another project is never a substitute for one of th
 Each implementation slice must add focused fixture/contract tests. Code changes require the
 workspace formatting, tests, and Clippy checks; generation/runtime changes also require `ath index`
 and a bounded generation probe. Documentation-only plan updates require a documentation check and
-must not claim implementation completion.
+must not claim implementation completion without source-level evidence.
