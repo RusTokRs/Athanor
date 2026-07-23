@@ -1,0 +1,201 @@
+name: Observe v0.2.1 Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/observe-v0.2.1.yml"
+
+permissions:
+  actions: read
+  contents: read
+  statuses: write
+
+concurrency:
+  group: observe-v0.2.1-release
+  cancel-in-progress: true
+
+jobs:
+  observe:
+    name: Verify published v0.2.1 release
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Publish pending status
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > /tmp/status.json
+          import json
+          import os
+          print(json.dumps({
+              "state": "pending",
+              "target_url": f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
+              "description": "Observing Athanor v0.2.1 release",
+              "context": "athanor/release-v0.2.1",
+          }))
+          PY
+          curl --fail-with-body --location --request POST \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            --data @/tmp/status.json
+
+      - name: Locate, wait for, and verify release
+        id: verify
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_SHA: 609027eb02caa05346ebfea8538552c42b588c31
+          RELEASE_TAG: v0.2.1
+        run: |
+          set -euo pipefail
+          run_id=""
+          run_url=""
+          for attempt in $(seq 1 60); do
+            curl --fail-with-body --location --silent --show-error \
+              --header "Accept: application/vnd.github+json" \
+              --header "Authorization: Bearer $GH_TOKEN" \
+              --header "X-GitHub-Api-Version: 2022-11-28" \
+              "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/workflows/release.yml/runs?event=workflow_dispatch&per_page=20" \
+              > /tmp/runs.json
+            readarray -t match < <(python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          payload = json.loads(Path("/tmp/runs.json").read_text(encoding="utf-8"))
+          for run in payload.get("workflow_runs", []):
+              if run.get("event") != "workflow_dispatch":
+                  continue
+              if run.get("head_sha") == os.environ["CANDIDATE_SHA"] or run.get("head_branch") == os.environ["RELEASE_TAG"]:
+                  print(run["id"])
+                  print(run["html_url"])
+                  break
+          PY
+            )
+            if [[ "${#match[@]}" -eq 2 ]]; then
+              run_id="${match[0]}"
+              run_url="${match[1]}"
+              break
+            fi
+            sleep 10
+          done
+          test -n "$run_id"
+          printf '%s\n' "$run_url" > /tmp/release-run-url
+
+          export TARGET_URL="$run_url"
+          python3 - <<'PY' > /tmp/status.json
+          import json
+          import os
+          print(json.dumps({
+              "state": "pending",
+              "target_url": os.environ["TARGET_URL"],
+              "description": "Athanor v0.2.1 release workflow running",
+              "context": "athanor/release-v0.2.1",
+          }))
+          PY
+          curl --fail-with-body --location --request POST \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            --data @/tmp/status.json
+
+          for attempt in $(seq 1 180); do
+            curl --fail-with-body --location --silent --show-error \
+              --header "Accept: application/vnd.github+json" \
+              --header "Authorization: Bearer $GH_TOKEN" \
+              --header "X-GitHub-Api-Version: 2022-11-28" \
+              "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/runs/$run_id" \
+              > /tmp/run.json
+            status="$(python3 -c 'import json; print(json.load(open("/tmp/run.json"))["status"])')"
+            if [[ "$status" == "completed" ]]; then
+              break
+            fi
+            sleep 10
+          done
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          run = json.loads(Path("/tmp/run.json").read_text(encoding="utf-8"))
+          assert run["status"] == "completed", run["status"]
+          assert run["conclusion"] == "success", run["conclusion"]
+          assert run["event"] == "workflow_dispatch", run["event"]
+          assert run["head_sha"] == "609027eb02caa05346ebfea8538552c42b588c31", run["head_sha"]
+          PY
+
+          curl --fail-with-body --location --silent --show-error \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/releases/tags/v0.2.1" \
+            > /tmp/release.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          release = json.loads(Path("/tmp/release.json").read_text(encoding="utf-8"))
+          expected = {
+              "athanor-x86_64-unknown-linux-gnu.tar.gz",
+              "athanor-x86_64-unknown-linux-gnu.tar.gz.sha256",
+              "athanor-x86_64-unknown-linux-gnu.tar.gz.sigstore.json",
+              "athanor-x86_64-unknown-linux-gnu.tar.gz.sha256.sigstore.json",
+              "athanor-x86_64-pc-windows-msvc.zip",
+              "athanor-x86_64-pc-windows-msvc.zip.sha256",
+              "athanor-x86_64-pc-windows-msvc.zip.sigstore.json",
+              "athanor-x86_64-pc-windows-msvc.zip.sha256.sigstore.json",
+              "athanor-workspace-cyclonedx.tar.gz",
+              "athanor-workspace-cyclonedx.tar.gz.sha256",
+              "athanor-workspace-cyclonedx.tar.gz.sigstore.json",
+              "athanor-workspace-cyclonedx.tar.gz.sha256.sigstore.json",
+          }
+          assets = {asset["name"]: asset for asset in release.get("assets", [])}
+          assert release["tag_name"] == "v0.2.1"
+          assert release["draft"] is False
+          assert release["prerelease"] is False
+          assert expected == set(assets), (expected - set(assets), set(assets) - expected)
+          assert all(asset["state"] == "uploaded" and asset["size"] > 0 for asset in assets.values())
+          assert release.get("body", "").strip()
+          PY
+
+      - name: Publish terminal status
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERIFY_OUTCOME: ${{ steps.verify.outcome }}
+        run: |
+          set -euo pipefail
+          state="failure"
+          description="Athanor v0.2.1 release verification failed"
+          if [[ "$VERIFY_OUTCOME" == "success" ]]; then
+            state="success"
+            description="Athanor v0.2.1 release published and verified"
+          fi
+          target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          if [[ -s /tmp/release-run-url ]]; then
+            target_url="$(cat /tmp/release-run-url)"
+          fi
+          export STATE="$state"
+          export DESCRIPTION="$description"
+          export TARGET_URL="$target_url"
+          python3 - <<'PY' > /tmp/status.json
+          import json
+          import os
+          print(json.dumps({
+              "state": os.environ["STATE"],
+              "target_url": os.environ["TARGET_URL"],
+              "description": os.environ["DESCRIPTION"],
+              "context": "athanor/release-v0.2.1",
+          }))
+          PY
+          curl --fail-with-body --location --request POST \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            --data @/tmp/status.json
