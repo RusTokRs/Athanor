@@ -3,15 +3,27 @@ use std::path::PathBuf;
 use anyhow::{Context, Result, bail};
 use athanor_app::{
     DocsApplyPatchOptions, DocsApplyPatchReport, DocsCheckOptions, DocsCheckReport,
-    DocsDriftOptions, DocsDriftReport, DocsProposeFixOptions, OperationsDocsCheckOptions,
-    OperationsDocsCheckReport, VersionedDocsProposeFixReport, check_docs_with_composition,
-    check_operations_docs_with_composition, docs_apply_patch_with_composition,
-    docs_drift_with_composition,
+    DocsDriftOptions, DocsDriftReport, DocsProposeFixOptions,
+    DocumentationArchitectureCurrentInspection, DocumentationArchitectureManifestInspection,
+    DocumentationArchitectureOperationOptions, DocumentationArchitecturePublicationReport,
+    DocumentationArchitecturePublicationStatus, DocumentationArchitectureValidationInspection,
+    DocumentationGenerationLimits, DocumentationGenerationRequest, DocumentationProfile,
+    OperationsDocsCheckOptions, OperationsDocsCheckReport, VersionedDocsProposeFixReport,
+    check_docs_with_composition, check_operations_docs_with_composition,
+    docs_apply_patch_with_composition, docs_drift_with_composition,
+    generate_documentation_architecture_with_composition,
+    inspect_documentation_architecture_current, inspect_documentation_architecture_manifest,
+    inspect_documentation_architecture_validation,
 };
 use clap::error::ErrorKind;
 use clap::{Parser, Subcommand};
 
 use crate::render::check;
+
+const DEFAULT_MAX_ENTITIES: usize = 512;
+const DEFAULT_MAX_FACTS: usize = 1_024;
+const DEFAULT_MAX_RELATIONS: usize = 1_024;
+const DEFAULT_MAX_DIAGNOSTICS: usize = 128;
 
 #[derive(Debug, Parser)]
 #[command(name = "ath", disable_version_flag = true)]
@@ -57,9 +69,59 @@ pub(crate) enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Generate deterministic architecture documentation from one exact committed snapshot.
+    GenerateArchitecture {
+        /// Project root. Defaults to the current directory.
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Exact committed canonical snapshot id. Latest-snapshot fallback is intentionally unsupported.
+        #[arg(long)]
+        snapshot: String,
+        /// Publish a new immutable generation even when current output is exactly up to date.
+        #[arg(long)]
+        force: bool,
+        #[arg(long, default_value_t = DEFAULT_MAX_ENTITIES)]
+        max_entities: usize,
+        #[arg(long, default_value_t = DEFAULT_MAX_FACTS)]
+        max_facts: usize,
+        #[arg(long, default_value_t = DEFAULT_MAX_RELATIONS)]
+        max_relations: usize,
+        #[arg(long, default_value_t = DEFAULT_MAX_DIAGNOSTICS)]
+        max_diagnostics: usize,
+        /// Print the complete publication report as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Inspect the validated current architecture documentation generation.
+    Architecture {
+        #[command(subcommand)]
+        command: ArchitectureCommand,
+    },
     Operations {
         #[command(subcommand)]
         command: OperationsCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum ArchitectureCommand {
+    Current {
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    Manifest {
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    Validation {
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -130,6 +192,55 @@ pub(crate) async fn run(command: Command) -> Result<()> {
             .await?;
             render_apply(&report, json)?;
         }
+        Command::GenerateArchitecture {
+            path,
+            snapshot,
+            force,
+            max_entities,
+            max_facts,
+            max_relations,
+            max_diagnostics,
+            json,
+        } => {
+            let request = DocumentationGenerationRequest::new(
+                snapshot,
+                DocumentationProfile::Architecture,
+                DocumentationGenerationLimits {
+                    max_entities,
+                    max_facts,
+                    max_relations,
+                    max_diagnostics,
+                },
+            );
+            let report = generate_documentation_architecture_with_composition(
+                DocumentationArchitectureOperationOptions {
+                    root: path,
+                    request,
+                    force,
+                },
+                &composition,
+            )
+            .await?;
+            render_architecture_generation(&report, json)?;
+        }
+        Command::Architecture {
+            command: ArchitectureCommand::Current { path, json },
+        } => {
+            let report = inspect_documentation_architecture_current(path)?;
+            render_architecture_current(&report, json)?;
+        }
+        Command::Architecture {
+            command: ArchitectureCommand::Manifest { path, json },
+        } => {
+            let report = inspect_documentation_architecture_manifest(path)?;
+            render_architecture_manifest(&report, json)?;
+        }
+        Command::Architecture {
+            command: ArchitectureCommand::Validation { path, json },
+        } => {
+            let report = inspect_documentation_architecture_validation(path)?;
+            render_architecture_validation(&report, json)?;
+        }
         Command::Operations {
             command: OperationsCommand::Check { path, json },
         } => {
@@ -147,6 +258,97 @@ pub(crate) async fn run(command: Command) -> Result<()> {
             }
         }
     }
+    Ok(())
+}
+
+fn render_architecture_generation(
+    report: &DocumentationArchitecturePublicationReport,
+    json: bool,
+) -> Result<()> {
+    if json {
+        println!("{}", serde_json::to_string_pretty(report)?);
+        return Ok(());
+    }
+    match report.status {
+        DocumentationArchitecturePublicationStatus::Published => println!(
+            "published architecture documentation generation {} from snapshot {}",
+            report.generation, report.snapshot
+        ),
+        DocumentationArchitecturePublicationStatus::UpToDate => println!(
+            "architecture documentation generation {} is already up to date for snapshot {}",
+            report.generation, report.snapshot
+        ),
+    }
+    println!("document: {}", report.document.display());
+    println!("validation: {}", report.validation_report.display());
+    println!("manifest: {}", report.manifest.display());
+    println!("current: {}", report.current_pointer.display());
+    Ok(())
+}
+
+fn render_architecture_current(
+    report: &DocumentationArchitectureCurrentInspection,
+    json: bool,
+) -> Result<()> {
+    if json {
+        println!("{}", serde_json::to_string_pretty(report)?);
+    } else {
+        println!(
+            "current architecture documentation generation {} for snapshot {}",
+            report.current.generation, report.current.snapshot
+        );
+        println!("profile: architecture");
+        println!("path: {}", report.current.path);
+        println!("manifest: {}", report.current.manifest);
+        println!("pointer: {}", report.current_pointer.display());
+    }
+    Ok(())
+}
+
+fn render_architecture_manifest(
+    report: &DocumentationArchitectureManifestInspection,
+    json: bool,
+) -> Result<()> {
+    if json {
+        println!("{}", serde_json::to_string_pretty(report)?);
+        return Ok(());
+    }
+    println!(
+        "architecture documentation manifest {} for snapshot {}: {} artifacts",
+        report.manifest.generation,
+        report.manifest.snapshot,
+        report.manifest.documents.len()
+    );
+    for artifact in &report.manifest.documents {
+        println!(
+            "{} {} {} {}",
+            artifact.id, artifact.media_type, artifact.path, artifact.sha256
+        );
+    }
+    println!("manifest: {}", report.manifest_path.display());
+    Ok(())
+}
+
+fn render_architecture_validation(
+    report: &DocumentationArchitectureValidationInspection,
+    json: bool,
+) -> Result<()> {
+    if json {
+        println!("{}", serde_json::to_string_pretty(report)?);
+        return Ok(());
+    }
+    println!(
+        "architecture documentation validation for snapshot {}: valid",
+        report.report.snapshot
+    );
+    println!("diagnostics: {}", report.report.diagnostics.len());
+    println!(
+        "citation coverage: {} basis points; validity: {} basis points; diagram validity: {} basis points",
+        report.report.metrics.citation_coverage_basis_points,
+        report.report.metrics.citation_validity_basis_points,
+        report.report.metrics.diagram_validity_basis_points
+    );
+    println!("report: {}", report.validation_path.display());
     Ok(())
 }
 
@@ -269,4 +471,76 @@ fn render_operations(report: &OperationsDocsCheckReport, json: bool) -> Result<(
         check::print_diagnostics(scoped)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_exact_architecture_generation_with_limits_and_json() {
+        let command = parse(&[
+            "docs".to_string(),
+            "generate-architecture".to_string(),
+            "project".to_string(),
+            "--snapshot".to_string(),
+            "snap-exact".to_string(),
+            "--max-entities".to_string(),
+            "12".to_string(),
+            "--force".to_string(),
+            "--json".to_string(),
+        ])
+        .unwrap()
+        .expect("docs generation command");
+        assert!(matches!(
+            command,
+            Command::GenerateArchitecture {
+                snapshot,
+                max_entities: 12,
+                force: true,
+                json: true,
+                ..
+            } if snapshot == "snap-exact"
+        ));
+    }
+
+    #[test]
+    fn parses_bounded_architecture_inspection_commands() {
+        for (name, expected) in [
+            ("current", "current"),
+            ("manifest", "manifest"),
+            ("validation", "validation"),
+        ] {
+            let command = parse(&[
+                "docs".to_string(),
+                "architecture".to_string(),
+                name.to_string(),
+                "project".to_string(),
+                "--json".to_string(),
+            ])
+            .unwrap()
+            .expect("architecture inspection command");
+            match (expected, command) {
+                (
+                    "current",
+                    Command::Architecture {
+                        command: ArchitectureCommand::Current { json: true, .. },
+                    },
+                )
+                | (
+                    "manifest",
+                    Command::Architecture {
+                        command: ArchitectureCommand::Manifest { json: true, .. },
+                    },
+                )
+                | (
+                    "validation",
+                    Command::Architecture {
+                        command: ArchitectureCommand::Validation { json: true, .. },
+                    },
+                ) => {}
+                _ => panic!("unexpected architecture inspection command"),
+            }
+        }
+    }
 }
