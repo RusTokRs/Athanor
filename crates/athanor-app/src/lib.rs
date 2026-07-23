@@ -45,9 +45,9 @@ mod daemon_write_job_contract_tests;
 mod daemon_write_jobs;
 pub mod derived_read_operation;
 pub mod docs;
-pub mod documentation_architecture_publication;
 #[path = "documentation_architecture_profile_v1.rs"]
 pub mod documentation_architecture_profile;
+pub mod documentation_architecture_publication;
 pub mod documentation_generation_alignment;
 pub mod documentation_generation_contract;
 pub mod explain;
