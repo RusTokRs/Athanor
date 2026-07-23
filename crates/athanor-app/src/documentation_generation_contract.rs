@@ -3,6 +3,10 @@
 //! These types define the bounded application/projector boundary. They deliberately do not
 //! implement planning, composition, rendering, publication, or provider access.
 
+mod slice0b;
+
+pub use slice0b::*;
+
 use std::collections::BTreeSet;
 use std::error::Error;
 use std::fmt;
