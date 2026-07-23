@@ -13,6 +13,7 @@ pub const DOCUMENTATION_GENERATION_REQUEST_SCHEMA_V1: &str =
     "athanor.documentation_generation_request.v1";
 pub const DOCUMENTATION_GENERATION_MANIFEST_SCHEMA_V1: &str =
     "athanor.documentation_generation_manifest.v1";
+pub const DOCUMENTATION_GENERATION_LIMIT_MAX: usize = 100_000;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -37,9 +38,9 @@ impl DocumentationGenerationLimits {
             ("max_relations", self.max_relations),
             ("max_diagnostics", self.max_diagnostics),
         ] {
-            if value == 0 {
+            if !(1..=DOCUMENTATION_GENERATION_LIMIT_MAX).contains(&value) {
                 return Err(DocumentationContractError(format!(
-                    "documentation generation limit {field} must be greater than zero"
+                    "documentation generation limit {field} must be between 1 and {DOCUMENTATION_GENERATION_LIMIT_MAX}"
                 )));
             }
         }
@@ -146,7 +147,7 @@ impl DocumentationGenerationManifest {
         }
 
         let mut ids = BTreeSet::new();
-        let mut paths = BTreeSet::new();
+        let mut portable_paths = BTreeSet::new();
         for document in &self.documents {
             document.validate()?;
             if !ids.insert(document.id.as_str()) {
@@ -155,9 +156,9 @@ impl DocumentationGenerationManifest {
                     document.id
                 )));
             }
-            if !paths.insert(document.path.as_str()) {
+            if !portable_paths.insert(document.path.to_ascii_lowercase()) {
                 return Err(DocumentationContractError(format!(
-                    "duplicate documentation document path {}",
+                    "duplicate portable documentation document path {}",
                     document.path
                 )));
             }
@@ -227,19 +228,59 @@ fn validate_non_empty(field: &str, value: &str) -> Result<(), DocumentationContr
 }
 
 fn validate_relative_output_path(path: &str) -> Result<(), DocumentationContractError> {
-    if path.is_empty()
-        || path.starts_with('/')
-        || path.starts_with('\\')
-        || path.contains('\\')
-        || path
-            .split('/')
-            .any(|component| component.is_empty() || matches!(component, "." | ".."))
-    {
-        return Err(DocumentationContractError(format!(
-            "documentation document path {path} must be a normalized relative slash path"
-        )));
+    if path.is_empty() || path.starts_with('/') || path.starts_with('\\') || path.contains('\\') {
+        return Err(invalid_output_path(path));
+    }
+
+    for component in path.split('/') {
+        if component.is_empty()
+            || matches!(component, "." | "..")
+            || component.ends_with(['.', ' '])
+            || component
+                .chars()
+                .any(|character| character.is_control() || character == ':')
+            || is_windows_reserved_component(component)
+        {
+            return Err(invalid_output_path(path));
+        }
     }
     Ok(())
+}
+
+fn invalid_output_path(path: &str) -> DocumentationContractError {
+    DocumentationContractError(format!(
+        "documentation document path {path} must be a normalized portable relative slash path"
+    ))
+}
+
+fn is_windows_reserved_component(component: &str) -> bool {
+    let stem = component.split('.').next().unwrap_or_default();
+    matches!(
+        stem.to_ascii_uppercase().as_str(),
+        "CON"
+            | "PRN"
+            | "AUX"
+            | "NUL"
+            | "CLOCK$"
+            | "COM1"
+            | "COM2"
+            | "COM3"
+            | "COM4"
+            | "COM5"
+            | "COM6"
+            | "COM7"
+            | "COM8"
+            | "COM9"
+            | "LPT1"
+            | "LPT2"
+            | "LPT3"
+            | "LPT4"
+            | "LPT5"
+            | "LPT6"
+            | "LPT7"
+            | "LPT8"
+            | "LPT9"
+    )
 }
 
 fn validate_sha256(value: &str) -> Result<(), DocumentationContractError> {
