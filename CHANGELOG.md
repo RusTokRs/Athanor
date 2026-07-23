@@ -11,7 +11,7 @@ substantive release notes.
 
 ## [Unreleased]
 
-## [0.1.0] - 2026-07-22
+## [0.2.0] - 2026-07-22
 
 ### Added
 
@@ -33,6 +33,8 @@ substantive release notes.
 
 - Release tags are gated by repository-owned package-version, changelog, artifact, signature, provenance,
   SBOM, and release-note checks.
+- Release preparation rejects occupied tag names and pins an annotated tag to the exact verified candidate
+  SHA instead of assuming the current `main` HEAD is still the candidate.
 
 ### Security
 
@@ -40,3 +42,9 @@ substantive release notes.
 - Release workflows use pinned actions, least-privilege job permissions, signed assets, and provenance.
 - Release publication rejects malformed or impossible calendar dates, duplicate version sections,
   decorative-only notes, and empty fenced blocks before artifact jobs run.
+
+## [0.1.0] - 2026-06-25
+
+### Added
+
+- Historical development snapshot establishing the initial `ath` and `athd` package versions.
