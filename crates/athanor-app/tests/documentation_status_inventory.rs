@@ -172,7 +172,8 @@ fn documentation_generation_plan_matches_current_boundaries() {
         );
     }
     assert!(
-        DOCGEN_PLAN.contains("unchanged. No model provider, daemon, MCP, or new dependency is enabled")
+        DOCGEN_PLAN
+            .contains("unchanged. No model provider, daemon, MCP, or new dependency is enabled")
     );
 }
 
