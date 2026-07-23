@@ -70,9 +70,10 @@ The push workflows publish `athanor/verification-matrix`, `athanor/appsec`, and
 records the CI identity. Workflow source without successful exact results remains implementation
 evidence only.
 
-Current verified product evidence covers commit
-`23ef991baff6e416b1c790536a369fe950733252`: CI run `29957667631`, AppSec run `29957667663`, and
-Store Conformance run `29957667601` all completed successfully.
+Current verified product and release evidence covers commit
+`609027eb02caa05346ebfea8538552c42b588c31`: CI run `29995959544`, AppSec run `29995960063`, and
+Store Conformance run `29995959512` all completed successfully. Annotated tag `v0.2.1` points to that
+commit; Release run `29996579628` and installation-smoke run `29998347890` also succeeded.
 
 ## Implemented Architecture Packages
 
@@ -125,22 +126,20 @@ Store Conformance run `29957667601` all completed successfully.
 - repository-local external reference resolution and explicit remote-reference boundary;
 - exact successful CI, AppSec, and Store Conformance evidence on the promoted `main` commit.
 
-## Active Work
-
 ### `REL-001` — Release Readiness
 
 1. [x] reject tags that do not match both binary package versions or Semantic Versioning;
 2. [x] require a valid ISO calendar date and publish the maintained changelog notes;
 3. [x] package the changelog and document the supported artifacts, checklist, and recovery policy;
-4. [x] preserve the historical `v0.1.0` snapshot and freeze the `0.2.0` changelog section;
-5. [x] reject duplicate sections, HTML-comment/thematic-break/list-marker-only notes, and empty fences;
-6. [ ] verify the `v0.2.0` candidate from one exact tag commit.
+4. [x] preserve immutable historical tags and publish annotated `v0.2.1` on the exact verified commit;
+5. [x] reject duplicate sections, decorative-only notes, and invalid CycloneDX inventory content;
+6. [x] complete contract, Linux/Windows build, SBOM, signature, provenance, verify, and publish jobs;
+7. [x] verify clean Linux and Windows installations from the published archives.
 
-The historical `v0.1.0` tag already owns commit `593fe228fee71c53bd426472781d20fa08c501e5`, so it must not
-be moved or reused. The static contract, calendar-valid date guard, unambiguous changelog selection,
-substantive-note filtering, source-level regressions, and explicit verified-SHA tagging procedure are
-implemented in `main`. `REL-001` remains active until an intentional `v0.2.0` tag run proves the complete
-build, SBOM, signature, provenance, verification, and publication chain.
+`REL-001` is verified. Release run `29996579628` published `v0.2.1` with the complete supported asset
+set. Installation-smoke run `29998347890` downloaded the public archives, verified their outer and
+internal checksums, installed into clean isolated prefixes, and executed both `ath` and `athd` on Linux
+and Windows. The historical `v0.1.0` and failed-attempt `v0.2.0` tags remain immutable.
 
 ## Product Backlog
 
