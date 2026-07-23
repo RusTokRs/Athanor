@@ -33,6 +33,9 @@ use crate::adapter_contract::ADAPTER_TRUST_REPORT_SCHEMA_V1;
 use crate::adapter_contract::VersionedAdapterTrustReport;
 use crate::documentation_generation_contract::{
     DOCUMENTATION_GENERATION_MANIFEST_SCHEMA_V1, DOCUMENTATION_GENERATION_REQUEST_SCHEMA_V1,
+};
+#[cfg(test)]
+use crate::documentation_generation_contract::{
     DocumentationGenerationManifest, DocumentationGenerationRequest,
 };
 
