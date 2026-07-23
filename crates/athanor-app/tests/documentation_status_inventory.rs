@@ -9,6 +9,11 @@ const DOCGEN_PLAN: &str =
     include_str!("../../../docs/development/evidence-backed-documentation-generation-plan.md");
 const PLAN: &str = include_str!("../../../athanor_implementation_plan_ru.md");
 
+const SLICE_1C_SHA: &str = "042d02ac6b4c89d90a5b76c818098eb0c6b41920";
+const SLICE_1C_CI: &str = "30025932615";
+const SLICE_1C_APPSEC: &str = "30025931953";
+const SLICE_1C_STORE: &str = "30025932704";
+
 #[test]
 fn aggregate_status_documents_separate_source_and_execution_evidence() {
     for (name, source) in [
@@ -94,16 +99,16 @@ fn pipeline_separates_current_target_and_history() {
 }
 
 #[test]
-fn implementation_plan_and_roadmap_match_slice_1c_status() {
+fn implementation_plan_and_roadmap_match_slice_1c_evidence() {
     for invariant in [
         "### 4.1 `DOCGEN-001` — evidence-backed documentation generation",
         "| `DOCGEN-001` | P2 | `[-] in progress` |",
         "Slice 1C1",
         "Slice 1C2",
-        "4f567271ed6d38d30b3c15dc6999aa33152a9312",
-        "30015689753",
-        "30015691399",
-        "30015689363",
+        SLICE_1C_SHA,
+        SLICE_1C_CI,
+        SLICE_1C_APPSEC,
+        SLICE_1C_STORE,
         "cargo test -p ath --test documentation_architecture_cli --locked",
     ] {
         assert!(
@@ -115,11 +120,25 @@ fn implementation_plan_and_roadmap_match_slice_1c_status() {
         "## Active Work",
         "### `DOCGEN-001`",
         "Slice 1C1",
-        "Slice 1C2 implemented",
-        "exact matrix pending",
-        "ath docs generate-architecture",
+        "Slice 1C2",
+        SLICE_1C_SHA,
+        SLICE_1C_CI,
+        SLICE_1C_APPSEC,
+        SLICE_1C_STORE,
+        "bounded Rustok architecture-generation evaluation",
     ] {
         assert!(ROADMAP.contains(invariant), "roadmap omits {invariant}");
+    }
+    for (name, source) in [
+        ("documentation index", DOCS_INDEX),
+        ("roadmap", ROADMAP),
+        ("implementation plan", PLAN),
+        ("documentation generation plan", DOCGEN_PLAN),
+    ] {
+        assert!(
+            !source.contains("exact matrix pending"),
+            "{name} retains stale pending-matrix status"
+        );
     }
     assert!(!PLAN.contains("`DOCGEN-001` | P2 | `[x] verified`"));
 }
@@ -141,6 +160,10 @@ fn documentation_generation_plan_matches_current_boundaries() {
         "Slice 1C2",
         "ath docs generate-architecture",
         "ath docs architecture current",
+        SLICE_1C_SHA,
+        SLICE_1C_CI,
+        SLICE_1C_APPSEC,
+        SLICE_1C_STORE,
         "The existing coordinated `ath generate` command is unchanged",
     ] {
         assert!(
