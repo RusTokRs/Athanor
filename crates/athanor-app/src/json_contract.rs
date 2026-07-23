@@ -31,6 +31,10 @@ pub use base::{
 use crate::adapter_contract::ADAPTER_TRUST_REPORT_SCHEMA_V1;
 #[cfg(test)]
 use crate::adapter_contract::VersionedAdapterTrustReport;
+use crate::documentation_generation_contract::{
+    DOCUMENTATION_GENERATION_MANIFEST_SCHEMA_V1, DOCUMENTATION_GENERATION_REQUEST_SCHEMA_V1,
+    DocumentationGenerationManifest, DocumentationGenerationRequest,
+};
 
 #[path = "response_contract.rs"]
 mod response_contract;
@@ -144,6 +148,14 @@ pub const VERSIONED_JSON_CONTRACTS: &[JsonContractDescriptor] = &[
     descriptor!(INDEX_BENCHMARK_SCHEMA_V1, "BenchmarkReport"),
     descriptor!(CHANGED_VALIDATION_SCHEMA_V1, "ChangedValidationReport"),
     descriptor!(GENERATION_SCHEMA_V1, "GenerationReport"),
+    descriptor!(
+        DOCUMENTATION_GENERATION_REQUEST_SCHEMA_V1,
+        "DocumentationGenerationRequest"
+    ),
+    descriptor!(
+        DOCUMENTATION_GENERATION_MANIFEST_SCHEMA_V1,
+        "DocumentationGenerationManifest"
+    ),
     descriptor!(CONFIG_VALIDATE_SCHEMA_V1, "ConfigValidateReport"),
     descriptor!(CONFIG_DOCTOR_SCHEMA_V1, "ConfigDoctorReport"),
     descriptor!(DOCS_CHECK_SCHEMA_V1, "DocsCheckReport"),
@@ -244,7 +256,15 @@ mod tests {
     fn extended_registry_contains_application_daemon_and_adapter_owners() {
         validate_contract_registry(VERSIONED_JSON_CONTRACTS)
             .expect("extended JSON contract registry must remain valid");
-        assert_eq!(VERSIONED_JSON_CONTRACTS.len(), 60);
+        assert_eq!(VERSIONED_JSON_CONTRACTS.len(), 62);
+        assert_eq!(
+            DOCUMENTATION_GENERATION_REQUEST_SCHEMA_V1,
+            DocumentationGenerationRequest::SCHEMA
+        );
+        assert_eq!(
+            DOCUMENTATION_GENERATION_MANIFEST_SCHEMA_V1,
+            DocumentationGenerationManifest::SCHEMA
+        );
         assert_eq!(API_SNAPSHOT_SCHEMA_V1, VersionedApiSnapshotReport::SCHEMA);
         assert_eq!(
             DOCS_PROPOSE_FIX_SCHEMA_V1,
