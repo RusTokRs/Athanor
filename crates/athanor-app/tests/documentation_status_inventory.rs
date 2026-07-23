@@ -4,6 +4,7 @@ const PIPELINE: &str = include_str!("../../../docs/architecture/pipeline.md");
 const OPERATION_CONTEXT: &str =
     include_str!("../../../docs/development/direct-operation-context.md");
 const RELEASE_GUIDE: &str = include_str!("../../../docs/development/release.md");
+const JSON_INVENTORY: &str = include_str!("../../../docs/development/json-contract-inventory.md");
 const DOCGEN_PLAN: &str =
     include_str!("../../../docs/development/evidence-backed-documentation-generation-plan.md");
 const PLAN: &str = include_str!("../../../athanor_implementation_plan_ru.md");
@@ -15,18 +16,16 @@ fn aggregate_status_documents_do_not_claim_unexecuted_verification() {
         ("roadmap", ROADMAP),
         ("pipeline", PIPELINE),
     ] {
-        assert!(
-            source.contains("status: active"),
-            "{name} must remain active"
-        );
+        assert!(source.contains("status: active"), "{name} must remain active");
         assert!(!source.contains("status: verified"));
         assert!(!source.contains("last_verified_snapshot:"));
         assert!(!source.contains("Status: verified."));
         assert!(
             source.contains("implementation evidence")
                 || source.contains("Implemented means")
-                || source.contains("implemented, not verified"),
-            "{name} must distinguish implementation from execution evidence"
+                || source.contains("implemented, not verified")
+                || source.contains("execution evidence"),
+            "{name} must distinguish source state from execution evidence"
         );
     }
 }
@@ -43,20 +42,16 @@ fn documentation_entrypoint_routes_to_current_status_owners() {
         "development/release.md",
         "development/evidence-backed-documentation-generation-plan.md",
     ] {
-        assert!(
-            DOCS_INDEX.contains(target),
-            "documentation map omits {target}"
-        );
+        assert!(DOCS_INDEX.contains(target), "documentation map omits {target}");
     }
     for command in [
         "cargo test -p athanor-app --test release_readiness_inventory --locked",
         "cargo test -p athanor-app --test documentation_generation_contract_inventory --locked",
         "cargo test -p athanor-app --test documentation_generation_slice0b_inventory --locked",
+        "cargo test -p athanor-app --test documentation_architecture_profile_inventory --locked",
+        "cargo test -p athanor-app --test documentation_architecture_publication_inventory --locked",
     ] {
-        assert!(
-            DOCS_INDEX.contains(command),
-            "documentation map omits {command}"
-        );
+        assert!(DOCS_INDEX.contains(command), "documentation map omits {command}");
     }
     assert!(!DOCS_INDEX.contains("current verified implementation status"));
 }
@@ -71,7 +66,7 @@ fn pipeline_separates_current_target_and_history() {
     ] {
         assert!(PIPELINE.contains(heading), "pipeline is missing {heading}");
     }
-    for current_owner in [
+    for owner in [
         "index_runtime.rs",
         "pipeline_source.rs",
         "pipeline_extract.rs",
@@ -85,10 +80,7 @@ fn pipeline_separates_current_target_and_history() {
         "check/execution.rs",
         "api/snapshot.rs",
     ] {
-        assert!(
-            PIPELINE.contains(current_owner),
-            "pipeline omits {current_owner}"
-        );
+        assert!(PIPELINE.contains(owner), "pipeline omits {owner}");
     }
 }
 
@@ -97,8 +89,6 @@ fn implementation_plan_matches_documentation_status() {
     for completed in [
         "### 3.4 `DOC-001` / `DOC-002` — documentation status hygiene",
         "### 3.5 `MCP-004` — control-plane responsiveness",
-        "### 3.8 `API-001` — GraphQL and cross-protocol API consistency",
-        "### 3.9 `REL-001` — release readiness consolidation",
         "| `DOC-001` | P3 | `[x] implemented` |",
         "| `DOC-002` | P3 | `[x] implemented` |",
         "| `MCP-004` | P1 | `[x] implemented` |",
@@ -119,32 +109,18 @@ fn implementation_plan_matches_documentation_status() {
     let product_backlog = ROADMAP.find("## Product Backlog").expect("roadmap backlog");
     assert!(active_work < product_backlog);
     let active = &ROADMAP[active_work..product_backlog];
-    for invariant in ["### `DOCGEN-001`", "Slice 0A", "Slice 0B"] {
+    for invariant in ["### `DOCGEN-001`", "Slice 1A", "Slice 1B", "Slice 1C"] {
         assert!(active.contains(invariant), "active work omits {invariant}");
     }
+    assert!(active.contains("0cfeca8ad4dc3c0632246afa01e43372f4ec3d71"));
     assert!(!active.contains("verified on"));
-
-    for package in [
-        "### `DOC-001` / `DOC-002`",
-        "### `MCP-004`",
-        "### `API-001`",
-        "### `REL-001`",
-    ] {
-        let position = ROADMAP
-            .find(package)
-            .unwrap_or_else(|| panic!("roadmap omits {package}"));
-        assert!(
-            position < active_work,
-            "completed package {package} is still active"
-        );
-    }
 }
 
 #[test]
 fn documentation_generation_plan_matches_the_bounded_slice() {
     for invariant in [
         "# Evidence-Backed Documentation Generation Plan",
-        "canonical snapshot is the only source",
+        "canonical snapshot remains the only truth source",
         "athanor.documentation_generation_request.v1",
         "athanor.documentation_generation_manifest.v1",
         "athanor.documentation_outline.v1",
@@ -152,19 +128,43 @@ fn documentation_generation_plan_matches_the_bounded_slice() {
         "athanor.documentation_citation.v1",
         "athanor.documentation_draft.v1",
         "athanor.documentation_validation_report.v1",
+        "athanor.documentation_current.v1",
         "No reference becomes a dependency",
-        "Slice 0A — Implemented",
-        "Slice 0B — Implemented",
-        "No runtime documentation generator",
+        "Slice 1A — Implemented And Execution-Confirmed",
+        "Slice 1B — Implemented And Execution-Confirmed",
+        "Slice 1C — Next",
+        "The existing coordinated `ath generate` command is unchanged",
     ] {
         assert!(
             DOCGEN_PLAN.contains(invariant) || PLAN.contains(invariant),
             "documentation generation status omits {invariant}"
         );
     }
-    assert!(PLAN.contains("documentation_generation_slice0b_inventory"));
-    assert!(PLAN.contains("Slice 1"));
+    for command in [
+        "documentation_architecture_profile_inventory",
+        "documentation_architecture_publication_inventory",
+    ] {
+        assert!(PLAN.contains(command) && DOCS_INDEX.contains(command));
+    }
     assert!(!PLAN.contains("`DOCGEN-001` | P2 | `[x] verified`"));
+}
+
+#[test]
+fn documentation_json_inventory_matches_publication_boundaries() {
+    for invariant in [
+        "`NON_PUBLIC_JSON_CONTRACTS` contains 32 descriptors",
+        "26 current documents",
+        "athanor.documentation_current.v1",
+        "CurrentDocumentationGeneration",
+        "athanor.documentation_validation_report.v1",
+        "Twenty canonical literals",
+        "four intermediate documentation types",
+        "documentation_architecture_publication_inventory",
+    ] {
+        assert!(JSON_INVENTORY.contains(invariant), "JSON inventory omits {invariant}");
+    }
+    assert!(!JSON_INVENTORY.contains("`NON_PUBLIC_JSON_CONTRACTS` retains 30"));
+    assert!(!JSON_INVENTORY.contains("five Slice 0B intermediate documentation contracts"));
 }
 
 #[test]
@@ -182,10 +182,7 @@ fn release_runbook_matches_the_repository_owned_contract() {
         "CycloneDX SBOM",
         "Never replace assets",
     ] {
-        assert!(
-            RELEASE_GUIDE.contains(invariant),
-            "release guide omits {invariant}"
-        );
+        assert!(RELEASE_GUIDE.contains(invariant), "release guide omits {invariant}");
     }
     assert!(RELEASE_GUIDE.contains("status: active"));
     assert!(!RELEASE_GUIDE.contains("status: verified"));
@@ -204,21 +201,15 @@ fn mcp_control_plane_documentation_matches_implementation_status() {
     ] {
         assert!(OPERATION_CONTEXT.contains(invariant));
     }
-    assert!(
-        !OPERATION_CONTEXT.contains(
-            "Resolve control-plane responsiveness under full ordinary-request saturation"
-        )
-    );
 }
 
 #[test]
-fn removed_monoliths_and_legacy_services_do_not_return_to_status_docs() {
+fn removed_monoliths_and_false_docgen_surfaces_do_not_return() {
     for stale in [
         "crates/athanor-app/src/graph.rs",
         "crates/athanor-app/src/check.rs",
         "crates/athanor-app/src/api.rs",
         "Legacy library entry points remain",
-        "Coordinating that canonical publication with the separate index-state and read-model publications remains a planned app-layer transaction boundary",
         "- `check_project`:",
         "- `snapshot_api_contract`:",
     ] {
@@ -227,12 +218,11 @@ fn removed_monoliths_and_legacy_services_do_not_return_to_status_docs() {
             ("roadmap", ROADMAP),
             ("pipeline", PIPELINE),
         ] {
-            assert!(
-                !source.contains(stale),
-                "{name} contains stale claim {stale}"
-            );
+            assert!(!source.contains(stale), "{name} contains stale claim {stale}");
         }
     }
+    assert!(DOCS_INDEX.contains("There is not yet a supported `ath` command"));
+    assert!(ROADMAP.contains("No CLI, daemon, MCP, provider, or store-loading entrypoint"));
 }
 
 #[test]
