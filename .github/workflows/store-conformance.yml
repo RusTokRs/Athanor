@@ -38,36 +38,37 @@ jobs:
           from pathlib import Path
 
           path = Path("Cargo.lock")
-          lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+          before = path.read_text(encoding="utf-8").splitlines(keepends=True)
+          after = before.copy()
           package = None
-          changed = {"ath": 0, "athd": 0}
-          for index, line in enumerate(lines):
+          versions = {}
+          changed = {}
+
+          for index, line in enumerate(before):
               stripped = line.strip()
               if stripped == "[[package]]":
                   package = None
               elif stripped.startswith('name = "') and stripped.endswith('"'):
                   package = stripped.removeprefix('name = "').removesuffix('"')
-              elif package in changed and stripped.startswith('version = "'):
-                  if stripped == 'version = "0.2.0"':
-                      package = None
-                      continue
-                  assert stripped == 'version = "0.1.0"', (package, stripped)
-                  newline = "\n" if line.endswith("\n") else ""
-                  lines[index] = 'version = "0.2.0"' + newline
-                  changed[package] += 1
+              elif package in {"ath", "athd"} and stripped.startswith('version = "'):
+                  versions[package] = stripped.removeprefix('version = "').removesuffix('"')
+                  if versions[package] == "0.1.0":
+                      newline = "\n" if line.endswith("\n") else ""
+                      after[index] = 'version = "0.2.0"' + newline
+                      changed[package] = index
+                  elif versions[package] != "0.2.0":
+                      raise AssertionError((package, versions[package]))
                   package = None
-          assert changed in ({"ath": 1, "athd": 1}, {"ath": 0, "athd": 0}), changed
-          path.write_text("".join(lines), encoding="utf-8")
-          PY
 
-          if git diff --quiet -- Cargo.lock; then
-            exit 0
-          fi
-          diff_lines="$(git diff --unified=0 -- Cargo.lock | grep -E '^[+-]' || true)"
-          test "$(printf '%s\n' "$diff_lines" | grep -c '^-version = "0.1.0"$' || true)" -eq 2
-          test "$(printf '%s\n' "$diff_lines" | grep -c '^+version = "0.2.0"$' || true)" -eq 2
-          unexpected="$(printf '%s\n' "$diff_lines" | grep -vE '^(---|\+\+\+|[-+]version = "0\.[12]\.0")$' || true)"
-          test -z "$unexpected"
+          assert versions.keys() == {"ath", "athd"}, versions
+          assert set(changed) in ({"ath", "athd"}, set()), changed
+          changed_indexes = set(changed.values())
+          assert all(
+              old == new or index in changed_indexes
+              for index, (old, new) in enumerate(zip(before, after, strict=True))
+          )
+          path.write_text("".join(after), encoding="utf-8")
+          PY
       - name: Commit synchronized lockfile
         shell: bash
         run: |
