@@ -3,7 +3,7 @@
 > Репозиторий: `RusTokRs/Athanor`  
 > Ветка: `main`  
 > Актуализировано: 2026-07-23  
-> Статус: architecture audit, `API-001` и `REL-001` verified; `DOCGEN-001 / Slices 0A–0B` implemented
+> Статус: architecture audit, `API-001` и `REL-001` verified; `DOCGEN-001 / Slices 0A–0B` execution-confirmed
 
 ## 1. Статусы и evidence
 
@@ -148,6 +148,10 @@ lockfile и installation-smoke workflows удалены из текущего д
   diagram edges, known gaps, repeatability, provider cost и human-review score.
 - [x] Пять intermediate schema ids имеют explicit source-level Rust owners без преждевременного
   runtime/persistence registry.
+- [x] Exact source commit `2a049303e797f00ac53f1e91fc010f284993926d` подтверждён CI run
+  `30005828864`, AppSec run `30005828850` и Store Conformance run `30005828956`.
+- [x] Cross-platform matrix включает formatting, workspace tests, Clippy, installers, index/docs smoke,
+  default/store-surreal/js-ts-precision/all-features и source coverage.
 - [ ] Slice 1: deterministic architecture profile и immutable publication integration.
 
 ### 4.2 Product backlog
@@ -179,7 +183,7 @@ lockfile и installation-smoke workflows удалены из текущего д
 | `VERIFY-001` | P1 | `[x] verified` | Runs `29995959544`, `29995960063`, `29995959512` succeeded on `609027eb02caa05346ebfea8538552c42b588c31` |
 | `API-001` | P1 | `[x] verified` | Five bounded slices and current full exact CI/AppSec/Store evidence |
 | `REL-001` | P1 | `[x] verified` | `v0.2.1` published by `29996579628`; Linux/Windows clean install smokes passed in `29998347890` |
-| `DOCGEN-001` | P2 | `[-] in progress` | Slices 0A–0B contracts, fixtures, corpus and policy implemented; runtime generation remains out of scope |
+| `DOCGEN-001` | P2 | `[-] in progress` | Slices 0A–0B execution-confirmed on `2a049303`; deterministic runtime profile remains planned |
 
 ## 6. Verification matrix
 
