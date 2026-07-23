@@ -104,7 +104,10 @@ fn print_help() {
         ("init", "Initialize Athanor metadata in a project"),
         ("index", "Index project files and export read models"),
         ("bench", "Run synthetic indexing benchmarks"),
-        ("update", "Update the project index from changed files"),
+        (
+            "update",
+            "Update the project index from changed files",
+        ),
         (
             "validate-changed",
             "Validate changed files without publishing",
@@ -115,7 +118,10 @@ fn print_help() {
         ("impact", "Calculate change blast radius"),
         ("change-map", "Build a bounded change map"),
         ("check", "Inspect diagnostics"),
-        ("docs", "Check and repair documentation metadata"),
+        (
+            "docs",
+            "Check, repair, generate, and inspect documentation",
+        ),
         ("config", "Validate and inspect configuration"),
         ("api", "Snapshot and compare API contracts"),
         ("wiki", "Build the Markdown wiki"),
@@ -157,6 +163,16 @@ mod tests {
         ));
         assert!(matches!(
             parse(&["docs".to_string(), "check".to_string()]).unwrap(),
+            Command::Docs(_)
+        ));
+        assert!(matches!(
+            parse(&[
+                "docs".to_string(),
+                "generate-architecture".to_string(),
+                "--snapshot".to_string(),
+                "snap-exact".to_string(),
+            ])
+            .unwrap(),
             Command::Docs(_)
         ));
     }
