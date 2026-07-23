@@ -15,22 +15,10 @@ fn aggregate_status_documents_do_not_claim_unexecuted_verification() {
         ("roadmap", ROADMAP),
         ("pipeline", PIPELINE),
     ] {
-        assert!(
-            source.contains("status: active"),
-            "{name} must remain an active status document"
-        );
-        assert!(
-            !source.contains("status: verified"),
-            "{name} must not use snapshot verification as current-commit evidence"
-        );
-        assert!(
-            !source.contains("last_verified_snapshot:"),
-            "{name} must not carry stale snapshot verification metadata"
-        );
-        assert!(
-            !source.contains("Status: verified."),
-            "{name} must not contain aggregate verified claims without one-commit execution evidence"
-        );
+        assert!(source.contains("status: active"), "{name} must remain active");
+        assert!(!source.contains("status: verified"));
+        assert!(!source.contains("last_verified_snapshot:"));
+        assert!(!source.contains("Status: verified."));
         assert!(
             source.contains("implementation evidence")
                 || source.contains("Implemented means")
@@ -52,18 +40,15 @@ fn documentation_entrypoint_routes_to_current_status_owners() {
         "development/release.md",
         "development/evidence-backed-documentation-generation-plan.md",
     ] {
-        assert!(
-            DOCS_INDEX.contains(target),
-            "documentation map omits {target}"
-        );
+        assert!(DOCS_INDEX.contains(target), "documentation map omits {target}");
     }
-    assert!(
-        DOCS_INDEX
-            .contains("cargo test -p athanor-app --test release_readiness_inventory --locked")
-    );
-    assert!(DOCS_INDEX.contains(
-        "cargo test -p athanor-app --test documentation_generation_contract_inventory --locked"
-    ));
+    for command in [
+        "cargo test -p athanor-app --test release_readiness_inventory --locked",
+        "cargo test -p athanor-app --test documentation_generation_contract_inventory --locked",
+        "cargo test -p athanor-app --test documentation_generation_slice0b_inventory --locked",
+    ] {
+        assert!(DOCS_INDEX.contains(command), "documentation map omits {command}");
+    }
     assert!(!DOCS_INDEX.contains("current verified implementation status"));
 }
 
@@ -77,7 +62,6 @@ fn pipeline_separates_current_target_and_history() {
     ] {
         assert!(PIPELINE.contains(heading), "pipeline is missing {heading}");
     }
-
     for current_owner in [
         "index_runtime.rs",
         "pipeline_source.rs",
@@ -92,10 +76,7 @@ fn pipeline_separates_current_target_and_history() {
         "check/execution.rs",
         "api/snapshot.rs",
     ] {
-        assert!(
-            PIPELINE.contains(current_owner),
-            "pipeline omits current owner {current_owner}"
-        );
+        assert!(PIPELINE.contains(current_owner), "pipeline omits {current_owner}");
     }
 }
 
@@ -120,15 +101,16 @@ fn implementation_plan_matches_documentation_status() {
     assert!(PLAN.contains("### 4.1 `DOCGEN-001` — evidence-backed documentation generation"));
     assert!(PLAN.contains("### 4.2 Product backlog"));
     assert!(PLAN.contains("| `DOCGEN-001` | P2 | `[-] in progress` |"));
-    assert!(!PLAN.contains("### 4.2 `REL-001` — release readiness consolidation"));
     assert!(!PLAN.contains("| `REL-001` | P1 | `[-] in progress` |"));
 
     let active_work = ROADMAP.find("## Active Work").expect("roadmap active work");
     let product_backlog = ROADMAP.find("## Product Backlog").expect("roadmap backlog");
     assert!(active_work < product_backlog);
-    assert!(ROADMAP[active_work..product_backlog].contains("### `DOCGEN-001`"));
-    assert!(ROADMAP[active_work..product_backlog].contains("Slice 0A"));
-    assert!(!ROADMAP[active_work..product_backlog].contains("verified on"));
+    let active = &ROADMAP[active_work..product_backlog];
+    for invariant in ["### `DOCGEN-001`", "Slice 0A", "Slice 0B"] {
+        assert!(active.contains(invariant), "active work omits {invariant}");
+    }
+    assert!(!active.contains("verified on"));
 
     for package in [
         "### `DOC-001` / `DOC-002`",
@@ -139,10 +121,7 @@ fn implementation_plan_matches_documentation_status() {
         let position = ROADMAP
             .find(package)
             .unwrap_or_else(|| panic!("roadmap omits {package}"));
-        assert!(
-            position < active_work,
-            "completed package {package} remains in active work or backlog"
-        );
+        assert!(position < active_work, "completed package {package} is still active");
     }
 }
 
@@ -150,21 +129,26 @@ fn implementation_plan_matches_documentation_status() {
 fn documentation_generation_plan_matches_the_bounded_slice() {
     for invariant in [
         "# Evidence-Backed Documentation Generation Plan",
-        "canonical snapshot remains the only truth source",
+        "canonical snapshot is the only source",
         "athanor.documentation_generation_request.v1",
         "athanor.documentation_generation_manifest.v1",
-        "No new dependency is approved",
-        "Slice 0A",
-        "DocumentationGenerationRequest",
-        "DocumentationGenerationManifest",
-        "no runtime generator",
+        "athanor.documentation_outline.v1",
+        "athanor.documentation_context.v1",
+        "athanor.documentation_citation.v1",
+        "athanor.documentation_draft.v1",
+        "athanor.documentation_validation_report.v1",
+        "No reference becomes a dependency",
+        "Slice 0A — Implemented",
+        "Slice 0B — Implemented",
+        "No runtime documentation generator",
     ] {
         assert!(
             DOCGEN_PLAN.contains(invariant) || PLAN.contains(invariant),
             "documentation generation status omits {invariant}"
         );
     }
-    assert!(PLAN.contains("Slice 0B"));
+    assert!(PLAN.contains("documentation_generation_slice0b_inventory"));
+    assert!(PLAN.contains("Slice 1"));
     assert!(!PLAN.contains("`DOCGEN-001` | P2 | `[x] verified`"));
 }
 
@@ -183,10 +167,7 @@ fn release_runbook_matches_the_repository_owned_contract() {
         "CycloneDX SBOM",
         "Never replace assets",
     ] {
-        assert!(
-            RELEASE_GUIDE.contains(invariant),
-            "release guide omits {invariant}"
-        );
+        assert!(RELEASE_GUIDE.contains(invariant), "release guide omits {invariant}");
     }
     assert!(RELEASE_GUIDE.contains("status: active"));
     assert!(!RELEASE_GUIDE.contains("status: verified"));
@@ -203,16 +184,11 @@ fn mcp_control_plane_documentation_matches_implementation_status() {
         "Ordinary request tasks retain bounded",
         "cargo test -p athanor-transport-mcp --test control_plane_saturation_inventory --locked",
     ] {
-        assert!(
-            OPERATION_CONTEXT.contains(invariant),
-            "operation context guide omits {invariant}"
-        );
+        assert!(OPERATION_CONTEXT.contains(invariant));
     }
-    assert!(
-        !OPERATION_CONTEXT.contains(
-            "Resolve control-plane responsiveness under full ordinary-request saturation"
-        )
-    );
+    assert!(!OPERATION_CONTEXT.contains(
+        "Resolve control-plane responsiveness under full ordinary-request saturation"
+    ));
 }
 
 #[test]
@@ -231,10 +207,7 @@ fn removed_monoliths_and_legacy_services_do_not_return_to_status_docs() {
             ("roadmap", ROADMAP),
             ("pipeline", PIPELINE),
         ] {
-            assert!(
-                !source.contains(stale),
-                "{name} contains stale claim {stale}"
-            );
+            assert!(!source.contains(stale), "{name} contains stale claim {stale}");
         }
     }
 }
@@ -247,7 +220,7 @@ fn architecture_status_documents_remain_bounded() {
         ("pipeline", PIPELINE, 380),
         ("operation context", OPERATION_CONTEXT, 260),
         ("release guide", RELEASE_GUIDE, 180),
-        ("documentation generation plan", DOCGEN_PLAN, 320),
+        ("documentation generation plan", DOCGEN_PLAN, 260),
         ("implementation plan", PLAN, 260),
     ] {
         let lines = source.lines().count();
