@@ -4,9 +4,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use athanor_app::{
     DocumentationArchitecturePublicationOptions, DocumentationGenerationLimits,
-    DocumentationGenerationRequest, DocumentationProfile, inspect_documentation_architecture_current,
-    inspect_documentation_architecture_manifest, inspect_documentation_architecture_validation,
-    publish_documentation_architecture_generation,
+    DocumentationGenerationRequest, DocumentationProfile,
+    inspect_documentation_architecture_current, inspect_documentation_architecture_manifest,
+    inspect_documentation_architecture_validation, publish_documentation_architecture_generation,
 };
 use athanor_core::CanonicalSnapshot;
 
@@ -64,7 +64,11 @@ fn inspection_rejects_pointer_layout_and_artifact_checksum_drift() {
     )
     .unwrap();
     let pointer_error = inspect_documentation_architecture_current(&project.root).unwrap_err();
-    assert!(pointer_error.to_string().contains("non-normalized generation path"));
+    assert!(
+        pointer_error
+            .to_string()
+            .contains("non-normalized generation path")
+    );
 
     fs::write(
         &publication.current_pointer,
@@ -81,7 +85,11 @@ fn inspection_rejects_pointer_layout_and_artifact_checksum_drift() {
     .unwrap();
     fs::write(&publication.document, "# modified\n").unwrap();
     let checksum_error = inspect_documentation_architecture_manifest(&project.root).unwrap_err();
-    assert!(checksum_error.to_string().contains("checksum does not match manifest"));
+    assert!(
+        checksum_error
+            .to_string()
+            .contains("checksum does not match manifest")
+    );
 }
 
 fn snapshot() -> CanonicalSnapshot {
