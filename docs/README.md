@@ -120,4 +120,6 @@ cargo test -p ath --test documentation_architecture_cli --locked
 cargo fmt --all -- --check
 ```
 
-Slices 0A–1C1 are execution-confirmed; Slice 1C2 CLI source is implemented and pending its exact matrix.
+Slices 0A–1C are execution-confirmed on source `042d02ac6b4c89d90a5b76c818098eb0c6b41920`:
+CI `30025932615`, AppSec `30025931953`, Store `30025932704`. The next bounded step is the first Rustok
+architecture-generation evaluation.
