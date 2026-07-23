@@ -6,6 +6,7 @@ on:
     paths:
       - "apps/ath/Cargo.toml"
       - "apps/athd/Cargo.toml"
+      - ".github/workflows/prepare-release-lock.yml"
 
 permissions:
   contents: write
@@ -26,15 +27,37 @@ jobs:
           fetch-depth: 0
           persist-credentials: true
 
-      - uses: ./.github/actions/setup-rust
-
       - name: Update only release-package lock entries
         shell: bash
         run: |
           set -euo pipefail
           grep -Fx 'version = "0.2.0"' apps/ath/Cargo.toml
           grep -Fx 'version = "0.2.0"' apps/athd/Cargo.toml
-          cargo metadata --format-version 1 --no-deps >/dev/null
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("Cargo.lock")
+          lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+          package = None
+          changed = {"ath": 0, "athd": 0}
+
+          for index, line in enumerate(lines):
+              stripped = line.strip()
+              if stripped == "[[package]]":
+                  package = None
+              elif stripped.startswith('name = "') and stripped.endswith('"'):
+                  package = stripped.removeprefix('name = "').removesuffix('"')
+              elif package in changed and stripped.startswith('version = "'):
+                  assert stripped == 'version = "0.1.0"', (package, stripped)
+                  newline = "\n" if line.endswith("\n") else ""
+                  lines[index] = 'version = "0.2.0"' + newline
+                  changed[package] += 1
+                  package = None
+
+          assert changed == {"ath": 1, "athd": 1}, changed
+          path.write_text("".join(lines), encoding="utf-8")
+          PY
 
           diff_lines="$(git diff --unified=0 -- Cargo.lock | grep -E '^[+-]' || true)"
           old_count="$(printf '%s\n' "$diff_lines" | grep -c '^-version = "0.1.0"$' || true)"
@@ -43,19 +66,6 @@ jobs:
           test "$old_count" -eq 2
           test "$new_count" -eq 2
           test -z "$unexpected"
-
-          python3 - <<'PY'
-          import tomllib
-          from pathlib import Path
-
-          lock = tomllib.loads(Path("Cargo.lock").read_text(encoding="utf-8"))
-          versions = {
-              package["name"]: package["version"]
-              for package in lock["package"]
-              if package["name"] in {"ath", "athd"}
-          }
-          assert versions == {"ath": "0.2.0", "athd": "0.2.0"}, versions
-          PY
 
       - name: Commit final candidate lockfile
         shell: bash
