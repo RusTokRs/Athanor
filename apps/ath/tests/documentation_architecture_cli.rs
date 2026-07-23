@@ -36,7 +36,11 @@ fn exact_snapshot_generation_and_inspection_round_trip_through_binary() {
     let root_arg = root.to_str().expect("UTF-8 temp path");
 
     let indexed = run(&["index", root_arg, "--json"]);
-    assert!(indexed.status.success(), "index stderr: {}", stderr(&indexed));
+    assert!(
+        indexed.status.success(),
+        "index stderr: {}",
+        stderr(&indexed)
+    );
     let index: Value = serde_json::from_slice(&indexed.stdout).expect("index JSON");
     let snapshot = index["snapshot"].as_str().expect("snapshot id");
 
@@ -61,38 +65,18 @@ fn exact_snapshot_generation_and_inspection_round_trip_through_binary() {
     assert!(path_from_json(&generation["manifest"]).is_file());
     assert!(path_from_json(&generation["validation_report"]).is_file());
 
-    let current = json_command(&[
-        "docs",
-        "architecture",
-        "current",
-        root_arg,
-        "--json",
-    ]);
+    let current = json_command(&["docs", "architecture", "current", root_arg, "--json"]);
     assert_eq!(current["current"]["snapshot"], snapshot);
     assert_eq!(current["current"]["generation"], generation["generation"]);
 
-    let manifest = json_command(&[
-        "docs",
-        "architecture",
-        "manifest",
-        root_arg,
-        "--json",
-    ]);
+    let manifest = json_command(&["docs", "architecture", "manifest", root_arg, "--json"]);
     assert_eq!(manifest["manifest"]["snapshot"], snapshot);
     assert_eq!(
-        manifest["manifest"]["documents"]
-            .as_array()
-            .map(Vec::len),
+        manifest["manifest"]["documents"].as_array().map(Vec::len),
         Some(2)
     );
 
-    let validation = json_command(&[
-        "docs",
-        "architecture",
-        "validation",
-        root_arg,
-        "--json",
-    ]);
+    let validation = json_command(&["docs", "architecture", "validation", root_arg, "--json"]);
     assert_eq!(validation["report"]["snapshot"], snapshot);
     assert_eq!(validation["report"]["status"], "valid");
 
