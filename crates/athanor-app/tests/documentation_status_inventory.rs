@@ -151,8 +151,8 @@ fn documentation_generation_plan_matches_the_bounded_slice() {
     for invariant in [
         "# Evidence-Backed Documentation Generation Plan",
         "canonical snapshot remains the only truth source",
-        "versioned request",
-        "manifest",
+        "athanor.documentation_generation_request.v1",
+        "athanor.documentation_generation_manifest.v1",
         "No new dependency is approved",
         "Slice 0A",
         "DocumentationGenerationRequest",
