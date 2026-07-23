@@ -15,7 +15,7 @@ const FIXTURE: &str = include_str!("fixtures/boundary_contracts.v1.json");
 fn non_public_json_boundaries_are_disjoint_and_fixture_protected() {
     validate_boundary_contract_inventory(VERSIONED_JSON_CONTRACTS)
         .expect("process/persistence boundary registry must remain valid");
-    assert_eq!(NON_PUBLIC_JSON_CONTRACTS.len(), 30);
+    assert_eq!(NON_PUBLIC_JSON_CONTRACTS.len(), 32);
 
     let fixture: Value = serde_json::from_str(FIXTURE).expect("valid boundary fixture");
     let documents = fixture["documents"]
@@ -55,7 +55,7 @@ fn non_public_json_boundaries_are_disjoint_and_fixture_protected() {
         }
     }
 
-    assert_eq!(current, 24);
+    assert_eq!(current, 26);
     assert_eq!(legacy_input, 5);
     assert_eq!(historical, 1);
     assert_eq!(documents.len(), current);
