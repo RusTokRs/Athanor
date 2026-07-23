@@ -90,7 +90,11 @@ fn incomplete_or_tampered_generation_is_never_reused() {
     manifest
         .documents
         .retain(|document| document.path == DOCUMENTATION_VALIDATION_REPORT_PATH);
-    fs::write(&first.manifest, serde_json::to_string_pretty(&manifest).unwrap()).unwrap();
+    fs::write(
+        &first.manifest,
+        serde_json::to_string_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
 
     let repaired_manifest = publish_documentation_architecture_generation(
         options(&project, false),
@@ -103,7 +107,10 @@ fn incomplete_or_tampered_generation_is_never_reused() {
         DocumentationArchitecturePublicationStatus::Published
     );
     assert_eq!(repaired_manifest.generation, "00000002");
-    assert!(first.generation_dir.is_dir(), "immutable history was removed");
+    assert!(
+        first.generation_dir.is_dir(),
+        "immutable history was removed"
+    );
 
     fs::write(&repaired_manifest.document, "# tampered\n").unwrap();
     let repaired_document = publish_documentation_architecture_generation(
@@ -118,20 +125,30 @@ fn incomplete_or_tampered_generation_is_never_reused() {
         DocumentationArchitecturePublicationStatus::Published
     );
 
-    let forced = publish_documentation_architecture_generation(
-        options(&project, true),
-        &request,
-        &snapshot,
-    )
-    .expect("force must publish another immutable generation");
+    let forced =
+        publish_documentation_architecture_generation(options(&project, true), &request, &snapshot)
+            .expect("force must publish another immutable generation");
     assert_eq!(forced.generation, "00000004");
-    assert_eq!(forced.status, DocumentationArchitecturePublicationStatus::Published);
+    assert_eq!(
+        forced.status,
+        DocumentationArchitecturePublicationStatus::Published
+    );
     assert_eq!(generation_count(&project), 4);
 
     let current: CurrentDocumentationGeneration = read_json(&forced.current_pointer);
     assert_eq!(current.generation, forced.generation);
-    assert!(forced.generation_dir.join(ARCHITECTURE_DOCUMENT_PATH).is_file());
-    assert!(forced.generation_dir.join(DOCUMENTATION_MANIFEST_PATH).is_file());
+    assert!(
+        forced
+            .generation_dir
+            .join(ARCHITECTURE_DOCUMENT_PATH)
+            .is_file()
+    );
+    assert!(
+        forced
+            .generation_dir
+            .join(DOCUMENTATION_MANIFEST_PATH)
+            .is_file()
+    );
 }
 
 #[test]
@@ -179,14 +196,14 @@ fn publication_content_is_deterministic_across_canonical_input_order() {
         &snapshot,
     )
     .unwrap();
-    let second = publish_documentation_architecture_generation(
-        options(&project, true),
-        &request,
-        &reversed,
-    )
-    .unwrap();
+    let second =
+        publish_documentation_architecture_generation(options(&project, true), &request, &reversed)
+            .unwrap();
 
-    assert_eq!(fs::read(first.document).unwrap(), fs::read(second.document).unwrap());
+    assert_eq!(
+        fs::read(first.document).unwrap(),
+        fs::read(second.document).unwrap()
+    );
     assert_eq!(
         fs::read(first.validation_report).unwrap(),
         fs::read(second.validation_report).unwrap()
