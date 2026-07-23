@@ -31,15 +31,12 @@ zero major/revision values, and missing qualifier revisions fail closed.
 - index, benchmark, changed validation, coordinated generation, config, documentation, API, wiki,
   and HTML;
 - evidence-backed documentation generation request and manifest contracts;
-- standard Graph and specialized RusTok reports;
-- project registry/resolution reports;
-- Repair reports;
-- daemon request, response, and jobs reports;
-- the adapter trust status report.
+- standard Graph and specialized Rustok reports;
+- project registry/resolution, Repair, daemon request/response/jobs, and adapter trust reports.
 
 `DocumentationGenerationRequest` binds one exact snapshot and the supported `architecture` profile to
-explicit non-zero limits. `DocumentationGenerationManifest` records request-schema identity,
-effective limits, omitted counts, normalized relative output paths, and lowercase SHA-256 checksums.
+explicit bounded limits. `DocumentationGenerationManifest` records request-schema identity,
+effective limits, omitted counts, normalized portable output paths, and lowercase SHA-256 checksums.
 Both reject unknown fields and schema drift through fixture-backed regressions. Each public schema has
 one current Rust owner.
 
@@ -81,23 +78,20 @@ runtime owners.
 | `athanor.verification_evidence.v1` | `.github/workflows/verification-evidence.yml` | persisted current | workflow, exact head SHA, run id/URL, conclusion, completion time, matrix |
 
 The verification evidence document is published only after a successful push-CI run on `main`. It is
-not a public application report and does not belong in a registry whose descriptor requires a
-`rust_owner`. The automation registry is validated for canonical schema ids, ownership metadata,
-required fields, duplicate ids, and disjointness from public, general, and adapter registries.
+not a public application report. The automation registry validates schema ids, ownership, required
+fields, duplicates, and disjointness from public, general, and adapter registries.
 
 ## Transport and process protocols
 
-### Daemon
+### Daemon and MCP
 
 `DaemonRequest` owns current `athanor.daemon_request.v3`; `DaemonResponse` owns
-`athanor.daemon_response.v3`; `DaemonJobsReport` owns `athanor.daemon_jobs.v1`. Earlier request and
-endpoint versions follow their declared legacy/historical lifecycles.
+`athanor.daemon_response.v3`; `DaemonJobsReport` owns `athanor.daemon_jobs.v1`. Earlier versions follow
+their declared legacy/historical lifecycles.
 
-### MCP
-
-MCP uses JSON-RPC `2.0` and MCP protocol `2024-11-05`. Request, response, error, and text tool-call
-results remain native standard-protocol boundaries and do not receive synthetic `athanor.*` schemas.
-CLI, daemon, and MCP Index paths serialize the same public `IndexReport`.
+MCP uses JSON-RPC `2.0` and MCP protocol `2024-11-05`. Native request, response, error, and text
+results do not receive synthetic `athanor.*` schemas. CLI, daemon, and MCP Index paths serialize the
+same public `IndexReport`.
 
 ### External processes
 
@@ -115,15 +109,25 @@ change requires an explicit versioned process envelope.
 
 ## Source-literal classifications
 
-Sixteen canonical `athanor.*` literals are explicitly classified with a Rust owner and
-lifecycle even though they are not members of the stable public/general registries. They
-cover composite CLI and daemon envelopes, embedded GraphQL/JS-TS metadata, JSONL indexes,
-and accepted legacy daemon/Repair inputs. The source scanner validates their canonical ids,
-uniqueness, ownership, lifecycle, and observability.
+Twenty-one canonical `athanor.*` literals are explicitly classified with a Rust owner and lifecycle
+even though they are not members of the stable public/general registries. They cover composite CLI
+and daemon envelopes, embedded GraphQL/JS-TS metadata, JSONL indexes, accepted legacy inputs, and the
+five Slice 0B intermediate documentation contracts:
 
-Non-canonical Athanor-prefixed strings such as the `athanor.index_state.v` validation prefix
-and the `athanor.toml` filename are not schema ids and are excluded only when they are not explicitly
-classified and `validate_schema_id` rejects them. Registered legacy ids remain observable.
+- `athanor.documentation_outline.v1` — `DocumentationOutline`;
+- `athanor.documentation_context.v1` — `DocumentationContext`;
+- `athanor.documentation_citation.v1` — `DocumentationCitation`;
+- `athanor.documentation_draft.v1` — `DocumentationDraft`;
+- `athanor.documentation_validation_report.v1` — `DocumentationValidationReport`.
+
+These five schemas are strict application-owned intermediate types. They are not yet registered as
+public reports, persisted documents, generated artifacts, or interchange boundaries because Slice 1
+has not introduced a runtime transport/publication owner. The recursive scanner still requires their
+canonical ids, uniqueness, ownership, lifecycle, and source observability.
+
+Non-canonical Athanor-prefixed strings such as the `athanor.index_state.v` validation prefix and the
+`athanor.toml` filename are excluded only when `validate_schema_id` rejects them. Registered legacy
+ids remain observable.
 
 ## Enforcement implementation
 
@@ -134,12 +138,11 @@ classified and `validate_schema_id` rejects them. Registered legacy ids remain o
 - `PROCESS_PROTOCOL_CONTRACTS` protects four schema-less process shapes and framing.
 - `json_contract_inventory.rs` scans production Rust sources recursively and requires every quoted
   `athanor.*` literal to be classified.
-- `documentation_generation_contract_inventory.rs` protects request/manifest round trips, strict
-  fields, schema identity, normalized output paths, checksums, and request/manifest alignment.
-- Public, general, adapter, and automation schema sets are mutually disjoint.
-- Current ids validate under ordinary or qualified grammar.
-- Current boundary fixtures protect required fields and lifecycle rules.
-- Daemon/MCP regressions protect typed transport payload parity.
+- `documentation_generation_contract_inventory.rs` protects request/manifest alignment, portable
+  paths, checksums, and hard limits.
+- `documentation_generation_slice0b_inventory.rs` protects bounded context, evidence/citations,
+  structured drafts, data policy, quality reports, and the evaluation corpus.
+- Public, general, adapter, and automation schema sets remain mutually disjoint.
 
 ## Enforcement rules
 
@@ -156,6 +159,7 @@ classified and `validate_schema_id` rejects them. Registered legacy ids remain o
 
 ```bash
 cargo test -p athanor-app --test documentation_generation_contract_inventory --locked
+cargo test -p athanor-app --test documentation_generation_slice0b_inventory --locked
 cargo test -p athanor-app --test json_contract_inventory --locked
 cargo test -p athanor-app --test process_persistence_contract_inventory --locked
 cargo test -p athanor-app --test adapter_contract_inventory --locked
