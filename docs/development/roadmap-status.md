@@ -160,9 +160,13 @@ and Windows. The historical `v0.1.0` and failed-attempt `v0.2.0` tags remain imm
 - [x] schema ownership in the public JSON contract inventory;
 - [x] Slice 0B: outline, bounded context, structured draft, citation, validation-report, data policy,
   quality metrics, minimal fixture repository, and Rustok evaluation corpus contracts;
+- [x] Slices 0A–0B execution evidence: exact source commit
+  `2a049303e797f00ac53f1e91fc010f284993926d`, CI run `30005828864`, AppSec run `30005828850`, and
+  Store Conformance run `30005828956` completed successfully;
 - [ ] Slice 1: deterministic architecture profile and immutable generated publication.
 
-The package is implemented through Slice 0B. It has no current exact-commit verification claim.
+Slices 0A–0B are execution-confirmed. `DOCGEN-001` remains in progress because the deterministic
+runtime profile and publication integration are not implemented.
 
 ## Product Backlog
 
