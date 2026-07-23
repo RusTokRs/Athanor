@@ -66,6 +66,10 @@ Replace `0.2.0` with the prepared package version and replace the SHA placeholde
 owns all three successful required statuses. Do not move or reuse a published release tag. If the name is
 already occupied, prepare a new Semantic Version and repeat the complete candidate process.
 
+Repository automation may dispatch the `Release` workflow after creating the same annotated tag, but the
+dispatch ref must be the tag itself (`v<package.version>`), never `main` or a raw commit SHA. This keeps
+the checkout, Sigstore identity, and provenance bound to `refs/tags/v*`.
+
 The tag workflow then:
 
 1. verifies the tag, both binary package versions, and the dated changelog section;
