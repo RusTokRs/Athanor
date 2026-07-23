@@ -1,0 +1,216 @@
+{
+  "request": {
+    "schema": "athanor.documentation_generation_request.v1",
+    "snapshot": "snap-docgen-0001",
+    "profile": "architecture",
+    "limits": {
+      "max_entities": 16,
+      "max_facts": 16,
+      "max_relations": 16,
+      "max_diagnostics": 8
+    }
+  },
+  "outline": {
+    "schema": "athanor.documentation_outline.v1",
+    "request_schema": "athanor.documentation_generation_request.v1",
+    "snapshot": "snap-docgen-0001",
+    "profile": "architecture",
+    "sections": [
+      {
+        "id": "overview",
+        "title": "System Overview",
+        "kind": "overview",
+        "selection_reasons": ["repository root and primary crate"]
+      },
+      {
+        "id": "relationships",
+        "title": "Relationships",
+        "kind": "relationships",
+        "selection_reasons": ["canonical relation between code and documentation"]
+      }
+    ]
+  },
+  "context": {
+    "schema": "athanor.documentation_context.v1",
+    "request_schema": "athanor.documentation_generation_request.v1",
+    "outline_schema": "athanor.documentation_outline.v1",
+    "snapshot": "snap-docgen-0001",
+    "profile": "architecture",
+    "effective_limits": {
+      "max_entities": 16,
+      "max_facts": 16,
+      "max_relations": 16,
+      "max_diagnostics": 8
+    },
+    "omitted": {
+      "entities": 0,
+      "facts": 0,
+      "relations": 0,
+      "diagnostics": 0
+    },
+    "policy": {
+      "provider_enabled": false,
+      "network_enabled": false,
+      "raw_file_access": false,
+      "secrets_included": false
+    },
+    "items": [
+      {
+        "id": "entity-service",
+        "kind": "entity",
+        "summary": "The demo crate owns the application service.",
+        "stable_keys": ["rust://crate/demo"],
+        "evidence": [
+          {
+            "path": "src/lib.rs",
+            "start_line": 1,
+            "end_line": 8
+          }
+        ],
+        "source_stable_key": null,
+        "target_stable_key": null,
+        "relation_direction": null
+      },
+      {
+        "id": "entity-readme",
+        "kind": "entity",
+        "summary": "The repository README documents the service.",
+        "stable_keys": ["file://README.md"],
+        "evidence": [
+          {
+            "path": "README.md",
+            "start_line": 1,
+            "end_line": 4
+          }
+        ],
+        "source_stable_key": null,
+        "target_stable_key": null,
+        "relation_direction": null
+      },
+      {
+        "id": "relation-documents",
+        "kind": "relation",
+        "summary": "The README documents the demo crate.",
+        "stable_keys": ["file://README.md", "rust://crate/demo"],
+        "evidence": [
+          {
+            "path": "README.md",
+            "start_line": 1,
+            "end_line": 4
+          }
+        ],
+        "source_stable_key": "file://README.md",
+        "target_stable_key": "rust://crate/demo",
+        "relation_direction": "directed"
+      }
+    ]
+  },
+  "citation": {
+    "schema": "athanor.documentation_citation.v1",
+    "id": "citation-service",
+    "snapshot": "snap-docgen-0001",
+    "stable_keys": ["rust://crate/demo"],
+    "evidence": [
+      {
+        "path": "src/lib.rs",
+        "start_line": 1,
+        "end_line": 8
+      }
+    ]
+  },
+  "draft": {
+    "schema": "athanor.documentation_draft.v1",
+    "context_schema": "athanor.documentation_context.v1",
+    "outline_schema": "athanor.documentation_outline.v1",
+    "snapshot": "snap-docgen-0001",
+    "profile": "architecture",
+    "citations": [
+      {
+        "schema": "athanor.documentation_citation.v1",
+        "id": "citation-service",
+        "snapshot": "snap-docgen-0001",
+        "stable_keys": ["rust://crate/demo"],
+        "evidence": [
+          {
+            "path": "src/lib.rs",
+            "start_line": 1,
+            "end_line": 8
+          }
+        ]
+      },
+      {
+        "schema": "athanor.documentation_citation.v1",
+        "id": "citation-relation",
+        "snapshot": "snap-docgen-0001",
+        "stable_keys": ["file://README.md", "rust://crate/demo"],
+        "evidence": [
+          {
+            "path": "README.md",
+            "start_line": 1,
+            "end_line": 4
+          }
+        ]
+      }
+    ],
+    "sections": [
+      {
+        "id": "overview",
+        "title": "System Overview",
+        "claims": [
+          {
+            "id": "claim-service-owner",
+            "text": "The demo crate owns the application service.",
+            "citation_ids": ["citation-service"],
+            "inference": null
+          }
+        ],
+        "diagram_edges": []
+      },
+      {
+        "id": "relationships",
+        "title": "Relationships",
+        "claims": [
+          {
+            "id": "claim-readme-documents",
+            "text": "The README documents the demo crate.",
+            "citation_ids": ["citation-relation"],
+            "inference": null
+          }
+        ],
+        "diagram_edges": [
+          {
+            "source_stable_key": "file://README.md",
+            "target_stable_key": "rust://crate/demo",
+            "relation": "documents",
+            "citation_ids": ["citation-relation"]
+          }
+        ]
+      }
+    ]
+  },
+  "validation_report": {
+    "schema": "athanor.documentation_validation_report.v1",
+    "draft_schema": "athanor.documentation_draft.v1",
+    "snapshot": "snap-docgen-0001",
+    "profile": "architecture",
+    "status": "valid",
+    "policy": {
+      "provider_enabled": false,
+      "network_enabled": false,
+      "raw_file_access": false,
+      "secrets_included": false
+    },
+    "diagnostics": [],
+    "metrics": {
+      "citation_coverage_basis_points": 10000,
+      "citation_validity_basis_points": 10000,
+      "diagram_validity_basis_points": 10000,
+      "deterministic_repeatability": true,
+      "unsupported_relations": 0,
+      "prompt_tokens": null,
+      "completion_tokens": null,
+      "provider_cost_microunits": null,
+      "human_review_score_basis_points": null
+    }
+  }
+}
