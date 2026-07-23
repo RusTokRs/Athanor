@@ -45,6 +45,7 @@ mod daemon_write_job_contract_tests;
 mod daemon_write_jobs;
 pub mod derived_read_operation;
 pub mod docs;
+pub mod documentation_architecture_publication;
 #[path = "documentation_architecture_profile_v1.rs"]
 pub mod documentation_architecture_profile;
 pub mod documentation_generation_alignment;
@@ -139,6 +140,7 @@ pub mod indexing {
 
 /// Publication artefacts and lifecycle APIs.
 pub mod publication {
+    pub use crate::documentation_architecture_publication::*;
     pub use crate::index_current::{resolve_index_state_path, resolve_read_model_path};
     pub use crate::index_state::{IndexState, IndexStateStore, PreparedIndexState};
     pub use crate::prepared_publication::{PreparedSnapshot, PreparedSnapshotPublication};
@@ -194,6 +196,7 @@ pub use daemon_runtime::*;
 pub use derived_read_operation::*;
 pub use docs::*;
 pub use documentation_architecture_profile::*;
+pub use documentation_architecture_publication::*;
 pub use documentation_generation_alignment::*;
 pub use documentation_generation_contract::*;
 pub use explain::*;
