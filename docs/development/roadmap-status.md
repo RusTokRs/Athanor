@@ -71,8 +71,8 @@ records the CI identity. Workflow source without successful exact results remain
 evidence only.
 
 Current verified product evidence covers commit
-`f976239c0aa8b58abaf9222485bcf717a50c1ddf`: CI run `29943452118`, AppSec run `29943452179`, and
-Store Conformance run `29943452289` all completed successfully.
+`23ef991baff6e416b1c790536a369fe950733252`: CI run `29957667631`, AppSec run `29957667663`, and
+Store Conformance run `29957667601` all completed successfully.
 
 ## Implemented Architecture Packages
 
@@ -132,14 +132,15 @@ Store Conformance run `29943452289` all completed successfully.
 1. [x] reject tags that do not match both binary package versions or Semantic Versioning;
 2. [x] require a valid ISO calendar date and publish the maintained changelog notes;
 3. [x] package the changelog and document the supported artifacts, checklist, and recovery policy;
-4. [x] freeze the `0.1.0` changelog section with the intentional candidate date;
+4. [x] preserve the historical `v0.1.0` snapshot and freeze the `0.2.0` changelog section;
 5. [x] reject duplicate sections, HTML-comment/thematic-break/list-marker-only notes, and empty fences;
-6. [ ] verify the first release candidate from one exact tag commit.
+6. [ ] verify the `v0.2.0` candidate from one exact tag commit.
 
-The static contract, calendar-valid date guard, unambiguous changelog selection, substantive-note
-filtering, source-level regressions, and dated candidate notes are implemented in `main`. `REL-001`
-remains active until an intentional tag run proves the complete build, SBOM, signature, provenance,
-verification, and publication chain.
+The historical `v0.1.0` tag already owns commit `593fe228fee71c53bd426472781d20fa08c501e5`, so it must not
+be moved or reused. The static contract, calendar-valid date guard, unambiguous changelog selection,
+substantive-note filtering, source-level regressions, and explicit verified-SHA tagging procedure are
+implemented in `main`. `REL-001` remains active until an intentional `v0.2.0` tag run proves the complete
+build, SBOM, signature, provenance, verification, and publication chain.
 
 ## Product Backlog
 
