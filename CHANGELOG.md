@@ -27,6 +27,10 @@ substantive release notes.
 - Add an application-layer immutable documentation publisher with staged generation directories,
   checksum-bound Markdown and validation artifacts, an atomic `documentation/current.json` pointer,
   exact `UpToDate` reuse, explicit `force`, and cancellation-safe pointer preservation.
+- Add `ath docs generate-architecture` for one exact committed snapshot with hard-limit flags, `--force`,
+  text/JSON reports, and Ctrl-C cancellation; the existing coordinated `ath generate` remains unchanged.
+- Add validated `ath docs architecture current`, `manifest`, and `validation` inspection commands that
+  reject pointer escape, identity drift, unsupported artifact layouts, and checksum mismatch.
 
 ### Fixed
 
@@ -36,6 +40,8 @@ substantive release notes.
   claims, malformed evidence ranges, provider metrics without opt-in, and inconsistent valid reports.
 - Reject incomplete or self-consistent-but-tampered documentation manifests and generated artifacts as
   up to date; rebuild into a new immutable generation while retaining publication history.
+- Reject missing or uncommitted documentation snapshot IDs instead of falling back to the latest visible
+  snapshot, and preserve the previous current pointer when CLI generation is cancelled.
 
 ## [0.2.1] - 2026-07-23
 
