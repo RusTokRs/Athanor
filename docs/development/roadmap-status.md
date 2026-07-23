@@ -43,6 +43,13 @@ and state publication preserve rollback before durable commit and successful res
 Public, general non-public, adapter, and automation registries are mutually disjoint. Production Rust
 sources are scanned recursively. CLI, daemon, and MCP Index serialize one typed `IndexReport`.
 
+### Documentation Generation Contracts
+
+`DocumentationGenerationRequest` and `DocumentationGenerationManifest` are strict versioned public
+contracts at the application/projector boundary. They bind generation to one snapshot, one supported
+profile, explicit non-zero limits, omitted counts, normalized relative output paths, and lowercase
+SHA-256 checksums. No runtime documentation generator or provider dependency is present yet.
+
 ### API Protocol Consistency
 
 GraphQL operations use canonical `protocol = graphql`; OpenAPI operations use the symmetric
@@ -141,11 +148,25 @@ set. Installation-smoke run `29998347890` downloaded the public archives, verifi
 internal checksums, installed into clean isolated prefixes, and executed both `ath` and `athd` on Linux
 and Windows. The historical `v0.1.0` and failed-attempt `v0.2.0` tags remain immutable.
 
+## Active Work
+
+### `DOCGEN-001` — Evidence-Backed Documentation Generation
+
+- [x] Slice 0A: strict versioned request and manifest contracts;
+- [x] fixture-backed round-trip, schema-drift, unknown-field, output-path, checksum, and alignment
+  regressions;
+- [x] schema ownership in the public JSON contract inventory;
+- [ ] Slice 0B: outline, bounded context, structured draft, citation, validation-report, and evaluation
+  corpus contracts;
+- [ ] Slice 1: deterministic architecture profile and immutable generated publication.
+
+The package is implemented only through Slice 0A. It has no current exact-commit verification claim.
+
 ## Product Backlog
 
 - broader relationship and framework adapters;
 - richer analysis completeness reporting;
-- evidence-backed documentation generation;
+- evidence-backed documentation generation beyond the active bounded slice;
 - internationalization, concepts, and optional semantic/vector retrieval;
 - additional Rustok, community-module, language, and framework integrations.
 
