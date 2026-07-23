@@ -1,0 +1,69 @@
+name: Prepare Release Lockfile
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/ath/Cargo.toml"
+      - "apps/athd/Cargo.toml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: prepare-release-lock-main
+  cancel-in-progress: false
+
+jobs:
+  update:
+    name: Synchronize release package versions
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out current main
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: true
+
+      - uses: ./.github/actions/setup-rust
+
+      - name: Update only release-package lock entries
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fx 'version = "0.2.0"' apps/ath/Cargo.toml
+          grep -Fx 'version = "0.2.0"' apps/athd/Cargo.toml
+          cargo metadata --format-version 1 --no-deps >/dev/null
+
+          diff_lines="$(git diff --unified=0 -- Cargo.lock | grep -E '^[+-]' || true)"
+          old_count="$(printf '%s\n' "$diff_lines" | grep -c '^-version = "0.1.0"$' || true)"
+          new_count="$(printf '%s\n' "$diff_lines" | grep -c '^+version = "0.2.0"$' || true)"
+          unexpected="$(printf '%s\n' "$diff_lines" | grep -vE '^(---|\+\+\+|[-+]version = "0\.[12]\.0")$' || true)"
+          test "$old_count" -eq 2
+          test "$new_count" -eq 2
+          test -z "$unexpected"
+
+          python3 - <<'PY'
+          import tomllib
+          from pathlib import Path
+
+          lock = tomllib.loads(Path("Cargo.lock").read_text(encoding="utf-8"))
+          versions = {
+              package["name"]: package["version"]
+              for package in lock["package"]
+              if package["name"] in {"ath", "athd"}
+          }
+          assert versions == {"ath": "0.2.0", "athd": "0.2.0"}, versions
+          PY
+
+      - name: Commit final candidate lockfile
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/prepare-release-lock.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.lock .github/workflows/prepare-release-lock.yml
+          git commit -m "build: synchronize 0.2.0 release lockfile"
+          git push origin HEAD:main
