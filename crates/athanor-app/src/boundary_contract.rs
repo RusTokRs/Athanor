@@ -259,6 +259,36 @@ pub const NON_PUBLIC_JSON_CONTRACTS: &[NonPublicJsonContractDescriptor] = &[
         ["schema", "generation", "snapshot", "path", "manifest"]
     ),
     boundary!(
+        crate::documentation_architecture_publication::DOCUMENTATION_CURRENT_SCHEMA_V1,
+        "CurrentDocumentationGeneration",
+        Generated,
+        Current,
+        [
+            "schema",
+            "generation",
+            "snapshot",
+            "profile",
+            "path",
+            "manifest"
+        ]
+    ),
+    boundary!(
+        crate::documentation_generation_contract::DOCUMENTATION_VALIDATION_REPORT_SCHEMA_V1,
+        "DocumentationValidationReport",
+        Generated,
+        Current,
+        [
+            "schema",
+            "draft_schema",
+            "snapshot",
+            "profile",
+            "status",
+            "policy",
+            "diagnostics",
+            "metrics"
+        ]
+    ),
+    boundary!(
         crate::api::API_CONTRACT_SNAPSHOT_SCHEMA,
         "ApiContractSnapshot",
         Generated,
