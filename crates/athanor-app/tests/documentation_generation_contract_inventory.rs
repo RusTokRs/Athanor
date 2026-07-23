@@ -20,7 +20,10 @@ fn request_and_manifest_fixtures_are_strict_aligned_and_round_trip() {
         .validate_for_request(&request)
         .expect("manifest must align with request");
     assert_eq!(serde_json::to_value(&request).unwrap(), fixture["request"]);
-    assert_eq!(serde_json::to_value(&manifest).unwrap(), fixture["manifest"]);
+    assert_eq!(
+        serde_json::to_value(&manifest).unwrap(),
+        fixture["manifest"]
+    );
 }
 
 #[test]
