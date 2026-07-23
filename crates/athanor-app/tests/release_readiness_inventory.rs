@@ -52,6 +52,9 @@ fn release_workflow_gates_all_artifact_jobs_on_the_tag_contract() {
         "path: dist/release-notes.md",
         "cp target/${{ matrix.target }}/release/ath target/${{ matrix.target }}/release/athd README.md CHANGELOG.md LICENSE install.sh",
         "README.md,CHANGELOG.md,LICENSE,install.ps1",
+        "-name '*.cdx.json' -print0",
+        "sort -z > dist/sbom-files.bin",
+        "payload.get(\"bomFormat\") == \"CycloneDX\"",
         "test -s release-notes.md",
         "body_path: dist/release-notes.md",
         "dist/athanor-x86_64-unknown-linux-gnu.tar.gz*",
@@ -72,6 +75,7 @@ fn release_workflow_gates_all_artifact_jobs_on_the_tag_contract() {
     );
     assert!(RELEASE_WORKFLOW.contains("needs: [build, sbom]"));
     assert!(RELEASE_WORKFLOW.contains("needs: verify"));
+    assert!(!RELEASE_WORKFLOW.contains("-name bom.json"));
     assert!(!RELEASE_WORKFLOW.contains("files: dist/*"));
 }
 
@@ -195,7 +199,7 @@ fn release_runbook_matches_the_enforced_workflow() {
 #[test]
 fn release_readiness_owners_remain_bounded() {
     for (name, source, max_lines) in [
-        ("release workflow", RELEASE_WORKFLOW, 230),
+        ("release workflow", RELEASE_WORKFLOW, 240),
         ("release guard", RELEASE_GUARD, 220),
         ("release guide", RELEASE_GUIDE, 180),
         ("changelog", CHANGELOG, 120),
