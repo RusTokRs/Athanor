@@ -11,6 +11,20 @@ substantive release notes.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-07-23
+
+### Fixed
+
+- Package the actual `*.cdx.json` files emitted by `cargo-cyclonedx 0.5.9` instead of searching only for
+  `bom.json`.
+- Validate that the workspace SBOM inventory is non-empty and that every packaged document is a
+  non-empty CycloneDX JSON object before signing or attesting the archive.
+
+### Release
+
+- Preserve `v0.2.0` as an immutable failed publication attempt: its release contract and Linux artifacts
+  passed, but the SBOM inventory gate stopped publication before a GitHub Release was created.
+
 ## [0.2.0] - 2026-07-22
 
 ### Added
