@@ -45,6 +45,7 @@ mod daemon_write_job_contract_tests;
 mod daemon_write_jobs;
 pub mod derived_read_operation;
 pub mod docs;
+pub mod documentation_generation_contract;
 pub mod explain;
 #[cfg(test)]
 mod fact_query_tests;
@@ -189,6 +190,7 @@ pub use daemon::*;
 pub use daemon_runtime::*;
 pub use derived_read_operation::*;
 pub use docs::*;
+pub use documentation_generation_contract::*;
 pub use explain::*;
 pub use generation::*;
 pub use graph::*;
