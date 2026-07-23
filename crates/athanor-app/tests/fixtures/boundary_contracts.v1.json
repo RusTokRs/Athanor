@@ -112,6 +112,39 @@
       "path": "generations/generation-test",
       "manifest": "generations/generation-test/manifest.json"
     },
+    "athanor.documentation_current.v1": {
+      "schema": "athanor.documentation_current.v1",
+      "generation": "00000001",
+      "snapshot": "snap-current",
+      "profile": "architecture",
+      "path": "generations/00000001",
+      "manifest": "generations/00000001/manifest.json"
+    },
+    "athanor.documentation_validation_report.v1": {
+      "schema": "athanor.documentation_validation_report.v1",
+      "draft_schema": "athanor.documentation_draft.v1",
+      "snapshot": "snap-current",
+      "profile": "architecture",
+      "status": "valid",
+      "policy": {
+        "provider_enabled": false,
+        "network_enabled": false,
+        "raw_file_access": false,
+        "secrets_included": false
+      },
+      "diagnostics": [],
+      "metrics": {
+        "citation_coverage_basis_points": 10000,
+        "citation_validity_basis_points": 10000,
+        "diagram_validity_basis_points": 10000,
+        "deterministic_repeatability": true,
+        "unsupported_relations": 0,
+        "prompt_tokens": null,
+        "completion_tokens": null,
+        "provider_cost_microunits": null,
+        "human_review_score_basis_points": null
+      }
+    },
     "athanor.api_contract_snapshot.v2": {
       "schema": "athanor.api_contract_snapshot.v2",
       "snapshot": "snap-current",
