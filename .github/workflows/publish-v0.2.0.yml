@@ -1,0 +1,96 @@
+name: Publish v0.2.0
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/publish-v0.2.0.yml"
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  publish:
+    name: Create verified tag and dispatch release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out exact candidate
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: b415bfde28af94efdae11e1228ea3b467903dbaa
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Revalidate candidate and release contract
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_SHA: b415bfde28af94efdae11e1228ea3b467903dbaa
+          RELEASE_TAG: v0.2.0
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          grep -Fx 'version = "0.2.0"' apps/ath/Cargo.toml
+          grep -Fx 'version = "0.2.0"' apps/athd/Cargo.toml
+          grep -Fx '## [0.2.0] - 2026-07-22' CHANGELOG.md
+          python3 scripts/verify_release_version.py \
+            --tag "$RELEASE_TAG" \
+            --changelog CHANGELOG.md \
+            --notes-output /tmp/release-notes.md \
+            apps/ath/Cargo.toml \
+            apps/athd/Cargo.toml
+          test -s /tmp/release-notes.md
+
+          curl --fail-with-body --location --silent --show-error \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/commits/$CANDIDATE_SHA/status" \
+            > /tmp/status.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          required = {
+              "athanor/verification-matrix",
+              "athanor/appsec",
+              "athanor/store-conformance",
+          }
+          payload = json.loads(Path("/tmp/status.json").read_text(encoding="utf-8"))
+          latest = {}
+          for status in payload.get("statuses", []):
+              latest.setdefault(status["context"], status["state"])
+          assert {name: latest.get(name) for name in required} == {
+              name: "success" for name in required
+          }, latest
+          PY
+
+          git fetch origin --tags
+          test ! git rev-parse -q --verify "refs/tags/$RELEASE_TAG" >/dev/null
+
+      - name: Create immutable annotated tag
+        shell: bash
+        env:
+          CANDIDATE_SHA: b415bfde28af94efdae11e1228ea3b467903dbaa
+          RELEASE_TAG: v0.2.0
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$RELEASE_TAG" "$CANDIDATE_SHA" -m "Athanor 0.2.0"
+          test "$(git rev-parse "$RELEASE_TAG^{}")" = "$CANDIDATE_SHA"
+          git push origin "refs/tags/$RELEASE_TAG"
+
+      - name: Dispatch tag-bound release workflow
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --location --request POST \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/workflows/release.yml/dispatches" \
+            --data '{"ref":"v0.2.0"}'
