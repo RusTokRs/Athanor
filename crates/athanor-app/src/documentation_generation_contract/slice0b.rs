@@ -62,7 +62,11 @@ impl DocumentationOutline {
             DocumentationGenerationRequest::SCHEMA,
         )?;
         validate_non_empty("outline snapshot", &self.snapshot)?;
-        validate_len("documentation outline sections", self.sections.len(), SECTION_LIMIT)?;
+        validate_len(
+            "documentation outline sections",
+            self.sections.len(),
+            SECTION_LIMIT,
+        )?;
 
         let mut ids = BTreeSet::new();
         for section in &self.sections {
@@ -229,10 +233,7 @@ impl DocumentationContextItem {
             self.relation_direction,
         );
         match (self.kind, relation_fields) {
-            (
-                DocumentationContextItemKind::Relation,
-                (Some(source), Some(target), Some(_)),
-            ) => {
+            (DocumentationContextItemKind::Relation, (Some(source), Some(target), Some(_))) => {
                 validate_non_empty("relation source stable key", source)?;
                 validate_non_empty("relation target stable key", target)?;
                 if !self.stable_keys.iter().any(|key| key == source)
@@ -554,12 +555,7 @@ impl DocumentationDraft {
                         "documentation diagram edge references an out-of-context stable key",
                     ));
                 }
-                validate_references(
-                    "diagram citation",
-                    &edge.citation_ids,
-                    &citation_ids,
-                    true,
-                )?;
+                validate_references("diagram citation", &edge.citation_ids, &citation_ids, true)?;
             }
         }
         Ok(())
@@ -625,7 +621,11 @@ impl DocumentationValidationReport {
         draft: &DocumentationDraft,
         context: &DocumentationContext,
     ) -> Result<(), DocumentationContractError> {
-        validate_schema("documentation validation report", &self.schema, Self::SCHEMA)?;
+        validate_schema(
+            "documentation validation report",
+            &self.schema,
+            Self::SCHEMA,
+        )?;
         validate_schema(
             "documentation validation report draft",
             &self.draft_schema,
@@ -645,7 +645,9 @@ impl DocumentationValidationReport {
         }
         self.policy.validate()?;
         if self.diagnostics.len() > REFERENCE_LIMIT {
-            return Err(error("documentation validation report has too many diagnostics"));
+            return Err(error(
+                "documentation validation report has too many diagnostics",
+            ));
         }
         for diagnostic in &self.diagnostics {
             validate_non_empty("validation diagnostic code", &diagnostic.code)?;
@@ -688,14 +690,8 @@ fn validate_metrics(
     policy: DocumentationDataHandlingPolicy,
 ) -> Result<(), DocumentationContractError> {
     for (field, value) in [
-        (
-            "citation coverage",
-            metrics.citation_coverage_basis_points,
-        ),
-        (
-            "citation validity",
-            metrics.citation_validity_basis_points,
-        ),
+        ("citation coverage", metrics.citation_coverage_basis_points),
+        ("citation validity", metrics.citation_validity_basis_points),
         ("diagram validity", metrics.diagram_validity_basis_points),
     ] {
         validate_basis_points(field, value, true)?;
@@ -749,10 +745,7 @@ fn validate_references(
         return Err(error(format!("{owner} exceeds {REFERENCE_LIMIT} entries")));
     }
     validate_unique_text(owner, values.iter().map(String::as_str))?;
-    if let Some(unknown) = values
-        .iter()
-        .find(|value| !known.contains(value.as_str()))
-    {
+    if let Some(unknown) = values.iter().find(|value| !known.contains(value.as_str())) {
         return Err(error(format!("{owner} references unknown id {unknown}")));
     }
     Ok(())
