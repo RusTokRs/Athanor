@@ -74,6 +74,31 @@ const SOURCE_LITERAL_JSON_CONTRACTS: &[SourceLiteralJsonContract] = &[
         lifecycle: BoundaryLifecycle::Current,
     },
     SourceLiteralJsonContract {
+        schema: "athanor.documentation_outline.v1",
+        owner: "DocumentationOutline",
+        lifecycle: BoundaryLifecycle::Current,
+    },
+    SourceLiteralJsonContract {
+        schema: "athanor.documentation_context.v1",
+        owner: "DocumentationContext",
+        lifecycle: BoundaryLifecycle::Current,
+    },
+    SourceLiteralJsonContract {
+        schema: "athanor.documentation_citation.v1",
+        owner: "DocumentationCitation",
+        lifecycle: BoundaryLifecycle::Current,
+    },
+    SourceLiteralJsonContract {
+        schema: "athanor.documentation_draft.v1",
+        owner: "DocumentationDraft",
+        lifecycle: BoundaryLifecycle::Current,
+    },
+    SourceLiteralJsonContract {
+        schema: "athanor.documentation_validation_report.v1",
+        owner: "DocumentationValidationReport",
+        lifecycle: BoundaryLifecycle::Current,
+    },
+    SourceLiteralJsonContract {
         schema: "athanor.daemon_request.v1",
         owner: "DaemonRequest",
         lifecycle: BoundaryLifecycle::Historical,
