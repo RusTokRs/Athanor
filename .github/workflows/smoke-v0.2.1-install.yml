@@ -84,7 +84,7 @@ jobs:
               (Test-Path -LiteralPath (Join-Path $InstallDir "athd.exe"))) {
               throw "Installation prefix was not clean"
           }
-          & (Join-Path $ExtractDir "athanor\install.ps1") -InstallDir $InstallDir
+          & (Join-Path $ExtractDir "install.ps1") -InstallDir $InstallDir
           foreach ($Binary in @("ath.exe", "athd.exe")) {
               $Path = Join-Path $InstallDir $Binary
               if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
