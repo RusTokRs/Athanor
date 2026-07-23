@@ -34,7 +34,8 @@ Before creating a release tag:
 5. keep exactly one matching version section in `CHANGELOG.md` and freeze it with a valid ISO calendar
    date (`YYYY-MM-DD`);
 6. include at least one substantive release note in that version section;
-7. keep the top `## [Unreleased]` section for changes after the candidate.
+7. keep the top `## [Unreleased]` section for changes after the candidate;
+8. fetch remote tags and confirm the intended tag name does not already exist locally or remotely.
 
 The tag must be exactly `v<package.version>`. The release contract rejects missing `v` prefixes,
 non-Semantic-Version tags, package-version divergence, missing or duplicate changelog sections, undated
@@ -44,16 +45,26 @@ not qualify as release notes; non-empty fenced content remains valid.
 
 ## Publish
 
-Create the tag only after the version/changelog commit has passed the required `main` checks:
+Create the tag only after the version/changelog commit has passed the required `main` checks. Always
+name the exact verified SHA explicitly because an evidence-recording or other `[skip ci]` commit may have
+advanced `main` after the candidate completed its checks:
 
 ```bash
 git switch main
 git pull --ff-only
-git tag -a v0.1.0 -m "Athanor v0.1.0"
-git push origin v0.1.0
+git fetch origin --tags
+version="0.2.0"
+candidate_sha="<verified exact main SHA>"
+git merge-base --is-ancestor "$candidate_sha" origin/main
+test ! git rev-parse -q --verify "refs/tags/v${version}" >/dev/null
+git tag -a "v${version}" "$candidate_sha" -m "Athanor v${version}"
+test "$(git rev-parse "v${version}^{}")" = "$candidate_sha"
+git push origin "v${version}"
 ```
 
-Replace `0.1.0` with the prepared package version. Do not move or reuse a published release tag.
+Replace `0.2.0` with the prepared package version and replace the SHA placeholder with the commit that
+owns all three successful required statuses. Do not move or reuse a published release tag. If the name is
+already occupied, prepare a new Semantic Version and repeat the complete candidate process.
 
 The tag workflow then:
 
