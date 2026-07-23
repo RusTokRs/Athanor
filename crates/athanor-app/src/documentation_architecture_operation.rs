@@ -102,11 +102,9 @@ async fn generate_documentation_architecture_with_composition_inner(
             &snapshot,
             cancellation,
         ),
-        None => publish_documentation_architecture_generation(
-            publication,
-            &options.request,
-            &snapshot,
-        ),
+        None => {
+            publish_documentation_architecture_generation(publication, &options.request, &snapshot)
+        }
     }
 }
 
@@ -161,7 +159,11 @@ mod tests {
         )
         .await
         .expect_err("missing committed snapshot must fail");
-        assert!(missing.to_string().contains("not committed or does not exist"));
+        assert!(
+            missing
+                .to_string()
+                .contains("not committed or does not exist")
+        );
         assert!(!documentation_root(&project.root).exists());
 
         let cancellation = CancellationToken::new();
