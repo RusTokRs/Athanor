@@ -164,13 +164,16 @@ fn documentation_generation_plan_matches_current_boundaries() {
         SLICE_1C_CI,
         SLICE_1C_APPSEC,
         SLICE_1C_STORE,
-        "The existing coordinated `ath generate` command is unchanged",
+        "The existing coordinated `ath generate` command is",
     ] {
         assert!(
             DOCGEN_PLAN.contains(invariant),
             "docgen plan omits {invariant}"
         );
     }
+    assert!(
+        DOCGEN_PLAN.contains("unchanged. No model provider, daemon, MCP, or new dependency is enabled")
+    );
 }
 
 #[test]
