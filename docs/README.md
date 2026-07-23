@@ -139,9 +139,10 @@ cargo run -p ath --quiet -- docs apply-patch . <patch-id-or-path>
 The Docs application services load canonical snapshots through explicit runtime composition. Patch
 proposals remain reviewable JSON interchange documents before explicit application.
 
-Evidence-backed documentation generation is currently implemented only through strict versioned
-request and manifest contracts. There is no architecture-document runtime generator, model provider,
-new projector wiring, or editable-document write path in the current slice.
+Evidence-backed documentation generation is implemented through Slices 0A and 0B: strict request,
+manifest, outline, bounded context, citation, structured draft, validation-report, data policy,
+quality metrics, and evaluation-corpus contracts. There is no architecture-document runtime
+generator, model provider, new projector wiring, or editable-document write path yet.
 
 ## Plans
 
@@ -161,6 +162,7 @@ status changes should include:
 
 ```bash
 cargo test -p athanor-app --test documentation_generation_contract_inventory --locked
+cargo test -p athanor-app --test documentation_generation_slice0b_inventory --locked
 cargo test -p athanor-app --test documentation_status_inventory --locked
 cargo test -p athanor-app --test release_readiness_inventory --locked
 cargo test -p athanor-app --test json_contract_inventory --locked
