@@ -60,6 +60,10 @@ Slice 1C1 exact committed-snapshot loading is confirmed on
 `4f567271ed6d38d30b3c15dc6999aa33152a9312`: CI `30015689753`, AppSec `30015691399`, Store
 `30015689363`.
 
+Slice 1C2 CLI generation and validated inspection are confirmed on
+`042d02ac6b4c89d90a5b76c818098eb0c6b41920`: CI `30025932615`, AppSec `30025931953`, Store
+`30025932704`.
+
 ## Implemented Packages
 
 - `COMP-003` / `COMP-003C2B2C2B`: explicit composition and bounded owners.
@@ -79,18 +83,18 @@ Slice 1C1 exact committed-snapshot loading is confirmed on
 - [x] Slice 0B: bounded evidence flow, policy, metrics, and evaluation corpus;
 - [x] Slice 1A: deterministic architecture composition;
 - [x] Slice 1B: immutable atomic publication and tamper recovery;
-- [x] Slice 1C1: exact committed-snapshot loading through `RuntimeComposition`, execution-confirmed on
-  `4f567271ed6d38d30b3c15dc6999aa33152a9312`;
-- [x] Slice 1C2 implemented: exact-snapshot CLI generation, hard-limit/force flags, text/JSON output,
-  validated current/manifest/validation inspection, Ctrl-C cancellation, and executable round-trip tests;
-- [ ] Slice 1C2 exact matrix pending on the current source commit.
+- [x] Slice 1C1: exact committed-snapshot loading through `RuntimeComposition`;
+- [x] Slice 1C2: exact-snapshot CLI generation, hard-limit/force flags, text/JSON output, validated
+  current/manifest/validation inspection, Ctrl-C cancellation, and executable round-trip tests;
+- [x] Slice 1C exact evidence on `042d02ac6b4c89d90a5b76c818098eb0c6b41920`: CI `30025932615`,
+  AppSec `30025931953`, Store `30025932704`;
+- [ ] Record the first bounded Rustok architecture-generation evaluation and tuning decisions.
 
-`DOCGEN-001` remains in progress until the current CLI source commit passes the exact matrix and the
-first bounded Rustok generation evaluation is recorded.
+`DOCGEN-001` remains in progress only until the bounded Rustok evaluation records usefulness, omissions,
+unsupported relations, repeatability, and review findings before profile expansion.
 
 ## Product Backlog
 
-- Rustok architecture-generation evaluation and tuning;
 - module/API/operations/onboarding profiles;
 - broader framework adapters and completeness reporting;
 - i18n, concepts, and optional semantic/vector retrieval;
