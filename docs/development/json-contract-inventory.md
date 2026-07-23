@@ -25,17 +25,23 @@ zero major/revision values, and missing qualifier revisions fail closed.
 
 ## Registered public contracts
 
-`VERSIONED_JSON_CONTRACTS` contains 60 current Rust-owned public application and daemon contracts:
+`VERSIONED_JSON_CONTRACTS` contains 62 current Rust-owned public application and daemon contracts:
 
 - overview, search, explain, impact, check, coverage, capabilities, change map, and context;
-- index, benchmark, changed validation, generation, config, documentation, API, wiki, and HTML;
+- index, benchmark, changed validation, coordinated generation, config, documentation, API, wiki,
+  and HTML;
+- evidence-backed documentation generation request and manifest contracts;
 - standard Graph and specialized RusTok reports;
 - project registry/resolution reports;
 - Repair reports;
 - daemon request, response, and jobs reports;
 - the adapter trust status report.
 
-Each public schema has one current Rust owner.
+`DocumentationGenerationRequest` binds one exact snapshot and the supported `architecture` profile to
+explicit non-zero limits. `DocumentationGenerationManifest` records request-schema identity,
+effective limits, omitted counts, normalized relative output paths, and lowercase SHA-256 checksums.
+Both reject unknown fields and schema drift through fixture-backed regressions. Each public schema has
+one current Rust owner.
 
 ## General non-public Rust contracts
 
@@ -116,18 +122,20 @@ and accepted legacy daemon/Repair inputs. The source scanner validates their can
 uniqueness, ownership, lifecycle, and observability.
 
 Non-canonical Athanor-prefixed strings such as the `athanor.index_state.v` validation prefix
-and the `athanor.toml` filename are not schema ids and are excluded only when they are not explicitly classified and
-`validate_schema_id` rejects them. Registered legacy ids remain observable.
+and the `athanor.toml` filename are not schema ids and are excluded only when they are not explicitly
+classified and `validate_schema_id` rejects them. Registered legacy ids remain observable.
 
 ## Enforcement implementation
 
-- `VERSIONED_JSON_CONTRACTS` protects 60 current public Rust owners.
+- `VERSIONED_JSON_CONTRACTS` protects 62 current public Rust owners.
 - `NON_PUBLIC_JSON_CONTRACTS` protects 30 general Rust-owned boundary descriptors.
 - `ADAPTER_NON_PUBLIC_JSON_CONTRACTS` protects two current and two legacy adapter documents.
 - `AUTOMATION_JSON_CONTRACTS` protects the current workflow-owned verification evidence document.
 - `PROCESS_PROTOCOL_CONTRACTS` protects four schema-less process shapes and framing.
 - `json_contract_inventory.rs` scans production Rust sources recursively and requires every quoted
   `athanor.*` literal to be classified.
+- `documentation_generation_contract_inventory.rs` protects request/manifest round trips, strict
+  fields, schema identity, normalized output paths, checksums, and request/manifest alignment.
 - Public, general, adapter, and automation schema sets are mutually disjoint.
 - Current ids validate under ordinary or qualified grammar.
 - Current boundary fixtures protect required fields and lifecycle rules.
@@ -147,6 +155,7 @@ and the `athanor.toml` filename are not schema ids and are excluded only when th
 ## Verification
 
 ```bash
+cargo test -p athanor-app --test documentation_generation_contract_inventory --locked
 cargo test -p athanor-app --test json_contract_inventory --locked
 cargo test -p athanor-app --test process_persistence_contract_inventory --locked
 cargo test -p athanor-app --test adapter_contract_inventory --locked
