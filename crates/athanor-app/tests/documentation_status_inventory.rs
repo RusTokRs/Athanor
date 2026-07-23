@@ -15,7 +15,10 @@ fn aggregate_status_documents_do_not_claim_unexecuted_verification() {
         ("roadmap", ROADMAP),
         ("pipeline", PIPELINE),
     ] {
-        assert!(source.contains("status: active"), "{name} must remain active");
+        assert!(
+            source.contains("status: active"),
+            "{name} must remain active"
+        );
         assert!(!source.contains("status: verified"));
         assert!(!source.contains("last_verified_snapshot:"));
         assert!(!source.contains("Status: verified."));
@@ -40,14 +43,20 @@ fn documentation_entrypoint_routes_to_current_status_owners() {
         "development/release.md",
         "development/evidence-backed-documentation-generation-plan.md",
     ] {
-        assert!(DOCS_INDEX.contains(target), "documentation map omits {target}");
+        assert!(
+            DOCS_INDEX.contains(target),
+            "documentation map omits {target}"
+        );
     }
     for command in [
         "cargo test -p athanor-app --test release_readiness_inventory --locked",
         "cargo test -p athanor-app --test documentation_generation_contract_inventory --locked",
         "cargo test -p athanor-app --test documentation_generation_slice0b_inventory --locked",
     ] {
-        assert!(DOCS_INDEX.contains(command), "documentation map omits {command}");
+        assert!(
+            DOCS_INDEX.contains(command),
+            "documentation map omits {command}"
+        );
     }
     assert!(!DOCS_INDEX.contains("current verified implementation status"));
 }
@@ -76,7 +85,10 @@ fn pipeline_separates_current_target_and_history() {
         "check/execution.rs",
         "api/snapshot.rs",
     ] {
-        assert!(PIPELINE.contains(current_owner), "pipeline omits {current_owner}");
+        assert!(
+            PIPELINE.contains(current_owner),
+            "pipeline omits {current_owner}"
+        );
     }
 }
 
@@ -121,7 +133,10 @@ fn implementation_plan_matches_documentation_status() {
         let position = ROADMAP
             .find(package)
             .unwrap_or_else(|| panic!("roadmap omits {package}"));
-        assert!(position < active_work, "completed package {package} is still active");
+        assert!(
+            position < active_work,
+            "completed package {package} is still active"
+        );
     }
 }
 
@@ -167,7 +182,10 @@ fn release_runbook_matches_the_repository_owned_contract() {
         "CycloneDX SBOM",
         "Never replace assets",
     ] {
-        assert!(RELEASE_GUIDE.contains(invariant), "release guide omits {invariant}");
+        assert!(
+            RELEASE_GUIDE.contains(invariant),
+            "release guide omits {invariant}"
+        );
     }
     assert!(RELEASE_GUIDE.contains("status: active"));
     assert!(!RELEASE_GUIDE.contains("status: verified"));
@@ -186,9 +204,11 @@ fn mcp_control_plane_documentation_matches_implementation_status() {
     ] {
         assert!(OPERATION_CONTEXT.contains(invariant));
     }
-    assert!(!OPERATION_CONTEXT.contains(
-        "Resolve control-plane responsiveness under full ordinary-request saturation"
-    ));
+    assert!(
+        !OPERATION_CONTEXT.contains(
+            "Resolve control-plane responsiveness under full ordinary-request saturation"
+        )
+    );
 }
 
 #[test]
@@ -207,7 +227,10 @@ fn removed_monoliths_and_legacy_services_do_not_return_to_status_docs() {
             ("roadmap", ROADMAP),
             ("pipeline", PIPELINE),
         ] {
-            assert!(!source.contains(stale), "{name} contains stale claim {stale}");
+            assert!(
+                !source.contains(stale),
+                "{name} contains stale claim {stale}"
+            );
         }
     }
 }
