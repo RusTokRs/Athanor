@@ -7,158 +7,91 @@ status: active
 ---
 # Roadmap Status
 
-This document is the compact status ledger for current `main`. Detailed evidence lives in
-`athanor_implementation_plan_ru.md`; long-range product ideas live in `start.md`.
+This compact ledger describes current `main`. Detailed evidence lives in
+`athanor_implementation_plan_ru.md`; long-range work lives in `start.md`.
 
 ## Status Rules
 
-- **Implemented means** code, documentation, and source-level regressions are present in `main`.
-- **Verified means** the required formatting, build, test, Clippy, smoke, security, feature, and
-  coverage matrix succeeded on one identified source commit.
-- Documentation lifecycle metadata is not execution evidence.
-- A failed matrix is diagnostic evidence and never promotes a package.
+- **Implemented** means code, documentation, and source regressions are present.
+- **Verified** means the required format/build/test/Clippy/smoke/security/feature/coverage matrix
+  succeeded on one exact source commit.
+- Documentation metadata is not execution evidence.
 
 ## Current Architecture
 
 ### Explicit Runtime Composition
 
-Production application services receive `RuntimeComposition` explicitly. Store, search, projector,
-extractor, and transport factories are selected by the `ath`, `athd`, or MCP composition root.
-Process-global installers and public Store initialization have been removed.
+Application services receive `RuntimeComposition`; store, search, projector, extractor, and transport
+factories are selected by `ath`, `athd`, or MCP composition roots. Process-global installers are gone.
 
-### Bounded Application Owners
+### Bounded Owners And Publication
 
-Check, API, Graph, Change Map, Overview, Capabilities, Impact, Coverage, Docs, Repair, documentation
-architecture, publication, and daemon work use focused owners. Extraction and protocol consistency
-remain adapter-owned.
+Indexing uses bounded phases and staged publication. Documentation generation uses strict request,
+manifest, outline, context, citation, draft, validation, and current-pointer contracts.
 
-### Transactional Index Publication
+The deterministic architecture profile loads one **exact committed** canonical snapshot through the
+configured Store, applies hard limits, emits cited Markdown and relation-backed Mermaid source, and
+publishes immutable checksum-bound generations. Validated inspection rejects pointer escape, unsupported
+artifact layouts, identity drift, and checksum drift.
 
-Indexing uses bounded phases and staged read-model/state publication. Pre-commit failure rolls back;
-durable post-commit success is not masked by late cancellation.
+Supported CLI surface:
 
-### JSON Contract Inventory
+```bash
+ath docs generate-architecture <PATH> --snapshot <EXACT-ID> [--force] [--json]
+ath docs architecture current <PATH> [--json]
+ath docs architecture manifest <PATH> [--json]
+ath docs architecture validation <PATH> [--json]
+```
 
-Public, general non-public, adapter, and automation registries are disjoint. Production Rust sources
-are scanned recursively. CLI, daemon, and MCP Index serialize one typed `IndexReport`.
+Generation has no latest-snapshot fallback. Ctrl-C cancels and drains the operation before returning.
+The existing coordinated `ath generate` command is unchanged. Daemon, MCP, and provider integration are
+not enabled.
 
-### Evidence-Backed Documentation Generation
+### Exact Evidence
 
-Strict request, manifest, outline, context, citation, draft, and validation contracts bind output to
-one canonical snapshot and hard limits. The deterministic architecture profile emits cited Markdown,
-relation-backed Mermaid source, omission disclosure, and evidence footnotes. The app-layer publisher
-writes immutable generations and atomically replaces `documentation/current.json` only after exact
-artifact and checksum validation.
-
-No CLI, daemon, MCP, provider, or store-loading entrypoint exposes this profile yet.
-
-### Documentation Lifecycle Policy
-
-Required document fields are `id`, `kind`, `language`, `source_language`, and `status`. Accepted values
-are `active`, `implemented`, `planned`, `draft`, and `verified`. Snapshot freshness is a separate concern.
-
-### MCP Control Plane
-
-Notifications bypass ordinary admission. Inline reader responses use nonblocking bounded admission.
-Full response queues do not stop cancellation, and EOF cancels registered operations before drain.
-
-### Exact Verification Evidence
-
-Push workflows publish `athanor/verification-matrix`, `athanor/appsec`, and
-`athanor/store-conformance` for an exact source SHA. `docs/development/verification-evidence.json`
-records the CI identity. Workflow source without successful exact results remains implementation
-evidence only.
-
-Current released product evidence remains commit `609027eb02caa05346ebfea8538552c42b588c31` with CI
+Released product baseline remains `609027eb02caa05346ebfea8538552c42b588c31` with CI
 `29995959544`, AppSec `29995960063`, Store `29995959512`, release `29996579628`, and clean-install
 smoke `29998347890`.
 
-Current documentation-generation source evidence covers commit
-`0cfeca8ad4dc3c0632246afa01e43372f4ec3d71`: Verification Matrix `30013208011`, AppSec
-`30013208197`, and Store Conformance `30013208312` succeeded.
+Slices 1A–1B are confirmed on `0cfeca8ad4dc3c0632246afa01e43372f4ec3d71`: CI `30013208011`,
+AppSec `30013208197`, Store `30013208312`.
 
-## Implemented Architecture Packages
+Slice 1C1 exact committed-snapshot loading is confirmed on
+`4f567271ed6d38d30b3c15dc6999aa33152a9312`: CI `30015689753`, AppSec `30015691399`, Store
+`30015689363`.
 
-### `COMP-003` / `COMP-003C2B2C2B`
+## Implemented Packages
 
-- explicit runtime dependency composition;
-- composition-only read/write services;
-- bounded application owners;
-- compatibility execution owners removed.
-
-### `MCP-007`
-
-- cancellation-safe pre-commit rollback;
-- exact-snapshot commit-race reconciliation;
-- durable post-commit success preservation;
-- CLI, daemon, and MCP report parity.
-
-### `JSON-003`
-
-- recursive schema inventory;
-- lifecycle separation and legacy normalization;
-- persisted, generated, interchange, and automation fixtures;
-- typed public report parity.
-
-### `DOC-001` / `DOC-002`
-
-- stale aggregate claims removed;
-- current owners replace deleted paths;
-- current, target, and history documentation separated;
-- status and line-budget inventories enforced.
-
-### `MCP-004`
-
-- control input ordered before ordinary task reaping;
-- notifications bypass ordinary admission;
-- saturated response queues cannot stop cancellation;
-- EOF cancellation regressions.
-
-### `VERIFY-001`
-
-- exact CI, AppSec, Store, and JSON evidence channels;
-- repository-owned Rust 1.95 setup;
-- cross-platform workspace, feature, installer, index, docs, and coverage verification.
-
-### `API-001`
-
-- canonical GraphQL/OpenAPI identity;
-- request, response, status, authentication, and permission consistency;
-- repository-local external reference resolution;
-- exact successful CI/AppSec/Store evidence.
-
-### `REL-001`
-
-- immutable version tags and changelog gates;
-- Linux/Windows archives, checksums, signatures, provenance, and CycloneDX SBOM;
-- clean Linux and Windows installation verification for `v0.2.1`.
+- `COMP-003` / `COMP-003C2B2C2B`: explicit composition and bounded owners.
+- `MCP-007`: cancellation-safe transactional Index publication.
+- `JSON-003`: recursive, disjoint, fixture-backed contract lifecycle.
+- `DOC-001` / `DOC-002`: status hygiene and bounded architecture documents.
+- `MCP-004`: responsive control input under saturation.
+- `VERIFY-001`: exact cross-platform CI/AppSec/Store evidence.
+- `API-001`: verified GraphQL/OpenAPI request/response/security consistency.
+- `REL-001`: verified immutable `v0.2.1` release and clean installs.
 
 ## Active Work
 
 ### `DOCGEN-001` — Evidence-Backed Documentation Generation
 
-- [x] Slice 0A: strict request and manifest contracts;
-- [x] Slice 0B: bounded evidence flow, data policy, quality metrics, fixture repository, and Rustok
-  evaluation corpus;
-- [x] Slice 1A: deterministic architecture outline/context/draft/Markdown/validation composition;
-- [x] Slice 1B: immutable application-layer generation directories, exact artifact reuse, atomic current
-  pointer, force, tamper recovery, and cancellation regressions;
-- [x] Slices 1A–1B exact evidence on `0cfeca8ad4dc3c0632246afa01e43372f4ec3d71`: CI
-  `30013208011`, AppSec `30013208197`, Store `30013208312`;
-- [ ] Slice 1C: exact committed-snapshot loading and bounded CLI generation/inspection surface.
+- [x] Slice 0A: strict request and manifest;
+- [x] Slice 0B: bounded evidence flow, policy, metrics, and evaluation corpus;
+- [x] Slice 1A: deterministic architecture composition;
+- [x] Slice 1B: immutable atomic publication and tamper recovery;
+- [x] Slice 1C1: exact committed-snapshot loading through `RuntimeComposition`, execution-confirmed on
+  `4f567271ed6d38d30b3c15dc6999aa33152a9312`;
+- [x] Slice 1C2 implemented: exact-snapshot CLI generation, hard-limit/force flags, text/JSON output,
+  validated current/manifest/validation inspection, Ctrl-C cancellation, and executable round-trip tests;
+- [ ] Slice 1C2 exact matrix pending on the current source commit.
 
-Slices 0A–1B are execution-confirmed. `DOCGEN-001` remains in progress because no supported user-facing
-command loads and publishes the profile from a committed project snapshot yet.
+`DOCGEN-001` remains in progress until the current CLI source commit passes the exact matrix and the
+first bounded Rustok generation evaluation is recorded.
 
 ## Product Backlog
 
-- broader relationship and framework adapters;
-- richer analysis completeness reporting;
-- additional documentation profiles after Slice 1C;
-- internationalization, concepts, and optional semantic/vector retrieval;
-- additional Rustok and community integrations.
-
-## History
-
-Earlier revisions mixed snapshot metadata with current execution evidence. Historical detail remains
-in Git history, feature documentation, and `start.md`.
+- Rustok architecture-generation evaluation and tuning;
+- module/API/operations/onboarding profiles;
+- broader framework adapters and completeness reporting;
+- i18n, concepts, and optional semantic/vector retrieval;
+- optional provider, daemon, and MCP integration after deterministic quality gates.
