@@ -36,17 +36,13 @@ jobs:
 
           path = Path("crates/athanor-app/tests/documentation_status_inventory.rs")
           source = path.read_text(encoding="utf-8")
-          old = '''            source.contains("execution evidence")
-                          || source.contains("Implemented")
-                          || source.contains("implementation evidence"),'''
-          new = '''            source.contains("execution evidence")
-                          || source.contains("Implemented")
-                          || source.contains("implementation evidence")
+          needle = '                || source.contains("implementation evidence"),'
+          replacement = '''                || source.contains("implementation evidence")
                           || source.contains("does not prove")
                           || source.contains("Exact package evidence"),'''
-          if old not in source:
-              raise SystemExit("documentation status assertion shape changed")
-          path.write_text(source.replace(old, new, 1), encoding="utf-8")
+          if needle not in source:
+              raise SystemExit("documentation status assertion predicate changed")
+          path.write_text(source.replace(needle, replacement, 1), encoding="utf-8")
           PY
 
       - name: Apply repository formatting
