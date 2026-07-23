@@ -11,6 +11,17 @@ substantive release notes.
 
 ## [Unreleased]
 
+### Added
+
+- Add strict versioned request and manifest contracts for evidence-backed documentation generation,
+  binding output to an exact snapshot, supported profile, hard input limits, omitted counts, portable
+  relative paths, and SHA-256 checksums without adding a runtime generator or provider dependency.
+
+### Fixed
+
+- Reject Windows drive paths, reserved device names, trailing-dot/space components, and
+  case-insensitive output-path collisions before future documentation artifacts can be published.
+
 ## [0.2.1] - 2026-07-23
 
 ### Fixed
