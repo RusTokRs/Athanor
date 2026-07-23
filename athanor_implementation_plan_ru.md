@@ -3,7 +3,7 @@
 > Репозиторий: `RusTokRs/Athanor`  
 > Ветка: `main`  
 > Актуализировано: 2026-07-23  
-> Статус: architecture audit и `API-001` verified; `v0.2.1` опубликован, post-publish installation smokes ожидаются
+> Статус: architecture audit, `API-001` и `REL-001` verified; `v0.2.1` опубликован и installation-smoked
 
 ## 1. Статусы и evidence
 
@@ -33,6 +33,8 @@ Architecture audit source commit: `c4a494f3a1c1af5dcbad4252c5eb69e00d558b3a`.
 
 CI evidence покрывает cargo-deny, source coverage, default/store-surreal/js-ts-precision/all-features,
 formatting, workspace tests, Clippy, installers, index smoke и docs check на Linux, macOS и Windows.
+Annotated tag `v0.2.1` указывает на этот SHA; Release run `29996579628` и post-publish installation
+smoke run `29998347890` завершились success.
 
 ## 3. Завершённые пакеты
 
@@ -99,18 +101,7 @@ formatting, workspace tests, Clippy, installers, index smoke и docs check на 
 - [x] Package подтверждён exact CI/AppSec/Store evidence на
   `609027eb02caa05346ebfea8538552c42b588c31`.
 
-## 4. Активная разработка
-
-### 4.1 `VERIFY-001` — execution matrix
-
-- [x] Security, coverage, feature slices и quality jobs завершились success.
-- [x] Architecture audit evidence сохранён для source commit
-  `c4a494f3a1c1af5dcbad4252c5eb69e00d558b3a`.
-- [x] Current product evidence подтверждено для
-  `609027eb02caa05346ebfea8538552c42b588c31`.
-- [x] `VERIFY-001`, `ARCH-AUDIT-001` и `API-001` имеют статус `[x] verified`.
-
-### 4.2 `REL-001` — release readiness consolidation
+### 3.9 `REL-001` — release readiness consolidation
 
 - [x] Release workflow собирает Linux и Windows archives, checksums, signatures, provenance и SBOM.
 - [x] `scripts/verify_release_version.py` требует exact `v<semver>` и одинаковые версии `ath`/`athd`.
@@ -133,14 +124,16 @@ formatting, workspace tests, Clippy, installers, index smoke и docs check на 
 - [x] Tag-bound Release run `29996579628` завершил contract, Linux/Windows builds, SBOM, signatures,
   provenance, cross-asset verify и publish со статусом `success`.
 - [x] Post-publish observer подтвердил непустой release body и полный набор из 12 uploaded assets.
-- [ ] Выполнить clean Linux installation smoke из опубликованного archive.
-- [ ] Выполнить clean Windows installation smoke из опубликованного archive.
+- [x] Clean Linux installation smoke из опубликованного archive завершился success в run `29998347890`.
+- [x] Clean Windows installation smoke из опубликованного archive завершился success в run `29998347890`.
 
-Публикационный контур и immutable release evidence подтверждены. Пакет остаётся `[-] in progress`
-только до двух clean installation smokes из уже опубликованных assets; source, CI и release workflow
-повторно не изменяются для этого шага.
+`REL-001` имеет статус `[x] verified`: публикационный контур, immutable tag, supported assets и обе
+чистые установки подтверждены execution evidence. Временные publisher, observer, diagnostic,
+lockfile и installation-smoke workflows удалены из текущего дерева.
 
-### 4.3 Product backlog
+## 4. Активная разработка
+
+### 4.1 Product backlog
 
 - [ ] broader relationship/framework adapters;
 - [ ] richer analysis completeness reporting;
@@ -168,7 +161,7 @@ formatting, workspace tests, Clippy, installers, index smoke и docs check на 
 | `VERIFY-001G` | P1 | `[x] implemented` | Cross-platform blockers closed by V21/V24/V41 |
 | `VERIFY-001` | P1 | `[x] verified` | Runs `29995959544`, `29995960063`, `29995959512` succeeded on `609027eb02caa05346ebfea8538552c42b588c31` |
 | `API-001` | P1 | `[x] verified` | Five bounded slices and current full exact CI/AppSec/Store evidence |
-| `REL-001` | P1 | `[-] in progress` | `v0.2.1` published by run `29996579628`; clean Linux/Windows installation smokes pending |
+| `REL-001` | P1 | `[x] verified` | `v0.2.1` published by `29996579628`; Linux/Windows clean install smokes passed in `29998347890` |
 
 ## 6. Verification matrix
 
@@ -190,5 +183,5 @@ cargo run -p ath --quiet --locked -- docs check
 
 ## 7. Текущий следующий шаг
 
-Скачать опубликованные Linux и Windows archives `v0.2.1`, выполнить clean installation smoke на каждой
-платформе и записать результаты. После двух successful smokes повысить `REL-001` до `[x] verified`.
+Начать следующий bounded backlog slice. Приоритетный кандидат — `DOCGEN-001 / Slice 0A`: versioned
+request/manifest contracts и fixture-backed inventory без нового runtime generator или зависимостей.
