@@ -2,8 +2,8 @@
 
 > Репозиторий: `RusTokRs/Athanor`  
 > Ветка: `main`  
-> Актуализировано: 2026-07-22  
-> Статус: architecture audit и `API-001` verified; исторический `v0.1.0` сохранён, готовится candidate `0.2.0`
+> Актуализировано: 2026-07-23  
+> Статус: architecture audit и `API-001` verified; `v0.2.1` опубликован, post-publish installation smokes ожидаются
 
 ## 1. Статусы и evidence
 
@@ -24,16 +24,15 @@ Architecture audit source commit: `c4a494f3a1c1af5dcbad4252c5eb69e00d558b3a`.
 Первичная audit matrix: run `29836572040`, conclusion `success`, completed at
 `2026-07-21T14:06:12Z`.
 
-Текущий verified product baseline: `23ef991baff6e416b1c790536a369fe950733252`.
+Текущий verified product и release baseline: `609027eb02caa05346ebfea8538552c42b588c31`.
 На этом exact SHA успешно завершились:
 
-- CI run `29957667631`;
-- AppSec run `29957667663`;
-- Store Conformance run `29957667601`.
+- CI run `29995959544`;
+- AppSec run `29995960063`;
+- Store Conformance run `29995959512`.
 
-CI evidence записан в `docs/development/verification-evidence.json`. Матрица покрывает cargo-deny,
-source coverage, default/store-surreal/js-ts-precision/all-features, formatting, workspace tests,
-Clippy, installers, index smoke и docs check на Linux, macOS и Windows.
+CI evidence покрывает cargo-deny, source coverage, default/store-surreal/js-ts-precision/all-features,
+formatting, workspace tests, Clippy, installers, index smoke и docs check на Linux, macOS и Windows.
 
 ## 3. Завершённые пакеты
 
@@ -98,7 +97,7 @@ Clippy, installers, index smoke и docs check на Linux, macOS и Windows.
 - [x] Configurable `@athanorSecurity` / `@athanorSecurityMapping` mapping покрыт regressions.
 - [x] Multi-root GraphQL responses выбираются по минимальному contract drift.
 - [x] Package подтверждён exact CI/AppSec/Store evidence на
-  `23ef991baff6e416b1c790536a369fe950733252`.
+  `609027eb02caa05346ebfea8538552c42b588c31`.
 
 ## 4. Активная разработка
 
@@ -107,8 +106,8 @@ Clippy, installers, index smoke и docs check на Linux, macOS и Windows.
 - [x] Security, coverage, feature slices и quality jobs завершились success.
 - [x] Architecture audit evidence сохранён для source commit
   `c4a494f3a1c1af5dcbad4252c5eb69e00d558b3a`.
-- [x] Current product evidence сохранён для
-  `23ef991baff6e416b1c790536a369fe950733252`.
+- [x] Current product evidence подтверждено для
+  `609027eb02caa05346ebfea8538552c42b588c31`.
 - [x] `VERIFY-001`, `ARCH-AUDIT-001` и `API-001` имеют статус `[x] verified`.
 
 ### 4.2 `REL-001` — release readiness consolidation
@@ -123,15 +122,23 @@ Clippy, installers, index smoke и docs check на Linux, macOS и Windows.
 - [x] Matching changelog section публикуется как `release-notes.md`, а changelog входит в binary archives.
 - [x] `docs/development/release.md` фиксирует supported artifacts, checklist и recovery policy.
 - [x] `release_readiness_inventory` защищает workflow, guard, package versions, changelog и runbook.
-- [x] Исторический `v0.1.0` сохранён на `593fe228fee71c53bd426472781d20fa08c501e5` и не переиспользуется.
-- [x] Секция `0.2.0` заморожена с датой `2026-07-22`; release-hardening notes входят в candidate notes.
-- [x] Runbook требует свободное имя тега и explicit candidate SHA с тремя successful statuses.
-- [ ] Candidate `v0.2.0` должен пройти exact tag workflow целиком.
+- [x] Исторические `v0.1.0` и `v0.2.0` сохранены и не переиспользуются.
+- [x] `v0.2.0` остановился в run `29994456190`: `cargo-cyclonedx 0.5.9` создал `*.cdx.json`, а старый
+  inventory искал только `bom.json`; publish job не запускался.
+- [x] `0.2.1` package versions и `Cargo.lock` синхронизированы на exact candidate
+  `609027eb02caa05346ebfea8538552c42b588c31`.
+- [x] SBOM inventory сортирует и пакетирует `*.cdx.json`, проверяет непустые документы и
+  `bomFormat == CycloneDX` до подписи и attestations.
+- [x] Annotated tag `v0.2.1` указывает ровно на candidate SHA.
+- [x] Tag-bound Release run `29996579628` завершил contract, Linux/Windows builds, SBOM, signatures,
+  provenance, cross-asset verify и publish со статусом `success`.
+- [x] Post-publish observer подтвердил непустой release body и полный набор из 12 uploaded assets.
+- [ ] Выполнить clean Linux installation smoke из опубликованного archive.
+- [ ] Выполнить clean Windows installation smoke из опубликованного archive.
 
-Статический Definition of Done, строгая календарная валидация, однозначный выбор version-section и
-фильтрация декоративного changelog content реализованы. Пакет остаётся `[-] in progress`, поскольку
-source-level regressions и successful push matrix не заменяют реальный tag-triggered build, SBOM,
-signature, provenance и publication run.
+Публикационный контур и immutable release evidence подтверждены. Пакет остаётся `[-] in progress`
+только до двух clean installation smokes из уже опубликованных assets; source, CI и release workflow
+повторно не изменяются для этого шага.
 
 ### 4.3 Product backlog
 
@@ -159,9 +166,9 @@ signature, provenance и publication run.
 | `VERIFY-001E` | P1 | `[x] implemented` | Formatting, owners and lockfile remediated |
 | `VERIFY-001F` | P1 | `[x] implemented` | Structural execution blockers closed |
 | `VERIFY-001G` | P1 | `[x] implemented` | Cross-platform blockers closed by V21/V24/V41 |
-| `VERIFY-001` | P1 | `[x] verified` | Runs `29957667631`, `29957667663`, `29957667601` succeeded on `23ef991baff6e416b1c790536a369fe950733252` |
-| `API-001` | P1 | `[x] verified` | Five bounded slices and full exact CI/AppSec/Store evidence |
-| `REL-001` | P1 | `[-] in progress` | Historical `v0.1.0` preserved; content-valid dated `0.2.0` candidate and exact-SHA runbook prepared |
+| `VERIFY-001` | P1 | `[x] verified` | Runs `29995959544`, `29995960063`, `29995959512` succeeded on `609027eb02caa05346ebfea8538552c42b588c31` |
+| `API-001` | P1 | `[x] verified` | Five bounded slices and current full exact CI/AppSec/Store evidence |
+| `REL-001` | P1 | `[-] in progress` | `v0.2.1` published by run `29996579628`; clean Linux/Windows installation smokes pending |
 
 ## 6. Verification matrix
 
@@ -183,7 +190,5 @@ cargo run -p ath --quiet --locked -- docs check
 
 ## 7. Текущий следующий шаг
 
-Синхронизировать package versions и `Cargo.lock` для `0.2.0`, получить successful
-`athanor/verification-matrix`, `athanor/appsec` и `athanor/store-conformance` на одном новом exact SHA,
-затем создать annotated tag `v0.2.0` именно на этом SHA. После successful tag-triggered workflow
-проверить artifacts и installation smokes и повысить `REL-001` до `[x] verified`.
+Скачать опубликованные Linux и Windows archives `v0.2.1`, выполнить clean installation smoke на каждой
+платформе и записать результаты. После двух successful smokes повысить `REL-001` до `[x] verified`.
