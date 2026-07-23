@@ -45,10 +45,12 @@ sources are scanned recursively. CLI, daemon, and MCP Index serialize one typed 
 
 ### Documentation Generation Contracts
 
-`DocumentationGenerationRequest` and `DocumentationGenerationManifest` are strict versioned public
-contracts at the application/projector boundary. They bind generation to one snapshot, one supported
-profile, explicit non-zero limits, omitted counts, normalized relative output paths, and lowercase
-SHA-256 checksums. No runtime documentation generator or provider dependency is present yet.
+`DocumentationGenerationRequest` and `DocumentationGenerationManifest` bind future publication to an
+exact snapshot, supported profile, bounded limits, omitted counts, portable paths, and checksums.
+`DocumentationOutline`, `DocumentationContext`, `DocumentationCitation`, `DocumentationDraft`, and
+`DocumentationValidationReport` define the bounded evidence flow, data-handling policy, citation and
+diagram traceability, deterministic quality metrics, and provider-cost accounting. No runtime
+documentation generator or provider dependency is present yet.
 
 ### API Protocol Consistency
 
@@ -156,11 +158,11 @@ and Windows. The historical `v0.1.0` and failed-attempt `v0.2.0` tags remain imm
 - [x] fixture-backed round-trip, schema-drift, unknown-field, output-path, checksum, and alignment
   regressions;
 - [x] schema ownership in the public JSON contract inventory;
-- [ ] Slice 0B: outline, bounded context, structured draft, citation, validation-report, and evaluation
-  corpus contracts;
+- [x] Slice 0B: outline, bounded context, structured draft, citation, validation-report, data policy,
+  quality metrics, minimal fixture repository, and Rustok evaluation corpus contracts;
 - [ ] Slice 1: deterministic architecture profile and immutable generated publication.
 
-The package is implemented only through Slice 0A. It has no current exact-commit verification claim.
+The package is implemented through Slice 0B. It has no current exact-commit verification claim.
 
 ## Product Backlog
 
