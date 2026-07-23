@@ -7,7 +7,7 @@ on:
       - ".github/workflows/docgen-format-remediation.yml"
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: docgen-format-remediation-main
@@ -24,6 +24,7 @@ jobs:
           ref: main
           fetch-depth: 0
           persist-credentials: true
+          token: ${{ secrets.ATHANOR_VERIFICATION_EVIDENCE_TOKEN }}
 
       - name: Install repository Rust toolchain
         uses: ./.github/actions/setup-rust
