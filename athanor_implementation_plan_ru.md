@@ -3,58 +3,55 @@
 > Репозиторий: `RusTokRs/Athanor`  
 > Ветка: `main`  
 > Актуализировано: 2026-07-23  
-> Статус: architecture audit, `API-001` и `REL-001` verified; `DOCGEN-001 / Slices 0A–0B` execution-confirmed
+> Статус: architecture audit, `API-001`, `REL-001` verified; `DOCGEN-001 / Slices 0A–1B` execution-confirmed
 
 ## 1. Статусы и evidence
 
-- `[x] implemented` — реализация опубликована, но отметка не заменяет execution evidence.
-- `[-] in progress` — пакет начат, но его Definition of Done закрыт частично.
-- `[x] verified` — реализация подтверждена successful matrix на одном exact commit.
-- `[ ] planned` — работа относится к следующему этапу.
+- `[x] implemented` — код и source regressions присутствуют, но это не execution evidence.
+- `[-] in progress` — пакет закрыт частично.
+- `[x] verified` — required matrix успешна на одном exact source commit.
+- `[ ] planned` — следующий bounded этап.
 - `[!] blocked` — required matrix отсутствует или завершилась failure.
 
-Workflow YAML является implementation evidence, а не execution evidence. Для package promotion exact
-verification требует successful `athanor/verification-matrix`, `athanor/appsec` и
-`athanor/store-conformance` statuses на одном SHA. CI identity дополнительно сохраняется в
+Package promotion требует успешных `athanor/verification-matrix`, `athanor/appsec` и
+`athanor/store-conformance` на одном SHA. CI identity хранится в
 `docs/development/verification-evidence.json`.
 
-## 2. Итог архитектурного аудита и текущий verified baseline
+## 2. Verified baseline
 
-Architecture audit source commit: `c4a494f3a1c1af5dcbad4252c5eb69e00d558b3a`.
-Первичная audit matrix: run `29836572040`, conclusion `success`, completed at
-`2026-07-21T14:06:12Z`.
+Architecture audit source commit: `c4a494f3a1c1af5dcbad4252c5eb69e00d558b3a`; run
+`29836572040` завершился success.
 
-Текущий verified product и release baseline: `609027eb02caa05346ebfea8538552c42b588c31`.
-На этом exact SHA успешно завершились:
+Текущий release baseline: `609027eb02caa05346ebfea8538552c42b588c31`:
 
-- CI run `29995959544`;
-- AppSec run `29995960063`;
-- Store Conformance run `29995959512`.
+- CI `29995959544`;
+- AppSec `29995960063`;
+- Store Conformance `29995959512`;
+- Release `29996579628`;
+- clean-install smoke `29998347890`.
 
-CI evidence покрывает cargo-deny, source coverage, default/store-surreal/js-ts-precision/all-features,
-formatting, workspace tests, Clippy, installers, index smoke и docs check на Linux, macOS и Windows.
-Annotated tag `v0.2.1` указывает на этот SHA; Release run `29996579628` и post-publish installation
-smoke run `29998347890` завершились success.
+Annotated tag `v0.2.1` указывает на этот SHA. Матрица покрыла cargo-deny, formatting, workspace tests,
+Clippy, Linux/macOS/Windows, installers, index/docs smoke, features и source coverage.
 
 ## 3. Завершённые пакеты
 
 ### 3.1 `COMP-003` / `COMP-003C2B2C2B` — runtime composition
 
-- [x] Runtime dependencies выражены через mandatory `RuntimeComposition`.
+- [x] Runtime dependencies передаются через mandatory `RuntimeComposition`.
 - [x] Check, API, Graph и read/write services разделены на bounded owners.
-- [x] Legacy owners и public Store initializer удалены.
+- [x] Legacy execution owners и public Store initializer удалены.
 
 ### 3.2 `MCP-007` — transactional Index cancellation
 
 - [x] Canonical publication является durable commit point.
-- [x] Pre-commit cancellation откатывает artifacts и aborts snapshot.
-- [x] Post-commit cancellation не маскирует успешный typed `IndexReport`.
+- [x] Pre-commit cancellation откатывает staged artifacts и snapshot.
+- [x] Post-commit cancellation не маскирует успешный `IndexReport`.
 
 ### 3.3 `JSON-003` — contract lifecycle
 
-- [x] Public, internal, adapter и automation registries уникальны и disjoint.
-- [x] Production Rust inventories сканируются рекурсивно и fail closed.
-- [x] CLI, daemon и MCP используют эквивалентный typed payload.
+- [x] Public, non-public, adapter и automation registries уникальны и disjoint.
+- [x] Production Rust schema literals сканируются рекурсивно и fail closed.
+- [x] Current persisted/generated/interchange boundaries имеют fixture coverage.
 
 ### 3.4 `DOC-001` / `DOC-002` — documentation status hygiene
 
@@ -69,121 +66,101 @@ smoke run `29998347890` завершились success.
 - [x] Notifications bypass ordinary request admission.
 - [x] Inline responses используют nonblocking `try_send`.
 - [x] Full/closed response queue не завершает reader loop.
-- [x] EOF вызывает `cancel_all` до request-task drain.
+- [x] EOF вызывает `cancel_all` до task drain.
 
-### 3.6 `VERIFY-001A`–`VERIFY-001F` — CI, docs и project remediation
+### 3.6 `VERIFY-001A`–`VERIFY-001G` — CI remediation
 
-- [x] Exact CI, AppSec, Store Conformance и JSON evidence привязаны к workflow SHA.
-- [x] Docs lifecycle поддерживает `active`, `implemented`, `planned`, `draft`, `verified`.
+- [x] Exact CI/AppSec/Store statuses и JSON evidence привязаны к source SHA.
 - [x] Repository-owned setup устанавливает Rust `1.95.0`.
-- [x] Failed fmt/default-feature/cargo-deny output сохраняется fail-only artifacts.
-- [x] Formatting, compile owners, MCP lifecycle и advisory lockfile remediated.
+- [x] Fail-only diagnostics сохраняют fmt/default-feature/cargo-deny output.
+- [x] Full workspace, path aliases, executable mode, CRLF и Windows lifecycle закрыты.
+- [x] Linux/macOS/Windows quality, installers, index/docs smoke, features и coverage подтверждены.
 
-### 3.7 `VERIFY-001G` — full workspace и cross-platform remediation
+### 3.7 `API-001` — GraphQL and OpenAPI consistency
 
-- [x] V21/V24 закрыли full workspace, path aliases и executable mode на трёх ОС.
-- [x] V28–V35 закрыли stale incremental state, Surreal allocation и CRLF inventories.
-- [x] V36–V40 закрыли LF-only boundaries и Windows process lifecycle regressions.
-- [x] V41 подтвердил Linux/macOS/Windows quality, installer/index/docs, `store-surreal` и stress runs.
-- [x] Временная remediation infrastructure отсутствует в verified tree.
+- [x] Canonical protocol identity и request/response/status/security comparison.
+- [x] Repository-owned refs, security alternatives и configurable mappings fail closed.
+- [x] Exact evidence на `609027eb02caa05346ebfea8538552c42b588c31`.
 
-### 3.8 `API-001` — GraphQL and cross-protocol API consistency
+### 3.8 `REL-001` — release readiness consolidation
 
-- [x] GraphQL и OpenAPI операции публикуют canonical protocol identity.
-- [x] Request-body properties сравниваются с GraphQL variables и matching named input objects.
-- [x] OpenAPI path/query/header parameters и repository-owned external refs нормализуются fail closed.
-- [x] Response containers, fields, scalar/list families и nullability сравниваются симметрично.
-- [x] Effective OpenAPI security requirements сопоставляются с GraphQL authentication families.
-- [x] Status-code policy, authentication и permission scopes входят в diagnostic contract.
-- [x] Mutually exclusive security alternatives не объединяют scopes, а AND-схемы сохраняют состав.
-- [x] Configurable `@athanorSecurity` / `@athanorSecurityMapping` mapping покрыт regressions.
-- [x] Multi-root GraphQL responses выбираются по минимальному contract drift.
-- [x] Package подтверждён exact CI/AppSec/Store evidence на
-  `609027eb02caa05346ebfea8538552c42b588c31`.
-
-### 3.9 `REL-001` — release readiness consolidation
-
-- [x] Release workflow собирает Linux и Windows archives, checksums, signatures, provenance и SBOM.
-- [x] `scripts/verify_release_version.py` требует exact `v<semver>` и одинаковые версии `ath`/`athd`.
-- [x] Недатированная, отсутствующая, пустая или некалендарная version-section `CHANGELOG.md` блокирует
-  release tag.
-- [x] Дублирующиеся version-sections блокируют публикацию fail closed.
-- [x] HTML comments, thematic breaks, пустые list/task markers и пустые fenced blocks не считаются
-  содержательными release notes; непустой fenced content разрешён.
-- [x] Matching changelog section публикуется как `release-notes.md`, а changelog входит в binary archives.
-- [x] `docs/development/release.md` фиксирует supported artifacts, checklist и recovery policy.
-- [x] `release_readiness_inventory` защищает workflow, guard, package versions, changelog и runbook.
-- [x] Исторические `v0.1.0` и `v0.2.0` сохранены и не переиспользуются.
-- [x] `v0.2.0` остановился в run `29994456190`: `cargo-cyclonedx 0.5.9` создал `*.cdx.json`, а старый
-  inventory искал только `bom.json`; publish job не запускался.
-- [x] `0.2.1` package versions и `Cargo.lock` синхронизированы на exact candidate
-  `609027eb02caa05346ebfea8538552c42b588c31`.
-- [x] SBOM inventory сортирует и пакетирует `*.cdx.json`, проверяет непустые документы и
-  `bomFormat == CycloneDX` до подписи и attestations.
-- [x] Annotated tag `v0.2.1` указывает ровно на candidate SHA.
-- [x] Tag-bound Release run `29996579628` завершил contract, Linux/Windows builds, SBOM, signatures,
-  provenance, cross-asset verify и publish со статусом `success`.
-- [x] Post-publish observer подтвердил непустой release body и полный набор из 12 uploaded assets.
-- [x] Clean Linux installation smoke из опубликованного archive завершился success в run `29998347890`.
-- [x] Clean Windows installation smoke из опубликованного archive завершился success в run `29998347890`.
-
-`REL-001` имеет статус `[x] verified`: публикационный контур, immutable tag, supported assets и обе
-чистые установки подтверждены execution evidence. Временные publisher, observer, diagnostic,
-lockfile и installation-smoke workflows удалены из текущего дерева.
+- [x] Exact tag/version/changelog contract.
+- [x] Linux/Windows archives, checksums, signatures, provenance и CycloneDX SBOM.
+- [x] Immutable historical tags `v0.1.0`, `v0.2.0`; published `v0.2.1`.
+- [x] Clean Linux и Windows installation smokes.
 
 ## 4. Активная разработка
 
 ### 4.1 `DOCGEN-001` — evidence-backed documentation generation
 
-- [x] Slice 0A определяет strict versioned `DocumentationGenerationRequest` и
-  `DocumentationGenerationManifest` без runtime generator или новых dependencies.
-- [x] Request фиксирует exact snapshot, профиль `architecture` и ненулевые bounded limits.
-- [x] Manifest фиксирует request schema, effective limits, omitted counts и checksum-bound outputs.
-- [x] Unknown fields, schema drift, unsafe output paths, invalid SHA-256 и request/manifest mismatch
-  блокируются fail closed fixture-backed regressions.
-- [x] Оба schema id зарегистрированы в общем public JSON contract inventory.
-- [x] Slice 0B определяет versioned outline, bounded context, citation, structured draft и
-  validation-report contracts с data-handling policy и quality metrics.
-- [x] Минимальный fixture repository и Rustok evaluation corpus фиксируют sections, citations,
-  diagram edges, known gaps, repeatability, provider cost и human-review score.
-- [x] Пять intermediate schema ids имеют explicit source-level Rust owners без преждевременного
-  runtime/persistence registry.
-- [x] Exact source commit `2a049303e797f00ac53f1e91fc010f284993926d` подтверждён CI run
-  `30005828864`, AppSec run `30005828850` и Store Conformance run `30005828956`.
-- [x] Cross-platform matrix включает formatting, workspace tests, Clippy, installers, index/docs smoke,
-  default/store-surreal/js-ts-precision/all-features и source coverage.
-- [ ] Slice 1: deterministic architecture profile и immutable publication integration.
+#### Slices 0A–0B — contracts and evidence flow
+
+- [x] Strict `DocumentationGenerationRequest` и `DocumentationGenerationManifest`.
+- [x] Versioned outline, bounded context, citation, draft и validation-report contracts.
+- [x] Hard limits, omissions, portable paths, SHA-256, data policy и quality metrics.
+- [x] Minimal fixture repository и Rustok evaluation corpus.
+- [x] Full contract-chain alignment и fail-closed regressions.
+- [x] Exact evidence на `2a049303e797f00ac53f1e91fc010f284993926d`: CI `30005828864`,
+  AppSec `30005828850`, Store `30005828956`.
+
+#### Slice 1A — deterministic architecture profile
+
+- [x] Pure app service принимает exact `CanonicalSnapshot`.
+- [x] Canonical inputs сортируются независимо от входного порядка.
+- [x] Overview, Components, Relationships и Diagnostics формируются deterministic.
+- [x] Claims, Mermaid edges и footnotes имеют stable-key/evidence citations.
+- [x] Limits и omissions входят в context/document/report.
+- [x] Markdown и validation report создаются без store, filesystem, network или provider.
+
+#### Slice 1B — immutable app-layer publication
+
+- [x] Отдельный root `.athanor/generated/documentation` и 8-digit immutable generations.
+- [x] `manifest.json`, `architecture/index.md` и `validation-report.json` staging/publish.
+- [x] Atomic `current.json` с schema `athanor.documentation_current.v1`.
+- [x] Validation report зарегистрирован как current generated boundary.
+- [x] `UpToDate` требует exact artifact IDs, paths, media types и deterministic checksums.
+- [x] Incomplete/tampered manifest, Markdown или report создают новую generation.
+- [x] `force`, immutable history и pre-publication cancellation покрыты regressions.
+- [x] Exact source commit `0cfeca8ad4dc3c0632246afa01e43372f4ec3d71` подтверждён:
+  - Verification Matrix `30013208011`;
+  - AppSec `30013208197`;
+  - Store Conformance `30013208312`.
+
+#### Slice 1C — next
+
+- [ ] Загрузить exact committed snapshot через explicit `RuntimeComposition`.
+- [ ] Добавить bounded application operation compose + publish.
+- [ ] Добавить отдельный CLI command, не меняя молча semantics существующего `ath generate`.
+- [ ] Добавить current/manifest/validation inspection в text и JSON modes.
+- [ ] Протащить project resolution, exact snapshot identity и cancellation.
+- [ ] Добавить missing/uncommitted snapshot, help, JSON parity и cancellation regressions.
+
+`DOCGEN-001` остаётся `[-] in progress`: Slices 0A–1B execution-confirmed, но user-facing committed-snapshot
+entrypoint отсутствует. Provider/LLM, daemon и MCP integration остаются вне Slice 1C.
 
 ### 4.2 Product backlog
 
 - [ ] broader relationship/framework adapters;
 - [ ] richer analysis completeness reporting;
-- [ ] evidence-backed documentation generation after the current bounded slice;
+- [ ] module/API/operations/onboarding profiles после Slice 1C;
 - [ ] i18n/concept mapping и optional semantic/vector retrieval.
 
 ## 5. Программа работ
 
 | ID | Priority | Status | Результат / критерий закрытия |
 | --- | --- | --- | --- |
-| `ARCH-AUDIT-001` | P1 | `[x] verified` | Run `29836572040` succeeded on `c4a494f3a1c1af5dcbad4252c5eb69e00d558b3a` |
+| `ARCH-AUDIT-001` | P1 | `[x] verified` | Run `29836572040` on `c4a494f3` |
 | `COMP-003` | P2 | `[x] implemented` | Runtime dependencies explicit |
 | `COMP-003C2B2C2B` | P2 | `[x] implemented` | Composition cleanup complete |
 | `MCP-007` | P1 | `[x] implemented` | Transactional cancellation preserves durable success |
-| `JSON-003` | P1 | `[x] implemented` | Schema lifecycle and payload parity enforced |
-| `DOC-001` | P3 | `[x] implemented` | Stale verification and removed paths cleaned |
-| `DOC-002` | P3 | `[x] implemented` | Pipeline/status docs aligned |
+| `JSON-003` | P1 | `[x] implemented` | Schema lifecycle and fixtures enforced |
+| `DOC-001` | P3 | `[x] implemented` | Status hygiene enforced |
+| `DOC-002` | P3 | `[x] implemented` | Architecture docs aligned |
 | `MCP-004` | P1 | `[x] implemented` | Control input remains observable under saturation |
-| `VERIFY-001A` | P1 | `[x] implemented` | Exact JSON/status evidence channels |
-| `VERIFY-001B` | P1 | `[x] implemented` | Docs gate matches lifecycle semantics |
-| `VERIFY-001C` | P1 | `[x] implemented` | Workflow toolchain matches Rust 1.95 |
-| `VERIFY-001D` | P1 | `[x] implemented` | Failure diagnostics retrievable |
-| `VERIFY-001E` | P1 | `[x] implemented` | Formatting, owners and lockfile remediated |
-| `VERIFY-001F` | P1 | `[x] implemented` | Structural execution blockers closed |
-| `VERIFY-001G` | P1 | `[x] implemented` | Cross-platform blockers closed by V21/V24/V41 |
-| `VERIFY-001` | P1 | `[x] verified` | Runs `29995959544`, `29995960063`, `29995959512` succeeded on `609027eb02caa05346ebfea8538552c42b588c31` |
-| `API-001` | P1 | `[x] verified` | Five bounded slices and current full exact CI/AppSec/Store evidence |
-| `REL-001` | P1 | `[x] verified` | `v0.2.1` published by `29996579628`; Linux/Windows clean install smokes passed in `29998347890` |
-| `DOCGEN-001` | P2 | `[-] in progress` | Slices 0A–0B execution-confirmed on `2a049303`; deterministic runtime profile remains planned |
+| `VERIFY-001` | P1 | `[x] verified` | Full release baseline matrix on `609027eb` |
+| `API-001` | P1 | `[x] verified` | Cross-protocol consistency exact evidence |
+| `REL-001` | P1 | `[x] verified` | `v0.2.1` published and clean-installed |
+| `DOCGEN-001` | P2 | `[-] in progress` | Slices 0A–1B execution-confirmed; Slice 1C next |
 
 ## 6. Verification matrix
 
@@ -192,12 +169,13 @@ cargo-deny check
 cargo fmt --all -- --check
 cargo test --workspace --quiet --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings
-cargo test -p athanor-extractor-openapi --locked
-cargo test -p athanor-extractor-graphql --locked
-cargo test -p athanor-checker-api --locked
 cargo test -p athanor-app --test documentation_generation_contract_inventory --locked
 cargo test -p athanor-app --test documentation_generation_slice0b_inventory --locked
+cargo test -p athanor-app --test documentation_architecture_profile_inventory --locked
+cargo test -p athanor-app --test documentation_architecture_publication_inventory --locked
 cargo test -p athanor-app --test documentation_status_inventory --locked
+cargo test -p athanor-app --test json_contract_inventory --locked
+cargo test -p athanor-app --test process_persistence_contract_inventory --locked
 cargo test -p athanor-app --test release_readiness_inventory --locked
 cargo test -p athanor-app --test verification_evidence_inventory --locked
 cargo test -p athanor-transport-mcp --test control_plane_saturation_inventory --locked
@@ -207,6 +185,6 @@ cargo run -p ath --quiet --locked -- docs check
 
 ## 7. Текущий следующий шаг
 
-Начать `DOCGEN-001 / Slice 1`: deterministic architecture profile из canonical snapshot,
-evidence-backed Markdown/diagram projection, validation before publication и integration с текущим
-immutable generation/pointer механизмом. LLM/provider adapter остаётся за пределами Slice 1.
+Реализовать `DOCGEN-001 / Slice 1C`: composition-aware загрузку exact committed snapshot, bounded
+architecture generation operation и отдельный CLI generation/inspection surface. Не подключать provider,
+daemon или MCP и не изменять существующий coordinated `ath generate` без явного contract migration.
