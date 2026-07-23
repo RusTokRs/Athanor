@@ -3,7 +3,7 @@
 > Репозиторий: `RusTokRs/Athanor`  
 > Ветка: `main`  
 > Актуализировано: 2026-07-23  
-> Статус: architecture audit, `API-001` и `REL-001` verified; `DOCGEN-001 / Slice 0A` implemented
+> Статус: architecture audit, `API-001` и `REL-001` verified; `DOCGEN-001 / Slices 0A–0B` implemented
 
 ## 1. Статусы и evidence
 
@@ -142,7 +142,12 @@ lockfile и installation-smoke workflows удалены из текущего д
 - [x] Unknown fields, schema drift, unsafe output paths, invalid SHA-256 и request/manifest mismatch
   блокируются fail closed fixture-backed regressions.
 - [x] Оба schema id зарегистрированы в общем public JSON contract inventory.
-- [ ] Slice 0B: outline/context/draft/citation/validation-report contracts, evaluation corpus и policy.
+- [x] Slice 0B определяет versioned outline, bounded context, citation, structured draft и
+  validation-report contracts с data-handling policy и quality metrics.
+- [x] Минимальный fixture repository и Rustok evaluation corpus фиксируют sections, citations,
+  diagram edges, known gaps, repeatability, provider cost и human-review score.
+- [x] Пять intermediate schema ids имеют explicit source-level Rust owners без преждевременного
+  runtime/persistence registry.
 - [ ] Slice 1: deterministic architecture profile и immutable publication integration.
 
 ### 4.2 Product backlog
@@ -174,7 +179,7 @@ lockfile и installation-smoke workflows удалены из текущего д
 | `VERIFY-001` | P1 | `[x] verified` | Runs `29995959544`, `29995960063`, `29995959512` succeeded on `609027eb02caa05346ebfea8538552c42b588c31` |
 | `API-001` | P1 | `[x] verified` | Five bounded slices and current full exact CI/AppSec/Store evidence |
 | `REL-001` | P1 | `[x] verified` | `v0.2.1` published by `29996579628`; Linux/Windows clean install smokes passed in `29998347890` |
-| `DOCGEN-001` | P2 | `[-] in progress` | Slice 0A contracts and fixtures implemented; runtime generation remains out of scope |
+| `DOCGEN-001` | P2 | `[-] in progress` | Slices 0A–0B contracts, fixtures, corpus and policy implemented; runtime generation remains out of scope |
 
 ## 6. Verification matrix
 
@@ -187,6 +192,7 @@ cargo test -p athanor-extractor-openapi --locked
 cargo test -p athanor-extractor-graphql --locked
 cargo test -p athanor-checker-api --locked
 cargo test -p athanor-app --test documentation_generation_contract_inventory --locked
+cargo test -p athanor-app --test documentation_generation_slice0b_inventory --locked
 cargo test -p athanor-app --test documentation_status_inventory --locked
 cargo test -p athanor-app --test release_readiness_inventory --locked
 cargo test -p athanor-app --test verification_evidence_inventory --locked
@@ -197,6 +203,6 @@ cargo run -p ath --quiet --locked -- docs check
 
 ## 7. Текущий следующий шаг
 
-Продолжить `DOCGEN-001 / Slice 0B`: versioned outline, bounded context, structured draft, citation и
-validation-report contracts плюс минимальный evaluation corpus. Runtime generator, projector wiring,
-LLM/provider dependencies и CLI surface остаются за пределами следующего bounded slice.
+Начать `DOCGEN-001 / Slice 1`: deterministic architecture profile из canonical snapshot,
+evidence-backed Markdown/diagram projection, validation before publication и integration с текущим
+immutable generation/pointer механизмом. LLM/provider adapter остаётся за пределами Slice 1.
