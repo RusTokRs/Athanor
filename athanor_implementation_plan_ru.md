@@ -3,7 +3,7 @@
 > Репозиторий: `RusTokRs/Athanor`  
 > Ветка: `main`  
 > Актуализировано: 2026-07-23  
-> Статус: architecture audit, `API-001` и `REL-001` verified; `v0.2.1` опубликован и installation-smoked
+> Статус: architecture audit, `API-001` и `REL-001` verified; `DOCGEN-001 / Slice 0A` implemented
 
 ## 1. Статусы и evidence
 
@@ -133,11 +133,23 @@ lockfile и installation-smoke workflows удалены из текущего д
 
 ## 4. Активная разработка
 
-### 4.1 Product backlog
+### 4.1 `DOCGEN-001` — evidence-backed documentation generation
+
+- [x] Slice 0A определяет strict versioned `DocumentationGenerationRequest` и
+  `DocumentationGenerationManifest` без runtime generator или новых dependencies.
+- [x] Request фиксирует exact snapshot, профиль `architecture` и ненулевые bounded limits.
+- [x] Manifest фиксирует request schema, effective limits, omitted counts и checksum-bound outputs.
+- [x] Unknown fields, schema drift, unsafe output paths, invalid SHA-256 и request/manifest mismatch
+  блокируются fail closed fixture-backed regressions.
+- [x] Оба schema id зарегистрированы в общем public JSON contract inventory.
+- [ ] Slice 0B: outline/context/draft/citation/validation-report contracts, evaluation corpus и policy.
+- [ ] Slice 1: deterministic architecture profile и immutable publication integration.
+
+### 4.2 Product backlog
 
 - [ ] broader relationship/framework adapters;
 - [ ] richer analysis completeness reporting;
-- [ ] evidence-backed documentation generation;
+- [ ] evidence-backed documentation generation after the current bounded slice;
 - [ ] i18n/concept mapping и optional semantic/vector retrieval.
 
 ## 5. Программа работ
@@ -162,6 +174,7 @@ lockfile и installation-smoke workflows удалены из текущего д
 | `VERIFY-001` | P1 | `[x] verified` | Runs `29995959544`, `29995960063`, `29995959512` succeeded on `609027eb02caa05346ebfea8538552c42b588c31` |
 | `API-001` | P1 | `[x] verified` | Five bounded slices and current full exact CI/AppSec/Store evidence |
 | `REL-001` | P1 | `[x] verified` | `v0.2.1` published by `29996579628`; Linux/Windows clean install smokes passed in `29998347890` |
+| `DOCGEN-001` | P2 | `[-] in progress` | Slice 0A contracts and fixtures implemented; runtime generation remains out of scope |
 
 ## 6. Verification matrix
 
@@ -173,6 +186,7 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test -p athanor-extractor-openapi --locked
 cargo test -p athanor-extractor-graphql --locked
 cargo test -p athanor-checker-api --locked
+cargo test -p athanor-app --test documentation_generation_contract_inventory --locked
 cargo test -p athanor-app --test documentation_status_inventory --locked
 cargo test -p athanor-app --test release_readiness_inventory --locked
 cargo test -p athanor-app --test verification_evidence_inventory --locked
@@ -183,5 +197,6 @@ cargo run -p ath --quiet --locked -- docs check
 
 ## 7. Текущий следующий шаг
 
-Начать следующий bounded backlog slice. Приоритетный кандидат — `DOCGEN-001 / Slice 0A`: versioned
-request/manifest contracts и fixture-backed inventory без нового runtime generator или зависимостей.
+Продолжить `DOCGEN-001 / Slice 0B`: versioned outline, bounded context, structured draft, citation и
+validation-report contracts плюс минимальный evaluation corpus. Runtime generator, projector wiring,
+LLM/provider dependencies и CLI surface остаются за пределами следующего bounded slice.
