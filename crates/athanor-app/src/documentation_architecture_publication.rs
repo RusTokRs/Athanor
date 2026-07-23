@@ -24,6 +24,10 @@ pub const DOCUMENTATION_CURRENT_SCHEMA_V1: &str = "athanor.documentation_current
 pub const DOCUMENTATION_VALIDATION_REPORT_PATH: &str = "validation-report.json";
 pub const DOCUMENTATION_MANIFEST_PATH: &str = "manifest.json";
 
+const ARCHITECTURE_DOCUMENT_ID: &str = "architecture-overview";
+const ARCHITECTURE_VALIDATION_REPORT_ID: &str = "architecture-validation-report";
+const JSON_MEDIA_TYPE: &str = "application/json";
+
 #[derive(Debug, Clone)]
 pub struct DocumentationArchitecturePublicationOptions {
     pub root: PathBuf,
@@ -104,8 +108,21 @@ fn publish_documentation_architecture_generation_inner(
     let generations_dir = documentation_root.join("generations");
     let current_pointer = documentation_root.join("current.json");
 
+    let profile = build_documentation_architecture_profile(request, snapshot)
+        .map_err(anyhow::Error::msg)
+        .context("failed to build deterministic architecture profile")?;
+    let validation_json = serde_json::to_string_pretty(&profile.validation_report)
+        .context("failed to serialize documentation validation report")?;
+    let validation_sha256 = sha256_hex(validation_json.as_bytes());
+    check_cancelled(&cancellation)?;
+
     if !options.force
-        && let Some(current) = load_current_generation(&documentation_root, request)?
+        && let Some(current) = load_current_generation(
+            &documentation_root,
+            request,
+            &profile.document.sha256,
+            &validation_sha256,
+        )?
     {
         return Ok(report_for_current(
             DocumentationArchitecturePublicationStatus::UpToDate,
@@ -116,19 +133,12 @@ fn publish_documentation_architecture_generation_inner(
         ));
     }
 
-    let profile = build_documentation_architecture_profile(request, snapshot)
-        .map_err(anyhow::Error::msg)
-        .context("failed to build deterministic architecture profile")?;
-    check_cancelled(&cancellation)?;
-
     let generation = next_generation_id(&generations_dir)?;
     let generation_dir = generations_dir.join(&generation);
     let publication = NewDirectoryPublication::new(&generation_dir, "documentation generation")
         .context("failed to prepare documentation generation")?;
     let staging = publication.staging_path();
 
-    let validation_json = serde_json::to_string_pretty(&profile.validation_report)
-        .context("failed to serialize documentation validation report")?;
     let manifest = DocumentationGenerationManifest {
         schema: DocumentationGenerationManifest::SCHEMA.to_string(),
         request_schema: DocumentationGenerationRequest::SCHEMA.to_string(),
@@ -140,16 +150,16 @@ fn publish_documentation_architecture_generation_inner(
         omitted: profile.context.omitted,
         documents: vec![
             DocumentationDocumentManifest {
-                id: "architecture-overview".to_string(),
+                id: ARCHITECTURE_DOCUMENT_ID.to_string(),
                 path: ARCHITECTURE_DOCUMENT_PATH.to_string(),
                 media_type: ARCHITECTURE_DOCUMENT_MEDIA_TYPE.to_string(),
                 sha256: profile.document.sha256.clone(),
             },
             DocumentationDocumentManifest {
-                id: "architecture-validation-report".to_string(),
+                id: ARCHITECTURE_VALIDATION_REPORT_ID.to_string(),
                 path: DOCUMENTATION_VALIDATION_REPORT_PATH.to_string(),
-                media_type: "application/json".to_string(),
-                sha256: sha256_hex(validation_json.as_bytes()),
+                media_type: JSON_MEDIA_TYPE.to_string(),
+                sha256: validation_sha256,
             },
         ],
     };
@@ -209,6 +219,8 @@ fn publish_documentation_architecture_generation_inner(
 fn load_current_generation(
     documentation_root: &Path,
     request: &DocumentationGenerationRequest,
+    expected_document_sha256: &str,
+    expected_validation_sha256: &str,
 ) -> Result<Option<CurrentDocumentationGeneration>> {
     let pointer_path = documentation_root.join("current.json");
     let Ok(pointer_source) = fs::read_to_string(&pointer_path) else {
@@ -246,6 +258,11 @@ fn load_current_generation(
     if manifest.validate_for_request(request).is_err()
         || manifest.generation != current.generation
         || manifest.status != DocumentationGenerationStatus::Complete
+        || !manifest_matches_expected_artifacts(
+            &manifest,
+            expected_document_sha256,
+            expected_validation_sha256,
+        )
     {
         return Ok(None);
     }
@@ -276,6 +293,34 @@ fn load_current_generation(
         return Ok(None);
     }
     Ok(Some(current))
+}
+
+fn manifest_matches_expected_artifacts(
+    manifest: &DocumentationGenerationManifest,
+    expected_document_sha256: &str,
+    expected_validation_sha256: &str,
+) -> bool {
+    if manifest.documents.len() != 2 {
+        return false;
+    }
+    let document = manifest
+        .documents
+        .iter()
+        .find(|document| document.id == ARCHITECTURE_DOCUMENT_ID);
+    let validation = manifest
+        .documents
+        .iter()
+        .find(|document| document.id == ARCHITECTURE_VALIDATION_REPORT_ID);
+    matches!(
+        (document, validation),
+        (Some(document), Some(validation))
+            if document.path == ARCHITECTURE_DOCUMENT_PATH
+                && document.media_type == ARCHITECTURE_DOCUMENT_MEDIA_TYPE
+                && document.sha256 == expected_document_sha256
+                && validation.path == DOCUMENTATION_VALIDATION_REPORT_PATH
+                && validation.media_type == JSON_MEDIA_TYPE
+                && validation.sha256 == expected_validation_sha256
+    )
 }
 
 fn report_for_current(
