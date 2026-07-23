@@ -3,7 +3,7 @@
 > Репозиторий: `RusTokRs/Athanor`  
 > Ветка: `main`  
 > Актуализировано: 2026-07-23  
-> Статус: `API-001`, `REL-001` verified; `DOCGEN-001 / Slices 0A–1C1` execution-confirmed, Slice 1C2 implemented
+> Статус: `API-001`, `REL-001` verified; `DOCGEN-001 / Slices 0A–1C` execution-confirmed
 
 ## 1. Статусы и evidence
 
@@ -28,7 +28,9 @@ Documentation generation:
 - Slices 1A–1B: `0cfeca8ad4dc3c0632246afa01e43372f4ec3d71`, CI `30013208011`, AppSec
   `30013208197`, Store `30013208312`;
 - Slice 1C1: `4f567271ed6d38d30b3c15dc6999aa33152a9312`, CI `30015689753`, AppSec
-  `30015691399`, Store `30015689363`.
+  `30015691399`, Store `30015689363`;
+- Slice 1C2: `042d02ac6b4c89d90a5b76c818098eb0c6b41920`, CI `30025932615`, AppSec
+  `30025931953`, Store `30025932704`.
 
 ## 3. Завершённые пакеты
 
@@ -81,15 +83,17 @@ Documentation generation:
 - [x] `ath docs architecture current|manifest|validation`.
 - [x] Inspection validates path confinement, identity, exact artifact layout and checksums.
 - [x] Executable test covers index → generate → inspect → `up_to_date` and missing snapshot.
-- [ ] Exact matrix pending on current source commit.
+- [x] Exact matrix on `042d02ac6b4c89d90a5b76c818098eb0c6b41920`:
+  - Verification Matrix `30025932615`;
+  - AppSec `30025931953`;
+  - Store Conformance `30025932704`.
 
 Existing coordinated `ath generate` is unchanged. Provider/LLM, daemon and MCP remain out of scope.
-`DOCGEN-001` remains `[-] in progress` until Slice 1C2 is execution-confirmed and a bounded Rustok run
-records usefulness/omissions before profile expansion.
+`DOCGEN-001` remains `[-] in progress` only until a bounded Rustok run records usefulness, omissions,
+unsupported relations, repeatability, and review findings before profile expansion.
 
 ### 4.2 Product backlog
 
-- [ ] Rustok architecture-document evaluation and tuning;
 - [ ] module/API/operations/onboarding profiles;
 - [ ] broader framework adapters and completeness reports;
 - [ ] optional provider, daemon, MCP, i18n and semantic retrieval after deterministic quality gates.
@@ -107,7 +111,7 @@ records usefulness/omissions before profile expansion.
 | `VERIFY-001` | P1 | `[x] verified` | Full release baseline matrix |
 | `API-001` | P1 | `[x] verified` | Cross-protocol consistency |
 | `REL-001` | P1 | `[x] verified` | `v0.2.1` published and installed |
-| `DOCGEN-001` | P2 | `[-] in progress` | Slices 0A–1C1 confirmed; 1C2 pending matrix |
+| `DOCGEN-001` | P2 | `[-] in progress` | Slices 0A–1C confirmed; Rustok evaluation next |
 
 ## 6. Verification matrix
 
@@ -134,5 +138,7 @@ cargo run -p ath --quiet --locked -- docs check
 
 ## 7. Следующий шаг
 
-Получить exact matrix для Slice 1C2, затем выполнить bounded Rustok generation evaluation. Не подключать
-provider, daemon или MCP и не менять coordinated `ath generate` без отдельного contract migration.
+Выполнить bounded Rustok architecture-generation evaluation на одном exact committed snapshot и записать
+полезные/отсутствующие sections, citation/diagram validity, omissions, unsupported relations,
+repeatability и review/tuning decisions. Не подключать provider, daemon или MCP и не менять coordinated
+`ath generate` без отдельного contract migration.
