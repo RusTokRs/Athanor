@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
 use athanor_app::{
-    DocsApplyPatchOptions, DocsApplyPatchReport, DocsCheckOptions, DocsCheckReport,
+    CancellationToken, DocsApplyPatchOptions, DocsApplyPatchReport, DocsCheckOptions, DocsCheckReport,
     DocsDriftOptions, DocsDriftReport, DocsProposeFixOptions,
     DocumentationArchitectureCurrentInspection, DocumentationArchitectureManifestInspection,
     DocumentationArchitectureOperationOptions, DocumentationArchitecturePublicationReport,
@@ -11,7 +11,7 @@ use athanor_app::{
     OperationsDocsCheckOptions, OperationsDocsCheckReport, VersionedDocsProposeFixReport,
     check_docs_with_composition, check_operations_docs_with_composition,
     docs_apply_patch_with_composition, docs_drift_with_composition,
-    generate_documentation_architecture_with_composition,
+    generate_documentation_architecture_with_composition_cancellable,
     inspect_documentation_architecture_current, inspect_documentation_architecture_manifest,
     inspect_documentation_architecture_validation,
 };
@@ -212,15 +212,28 @@ pub(crate) async fn run(command: Command) -> Result<()> {
                     max_diagnostics,
                 },
             );
-            let report = generate_documentation_architecture_with_composition(
-                DocumentationArchitectureOperationOptions {
-                    root: path,
-                    request,
-                    force,
-                },
-                &composition,
-            )
-            .await?;
+            let cancellation = CancellationToken::new();
+            let signal_cancellation = cancellation.clone();
+            let mut generation = Box::pin(
+                generate_documentation_architecture_with_composition_cancellable(
+                    DocumentationArchitectureOperationOptions {
+                        root: path,
+                        request,
+                        force,
+                    },
+                    &composition,
+                    cancellation,
+                ),
+            );
+            let mut ctrl_c = Box::pin(tokio::signal::ctrl_c());
+            let report = tokio::select! {
+                result = &mut generation => result?,
+                signal = &mut ctrl_c => {
+                    signal.context("failed to listen for architecture generation cancellation")?;
+                    signal_cancellation.cancel();
+                    generation.await?
+                }
+            };
             render_architecture_generation(&report, json)?;
         }
         Command::Architecture {
