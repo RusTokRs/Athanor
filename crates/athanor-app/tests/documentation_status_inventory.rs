@@ -4,6 +4,8 @@ const PIPELINE: &str = include_str!("../../../docs/architecture/pipeline.md");
 const OPERATION_CONTEXT: &str =
     include_str!("../../../docs/development/direct-operation-context.md");
 const RELEASE_GUIDE: &str = include_str!("../../../docs/development/release.md");
+const DOCGEN_PLAN: &str =
+    include_str!("../../../docs/development/evidence-backed-documentation-generation-plan.md");
 const PLAN: &str = include_str!("../../../athanor_implementation_plan_ru.md");
 
 #[test]
@@ -48,6 +50,7 @@ fn documentation_entrypoint_routes_to_current_status_owners() {
         "development/legacy-runtime-compatibility.md",
         "development/direct-operation-context.md",
         "development/release.md",
+        "development/evidence-backed-documentation-generation-plan.md",
     ] {
         assert!(
             DOCS_INDEX.contains(target),
@@ -58,6 +61,9 @@ fn documentation_entrypoint_routes_to_current_status_owners() {
         DOCS_INDEX
             .contains("cargo test -p athanor-app --test release_readiness_inventory --locked")
     );
+    assert!(DOCS_INDEX.contains(
+        "cargo test -p athanor-app --test documentation_generation_contract_inventory --locked"
+    ));
     assert!(!DOCS_INDEX.contains("current verified implementation status"));
 }
 
@@ -111,11 +117,19 @@ fn implementation_plan_matches_documentation_status() {
     ] {
         assert!(PLAN.contains(completed), "plan is missing {completed}");
     }
-    assert!(PLAN.contains("### 4.1 Product backlog"));
+    assert!(PLAN.contains("### 4.1 `DOCGEN-001` — evidence-backed documentation generation"));
+    assert!(PLAN.contains("### 4.2 Product backlog"));
+    assert!(PLAN.contains("| `DOCGEN-001` | P2 | `[-] in progress` |"));
     assert!(!PLAN.contains("### 4.2 `REL-001` — release readiness consolidation"));
     assert!(!PLAN.contains("| `REL-001` | P1 | `[-] in progress` |"));
 
+    let active_work = ROADMAP.find("## Active Work").expect("roadmap active work");
     let product_backlog = ROADMAP.find("## Product Backlog").expect("roadmap backlog");
+    assert!(active_work < product_backlog);
+    assert!(ROADMAP[active_work..product_backlog].contains("### `DOCGEN-001`"));
+    assert!(ROADMAP[active_work..product_backlog].contains("Slice 0A"));
+    assert!(!ROADMAP[active_work..product_backlog].contains("verified on"));
+
     for package in [
         "### `DOC-001` / `DOC-002`",
         "### `MCP-004`",
@@ -126,11 +140,32 @@ fn implementation_plan_matches_documentation_status() {
             .find(package)
             .unwrap_or_else(|| panic!("roadmap omits {package}"));
         assert!(
-            position < product_backlog,
-            "completed package {package} remains in the backlog"
+            position < active_work,
+            "completed package {package} remains in active work or backlog"
         );
     }
-    assert!(!ROADMAP.contains("## Active Work"));
+}
+
+#[test]
+fn documentation_generation_plan_matches_the_bounded_slice() {
+    for invariant in [
+        "# Evidence-Backed Documentation Generation Plan",
+        "canonical snapshot remains the only truth source",
+        "versioned request",
+        "manifest",
+        "No new dependency is approved",
+        "Slice 0A",
+        "DocumentationGenerationRequest",
+        "DocumentationGenerationManifest",
+        "no runtime generator",
+    ] {
+        assert!(
+            DOCGEN_PLAN.contains(invariant) || PLAN.contains(invariant),
+            "documentation generation status omits {invariant}"
+        );
+    }
+    assert!(PLAN.contains("Slice 0B"));
+    assert!(!PLAN.contains("`DOCGEN-001` | P2 | `[x] verified`"));
 }
 
 #[test]
@@ -207,12 +242,13 @@ fn removed_monoliths_and_legacy_services_do_not_return_to_status_docs() {
 #[test]
 fn architecture_status_documents_remain_bounded() {
     for (name, source, max_lines) in [
-        ("documentation index", DOCS_INDEX, 220),
-        ("roadmap", ROADMAP, 240),
+        ("documentation index", DOCS_INDEX, 225),
+        ("roadmap", ROADMAP, 220),
         ("pipeline", PIPELINE, 380),
         ("operation context", OPERATION_CONTEXT, 260),
         ("release guide", RELEASE_GUIDE, 180),
-        ("implementation plan", PLAN, 320),
+        ("documentation generation plan", DOCGEN_PLAN, 320),
+        ("implementation plan", PLAN, 260),
     ] {
         let lines = source.lines().count();
         assert!(lines <= max_lines, "{name} grew to {lines} lines");
