@@ -9,10 +9,10 @@ status: active
 
 ## Status
 
-In progress. Slices 0A–1C1 are execution-confirmed. Slice 1C2 implements exact-snapshot CLI generation,
-validated inspection, text/JSON output, hard limits, force, and Ctrl-C cancellation; its exact matrix is
-pending on the current source commit. The existing coordinated `ath generate` command is unchanged. No
-model provider, daemon, MCP, or new dependency is enabled.
+In progress. Slices 0A–1C are execution-confirmed. The supported exact-snapshot CLI generation and
+validated inspection surface has passed the full cross-platform matrix. The package remains active only
+for the first bounded Rustok generation evaluation. The existing coordinated `ath generate` command is
+unchanged. No model provider, daemon, MCP, or new dependency is enabled.
 
 ```text
 source files -> adapters -> exact committed snapshot -> bounded context -> cited document -> immutable generation
@@ -107,11 +107,15 @@ generates and inspects all outputs, verifies repeated `up_to_date`, and rejects 
   AppSec `30013208197`, Store `30013208312`.
 - Slice 1C1: source `4f567271ed6d38d30b3c15dc6999aa33152a9312`; CI `30015689753`,
   AppSec `30015691399`, Store `30015689363`.
-- Slice 1C2: implemented; exact matrix pending for the current source commit.
+- Slice 1C2: source `042d02ac6b4c89d90a5b76c818098eb0c6b41920`; CI `30025932615`,
+  AppSec `30025931953`, Store `30025932704`.
+
+The Slice 1C2 matrix covered formatting, workspace tests, Clippy, Linux/macOS/Windows smoke, installers,
+default/store-surreal/js-ts-precision/all-features, cargo-deny, documentation checks, and source coverage.
 
 ## Next Bounded Step
 
-After Slice 1C2 exact evidence, run the architecture command against a bounded Rustok snapshot and record:
+Run the architecture command against one bounded Rustok snapshot and record:
 
 - useful and missing sections;
 - citation and diagram validity;
