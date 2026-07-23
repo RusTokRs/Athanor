@@ -7,54 +7,61 @@ status: active
 ---
 # Versioned JSON Contract Inventory
 
-This inventory records JSON documents that cross CLI, daemon, MCP, persisted-state,
-generated-artifact, interchange, adapter-plugin, repository-automation, or process-adapter
-boundaries. Public Rust reports, general Rust-owned boundaries, adapter boundaries, and
-workflow-owned automation documents use separate checked registries. Standard and schema-less
-protocols retain their native version/framing contracts.
+This inventory records JSON documents crossing CLI, daemon, MCP, persisted-state, generated-artifact,
+interchange, adapter-plugin, automation, or process-adapter boundaries. Public reports, general
+Rust-owned boundaries, adapter documents, and workflow-owned documents use separate checked registries.
+Standard and schema-less protocols retain their native version/framing contracts.
 
-Audit baseline: current `main`. Source inventories and fixtures are implemented; execution evidence
-for the current HEAD remains pending.
+Audit baseline: source commit `0cfeca8ad4dc3c0632246afa01e43372f4ec3d71`. Verification Matrix
+`30013208011`, AppSec `30013208197`, and Store Conformance `30013208312` succeeded.
 
-## Schema id grammar
+## Schema Id Grammar
 
-The ordinary form is `athanor.<name>.v<major>`. A feature-qualified family may use
-`athanor.<name>.v<major>-<qualifier>-v<revision>`. The current
-`athanor.index_state.v46-js-ts-precision-v1` therefore has compatibility major `46`. Empty qualifiers,
-zero major/revision values, and missing qualifier revisions fail closed.
+Ordinary form: `athanor.<name>.v<major>`. A qualified family may use
+`athanor.<name>.v<major>-<qualifier>-v<revision>`. Empty qualifiers, zero major/revision values, and
+missing qualifier revisions fail closed.
 
-## Registered public contracts
+## Registered Public Contracts
 
-`VERSIONED_JSON_CONTRACTS` contains 62 current Rust-owned public application and daemon contracts:
+`VERSIONED_JSON_CONTRACTS` contains 62 current Rust-owned public application/daemon reports:
 
 - overview, search, explain, impact, check, coverage, capabilities, change map, and context;
-- index, benchmark, changed validation, coordinated generation, config, documentation, API, wiki,
-  and HTML;
-- evidence-backed documentation generation request and manifest contracts;
-- standard Graph and specialized Rustok reports;
-- project registry/resolution, Repair, daemon request/response/jobs, and adapter trust reports.
+- index, benchmark, changed validation, coordinated generation, config, docs, API, wiki, and HTML;
+- documentation-generation request and manifest;
+- Graph and Rustok reports;
+- project, Repair, daemon, and adapter-trust reports.
 
-`DocumentationGenerationRequest` binds one exact snapshot and the supported `architecture` profile to
-explicit bounded limits. `DocumentationGenerationManifest` records request-schema identity,
-effective limits, omitted counts, normalized portable output paths, and lowercase SHA-256 checksums.
-Both reject unknown fields and schema drift through fixture-backed regressions. Each public schema has
-one current Rust owner.
+`DocumentationGenerationRequest` binds an exact snapshot, `architecture` profile, and bounded limits.
+`DocumentationGenerationManifest` records request identity, effective limits, omissions, portable
+artifact paths, media types, and lowercase SHA-256. Both reject unknown fields and schema drift.
 
-## General non-public Rust contracts
+## General Non-Public Rust Contracts
 
-`NON_PUBLIC_JSON_CONTRACTS` retains 30 descriptors: 24 current documents, five accepted legacy
+`NON_PUBLIC_JSON_CONTRACTS` contains 32 descriptors: 26 current documents, five accepted legacy
 inputs, and one historical-only schema.
 
 Current persisted families include project registry state, daemon endpoint, Index current/state and
-publication journals, canonical snapshot/latest/commit documents. Current generated families include
-validation result, coordinated generation/current pointers, API contract snapshot/latest, JSONL
-manifest, wiki manifest, and HTML manifest. Interchange families include docs patches and projector
-payloads. Embedded families include Index and generation metrics.
+publication journals, and canonical snapshot/latest/commit documents.
 
-Legacy input is never emitted as a current fixture. Historical-only schemas are not presented as
-accepted compatibility.
+Current generated families include:
 
-## Adapter plugin and trust contracts
+- validation result;
+- coordinated generation manifest/current pointer;
+- `athanor.documentation_current.v1` owned by `CurrentDocumentationGeneration`;
+- `athanor.documentation_validation_report.v1` owned by `DocumentationValidationReport`;
+- API contract snapshot/latest;
+- JSONL, wiki, and HTML manifests.
+
+Interchange families include documentation patches and projector payloads. Embedded families include
+Index and generation metrics. Legacy input is never emitted as a current fixture; historical schemas
+are not accepted compatibility.
+
+The documentation current pointer requires schema, generation, snapshot, profile, relative generation
+path, and manifest path. The validation report requires draft schema, snapshot/profile identity,
+validation status, data policy, diagnostics, and quality metrics. Publication tests additionally require
+the exact deterministic Markdown/report artifact set and checksum agreement.
+
+## Adapter And Automation Contracts
 
 `ADAPTER_NON_PUBLIC_JSON_CONTRACTS` contains two current and two legacy-input descriptors:
 
@@ -65,37 +72,20 @@ accepted compatibility.
 | `athanor.adapter_trust_registry.v2` | `AdapterTrustRegistry` | current persisted read/write |
 | `athanor.adapter_trust.v2` | `AdapterTrustRegistry` | accepted legacy input |
 
-Legacy documents normalize in memory before runtime use. Current writes use only current schemas. The
-public trust status response remains `athanor.adapter_trust_report.v1`.
+`AUTOMATION_JSON_CONTRACTS` contains `athanor.verification_evidence.v1`, owned by
+`.github/workflows/verification-evidence.yml`. It records workflow identity, exact source SHA, run
+identity, conclusion, completion time, and matrix after successful main-branch CI.
 
-## Automation-owned contracts
-
-`AUTOMATION_JSON_CONTRACTS` contains documents emitted by repository automation rather than Rust
-runtime owners.
-
-| Schema | Owner | Class | Required identity |
-| --- | --- | --- | --- |
-| `athanor.verification_evidence.v1` | `.github/workflows/verification-evidence.yml` | persisted current | workflow, exact head SHA, run id/URL, conclusion, completion time, matrix |
-
-The verification evidence document is published only after a successful push-CI run on `main`. It is
-not a public application report. The automation registry validates schema ids, ownership, required
-fields, duplicates, and disjointness from public, general, and adapter registries.
-
-## Transport and process protocols
-
-### Daemon and MCP
+## Transport And Process Protocols
 
 `DaemonRequest` owns current `athanor.daemon_request.v3`; `DaemonResponse` owns
-`athanor.daemon_response.v3`; `DaemonJobsReport` owns `athanor.daemon_jobs.v1`. Earlier versions follow
+`athanor.daemon_response.v3`; `DaemonJobsReport` owns `athanor.daemon_jobs.v1`. Earlier versions retain
 their declared legacy/historical lifecycles.
 
-MCP uses JSON-RPC `2.0` and MCP protocol `2024-11-05`. Native request, response, error, and text
-results do not receive synthetic `athanor.*` schemas. CLI, daemon, and MCP Index paths serialize the
-same public `IndexReport`.
+MCP uses JSON-RPC `2.0` and protocol `2024-11-05`; native envelopes do not receive synthetic Athanor
+schemas. CLI, daemon, and MCP Index serialize the same public `IndexReport`.
 
-### External processes
-
-`PROCESS_PROTOCOL_CONTRACTS` records four intentionally schema-less protocols:
+`PROCESS_PROTOCOL_CONTRACTS` records four schema-less protocols:
 
 | Protocol | Request | Response | Framing |
 | --- | --- | --- | --- |
@@ -104,62 +94,50 @@ same public `IndexReport`.
 | `linker` | `LinkInput` object | `Vec<Relation>` array | newline JSON stdin / one JSON stdout |
 | `checker` | `CheckInput` object | `Vec<Diagnostic>` array | newline JSON stdin / one JSON stdout |
 
-Adding a synthetic top-level schema would change existing external adapters; an incompatible future
-change requires an explicit versioned process envelope.
+An incompatible process change requires an explicit versioned envelope.
 
-## Source-literal classifications
+## Source-Literal Classifications
 
-Twenty-one canonical `athanor.*` literals are explicitly classified with a Rust owner and lifecycle
-even though they are not members of the stable public/general registries. They cover composite CLI
-and daemon envelopes, embedded GraphQL/JS-TS metadata, JSONL indexes, accepted legacy inputs, and the
-five Slice 0B intermediate documentation contracts:
+Twenty canonical literals are explicitly source-classified outside stable public/general registries.
+They cover CLI/daemon composite envelopes, GraphQL/JS-TS metadata, JSONL indexes, accepted legacy
+inputs, and four intermediate documentation types:
 
 - `athanor.documentation_outline.v1` — `DocumentationOutline`;
 - `athanor.documentation_context.v1` — `DocumentationContext`;
 - `athanor.documentation_citation.v1` — `DocumentationCitation`;
-- `athanor.documentation_draft.v1` — `DocumentationDraft`;
-- `athanor.documentation_validation_report.v1` — `DocumentationValidationReport`.
+- `athanor.documentation_draft.v1` — `DocumentationDraft`.
 
-These five schemas are strict application-owned intermediate types. They are not yet registered as
-public reports, persisted documents, generated artifacts, or interchange boundaries because Slice 1
-has not introduced a runtime transport/publication owner. The recursive scanner still requires their
-canonical ids, uniqueness, ownership, lifecycle, and source observability.
+These four are strict in-memory application contracts. The validation report is no longer in this
+category because Slice 1B publishes it as a generated artifact.
 
-Non-canonical Athanor-prefixed strings such as the `athanor.index_state.v` validation prefix and the
-`athanor.toml` filename are excluded only when `validate_schema_id` rejects them. Registered legacy
-ids remain observable.
+## Enforcement
 
-## Enforcement implementation
+- `VERSIONED_JSON_CONTRACTS` protects 62 public owners.
+- `NON_PUBLIC_JSON_CONTRACTS` protects 32 general boundaries.
+- Adapter and automation registries remain disjoint from public/general contracts.
+- `PROCESS_PROTOCOL_CONTRACTS` protects four schema-less shapes and framing.
+- `json_contract_inventory.rs` recursively classifies production schema literals.
+- `process_persistence_contract_inventory.rs` protects lifecycle counts and current fixtures.
+- documentation contract tests protect strict fields, alignment, data policy, evidence, and limits.
+- architecture profile/publication tests protect deterministic output, exact artifacts, checksums,
+  immutable history, tamper recovery, force, and cancellation.
 
-- `VERSIONED_JSON_CONTRACTS` protects 62 current public Rust owners.
-- `NON_PUBLIC_JSON_CONTRACTS` protects 30 general Rust-owned boundary descriptors.
-- `ADAPTER_NON_PUBLIC_JSON_CONTRACTS` protects two current and two legacy adapter documents.
-- `AUTOMATION_JSON_CONTRACTS` protects the current workflow-owned verification evidence document.
-- `PROCESS_PROTOCOL_CONTRACTS` protects four schema-less process shapes and framing.
-- `json_contract_inventory.rs` scans production Rust sources recursively and requires every quoted
-  `athanor.*` literal to be classified.
-- `documentation_generation_contract_inventory.rs` protects request/manifest alignment, portable
-  paths, checksums, and hard limits.
-- `documentation_generation_slice0b_inventory.rs` protects bounded context, evidence/citations,
-  structured drafts, data policy, quality reports, and the evaluation corpus.
-- Public, general, adapter, and automation schema sets remain mutually disjoint.
+## Rules
 
-## Enforcement rules
-
-- Every current public schema has exactly one Rust owner.
-- Every automation schema has one explicit workflow owner.
-- Every production Athanor schema literal is classified by a checked registry.
-- Current persisted/generated/interchange documents have required-field coverage.
+- Every current public or non-public schema has exactly one checked owner.
+- Every production Athanor schema literal is classified.
+- Current persisted/generated/interchange documents have required-field fixtures.
 - Legacy input normalizes before a current write or response.
-- A schema id never describes two current emitted top-level shapes.
-- Removing, renaming, retyping, or semantically changing a field requires a new major schema id or
-  protocol version.
+- One schema never describes two current top-level shapes.
+- Semantic field changes require a new major schema or protocol version.
 
 ## Verification
 
 ```bash
 cargo test -p athanor-app --test documentation_generation_contract_inventory --locked
 cargo test -p athanor-app --test documentation_generation_slice0b_inventory --locked
+cargo test -p athanor-app --test documentation_architecture_profile_inventory --locked
+cargo test -p athanor-app --test documentation_architecture_publication_inventory --locked
 cargo test -p athanor-app --test json_contract_inventory --locked
 cargo test -p athanor-app --test process_persistence_contract_inventory --locked
 cargo test -p athanor-app --test adapter_contract_inventory --locked
@@ -168,5 +146,3 @@ cargo test -p athanor-app --test verification_evidence_inventory --locked
 cargo check --workspace --all-features --locked
 cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 ```
-
-The inventory is implemented, not verified, until this matrix is executed on one commit.
