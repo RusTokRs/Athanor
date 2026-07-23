@@ -94,11 +94,6 @@ const SOURCE_LITERAL_JSON_CONTRACTS: &[SourceLiteralJsonContract] = &[
         lifecycle: BoundaryLifecycle::Current,
     },
     SourceLiteralJsonContract {
-        schema: "athanor.documentation_validation_report.v1",
-        owner: "DocumentationValidationReport",
-        lifecycle: BoundaryLifecycle::Current,
-    },
-    SourceLiteralJsonContract {
         schema: "athanor.daemon_request.v1",
         owner: "DaemonRequest",
         lifecycle: BoundaryLifecycle::Historical,
@@ -141,7 +136,7 @@ fn schema_registries_are_valid_unique_and_disjoint() {
     .expect("automation JSON contract registry must remain valid");
 
     assert_eq!(VERSIONED_JSON_CONTRACTS.len(), 62);
-    assert_eq!(NON_PUBLIC_JSON_CONTRACTS.len(), 30);
+    assert_eq!(NON_PUBLIC_JSON_CONTRACTS.len(), 32);
     assert_eq!(ADAPTER_NON_PUBLIC_JSON_CONTRACTS.len(), 4);
     assert_eq!(AUTOMATION_JSON_CONTRACTS.len(), 1);
 
