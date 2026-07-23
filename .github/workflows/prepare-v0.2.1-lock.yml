@@ -1,0 +1,136 @@
+name: Prepare v0.2.1 Lockfile
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/prepare-v0.2.1-lock.yml"
+
+permissions:
+  contents: write
+  statuses: write
+
+concurrency:
+  group: prepare-v0.2.1-lock
+  cancel-in-progress: true
+
+jobs:
+  update:
+    name: Synchronize v0.2.1 release lockfile
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Publish pending status
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > /tmp/status.json
+          import json
+          import os
+          print(json.dumps({
+              "state": "pending",
+              "target_url": f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
+              "description": "Synchronizing v0.2.1 release lockfile",
+              "context": "athanor/v0.2.1-lockfile",
+          }))
+          PY
+          curl --fail-with-body --location --request POST \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            --data @/tmp/status.json
+
+      - name: Check out current main
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Update only release package entries
+        id: update
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fx 'version = "0.2.1"' apps/ath/Cargo.toml
+          grep -Fx 'version = "0.2.1"' apps/athd/Cargo.toml
+          python3 - <<'PY'
+          import tomllib
+          from pathlib import Path
+
+          path = Path("Cargo.lock")
+          lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+          package = None
+          changed = {"ath": 0, "athd": 0}
+          for index, line in enumerate(lines):
+              stripped = line.strip()
+              if stripped == "[[package]]":
+                  package = None
+              elif stripped.startswith('name = "') and stripped.endswith('"'):
+                  package = stripped.removeprefix('name = "').removesuffix('"')
+              elif package in changed and stripped.startswith('version = "'):
+                  assert stripped == 'version = "0.2.0"', (package, stripped)
+                  newline = "\n" if line.endswith("\n") else ""
+                  lines[index] = 'version = "0.2.1"' + newline
+                  changed[package] += 1
+                  package = None
+          assert changed == {"ath": 1, "athd": 1}, changed
+          path.write_text("".join(lines), encoding="utf-8")
+
+          lock = tomllib.loads(path.read_text(encoding="utf-8"))
+          versions = {
+              item["name"]: item["version"]
+              for item in lock["package"]
+              if item["name"] in {"ath", "athd"}
+          }
+          assert versions == {"ath": "0.2.1", "athd": "0.2.1"}, versions
+          PY
+          test "$(git diff --numstat -- Cargo.lock | awk '{print $1":"$2":"$3}')" = "2:2:Cargo.lock"
+
+      - name: Commit synchronized lockfile
+        id: commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.lock
+          git commit -m "build: synchronize 0.2.1 release lockfile [skip ci]"
+          git push origin HEAD:main
+
+      - name: Publish terminal status
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UPDATE_OUTCOME: ${{ steps.update.outcome }}
+          COMMIT_OUTCOME: ${{ steps.commit.outcome }}
+        run: |
+          set -euo pipefail
+          state="success"
+          description="v0.2.1 release lockfile synchronized"
+          if [[ "$UPDATE_OUTCOME" != "success" || "$COMMIT_OUTCOME" != "success" ]]; then
+            state="failure"
+            description="v0.2.1 release lockfile synchronization failed"
+          fi
+          export STATE="$state"
+          export DESCRIPTION="$description"
+          python3 - <<'PY' > /tmp/status.json
+          import json
+          import os
+          print(json.dumps({
+              "state": os.environ["STATE"],
+              "target_url": f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
+              "description": os.environ["DESCRIPTION"],
+              "context": "athanor/v0.2.1-lockfile",
+          }))
+          PY
+          curl --fail-with-body --location --request POST \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            --data @/tmp/status.json
