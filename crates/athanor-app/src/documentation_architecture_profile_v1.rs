@@ -202,9 +202,8 @@ fn build_context(
         relations: snapshot.relations.len().saturating_sub(relations.len()),
         diagnostics: open_diagnostics.saturating_sub(diagnostics.len()),
     };
-    let mut items = Vec::with_capacity(
-        entities.len() + facts.len() + relations.len() + diagnostics.len(),
-    );
+    let mut items =
+        Vec::with_capacity(entities.len() + facts.len() + relations.len() + diagnostics.len());
     items.extend(entities);
     items.extend(facts);
     items.extend(relations);
@@ -275,7 +274,9 @@ fn fact_candidate(fact: &Fact, entities: &HashMap<&str, &Entity>) -> Option<Cand
     stable_keys.dedup();
     let evidence = evidence_locations(
         &fact.evidence,
-        fact.ownership.iter().map(|ownership| &ownership.source_file),
+        fact.ownership
+            .iter()
+            .map(|ownership| &ownership.source_file),
     );
     if evidence.is_empty() {
         return None;
@@ -554,11 +555,7 @@ fn citation_id(
         .clone()
 }
 
-fn inferred_claim(
-    id: &str,
-    text: impl Into<String>,
-    rationale: &str,
-) -> DocumentationDraftClaim {
+fn inferred_claim(id: &str, text: impl Into<String>, rationale: &str) -> DocumentationDraftClaim {
     DocumentationDraftClaim {
         id: id.to_string(),
         text: text.into(),
@@ -733,7 +730,11 @@ fn evidence_locations<'a>(
                 .and_then(|path| location(path, evidence.line_start, evidence.line_end))
         })
         .collect::<Vec<_>>();
-    locations.extend(ownership_paths.filter_map(|path| location(path, None, None)));
+    locations.extend(
+        ownership_paths
+            .into_iter()
+            .filter_map(|path| location(path, None, None)),
+    );
     deduplicate_locations(locations)
 }
 
@@ -816,7 +817,11 @@ fn deduplicate_locations(
 }
 
 fn count_kind(context: &DocumentationContext, kind: DocumentationContextItemKind) -> usize {
-    context.items.iter().filter(|item| item.kind == kind).count()
+    context
+        .items
+        .iter()
+        .filter(|item| item.kind == kind)
+        .count()
 }
 
 fn entity_title(entity: &Entity) -> String {
