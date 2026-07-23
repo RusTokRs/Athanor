@@ -2,8 +2,8 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
 use athanor_app::{
-    CancellationToken, DocsApplyPatchOptions, DocsApplyPatchReport, DocsCheckOptions, DocsCheckReport,
-    DocsDriftOptions, DocsDriftReport, DocsProposeFixOptions,
+    CancellationToken, DocsApplyPatchOptions, DocsApplyPatchReport, DocsCheckOptions,
+    DocsCheckReport, DocsDriftOptions, DocsDriftReport, DocsProposeFixOptions,
     DocumentationArchitectureCurrentInspection, DocumentationArchitectureManifestInspection,
     DocumentationArchitectureOperationOptions, DocumentationArchitecturePublicationReport,
     DocumentationArchitecturePublicationStatus, DocumentationArchitectureValidationInspection,
