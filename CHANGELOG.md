@@ -15,20 +15,27 @@ substantive release notes.
 
 - Add strict versioned request and manifest contracts for evidence-backed documentation generation,
   binding output to an exact snapshot, supported profile, hard input limits, omitted counts, portable
-  relative paths, and SHA-256 checksums without adding a runtime generator or provider dependency.
+  relative paths, and SHA-256 checksums without adding a provider dependency.
 - Add versioned outline, bounded context, citation, structured draft, and validation-report contracts
-  with stable-key/evidence traceability, explicit inference, relation-backed diagram edges, data
-  handling policy, deterministic quality metrics, and provider cost fields.
+  with stable-key/evidence traceability, explicit inference, relation-backed diagram edges, data policy,
+  deterministic quality metrics, and provider-cost fields.
 - Add a minimal fixture repository and Rustok evaluation corpus with expected sections, citation paths,
-  diagram edges, known gaps, repeatability, unsupported-relation disclosure, and human-review criteria.
+  diagram edges, known gaps, repeatability, unsupported-relation disclosure, and review criteria.
+- Add a deterministic architecture profile that converts one explicit canonical snapshot into cited
+  Markdown, relation-backed Mermaid source, omission disclosure, evidence footnotes, quality metrics,
+  and checksum identity without store, network, or model access.
+- Add an application-layer immutable documentation publisher with staged generation directories,
+  checksum-bound Markdown and validation artifacts, an atomic `documentation/current.json` pointer,
+  exact `UpToDate` reuse, explicit `force`, and cancellation-safe pointer preservation.
 
 ### Fixed
 
 - Reject Windows drive paths, reserved device names, trailing-dot/space components, and
-  case-insensitive output-path collisions before future documentation artifacts can be published.
-- Reject raw-file/secret context access, out-of-context citations and diagram endpoints, uncited
-  factual claims, malformed evidence ranges, provider metrics without opt-in, and inconsistent valid
-  reports before future documentation publication.
+  case-insensitive output-path collisions before documentation artifacts can be published.
+- Reject raw-file/secret context access, out-of-context citations and diagram endpoints, uncited factual
+  claims, malformed evidence ranges, provider metrics without opt-in, and inconsistent valid reports.
+- Reject incomplete or self-consistent-but-tampered documentation manifests and generated artifacts as
+  up to date; rebuild into a new immutable generation while retaining publication history.
 
 ## [0.2.1] - 2026-07-23
 
