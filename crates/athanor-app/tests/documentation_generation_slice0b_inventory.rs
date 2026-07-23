@@ -2,7 +2,8 @@ use std::collections::BTreeSet;
 
 use athanor_app::{
     DocumentationCitation, DocumentationContext, DocumentationDraft, DocumentationGenerationRequest,
-    DocumentationOutline, DocumentationValidationReport,
+    DocumentationOutline, DocumentationValidationReport, validate_documentation_draft_chain,
+    validate_documentation_report_chain,
 };
 use serde_json::Value;
 
@@ -21,19 +22,9 @@ fn slice_0b_contracts_are_strict_aligned_and_round_trip() {
     let draft: DocumentationDraft = typed(&fixture, "draft");
     let report: DocumentationValidationReport = typed(&fixture, "validation_report");
 
-    outline
-        .validate_for_request(&request)
-        .expect("outline must match request");
-    context
-        .validate_for_request_and_outline(&request, &outline)
-        .expect("context must remain bounded and aligned");
     citation.validate().expect("citation fixture must be valid");
-    draft
-        .validate_for_context_and_outline(&context, &outline)
-        .expect("draft must remain cited and aligned");
-    report
-        .validate_for_draft_and_context(&draft, &context)
-        .expect("validation report must match draft and policy");
+    validate_documentation_report_chain(&request, &outline, &context, &draft, &report)
+        .expect("complete documentation contract chain must align");
 
     for (name, value) in [
         ("request", serde_json::to_value(request).unwrap()),
@@ -86,49 +77,97 @@ fn schema_policy_evidence_and_citation_failures_are_rejected() {
     uncited_draft.sections[0].claims[0].citation_ids.clear();
     uncited_draft.sections[0].claims[0].inference = None;
     assert!(
-        uncited_draft
-            .validate_for_context_and_outline(&context, &outline)
-            .is_err()
+        validate_documentation_draft_chain(&request, &outline, &context, &uncited_draft).is_err()
     );
 
     let mut escaping_draft: DocumentationDraft = typed(&fixture, "draft");
     escaping_draft.citations[0].stable_keys = vec!["file://outside.rs".to_string()];
     assert!(
-        escaping_draft
-            .validate_for_context_and_outline(&context, &outline)
-            .is_err()
+        validate_documentation_draft_chain(&request, &outline, &context, &escaping_draft).is_err()
+    );
+}
+
+#[test]
+fn cross_contract_snapshot_section_and_report_drift_fail_closed() {
+    let fixture: Value = serde_json::from_str(CONTRACT_FIXTURE).unwrap();
+    let request: DocumentationGenerationRequest = typed(&fixture, "request");
+    let outline: DocumentationOutline = typed(&fixture, "outline");
+    let context: DocumentationContext = typed(&fixture, "context");
+    let draft: DocumentationDraft = typed(&fixture, "draft");
+    let report: DocumentationValidationReport = typed(&fixture, "validation_report");
+
+    let mut other_outline = outline.clone();
+    other_outline.snapshot = "snap-other".to_string();
+    assert!(
+        validate_documentation_draft_chain(&request, &other_outline, &context, &draft).is_err()
+    );
+
+    let mut retitled_draft = draft.clone();
+    retitled_draft.sections[0].title = "Unrelated Title".to_string();
+    assert!(
+        validate_documentation_draft_chain(&request, &outline, &context, &retitled_draft).is_err()
+    );
+
+    let mut other_context = context.clone();
+    other_context.snapshot = "snap-other".to_string();
+    assert!(
+        validate_documentation_report_chain(
+            &request,
+            &outline,
+            &other_context,
+            &draft,
+            &report,
+        )
+        .is_err()
     );
 }
 
 #[test]
 fn validation_status_and_provider_metrics_fail_closed() {
     let fixture: Value = serde_json::from_str(CONTRACT_FIXTURE).unwrap();
+    let request: DocumentationGenerationRequest = typed(&fixture, "request");
+    let outline: DocumentationOutline = typed(&fixture, "outline");
     let context: DocumentationContext = typed(&fixture, "context");
     let draft: DocumentationDraft = typed(&fixture, "draft");
 
     let mut provider_metrics: DocumentationValidationReport = typed(&fixture, "validation_report");
     provider_metrics.metrics.prompt_tokens = Some(1);
     assert!(
-        provider_metrics
-            .validate_for_draft_and_context(&draft, &context)
-            .is_err()
+        validate_documentation_report_chain(
+            &request,
+            &outline,
+            &context,
+            &draft,
+            &provider_metrics,
+        )
+        .is_err()
     );
 
     let mut invalid_score: DocumentationValidationReport = typed(&fixture, "validation_report");
     invalid_score.metrics.citation_validity_basis_points = 9_999;
     assert!(
-        invalid_score
-            .validate_for_draft_and_context(&draft, &context)
-            .is_err()
+        validate_documentation_report_chain(
+            &request,
+            &outline,
+            &context,
+            &draft,
+            &invalid_score,
+        )
+        .is_err()
     );
 
     let mut invalid_without_error: DocumentationValidationReport =
         typed(&fixture, "validation_report");
     invalid_without_error.status = athanor_app::DocumentationValidationStatus::Invalid;
     assert!(
-        invalid_without_error
-            .validate_for_draft_and_context(&draft, &context)
-            .is_err()
+        validate_documentation_report_chain(
+            &request,
+            &outline,
+            &context,
+            &draft,
+            &invalid_without_error,
+        )
+        .is_err()
     );
 }
 
