@@ -74,7 +74,11 @@ impl DocumentationGenerationRequest {
     }
 
     pub fn validate(&self) -> Result<(), DocumentationContractError> {
-        validate_schema("documentation generation request", &self.schema, Self::SCHEMA)?;
+        validate_schema(
+            "documentation generation request",
+            &self.schema,
+            Self::SCHEMA,
+        )?;
         validate_non_empty("snapshot", &self.snapshot)?;
         self.limits.validate()
     }
@@ -131,7 +135,11 @@ impl DocumentationGenerationManifest {
     pub const SCHEMA: &'static str = DOCUMENTATION_GENERATION_MANIFEST_SCHEMA_V1;
 
     pub fn validate(&self) -> Result<(), DocumentationContractError> {
-        validate_schema("documentation generation manifest", &self.schema, Self::SCHEMA)?;
+        validate_schema(
+            "documentation generation manifest",
+            &self.schema,
+            Self::SCHEMA,
+        )?;
         validate_schema(
             "documentation generation manifest request",
             &self.request_schema,
@@ -293,8 +301,7 @@ fn validate_sha256(value: &str) -> Result<(), DocumentationContractError> {
         Ok(())
     } else {
         Err(DocumentationContractError(
-            "documentation document sha256 must be 64 lowercase hexadecimal characters"
-                .to_string(),
+            "documentation document sha256 must be 64 lowercase hexadecimal characters".to_string(),
         ))
     }
 }
