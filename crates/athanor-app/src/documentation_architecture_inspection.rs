@@ -8,11 +8,11 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 use crate::{
-    ARCHITECTURE_DOCUMENT_MEDIA_TYPE, ARCHITECTURE_DOCUMENT_PATH,
+    ARCHITECTURE_DOCUMENT_MEDIA_TYPE, ARCHITECTURE_DOCUMENT_PATH, CurrentDocumentationGeneration,
     DOCUMENTATION_CURRENT_SCHEMA_V1, DOCUMENTATION_DRAFT_SCHEMA_V1, DOCUMENTATION_MANIFEST_PATH,
     DOCUMENTATION_VALIDATION_REPORT_PATH, DOCUMENTATION_VALIDATION_REPORT_SCHEMA_V1,
-    CurrentDocumentationGeneration, DocumentationGenerationManifest, DocumentationGenerationRequest,
-    DocumentationGenerationStatus, DocumentationValidationReport, DocumentationValidationStatus,
+    DocumentationGenerationManifest, DocumentationGenerationRequest, DocumentationGenerationStatus,
+    DocumentationValidationReport, DocumentationValidationStatus,
 };
 
 const ARCHITECTURE_DOCUMENT_ID: &str = "architecture-overview";
@@ -75,7 +75,9 @@ pub fn inspect_documentation_architecture_validation(
     let manifest = load_validated_manifest(&resolved)?;
     let validation_path = confined_existing_file(
         &resolved.documentation_root,
-        &resolved.generation_dir.join(DOCUMENTATION_VALIDATION_REPORT_PATH),
+        &resolved
+            .generation_dir
+            .join(DOCUMENTATION_VALIDATION_REPORT_PATH),
         "documentation validation report",
     )?;
     let report: DocumentationValidationReport = read_json(&validation_path)?;
@@ -118,10 +120,18 @@ fn resolve_current(root: &Path) -> Result<ResolvedCurrent> {
         .with_context(|| format!("failed to canonicalize {}", root.display()))?;
     let documentation_root = root.join(".athanor/generated/documentation");
     let current_pointer = documentation_root.join("current.json");
-    let current: CurrentDocumentationGeneration = read_json(&current_pointer)
-        .with_context(|| format!("failed to read current documentation pointer in {}", root.display()))?;
+    let current: CurrentDocumentationGeneration =
+        read_json(&current_pointer).with_context(|| {
+            format!(
+                "failed to read current documentation pointer in {}",
+                root.display()
+            )
+        })?;
     if current.schema != DOCUMENTATION_CURRENT_SCHEMA_V1 {
-        bail!("unsupported documentation current schema {}", current.schema);
+        bail!(
+            "unsupported documentation current schema {}",
+            current.schema
+        );
     }
     if current.generation.len() != 8
         || !current.generation.bytes().all(|byte| byte.is_ascii_digit())
