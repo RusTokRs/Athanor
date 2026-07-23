@@ -38,6 +38,7 @@ fn is_iso_release_date(value: &str) -> bool {
 #[test]
 fn release_workflow_gates_all_artifact_jobs_on_the_tag_contract() {
     for required in [
+        "workflow_dispatch:",
         "release-contract:",
         "name: Verify release contract",
         "RELEASE_TAG: ${{ github.ref_name }}",
@@ -181,6 +182,7 @@ fn release_runbook_matches_the_enforced_workflow() {
         "release-notes.md",
         "CycloneDX SBOM",
         "Do not move or reuse a published release tag",
+        "dispatch ref must be the tag itself",
         "Never replace assets",
     ] {
         assert!(
