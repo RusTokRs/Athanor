@@ -16,7 +16,10 @@ fn aggregate_status_documents_do_not_claim_unexecuted_verification() {
         ("roadmap", ROADMAP),
         ("pipeline", PIPELINE),
     ] {
-        assert!(source.contains("status: active"), "{name} must remain active");
+        assert!(
+            source.contains("status: active"),
+            "{name} must remain active"
+        );
         assert!(!source.contains("status: verified"));
         assert!(!source.contains("last_verified_snapshot:"));
         assert!(!source.contains("Status: verified."));
@@ -42,7 +45,10 @@ fn documentation_entrypoint_routes_to_current_status_owners() {
         "development/release.md",
         "development/evidence-backed-documentation-generation-plan.md",
     ] {
-        assert!(DOCS_INDEX.contains(target), "documentation map omits {target}");
+        assert!(
+            DOCS_INDEX.contains(target),
+            "documentation map omits {target}"
+        );
     }
     for command in [
         "cargo test -p athanor-app --test release_readiness_inventory --locked",
@@ -51,7 +57,10 @@ fn documentation_entrypoint_routes_to_current_status_owners() {
         "cargo test -p athanor-app --test documentation_architecture_profile_inventory --locked",
         "cargo test -p athanor-app --test documentation_architecture_publication_inventory --locked",
     ] {
-        assert!(DOCS_INDEX.contains(command), "documentation map omits {command}");
+        assert!(
+            DOCS_INDEX.contains(command),
+            "documentation map omits {command}"
+        );
     }
     assert!(!DOCS_INDEX.contains("current verified implementation status"));
 }
@@ -161,7 +170,10 @@ fn documentation_json_inventory_matches_publication_boundaries() {
         "four intermediate documentation types",
         "documentation_architecture_publication_inventory",
     ] {
-        assert!(JSON_INVENTORY.contains(invariant), "JSON inventory omits {invariant}");
+        assert!(
+            JSON_INVENTORY.contains(invariant),
+            "JSON inventory omits {invariant}"
+        );
     }
     assert!(!JSON_INVENTORY.contains("`NON_PUBLIC_JSON_CONTRACTS` retains 30"));
     assert!(!JSON_INVENTORY.contains("five Slice 0B intermediate documentation contracts"));
@@ -182,7 +194,10 @@ fn release_runbook_matches_the_repository_owned_contract() {
         "CycloneDX SBOM",
         "Never replace assets",
     ] {
-        assert!(RELEASE_GUIDE.contains(invariant), "release guide omits {invariant}");
+        assert!(
+            RELEASE_GUIDE.contains(invariant),
+            "release guide omits {invariant}"
+        );
     }
     assert!(RELEASE_GUIDE.contains("status: active"));
     assert!(!RELEASE_GUIDE.contains("status: verified"));
@@ -218,10 +233,14 @@ fn removed_monoliths_and_false_docgen_surfaces_do_not_return() {
             ("roadmap", ROADMAP),
             ("pipeline", PIPELINE),
         ] {
-            assert!(!source.contains(stale), "{name} contains stale claim {stale}");
+            assert!(
+                !source.contains(stale),
+                "{name} contains stale claim {stale}"
+            );
         }
     }
-    assert!(DOCS_INDEX.contains("There is not yet a supported `ath` command"));
+    assert!(DOCS_INDEX.contains("supported `ath` command"));
+    assert!(DOCS_INDEX.contains("Slice 1C owns that"));
     assert!(ROADMAP.contains("No CLI, daemon, MCP, provider, or store-loading entrypoint"));
 }
 
