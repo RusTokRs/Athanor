@@ -16,11 +16,19 @@ substantive release notes.
 - Add strict versioned request and manifest contracts for evidence-backed documentation generation,
   binding output to an exact snapshot, supported profile, hard input limits, omitted counts, portable
   relative paths, and SHA-256 checksums without adding a runtime generator or provider dependency.
+- Add versioned outline, bounded context, citation, structured draft, and validation-report contracts
+  with stable-key/evidence traceability, explicit inference, relation-backed diagram edges, data
+  handling policy, deterministic quality metrics, and provider cost fields.
+- Add a minimal fixture repository and Rustok evaluation corpus with expected sections, citation paths,
+  diagram edges, known gaps, repeatability, unsupported-relation disclosure, and human-review criteria.
 
 ### Fixed
 
 - Reject Windows drive paths, reserved device names, trailing-dot/space components, and
   case-insensitive output-path collisions before future documentation artifacts can be published.
+- Reject raw-file/secret context access, out-of-context citations and diagram endpoints, uncited
+  factual claims, malformed evidence ranges, provider metrics without opt-in, and inconsistent valid
+  reports before future documentation publication.
 
 ## [0.2.1] - 2026-07-23
 
