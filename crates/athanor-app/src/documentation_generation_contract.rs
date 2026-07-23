@@ -235,7 +235,8 @@ fn validate_relative_output_path(path: &str) -> Result<(), DocumentationContract
     for component in path.split('/') {
         if component.is_empty()
             || matches!(component, "." | "..")
-            || component.ends_with(['.', ' '])
+            || component.ends_with('.')
+            || component.ends_with(' ')
             || component
                 .chars()
                 .any(|character| character.is_control() || character == ':')
