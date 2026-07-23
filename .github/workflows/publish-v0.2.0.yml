@@ -56,27 +56,39 @@ jobs:
           fetch-depth: 0
           persist-credentials: true
 
-      - name: Revalidate candidate and release contract
-        id: validate
+      - name: Validate candidate files
+        id: files
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
           CANDIDATE_SHA: b415bfde28af94efdae11e1228ea3b467903dbaa
-          RELEASE_TAG: v0.2.0
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
           grep -Fx 'version = "0.2.0"' apps/ath/Cargo.toml
           grep -Fx 'version = "0.2.0"' apps/athd/Cargo.toml
           grep -Fx '## [0.2.0] - 2026-07-22' CHANGELOG.md
+
+      - name: Verify release contract
+        id: contract
+        shell: bash
+        run: |
+          set -euo pipefail
           python3 scripts/verify_release_version.py \
-            --tag "$RELEASE_TAG" \
+            --tag v0.2.0 \
             --changelog CHANGELOG.md \
             --notes-output /tmp/release-notes.md \
             apps/ath/Cargo.toml \
             apps/athd/Cargo.toml
           test -s /tmp/release-notes.md
 
+      - name: Verify exact required statuses
+        id: statuses
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_SHA: b415bfde28af94efdae11e1228ea3b467903dbaa
+        run: |
+          set -euo pipefail
           curl --fail-with-body --location --silent --show-error \
             --header "Accept: application/vnd.github+json" \
             --header "Authorization: Bearer $GH_TOKEN" \
@@ -85,6 +97,7 @@ jobs:
             > /tmp/status.json
           python3 - <<'PY'
           import json
+          from collections import defaultdict
           from pathlib import Path
 
           required = {
@@ -93,30 +106,35 @@ jobs:
               "athanor/store-conformance",
           }
           payload = json.loads(Path("/tmp/status.json").read_text(encoding="utf-8"))
-          latest = {}
+          observed = defaultdict(set)
           for status in payload.get("statuses", []):
-              latest.setdefault(status["context"], status["state"])
-          assert {name: latest.get(name) for name in required} == {
-              name: "success" for name in required
-          }, latest
+              observed[status["context"]].add(status["state"])
+          assert payload.get("state") == "success", payload.get("state")
+          assert {name: "success" in observed[name] for name in required} == {
+              name: True for name in required
+          }, dict(observed)
           PY
 
+      - name: Verify tag is unused
+        id: unused
+        shell: bash
+        run: |
+          set -euo pipefail
           git fetch origin --tags
-          test ! git rev-parse -q --verify "refs/tags/$RELEASE_TAG" >/dev/null
+          test ! git rev-parse -q --verify refs/tags/v0.2.0 >/dev/null
 
       - name: Create immutable annotated tag
         id: tag
         shell: bash
         env:
           CANDIDATE_SHA: b415bfde28af94efdae11e1228ea3b467903dbaa
-          RELEASE_TAG: v0.2.0
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "$RELEASE_TAG" "$CANDIDATE_SHA" -m "Athanor 0.2.0"
-          test "$(git rev-parse "$RELEASE_TAG^{}")" = "$CANDIDATE_SHA"
-          git push origin "refs/tags/$RELEASE_TAG"
+          git tag -a v0.2.0 "$CANDIDATE_SHA" -m "Athanor 0.2.0"
+          test "$(git rev-parse 'v0.2.0^{}')" = "$CANDIDATE_SHA"
+          git push origin refs/tags/v0.2.0
 
       - name: Dispatch tag-bound release workflow
         id: dispatch
@@ -137,14 +155,24 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          VALIDATE_OUTCOME: ${{ steps.validate.outcome }}
+          FILES_OUTCOME: ${{ steps.files.outcome }}
+          CONTRACT_OUTCOME: ${{ steps.contract.outcome }}
+          STATUSES_OUTCOME: ${{ steps.statuses.outcome }}
+          UNUSED_OUTCOME: ${{ steps.unused.outcome }}
           TAG_OUTCOME: ${{ steps.tag.outcome }}
           DISPATCH_OUTCOME: ${{ steps.dispatch.outcome }}
         run: |
           set -euo pipefail
           state="success"
           description="Athanor v0.2.0 tag created and release dispatched"
-          for outcome in "$VALIDATE_OUTCOME" "$TAG_OUTCOME" "$DISPATCH_OUTCOME"; do
+          for outcome in \
+            "$FILES_OUTCOME" \
+            "$CONTRACT_OUTCOME" \
+            "$STATUSES_OUTCOME" \
+            "$UNUSED_OUTCOME" \
+            "$TAG_OUTCOME" \
+            "$DISPATCH_OUTCOME"
+          do
             if [[ "$outcome" != "success" ]]; then
               state="failure"
               description="Athanor v0.2.0 publisher failed"
