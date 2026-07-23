@@ -1,0 +1,151 @@
+{
+  "snapshot": "snap-architecture-0001",
+  "entities": [
+    {
+      "id": "entity-package",
+      "stable_key": "rust://package/demo",
+      "kind": "package",
+      "name": "demo",
+      "title": "Demo Package",
+      "source": {
+        "path": "Cargo.toml",
+        "line_start": 1,
+        "line_end": 12
+      },
+      "language": "rust",
+      "aliases": [],
+      "ownership": [],
+      "payload": {}
+    },
+    {
+      "id": "entity-module",
+      "stable_key": "rust://module/service",
+      "kind": "module",
+      "name": "service",
+      "title": "Service Module",
+      "source": {
+        "path": "src/lib.rs",
+        "line_start": 1,
+        "line_end": 24
+      },
+      "language": "rust",
+      "aliases": [],
+      "ownership": [],
+      "payload": {}
+    },
+    {
+      "id": "entity-readme",
+      "stable_key": "file://README.md",
+      "kind": "documentation_page",
+      "name": "README.md",
+      "title": "Demo Service",
+      "source": {
+        "path": "README.md",
+        "line_start": 1,
+        "line_end": 8
+      },
+      "language": "markdown",
+      "aliases": [],
+      "ownership": [],
+      "payload": {}
+    }
+  ],
+  "facts": [
+    {
+      "id": "fact-service-defined",
+      "kind": "symbol_defined",
+      "subject": "entity-module",
+      "object": null,
+      "value": {
+        "symbol": "Service"
+      },
+      "evidence": [
+        {
+          "source_file": "src/lib.rs",
+          "line_start": 3,
+          "line_end": 8,
+          "extractor": "rust",
+          "commit_hash": null,
+          "confidence": 1.0,
+          "status": "verified"
+        }
+      ],
+      "ownership": [],
+      "snapshot": "snap-architecture-0001",
+      "extractor": "rust",
+      "confidence": 1.0
+    }
+  ],
+  "relations": [
+    {
+      "id": "relation-package-module",
+      "kind": "contains",
+      "from": "entity-package",
+      "to": "entity-module",
+      "status": "verified",
+      "confidence": 1.0,
+      "evidence": [
+        {
+          "source_file": "Cargo.toml",
+          "line_start": 1,
+          "line_end": 12,
+          "extractor": "rust",
+          "commit_hash": null,
+          "confidence": 1.0,
+          "status": "verified"
+        }
+      ],
+      "ownership": [],
+      "snapshot": "snap-architecture-0001",
+      "payload": {}
+    },
+    {
+      "id": "relation-readme-package",
+      "kind": "documents",
+      "from": "entity-readme",
+      "to": "entity-package",
+      "status": "verified",
+      "confidence": 1.0,
+      "evidence": [
+        {
+          "source_file": "README.md",
+          "line_start": 1,
+          "line_end": 8,
+          "extractor": "markdown",
+          "commit_hash": null,
+          "confidence": 1.0,
+          "status": "verified"
+        }
+      ],
+      "ownership": [],
+      "snapshot": "snap-architecture-0001",
+      "payload": {}
+    }
+  ],
+  "diagnostics": [
+    {
+      "id": "diagnostic-service-coverage",
+      "kind": "uncovered_symbol",
+      "severity": "medium",
+      "status": "open",
+      "title": "Service lacks direct coverage",
+      "message": "No direct test relation was found for Service.",
+      "entities": ["entity-module"],
+      "evidence": [
+        {
+          "source_file": "src/lib.rs",
+          "line_start": 3,
+          "line_end": 8,
+          "extractor": "rust",
+          "commit_hash": null,
+          "confidence": 1.0,
+          "status": "verified"
+        }
+      ],
+      "ownership": [],
+      "snapshot": "snap-architecture-0001",
+      "suggested_fix": "Add a direct unit test for Service.",
+      "payload": {}
+    }
+  ]
+}
