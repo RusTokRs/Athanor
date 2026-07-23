@@ -7,176 +7,158 @@ status: active
 ---
 # Roadmap Status
 
-This document is the compact status ledger for the current `main` branch. The detailed work log and
-verification matrix live in `athanor_implementation_plan_ru.md`; long-range product ideas live in
-`start.md`.
+This document is the compact status ledger for current `main`. Detailed evidence lives in
+`athanor_implementation_plan_ru.md`; long-range product ideas live in `start.md`.
 
 ## Status Rules
 
-- **Implemented means** the code, documentation, and source-level regressions are present in `main`.
-- **Verified** means the required formatting, build, test, Clippy, smoke, security, feature, and
-  coverage matrix was executed successfully on one identified commit.
-- Documentation lifecycle status and historical snapshot metadata are not execution evidence.
-- A failed matrix is useful diagnostic evidence, but it does not promote implementation to verified.
+- **Implemented means** code, documentation, and source-level regressions are present in `main`.
+- **Verified means** the required formatting, build, test, Clippy, smoke, security, feature, and
+  coverage matrix succeeded on one identified source commit.
+- Documentation lifecycle metadata is not execution evidence.
+- A failed matrix is diagnostic evidence and never promotes a package.
 
 ## Current Architecture
 
 ### Explicit Runtime Composition
 
 Production application services receive `RuntimeComposition` explicitly. Store, search, projector,
-and adapter factories are selected through the composition root owned by `ath`, `athd`, or the MCP
-host. Process-global installer APIs and public Store initialization have been removed.
+extractor, and transport factories are selected by the `ath`, `athd`, or MCP composition root.
+Process-global installers and public Store initialization have been removed.
 
 ### Bounded Application Owners
 
-Check, API, Graph, Change Map, Overview, Capabilities, Impact, Coverage, Docs, Repair, and daemon work
-use focused owners. API contracts live under `crates/athanor-app/src/api/`; extraction and consistency
+Check, API, Graph, Change Map, Overview, Capabilities, Impact, Coverage, Docs, Repair, documentation
+architecture, publication, and daemon work use focused owners. Extraction and protocol consistency
 remain adapter-owned.
 
 ### Transactional Index Publication
 
-Indexing runs through composition-aware entry points and bounded pipeline phases. Staged read-model
-and state publication preserve rollback before durable commit and successful results after commit.
+Indexing uses bounded phases and staged read-model/state publication. Pre-commit failure rolls back;
+durable post-commit success is not masked by late cancellation.
 
 ### JSON Contract Inventory
 
-Public, general non-public, adapter, and automation registries are mutually disjoint. Production Rust
-sources are scanned recursively. CLI, daemon, and MCP Index serialize one typed `IndexReport`.
+Public, general non-public, adapter, and automation registries are disjoint. Production Rust sources
+are scanned recursively. CLI, daemon, and MCP Index serialize one typed `IndexReport`.
 
-### Documentation Generation Contracts
+### Evidence-Backed Documentation Generation
 
-`DocumentationGenerationRequest` and `DocumentationGenerationManifest` bind future publication to an
-exact snapshot, supported profile, bounded limits, omitted counts, portable paths, and checksums.
-`DocumentationOutline`, `DocumentationContext`, `DocumentationCitation`, `DocumentationDraft`, and
-`DocumentationValidationReport` define the bounded evidence flow, data-handling policy, citation and
-diagram traceability, deterministic quality metrics, and provider-cost accounting. No runtime
-documentation generator or provider dependency is present yet.
+Strict request, manifest, outline, context, citation, draft, and validation contracts bind output to
+one canonical snapshot and hard limits. The deterministic architecture profile emits cited Markdown,
+relation-backed Mermaid source, omission disclosure, and evidence footnotes. The app-layer publisher
+writes immutable generations and atomically replaces `documentation/current.json` only after exact
+artifact and checksum validation.
 
-### API Protocol Consistency
-
-GraphQL operations use canonical `protocol = graphql`; OpenAPI operations use the symmetric
-`protocol = openapi` boundary. The verified `API-001` package compares request bodies, parameters,
-response schemas, status policy, authentication families, and permission scopes. Repository-owned
-external references, OpenAPI security-alternative semantics, configurable GraphQL security mappings,
-and compatible multi-root response selection are covered by source-level regressions.
+No CLI, daemon, MCP, provider, or store-loading entrypoint exposes this profile yet.
 
 ### Documentation Lifecycle Policy
 
-Required structural fields are `id`, `kind`, `language`, `source_language`, and `status`. Accepted
-lifecycle values are `active`, `implemented`, `planned`, `draft`, and `verified`. Snapshot freshness
-remains a separate drift concern.
+Required document fields are `id`, `kind`, `language`, `source_language`, and `status`. Accepted values
+are `active`, `implemented`, `planned`, `draft`, and `verified`. Snapshot freshness is a separate concern.
 
 ### MCP Control Plane
 
-Notifications bypass ordinary request admission. Inline reader-loop responses use nonblocking bounded
-admission. Full response queues do not stop cancellation processing, and EOF cancels registered
-operations before request-task drain.
+Notifications bypass ordinary admission. Inline reader responses use nonblocking bounded admission.
+Full response queues do not stop cancellation, and EOF cancels registered operations before drain.
 
 ### Exact Verification Evidence
 
-The push workflows publish `athanor/verification-matrix`, `athanor/appsec`, and
-`athanor/store-conformance` on the exact `main` SHA. `docs/development/verification-evidence.json`
+Push workflows publish `athanor/verification-matrix`, `athanor/appsec`, and
+`athanor/store-conformance` for an exact source SHA. `docs/development/verification-evidence.json`
 records the CI identity. Workflow source without successful exact results remains implementation
 evidence only.
 
-Current verified product and release evidence covers commit
-`609027eb02caa05346ebfea8538552c42b588c31`: CI run `29995959544`, AppSec run `29995960063`, and
-Store Conformance run `29995959512` all completed successfully. Annotated tag `v0.2.1` points to that
-commit; Release run `29996579628` and installation-smoke run `29998347890` also succeeded.
+Current released product evidence remains commit `609027eb02caa05346ebfea8538552c42b588c31` with CI
+`29995959544`, AppSec `29995960063`, Store `29995959512`, release `29996579628`, and clean-install
+smoke `29998347890`.
+
+Current documentation-generation source evidence covers commit
+`0cfeca8ad4dc3c0632246afa01e43372f4ec3d71`: Verification Matrix `30013208011`, AppSec
+`30013208197`, and Store Conformance `30013208312` succeeded.
 
 ## Implemented Architecture Packages
 
 ### `COMP-003` / `COMP-003C2B2C2B`
 
 - explicit runtime dependency composition;
-- composition-only read and write services;
-- bounded Check, API, Graph, and related owners;
-- removal of compatibility execution owners.
+- composition-only read/write services;
+- bounded application owners;
+- compatibility execution owners removed.
 
 ### `MCP-007`
 
-- pre-commit cancellation and rollback;
-- exact-snapshot reconciliation for commit races;
-- post-commit durable success preservation;
+- cancellation-safe pre-commit rollback;
+- exact-snapshot commit-race reconciliation;
+- durable post-commit success preservation;
 - CLI, daemon, and MCP report parity.
 
 ### `JSON-003`
 
-- recursive workspace schema inventory;
-- lifecycle separation and legacy-input normalization;
-- persisted, generated, and interchange fixtures;
+- recursive schema inventory;
+- lifecycle separation and legacy normalization;
+- persisted, generated, interchange, and automation fixtures;
 - typed public report parity.
 
 ### `DOC-001` / `DOC-002`
 
 - stale aggregate claims removed;
-- deleted owners replaced with current bounded paths;
+- current owners replace deleted paths;
 - current, target, and history documentation separated;
-- status and line-budget inventories added.
+- status and line-budget inventories enforced.
 
 ### `MCP-004`
 
 - control input ordered before ordinary task reaping;
 - notifications bypass ordinary admission;
 - saturated response queues cannot stop cancellation;
-- EOF cancellation regressions added.
+- EOF cancellation regressions.
 
 ### `VERIFY-001`
 
-- exact CI, AppSec, Store Conformance, and JSON evidence channels;
+- exact CI, AppSec, Store, and JSON evidence channels;
 - repository-owned Rust 1.95 setup;
-- cross-platform workspace, feature, coverage, installer, index, and docs verification;
-- architecture and product packages verified on identified source commits.
+- cross-platform workspace, feature, installer, index, docs, and coverage verification.
 
 ### `API-001`
 
-- canonical GraphQL/OpenAPI protocol identity;
-- request, parameter, response, status, authentication, and permission comparison;
-- repository-local external reference resolution and explicit remote-reference boundary;
-- exact successful CI, AppSec, and Store Conformance evidence on the promoted `main` commit.
+- canonical GraphQL/OpenAPI identity;
+- request, response, status, authentication, and permission consistency;
+- repository-local external reference resolution;
+- exact successful CI/AppSec/Store evidence.
 
-### `REL-001` — Release Readiness
+### `REL-001`
 
-1. [x] reject tags that do not match both binary package versions or Semantic Versioning;
-2. [x] require a valid ISO calendar date and publish the maintained changelog notes;
-3. [x] package the changelog and document the supported artifacts, checklist, and recovery policy;
-4. [x] preserve immutable historical tags and publish annotated `v0.2.1` on the exact verified commit;
-5. [x] reject duplicate sections, decorative-only notes, and invalid CycloneDX inventory content;
-6. [x] complete contract, Linux/Windows build, SBOM, signature, provenance, verify, and publish jobs;
-7. [x] verify clean Linux and Windows installations from the published archives.
-
-`REL-001` is verified. Release run `29996579628` published `v0.2.1` with the complete supported asset
-set. Installation-smoke run `29998347890` downloaded the public archives, verified their outer and
-internal checksums, installed into clean isolated prefixes, and executed both `ath` and `athd` on Linux
-and Windows. The historical `v0.1.0` and failed-attempt `v0.2.0` tags remain immutable.
+- immutable version tags and changelog gates;
+- Linux/Windows archives, checksums, signatures, provenance, and CycloneDX SBOM;
+- clean Linux and Windows installation verification for `v0.2.1`.
 
 ## Active Work
 
 ### `DOCGEN-001` — Evidence-Backed Documentation Generation
 
-- [x] Slice 0A: strict versioned request and manifest contracts;
-- [x] fixture-backed round-trip, schema-drift, unknown-field, output-path, checksum, and alignment
-  regressions;
-- [x] schema ownership in the public JSON contract inventory;
-- [x] Slice 0B: outline, bounded context, structured draft, citation, validation-report, data policy,
-  quality metrics, minimal fixture repository, and Rustok evaluation corpus contracts;
-- [x] Slices 0A–0B execution evidence: exact source commit
-  `2a049303e797f00ac53f1e91fc010f284993926d`, CI run `30005828864`, AppSec run `30005828850`, and
-  Store Conformance run `30005828956` completed successfully;
-- [ ] Slice 1: deterministic architecture profile and immutable generated publication.
+- [x] Slice 0A: strict request and manifest contracts;
+- [x] Slice 0B: bounded evidence flow, data policy, quality metrics, fixture repository, and Rustok
+  evaluation corpus;
+- [x] Slice 1A: deterministic architecture outline/context/draft/Markdown/validation composition;
+- [x] Slice 1B: immutable application-layer generation directories, exact artifact reuse, atomic current
+  pointer, force, tamper recovery, and cancellation regressions;
+- [x] Slices 1A–1B exact evidence on `0cfeca8ad4dc3c0632246afa01e43372f4ec3d71`: CI
+  `30013208011`, AppSec `30013208197`, Store `30013208312`;
+- [ ] Slice 1C: exact committed-snapshot loading and bounded CLI generation/inspection surface.
 
-Slices 0A–0B are execution-confirmed. `DOCGEN-001` remains in progress because the deterministic
-runtime profile and publication integration are not implemented.
+Slices 0A–1B are execution-confirmed. `DOCGEN-001` remains in progress because no supported user-facing
+command loads and publishes the profile from a committed project snapshot yet.
 
 ## Product Backlog
 
 - broader relationship and framework adapters;
 - richer analysis completeness reporting;
-- evidence-backed documentation generation beyond the active bounded slice;
+- additional documentation profiles after Slice 1C;
 - internationalization, concepts, and optional semantic/vector retrieval;
-- additional Rustok, community-module, language, and framework integrations.
+- additional Rustok and community integrations.
 
 ## History
 
-Earlier roadmap revisions mixed snapshot metadata with current execution evidence. Historical detail
-remains available in Git history, feature documentation, and `start.md`.
+Earlier revisions mixed snapshot metadata with current execution evidence. Historical detail remains
+in Git history, feature documentation, and `start.md`.
