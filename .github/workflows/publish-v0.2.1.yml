@@ -1,0 +1,187 @@
+name: Publish v0.2.1
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/publish-v0.2.1.yml"
+
+permissions:
+  contents: write
+  actions: write
+  statuses: write
+
+concurrency:
+  group: publish-v0.2.1
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    name: Create verified tag and dispatch release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Publish pending status
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > /tmp/status.json
+          import json
+          import os
+          print(json.dumps({
+              "state": "pending",
+              "target_url": f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
+              "description": "Athanor v0.2.1 publisher running",
+              "context": "athanor/release-publisher",
+          }))
+          PY
+          curl --fail-with-body --location --request POST \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            --data @/tmp/status.json
+
+      - name: Check out exact candidate
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: 609027eb02caa05346ebfea8538552c42b588c31
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Validate candidate files and release contract
+        id: contract
+        shell: bash
+        env:
+          CANDIDATE_SHA: 609027eb02caa05346ebfea8538552c42b588c31
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          grep -Fx 'version = "0.2.1"' apps/ath/Cargo.toml
+          grep -Fx 'version = "0.2.1"' apps/athd/Cargo.toml
+          grep -Fx '## [0.2.1] - 2026-07-23' CHANGELOG.md
+          python3 scripts/verify_release_version.py \
+            --tag v0.2.1 \
+            --changelog CHANGELOG.md \
+            --notes-output /tmp/release-notes.md \
+            apps/ath/Cargo.toml \
+            apps/athd/Cargo.toml
+          test -s /tmp/release-notes.md
+
+      - name: Verify exact required statuses
+        id: statuses
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_SHA: 609027eb02caa05346ebfea8538552c42b588c31
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --location --silent --show-error \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/commits/$CANDIDATE_SHA/status" \
+            > /tmp/status.json
+          python3 - <<'PY'
+          import json
+          from collections import defaultdict
+          from pathlib import Path
+
+          required = {
+              "athanor/verification-matrix",
+              "athanor/appsec",
+              "athanor/store-conformance",
+          }
+          payload = json.loads(Path("/tmp/status.json").read_text(encoding="utf-8"))
+          observed = defaultdict(set)
+          for status in payload.get("statuses", []):
+              observed[status["context"]].add(status["state"])
+          assert payload.get("state") == "success", payload.get("state")
+          assert all("success" in observed[name] for name in required), dict(observed)
+          PY
+
+      - name: Verify tag is unused
+        id: unused
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin --tags
+          if git rev-parse -q --verify refs/tags/v0.2.1 >/dev/null; then
+            echo "release tag v0.2.1 already exists" >&2
+            exit 1
+          fi
+
+      - name: Create immutable annotated tag
+        id: tag
+        shell: bash
+        env:
+          CANDIDATE_SHA: 609027eb02caa05346ebfea8538552c42b588c31
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a v0.2.1 "$CANDIDATE_SHA" -m "Athanor 0.2.1"
+          test "$(git rev-parse 'v0.2.1^{}')" = "$CANDIDATE_SHA"
+          git push origin refs/tags/v0.2.1
+
+      - name: Dispatch tag-bound release workflow
+        id: dispatch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --location --request POST \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/workflows/release.yml/dispatches" \
+            --data '{"ref":"v0.2.1"}'
+
+      - name: Publish terminal status
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CONTRACT_OUTCOME: ${{ steps.contract.outcome }}
+          STATUSES_OUTCOME: ${{ steps.statuses.outcome }}
+          UNUSED_OUTCOME: ${{ steps.unused.outcome }}
+          TAG_OUTCOME: ${{ steps.tag.outcome }}
+          DISPATCH_OUTCOME: ${{ steps.dispatch.outcome }}
+        run: |
+          set -euo pipefail
+          state="success"
+          description="Athanor v0.2.1 tag created and release dispatched"
+          for outcome in \
+            "$CONTRACT_OUTCOME" \
+            "$STATUSES_OUTCOME" \
+            "$UNUSED_OUTCOME" \
+            "$TAG_OUTCOME" \
+            "$DISPATCH_OUTCOME"
+          do
+            if [[ "$outcome" != "success" ]]; then
+              state="failure"
+              description="Athanor v0.2.1 publisher failed"
+              break
+            fi
+          done
+          export STATE="$state"
+          export DESCRIPTION="$description"
+          python3 - <<'PY' > /tmp/status.json
+          import json
+          import os
+          print(json.dumps({
+              "state": os.environ["STATE"],
+              "target_url": f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
+              "description": os.environ["DESCRIPTION"],
+              "context": "athanor/release-publisher",
+          }))
+          PY
+          curl --fail-with-body --location --request POST \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            --data @/tmp/status.json
