@@ -121,8 +121,24 @@ jobs:
           set -euo pipefail
           cargo cyclonedx --format json --all-features --target all --spec-version 1.5
           mkdir -p dist
-          find . -path './target' -prune -o -name bom.json -print0 > dist/sbom-files.bin
+          find . -path './target' -prune -o -type f -name '*.cdx.json' -print0 \
+            | sort -z > dist/sbom-files.bin
           test -s dist/sbom-files.bin
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          entries = [
+              Path(raw.decode())
+              for raw in Path("dist/sbom-files.bin").read_bytes().split(b"\0")
+              if raw
+          ]
+          assert entries, "cargo-cyclonedx produced no *.cdx.json files"
+          for path in entries:
+              assert path.stat().st_size > 0, f"empty SBOM: {path}"
+              payload = json.loads(path.read_text(encoding="utf-8"))
+              assert payload.get("bomFormat") == "CycloneDX", f"invalid SBOM: {path}"
+          PY
           tar --null --files-from dist/sbom-files.bin -czf dist/athanor-workspace-cyclonedx.tar.gz
           rm dist/sbom-files.bin
           (cd dist && sha256sum athanor-workspace-cyclonedx.tar.gz > athanor-workspace-cyclonedx.tar.gz.sha256)
