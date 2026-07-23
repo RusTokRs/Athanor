@@ -50,11 +50,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           CANDIDATE_SHA: b415bfde28af94efdae11e1228ea3b467903dbaa
+          RELEASE_TAG: v0.2.0
         run: |
           set -euo pipefail
           run_id=""
           run_url=""
-          for attempt in $(seq 1 90); do
+          for attempt in $(seq 1 30); do
             curl --fail-with-body --location --silent --show-error \
               --header "Accept: application/vnd.github+json" \
               --header "Authorization: Bearer $GH_TOKEN" \
@@ -67,7 +68,9 @@ jobs:
           from pathlib import Path
           payload = json.loads(Path("/tmp/runs.json").read_text(encoding="utf-8"))
           for run in payload.get("workflow_runs", []):
-              if run.get("event") == "workflow_dispatch" and run.get("head_sha") == os.environ["CANDIDATE_SHA"]:
+              if run.get("event") != "workflow_dispatch":
+                  continue
+              if run.get("head_sha") == os.environ["CANDIDATE_SHA"] or run.get("head_branch") == os.environ["RELEASE_TAG"]:
                   print(run["id"])
                   print(run["html_url"])
                   break
@@ -83,6 +86,24 @@ jobs:
           test -n "$run_id"
           printf '%s\n' "$run_id" > /tmp/release-run-id
           printf '%s\n' "$run_url" > /tmp/release-run-url
+
+          export TARGET_URL="$run_url"
+          python3 - <<'PY' > /tmp/status.json
+          import json
+          import os
+          print(json.dumps({
+              "state": "pending",
+              "target_url": os.environ["TARGET_URL"],
+              "description": "Athanor v0.2.0 release workflow running",
+              "context": "athanor/release-v0.2.0",
+          }))
+          PY
+          curl --fail-with-body --location --request POST \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            --data @/tmp/status.json
 
           for attempt in $(seq 1 150); do
             curl --fail-with-body --location --silent --show-error \
