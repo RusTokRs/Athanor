@@ -121,7 +121,10 @@ jobs:
         run: |
           set -euo pipefail
           git fetch origin --tags
-          test ! git rev-parse -q --verify refs/tags/v0.2.0 >/dev/null
+          if git rev-parse -q --verify refs/tags/v0.2.0 >/dev/null; then
+            echo "release tag v0.2.0 already exists" >&2
+            exit 1
+          fi
 
       - name: Create immutable annotated tag
         id: tag
