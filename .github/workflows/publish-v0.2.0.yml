@@ -9,6 +9,11 @@ on:
 permissions:
   contents: write
   actions: write
+  statuses: write
+
+concurrency:
+  group: publish-v0.2.0
+  cancel-in-progress: true
 
 jobs:
   publish:
@@ -16,6 +21,34 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - name: Publish pending status
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > /tmp/publisher-status.json
+          import json
+          import os
+
+          print(json.dumps({
+              "state": "pending",
+              "target_url": (
+                  f"{os.environ['GITHUB_SERVER_URL']}/"
+                  f"{os.environ['GITHUB_REPOSITORY']}/actions/runs/"
+                  f"{os.environ['GITHUB_RUN_ID']}"
+              ),
+              "description": "Athanor v0.2.0 publisher running",
+              "context": "athanor/release-publisher",
+          }))
+          PY
+          curl --fail-with-body --location --request POST \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            --data @/tmp/publisher-status.json
+
       - name: Check out exact candidate
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -24,6 +57,7 @@ jobs:
           persist-credentials: true
 
       - name: Revalidate candidate and release contract
+        id: validate
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -71,6 +105,7 @@ jobs:
           test ! git rev-parse -q --verify "refs/tags/$RELEASE_TAG" >/dev/null
 
       - name: Create immutable annotated tag
+        id: tag
         shell: bash
         env:
           CANDIDATE_SHA: b415bfde28af94efdae11e1228ea3b467903dbaa
@@ -84,6 +119,7 @@ jobs:
           git push origin "refs/tags/$RELEASE_TAG"
 
       - name: Dispatch tag-bound release workflow
+        id: dispatch
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -95,3 +131,46 @@ jobs:
             --header "X-GitHub-Api-Version: 2022-11-28" \
             "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/workflows/release.yml/dispatches" \
             --data '{"ref":"v0.2.0"}'
+
+      - name: Publish terminal status
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VALIDATE_OUTCOME: ${{ steps.validate.outcome }}
+          TAG_OUTCOME: ${{ steps.tag.outcome }}
+          DISPATCH_OUTCOME: ${{ steps.dispatch.outcome }}
+        run: |
+          set -euo pipefail
+          state="success"
+          description="Athanor v0.2.0 tag created and release dispatched"
+          for outcome in "$VALIDATE_OUTCOME" "$TAG_OUTCOME" "$DISPATCH_OUTCOME"; do
+            if [[ "$outcome" != "success" ]]; then
+              state="failure"
+              description="Athanor v0.2.0 publisher failed"
+              break
+            fi
+          done
+          export STATE="$state"
+          export DESCRIPTION="$description"
+          python3 - <<'PY' > /tmp/publisher-status.json
+          import json
+          import os
+
+          print(json.dumps({
+              "state": os.environ["STATE"],
+              "target_url": (
+                  f"{os.environ['GITHUB_SERVER_URL']}/"
+                  f"{os.environ['GITHUB_REPOSITORY']}/actions/runs/"
+                  f"{os.environ['GITHUB_RUN_ID']}"
+              ),
+              "description": os.environ["DESCRIPTION"],
+              "context": "athanor/release-publisher",
+          }))
+          PY
+          curl --fail-with-body --location --request POST \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            --data @/tmp/publisher-status.json
