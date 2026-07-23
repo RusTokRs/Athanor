@@ -1,7 +1,7 @@
 use athanor_app::{
-    ARCHITECTURE_DOCUMENT_MEDIA_TYPE, ARCHITECTURE_DOCUMENT_PATH,
-    DocumentationContextItemKind, DocumentationGenerationLimits, DocumentationGenerationRequest,
-    DocumentationProfile, DocumentationValidationStatus, build_documentation_architecture_profile,
+    ARCHITECTURE_DOCUMENT_MEDIA_TYPE, ARCHITECTURE_DOCUMENT_PATH, DocumentationContextItemKind,
+    DocumentationGenerationLimits, DocumentationGenerationRequest, DocumentationProfile,
+    DocumentationValidationStatus, build_documentation_architecture_profile,
 };
 use athanor_core::CanonicalSnapshot;
 use sha2::{Digest, Sha256};
@@ -23,9 +23,18 @@ fn architecture_profile_is_cited_valid_and_checksum_bound() {
             .collect::<Vec<_>>(),
         ["overview", "components", "relationships", "diagnostics"]
     );
-    assert_eq!(count(&profile.context, DocumentationContextItemKind::Entity), 3);
-    assert_eq!(count(&profile.context, DocumentationContextItemKind::Fact), 1);
-    assert_eq!(count(&profile.context, DocumentationContextItemKind::Relation), 2);
+    assert_eq!(
+        count(&profile.context, DocumentationContextItemKind::Entity),
+        3
+    );
+    assert_eq!(
+        count(&profile.context, DocumentationContextItemKind::Fact),
+        1
+    );
+    assert_eq!(
+        count(&profile.context, DocumentationContextItemKind::Relation),
+        2
+    );
     assert_eq!(
         count(&profile.context, DocumentationContextItemKind::Diagnostic),
         1
@@ -39,18 +48,49 @@ fn architecture_profile_is_cited_valid_and_checksum_bound() {
     assert!(!profile.context.policy.raw_file_access);
     assert!(!profile.context.policy.secrets_included);
 
-    assert_eq!(profile.validation_report.status, DocumentationValidationStatus::Valid);
     assert_eq!(
-        profile.validation_report.metrics.citation_coverage_basis_points,
+        profile.validation_report.status,
+        DocumentationValidationStatus::Valid
+    );
+    assert_eq!(
+        profile
+            .validation_report
+            .metrics
+            .citation_coverage_basis_points,
         10_000
     );
-    assert_eq!(profile.validation_report.metrics.citation_validity_basis_points, 10_000);
-    assert_eq!(profile.validation_report.metrics.diagram_validity_basis_points, 10_000);
-    assert!(profile.validation_report.metrics.deterministic_repeatability);
+    assert_eq!(
+        profile
+            .validation_report
+            .metrics
+            .citation_validity_basis_points,
+        10_000
+    );
+    assert_eq!(
+        profile
+            .validation_report
+            .metrics
+            .diagram_validity_basis_points,
+        10_000
+    );
+    assert!(
+        profile
+            .validation_report
+            .metrics
+            .deterministic_repeatability
+    );
 
     assert_eq!(profile.document.path, ARCHITECTURE_DOCUMENT_PATH);
-    assert_eq!(profile.document.media_type, ARCHITECTURE_DOCUMENT_MEDIA_TYPE);
-    assert!(profile.document.content.starts_with("# Architecture Overview\n"));
+    assert_eq!(
+        profile.document.media_type,
+        ARCHITECTURE_DOCUMENT_MEDIA_TYPE
+    );
+    assert!(
+        profile
+            .document
+            .content
+            .starts_with("# Architecture Overview\n")
+    );
     for required in [
         "- Snapshot: `snap-architecture-0001`",
         "## Components",
@@ -104,9 +144,18 @@ fn architecture_profile_enforces_limits_and_discloses_omissions() {
     )
     .unwrap();
 
-    assert_eq!(count(&profile.context, DocumentationContextItemKind::Entity), 1);
-    assert_eq!(count(&profile.context, DocumentationContextItemKind::Fact), 1);
-    assert_eq!(count(&profile.context, DocumentationContextItemKind::Relation), 1);
+    assert_eq!(
+        count(&profile.context, DocumentationContextItemKind::Entity),
+        1
+    );
+    assert_eq!(
+        count(&profile.context, DocumentationContextItemKind::Fact),
+        1
+    );
+    assert_eq!(
+        count(&profile.context, DocumentationContextItemKind::Relation),
+        1
+    );
     assert_eq!(
         count(&profile.context, DocumentationContextItemKind::Diagnostic),
         1
@@ -126,9 +175,7 @@ fn architecture_profile_enforces_limits_and_discloses_omissions() {
 fn architecture_profile_requires_exact_snapshot_and_evidence_backed_entities() {
     let mut snapshot = fixture_snapshot();
     snapshot.snapshot = None;
-    assert!(
-        build_documentation_architecture_profile(&request(full_limits()), &snapshot).is_err()
-    );
+    assert!(build_documentation_architecture_profile(&request(full_limits()), &snapshot).is_err());
 
     let snapshot = fixture_snapshot();
     let mut wrong_request = request(full_limits());
@@ -167,5 +214,9 @@ fn full_limits() -> DocumentationGenerationLimits {
 }
 
 fn count(context: &athanor_app::DocumentationContext, kind: DocumentationContextItemKind) -> usize {
-    context.items.iter().filter(|item| item.kind == kind).count()
+    context
+        .items
+        .iter()
+        .filter(|item| item.kind == kind)
+        .count()
 }
