@@ -1,0 +1,41 @@
+{
+  "request": {
+    "schema": "athanor.documentation_generation_request.v1",
+    "snapshot": "snap-docgen-fixture",
+    "profile": "architecture",
+    "limits": {
+      "max_entities": 128,
+      "max_facts": 256,
+      "max_relations": 192,
+      "max_diagnostics": 64
+    }
+  },
+  "manifest": {
+    "schema": "athanor.documentation_generation_manifest.v1",
+    "request_schema": "athanor.documentation_generation_request.v1",
+    "generation": "docs-00000001",
+    "snapshot": "snap-docgen-fixture",
+    "profile": "architecture",
+    "status": "complete",
+    "effective_limits": {
+      "max_entities": 128,
+      "max_facts": 256,
+      "max_relations": 192,
+      "max_diagnostics": 64
+    },
+    "omitted": {
+      "entities": 3,
+      "facts": 7,
+      "relations": 5,
+      "diagnostics": 1
+    },
+    "documents": [
+      {
+        "id": "architecture-overview",
+        "path": "architecture/index.md",
+        "media_type": "text/markdown",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    ]
+  }
+}
