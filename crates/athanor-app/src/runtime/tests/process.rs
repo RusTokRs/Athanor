@@ -128,11 +128,10 @@ async fn cancellation_and_output_limits_are_enforced() {
     .expect_err("cancellation should stop the external process");
     assert!(matches!(error, CoreError::Cancelled(_)));
 
-    let (command, cleanup_path) = stdout_bytes_command(2048);
-    let result = process_adapter::run_with_limits::<_, Value>(
+    let error = process_adapter::run_with_limits::<_, Value>(
         "checker",
         "external.checker.big_stdout",
-        &command,
+        &stdout_bytes_command(2048),
         &serde_json::json!({}),
         ProcessLimits {
             timeout: Duration::from_secs(5),
@@ -142,9 +141,8 @@ async fn cancellation_and_output_limits_are_enforced() {
         },
         None,
     )
-    .await;
-    cleanup_stdout_fixture(cleanup_path);
-    let error = result.expect_err("oversized stdout should fail");
+    .await
+    .expect_err("oversized stdout should fail");
     assert!(error.to_string().contains("stdout exceeded"));
 }
 
@@ -172,8 +170,8 @@ async fn nonzero_exit_reports_bounded_stderr() {
 
 #[tokio::test]
 async fn tokio_process_runner_implements_public_core_port() {
-    let (command, cleanup_path) = stdout_bytes_command(3);
-    let result = ProcessRunner::run(
+    let command = stdout_bytes_command(3);
+    let output = ProcessRunner::run(
         &TokioProcessRunner,
         ProcessRequest {
             label: "test raw process".to_string(),
@@ -190,19 +188,11 @@ async fn tokio_process_runner_implements_public_core_port() {
             },
         },
     )
-    .await;
-    cleanup_stdout_fixture(cleanup_path);
-    let output = result.expect("raw process should run");
+    .await
+    .expect("raw process should run");
     assert!(output.success);
     assert_eq!(output.stdout.len(), 3);
     assert!(!output.stdout_truncated);
-}
-
-fn cleanup_stdout_fixture(path: Option<std::path::PathBuf>) {
-    if let Some(path) = path {
-        std::fs::remove_file(&path)
-            .unwrap_or_else(|error| panic!("failed to remove {}: {error}", path.display()));
-    }
 }
 
 #[cfg(unix)]
