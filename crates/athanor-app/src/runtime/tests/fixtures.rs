@@ -103,13 +103,18 @@ pub(super) fn sleep_command() -> ProcessCommand {
 
 #[cfg(windows)]
 pub(super) fn stdout_bytes_command(bytes: usize) -> ProcessCommand {
+    // `set /p variable=prompt` emits the prompt without a newline. Reading from NUL makes
+    // the command return immediately; the explicit exit keeps the fixture status successful.
     ProcessCommand {
         program: cmd_path(),
         args: vec![
             "/D".to_string(),
             "/S".to_string(),
             "/C".to_string(),
-            format!("<nul set /p ={} & exit /b 0", "x".repeat(bytes)),
+            format!(
+                "<nul set /p athanor_test={} & exit /b 0",
+                "x".repeat(bytes)
+            ),
         ],
         working_dir: test_working_dir(),
         expected_content_hash: None,
