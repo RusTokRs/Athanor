@@ -75,11 +75,12 @@ pub(super) fn empty_output_program() -> PathBuf {
 #[cfg(windows)]
 pub(super) fn sleep_command() -> ProcessCommand {
     ProcessCommand {
-        program: powershell_path(),
+        program: cmd_path(),
         args: vec![
-            "-NoProfile".to_string(),
-            "-Command".to_string(),
-            "$input | Out-Null; Start-Sleep -Seconds 5".to_string(),
+            "/D".to_string(),
+            "/S".to_string(),
+            "/C".to_string(),
+            "ping 127.0.0.1 -n 6 >nul".to_string(),
         ],
         working_dir: test_working_dir(),
         expected_content_hash: None,
@@ -103,11 +104,12 @@ pub(super) fn sleep_command() -> ProcessCommand {
 #[cfg(windows)]
 pub(super) fn stdout_bytes_command(bytes: usize) -> ProcessCommand {
     ProcessCommand {
-        program: powershell_path(),
+        program: cmd_path(),
         args: vec![
-            "-NoProfile".to_string(),
-            "-Command".to_string(),
-            format!("$input | Out-Null; [Console]::Out.Write(('x' * {bytes}))"),
+            "/D".to_string(),
+            "/S".to_string(),
+            "/C".to_string(),
+            format!(r#"<nul set /p "={}""#, "x".repeat(bytes)),
         ],
         working_dir: test_working_dir(),
         expected_content_hash: None,
@@ -134,11 +136,12 @@ pub(super) fn stdout_bytes_command(bytes: usize) -> ProcessCommand {
 #[cfg(windows)]
 pub(super) fn failing_command() -> ProcessCommand {
     ProcessCommand {
-        program: powershell_path(),
+        program: cmd_path(),
         args: vec![
-            "-NoProfile".to_string(),
-            "-Command".to_string(),
-            "$input | Out-Null; [Console]::Error.Write('intentional failure'); exit 7".to_string(),
+            "/D".to_string(),
+            "/S".to_string(),
+            "/C".to_string(),
+            "echo intentional failure 1>&2 & exit /b 7".to_string(),
         ],
         working_dir: test_working_dir(),
         expected_content_hash: None,
@@ -160,6 +163,13 @@ pub(super) fn failing_command() -> ProcessCommand {
         expected_content_size_bytes: None,
         clear_environment: false,
     }
+}
+
+#[cfg(windows)]
+fn cmd_path() -> PathBuf {
+    let path = PathBuf::from(r"C:\Windows\System32\cmd.exe");
+    assert!(path.is_file(), "cmd.exe not found at {}", path.display());
+    path
 }
 
 #[cfg(windows)]
