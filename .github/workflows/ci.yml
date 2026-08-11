@@ -22,7 +22,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Check out repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Install Rust toolchain
@@ -31,17 +31,24 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/cargo-deny-bin"
+          archive="$RUNNER_TEMP/cargo-deny.tar.gz"
+          bin_dir="$RUNNER_TEMP/cargo-deny-bin"
+          mkdir -p "$bin_dir"
           curl --proto '=https' --tlsv1.2 --retry 5 --retry-all-errors \
             --location --silent --show-error --fail \
-            https://github.com/EmbarkStudios/cargo-deny/releases/download/0.20.2/cargo-deny-0.20.2-x86_64-unknown-linux-musl.tar.gz \
-            | tar -xz -C "$RUNNER_TEMP/cargo-deny-bin" --strip-components=1
-          "$RUNNER_TEMP/cargo-deny-bin/cargo-deny" --version
+            --output "$archive" \
+            https://github.com/EmbarkStudios/cargo-deny/releases/download/0.20.2/cargo-deny-0.20.2-x86_64-unknown-linux-musl.tar.gz
+          printf '%s  %s\n' \
+            '9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f' \
+            "$archive" \
+            | sha256sum --check --strict
+          tar -xzf "$archive" -C "$bin_dir" --strip-components=1
+          "$bin_dir/cargo-deny" --version
       - name: Run cargo-deny
         id: cargo-deny
         shell: bash
         run: |
-          set -o pipefail
+          set -euo pipefail
           "$RUNNER_TEMP/cargo-deny-bin/cargo-deny" check 2>&1 \
             | tee "$RUNNER_TEMP/cargo-deny.log"
       - name: Upload cargo-deny diagnostics
@@ -50,29 +57,6 @@ jobs:
         with:
           name: cargo-deny-diagnostics
           path: ${{ runner.temp }}/cargo-deny.log
-          if-no-files-found: error
-          retention-days: 14
-      - name: Generate advisory lock remediation
-        id: advisory-lock
-        if: ${{ failure() && steps.cargo-deny.outcome == 'failure' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          {
-            cargo update -p anyhow --precise 1.0.103
-            cargo update -p ammonia --precise 4.1.4
-            cargo update -p crossbeam-epoch --precise 0.9.20
-            cargo metadata --locked --format-version 1 --no-deps >/dev/null
-          } 2>&1 | tee "$RUNNER_TEMP/advisory-lock-remediation.log"
-          cp Cargo.lock "$RUNNER_TEMP/Cargo.lock.advisory-remediation"
-      - name: Upload advisory lock remediation
-        if: ${{ always() && steps.advisory-lock.outcome == 'success' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: advisory-lock-remediation
-          path: |
-            ${{ runner.temp }}/Cargo.lock.advisory-remediation
-            ${{ runner.temp }}/advisory-lock-remediation.log
           if-no-files-found: error
           retention-days: 14
 
@@ -89,7 +73,7 @@ jobs:
       RUST_BACKTRACE: 1
     steps:
       - name: Check out repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Install Rust toolchain
@@ -190,7 +174,7 @@ jobs:
       CARGO_TERM_COLOR: always
     steps:
       - name: Check out repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Install Rust toolchain
@@ -202,17 +186,20 @@ jobs:
       - name: Check feature graph
         id: feature-check
         shell: bash
+        env:
+          FEATURE_SET: ${{ matrix.features }}
         run: |
-          set -o pipefail
-          case "${{ matrix.features }}" in
-            default) FEATURES="" ;;
-            all-features) FEATURES="--all-features" ;;
-            *) FEATURES="--features ${{ matrix.features }}" ;;
+          set -euo pipefail
+          args=()
+          case "$FEATURE_SET" in
+            default) ;;
+            all-features) args+=(--all-features) ;;
+            *) args+=(--features "$FEATURE_SET") ;;
           esac
           {
-            cargo check --workspace ${FEATURES} --locked
-            cargo test --workspace --quiet ${FEATURES} --locked
-            cargo clippy --workspace --all-targets ${FEATURES} --locked -- -D warnings
+            cargo check --workspace "${args[@]}" --locked
+            cargo test --workspace --quiet "${args[@]}" --locked
+            cargo clippy --workspace --all-targets "${args[@]}" --locked -- -D warnings
           } 2>&1 | tee "$RUNNER_TEMP/feature-check.log"
       - name: Upload default feature diagnostics
         if: ${{ failure() && steps.feature-check.outcome == 'failure' && matrix.features == 'default' }}
@@ -232,7 +219,7 @@ jobs:
       RUST_BACKTRACE: 1
     steps:
       - name: Check out repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Install Rust toolchain
