@@ -109,7 +109,7 @@ pub(super) fn stdout_bytes_command(bytes: usize) -> ProcessCommand {
             "/D".to_string(),
             "/S".to_string(),
             "/C".to_string(),
-            format!(r#"<nul set /p "={}" & exit /b 0"#, "x".repeat(bytes)),
+            format!("<nul set /p ={} & exit /b 0", "x".repeat(bytes)),
         ],
         working_dir: test_working_dir(),
         expected_content_hash: None,
