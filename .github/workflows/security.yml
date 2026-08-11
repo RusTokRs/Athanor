@@ -2,7 +2,7 @@ name: Security Audit
 
 on:
   schedule:
-    - cron: '0 0 * * *' # Every night at midnight
+    - cron: '0 0 * * *'
   workflow_dispatch:
 
 permissions:
@@ -12,14 +12,37 @@ jobs:
   audit:
     name: Audit dependencies
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Check out repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Run security audit
-        uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
+
+      - name: Install repository Rust toolchain
+        uses: ./.github/actions/setup-rust
+
+      - name: Install cargo-audit
+        shell: bash
+        run: cargo install cargo-audit --version 0.22.2 --locked
+
+      - name: Audit Cargo.lock
+        shell: bash
+        run: cargo audit
+
+  unsafe-code:
+    name: Enforce unsafe-code policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Enforce unsafe-code policy
-        run: cargo check --workspace --config 'build.rustflags=["-Dunsafe_code"]'
+          persist-credentials: false
+
+      - name: Install repository Rust toolchain
+        uses: ./.github/actions/setup-rust
+
+      - name: Check workspace with unsafe code denied
+        shell: bash
+        run: cargo check --workspace --all-targets --locked --config 'build.rustflags=["-Dunsafe_code"]'
