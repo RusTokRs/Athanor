@@ -102,37 +102,40 @@ pub(super) fn sleep_command() -> ProcessCommand {
 }
 
 #[cfg(windows)]
-pub(super) fn stdout_bytes_command(bytes: usize) -> ProcessCommand {
+pub(super) fn stdout_bytes_command(bytes: usize) -> (ProcessCommand, Option<PathBuf>) {
     let output_path = temp_root("stdout-bytes");
     std::fs::write(&output_path, vec![b'x'; bytes]).expect("stdout fixture should be written");
-    let output_path = output_path.display().to_string();
-    ProcessCommand {
+    let command = ProcessCommand {
         program: cmd_path(),
         args: vec![
             "/D".to_string(),
             "/C".to_string(),
-            format!("type \"{output_path}\" & del /q \"{output_path}\""),
+            format!("type \"{}\"", output_path.display()),
         ],
         working_dir: test_working_dir(),
         expected_content_hash: None,
         expected_content_size_bytes: None,
         clear_environment: false,
-    }
+    };
+    (command, Some(output_path))
 }
 
 #[cfg(not(windows))]
-pub(super) fn stdout_bytes_command(bytes: usize) -> ProcessCommand {
-    ProcessCommand {
-        program: sh_path(),
-        args: vec![
-            "-c".to_string(),
-            format!("cat >/dev/null; yes x | tr -d '\\n' | head -c {bytes}"),
-        ],
-        working_dir: test_working_dir(),
-        expected_content_hash: None,
-        expected_content_size_bytes: None,
-        clear_environment: false,
-    }
+pub(super) fn stdout_bytes_command(bytes: usize) -> (ProcessCommand, Option<PathBuf>) {
+    (
+        ProcessCommand {
+            program: sh_path(),
+            args: vec![
+                "-c".to_string(),
+                format!("cat >/dev/null; yes x | tr -d '\\n' | head -c {bytes}"),
+            ],
+            working_dir: test_working_dir(),
+            expected_content_hash: None,
+            expected_content_size_bytes: None,
+            clear_environment: false,
+        },
+        None,
+    )
 }
 
 #[cfg(windows)]
