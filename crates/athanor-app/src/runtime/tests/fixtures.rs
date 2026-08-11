@@ -102,40 +102,36 @@ pub(super) fn sleep_command() -> ProcessCommand {
 }
 
 #[cfg(windows)]
-pub(super) fn stdout_bytes_command(bytes: usize) -> (ProcessCommand, Option<PathBuf>) {
-    let output_path = temp_root("stdout-bytes");
-    std::fs::write(&output_path, vec![b'x'; bytes]).expect("stdout fixture should be written");
-    let command = ProcessCommand {
-        program: cmd_path(),
+pub(super) fn stdout_bytes_command(bytes: usize) -> ProcessCommand {
+    ProcessCommand {
+        program: powershell_path(),
         args: vec![
-            "/D".to_string(),
-            "/C".to_string(),
-            format!("type \"{}\"", output_path.display()),
+            "-NoLogo".to_string(),
+            "-NoProfile".to_string(),
+            "-NonInteractive".to_string(),
+            "-Command".to_string(),
+            format!("[Console]::Out.Write('{}')", "x".repeat(bytes)),
         ],
         working_dir: test_working_dir(),
         expected_content_hash: None,
         expected_content_size_bytes: None,
         clear_environment: false,
-    };
-    (command, Some(output_path))
+    }
 }
 
 #[cfg(not(windows))]
-pub(super) fn stdout_bytes_command(bytes: usize) -> (ProcessCommand, Option<PathBuf>) {
-    (
-        ProcessCommand {
-            program: sh_path(),
-            args: vec![
-                "-c".to_string(),
-                format!("cat >/dev/null; yes x | tr -d '\\n' | head -c {bytes}"),
-            ],
-            working_dir: test_working_dir(),
-            expected_content_hash: None,
-            expected_content_size_bytes: None,
-            clear_environment: false,
-        },
-        None,
-    )
+pub(super) fn stdout_bytes_command(bytes: usize) -> ProcessCommand {
+    ProcessCommand {
+        program: sh_path(),
+        args: vec![
+            "-c".to_string(),
+            format!("cat >/dev/null; yes x | tr -d '\\n' | head -c {bytes}"),
+        ],
+        working_dir: test_working_dir(),
+        expected_content_hash: None,
+        expected_content_size_bytes: None,
+        clear_environment: false,
+    }
 }
 
 #[cfg(windows)]
