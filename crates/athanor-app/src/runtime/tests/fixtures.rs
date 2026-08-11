@@ -103,18 +103,15 @@ pub(super) fn sleep_command() -> ProcessCommand {
 
 #[cfg(windows)]
 pub(super) fn stdout_bytes_command(bytes: usize) -> ProcessCommand {
-    // Quote the `set /p` assignment and join metacharacters without spaces so cmd.exe
-    // emits exactly the requested prompt bytes and does not include separator whitespace.
+    let output_path = temp_root("stdout-bytes");
+    std::fs::write(&output_path, vec![b'x'; bytes]).expect("stdout fixture should be written");
+    let output_path = output_path.display().to_string();
     ProcessCommand {
         program: cmd_path(),
         args: vec![
             "/D".to_string(),
-            "/S".to_string(),
             "/C".to_string(),
-            format!(
-                r#"set /p "athanor_test={}"<nul&exit /b 0"#,
-                "x".repeat(bytes)
-            ),
+            format!("type \"{output_path}\" & del /q \"{output_path}\""),
         ],
         working_dir: test_working_dir(),
         expected_content_hash: None,
