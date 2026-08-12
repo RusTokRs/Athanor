@@ -121,5 +121,8 @@ cargo fmt --all -- --check
 ```
 
 Slices 0A–1C are execution-confirmed on source `042d02ac6b4c89d90a5b76c818098eb0c6b41920`:
-CI `30025932615`, AppSec `30025931953`, Store `30025932704`. The next bounded step is the first Rustok
-architecture-generation evaluation.
+CI `30025932615`, AppSec `30025931953`, Store `30025932704`. The first bounded Rustok evaluation on
+`5e0b28099c48e22bdc172fa57b6d51db9e6efb7b` exposed the aggregate citation-limit defect. The repaired
+selector now enforces the shared `256` citation/context budget and passes an isolated local rerun on the
+pinned Rustok source; dispatching the repaired GitHub workflows and recording their exact matrix remain
+the next evidence gate.

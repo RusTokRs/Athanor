@@ -2,8 +2,9 @@
 
 > Репозиторий: `RusTokRs/Athanor`  
 > Ветка: `main`  
-> Актуализировано: 2026-07-23  
-> Статус: `API-001`, `REL-001` verified; `DOCGEN-001 / Slices 0A–1C` execution-confirmed
+> Актуализировано: 2026-08-01
+> Статус: `API-001`, `REL-001` verified; `DOCGEN-001 / Slices 0A–1C` execution-confirmed,
+> первый Rustok gate обнаружил блокирующий лимит citations
 
 ## 1. Статусы и evidence
 
@@ -88,9 +89,28 @@ Documentation generation:
   - AppSec `30025931953`;
   - Store Conformance `30025932704`.
 
+#### Bounded Rustok evaluation — локальный прогон закрыт, CI gate открыт
+
+- [x] Историческая попытка на `5e0b28099c48e22bdc172fa57b6d51db9e6efb7b`, workflow `30029451096`, с
+  точным RusTok `3b76a530c82c0faaed22ccec384d4fd950811862` завершила Index, но остановилась на
+  `documentation draft citations must contain between 1 and 256 entries`.
+- [x] Профиль теперь применяет общий `DOCUMENTATION_REFERENCE_LIMIT` в `256` context/citations после
+  per-kind caps: deterministic round-robin сохраняет все представленные kinds, корректно раскрывает
+  omissions и покрыт rich `100/100/100/1` regression с `256` valid citations.
+- [x] Evaluation/probe workflows разделяют JSON stdout и stderr, используют environment variables для
+  status endpoint и имеют `workflow_dispatch`; локальный `actionlint` прошёл. Ошибка probe
+  `12a8687c5d098ab05a5988508816aad5f0dc3e23` / `30030131126` с `jq` устранена; `zizmor 1.26.1`
+  также прошёл локально.
+- [x] В новом изолированном checkout 2026-08-01 исходные limits `96/192/192/96` дали
+  `snap_jsonl_00000001`, published generation `00000001`, `256` citations, valid 10,000-bp metrics,
+  все обязательные sections и deterministic `up_to_date`; это local diagnostic evidence, не matrix.
+- [ ] Опубликовать source, вручную dispatch-нуть repaired workflows, записать artifact review/tuning и
+  получить exact-commit CI/AppSec/Store matrix.
+
 Existing coordinated `ath generate` is unchanged. Provider/LLM, daemon and MCP remain out of scope.
-`DOCGEN-001` remains `[-] in progress` only until a bounded Rustok run records usefulness, omissions,
-unsupported relations, repeatability, and review findings before profile expansion.
+`DOCGEN-001` remains `[-] in progress` until GitHub bounded Rustok run records usefulness, omissions,
+unsupported relations, repeatability, artifact review findings, and exact-commit matrix evidence before
+profile expansion.
 
 ### 4.2 Product backlog
 
@@ -111,7 +131,7 @@ unsupported relations, repeatability, and review findings before profile expansi
 | `VERIFY-001` | P1 | `[x] verified` | Full release baseline matrix |
 | `API-001` | P1 | `[x] verified` | Cross-protocol consistency |
 | `REL-001` | P1 | `[x] verified` | `v0.2.1` published and installed |
-| `DOCGEN-001` | P2 | `[-] in progress` | Slices 0A–1C confirmed; Rustok evaluation next |
+| `DOCGEN-001` | P2 | `[-] in progress` | Slices 0A–1C confirmed; Rustok gate found citation/workflow defects |
 
 ## 6. Verification matrix
 
@@ -138,7 +158,8 @@ cargo run -p ath --quiet --locked -- docs check
 
 ## 7. Следующий шаг
 
-Выполнить bounded Rustok architecture-generation evaluation на одном exact committed snapshot и записать
-полезные/отсутствующие sections, citation/diagram validity, omissions, unsupported relations,
-repeatability и review/tuning decisions. Не подключать provider, daemon или MCP и не менять coordinated
-`ath generate` без отдельного contract migration.
+Опубликовать исправленный source и вручную dispatch-нуть bounded Rustok workflows на одном exact committed
+snapshot, затем записать полезные/отсутствующие sections, citation/diagram validity, omissions, unsupported
+relations, repeatability и artifact review/tuning decisions. Получить exact-commit CI/AppSec/Store matrix.
+Не подключать provider, daemon или MCP и не менять coordinated `ath generate` без отдельного contract
+migration.

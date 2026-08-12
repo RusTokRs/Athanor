@@ -10,9 +10,10 @@ status: active
 ## Status
 
 In progress. Slices 0A–1C are execution-confirmed. The supported exact-snapshot CLI generation and
-validated inspection surface has passed the full cross-platform matrix. The package remains active only
-for the first bounded Rustok generation evaluation. The existing coordinated `ath generate` command is
-unchanged. No model provider, daemon, MCP, or new dependency is enabled.
+validated inspection surface has passed the full cross-platform matrix. The first bounded Rustok
+generation attempt exposed an aggregate citation-limit defect; its repair and local rerun now pass, but
+the published workflow rerun and exact-commit matrix remain pending.
+The existing coordinated `ath generate` command is unchanged. No model provider, daemon, MCP, or new dependency is enabled.
 
 ```text
 source files -> adapters -> exact committed snapshot -> bounded context -> cited document -> immutable generation
@@ -109,19 +110,50 @@ generates and inspects all outputs, verifies repeated `up_to_date`, and rejects 
   AppSec `30015691399`, Store `30015689363`.
 - Slice 1C2: source `042d02ac6b4c89d90a5b76c818098eb0c6b41920`; CI `30025932615`,
   AppSec `30025931953`, Store `30025932704`.
+- First Rustok attempt: source `5e0b28099c48e22bdc172fa57b6d51db9e6efb7b`, workflow run
+  `30029451096`, and Rustok `3b76a530c82c0faaed22ccec384d4fd950811862`. Indexing completed, but
+  architecture generation failed with `documentation draft citations must contain between 1 and 256 entries`;
+  this is failure evidence, not a completed evaluation.
 
 The Slice 1C2 matrix covered formatting, workspace tests, Clippy, Linux/macOS/Windows smoke, installers,
 default/store-surreal/js-ts-precision/all-features, cargo-deny, documentation checks, and source coverage.
 
+## Rustok Evaluation Gate
+
+The architecture profile now applies the shared `DOCUMENTATION_REFERENCE_LIMIT` of `256` context
+items/citations after the requested per-kind candidate caps. The deterministic round-robin selector
+preserves every represented kind while capacity remains and reassigns unused capacity when a kind is
+exhausted. It keeps the v1 draft contract unchanged, records the resulting omission counts, and
+discloses the aggregate citation/context budget in the generated Markdown.
+
+`documentation_architecture_profile_inventory` covers a rich snapshot with `100` eligible entities,
+facts, and relations plus one diagnostic. The selector produces `85` of each abundant kind and the
+diagnostic, fills all `256` citations, remains valid, and is invariant to canonical input ordering.
+
+The probe workflow at `12a8687c5d098ab05a5988508816aad5f0dc3e23`, run `30030131126`, had combined
+`--json` output with diagnostics before passing it to `jq`. Both Rustok workflows now preserve JSON
+stdout separately from stderr, construct their status endpoint from environment variables, and expose
+`workflow_dispatch` for a rerunnable bounded evaluation. The changed workflow files pass `actionlint`
+and `zizmor 1.26.1` locally; the committed GitHub AppSec run remains required evidence.
+
+An isolated local rerun on 2026-08-01 against Rustok
+`3b76a530c82c0faaed22ccec384d4fd950811862` used the original `96/192/192/96` caps and published
+generation `00000001` for `snap_jsonl_00000001`. It produced exactly `256` citation footnotes,
+all four required sections, a valid report with all three validity metrics at `10_000`, and a
+deterministic `up_to_date` repeat. This is local diagnostic evidence, not the exact-commit CI/AppSec/
+Store matrix.
+
 ## Next Bounded Step
 
-Run the architecture command against one bounded Rustok snapshot and record:
-
-- useful and missing sections;
-- citation and diagram validity;
-- omitted counts and unsupported relations;
-- deterministic repeatability;
-- review findings and tuning decisions.
+1. Run the full local verification matrix on the repaired source.
+2. Publish the source and manually dispatch the repaired bounded Rustok workflows.
+3. Record the uploaded evaluation artifact review and tuning decisions, then obtain the exact-commit
+   CI/AppSec/Store matrix. The review must include:
+   - useful and missing sections;
+   - citation and diagram validity;
+   - omitted counts and unsupported relations;
+   - deterministic repeatability;
+   - review findings and tuning decisions.
 
 Provider, daemon, MCP, additional profiles, and changes to coordinated `ath generate` remain later work.
 

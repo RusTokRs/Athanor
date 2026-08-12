@@ -13,6 +13,12 @@ const SLICE_1C_SHA: &str = "042d02ac6b4c89d90a5b76c818098eb0c6b41920";
 const SLICE_1C_CI: &str = "30025932615";
 const SLICE_1C_APPSEC: &str = "30025931953";
 const SLICE_1C_STORE: &str = "30025932704";
+const RUSTOK_EVALUATION_SHA: &str = "5e0b28099c48e22bdc172fa57b6d51db9e6efb7b";
+const RUSTOK_EVALUATION_RUN: &str = "30029451096";
+const RUSTOK_PROBE_SHA: &str = "12a8687c5d098ab05a5988508816aad5f0dc3e23";
+const RUSTOK_PROBE_RUN: &str = "30030131126";
+const RUSTOK_CITATION_FAILURE: &str =
+    "documentation draft citations must contain between 1 and 256 entries";
 
 #[test]
 fn aggregate_status_documents_separate_source_and_execution_evidence() {
@@ -141,6 +147,50 @@ fn implementation_plan_and_roadmap_match_slice_1c_evidence() {
         );
     }
     assert!(!PLAN.contains("`DOCGEN-001` | P2 | `[x] verified`"));
+}
+
+#[test]
+fn docgen_status_records_the_failed_rustok_gate_and_repair_path() {
+    for (name, source) in [
+        ("roadmap", ROADMAP),
+        ("implementation plan", PLAN),
+        ("documentation generation plan", DOCGEN_PLAN),
+    ] {
+        for invariant in [
+            RUSTOK_EVALUATION_SHA,
+            RUSTOK_EVALUATION_RUN,
+            RUSTOK_CITATION_FAILURE,
+        ] {
+            assert!(source.contains(invariant), "{name} omits {invariant}");
+        }
+    }
+    for invariant in [RUSTOK_PROBE_SHA, RUSTOK_PROBE_RUN] {
+        assert!(
+            PLAN.contains(invariant) || DOCGEN_PLAN.contains(invariant),
+            "evaluation status omits {invariant}"
+        );
+    }
+    for (name, source) in [
+        ("roadmap", ROADMAP),
+        ("documentation generation plan", DOCGEN_PLAN),
+    ] {
+        for invariant in [
+            "DOCUMENTATION_REFERENCE_LIMIT",
+            "workflow_dispatch",
+            "diagnostic evidence",
+        ] {
+            assert!(source.contains(invariant), "{name} omits {invariant}");
+        }
+    }
+    assert!(DOCS_INDEX.contains("shared `256` citation/context budget"));
+    assert!(
+        !ROADMAP.contains("Record the first bounded Rustok architecture-generation evaluation"),
+        "roadmap still presents the Rustok evaluation as unattempted"
+    );
+    assert!(
+        !DOCS_INDEX.contains("The next bounded step is the first Rustok"),
+        "documentation map still presents the Rustok evaluation as unattempted"
+    );
 }
 
 #[test]

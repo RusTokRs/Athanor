@@ -2516,10 +2516,9 @@ fn parse_github_actions_step(
     let (kind, needle) = if let Some(command) = step.get("run").and_then(serde_json::Value::as_str)
     {
         (GithubActionsStepKind::Run(command.to_string()), "run")
-    } else if let Some(action) = step.get("uses").and_then(serde_json::Value::as_str) {
-        (GithubActionsStepKind::Uses(action.to_string()), "uses")
     } else {
-        return None;
+        let action = step.get("uses").and_then(serde_json::Value::as_str)?;
+        (GithubActionsStepKind::Uses(action.to_string()), "uses")
     };
     let line = yaml_key_line(content, needle).unwrap_or(index as u32);
     Some(GithubActionsStep {

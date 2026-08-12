@@ -18,7 +18,7 @@ pub const DOCUMENTATION_VALIDATION_REPORT_SCHEMA_V1: &str =
     "athanor.documentation_validation_report.v1";
 
 const SECTION_LIMIT: usize = 64;
-const REFERENCE_LIMIT: usize = 256;
+pub const DOCUMENTATION_REFERENCE_LIMIT: usize = 256;
 const BASIS_POINTS_MAX: u16 = 10_000;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -75,7 +75,7 @@ impl DocumentationOutline {
             validate_len(
                 "outline section selection_reasons",
                 section.selection_reasons.len(),
-                REFERENCE_LIMIT,
+                DOCUMENTATION_REFERENCE_LIMIT,
             )?;
             validate_unique_text(
                 "outline section selection reason",
@@ -148,7 +148,7 @@ impl DocumentationCitation {
         validate_len(
             "documentation citation stable_keys",
             self.stable_keys.len(),
-            REFERENCE_LIMIT,
+            DOCUMENTATION_REFERENCE_LIMIT,
         )?;
         validate_unique_text(
             "documentation citation stable key",
@@ -219,7 +219,7 @@ impl DocumentationContextItem {
         validate_len(
             "documentation context item stable_keys",
             self.stable_keys.len(),
-            REFERENCE_LIMIT,
+            DOCUMENTATION_REFERENCE_LIMIT,
         )?;
         validate_unique_text(
             "documentation context item stable key",
@@ -459,7 +459,7 @@ impl DocumentationDraft {
         validate_len(
             "documentation draft citations",
             self.citations.len(),
-            REFERENCE_LIMIT,
+            DOCUMENTATION_REFERENCE_LIMIT,
         )?;
         validate_len(
             "documentation draft sections",
@@ -644,7 +644,7 @@ impl DocumentationValidationReport {
             ));
         }
         self.policy.validate()?;
-        if self.diagnostics.len() > REFERENCE_LIMIT {
+        if self.diagnostics.len() > DOCUMENTATION_REFERENCE_LIMIT {
             return Err(error(
                 "documentation validation report has too many diagnostics",
             ));
@@ -718,7 +718,7 @@ fn validate_evidence(
     validate_len(
         &format!("documentation {owner} evidence"),
         evidence.len(),
-        REFERENCE_LIMIT,
+        DOCUMENTATION_REFERENCE_LIMIT,
     )?;
     let mut unique = BTreeSet::new();
     for location in evidence {
@@ -740,9 +740,11 @@ fn validate_references(
     required: bool,
 ) -> Result<(), DocumentationContractError> {
     if required {
-        validate_len(owner, values.len(), REFERENCE_LIMIT)?;
-    } else if values.len() > REFERENCE_LIMIT {
-        return Err(error(format!("{owner} exceeds {REFERENCE_LIMIT} entries")));
+        validate_len(owner, values.len(), DOCUMENTATION_REFERENCE_LIMIT)?;
+    } else if values.len() > DOCUMENTATION_REFERENCE_LIMIT {
+        return Err(error(format!(
+            "{owner} exceeds {DOCUMENTATION_REFERENCE_LIMIT} entries"
+        )));
     }
     validate_unique_text(owner, values.iter().map(String::as_str))?;
     if let Some(unknown) = values.iter().find(|value| !known.contains(value.as_str())) {

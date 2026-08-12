@@ -1,10 +1,17 @@
 name: DOCGEN Rustok Evaluation
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths:
       - ".github/workflows/docgen-rustok-evaluation.yml"
+      - ".github/actions/setup-rust/**"
+      - "apps/ath/**"
+      - "crates/**"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
 
 permissions:
   contents: read
@@ -181,6 +188,8 @@ jobs:
           SHA: ${{ github.sha }}
           JOB_STATUS: ${{ job.status }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          API_URL: ${{ github.api_url }}
+          REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
           if [ "$JOB_STATUS" = success ]; then
@@ -195,5 +204,5 @@ jobs:
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: Bearer $GH_TOKEN" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
-            "${{ github.api_url }}/repos/${{ github.repository }}/statuses/$SHA" \
+            "$API_URL/repos/$REPOSITORY/statuses/$SHA" \
             -d "$(jq -nc --arg state "$state" --arg target_url "$RUN_URL" --arg description "$description" '{state:$state,context:"athanor/rustok-docgen-evaluation",description:$description,target_url:$target_url}')"

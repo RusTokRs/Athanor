@@ -1,7 +1,7 @@
 use athanor_app::{
-    ARCHITECTURE_DOCUMENT_MEDIA_TYPE, ARCHITECTURE_DOCUMENT_PATH, DocumentationContextItemKind,
-    DocumentationGenerationLimits, DocumentationGenerationRequest, DocumentationProfile,
-    DocumentationValidationStatus, build_documentation_architecture_profile,
+    ARCHITECTURE_DOCUMENT_MEDIA_TYPE, ARCHITECTURE_DOCUMENT_PATH, DOCUMENTATION_REFERENCE_LIMIT,
+    DocumentationContextItemKind, DocumentationGenerationLimits, DocumentationGenerationRequest,
+    DocumentationProfile, DocumentationValidationStatus, build_documentation_architecture_profile,
 };
 use athanor_core::CanonicalSnapshot;
 use sha2::{Digest, Sha256};
@@ -172,6 +172,58 @@ fn architecture_profile_enforces_limits_and_discloses_omissions() {
 }
 
 #[test]
+fn architecture_profile_caps_aggregate_citations_without_starving_available_kinds() {
+    let snapshot = citation_budget_snapshot();
+    let request = request(DocumentationGenerationLimits {
+        max_entities: 100,
+        max_facts: 100,
+        max_relations: 100,
+        max_diagnostics: 100,
+    });
+    let profile = build_documentation_architecture_profile(&request, &snapshot).unwrap();
+
+    assert_eq!(profile.context.items.len(), DOCUMENTATION_REFERENCE_LIMIT);
+    assert_eq!(profile.draft.citations.len(), DOCUMENTATION_REFERENCE_LIMIT);
+    assert_eq!(
+        count(&profile.context, DocumentationContextItemKind::Entity),
+        85
+    );
+    assert_eq!(
+        count(&profile.context, DocumentationContextItemKind::Fact),
+        85
+    );
+    assert_eq!(
+        count(&profile.context, DocumentationContextItemKind::Relation),
+        85
+    );
+    assert_eq!(
+        count(&profile.context, DocumentationContextItemKind::Diagnostic),
+        1
+    );
+    assert_eq!(profile.context.omitted.entities, 15);
+    assert_eq!(profile.context.omitted.facts, 15);
+    assert_eq!(profile.context.omitted.relations, 15);
+    assert_eq!(profile.context.omitted.diagnostics, 0);
+    assert_eq!(
+        profile.validation_report.status,
+        DocumentationValidationStatus::Valid
+    );
+    assert!(profile.document.content.contains(&format!(
+        "- Citation/context budget: {DOCUMENTATION_REFERENCE_LIMIT} items"
+    )));
+
+    let mut reordered = snapshot.clone();
+    reordered.entities.reverse();
+    reordered.facts.reverse();
+    reordered.relations.reverse();
+    reordered.diagnostics.reverse();
+    assert_eq!(
+        profile,
+        build_documentation_architecture_profile(&request, &reordered).unwrap()
+    );
+}
+
+#[test]
 fn architecture_profile_requires_exact_snapshot_and_evidence_backed_entities() {
     let mut snapshot = fixture_snapshot();
     snapshot.snapshot = None;
@@ -194,6 +246,32 @@ fn architecture_profile_requires_exact_snapshot_and_evidence_backed_entities() {
 
 fn fixture_snapshot() -> CanonicalSnapshot {
     serde_json::from_str(FIXTURE).expect("valid canonical architecture fixture")
+}
+
+fn citation_budget_snapshot() -> CanonicalSnapshot {
+    let mut snapshot = fixture_snapshot();
+    let entity = snapshot.entities[1].clone();
+    let fact = snapshot.facts[0].clone();
+    let relation = snapshot.relations[0].clone();
+
+    for index in snapshot.entities.len()..100 {
+        let mut clone = entity.clone();
+        clone.id.0 = format!("entity-budget-{index:03}");
+        clone.stable_key.0 = format!("rust://module/budget-{index:03}");
+        snapshot.entities.push(clone);
+    }
+    for index in snapshot.facts.len()..100 {
+        let mut clone = fact.clone();
+        clone.id.0 = format!("fact-budget-{index:03}");
+        snapshot.facts.push(clone);
+    }
+    for index in snapshot.relations.len()..100 {
+        let mut clone = relation.clone();
+        clone.id.0 = format!("relation-budget-{index:03}");
+        snapshot.relations.push(clone);
+    }
+
+    snapshot
 }
 
 fn request(limits: DocumentationGenerationLimits) -> DocumentationGenerationRequest {

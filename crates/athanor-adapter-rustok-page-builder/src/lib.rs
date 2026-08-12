@@ -1482,10 +1482,9 @@ fn classify_fsd_path(path: &str) -> Option<(String, String, String, bool)> {
     let rest = path.strip_prefix(&format!("crates/rustok-{module}/"))?;
     let (surface, surface_rest) = if let Some(rest) = rest.strip_prefix("admin/") {
         ("admin".to_string(), rest)
-    } else if let Some(rest) = rest.strip_prefix("storefront/") {
-        ("storefront".to_string(), rest)
     } else {
-        return None;
+        let rest = rest.strip_prefix("storefront/")?;
+        ("storefront".to_string(), rest)
     };
     let role = if surface_rest == "src/core.rs" || surface_rest.starts_with("src/core/") {
         "core"

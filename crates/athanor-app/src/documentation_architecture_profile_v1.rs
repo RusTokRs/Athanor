@@ -14,14 +14,15 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 use crate::{
-    DocumentationCitation, DocumentationContext, DocumentationContextItem,
-    DocumentationContextItemKind, DocumentationContractError, DocumentationDataHandlingPolicy,
-    DocumentationDraft, DocumentationDraftClaim, DocumentationDraftDiagramEdge,
-    DocumentationDraftSection, DocumentationEvidenceLocation, DocumentationGenerationRequest,
-    DocumentationInference, DocumentationOmittedCounts, DocumentationOutline,
-    DocumentationOutlineSection, DocumentationProfile, DocumentationQualityMetrics,
-    DocumentationRelationDirection, DocumentationSectionKind, DocumentationValidationReport,
-    DocumentationValidationStatus, validate_documentation_report_chain,
+    DOCUMENTATION_REFERENCE_LIMIT, DocumentationCitation, DocumentationContext,
+    DocumentationContextItem, DocumentationContextItemKind, DocumentationContractError,
+    DocumentationDataHandlingPolicy, DocumentationDraft, DocumentationDraftClaim,
+    DocumentationDraftDiagramEdge, DocumentationDraftSection, DocumentationEvidenceLocation,
+    DocumentationGenerationRequest, DocumentationInference, DocumentationOmittedCounts,
+    DocumentationOutline, DocumentationOutlineSection, DocumentationProfile,
+    DocumentationQualityMetrics, DocumentationRelationDirection, DocumentationSectionKind,
+    DocumentationValidationReport, DocumentationValidationStatus,
+    validate_documentation_report_chain,
 };
 
 pub const ARCHITECTURE_DOCUMENT_PATH: &str = "architecture/index.md";
@@ -196,18 +197,25 @@ fn build_context(
         "diagnostic",
     );
 
+    let items = apply_context_item_budget(entities, facts, relations, diagnostics);
     let omitted = DocumentationOmittedCounts {
-        entities: snapshot.entities.len().saturating_sub(entities.len()),
-        facts: snapshot.facts.len().saturating_sub(facts.len()),
-        relations: snapshot.relations.len().saturating_sub(relations.len()),
-        diagnostics: open_diagnostics.saturating_sub(diagnostics.len()),
+        entities: snapshot
+            .entities
+            .len()
+            .saturating_sub(count_items(&items, DocumentationContextItemKind::Entity)),
+        facts: snapshot
+            .facts
+            .len()
+            .saturating_sub(count_items(&items, DocumentationContextItemKind::Fact)),
+        relations: snapshot
+            .relations
+            .len()
+            .saturating_sub(count_items(&items, DocumentationContextItemKind::Relation)),
+        diagnostics: open_diagnostics.saturating_sub(count_items(
+            &items,
+            DocumentationContextItemKind::Diagnostic,
+        )),
     };
-    let mut items =
-        Vec::with_capacity(entities.len() + facts.len() + relations.len() + diagnostics.len());
-    items.extend(entities);
-    items.extend(facts);
-    items.extend(relations);
-    items.extend(diagnostics);
 
     Ok(DocumentationContext {
         schema: DocumentationContext::SCHEMA.to_string(),
@@ -412,6 +420,39 @@ fn select_candidates(
         .collect()
 }
 
+fn apply_context_item_budget(
+    entities: Vec<DocumentationContextItem>,
+    facts: Vec<DocumentationContextItem>,
+    relations: Vec<DocumentationContextItem>,
+    diagnostics: Vec<DocumentationContextItem>,
+) -> Vec<DocumentationContextItem> {
+    let mut candidates = [
+        entities.into_iter(),
+        facts.into_iter(),
+        relations.into_iter(),
+        diagnostics.into_iter(),
+    ];
+    let mut items = Vec::with_capacity(DOCUMENTATION_REFERENCE_LIMIT);
+
+    while items.len() < DOCUMENTATION_REFERENCE_LIMIT {
+        let mut selected = false;
+        for candidates in &mut candidates {
+            if items.len() == DOCUMENTATION_REFERENCE_LIMIT {
+                break;
+            }
+            if let Some(item) = candidates.next() {
+                items.push(item);
+                selected = true;
+            }
+        }
+        if !selected {
+            break;
+        }
+    }
+
+    items
+}
+
 fn build_draft(
     outline: &DocumentationOutline,
     context: &DocumentationContext,
@@ -603,6 +644,10 @@ fn render_markdown(context: &DocumentationContext, draft: &DocumentationDraft) -
         context.effective_limits.max_facts,
         context.effective_limits.max_relations,
         context.effective_limits.max_diagnostics
+    ));
+    output.push_str(&format!(
+        "- Citation/context budget: {} items\n",
+        DOCUMENTATION_REFERENCE_LIMIT
     ));
     output.push_str(&format!(
         "- Omitted: entities {}, facts {}, relations {}, diagnostics {}\n\n",
@@ -817,11 +862,11 @@ fn deduplicate_locations(
 }
 
 fn count_kind(context: &DocumentationContext, kind: DocumentationContextItemKind) -> usize {
-    context
-        .items
-        .iter()
-        .filter(|item| item.kind == kind)
-        .count()
+    count_items(&context.items, kind)
+}
+
+fn count_items(items: &[DocumentationContextItem], kind: DocumentationContextItemKind) -> usize {
+    items.iter().filter(|item| item.kind == kind).count()
 }
 
 fn entity_title(entity: &Entity) -> String {
