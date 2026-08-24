@@ -14,13 +14,11 @@ inspection surface passed the full cross-platform matrix. The repaired bounded R
 matrix-confirmed on `f1024cbc52f05de4d3ce96c556ef044ad48b3a0e`; the human-facing unsupported-relation
 disclosure is exact-evaluation-confirmed on `6862aee81dd0f53fa8372d1ce3fcb6e2ed198cca`.
 
-Module expansion is source-implemented through Slice 2C. Slice 2A established a pure module inventory,
-Slice 2B added module-scoped facts/relations/open diagnostics, and Slice 2C adds immutable publication,
-exact Store loading, CLI generation, and validated inspection. Focused module format/test/Clippy evidence
-remains pending and is not inferred from source presence.
+Module expansion is source-implemented through Slice 2C. API expansion has begun with Slice 3A, a pure
+exact-snapshot inventory of evidence-backed endpoint/schema/example entities. Focused module and API
+format/test/Clippy evidence remains pending and is not inferred from source presence.
 
-The existing coordinated `ath generate` command is unchanged. No model provider, daemon, MCP, or new
-dependency is enabled.
+The existing coordinated `ath generate` command is unchanged. No model provider, daemon, MCP, or new dependency is enabled.
 
 ```text
 source files -> adapters -> exact committed snapshot -> bounded context -> cited document -> immutable generation
@@ -35,7 +33,6 @@ source files -> adapters -> exact committed snapshot -> bounded context -> cited
 - Secrets/raw-file explorer access are forbidden; network/provider use is opt-in and currently absent.
 - Invalid, tampered, or cancelled work cannot advance `current.json`.
 - Inspection validates profile, path confinement, identities, exact artifact layout, and checksums.
-- Editable documentation remains an explicit patch workflow.
 - New profiles start as pure deterministic owners before publication or transport integration.
 
 ## Implemented Contracts
@@ -49,7 +46,8 @@ source files -> adapters -> exact committed snapshot -> bounded context -> cited
 - `athanor.documentation_validation_report.v1`
 - `athanor.documentation_current.v1`
 
-`DocumentationProfile` contains `architecture` and `module`; the v1 schemas remain unchanged.
+`DocumentationProfile` contains `architecture`, `module`, and backward-compatible `api`; the v1 schemas
+remain unchanged.
 
 ## Implemented Slices
 
@@ -82,84 +80,53 @@ regression protected.
 
 ### Slice 1C — Exact Store Operation, CLI, And Inspection
 
-The operation resolves the project, initializes the configured Store, loads exactly
-`SnapshotId(request.snapshot)` through `CanonicalSnapshotStore`, verifies identity, checks cancellation,
-and delegates publication. Supported architecture commands are:
+The operation initializes the configured Store, loads exactly `SnapshotId(request.snapshot)` through
+`CanonicalSnapshotStore`, verifies identity, checks cancellation, and delegates publication.
 
 ```bash
 ath docs generate-architecture <PATH> --snapshot <EXACT-ID> \
-  [--max-entities N] [--max-facts N] [--max-relations N] [--max-diagnostics N] \
-  [--force] [--json]
+  [--max-entities N] [--max-facts N] [--max-relations N] [--max-diagnostics N] [--force] [--json]
 ath docs architecture current <PATH> [--json]
 ath docs architecture manifest <PATH> [--json]
 ath docs architecture validation <PATH> [--json]
 ```
 
-Generation drains after Ctrl-C cancellation. Inspection rejects non-normalized pointers, path escape,
-wrong profile, unsupported artifact layouts, snapshot drift, invalid validation status, and checksum drift.
+Generation drains after Ctrl-C cancellation. Inspection rejects path escape, wrong profile, identity
+or layout drift, invalid validation status, and checksum drift.
 
-### Slice 2A — Deterministic Module Inventory Profile
+### Slices 2A–2C — Module Documentation Profile
 
-`build_documentation_module_profile` is a pure owner for `DocumentationProfile::Module`:
+- Slice 2A established the exact-snapshot evidence-backed module inventory and `modules/index.md`.
+- Slice 2B added module-scoped facts, relations, open diagnostics, Mermaid edges, omissions, and the
+  deterministic aggregate 256-item round-robin budget.
+- Slice 2C added immutable publication, exact Store loading, `generate-module`, and validated
+  `module current|manifest|validation` with profile-isolated shared `current.json`.
+- Module publication/Store/CLI source regressions are present; focused execution evidence is pending.
+
+### Slice 3A — Deterministic API Inventory Profile
+
+`build_documentation_api_profile` is the first pure API documentation owner:
 
 - exact snapshot/profile identity is mandatory;
-- only evidence-backed `EntityKind::Module` candidates are selected;
-- stable key + entity id ordering makes canonical input ordering irrelevant;
+- `DocumentationProfile::Api` serializes as `api` without changing the v1 schema names;
+- candidates are evidence-backed `EntityKind::ApiEndpoint`, `ApiSchema`, and `ApiExample` only;
+- each kind is stable-key/entity-id sorted, then endpoint/schema/example candidates are selected by a
+  deterministic round-robin so low limits do not silently starve an available API kind;
 - `max_entities` and `DOCUMENTATION_REFERENCE_LIMIT = 256` bound context/citations;
-- each selected module owns a citation;
-- deterministic `modules/index.md` is SHA-256 bound;
-- wrong profile/snapshot or missing evidence-backed modules fails closed.
+- facts, relations, and diagnostics intentionally remain absent in Slice 3A;
+- output sections are API Overview, API Endpoints, API Schemas, and API Examples;
+- deterministic `api/index.md` is cited and SHA-256 bound;
+- provider/network/raw-file/secrets access remains disabled;
+- wrong profile/snapshot or absence of evidence-backed API entities fails closed.
 
-### Slice 2B — Module-Scoped Evidence Enrichment
+A precise `documentation_evidence_location` owner now normalizes slash paths, line defaults, ownership
+fallbacks, and deduplication for new documentation profiles instead of adding another local path/evidence
+implementation. Existing architecture/module semantic-parity regressions remain unchanged.
 
-- Fact scope: subject or object is a selected module.
-- Relation scope: source or target is a selected module.
-- Diagnostic scope: status is open and it references a selected module.
-- Evidence/ownership path normalization, line defaults, deduplication, and ordering semantics match the
-  architecture profile; a semantic-parity regression prevents silent drift.
-- Per-kind limits are applied before the deterministic aggregate 256-item round-robin budget.
-- Facts render with modules; relations render cited claims and Mermaid edges; diagnostics render cited
-  open findings.
-- Omitted module/fact/relation/diagnostic counts are explicit and `unsupported_relations` reflects
-  omitted module-scoped relation candidates.
-- Unrelated canonical items cannot leak into module scope.
-
-### Slice 2C — Immutable Module Publication, Store Operation, CLI, And Inspection
-
-Module generation reuses the existing versioned request/manifest/current contracts and shared immutable
-generation root without a schema migration:
-
-```text
-.athanor/generated/documentation/
-  current.json                       # profile-aware pointer
-  generations/<8-digit-generation>/
-    manifest.json
-    modules/index.md
-    validation-report.json
-```
-
-- `publish_documentation_module_generation` builds the pure module profile, writes a staged immutable
-  generation, binds Markdown/report checksums, and advances `current.json` only after publication.
-- Exact `UpToDate`, `--force`, immutable history, tamper recovery, and cooperative cancellation mirror the
-  established architecture lifecycle.
-- The shared pointer is intentionally profile-aware: module inspection rejects architecture current and
-  architecture inspection rejects module current before returning unchecked data.
-- `generate_documentation_module_with_composition` initializes the configured Store and loads only the
-  exact committed requested snapshot; missing/uncommitted or mismatched identities fail closed.
-- Supported module commands are:
-
-```bash
-ath docs generate-module <PATH> --snapshot <EXACT-ID> \
-  [--max-entities N] [--max-facts N] [--max-relations N] [--max-diagnostics N] \
-  [--force] [--json]
-ath docs module current <PATH> [--json]
-ath docs module manifest <PATH> [--json]
-ath docs module validation <PATH> [--json]
-```
-
-Focused source regressions cover immutable publication/reuse, tamper repair, cancellation, deterministic
-content, profile isolation, validated current/manifest/report inspection, and executable index → module
-generate → inspect → `up_to_date` plus missing snapshot. Execution evidence is still pending.
+Focused Slice 3A regressions cover mixed API kinds, round-robin selection, canonical input-order
+invariance, omission accounting, checksum binding, Windows slash normalization, serialization, and
+fail-closed identity/no-API behavior. Publication, Store loading, CLI, daemon, MCP, and provider remain
+out of scope for Slice 3A.
 
 ## Execution Evidence
 
@@ -174,30 +141,34 @@ generate → inspect → `up_to_date` plus missing snapshot. Execution evidence 
 - First Rustok attempt: source `5e0b28099c48e22bdc172fa57b6d51db9e6efb7b`, workflow run
   `30029451096`; generation failed with
   `documentation draft citations must contain between 1 and 256 entries` after indexing completed.
+- Repair probe: source `12a8687c5d098ab05a5988508816aad5f0dc3e23`, run `30030131126`.
 - Repaired evaluation: source `f1024cbc52f05de4d3ce96c556ef044ad48b3a0e`; evaluation `31625608720`,
   probe `31625608721`, CI `31625608729`, AppSec `31625608723`, Store `31625608739`.
 - Relation disclosure: source `6862aee81dd0f53fa8372d1ce3fcb6e2ed198cca`; evaluation `32712992516`,
   probe `32712992421`; artifact records `unsupported_relations = 6962` and
   `unsupported_relation_disclosed = true`.
-- Slice 2A landed on `658d53fb03dd47a971beb6cf67b46cfe1f20b3fe`; post-merge Rustok evaluation,
-  probe, AppSec, and Store contexts are green. Focused module evidence is not claimed.
-- Slices 2B–2C: source implementations and regressions are present; focused execution evidence pending.
+- Slice 2A landed on `658d53fb03dd47a971beb6cf67b46cfe1f20b3fe`; post-merge contexts are green,
+  but focused module evidence is not claimed.
+- Slice 2C landed on `b9e0eadc46175e15ec62f915a4729287f3884cd2`; Store Conformance
+  `32718598218`, Rustok evaluation `32718598212`, and Rustok probe `32718598232` are green.
+- Slices 2B–2C and Slice 3A remain execution-pending for their focused source/test/Clippy gates.
 
 The repaired bounded Rustok architecture-generation evaluation retains `DOCUMENTATION_REFERENCE_LIMIT`,
 `workflow_dispatch` support, and diagnostic evidence checks as explicit regression boundaries.
 
 ## Next Bounded Step
 
-1. Record formatting/build/test/Clippy evidence for module Slices 2B–2C, including module profile,
-   publication, inspection, and binary CLI regressions.
-2. Then begin an API documentation profile as a new pure deterministic package before publication.
-3. Keep provider, daemon, MCP, operations/onboarding profiles, and coordinated `ath generate` changes out
-   of that package unless separately approved.
+1. Record formatting/build/test/Clippy evidence for module Slices 2B–2C and API Slice 3A.
+2. Implement Slice 3B: API-scoped facts plus canonical implementation/schema/example/documentation
+   relations and open API diagnostics, reusing the same bounded evidence semantics.
+3. Keep API publication/Store/CLI, provider, daemon, MCP, operations/onboarding profiles, and coordinated
+   `ath generate` changes out of Slice 3B.
 
 ## Verification
 
 ```bash
 cargo fmt --all -- --check
+cargo test -p athanor-app --test documentation_api_profile_inventory --locked
 cargo test -p athanor-app --test documentation_module_profile_inventory --locked
 cargo test -p athanor-app --test documentation_module_publication_inventory --locked
 cargo test -p athanor-app --test documentation_module_inspection_inventory --locked
