@@ -5,7 +5,9 @@ use athanor_app::{
 };
 use athanor_core::CanonicalSnapshot;
 use athanor_domain::{
-    Entity, EntityId, EntityKind, Ownership, SnapshotId, SourceLocation, StableKey,
+    Diagnostic, DiagnosticId, DiagnosticKind, DiagnosticStatus, Entity, EntityId, EntityKind,
+    Evidence, EvidenceStatus, Fact, FactId, FactKind, Ownership, Relation, RelationId, RelationKind,
+    RelationStatus, Severity, SnapshotId, SourceLocation, StableKey,
 };
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -29,20 +31,57 @@ fn onboarding_profile_is_exact_bounded_cited_and_checksum_bound() {
     assert_eq!(profile.context.omitted.relations, 0);
     assert_eq!(profile.context.omitted.diagnostics, 0);
     assert_eq!(profile.draft.citations.len(), 6);
-    assert_eq!(profile.validation_report.status, DocumentationValidationStatus::Valid);
-    assert_eq!(profile.validation_report.profile, DocumentationProfile::Onboarding);
+    assert_eq!(
+        profile.validation_report.status,
+        DocumentationValidationStatus::Valid
+    );
+    assert_eq!(
+        profile.validation_report.profile,
+        DocumentationProfile::Onboarding
+    );
     assert_eq!(profile.validation_report.metrics.unsupported_relations, 0);
     assert_eq!(profile.document.path, ONBOARDING_DOCUMENT_PATH);
-    assert_eq!(profile.document.media_type, ONBOARDING_DOCUMENT_MEDIA_TYPE);
+    assert_eq!(
+        profile.document.media_type,
+        ONBOARDING_DOCUMENT_MEDIA_TYPE
+    );
     assert_eq!(
         profile.document.sha256,
         sha256_hex(profile.document.content.as_bytes())
     );
-    assert!(profile.document.content.contains("# Onboarding Documentation"));
-    assert!(profile.document.content.contains("## Onboarding Overview"));
-    assert!(profile.document.content.contains("## Getting Started Inventory"));
+    assert!(
+        profile
+            .document
+            .content
+            .contains("# Onboarding Documentation")
+    );
+    assert!(
+        profile
+            .document
+            .content
+            .contains("## Onboarding Overview")
+    );
+    assert!(
+        profile
+            .document
+            .content
+            .contains("## Getting Started Inventory")
+    );
+    assert!(profile.document.content.contains("## Onboarding Facts"));
+    assert!(
+        profile
+            .document
+            .content
+            .contains("## Onboarding Relationships")
+    );
+    assert!(
+        profile
+            .document
+            .content
+            .contains("## Onboarding Diagnostics")
+    );
     assert!(profile.document.content.contains("- Profile: `onboarding`"));
-    assert!(profile.document.content.contains("Slice 5A scope"));
+    assert!(profile.document.content.contains("Slice 5B scope"));
     assert!(!profile.document.content.contains("module://core"));
     assert!(!profile.document.content.contains("automation://script/bootstrap"));
     assert_eq!(
@@ -106,13 +145,125 @@ fn onboarding_profile_is_exact_bounded_cited_and_checksum_bound() {
 }
 
 #[test]
-fn onboarding_profile_ignores_input_order_and_discloses_omissions() {
-    let snapshot = onboarding_snapshot();
-    let request = request(6);
+fn onboarding_profile_scopes_facts_relations_and_open_diagnostics() {
+    let snapshot = onboarding_evidence_snapshot();
+    let request = DocumentationGenerationRequest::new(
+        "snap-onboarding-evidence",
+        DocumentationProfile::Onboarding,
+        DocumentationGenerationLimits {
+            max_entities: 7,
+            max_facts: 8,
+            max_relations: 8,
+            max_diagnostics: 8,
+        },
+    );
+    let profile = build_documentation_onboarding_profile(&request, &snapshot).unwrap();
+
+    assert_eq!(count_kind(&profile.context, DocumentationContextItemKind::Entity), 7);
+    assert_eq!(count_kind(&profile.context, DocumentationContextItemKind::Fact), 2);
+    assert_eq!(count_kind(&profile.context, DocumentationContextItemKind::Relation), 4);
+    assert_eq!(
+        count_kind(&profile.context, DocumentationContextItemKind::Diagnostic),
+        1
+    );
+    assert_eq!(profile.context.omitted.facts, 0);
+    assert_eq!(profile.context.omitted.relations, 0);
+    assert_eq!(profile.context.omitted.diagnostics, 0);
+    assert_eq!(profile.validation_report.metrics.unsupported_relations, 0);
+
+    let relation_summaries = profile
+        .context
+        .items
+        .iter()
+        .filter(|item| item.kind == DocumentationContextItemKind::Relation)
+        .map(|item| item.summary.as_str())
+        .collect::<Vec<_>>();
+    for relation in ["contains", "documents", "uses_env", "tested_by"] {
+        assert!(
+            relation_summaries
+                .iter()
+                .any(|summary| summary.contains(relation)),
+            "missing supported onboarding relation {relation}"
+        );
+    }
+    assert!(
+        profile
+            .context
+            .items
+            .iter()
+            .filter(|item| item.kind == DocumentationContextItemKind::Relation)
+            .all(|item| item.source_stable_key.is_some()
+                && item.target_stable_key.is_some()
+                && item.relation_direction.is_some())
+    );
+    assert!(profile.document.content.contains("```mermaid"));
+    assert!(profile.document.content.contains("-->|contains|"));
+    assert!(profile.document.content.contains("-->|documents|"));
+    assert!(profile.document.content.contains("-->|uses_env|"));
+    assert!(profile.document.content.contains("-->|tested_by|"));
+    assert!(profile.document.content.contains("missing_env_var"));
+    assert!(!profile.document.content.contains("resolved-script-reference"));
+    assert!(!profile.document.content.contains("unrelated-orphan"));
+    assert!(!profile.document.content.contains(" calls `"));
+
+    for item in &profile.context.items {
+        assert!(!item.evidence.is_empty());
+        assert!(
+            item.evidence
+                .iter()
+                .all(|location| !location.path.contains('\\'))
+        );
+    }
+    assert_eq!(profile.draft.citations.len(), profile.context.items.len());
+}
+
+#[test]
+fn onboarding_profile_discloses_relation_limit_and_ignores_unsupported_relations() {
+    let snapshot = onboarding_evidence_snapshot();
+    let request = DocumentationGenerationRequest::new(
+        "snap-onboarding-evidence",
+        DocumentationProfile::Onboarding,
+        DocumentationGenerationLimits {
+            max_entities: 7,
+            max_facts: 8,
+            max_relations: 2,
+            max_diagnostics: 8,
+        },
+    );
+    let profile = build_documentation_onboarding_profile(&request, &snapshot).unwrap();
+
+    assert_eq!(count_kind(&profile.context, DocumentationContextItemKind::Relation), 2);
+    assert_eq!(profile.context.omitted.relations, 2);
+    assert_eq!(profile.validation_report.metrics.unsupported_relations, 2);
+    assert!(
+        profile
+            .document
+            .content
+            .contains("Unrepresented supported onboarding relations: 2")
+    );
+    assert!(!profile.document.content.contains(" calls `"));
+}
+
+#[test]
+fn onboarding_profile_ignores_all_input_order_for_scoped_evidence() {
+    let snapshot = onboarding_evidence_snapshot();
+    let request = DocumentationGenerationRequest::new(
+        "snap-onboarding-evidence",
+        DocumentationProfile::Onboarding,
+        DocumentationGenerationLimits {
+            max_entities: 7,
+            max_facts: 8,
+            max_relations: 8,
+            max_diagnostics: 8,
+        },
+    );
     let profile = build_documentation_onboarding_profile(&request, &snapshot).unwrap();
 
     let mut reversed = snapshot.clone();
     reversed.entities.reverse();
+    reversed.facts.reverse();
+    reversed.relations.reverse();
+    reversed.diagnostics.reverse();
     let repeated = build_documentation_onboarding_profile(&request, &reversed).unwrap();
 
     assert_eq!(profile.outline, repeated.outline);
@@ -120,11 +271,120 @@ fn onboarding_profile_ignores_input_order_and_discloses_omissions() {
     assert_eq!(profile.draft, repeated.draft);
     assert_eq!(profile.validation_report, repeated.validation_report);
     assert_eq!(profile.document, repeated.document);
-    assert!(profile.document.content.contains("Omitted onboarding entities: 1"));
 }
 
 #[test]
-fn onboarding_profile_honors_shared_reference_ceiling() {
+fn onboarding_profile_honors_shared_reference_ceiling_across_all_kinds() {
+    let mut entities = Vec::new();
+    for index in 0..70 {
+        entities.push(entity(
+            &format!("env-{index:03}"),
+            &format!("env://VAR_{index:03}"),
+            EntityKind::EnvVar,
+            &format!("config/env-{index:03}.txt"),
+            json!({}),
+        ));
+        entities.push(entity(
+            &format!("fn-{index:03}"),
+            &format!("symbol://fn/{index:03}"),
+            EntityKind::Function,
+            &format!("src/fn_{index:03}.rs"),
+            json!({}),
+        ));
+    }
+    entities.push(entity(
+        "test-shared",
+        "test://shared",
+        EntityKind::TestCase,
+        "tests/shared.rs",
+        json!({}),
+    ));
+
+    let facts = (0..70)
+        .map(|index| Fact {
+            id: FactId(format!("fact-{index:03}")),
+            kind: FactKind::EnvVarUsed,
+            subject: EntityId(format!("env-{index:03}")),
+            object: None,
+            value: json!({}),
+            evidence: vec![evidence(&format!("config\\env-{index:03}.txt"))],
+            ownership: vec![Ownership {
+                source_file: format!("config/env-{index:03}.txt"),
+            }],
+            snapshot: SnapshotId("snap-onboarding-budget".to_string()),
+            extractor: "fixture".to_string(),
+            confidence: 1.0,
+        })
+        .collect::<Vec<_>>();
+    let relations = (0..70)
+        .map(|index| Relation {
+            id: RelationId(format!("relation-{index:03}")),
+            kind: RelationKind::TestedBy,
+            from: EntityId(format!("fn-{index:03}")),
+            to: EntityId("test-shared".to_string()),
+            status: RelationStatus::Inferred,
+            confidence: 0.9,
+            evidence: vec![evidence(&format!("tests\\relation-{index:03}.rs"))],
+            ownership: Vec::new(),
+            snapshot: SnapshotId("snap-onboarding-budget".to_string()),
+            payload: json!({}),
+        })
+        .collect::<Vec<_>>();
+    let diagnostics = (0..70)
+        .map(|index| Diagnostic {
+            id: DiagnosticId(format!("diagnostic-{index:03}")),
+            kind: DiagnosticKind::MissingEnvVar,
+            severity: Severity::Medium,
+            status: DiagnosticStatus::Open,
+            title: format!("Missing env {index:03}"),
+            message: "fixture".to_string(),
+            entities: vec![EntityId(format!("env-{index:03}"))],
+            evidence: vec![evidence(&format!("config\\env-{index:03}.txt"))],
+            ownership: Vec::new(),
+            snapshot: SnapshotId("snap-onboarding-budget".to_string()),
+            suggested_fix: None,
+            payload: json!({}),
+        })
+        .collect::<Vec<_>>();
+    let snapshot = CanonicalSnapshot {
+        snapshot: Some(SnapshotId("snap-onboarding-budget".to_string())),
+        entities,
+        facts,
+        relations,
+        diagnostics,
+        ..CanonicalSnapshot::default()
+    };
+    let request = DocumentationGenerationRequest::new(
+        "snap-onboarding-budget",
+        DocumentationProfile::Onboarding,
+        DocumentationGenerationLimits {
+            max_entities: 100,
+            max_facts: 100,
+            max_relations: 100,
+            max_diagnostics: 100,
+        },
+    );
+    let profile = build_documentation_onboarding_profile(&request, &snapshot).unwrap();
+
+    assert_eq!(profile.context.items.len(), DOCUMENTATION_REFERENCE_LIMIT);
+    assert_eq!(profile.draft.citations.len(), DOCUMENTATION_REFERENCE_LIMIT);
+    for kind in [
+        DocumentationContextItemKind::Entity,
+        DocumentationContextItemKind::Fact,
+        DocumentationContextItemKind::Relation,
+        DocumentationContextItemKind::Diagnostic,
+    ] {
+        assert_eq!(count_kind(&profile.context, kind), 64);
+    }
+    assert_eq!(profile.context.omitted.entities, 7);
+    assert_eq!(profile.context.omitted.facts, 6);
+    assert_eq!(profile.context.omitted.relations, 6);
+    assert_eq!(profile.context.omitted.diagnostics, 6);
+    assert_eq!(profile.validation_report.metrics.unsupported_relations, 6);
+}
+
+#[test]
+fn onboarding_profile_honors_shared_reference_ceiling_for_entity_only_input() {
     let entities = (0..300)
         .map(|index| {
             entity(
@@ -283,6 +543,153 @@ fn onboarding_snapshot() -> CanonicalSnapshot {
     }
 }
 
+fn onboarding_evidence_snapshot() -> CanonicalSnapshot {
+    let mut snapshot = onboarding_snapshot();
+    snapshot.snapshot = Some(SnapshotId("snap-onboarding-evidence".to_string()));
+    snapshot.entities.push(entity(
+        "function-login",
+        "symbol://login",
+        EntityKind::Function,
+        "src/login.rs",
+        json!({}),
+    ));
+    snapshot.entities.push(entity(
+        "function-unrelated",
+        "symbol://unrelated",
+        EntityKind::Function,
+        "src/unrelated.rs",
+        json!({}),
+    ));
+
+    snapshot.facts = vec![
+        Fact {
+            id: FactId("fact-doc-section".to_string()),
+            kind: FactKind::DocSectionFound,
+            subject: EntityId("section-getting-started".to_string()),
+            object: None,
+            value: json!({}),
+            evidence: vec![evidence("docs\\README.md")],
+            ownership: Vec::new(),
+            snapshot: SnapshotId("snap-onboarding-evidence".to_string()),
+            extractor: "fixture".to_string(),
+            confidence: 1.0,
+        },
+        Fact {
+            id: FactId("fact-env-used".to_string()),
+            kind: FactKind::EnvVarUsed,
+            subject: EntityId("command-bootstrap".to_string()),
+            object: Some(EntityId("env-database".to_string())),
+            value: json!({}),
+            evidence: vec![evidence("scripts\\bootstrap.sh")],
+            ownership: Vec::new(),
+            snapshot: SnapshotId("snap-onboarding-evidence".to_string()),
+            extractor: "fixture".to_string(),
+            confidence: 1.0,
+        },
+        Fact {
+            id: FactId("fact-unrelated".to_string()),
+            kind: FactKind::SymbolDefined,
+            subject: EntityId("function-unrelated".to_string()),
+            object: None,
+            value: json!({}),
+            evidence: vec![evidence("src/unrelated.rs")],
+            ownership: Vec::new(),
+            snapshot: SnapshotId("snap-onboarding-evidence".to_string()),
+            extractor: "fixture".to_string(),
+            confidence: 1.0,
+        },
+    ];
+    snapshot.relations = vec![
+        relation(
+            "rel-contains",
+            RelationKind::Contains,
+            "guide-docs",
+            "section-getting-started",
+            "docs\\README.md",
+        ),
+        relation(
+            "rel-documents",
+            RelationKind::Documents,
+            "guide-docs",
+            "function-login",
+            "docs\\README.md",
+        ),
+        relation(
+            "rel-uses-env",
+            RelationKind::UsesEnv,
+            "command-bootstrap",
+            "env-database",
+            "scripts\\bootstrap.sh",
+        ),
+        relation(
+            "rel-tested-by",
+            RelationKind::TestedBy,
+            "function-login",
+            "test-smoke",
+            "tests\\smoke.rs",
+        ),
+        relation(
+            "rel-unsupported-calls",
+            RelationKind::Calls,
+            "test-smoke",
+            "function-login",
+            "tests\\smoke.rs",
+        ),
+        relation(
+            "rel-unrelated",
+            RelationKind::Contains,
+            "function-unrelated",
+            "function-login",
+            "src/unrelated.rs",
+        ),
+    ];
+    snapshot.diagnostics = vec![
+        Diagnostic {
+            id: DiagnosticId("diagnostic-missing-env".to_string()),
+            kind: DiagnosticKind::MissingEnvVar,
+            severity: Severity::High,
+            status: DiagnosticStatus::Open,
+            title: "Missing environment variable".to_string(),
+            message: "fixture".to_string(),
+            entities: vec![EntityId("env-database".to_string())],
+            evidence: vec![evidence("config\\example.env")],
+            ownership: Vec::new(),
+            snapshot: SnapshotId("snap-onboarding-evidence".to_string()),
+            suggested_fix: None,
+            payload: json!({}),
+        },
+        Diagnostic {
+            id: DiagnosticId("resolved-script-reference".to_string()),
+            kind: DiagnosticKind::BrokenScriptReference,
+            severity: Severity::Medium,
+            status: DiagnosticStatus::Resolved,
+            title: "resolved-script-reference".to_string(),
+            message: "fixture".to_string(),
+            entities: vec![EntityId("command-bootstrap".to_string())],
+            evidence: vec![evidence("scripts/bootstrap.sh")],
+            ownership: Vec::new(),
+            snapshot: SnapshotId("snap-onboarding-evidence".to_string()),
+            suggested_fix: None,
+            payload: json!({}),
+        },
+        Diagnostic {
+            id: DiagnosticId("unrelated-orphan".to_string()),
+            kind: DiagnosticKind::OrphanDoc,
+            severity: Severity::Low,
+            status: DiagnosticStatus::Open,
+            title: "unrelated-orphan".to_string(),
+            message: "fixture".to_string(),
+            entities: vec![EntityId("function-unrelated".to_string())],
+            evidence: vec![evidence("src/unrelated.rs")],
+            ownership: Vec::new(),
+            snapshot: SnapshotId("snap-onboarding-evidence".to_string()),
+            suggested_fix: None,
+            payload: json!({}),
+        },
+    ];
+    snapshot
+}
+
 fn entity(id: &str, stable_key: &str, kind: EntityKind, path: &str, payload: Value) -> Entity {
     entity_with_title(id, stable_key, kind, path, None, Some((1, 1)), payload)
 }
@@ -316,6 +723,39 @@ fn entity_with_title(
     }
 }
 
+fn relation(
+    id: &str,
+    kind: RelationKind,
+    from: &str,
+    to: &str,
+    path: &str,
+) -> Relation {
+    Relation {
+        id: RelationId(id.to_string()),
+        kind,
+        from: EntityId(from.to_string()),
+        to: EntityId(to.to_string()),
+        status: RelationStatus::Verified,
+        confidence: 1.0,
+        evidence: vec![evidence(path)],
+        ownership: Vec::new(),
+        snapshot: SnapshotId("snap-onboarding-evidence".to_string()),
+        payload: json!({}),
+    }
+}
+
+fn evidence(path: &str) -> Evidence {
+    Evidence {
+        source_file: Some(path.to_string()),
+        line_start: Some(1),
+        line_end: Some(1),
+        extractor: Some("fixture".to_string()),
+        commit_hash: None,
+        confidence: 1.0,
+        status: EvidenceStatus::Verified,
+    }
+}
+
 fn request(max_entities: usize) -> DocumentationGenerationRequest {
     DocumentationGenerationRequest::new(
         "snap-onboarding-0001",
@@ -331,6 +771,13 @@ fn limits(max_entities: usize) -> DocumentationGenerationLimits {
         max_relations: 16,
         max_diagnostics: 8,
     }
+}
+
+fn count_kind(
+    context: &athanor_app::DocumentationContext,
+    kind: DocumentationContextItemKind,
+) -> usize {
+    context.items.iter().filter(|item| item.kind == kind).count()
 }
 
 fn sha256_hex(content: &[u8]) -> String {
