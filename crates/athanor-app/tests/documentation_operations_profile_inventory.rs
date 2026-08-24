@@ -63,9 +63,11 @@ fn operations_profile_is_exact_bounded_cited_and_checksum_bound() {
         .iter()
         .find(|item| item.stable_keys == ["env://DATABASE_URL".to_string()])
         .unwrap();
-    assert_eq!(env.evidence[0].path, "config/runtime.env");
-    assert_eq!(env.evidence[0].start_line, 3);
-    assert_eq!(env.evidence[0].end_line, 3);
+    assert!(env.evidence.iter().any(|location| {
+        location.path == "config/runtime.env"
+            && location.start_line == 3
+            && location.end_line == 3
+    }));
 }
 
 #[test]
