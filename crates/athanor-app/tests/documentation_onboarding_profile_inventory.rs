@@ -82,8 +82,18 @@ fn onboarding_profile_is_exact_bounded_cited_and_checksum_bound() {
             "package://workspace",
             "automation://command/bootstrap",
             "env://DATABASE_URL",
-            "test://smoke",
+            "automation://ci/quality",
         ]
+    );
+
+    let complete = build_documentation_onboarding_profile(&request(7), &snapshot).unwrap();
+    assert_eq!(complete.context.omitted.entities, 0);
+    assert!(
+        complete
+            .context
+            .items
+            .iter()
+            .any(|item| item.stable_keys == ["test://smoke"])
     );
 
     let guide = &profile.context.items[0];
