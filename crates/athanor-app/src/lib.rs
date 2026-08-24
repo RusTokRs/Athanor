@@ -63,6 +63,8 @@ pub mod documentation_module_operation;
 #[path = "documentation_module_profile_v1.rs"]
 pub mod documentation_module_profile;
 pub mod documentation_module_publication;
+#[path = "documentation_operations_profile_v1.rs"]
+pub mod documentation_operations_profile;
 pub mod explain;
 #[cfg(test)]
 mod fact_query_tests;
@@ -227,6 +229,7 @@ pub use documentation_module_inspection::*;
 pub use documentation_module_operation::*;
 pub use documentation_module_profile::*;
 pub use documentation_module_publication::*;
+pub use documentation_operations_profile::*;
 pub use explain::*;
 pub use generation::*;
 pub use graph::*;
