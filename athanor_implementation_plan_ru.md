@@ -4,7 +4,7 @@
 > Ветка: `main`  
 > Актуализировано: 2026-08-24  
 > Статус: `API-001`, `REL-001` verified; `DOCGEN-001 / Slices 0A–1C` execution-confirmed;
-> relation-disclosure exact-evaluation-confirmed; module 2A–2C, API 3A–3C, operations 4A–4C и onboarding 5A implemented in source,
+> relation-disclosure exact-evaluation-confirmed; module 2A–2C, API 3A–3C, operations 4A–4C и onboarding 5A–5B implemented in source,
 > focused execution evidence pending
 
 ## 1. Статусы и evidence
@@ -150,24 +150,27 @@ Documentation generation:
   и binary `index -> generate-operations -> inspect -> UpToDate` round-trip.
 - [ ] Focused format/test/Clippy execution evidence для operations Slices 4A–4C pending; source implementation не verified.
 
-#### Slice 5A — onboarding documentation profile
+#### Slices 5A–5B — onboarding documentation profile
 
 - [x] `DocumentationProfile::Onboarding` и pure exact-snapshot `build_documentation_onboarding_profile`.
-- [x] Evidence-backed scope: `DocumentationPage`, `DocumentationSection`, `Package`, `ScriptCommand`, `EnvVar`,
-  `TestCase`/`CiJob`; другие entity kinds не расширяют onboarding inventory.
-- [x] Deterministic six-category round-robin, shared portable evidence owner, `max_entities` + shared 256 ceiling,
-  citations, omissions, `onboarding/index.md`, lowercase SHA-256 и input-order/fail-closed source regressions.
-- [x] Facts/relations/diagnostics, publication, Store, CLI, daemon, MCP, provider/LLM и coordinated `ath generate`
-  остаются вне Slice 5A.
-- [ ] Focused format/test/Clippy execution evidence для onboarding 5A pending; source implementation не verified.
+- [x] Evidence-backed anchors: `DocumentationPage`, `DocumentationSection`, `Package`, `ScriptCommand`, `EnvVar`,
+  `TestCase`/`CiJob`; deterministic six-category round-robin сохраняет low-limit fairness.
+- [x] Slice 5B включает facts, если subject или object — selected onboarding anchor; relation allowlist ограничен
+  `Contains`, `Documents`, `UsesEnv`, `TestedBy`, и relation должна касаться selected anchor.
+- [x] Только `Open` diagnostics, ссылающиеся на selected anchor, входят в context; unsupported/unrelated evidence не протекает.
+- [x] Per-kind limits + aggregate `DOCUMENTATION_REFERENCE_LIMIT = 256`, cited Mermaid, omissions и
+  `unsupported_relations = context.omitted.relations` regression-protected.
+- [x] `onboarding/index.md` остаётся deterministic SHA-256-bound pure output; shared portable evidence owner не дублируется.
+- [x] Facts/relations/diagnostics source regressions покрывают input-order invariance, relation disclosure и mixed 256 budget.
+- [x] Publication, Store, CLI, daemon, MCP, provider/LLM и coordinated `ath generate` остаются вне Slice 5B.
+- [ ] Focused format/test/Clippy execution evidence для onboarding 5A–5B pending; source implementation не verified.
 
 Existing coordinated `ath generate` is unchanged. Provider/LLM, daemon and MCP remain out of scope.
-`DOCGEN-001` остаётся `[-] in progress`: module/API/operations production surfaces и onboarding 5A pure profile
+`DOCGEN-001` остаётся `[-] in progress`: module/API/operations production surfaces и onboarding 5A–5B pure profile
 source-implemented; focused verification и следующие documentation slices остаются отдельными packages.
 
 ### 4.2 Product backlog
 
-- [ ] Slice 5B: onboarding-scoped facts, bounded supported relations и open diagnostics;
 - [ ] Slice 5C: immutable onboarding publication, exact Store operation, CLI и validated inspection;
 - [ ] broader framework adapters and completeness reports;
 - [ ] optional provider, daemon, MCP, i18n and semantic retrieval after deterministic quality gates.
@@ -185,7 +188,7 @@ source-implemented; focused verification и следующие documentation sli
 | `VERIFY-001` | P1 | `[x] verified` | Full release baseline matrix |
 | `API-001` | P1 | `[x] verified` | Cross-protocol consistency |
 | `REL-001` | P1 | `[x] verified` | `v0.2.1` published and installed |
-| `DOCGEN-001` | P2 | `[-] in progress` | Module 2A–2C + API 3A–3C + operations 4A–4C + onboarding 5A source-implemented; execution pending |
+| `DOCGEN-001` | P2 | `[-] in progress` | Module 2A–2C + API 3A–3C + operations 4A–4C + onboarding 5A–5B source-implemented; execution pending |
 
 ## 6. Verification matrix
 
@@ -220,6 +223,6 @@ cargo run -p ath --quiet --locked -- docs check
 
 ## 7. Следующий шаг
 
-Получить focused format/test/Clippy execution evidence для module 2B–2C, API 3A–3C, operations 4A–4C и onboarding 5A.
-Следующим отдельным bounded package сделать Slice 5B: onboarding-scoped facts, supported canonical relations
-и open diagnostics; не подключать publication/Store/CLI/provider/daemon/MCP и не менять coordinated `ath generate`.
+Получить focused format/test/Clippy execution evidence для module 2B–2C, API 3A–3C, operations 4A–4C и onboarding 5A–5B.
+Следующим отдельным bounded package сделать Slice 5C: immutable onboarding publication, exact Store operation,
+CLI и validated inspection; не подключать provider/daemon/MCP и не менять coordinated `ath generate`.

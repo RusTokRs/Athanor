@@ -15,7 +15,7 @@ matrix-confirmed on `f1024cbc52f05de4d3ce96c556ef044ad48b3a0e`; the human-facing
 disclosure is exact-evaluation-confirmed on `6862aee81dd0f53fa8372d1ce3fcb6e2ed198cca`.
 
 Module expansion is source-implemented through Slice 2C, API through Slice 3C, operations through Slice
-4C, and onboarding through pure Slice 5A. Focused module, API, operations, and onboarding format/test/Clippy
+4C, and onboarding through pure Slices 5A–5B. Focused module, API, operations, and onboarding format/test/Clippy
 evidence remains pending and is not inferred from source presence.
 
 The existing coordinated `ath generate` command is unchanged. No model provider, daemon, MCP, or new dependency is enabled.
@@ -134,18 +134,22 @@ or layout drift, invalid validation status, and checksum drift.
   confinement, layout, identities, and SHA-256. Existing `ath docs operations check` remains unchanged.
 - Operations publication/Store/CLI source regressions are present; focused execution evidence is pending.
 
-### Slice 5A — Onboarding Documentation Profile
+### Slices 5A–5B — Onboarding Documentation Profile
 
 - `DocumentationProfile::Onboarding` serializes as `onboarding` without changing v1 schema names.
 - `build_documentation_onboarding_profile` is pure over one exact `CanonicalSnapshot`; no Store,
   filesystem publication, CLI, daemon, MCP, network, or provider access is introduced.
-- Eligible evidence-backed entities are `DocumentationPage`, `DocumentationSection`, `Package`,
-  `ScriptCommand`, `EnvVar`, and `TestCase`/`CiJob`; other entity kinds do not expand onboarding scope.
-- Six category queues sort by stable key/entity id and use deterministic round-robin selection, so a low
-  `max_entities` limit does not silently starve an available onboarding category.
-- Shared portable evidence normalization, `max_entities`, `DOCUMENTATION_REFERENCE_LIMIT = 256`, citations,
-  omissions, deterministic `onboarding/index.md`, validation metrics, and lowercase SHA-256 are source protected.
-- Facts, relations, diagnostics, publication, Store loading, and CLI remain deferred to Slices 5B–5C.
+- Eligible evidence-backed anchors are `DocumentationPage`, `DocumentationSection`, `Package`,
+  `ScriptCommand`, `EnvVar`, and `TestCase`/`CiJob`; six category queues use stable-key/entity-id round-robin.
+- Slice 5B adds facts when subject or object is a selected onboarding anchor, supported `Contains`,
+  `Documents`, `UsesEnv`, and `TestedBy` relations touching an anchor, and open diagnostics referencing an anchor.
+- Per-kind limits feed deterministic Entity/Fact/Relation/Diagnostic round-robin under the aggregate
+  `DOCUMENTATION_REFERENCE_LIMIT = 256`; each selected item is cited and supported relations emit Mermaid edges.
+- Omitted counts are scoped to eligible onboarding evidence; omitted supported relations are disclosed and
+  feed `validation.metrics.unsupported_relations`. Shared portable evidence normalization remains the owner.
+- Deterministic `onboarding/index.md`, lowercase SHA-256, scope-leakage checks, input-order invariance,
+  relation-limit disclosure, and mixed-kind 256-budget regressions are source protected.
+- Publication, Store loading, and CLI remain deferred to Slice 5C.
 
 ## Execution Evidence
 
@@ -172,7 +176,7 @@ or layout drift, invalid validation status, and checksum drift.
   `32718598218`, Rustok evaluation `32718598212`, and Rustok probe `32718598232` are green.
 - Slice 3A landed on `0a4c0f78ef05b6c2ba9480b770c1ebf72038e049`; Rustok evaluation
   `32719989413` and Rustok probe `32719989450` are green. These are not focused API profile evidence.
-- Slices 2B–2C, API Slices 3A–3C, operations Slices 4A–4C, and onboarding Slice 5A remain
+- Slices 2B–2C, API Slices 3A–3C, operations Slices 4A–4C, and onboarding Slices 5A–5B remain
   execution-pending for focused gates.
 
 The repaired bounded Rustok architecture-generation evaluation retains `DOCUMENTATION_REFERENCE_LIMIT`,
@@ -180,11 +184,11 @@ The repaired bounded Rustok architecture-generation evaluation retains `DOCUMENT
 
 ## Next Bounded Step
 
-1. Record formatting/build/test/Clippy evidence for module 2B–2C, API 3A–3C, operations 4A–4C, and onboarding 5A.
-2. Implement Slice 5B: onboarding-scoped facts, a bounded supported canonical relation set, and open
-   onboarding diagnostics while keeping the profile pure.
-3. Keep publication/Store/CLI for Slice 5C and keep provider, daemon, MCP, and coordinated `ath generate`
-   changes out until separate deterministic quality gates justify them.
+1. Record formatting/build/test/Clippy evidence for module 2B–2C, API 3A–3C, operations 4A–4C, and onboarding 5A–5B.
+2. Implement Slice 5C: immutable onboarding publication, exact Store operation, CLI generation, and
+   validated inspection with profile-isolated shared `current.json`.
+3. Keep provider, daemon, MCP, and coordinated `ath generate` changes out until separate deterministic
+   quality gates justify them.
 
 ## Verification
 

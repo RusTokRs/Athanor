@@ -46,11 +46,12 @@ open diagnostics, aggregate 256-item budgeting, cited Mermaid, omissions, and de
 Slice 4C adds immutable `operations/index.md` publication, exact Store loading, CLI generation, and
 validated inspection.
 
-Onboarding Slice 5A is source-implemented as a pure exact-snapshot profile. It projects evidence-backed
+Onboarding Slices 5A–5B are source-implemented as a pure exact-snapshot profile. Evidence-backed anchors are
 documentation pages/sections, packages, runnable script commands, environment variables, and test/CI
-verification entrypoints through deterministic six-category round-robin selection into
-`onboarding/index.md`. It uses the shared portable evidence owner and `DOCUMENTATION_REFERENCE_LIMIT = 256`;
-facts, relations, diagnostics, publication, Store loading, and CLI are still deferred.
+verification entrypoints with deterministic six-category round-robin selection. Slice 5B adds facts touching
+selected anchors, bounded `Contains`/`Documents`/`UsesEnv`/`TestedBy` relations, and open diagnostics that
+reference an anchor. Per-kind limits feed aggregate `DOCUMENTATION_REFERENCE_LIMIT = 256` round-robin;
+selected items are cited, supported relations emit Mermaid edges, and omissions are disclosed.
 
 The shared `current.json` remains profile-aware across architecture, module, API, and operations. Onboarding
 does not join that publication lifecycle until Slice 5C. Existing inspectors continue to fail closed when
@@ -129,16 +130,15 @@ probe, AppSec, and Store contexts are green. Slice 2C landed on
 - [x] Slices 2A–2C: module inventory/evidence/publication/Store/CLI/inspection;
 - [x] Slices 3A–3C: API inventory/evidence/publication/Store/CLI/inspection;
 - [x] Slices 4A–4C: operations inventory/evidence/publication/exact Store/CLI/inspection;
-- [x] Slice 5A: pure onboarding inventory, six-category round-robin, shared portable evidence, citations,
-  omissions, `onboarding/index.md`, shared 256 ceiling, checksum binding, and source regressions;
-- [ ] Focused module 2B–2C, API 3A–3C, operations 4A–4C, and onboarding 5A execution evidence remains pending.
+- [x] Slices 5A–5B: pure onboarding inventory plus scoped facts, bounded supported relations, open diagnostics,
+  cited Mermaid, omissions, aggregate 256-item budgeting, checksum binding, and source regressions;
+- [ ] Focused module 2B–2C, API 3A–3C, operations 4A–4C, and onboarding 5A–5B execution evidence remains pending.
 
 `DOCGEN-001` remains in progress. Architecture is execution-confirmed; module/API/operations production
-surfaces and onboarding 5A are source-implemented but are not promoted to verified without focused execution gates.
+surfaces and onboarding 5A–5B are source-implemented but are not promoted to verified without focused execution gates.
 
 ## Product Backlog
 
-- Slice 5B: onboarding-scoped facts, bounded supported relations, and open diagnostics;
 - Slice 5C: immutable onboarding publication, exact Store operation, CLI, and validated inspection;
 - broader framework adapters and completeness reporting;
 - optional i18n, semantic/vector retrieval, provider, daemon, and MCP integration after quality gates.
