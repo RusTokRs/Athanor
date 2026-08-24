@@ -4,7 +4,7 @@
 > Ветка: `main`  
 > Актуализировано: 2026-08-24  
 > Статус: `API-001`, `REL-001` verified; `DOCGEN-001 / Slices 0A–1C` execution-confirmed;
-> relation-disclosure exact-evaluation-confirmed; module Slices 2A–2C и API Slices 3A–3B implemented in source,
+> relation-disclosure exact-evaluation-confirmed; module Slices 2A–2C и API Slices 3A–3C implemented in source,
 > focused execution evidence pending
 
 ## 1. Статусы и evidence
@@ -137,22 +137,33 @@ Documentation generation:
   сохраняет именованный payload для человекочитаемого вывода.
 - [x] Fact/relation/diagnostic evidence использует общий `documentation_evidence_location` owner:
   canonical evidence + ownership fallback, slash normalization, portable paths, line defaults и dedup.
-- [x] Deterministic sorting: facts по kind/id, relations по source/kind/target/id, diagnostics по severity/kind/id.
-- [x] Per-kind limits + deterministic aggregate round-robin ceiling 256; omitted counts и
-  `unsupported_relations` отражают eligible supported API relations за пределами bounded context.
-- [x] Добавлены `API Facts`, `API Relationships`, `API Diagnostics`; supported relations получают cited
-  Mermaid edges, а все non-inference claims остаются evidence-backed.
-- [x] Regressions покрывают allowlist, scoped facts/open diagnostics, unsupported `Other` relation exclusion,
-  named `Other` diagnostics, omissions, input-order invariance, exact identity, checksum и fail-closed cases.
-- [ ] Slices 3A–3B focused format/test/Clippy execution evidence pending; API publication/Store/CLI отсутствуют.
+- [x] Deterministic sorting, per-kind limits + aggregate round-robin ceiling 256, omissions и cited Mermaid.
+
+#### Slice 3C — immutable API publication, exact Store, CLI и inspection
+
+- [x] Immutable `api/index.md` publication в общем generation root с `manifest.json`, validation report и
+  atomic profile-aware `current.json`.
+- [x] Exact `UpToDate`, force, immutable history, tamper recovery и cancellation сохраняют тот же lifecycle,
+  что architecture/module publication.
+- [x] `DocumentationApiOperationOptions` использует `RuntimeComposition::init_store` и только exact
+  `CanonicalSnapshotStore::load_snapshot(SnapshotId(request.snapshot))`; latest fallback отсутствует.
+- [x] Missing/uncommitted snapshot и Store identity mismatch fail closed; cancellation checks стоят вокруг
+  Store/publication boundaries.
+- [x] `ath docs generate-api <PATH> --snapshot <EXACT-ID>` поддерживает hard-limit flags, `--force`, `--json`
+  и Ctrl-C cancellation/drain.
+- [x] `ath docs api current|manifest|validation` проверяет profile, confinement, normalized generation path,
+  exact artifact layout, manifest/report identity и SHA-256 checksums.
+- [x] Shared `current.json` изолирует architecture/module/API inspectors по profile.
+- [x] Source regressions покрывают publication `UpToDate`/tamper/force/cancel, API operation identity,
+  validated inspection/profile isolation и binary `index -> generate-api -> inspect -> UpToDate` round-trip.
+- [ ] Focused format/test/Clippy execution evidence для API Slices 3A–3C pending; source implementation не verified.
 
 Existing coordinated `ath generate` is unchanged. Provider/LLM, daemon and MCP remain out of scope.
-`DOCGEN-001` остаётся `[-] in progress`: module production surface и pure API Slices 3A–3B
-source-implemented; verification и API production integration остаются отдельными packages.
+`DOCGEN-001` остаётся `[-] in progress`: module и API deterministic production surfaces source-implemented;
+focused verification и следующие documentation profiles остаются отдельными packages.
 
 ### 4.2 Product backlog
 
-- [ ] Slice 3C: immutable API publication + exact Store operation + CLI/validated inspection;
 - [ ] operations/onboarding documentation profiles;
 - [ ] broader framework adapters and completeness reports;
 - [ ] optional provider, daemon, MCP, i18n and semantic retrieval after deterministic quality gates.
@@ -170,7 +181,7 @@ source-implemented; verification и API production integration остаются 
 | `VERIFY-001` | P1 | `[x] verified` | Full release baseline matrix |
 | `API-001` | P1 | `[x] verified` | Cross-protocol consistency |
 | `REL-001` | P1 | `[x] verified` | `v0.2.1` published and installed |
-| `DOCGEN-001` | P2 | `[-] in progress` | Module 2A–2C + API 3A–3B source-implemented; execution pending |
+| `DOCGEN-001` | P2 | `[-] in progress` | Module 2A–2C + API 3A–3C source-implemented; execution pending |
 
 ## 6. Verification matrix
 
@@ -185,16 +196,20 @@ cargo test -p athanor-app --test documentation_module_profile_inventory --locked
 cargo test -p athanor-app --test documentation_api_profile_inventory --locked
 cargo test -p athanor-app --test documentation_architecture_publication_inventory --locked
 cargo test -p athanor-app --test documentation_module_publication_inventory --locked
+cargo test -p athanor-app --test documentation_api_publication_inventory --locked
+cargo test -p athanor-app --test documentation_api_operation_inventory --locked
 cargo test -p athanor-app --test documentation_architecture_inspection_inventory --locked
 cargo test -p athanor-app --test documentation_module_inspection_inventory --locked
+cargo test -p athanor-app --test documentation_api_inspection_inventory --locked
 cargo test -p athanor-app --test documentation_status_inventory --locked
 cargo test -p ath --test documentation_architecture_cli --locked
 cargo test -p ath --test documentation_module_cli --locked
+cargo test -p ath --test documentation_api_cli --locked
 cargo run -p ath --quiet --locked -- docs check
 ```
 
 ## 7. Следующий шаг
 
-Получить focused format/test/Clippy execution evidence для module Slices 2B–2C и API Slices 3A–3B.
-После этого отдельным Slice 3C добавить immutable API publication, exact committed-snapshot Store operation
-и API CLI/validated inspection; не подключать provider/daemon/MCP и не менять coordinated `ath generate`.
+Получить focused format/test/Clippy execution evidence для module Slices 2B–2C и API Slices 3A–3C.
+Следующим отдельным bounded package начать operations/onboarding documentation profile с pure exact-snapshot
+owner; не подключать provider/daemon/MCP и не менять coordinated `ath generate`.

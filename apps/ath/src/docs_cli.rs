@@ -4,6 +4,9 @@ use anyhow::{Context, Result, bail};
 use athanor_app::{
     CancellationToken, DocsApplyPatchOptions, DocsApplyPatchReport, DocsCheckOptions,
     DocsCheckReport, DocsDriftOptions, DocsDriftReport, DocsProposeFixOptions,
+    DocumentationApiCurrentInspection, DocumentationApiManifestInspection,
+    DocumentationApiOperationOptions, DocumentationApiPublicationReport,
+    DocumentationApiPublicationStatus, DocumentationApiValidationInspection,
     DocumentationArchitectureCurrentInspection, DocumentationArchitectureManifestInspection,
     DocumentationArchitectureOperationOptions, DocumentationArchitecturePublicationReport,
     DocumentationArchitecturePublicationStatus, DocumentationArchitectureValidationInspection,
@@ -13,8 +16,10 @@ use athanor_app::{
     DocumentationModuleValidationInspection, DocumentationProfile, OperationsDocsCheckOptions,
     OperationsDocsCheckReport, VersionedDocsProposeFixReport, check_docs_with_composition,
     check_operations_docs_with_composition, docs_apply_patch_with_composition,
-    docs_drift_with_composition, generate_documentation_architecture_with_composition_cancellable,
-    generate_documentation_module_with_composition_cancellable,
+    docs_drift_with_composition, generate_documentation_api_with_composition_cancellable,
+    generate_documentation_architecture_with_composition_cancellable,
+    generate_documentation_module_with_composition_cancellable, inspect_documentation_api_current,
+    inspect_documentation_api_manifest, inspect_documentation_api_validation,
     inspect_documentation_architecture_current, inspect_documentation_architecture_manifest,
     inspect_documentation_architecture_validation, inspect_documentation_module_current,
     inspect_documentation_module_manifest, inspect_documentation_module_validation,
@@ -119,6 +124,29 @@ pub(crate) enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Generate deterministic API documentation from one exact committed snapshot.
+    GenerateApi {
+        /// Project root. Defaults to the current directory.
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Exact committed canonical snapshot id. Latest-snapshot fallback is intentionally unsupported.
+        #[arg(long)]
+        snapshot: String,
+        /// Publish a new immutable generation even when current output is exactly up to date.
+        #[arg(long)]
+        force: bool,
+        #[arg(long, default_value_t = DEFAULT_MAX_ENTITIES)]
+        max_entities: usize,
+        #[arg(long, default_value_t = DEFAULT_MAX_FACTS)]
+        max_facts: usize,
+        #[arg(long, default_value_t = DEFAULT_MAX_RELATIONS)]
+        max_relations: usize,
+        #[arg(long, default_value_t = DEFAULT_MAX_DIAGNOSTICS)]
+        max_diagnostics: usize,
+        /// Print the complete publication report as JSON.
+        #[arg(long)]
+        json: bool,
+    },
     /// Inspect the validated current architecture documentation generation.
     Architecture {
         #[command(subcommand)]
@@ -128,6 +156,11 @@ pub(crate) enum Command {
     Module {
         #[command(subcommand)]
         command: ModuleCommand,
+    },
+    /// Inspect the validated current API documentation generation.
+    Api {
+        #[command(subcommand)]
+        command: ApiCommand,
     },
     Operations {
         #[command(subcommand)]
@@ -159,6 +192,28 @@ pub(crate) enum ArchitectureCommand {
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum ModuleCommand {
+    Current {
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    Manifest {
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    Validation {
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum ApiCommand {
     Current {
         #[arg(default_value = ".")]
         path: PathBuf,
@@ -334,6 +389,48 @@ pub(crate) async fn run(command: Command) -> Result<()> {
             };
             render_module_generation(&report, json)?;
         }
+        Command::GenerateApi {
+            path,
+            snapshot,
+            force,
+            max_entities,
+            max_facts,
+            max_relations,
+            max_diagnostics,
+            json,
+        } => {
+            let request = DocumentationGenerationRequest::new(
+                snapshot,
+                DocumentationProfile::Api,
+                DocumentationGenerationLimits {
+                    max_entities,
+                    max_facts,
+                    max_relations,
+                    max_diagnostics,
+                },
+            );
+            let cancellation = CancellationToken::new();
+            let signal_cancellation = cancellation.clone();
+            let mut generation = Box::pin(generate_documentation_api_with_composition_cancellable(
+                DocumentationApiOperationOptions {
+                    root: path,
+                    request,
+                    force,
+                },
+                &composition,
+                cancellation,
+            ));
+            let mut ctrl_c = Box::pin(tokio::signal::ctrl_c());
+            let report = tokio::select! {
+                result = &mut generation => result?,
+                signal = &mut ctrl_c => {
+                    signal.context("failed to listen for API generation cancellation")?;
+                    signal_cancellation.cancel();
+                    generation.await?
+                }
+            };
+            render_api_generation(&report, json)?;
+        }
         Command::Architecture {
             command: ArchitectureCommand::Current { path, json },
         } => {
@@ -369,6 +466,24 @@ pub(crate) async fn run(command: Command) -> Result<()> {
         } => {
             let report = inspect_documentation_module_validation(path)?;
             render_module_validation(&report, json)?;
+        }
+        Command::Api {
+            command: ApiCommand::Current { path, json },
+        } => {
+            let report = inspect_documentation_api_current(path)?;
+            render_api_current(&report, json)?;
+        }
+        Command::Api {
+            command: ApiCommand::Manifest { path, json },
+        } => {
+            let report = inspect_documentation_api_manifest(path)?;
+            render_api_manifest(&report, json)?;
+        }
+        Command::Api {
+            command: ApiCommand::Validation { path, json },
+        } => {
+            let report = inspect_documentation_api_validation(path)?;
+            render_api_validation(&report, json)?;
         }
         Command::Operations {
             command: OperationsCommand::Check { path, json },
@@ -437,6 +552,28 @@ fn render_module_generation(report: &DocumentationModulePublicationReport, json:
     Ok(())
 }
 
+fn render_api_generation(report: &DocumentationApiPublicationReport, json: bool) -> Result<()> {
+    if json {
+        println!("{}", serde_json::to_string_pretty(report)?);
+        return Ok(());
+    }
+    match report.status {
+        DocumentationApiPublicationStatus::Published => println!(
+            "published API documentation generation {} from snapshot {}",
+            report.generation, report.snapshot
+        ),
+        DocumentationApiPublicationStatus::UpToDate => println!(
+            "API documentation generation {} is already up to date for snapshot {}",
+            report.generation, report.snapshot
+        ),
+    }
+    println!("document: {}", report.document.display());
+    println!("validation: {}", report.validation_report.display());
+    println!("manifest: {}", report.manifest.display());
+    println!("current: {}", report.current_pointer.display());
+    Ok(())
+}
+
 fn render_architecture_current(
     report: &DocumentationArchitectureCurrentInspection,
     json: bool,
@@ -465,6 +602,22 @@ fn render_module_current(report: &DocumentationModuleCurrentInspection, json: bo
             report.current.generation, report.current.snapshot
         );
         println!("profile: module");
+        println!("path: {}", report.current.path);
+        println!("manifest: {}", report.current.manifest);
+        println!("pointer: {}", report.current_pointer.display());
+    }
+    Ok(())
+}
+
+fn render_api_current(report: &DocumentationApiCurrentInspection, json: bool) -> Result<()> {
+    if json {
+        println!("{}", serde_json::to_string_pretty(report)?);
+    } else {
+        println!(
+            "current API documentation generation {} for snapshot {}",
+            report.current.generation, report.current.snapshot
+        );
+        println!("profile: api");
         println!("path: {}", report.current.path);
         println!("manifest: {}", report.current.manifest);
         println!("pointer: {}", report.current_pointer.display());
@@ -517,6 +670,27 @@ fn render_module_manifest(report: &DocumentationModuleManifestInspection, json: 
     Ok(())
 }
 
+fn render_api_manifest(report: &DocumentationApiManifestInspection, json: bool) -> Result<()> {
+    if json {
+        println!("{}", serde_json::to_string_pretty(report)?);
+        return Ok(());
+    }
+    println!(
+        "API documentation manifest {} for snapshot {}: {} artifacts",
+        report.manifest.generation,
+        report.manifest.snapshot,
+        report.manifest.documents.len()
+    );
+    for artifact in &report.manifest.documents {
+        println!(
+            "{} {} {} {}",
+            artifact.id, artifact.media_type, artifact.path, artifact.sha256
+        );
+    }
+    println!("manifest: {}", report.manifest_path.display());
+    Ok(())
+}
+
 fn render_architecture_validation(
     report: &DocumentationArchitectureValidationInspection,
     json: bool,
@@ -547,6 +721,26 @@ fn render_module_validation(report: &DocumentationModuleValidationInspection, js
     }
     println!(
         "module documentation validation for snapshot {}: valid",
+        report.report.snapshot
+    );
+    println!("diagnostics: {}", report.report.diagnostics.len());
+    println!(
+        "citation coverage: {} basis points; validity: {} basis points; diagram validity: {} basis points",
+        report.report.metrics.citation_coverage_basis_points,
+        report.report.metrics.citation_validity_basis_points,
+        report.report.metrics.diagram_validity_basis_points
+    );
+    println!("report: {}", report.validation_path.display());
+    Ok(())
+}
+
+fn render_api_validation(report: &DocumentationApiValidationInspection, json: bool) -> Result<()> {
+    if json {
+        println!("{}", serde_json::to_string_pretty(report)?);
+        return Ok(());
+    }
+    println!(
+        "API documentation validation for snapshot {}: valid",
         report.report.snapshot
     );
     println!("diagnostics: {}", report.report.diagnostics.len());
@@ -740,6 +934,33 @@ mod tests {
     }
 
     #[test]
+    fn parses_exact_api_generation_with_limits_and_json() {
+        let command = parse(&[
+            "docs".to_string(),
+            "generate-api".to_string(),
+            "project".to_string(),
+            "--snapshot".to_string(),
+            "snap-exact".to_string(),
+            "--max-diagnostics".to_string(),
+            "5".to_string(),
+            "--force".to_string(),
+            "--json".to_string(),
+        ])
+        .unwrap()
+        .expect("API generation command");
+        assert!(matches!(
+            command,
+            Command::GenerateApi {
+                snapshot,
+                max_diagnostics: 5,
+                force: true,
+                json: true,
+                ..
+            } if snapshot == "snap-exact"
+        ));
+    }
+
+    #[test]
     fn parses_bounded_architecture_inspection_commands() {
         for (name, expected) in [
             ("current", "current"),
@@ -815,6 +1036,46 @@ mod tests {
                     },
                 ) => {}
                 _ => panic!("unexpected module inspection command"),
+            }
+        }
+    }
+
+    #[test]
+    fn parses_bounded_api_inspection_commands() {
+        for (name, expected) in [
+            ("current", "current"),
+            ("manifest", "manifest"),
+            ("validation", "validation"),
+        ] {
+            let command = parse(&[
+                "docs".to_string(),
+                "api".to_string(),
+                name.to_string(),
+                "project".to_string(),
+                "--json".to_string(),
+            ])
+            .unwrap()
+            .expect("API inspection command");
+            match (expected, command) {
+                (
+                    "current",
+                    Command::Api {
+                        command: ApiCommand::Current { json: true, .. },
+                    },
+                )
+                | (
+                    "manifest",
+                    Command::Api {
+                        command: ApiCommand::Manifest { json: true, .. },
+                    },
+                )
+                | (
+                    "validation",
+                    Command::Api {
+                        command: ApiCommand::Validation { json: true, .. },
+                    },
+                ) => {}
+                _ => panic!("unexpected API inspection command"),
             }
         }
     }
