@@ -27,7 +27,7 @@ fn completeness_report_is_exact_deterministic_and_exposes_adapter_gaps() {
     assert_eq!(report.totals.unprocessed_files, 1);
     assert_eq!(report.totals.processed_ratio_basis_points, 7_500);
     assert_eq!(report.totals.languages, 4);
-    assert_eq!(report.totals.adapters, 3);
+    assert_eq!(report.totals.adapters, 4);
     assert_eq!(report.totals.facts, 6);
     assert_eq!(report.totals.relations, 1);
     assert_eq!(report.totals.diagnostics, 1);
@@ -108,7 +108,7 @@ fn completeness_report_normalizes_file_paths_and_bounds_each_detail_table() {
     assert_eq!(report.adapters.len(), 1);
     assert_eq!(report.unprocessed_files.len(), 1);
     assert_eq!(report.omitted.languages, 3);
-    assert_eq!(report.omitted.adapters, 2);
+    assert_eq!(report.omitted.adapters, 3);
     assert_eq!(report.omitted.unprocessed_files, 0);
     assert!(
         report
