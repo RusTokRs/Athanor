@@ -171,8 +171,9 @@ generate → inspect → `up_to_date` plus missing snapshot. Execution evidence 
   `30015691399`, Store `30015689363`.
 - Slice 1C2: source `042d02ac6b4c89d90a5b76c818098eb0c6b41920`; CI `30025932615`, AppSec
   `30025931953`, Store `30025932704`.
-- First Rustok attempt: source `5e0b28099c48e22bdc172fa57b6d51db9e6efb7b`, run `30029451096`;
-  indexing completed but generation exposed the original 256-citation defect.
+- First Rustok attempt: source `5e0b28099c48e22bdc172fa57b6d51db9e6efb7b`, workflow run
+  `30029451096`; generation failed with
+  `documentation draft citations must contain between 1 and 256 entries` after indexing completed.
 - Repaired evaluation: source `f1024cbc52f05de4d3ce96c556ef044ad48b3a0e`; evaluation `31625608720`,
   probe `31625608721`, CI `31625608729`, AppSec `31625608723`, Store `31625608739`.
 - Relation disclosure: source `6862aee81dd0f53fa8372d1ce3fcb6e2ed198cca`; evaluation `32712992516`,
