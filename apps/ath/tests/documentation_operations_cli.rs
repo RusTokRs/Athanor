@@ -115,7 +115,7 @@ fn fixture_root(label: &str) -> PathBuf {
         std::process::id()
     ));
     fs::create_dir_all(&root).expect("create fixture root");
-    fs::write(root.join(".env"), "DATABASE_URL=postgres://example\n")
+    fs::write(root.join("Makefile"), "deploy:\n\t@echo deploy\n")
         .expect("write operations fixture");
     root
 }
