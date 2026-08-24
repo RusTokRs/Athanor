@@ -3,6 +3,7 @@ use tracing_subscriber::{EnvFilter, fmt};
 
 mod analysis_cli;
 mod api_cli;
+mod completeness_docgen_cli;
 mod direct_check_cli;
 mod direct_config_cli;
 mod direct_context_cli;
@@ -72,6 +73,10 @@ fn run() -> Result<()> {
         }
         root_command::Command::Index(command) => {
             runtime("Athanor index runtime")?.block_on(index_cli::run(command))
+        }
+        root_command::Command::CompletenessDocgen(command) => {
+            runtime("Athanor documentation completeness runtime")?
+                .block_on(completeness_docgen_cli::run(command))
         }
         root_command::Command::OnboardingDocgen(command) => {
             runtime("Athanor onboarding documentation runtime")?

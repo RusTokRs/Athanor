@@ -31,6 +31,9 @@ pub use base::{
 use crate::adapter_contract::ADAPTER_TRUST_REPORT_SCHEMA_V1;
 #[cfg(test)]
 use crate::adapter_contract::VersionedAdapterTrustReport;
+use crate::documentation_completeness_transport::DOCUMENTATION_COMPLETENESS_SCHEMA_V1;
+#[cfg(test)]
+use crate::documentation_completeness_transport::VersionedDocumentationCompletenessReport;
 use crate::documentation_generation_contract::{
     DOCUMENTATION_GENERATION_MANIFEST_SCHEMA_V1, DOCUMENTATION_GENERATION_REQUEST_SCHEMA_V1,
 };
@@ -152,6 +155,10 @@ pub const VERSIONED_JSON_CONTRACTS: &[JsonContractDescriptor] = &[
     descriptor!(CHANGED_VALIDATION_SCHEMA_V1, "ChangedValidationReport"),
     descriptor!(GENERATION_SCHEMA_V1, "GenerationReport"),
     descriptor!(
+        DOCUMENTATION_COMPLETENESS_SCHEMA_V1,
+        "VersionedDocumentationCompletenessReport"
+    ),
+    descriptor!(
         DOCUMENTATION_GENERATION_REQUEST_SCHEMA_V1,
         "DocumentationGenerationRequest"
     ),
@@ -259,7 +266,11 @@ mod tests {
     fn extended_registry_contains_application_daemon_and_adapter_owners() {
         validate_contract_registry(VERSIONED_JSON_CONTRACTS)
             .expect("extended JSON contract registry must remain valid");
-        assert_eq!(VERSIONED_JSON_CONTRACTS.len(), 62);
+        assert_eq!(VERSIONED_JSON_CONTRACTS.len(), 63);
+        assert_eq!(
+            DOCUMENTATION_COMPLETENESS_SCHEMA_V1,
+            VersionedDocumentationCompletenessReport::SCHEMA
+        );
         assert_eq!(
             DOCUMENTATION_GENERATION_REQUEST_SCHEMA_V1,
             DocumentationGenerationRequest::SCHEMA

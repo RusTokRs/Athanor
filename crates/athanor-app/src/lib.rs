@@ -55,6 +55,8 @@ pub mod documentation_architecture_operation;
 #[path = "documentation_architecture_profile_v1.rs"]
 pub mod documentation_architecture_profile;
 pub mod documentation_architecture_publication;
+pub mod documentation_completeness_operation;
+pub mod documentation_completeness_transport;
 mod documentation_evidence_location;
 pub mod documentation_generation_alignment;
 pub mod documentation_generation_contract;
@@ -235,6 +237,8 @@ pub use documentation_architecture_inspection::*;
 pub use documentation_architecture_operation::*;
 pub use documentation_architecture_profile::*;
 pub use documentation_architecture_publication::*;
+pub use documentation_completeness_operation::*;
+pub use documentation_completeness_transport::*;
 pub use documentation_generation_alignment::*;
 pub use documentation_generation_contract::*;
 pub use documentation_module_inspection::*;

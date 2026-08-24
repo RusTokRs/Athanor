@@ -53,11 +53,11 @@ relations, open diagnostics, aggregate `DOCUMENTATION_REFERENCE_LIMIT = 256` bud
 omission disclosure. Slice 5C adds immutable `onboarding/index.md` publication, exact Store loading, CLI
 generation, and validated inspection.
 
-Slice 6A adds a pure exact-snapshot documentation completeness report over the canonical baseline `file`
-inventory. It reports processed/unprocessed files, per-language basis-point coverage, named non-baseline
-adapter contribution across facts/relations/diagnostics, deterministic limits/omissions, and keeps entity-only
-canonical processing visible without inventing adapter attribution. Exact Store/CLI and the versioned JSON
-transport contract remain deferred to Slice 6B.
+Slices 6A–6B add documentation completeness reporting. The pure owner uses canonical baseline `file`
+inventory to report processed/unprocessed files, per-language basis-point coverage, named non-baseline adapter
+contribution, deterministic limits/omissions, and entity-only canonical processing without invented attribution.
+Slice 6B adds exact Store loading, read-only `ath docs completeness`, cancellation/drain, and registered
+`athanor.documentation_completeness.v1` JSON transport. No latest fallback or publication/current pointer exists.
 
 The shared `current.json` is profile-aware across architecture, module, API, operations, and onboarding.
 Every inspector fails closed when another published profile owns the current pointer.
@@ -76,6 +76,7 @@ ath docs operations current|manifest|validation <PATH> [--json]
 ath docs operations check [--path <PATH>] [--json]
 ath docs generate-onboarding <PATH> --snapshot <EXACT-ID> [--force] [--json]
 ath docs onboarding current|manifest|validation <PATH> [--json]
+ath docs completeness <PATH> --snapshot <EXACT-ID> [--limit N] [--json]
 ```
 
 All generation surfaces retain hard-limit flags. Generation has no latest-snapshot fallback. Ctrl-C
@@ -138,14 +139,13 @@ probe, AppSec, and Store contexts are green. Slice 2C landed on
 - [x] Slices 3A–3C: API inventory/evidence/publication/Store/CLI/inspection;
 - [x] Slices 4A–4C: operations inventory/evidence/publication/exact Store/CLI/inspection;
 - [x] Slices 5A–5C: onboarding inventory/evidence/publication/exact Store/CLI/inspection;
-- [x] Slice 6A: pure exact-snapshot completeness report for file/language/adapter gaps;
-- [ ] Focused module 2B–2C, API 3A–3C, operations 4A–4C, onboarding 5A–5C, and completeness 6A execution evidence remains pending.
+- [x] Slices 6A–6B: pure completeness plus exact Store/read-only CLI/versioned JSON transport;
+- [ ] Focused module 2B–2C, API 3A–3C, operations 4A–4C, onboarding 5A–5C, and completeness 6A–6B execution evidence remains pending.
 
 `DOCGEN-001` remains in progress. Architecture is execution-confirmed; module/API/operations/onboarding
-production surfaces and completeness 6A are source-implemented but are not promoted without focused gates.
+production surfaces and completeness 6A–6B are source-implemented but are not promoted without focused gates.
 
 ## Product Backlog
 
-- Slice 6B: exact Store/CLI surface for the documentation completeness report;
-- framework adapter expansion driven by exact completeness gaps;
+- select the first bounded framework-adapter expansion from exact completeness gaps;
 - optional i18n, semantic/vector retrieval, provider, daemon, and MCP integration after quality gates.
