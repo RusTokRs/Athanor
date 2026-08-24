@@ -65,20 +65,25 @@ RusTok opt-in adapters: [FFA](adapters/rustok-ffa.md), [FBA](adapters/rustok-fba
 
 ## Generated And Editable Documentation
 
-`ath generate` continues to publish coordinated JSONL, Wiki, and HTML outputs. Architecture
-documentation uses a separate exact-snapshot command and immutable current pointer:
+`ath generate` continues to publish coordinated JSONL, Wiki, and HTML outputs. Architecture and module
+documentation use separate exact-snapshot commands but the same immutable documentation generation root
+and profile-aware `current.json` pointer:
 
 ```bash
 ath docs generate-architecture . --snapshot <EXACT-COMMITTED-SNAPSHOT>
-ath docs generate-architecture . --snapshot <EXACT-COMMITTED-SNAPSHOT> --json
 ath docs architecture current .
 ath docs architecture manifest . --json
 ath docs architecture validation . --json
+
+ath docs generate-module . --snapshot <EXACT-COMMITTED-SNAPSHOT>
+ath docs module current .
+ath docs module manifest . --json
+ath docs module validation . --json
 ```
 
 Generation requires an exact committed snapshot, has no latest fallback, accepts hard-limit and `--force`
-flags, and cancels on Ctrl-C. Inspection validates pointer confinement, identities, artifact layout, and
-checksums before output. Provider, daemon, and MCP integration are not enabled.
+flags, and cancels on Ctrl-C. Inspection validates the requested profile, pointer confinement, identities,
+artifact layout, and checksums before output. Provider, daemon, and MCP integration are not enabled.
 
 Editable documentation remains review-oriented:
 
@@ -113,16 +118,19 @@ Use `ath docs operations check` for canonical completeness diagnostics.
 cargo test -p athanor-app --test documentation_generation_contract_inventory --locked
 cargo test -p athanor-app --test documentation_generation_slice0b_inventory --locked
 cargo test -p athanor-app --test documentation_architecture_profile_inventory --locked
+cargo test -p athanor-app --test documentation_module_profile_inventory --locked
 cargo test -p athanor-app --test documentation_architecture_publication_inventory --locked
+cargo test -p athanor-app --test documentation_module_publication_inventory --locked
 cargo test -p athanor-app --test documentation_architecture_inspection_inventory --locked
+cargo test -p athanor-app --test documentation_module_inspection_inventory --locked
 cargo test -p athanor-app --test documentation_status_inventory --locked
 cargo test -p ath --test documentation_architecture_cli --locked
+cargo test -p ath --test documentation_module_cli --locked
 cargo fmt --all -- --check
 ```
 
 Slices 0A–1C are execution-confirmed on source `042d02ac6b4c89d90a5b76c818098eb0c6b41920`:
-CI `30025932615`, AppSec `30025931953`, Store `30025932704`. The first bounded Rustok evaluation on
-`5e0b28099c48e22bdc172fa57b6d51db9e6efb7b` exposed the aggregate citation-limit defect. The repaired
-selector now enforces the shared `256` citation/context budget and passes an isolated local rerun on the
-pinned Rustok source; dispatching the repaired GitHub workflows and recording their exact matrix remain
-the next evidence gate.
+CI `30025932615`, AppSec `30025931953`, Store `30025932704`. The repaired bounded Rustok evaluation is
+fully matrix-confirmed on `f1024cbc52f05de4d3ce96c556ef044ad48b3a0e`; relation-disclosure tuning is
+exact-evaluation-confirmed on `6862aee81dd0f53fa8372d1ce3fcb6e2ed198cca`. Module Slices 2A–2C are
+implemented in source as they land; focused format/test/Clippy evidence remains separate until recorded.
