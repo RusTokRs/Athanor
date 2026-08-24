@@ -2,9 +2,9 @@
 
 > Репозиторий: `RusTokRs/Athanor`  
 > Ветка: `main`  
-> Актуализировано: 2026-08-01
-> Статус: `API-001`, `REL-001` verified; `DOCGEN-001 / Slices 0A–1C` execution-confirmed,
-> первый Rustok gate обнаружил блокирующий лимит citations
+> Актуализировано: 2026-08-24  
+> Статус: `API-001`, `REL-001` verified; `DOCGEN-001 / Slices 0A–1C` execution-confirmed; repaired
+> bounded Rustok evaluation полностью green, открыт один artifact-review tuning по disclosure relations
 
 ## 1. Статусы и evidence
 
@@ -31,7 +31,9 @@ Documentation generation:
 - Slice 1C1: `4f567271ed6d38d30b3c15dc6999aa33152a9312`, CI `30015689753`, AppSec
   `30015691399`, Store `30015689363`;
 - Slice 1C2: `042d02ac6b4c89d90a5b76c818098eb0c6b41920`, CI `30025932615`, AppSec
-  `30025931953`, Store `30025932704`.
+  `30025931953`, Store `30025932704`;
+- repaired bounded Rustok evaluation: `f1024cbc52f05de4d3ce96c556ef044ad48b3a0e`, evaluation
+  `31625608720`, probe `31625608721`, CI `31625608729`, AppSec `31625608723`, Store `31625608739`.
 
 ## 3. Завершённые пакеты
 
@@ -89,28 +91,35 @@ Documentation generation:
   - AppSec `30025931953`;
   - Store Conformance `30025932704`.
 
-#### Bounded Rustok evaluation — локальный прогон закрыт, CI gate открыт
+#### Bounded Rustok evaluation — repaired gate green, artifact review tuning открыт
 
 - [x] Историческая попытка на `5e0b28099c48e22bdc172fa57b6d51db9e6efb7b`, workflow `30029451096`, с
   точным RusTok `3b76a530c82c0faaed22ccec384d4fd950811862` завершила Index, но остановилась на
   `documentation draft citations must contain between 1 and 256 entries`.
-- [x] Профиль теперь применяет общий `DOCUMENTATION_REFERENCE_LIMIT` в `256` context/citations после
-  per-kind caps: deterministic round-robin сохраняет все представленные kinds, корректно раскрывает
-  omissions и покрыт rich `100/100/100/1` regression с `256` valid citations.
+- [x] Профиль применяет общий `DOCUMENTATION_REFERENCE_LIMIT` в `256` context/citations после per-kind
+  caps; deterministic round-robin сохраняет представленные kinds и корректно раскрывает omissions.
 - [x] Evaluation/probe workflows разделяют JSON stdout и stderr, используют environment variables для
-  status endpoint и имеют `workflow_dispatch`; локальный `actionlint` прошёл. Ошибка probe
-  `12a8687c5d098ab05a5988508816aad5f0dc3e23` / `30030131126` с `jq` устранена; `zizmor 1.26.1`
-  также прошёл локально.
-- [x] В новом изолированном checkout 2026-08-01 исходные limits `96/192/192/96` дали
-  `snap_jsonl_00000001`, published generation `00000001`, `256` citations, valid 10,000-bp metrics,
-  все обязательные sections и deterministic `up_to_date`; это local diagnostic evidence, не matrix.
-- [ ] Опубликовать source, вручную dispatch-нуть repaired workflows, записать artifact review/tuning и
-  получить exact-commit CI/AppSec/Store matrix.
+  status endpoint и имеют `workflow_dispatch`.
+- [x] Exact source `f1024cbc52f05de4d3ce96c556ef044ad48b3a0e` полностью green:
+  - Rustok evaluation `31625608720`;
+  - Rustok probe `31625608721`;
+  - Verification Matrix `31625608729`;
+  - AppSec `31625608723`;
+  - Store Conformance `31625608739`.
+- [x] Uploaded evaluation artifact: Rustok revision `3b76a530c82c0faaed22ccec384d4fd950811862`, `681` files,
+  `4_193_940` bytes, snapshot `snap_jsonl_00000001`, generation `00000001`, repeat `up_to_date`, `256`
+  citation footnotes, `84` Mermaid edges, citation/diagram validity `10_000` bp.
+- [x] Artifact review нашёл следующий конкретный tuning: `8740` entities, `8403` facts и `6962`
+  relations omitted; validation правильно сообщает `unsupported_relations = 6962`, но human-facing
+  Markdown не содержит явного disclosure (`unsupported_relation_disclosed = false`).
+- [ ] Опубликовать явный `Unsupported relations` disclosure, source regression и fail-closed Rustok
+  evaluation guard. На следующем exact SHA подтвердить `unsupported_relation_disclosed = true` и прежнюю
+  deterministic repeatability.
 
 Existing coordinated `ath generate` is unchanged. Provider/LLM, daemon and MCP remain out of scope.
-`DOCGEN-001` remains `[-] in progress` until GitHub bounded Rustok run records usefulness, omissions,
-unsupported relations, repeatability, artifact review findings, and exact-commit matrix evidence before
-profile expansion.
+`DOCGEN-001` остаётся `[-] in progress` только до закрытия этого artifact-review finding exact-commit
+evidence. После этого следующий отдельный bounded package — первый дополнительный deterministic profile,
+начиная с module documentation.
 
 ### 4.2 Product backlog
 
@@ -131,7 +140,7 @@ profile expansion.
 | `VERIFY-001` | P1 | `[x] verified` | Full release baseline matrix |
 | `API-001` | P1 | `[x] verified` | Cross-protocol consistency |
 | `REL-001` | P1 | `[x] verified` | `v0.2.1` published and installed |
-| `DOCGEN-001` | P2 | `[-] in progress` | Slices 0A–1C confirmed; Rustok gate found citation/workflow defects |
+| `DOCGEN-001` | P2 | `[-] in progress` | Exact Rustok gate green; relation-disclosure tuning pending |
 
 ## 6. Verification matrix
 
@@ -158,8 +167,8 @@ cargo run -p ath --quiet --locked -- docs check
 
 ## 7. Следующий шаг
 
-Опубликовать исправленный source и вручную dispatch-нуть bounded Rustok workflows на одном exact committed
-snapshot, затем записать полезные/отсутствующие sections, citation/diagram validity, omissions, unsupported
-relations, repeatability и artifact review/tuning decisions. Получить exact-commit CI/AppSec/Store matrix.
-Не подключать provider, daemon или MCP и не менять coordinated `ath generate` без отдельного contract
-migration.
+Закрыть artifact-review finding из exact Rustok run `31625608720`: human-facing architecture Markdown
+должен явно сообщать число unsupported/omitted relations, а evaluation должен fail closed, если metric
+`unsupported_relations > 0`, но disclosure отсутствует. После exact-commit подтверждения этого tuning
+перейти к отдельному bounded module-documentation profile. Не подключать provider, daemon или MCP и не
+менять coordinated `ath generate` без отдельного contract migration.
