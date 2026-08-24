@@ -19,7 +19,7 @@ use athanor_checker_markdown::MarkdownStructureChecker;
 use athanor_core::{OperationContext, SearchDocument, SearchIndex};
 use athanor_extractor_basic::FileExtractor;
 use athanor_extractor_graphql::GraphQlExtractor;
-use athanor_extractor_js_ts::JsTsExtractor;
+use athanor_extractor_js_ts::{JsTsExtractor, NextJsExtractor};
 use athanor_extractor_markdown::MarkdownExtractor;
 use athanor_extractor_openapi::OpenApiExtractor;
 use athanor_extractor_operations::OperationsExtractor;
@@ -171,6 +171,7 @@ pub fn default_adapter_registry() -> AdapterRegistry {
             Box::new(OperationsExtractor)
         })
         .register_extractor_id("builtin.extractor.js_ts", || Box::new(JsTsExtractor))
+        .register_extractor_id("builtin.extractor.nextjs", || Box::new(NextJsExtractor))
         .register_extractor_id("builtin.extractor.rust", || Box::new(RustExtractor))
         .register_linker_id("builtin.linker.markdown_containment", || {
             Box::new(MarkdownContainmentLinker)
@@ -234,6 +235,9 @@ pub fn resolve_builtin_adapter(
         ),
         (AdapterPluginKind::Extractor, "builtin.extractor.js_ts") => Some(
             registry.register_extractor_id("builtin.extractor.js_ts", || Box::new(JsTsExtractor)),
+        ),
+        (AdapterPluginKind::Extractor, "builtin.extractor.nextjs") => Some(
+            registry.register_extractor_id("builtin.extractor.nextjs", || Box::new(NextJsExtractor)),
         ),
         (AdapterPluginKind::Extractor, "builtin.extractor.rust") => Some(
             registry.register_extractor_id("builtin.extractor.rust", || Box::new(RustExtractor)),
