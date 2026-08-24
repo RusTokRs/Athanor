@@ -1,5 +1,8 @@
 //! Cross-contract alignment for the documentation-generation contract chain.
 
+mod completeness;
+pub use completeness::*;
+
 use crate::{
     DocumentationContext, DocumentationContractError, DocumentationDraft,
     DocumentationGenerationRequest, DocumentationOutline, DocumentationValidationReport,
