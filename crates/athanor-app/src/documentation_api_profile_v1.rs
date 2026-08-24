@@ -190,12 +190,8 @@ fn build_context(
         .max_entities
         .min(DOCUMENTATION_REFERENCE_LIMIT)
         .min(eligible_entities);
-    let selected_entities = round_robin_select_entities(
-        endpoints,
-        schemas,
-        examples,
-        selected_entity_limit,
-    );
+    let selected_entities =
+        round_robin_select_entities(endpoints, schemas, examples, selected_entity_limit);
     let selected_api_ids = selected_entities
         .iter()
         .map(|candidate| candidate.entity_id.clone())
@@ -793,13 +789,11 @@ fn entity_section(
         } else {
             items
                 .iter()
-                .map(|item| {
-                    DocumentationDraftClaim {
-                        id: format!("claim-{}", item.id),
-                        text: item.summary.clone(),
-                        citation_ids: vec![format!("citation-{}", item.id)],
-                        inference: None,
-                    }
+                .map(|item| DocumentationDraftClaim {
+                    id: format!("claim-{}", item.id),
+                    text: item.summary.clone(),
+                    citation_ids: vec![format!("citation-{}", item.id)],
+                    inference: None,
                 })
                 .collect()
         },
@@ -1012,10 +1006,20 @@ fn relation_name(summary: &str) -> String {
 }
 
 fn serialized_name<T: Serialize>(value: &T) -> String {
-    serde_json::to_value(value)
-        .ok()
-        .and_then(|value| value.as_str().map(str::to_string))
-        .unwrap_or_else(|| "unknown".to_string())
+    let Ok(value) = serde_json::to_value(value) else {
+        return "unknown".to_string();
+    };
+    match value {
+        serde_json::Value::String(name) => name,
+        serde_json::Value::Object(object) if object.len() == 1 => {
+            let (name, detail) = object.into_iter().next().expect("single enum field");
+            detail
+                .as_str()
+                .map(|detail| format!("{name}:{detail}"))
+                .unwrap_or(name)
+        }
+        _ => "unknown".to_string(),
+    }
 }
 
 fn severity_rank(severity: Severity) -> u8 {
