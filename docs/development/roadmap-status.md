@@ -49,8 +49,8 @@ ath docs module current|manifest|validation <PATH> [--json]
 ```
 
 Generation has no latest-snapshot fallback. Ctrl-C cancels and drains the operation before returning.
-The coordinated `ath generate` command is unchanged. Daemon, MCP, and provider integration are not
-enabled for these profiles.
+The existing coordinated `ath generate` command is unchanged. Daemon, MCP, and provider integration are
+not enabled for these profiles.
 
 ### Exact Evidence
 
@@ -68,9 +68,10 @@ Slice 1C2 CLI generation and inspection are confirmed on
 `042d02ac6b4c89d90a5b76c818098eb0c6b41920`: CI `30025932615`, AppSec `30025931953`, Store
 `30025932704`.
 
-The repaired bounded Rustok evaluation is matrix-confirmed on
+The repaired bounded Rustok architecture-generation evaluation is matrix-confirmed on
 `f1024cbc52f05de4d3ce96c556ef044ad48b3a0e`: evaluation `31625608720`, probe `31625608721`, CI
-`31625608729`, AppSec `31625608723`, Store `31625608739`.
+`31625608729`, AppSec `31625608723`, Store `31625608739`. The gate retains
+`DOCUMENTATION_REFERENCE_LIMIT`, `workflow_dispatch`, and diagnostic evidence checks.
 
 Relation-disclosure tuning is evaluation-confirmed on
 `6862aee81dd0f53fa8372d1ce3fcb6e2ed198cca`: evaluation `32712992516`, probe `32712992421`,
