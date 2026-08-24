@@ -52,8 +52,11 @@ pub mod documentation_architecture_profile;
 pub mod documentation_architecture_publication;
 pub mod documentation_generation_alignment;
 pub mod documentation_generation_contract;
+pub mod documentation_module_inspection;
+pub mod documentation_module_operation;
 #[path = "documentation_module_profile_v1.rs"]
 pub mod documentation_module_profile;
+pub mod documentation_module_publication;
 pub mod explain;
 #[cfg(test)]
 mod fact_query_tests;
@@ -146,6 +149,8 @@ pub mod indexing {
 pub mod publication {
     pub use crate::documentation_architecture_inspection::*;
     pub use crate::documentation_architecture_publication::*;
+    pub use crate::documentation_module_inspection::*;
+    pub use crate::documentation_module_publication::*;
     pub use crate::index_current::{resolve_index_state_path, resolve_read_model_path};
     pub use crate::index_state::{IndexState, IndexStateStore, PreparedIndexState};
     pub use crate::prepared_publication::{PreparedSnapshot, PreparedSnapshotPublication};
@@ -206,7 +211,10 @@ pub use documentation_architecture_profile::*;
 pub use documentation_architecture_publication::*;
 pub use documentation_generation_alignment::*;
 pub use documentation_generation_contract::*;
+pub use documentation_module_inspection::*;
+pub use documentation_module_operation::*;
 pub use documentation_module_profile::*;
+pub use documentation_module_publication::*;
 pub use explain::*;
 pub use generation::*;
 pub use graph::*;
