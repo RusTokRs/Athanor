@@ -24,6 +24,7 @@ pub const DOCUMENTATION_GENERATION_LIMIT_MAX: usize = 100_000;
 pub enum DocumentationProfile {
     Architecture,
     Module,
+    Api,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
