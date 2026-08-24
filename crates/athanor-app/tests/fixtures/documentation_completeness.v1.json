@@ -1,0 +1,25 @@
+{
+  "schema": "athanor.documentation_completeness.v1",
+  "snapshot": "snap_fixture",
+  "baseline_adapter": "file",
+  "limit": 50,
+  "totals": {
+    "tracked_files": 0,
+    "processed_files": 0,
+    "unprocessed_files": 0,
+    "processed_ratio_basis_points": 0,
+    "languages": 0,
+    "adapters": 0,
+    "facts": 0,
+    "relations": 0,
+    "diagnostics": 0
+  },
+  "languages": [],
+  "adapters": [],
+  "unprocessed_files": [],
+  "omitted": {
+    "languages": 0,
+    "adapters": 0,
+    "unprocessed_files": 0
+  }
+}
