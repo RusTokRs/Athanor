@@ -306,7 +306,9 @@ fn onboarding_category(kind: &EntityKind) -> Option<OnboardingCategory> {
 fn entity_summary(entity: &Entity, category: OnboardingCategory) -> String {
     format!(
         "{} `{}` — {}",
-        category.label(), entity.title.as_deref().unwrap_or(&entity.name), entity.stable_key.0
+        category.label(),
+        entity.title.as_deref().unwrap_or(entity.name.as_str()),
+        entity.stable_key.0
     )
 }
 
