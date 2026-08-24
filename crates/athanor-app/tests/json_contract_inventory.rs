@@ -135,7 +135,7 @@ fn schema_registries_are_valid_unique_and_disjoint() {
     )
     .expect("automation JSON contract registry must remain valid");
 
-    assert_eq!(VERSIONED_JSON_CONTRACTS.len(), 62);
+    assert_eq!(VERSIONED_JSON_CONTRACTS.len(), 63);
     assert_eq!(NON_PUBLIC_JSON_CONTRACTS.len(), 32);
     assert_eq!(ADAPTER_NON_PUBLIC_JSON_CONTRACTS.len(), 4);
     assert_eq!(AUTOMATION_JSON_CONTRACTS.len(), 1);
