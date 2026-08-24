@@ -59,6 +59,11 @@ contribution, deterministic limits/omissions, and entity-only canonical processi
 Slice 6B adds exact Store loading, read-only `ath docs completeness`, cancellation/drain, and registered
 `athanor.documentation_completeness.v1` JSON transport. No latest fallback or publication/current pointer exists.
 
+Slice 7A adds the first gap-driven framework projection: built-in `NextJsExtractor` recognizes bounded App
+Router and Pages Router filesystem route conventions and emits source-backed `Feature`/`RouteDeclared`
+knowledge. The base `JsTsExtractor` remains framework-neutral; HTTP methods, React semantics, configuration,
+interception routes, middleware, schemas, and auth remain deferred rather than inferred.
+
 The shared `current.json` is profile-aware across architecture, module, API, operations, and onboarding.
 Every inspector fails closed when another published profile owns the current pointer.
 
@@ -140,12 +145,14 @@ probe, AppSec, and Store contexts are green. Slice 2C landed on
 - [x] Slices 4A–4C: operations inventory/evidence/publication/exact Store/CLI/inspection;
 - [x] Slices 5A–5C: onboarding inventory/evidence/publication/exact Store/CLI/inspection;
 - [x] Slices 6A–6B: pure completeness plus exact Store/read-only CLI/versioned JSON transport;
-- [ ] Focused module 2B–2C, API 3A–3C, operations 4A–4C, onboarding 5A–5C, and completeness 6A–6B execution evidence remains pending.
+- [x] Slice 7A: bounded built-in Next.js filesystem route projection;
+- [ ] Focused module 2B–2C, API 3A–3C, operations 4A–4C, onboarding 5A–5C, completeness 6A–6B, and Next.js 7A execution evidence remains pending.
 
-`DOCGEN-001` remains in progress. Architecture is execution-confirmed; module/API/operations/onboarding
-production surfaces and completeness 6A–6B are source-implemented but are not promoted without focused gates.
+`DOCGEN-001` remains in progress. Architecture is execution-confirmed; later profile/completeness/framework
+surfaces are source-implemented but are not promoted without focused gates.
 
 ## Product Backlog
 
-- select the first bounded framework-adapter expansion from exact completeness gaps;
+- use exact completeness gaps to select the next bounded framework-adapter expansion;
+- only extend Next.js into HTTP/layout/configuration semantics when exact repository evidence justifies it;
 - optional i18n, semantic/vector retrieval, provider, daemon, and MCP integration after quality gates.
