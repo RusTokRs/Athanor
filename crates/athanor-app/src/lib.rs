@@ -63,6 +63,8 @@ pub mod documentation_module_operation;
 #[path = "documentation_module_profile_v1.rs"]
 pub mod documentation_module_profile;
 pub mod documentation_module_publication;
+#[path = "documentation_onboarding_profile_v1.rs"]
+pub mod documentation_onboarding_profile;
 pub mod documentation_operations_inspection;
 pub mod documentation_operations_operation;
 #[path = "documentation_operations_profile_v1.rs"]
@@ -234,6 +236,7 @@ pub use documentation_module_inspection::*;
 pub use documentation_module_operation::*;
 pub use documentation_module_profile::*;
 pub use documentation_module_publication::*;
+pub use documentation_onboarding_profile::*;
 pub use documentation_operations_inspection::*;
 pub use documentation_operations_operation::*;
 pub use documentation_operations_profile::*;
