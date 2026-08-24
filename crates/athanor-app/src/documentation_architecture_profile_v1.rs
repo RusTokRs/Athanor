@@ -650,11 +650,15 @@ fn render_markdown(context: &DocumentationContext, draft: &DocumentationDraft) -
         DOCUMENTATION_REFERENCE_LIMIT
     ));
     output.push_str(&format!(
-        "- Omitted: entities {}, facts {}, relations {}, diagnostics {}\n\n",
+        "- Omitted: entities {}, facts {}, relations {}, diagnostics {}\n",
         context.omitted.entities,
         context.omitted.facts,
         context.omitted.relations,
         context.omitted.diagnostics
+    ));
+    output.push_str(&format!(
+        "- Unsupported relations: {} relations are outside the bounded context and are not represented by relationship claims or Mermaid edges.\n\n",
+        context.omitted.relations
     ));
 
     for section in &draft.sections {
