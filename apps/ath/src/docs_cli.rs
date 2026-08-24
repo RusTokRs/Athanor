@@ -7,13 +7,17 @@ use athanor_app::{
     DocumentationArchitectureCurrentInspection, DocumentationArchitectureManifestInspection,
     DocumentationArchitectureOperationOptions, DocumentationArchitecturePublicationReport,
     DocumentationArchitecturePublicationStatus, DocumentationArchitectureValidationInspection,
-    DocumentationGenerationLimits, DocumentationGenerationRequest, DocumentationProfile,
-    OperationsDocsCheckOptions, OperationsDocsCheckReport, VersionedDocsProposeFixReport,
-    check_docs_with_composition, check_operations_docs_with_composition,
-    docs_apply_patch_with_composition, docs_drift_with_composition,
-    generate_documentation_architecture_with_composition_cancellable,
+    DocumentationGenerationLimits, DocumentationGenerationRequest, DocumentationModuleCurrentInspection,
+    DocumentationModuleManifestInspection, DocumentationModuleOperationOptions,
+    DocumentationModulePublicationReport, DocumentationModulePublicationStatus,
+    DocumentationModuleValidationInspection, DocumentationProfile, OperationsDocsCheckOptions,
+    OperationsDocsCheckReport, VersionedDocsProposeFixReport, check_docs_with_composition,
+    check_operations_docs_with_composition, docs_apply_patch_with_composition,
+    docs_drift_with_composition, generate_documentation_architecture_with_composition_cancellable,
+    generate_documentation_module_with_composition_cancellable,
     inspect_documentation_architecture_current, inspect_documentation_architecture_manifest,
-    inspect_documentation_architecture_validation,
+    inspect_documentation_architecture_validation, inspect_documentation_module_current,
+    inspect_documentation_module_manifest, inspect_documentation_module_validation,
 };
 use clap::error::ErrorKind;
 use clap::{Parser, Subcommand};
@@ -92,10 +96,38 @@ pub(crate) enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Generate deterministic module documentation from one exact committed snapshot.
+    GenerateModule {
+        /// Project root. Defaults to the current directory.
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Exact committed canonical snapshot id. Latest-snapshot fallback is intentionally unsupported.
+        #[arg(long)]
+        snapshot: String,
+        /// Publish a new immutable generation even when current output is exactly up to date.
+        #[arg(long)]
+        force: bool,
+        #[arg(long, default_value_t = DEFAULT_MAX_ENTITIES)]
+        max_entities: usize,
+        #[arg(long, default_value_t = DEFAULT_MAX_FACTS)]
+        max_facts: usize,
+        #[arg(long, default_value_t = DEFAULT_MAX_RELATIONS)]
+        max_relations: usize,
+        #[arg(long, default_value_t = DEFAULT_MAX_DIAGNOSTICS)]
+        max_diagnostics: usize,
+        /// Print the complete publication report as JSON.
+        #[arg(long)]
+        json: bool,
+    },
     /// Inspect the validated current architecture documentation generation.
     Architecture {
         #[command(subcommand)]
         command: ArchitectureCommand,
+    },
+    /// Inspect the validated current module documentation generation.
+    Module {
+        #[command(subcommand)]
+        command: ModuleCommand,
     },
     Operations {
         #[command(subcommand)]
@@ -105,6 +137,28 @@ pub(crate) enum Command {
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum ArchitectureCommand {
+    Current {
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    Manifest {
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    Validation {
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum ModuleCommand {
     Current {
         #[arg(default_value = ".")]
         path: PathBuf,
@@ -236,6 +290,50 @@ pub(crate) async fn run(command: Command) -> Result<()> {
             };
             render_architecture_generation(&report, json)?;
         }
+        Command::GenerateModule {
+            path,
+            snapshot,
+            force,
+            max_entities,
+            max_facts,
+            max_relations,
+            max_diagnostics,
+            json,
+        } => {
+            let request = DocumentationGenerationRequest::new(
+                snapshot,
+                DocumentationProfile::Module,
+                DocumentationGenerationLimits {
+                    max_entities,
+                    max_facts,
+                    max_relations,
+                    max_diagnostics,
+                },
+            );
+            let cancellation = CancellationToken::new();
+            let signal_cancellation = cancellation.clone();
+            let mut generation = Box::pin(
+                generate_documentation_module_with_composition_cancellable(
+                    DocumentationModuleOperationOptions {
+                        root: path,
+                        request,
+                        force,
+                    },
+                    &composition,
+                    cancellation,
+                ),
+            );
+            let mut ctrl_c = Box::pin(tokio::signal::ctrl_c());
+            let report = tokio::select! {
+                result = &mut generation => result?,
+                signal = &mut ctrl_c => {
+                    signal.context("failed to listen for module generation cancellation")?;
+                    signal_cancellation.cancel();
+                    generation.await?
+                }
+            };
+            render_module_generation(&report, json)?;
+        }
         Command::Architecture {
             command: ArchitectureCommand::Current { path, json },
         } => {
@@ -253,6 +351,24 @@ pub(crate) async fn run(command: Command) -> Result<()> {
         } => {
             let report = inspect_documentation_architecture_validation(path)?;
             render_architecture_validation(&report, json)?;
+        }
+        Command::Module {
+            command: ModuleCommand::Current { path, json },
+        } => {
+            let report = inspect_documentation_module_current(path)?;
+            render_module_current(&report, json)?;
+        }
+        Command::Module {
+            command: ModuleCommand::Manifest { path, json },
+        } => {
+            let report = inspect_documentation_module_manifest(path)?;
+            render_module_manifest(&report, json)?;
+        }
+        Command::Module {
+            command: ModuleCommand::Validation { path, json },
+        } => {
+            let report = inspect_documentation_module_validation(path)?;
+            render_module_validation(&report, json)?;
         }
         Command::Operations {
             command: OperationsCommand::Check { path, json },
@@ -299,6 +415,28 @@ fn render_architecture_generation(
     Ok(())
 }
 
+fn render_module_generation(report: &DocumentationModulePublicationReport, json: bool) -> Result<()> {
+    if json {
+        println!("{}", serde_json::to_string_pretty(report)?);
+        return Ok(());
+    }
+    match report.status {
+        DocumentationModulePublicationStatus::Published => println!(
+            "published module documentation generation {} from snapshot {}",
+            report.generation, report.snapshot
+        ),
+        DocumentationModulePublicationStatus::UpToDate => println!(
+            "module documentation generation {} is already up to date for snapshot {}",
+            report.generation, report.snapshot
+        ),
+    }
+    println!("document: {}", report.document.display());
+    println!("validation: {}", report.validation_report.display());
+    println!("manifest: {}", report.manifest.display());
+    println!("current: {}", report.current_pointer.display());
+    Ok(())
+}
+
 fn render_architecture_current(
     report: &DocumentationArchitectureCurrentInspection,
     json: bool,
@@ -311,6 +449,22 @@ fn render_architecture_current(
             report.current.generation, report.current.snapshot
         );
         println!("profile: architecture");
+        println!("path: {}", report.current.path);
+        println!("manifest: {}", report.current.manifest);
+        println!("pointer: {}", report.current_pointer.display());
+    }
+    Ok(())
+}
+
+fn render_module_current(report: &DocumentationModuleCurrentInspection, json: bool) -> Result<()> {
+    if json {
+        println!("{}", serde_json::to_string_pretty(report)?);
+    } else {
+        println!(
+            "current module documentation generation {} for snapshot {}",
+            report.current.generation, report.current.snapshot
+        );
+        println!("profile: module");
         println!("path: {}", report.current.path);
         println!("manifest: {}", report.current.manifest);
         println!("pointer: {}", report.current_pointer.display());
@@ -342,6 +496,27 @@ fn render_architecture_manifest(
     Ok(())
 }
 
+fn render_module_manifest(report: &DocumentationModuleManifestInspection, json: bool) -> Result<()> {
+    if json {
+        println!("{}", serde_json::to_string_pretty(report)?);
+        return Ok(());
+    }
+    println!(
+        "module documentation manifest {} for snapshot {}: {} artifacts",
+        report.manifest.generation,
+        report.manifest.snapshot,
+        report.manifest.documents.len()
+    );
+    for artifact in &report.manifest.documents {
+        println!(
+            "{} {} {} {}",
+            artifact.id, artifact.media_type, artifact.path, artifact.sha256
+        );
+    }
+    println!("manifest: {}", report.manifest_path.display());
+    Ok(())
+}
+
 fn render_architecture_validation(
     report: &DocumentationArchitectureValidationInspection,
     json: bool,
@@ -352,6 +527,26 @@ fn render_architecture_validation(
     }
     println!(
         "architecture documentation validation for snapshot {}: valid",
+        report.report.snapshot
+    );
+    println!("diagnostics: {}", report.report.diagnostics.len());
+    println!(
+        "citation coverage: {} basis points; validity: {} basis points; diagram validity: {} basis points",
+        report.report.metrics.citation_coverage_basis_points,
+        report.report.metrics.citation_validity_basis_points,
+        report.report.metrics.diagram_validity_basis_points
+    );
+    println!("report: {}", report.validation_path.display());
+    Ok(())
+}
+
+fn render_module_validation(report: &DocumentationModuleValidationInspection, json: bool) -> Result<()> {
+    if json {
+        println!("{}", serde_json::to_string_pretty(report)?);
+        return Ok(());
+    }
+    println!(
+        "module documentation validation for snapshot {}: valid",
         report.report.snapshot
     );
     println!("diagnostics: {}", report.report.diagnostics.len());
@@ -518,6 +713,33 @@ mod tests {
     }
 
     #[test]
+    fn parses_exact_module_generation_with_limits_and_json() {
+        let command = parse(&[
+            "docs".to_string(),
+            "generate-module".to_string(),
+            "project".to_string(),
+            "--snapshot".to_string(),
+            "snap-exact".to_string(),
+            "--max-relations".to_string(),
+            "7".to_string(),
+            "--force".to_string(),
+            "--json".to_string(),
+        ])
+        .unwrap()
+        .expect("module generation command");
+        assert!(matches!(
+            command,
+            Command::GenerateModule {
+                snapshot,
+                max_relations: 7,
+                force: true,
+                json: true,
+                ..
+            } if snapshot == "snap-exact"
+        ));
+    }
+
+    #[test]
     fn parses_bounded_architecture_inspection_commands() {
         for (name, expected) in [
             ("current", "current"),
@@ -553,6 +775,46 @@ mod tests {
                     },
                 ) => {}
                 _ => panic!("unexpected architecture inspection command"),
+            }
+        }
+    }
+
+    #[test]
+    fn parses_bounded_module_inspection_commands() {
+        for (name, expected) in [
+            ("current", "current"),
+            ("manifest", "manifest"),
+            ("validation", "validation"),
+        ] {
+            let command = parse(&[
+                "docs".to_string(),
+                "module".to_string(),
+                name.to_string(),
+                "project".to_string(),
+                "--json".to_string(),
+            ])
+            .unwrap()
+            .expect("module inspection command");
+            match (expected, command) {
+                (
+                    "current",
+                    Command::Module {
+                        command: ModuleCommand::Current { json: true, .. },
+                    },
+                )
+                | (
+                    "manifest",
+                    Command::Module {
+                        command: ModuleCommand::Manifest { json: true, .. },
+                    },
+                )
+                | (
+                    "validation",
+                    Command::Module {
+                        command: ModuleCommand::Validation { json: true, .. },
+                    },
+                ) => {}
+                _ => panic!("unexpected module inspection command"),
             }
         }
     }
