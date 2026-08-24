@@ -364,7 +364,7 @@ fn build_draft(outline: &DocumentationOutline, context: &DocumentationContext) -
 }
 
 fn build_validation_report(
-    draft: &DocumentationDraft,
+    _draft: &DocumentationDraft,
     context: &DocumentationContext,
 ) -> DocumentationValidationReport {
     DocumentationValidationReport {
