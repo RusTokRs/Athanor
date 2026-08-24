@@ -21,7 +21,7 @@ This compact ledger describes current `main`. Detailed evidence lives in
 
 ### Explicit Runtime Composition
 
-Application services receive `RuntimeComposition`; store, search, projector, extractor, and transport
+Application services receive `RuntimeComposition`; Store, search, projector, extractor, and transport
 factories are selected by `ath`, `athd`, or MCP composition roots. Process-global installers are gone.
 
 ### Bounded Owners And Publication
@@ -29,30 +29,28 @@ factories are selected by `ath`, `athd`, or MCP composition roots. Process-globa
 Indexing uses bounded phases and staged publication. Documentation generation uses strict request,
 manifest, outline, context, citation, draft, validation, and current-pointer contracts.
 
-The deterministic architecture profile loads one **exact committed** canonical snapshot through the
-configured Store, applies hard limits, emits cited Markdown and relation-backed Mermaid source, and
-publishes immutable checksum-bound generations. Validated inspection rejects pointer escape, unsupported
-artifact layouts, identity drift, and checksum drift.
+The architecture profile loads one exact committed canonical snapshot through the configured Store,
+applies hard limits, emits cited Markdown/Mermaid output, and publishes immutable checksum-bound
+generations. Its CLI and validated inspection are execution-confirmed.
 
-The first additional deterministic profile is the module profile. Slice 2A established the exact-snapshot
-pure module inventory; Slice 2B enriches it with canonical facts whose subject/object is a selected module,
-relations whose source/target is a selected module, and open diagnostics that reference a selected module.
-All selected items remain evidence-backed, deterministically ordered, bounded by per-kind limits and the
-shared 256-reference ceiling, and rendered as cited Markdown. Module relations produce bounded Mermaid
-edges and omitted module-scope counts remain explicit.
+The module profile is source-implemented through Slice 2C. Slice 2A established the pure module inventory;
+Slice 2B added module-scoped facts/relations/open diagnostics; Slice 2C adds immutable publication, exact
+Store loading, CLI generation, and validated inspection. The shared documentation `current.json` remains
+profile-aware, so architecture and module inspection reject a current generation belonging to the other
+profile.
 
-Supported CLI surface remains architecture-only:
+Supported deterministic documentation CLI surface:
 
 ```bash
 ath docs generate-architecture <PATH> --snapshot <EXACT-ID> [--force] [--json]
-ath docs architecture current <PATH> [--json]
-ath docs architecture manifest <PATH> [--json]
-ath docs architecture validation <PATH> [--json]
+ath docs architecture current|manifest|validation <PATH> [--json]
+ath docs generate-module <PATH> --snapshot <EXACT-ID> [--force] [--json]
+ath docs module current|manifest|validation <PATH> [--json]
 ```
 
 Generation has no latest-snapshot fallback. Ctrl-C cancels and drains the operation before returning.
-The existing coordinated `ath generate` command is unchanged. Module publication, daemon, MCP, and
-provider integration are not enabled.
+The coordinated `ath generate` command is unchanged. Daemon, MCP, and provider integration are not
+enabled for these profiles.
 
 ### Exact Evidence
 
@@ -63,27 +61,24 @@ smoke `29998347890`.
 Slices 1A–1B are confirmed on `0cfeca8ad4dc3c0632246afa01e43372f4ec3d71`: CI `30013208011`,
 AppSec `30013208197`, Store `30013208312`.
 
-Slice 1C1 exact committed-snapshot loading is confirmed on
-`4f567271ed6d38d30b3c15dc6999aa33152a9312`: CI `30015689753`, AppSec `30015691399`, Store
-`30015689363`.
+Slice 1C1 exact Store loading is confirmed on `4f567271ed6d38d30b3c15dc6999aa33152a9312`:
+CI `30015689753`, AppSec `30015691399`, Store `30015689363`.
 
-Slice 1C2 CLI generation and validated inspection are confirmed on
+Slice 1C2 CLI generation and inspection are confirmed on
 `042d02ac6b4c89d90a5b76c818098eb0c6b41920`: CI `30025932615`, AppSec `30025931953`, Store
 `30025932704`.
 
-The repaired bounded Rustok evaluation is fully matrix-confirmed on
+The repaired bounded Rustok evaluation is matrix-confirmed on
 `f1024cbc52f05de4d3ce96c556ef044ad48b3a0e`: evaluation `31625608720`, probe `31625608721`, CI
 `31625608729`, AppSec `31625608723`, Store `31625608739`.
 
-The follow-up relation-disclosure tuning is evaluation-confirmed on
-`6862aee81dd0f53fa8372d1ce3fcb6e2ed198cca`: evaluation `32712992516` and probe `32712992421` are
-successful. Its artifact reports `unsupported_relations = 6962`,
-`unsupported_relation_disclosed = true`, and unchanged deterministic repeatability.
+Relation-disclosure tuning is evaluation-confirmed on
+`6862aee81dd0f53fa8372d1ce3fcb6e2ed198cca`: evaluation `32712992516`, probe `32712992421`,
+`unsupported_relations = 6962`, `unsupported_relation_disclosed = true`.
 
-Slice 2A landed on `658d53fb03dd47a971beb6cf67b46cfe1f20b3fe`. Post-merge status contexts are green for
-Rustok evaluation `32714912841`, Rustok probe `32714912826`, AppSec `32714912809`, and Store
-Conformance `32714912932`. These statuses do not substitute for the focused module-profile format/test/
-Clippy execution evidence, which remains user-owned and unclaimed here.
+Slice 2A landed on `658d53fb03dd47a971beb6cf67b46cfe1f20b3fe`; its post-merge Rustok evaluation,
+probe, AppSec, and Store contexts are green. These do not substitute for focused module format/test/Clippy
+evidence. Slices 2B–2C are source-implemented with execution evidence still pending.
 
 ## Implemented Packages
 
@@ -105,22 +100,23 @@ Clippy execution evidence, which remains user-owned and unclaimed here.
 - [x] Slice 1A: deterministic architecture composition;
 - [x] Slice 1B: immutable atomic publication and tamper recovery;
 - [x] Slice 1C1: exact committed-snapshot loading through `RuntimeComposition`;
-- [x] Slice 1C2: exact-snapshot CLI generation and validated inspection;
+- [x] Slice 1C2: exact-snapshot architecture CLI and validated inspection;
 - [x] Repaired aggregate citation selection and exact Rustok evaluation;
 - [x] Closed the human-facing unsupported-relation disclosure finding;
-- [x] Slice 2A: exact-snapshot deterministic module inventory with cited `modules/index.md` and SHA-256;
-- [x] Slice 2B implemented in source: module-scoped facts, relations, and open diagnostics; deterministic
-  per-kind ordering and aggregate 256-item budgeting; relation-backed Mermaid edges; explicit module-scope
-  omissions and unsupported-relation metric; focused scope/order/parity regressions;
-- [ ] Slice 2B execution evidence remains pending. Source presence is not verification.
+- [x] Slice 2A: deterministic module inventory with cited `modules/index.md` and SHA-256;
+- [x] Slice 2B: module-scoped facts, relations, open diagnostics, Mermaid, omissions, parity regressions;
+- [x] Slice 2C implemented in source: immutable module publication, exact Store operation,
+  `generate-module`, profile-aware module/architecture current inspection, validated module
+  current/manifest/validation, and binary round-trip regressions;
+- [ ] Focused module Slices 2B–2C execution evidence remains pending.
 
-`DOCGEN-001` remains in progress. Module publication, Store loading, CLI, and validated inspection stay
-closed until the enriched pure profile is independently checked.
+`DOCGEN-001` remains in progress until the module production surface is execution-confirmed and the next
+pure deterministic profile package is selected.
 
 ## Product Backlog
 
-- Slice 2C: immutable module publication, exact Store operation, CLI, and validated inspection;
-- API/operations/onboarding profiles;
+- API documentation profile;
+- operations/onboarding documentation profiles;
 - broader framework adapters and completeness reporting;
 - i18n, concepts, and optional semantic/vector retrieval;
 - optional provider, daemon, and MCP integration after deterministic quality gates.
