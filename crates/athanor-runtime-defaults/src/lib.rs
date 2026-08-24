@@ -301,7 +301,8 @@ pub fn resolve_builtin_adapter(
         ),
         (AdapterPluginKind::Checker, "builtin.checker.api_consistency") => Some(
             registry.register_checker_id("builtin.checker.api_consistency", || {
-                Box::new(ApiConsistencyChecker)),
+                Box::new(ApiConsistencyChecker)
+            }),
         ),
         (AdapterPluginKind::Checker, "builtin.checker.env_docs") => Some(
             registry.register_checker_id("builtin.checker.env_docs", || Box::new(EnvDocsChecker)),
