@@ -1,4 +1,4 @@
-//! Validated inspection of the current architecture documentation generation.
+//! Validated inspection of the current module documentation generation.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -8,26 +8,27 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 use crate::{
-    ARCHITECTURE_DOCUMENT_MEDIA_TYPE, ARCHITECTURE_DOCUMENT_PATH, CurrentDocumentationGeneration,
-    DOCUMENTATION_CURRENT_SCHEMA_V1, DOCUMENTATION_DRAFT_SCHEMA_V1, DOCUMENTATION_MANIFEST_PATH,
-    DOCUMENTATION_VALIDATION_REPORT_PATH, DOCUMENTATION_VALIDATION_REPORT_SCHEMA_V1,
-    DocumentationGenerationManifest, DocumentationGenerationRequest, DocumentationGenerationStatus,
-    DocumentationProfile, DocumentationValidationReport, DocumentationValidationStatus,
+    CurrentDocumentationGeneration, DOCUMENTATION_CURRENT_SCHEMA_V1, DOCUMENTATION_DRAFT_SCHEMA_V1,
+    DOCUMENTATION_MANIFEST_PATH, DOCUMENTATION_VALIDATION_REPORT_PATH,
+    DOCUMENTATION_VALIDATION_REPORT_SCHEMA_V1, DocumentationGenerationManifest,
+    DocumentationGenerationRequest, DocumentationGenerationStatus, DocumentationProfile,
+    DocumentationValidationReport, DocumentationValidationStatus, MODULE_DOCUMENT_MEDIA_TYPE,
+    MODULE_DOCUMENT_PATH,
 };
 
-const ARCHITECTURE_DOCUMENT_ID: &str = "architecture-overview";
-const ARCHITECTURE_VALIDATION_REPORT_ID: &str = "architecture-validation-report";
+const MODULE_DOCUMENT_ID: &str = "module-overview";
+const MODULE_VALIDATION_REPORT_ID: &str = "module-validation-report";
 const JSON_MEDIA_TYPE: &str = "application/json";
 
 #[derive(Debug, Clone, Serialize)]
-pub struct DocumentationArchitectureCurrentInspection {
+pub struct DocumentationModuleCurrentInspection {
     pub root: PathBuf,
     pub current_pointer: PathBuf,
     pub current: CurrentDocumentationGeneration,
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct DocumentationArchitectureManifestInspection {
+pub struct DocumentationModuleManifestInspection {
     pub root: PathBuf,
     pub generation_dir: PathBuf,
     pub manifest_path: PathBuf,
@@ -36,30 +37,30 @@ pub struct DocumentationArchitectureManifestInspection {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct DocumentationArchitectureValidationInspection {
+pub struct DocumentationModuleValidationInspection {
     pub root: PathBuf,
     pub validation_path: PathBuf,
     pub current: CurrentDocumentationGeneration,
     pub report: DocumentationValidationReport,
 }
 
-pub fn inspect_documentation_architecture_current(
+pub fn inspect_documentation_module_current(
     root: impl AsRef<Path>,
-) -> Result<DocumentationArchitectureCurrentInspection> {
+) -> Result<DocumentationModuleCurrentInspection> {
     let resolved = resolve_current(root.as_ref())?;
-    Ok(DocumentationArchitectureCurrentInspection {
+    Ok(DocumentationModuleCurrentInspection {
         root: resolved.root,
         current_pointer: resolved.current_pointer,
         current: resolved.current,
     })
 }
 
-pub fn inspect_documentation_architecture_manifest(
+pub fn inspect_documentation_module_manifest(
     root: impl AsRef<Path>,
-) -> Result<DocumentationArchitectureManifestInspection> {
+) -> Result<DocumentationModuleManifestInspection> {
     let resolved = resolve_current(root.as_ref())?;
     let manifest = load_validated_manifest(&resolved)?;
-    Ok(DocumentationArchitectureManifestInspection {
+    Ok(DocumentationModuleManifestInspection {
         root: resolved.root,
         generation_dir: resolved.generation_dir,
         manifest_path: resolved.manifest_path,
@@ -68,9 +69,9 @@ pub fn inspect_documentation_architecture_manifest(
     })
 }
 
-pub fn inspect_documentation_architecture_validation(
+pub fn inspect_documentation_module_validation(
     root: impl AsRef<Path>,
-) -> Result<DocumentationArchitectureValidationInspection> {
+) -> Result<DocumentationModuleValidationInspection> {
     let resolved = resolve_current(root.as_ref())?;
     let manifest = load_validated_manifest(&resolved)?;
     let validation_path = confined_existing_file(
@@ -84,7 +85,7 @@ pub fn inspect_documentation_architecture_validation(
     if report.schema != DOCUMENTATION_VALIDATION_REPORT_SCHEMA_V1
         || report.draft_schema != DOCUMENTATION_DRAFT_SCHEMA_V1
         || report.snapshot != resolved.current.snapshot
-        || report.profile != DocumentationProfile::Architecture
+        || report.profile != DocumentationProfile::Module
         || report.status != DocumentationValidationStatus::Valid
     {
         bail!("documentation validation report identity or status is invalid");
@@ -92,12 +93,12 @@ pub fn inspect_documentation_architecture_validation(
     let descriptor = manifest
         .documents
         .iter()
-        .find(|document| document.id == ARCHITECTURE_VALIDATION_REPORT_ID)
-        .context("documentation manifest omits validation report")?;
+        .find(|document| document.id == MODULE_VALIDATION_REPORT_ID)
+        .context("documentation manifest omits module validation report")?;
     if sha256_file(&validation_path)? != descriptor.sha256 {
         bail!("documentation validation report checksum does not match manifest");
     }
-    Ok(DocumentationArchitectureValidationInspection {
+    Ok(DocumentationModuleValidationInspection {
         root: resolved.root,
         validation_path,
         current: resolved.current,
@@ -133,8 +134,8 @@ fn resolve_current(root: &Path) -> Result<ResolvedCurrent> {
             current.schema
         );
     }
-    if current.profile != DocumentationProfile::Architecture {
-        bail!("current documentation generation is not an architecture profile");
+    if current.profile != DocumentationProfile::Module {
+        bail!("current documentation generation is not a module profile");
     }
     if current.generation.len() != 8
         || !current.generation.bytes().all(|byte| byte.is_ascii_digit())
@@ -183,7 +184,7 @@ fn load_validated_manifest(resolved: &ResolvedCurrent) -> Result<DocumentationGe
         .context("invalid documentation generation manifest")?;
     if manifest.generation != resolved.current.generation
         || manifest.snapshot != resolved.current.snapshot
-        || manifest.profile != DocumentationProfile::Architecture
+        || manifest.profile != DocumentationProfile::Module
         || manifest.profile != resolved.current.profile
         || manifest.status != DocumentationGenerationStatus::Complete
         || manifest.documents.len() != 2
@@ -193,19 +194,19 @@ fn load_validated_manifest(resolved: &ResolvedCurrent) -> Result<DocumentationGe
     let document = manifest
         .documents
         .iter()
-        .find(|document| document.id == ARCHITECTURE_DOCUMENT_ID)
-        .context("documentation manifest omits architecture Markdown")?;
+        .find(|document| document.id == MODULE_DOCUMENT_ID)
+        .context("documentation manifest omits module Markdown")?;
     let validation = manifest
         .documents
         .iter()
-        .find(|document| document.id == ARCHITECTURE_VALIDATION_REPORT_ID)
-        .context("documentation manifest omits validation report")?;
-    if document.path != ARCHITECTURE_DOCUMENT_PATH
-        || document.media_type != ARCHITECTURE_DOCUMENT_MEDIA_TYPE
+        .find(|document| document.id == MODULE_VALIDATION_REPORT_ID)
+        .context("documentation manifest omits module validation report")?;
+    if document.path != MODULE_DOCUMENT_PATH
+        || document.media_type != MODULE_DOCUMENT_MEDIA_TYPE
         || validation.path != DOCUMENTATION_VALIDATION_REPORT_PATH
         || validation.media_type != JSON_MEDIA_TYPE
     {
-        bail!("documentation manifest contains an unsupported artifact layout");
+        bail!("documentation manifest contains an unsupported module artifact layout");
     }
     for descriptor in &manifest.documents {
         let path = confined_existing_file(
