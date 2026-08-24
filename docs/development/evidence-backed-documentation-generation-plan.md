@@ -14,9 +14,10 @@ inspection surface passed the full cross-platform matrix. The repaired bounded R
 matrix-confirmed on `f1024cbc52f05de4d3ce96c556ef044ad48b3a0e`; the human-facing unsupported-relation
 disclosure is exact-evaluation-confirmed on `6862aee81dd0f53fa8372d1ce3fcb6e2ed198cca`.
 
-Module expansion is source-implemented through Slice 2C. API expansion has begun with Slice 3A, a pure
-exact-snapshot inventory of evidence-backed endpoint/schema/example entities. Focused module and API
-format/test/Clippy evidence remains pending and is not inferred from source presence.
+Module expansion is source-implemented through Slice 2C. API expansion is source-implemented through
+Slice 3B: Slice 3A established the pure endpoint/schema/example inventory and Slice 3B adds scoped facts,
+supported canonical API relations, open diagnostics, and Mermaid relationship rendering. Focused module
+and API format/test/Clippy evidence remains pending and is not inferred from source presence.
 
 The existing coordinated `ath generate` command is unchanged. No model provider, daemon, MCP, or new dependency is enabled.
 
@@ -105,28 +106,47 @@ or layout drift, invalid validation status, and checksum drift.
 
 ### Slice 3A — Deterministic API Inventory Profile
 
-`build_documentation_api_profile` is the first pure API documentation owner:
+`build_documentation_api_profile` established the first pure API documentation owner:
 
 - exact snapshot/profile identity is mandatory;
-- `DocumentationProfile::Api` serializes as `api` without changing the v1 schema names;
+- `DocumentationProfile::Api` serializes as `api` without changing v1 schema names;
 - candidates are evidence-backed `EntityKind::ApiEndpoint`, `ApiSchema`, and `ApiExample` only;
-- each kind is stable-key/entity-id sorted, then endpoint/schema/example candidates are selected by a
+- each kind is stable-key/entity-id sorted, then endpoint/schema/example candidates are selected by
   deterministic round-robin so low limits do not silently starve an available API kind;
 - `max_entities` and `DOCUMENTATION_REFERENCE_LIMIT = 256` bound context/citations;
-- facts, relations, and diagnostics intentionally remain absent in Slice 3A;
-- output sections are API Overview, API Endpoints, API Schemas, and API Examples;
 - deterministic `api/index.md` is cited and SHA-256 bound;
 - provider/network/raw-file/secrets access remains disabled;
 - wrong profile/snapshot or absence of evidence-backed API entities fails closed.
 
-A precise `documentation_evidence_location` owner now normalizes slash paths, line defaults, ownership
-fallbacks, and deduplication for new documentation profiles instead of adding another local path/evidence
-implementation. Existing architecture/module semantic-parity regressions remain unchanged.
+### Slice 3B — API-Scoped Facts, Relations, And Diagnostics
 
-Focused Slice 3A regressions cover mixed API kinds, round-robin selection, canonical input-order
-invariance, omission accounting, checksum binding, Windows slash normalization, serialization, and
-fail-closed identity/no-API behavior. Publication, Store loading, CLI, daemon, MCP, and provider remain
-out of scope for Slice 3A.
+Slice 3B preserves the Slice 3A entity-selection contract and uses the selected API entity IDs as the
+scope anchors for richer canonical evidence:
+
+- facts are eligible when subject or optional object is a selected API endpoint/schema/example;
+- relations must touch a selected API anchor and belong to the bounded canonical allowlist:
+  `ImplementedBy`, `SchemaForRequest`, `SchemaForResponse`, `ExampleFor`, `Documents`, `DocumentsApi`,
+  or `DocumentsOperation`;
+- GraphQL-specific `RelationKind::Other(...)` links remain outside this bounded relation contract even if
+  they touch a selected API entity;
+- diagnostics are eligible only when `status == open` and at least one referenced entity is a selected
+  API anchor; named `DiagnosticKind::Other(...)` payloads remain visible in deterministic summaries;
+- fact/relation/diagnostic evidence uses the shared `documentation_evidence_location` owner, combining
+  canonical evidence with source-file ownership fallback, slash normalization, portable-path filtering,
+  line defaults, and deduplication;
+- facts sort by serialized kind/id, relations by source stable key/kind/target stable key/id, diagnostics
+  by severity/kind/id;
+- per-kind limits are applied before the same aggregate 256-item round-robin ceiling used by the module
+  profile;
+- `API Facts`, `API Relationships`, and `API Diagnostics` are added to the cited draft;
+- supported relations render directed cited Mermaid edges;
+- omitted entity/fact/relation/diagnostic counts are explicit and `unsupported_relations` equals omitted
+  eligible supported API relations.
+
+Focused regressions cover relation allowlisting, scoped facts, open diagnostics including named `Other`
+findings, exclusion of unsupported `Other` relations, omission accounting, deterministic canonical input
+reordering, exact identity, path normalization, checksum binding, and fail-closed no-API behavior.
+Publication, Store loading, CLI, daemon, MCP, and provider remain out of scope for Slice 3B.
 
 ## Execution Evidence
 
@@ -151,18 +171,20 @@ out of scope for Slice 3A.
   but focused module evidence is not claimed.
 - Slice 2C landed on `b9e0eadc46175e15ec62f915a4729287f3884cd2`; Store Conformance
   `32718598218`, Rustok evaluation `32718598212`, and Rustok probe `32718598232` are green.
-- Slices 2B–2C and Slice 3A remain execution-pending for their focused source/test/Clippy gates.
+- Slice 3A landed on `0a4c0f78ef05b6c2ba9480b770c1ebf72038e049`; Rustok evaluation
+  `32719989413` and Rustok probe `32719989450` are green. These are not focused API profile evidence.
+- Slices 2B–2C and API Slices 3A–3B remain execution-pending for focused format/test/Clippy gates.
 
 The repaired bounded Rustok architecture-generation evaluation retains `DOCUMENTATION_REFERENCE_LIMIT`,
 `workflow_dispatch` support, and diagnostic evidence checks as explicit regression boundaries.
 
 ## Next Bounded Step
 
-1. Record formatting/build/test/Clippy evidence for module Slices 2B–2C and API Slice 3A.
-2. Implement Slice 3B: API-scoped facts plus canonical implementation/schema/example/documentation
-   relations and open API diagnostics, reusing the same bounded evidence semantics.
-3. Keep API publication/Store/CLI, provider, daemon, MCP, operations/onboarding profiles, and coordinated
-   `ath generate` changes out of Slice 3B.
+1. Record formatting/build/test/Clippy evidence for module Slices 2B–2C and API Slices 3A–3B.
+2. Implement Slice 3C: immutable API publication, exact committed-snapshot Store operation, API CLI, and
+   validated inspection, while preserving profile-isolated `current.json` behavior.
+3. Keep provider, daemon, MCP, operations/onboarding profiles, and coordinated `ath generate` changes out
+   of Slice 3C unless separately approved.
 
 ## Verification
 
