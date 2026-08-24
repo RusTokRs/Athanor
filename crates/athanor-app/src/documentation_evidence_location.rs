@@ -2,7 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use athanor_domain::{Entity, SourceLocation};
+use athanor_domain::{Entity, Evidence, SourceLocation};
 
 use crate::DocumentationEvidenceLocation;
 
@@ -18,6 +18,27 @@ pub(crate) fn entity_evidence_locations(entity: &Entity) -> Vec<DocumentationEvi
             .ownership
             .iter()
             .filter_map(|ownership| evidence_location(&ownership.source_file, None, None)),
+    );
+    deduplicate(locations)
+}
+
+pub(crate) fn evidence_locations<'a>(
+    evidence: &[Evidence],
+    ownership_paths: impl IntoIterator<Item = &'a String>,
+) -> Vec<DocumentationEvidenceLocation> {
+    let mut locations = evidence
+        .iter()
+        .filter_map(|evidence| {
+            evidence
+                .source_file
+                .as_ref()
+                .and_then(|path| evidence_location(path, evidence.line_start, evidence.line_end))
+        })
+        .collect::<Vec<_>>();
+    locations.extend(
+        ownership_paths
+            .into_iter()
+            .filter_map(|path| evidence_location(path, None, None)),
     );
     deduplicate(locations)
 }
@@ -102,7 +123,7 @@ fn deduplicate(
 
 #[cfg(test)]
 mod tests {
-    use athanor_domain::{EntityId, EntityKind, Ownership, StableKey};
+    use athanor_domain::{EntityId, EntityKind, EvidenceStatus, Ownership, StableKey};
     use serde_json::json;
 
     use super::*;
@@ -140,6 +161,36 @@ mod tests {
                     path: "api/openapi.yaml".to_string(),
                     start_line: 4,
                     end_line: 6,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn evidence_locations_use_evidence_then_ownership_with_same_normalization() {
+        let evidence = vec![Evidence {
+            source_file: Some("api\\schema.graphql".to_string()),
+            line_start: Some(12),
+            line_end: None,
+            extractor: Some("graphql".to_string()),
+            commit_hash: None,
+            confidence: 1.0,
+            status: EvidenceStatus::Verified,
+        }];
+        let ownership = ["api/schema.graphql".to_string()];
+
+        assert_eq!(
+            evidence_locations(&evidence, ownership.iter()),
+            vec![
+                DocumentationEvidenceLocation {
+                    path: "api/schema.graphql".to_string(),
+                    start_line: 1,
+                    end_line: 1,
+                },
+                DocumentationEvidenceLocation {
+                    path: "api/schema.graphql".to_string(),
+                    start_line: 12,
+                    end_line: 12,
                 },
             ]
         );
