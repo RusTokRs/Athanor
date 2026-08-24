@@ -12,7 +12,7 @@ use crate::{
     DOCUMENTATION_CURRENT_SCHEMA_V1, DOCUMENTATION_DRAFT_SCHEMA_V1, DOCUMENTATION_MANIFEST_PATH,
     DOCUMENTATION_VALIDATION_REPORT_PATH, DOCUMENTATION_VALIDATION_REPORT_SCHEMA_V1,
     DocumentationGenerationManifest, DocumentationGenerationRequest, DocumentationGenerationStatus,
-    DocumentationValidationReport, DocumentationValidationStatus,
+    DocumentationProfile, DocumentationValidationReport, DocumentationValidationStatus,
 };
 
 const ARCHITECTURE_DOCUMENT_ID: &str = "architecture-overview";
@@ -84,7 +84,7 @@ pub fn inspect_documentation_architecture_validation(
     if report.schema != DOCUMENTATION_VALIDATION_REPORT_SCHEMA_V1
         || report.draft_schema != DOCUMENTATION_DRAFT_SCHEMA_V1
         || report.snapshot != resolved.current.snapshot
-        || report.profile != resolved.current.profile
+        || report.profile != DocumentationProfile::Architecture
         || report.status != DocumentationValidationStatus::Valid
     {
         bail!("documentation validation report identity or status is invalid");
@@ -133,6 +133,9 @@ fn resolve_current(root: &Path) -> Result<ResolvedCurrent> {
             current.schema
         );
     }
+    if current.profile != DocumentationProfile::Architecture {
+        bail!("current documentation generation is not an architecture profile");
+    }
     if current.generation.len() != 8
         || !current.generation.bytes().all(|byte| byte.is_ascii_digit())
         || current.path != format!("generations/{}", current.generation)
@@ -180,6 +183,7 @@ fn load_validated_manifest(resolved: &ResolvedCurrent) -> Result<DocumentationGe
         .context("invalid documentation generation manifest")?;
     if manifest.generation != resolved.current.generation
         || manifest.snapshot != resolved.current.snapshot
+        || manifest.profile != DocumentationProfile::Architecture
         || manifest.profile != resolved.current.profile
         || manifest.status != DocumentationGenerationStatus::Complete
         || manifest.documents.len() != 2
