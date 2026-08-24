@@ -2,7 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use athanor_domain::{Entity, Evidence, SourceLocation};
+use athanor_domain::{Entity, SourceLocation};
 
 use crate::DocumentationEvidenceLocation;
 
@@ -18,28 +18,6 @@ pub(crate) fn entity_evidence_locations(entity: &Entity) -> Vec<DocumentationEvi
             .ownership
             .iter()
             .filter_map(|ownership| evidence_location(&ownership.source_file, None, None)),
-    );
-    deduplicate(locations)
-}
-
-#[allow(dead_code)]
-pub(crate) fn evidence_locations<'a>(
-    evidence: &[Evidence],
-    ownership_paths: impl IntoIterator<Item = &'a String>,
-) -> Vec<DocumentationEvidenceLocation> {
-    let mut locations = evidence
-        .iter()
-        .filter_map(|evidence| {
-            evidence
-                .source_file
-                .as_ref()
-                .and_then(|path| evidence_location(path, evidence.line_start, evidence.line_end))
-        })
-        .collect::<Vec<_>>();
-    locations.extend(
-        ownership_paths
-            .into_iter()
-            .filter_map(|path| evidence_location(path, None, None)),
     );
     deduplicate(locations)
 }
