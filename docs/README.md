@@ -46,8 +46,8 @@ verification. Exact package evidence lives in `athanor_implementation_plan_ru.md
 
 Extraction: [basic](adapters/extractor-basic.md), [Markdown](adapters/extractor-markdown.md),
 [Rust](adapters/extractor-rust.md), [JavaScript/TypeScript](adapters/extractor-js-ts.md),
-[OpenAPI](adapters/extractor-openapi.md), [GraphQL](adapters/extractor-graphql.md), and
-[operations](adapters/extractor-operations.md).
+[Next.js](adapters/extractor-nextjs.md), [OpenAPI](adapters/extractor-openapi.md),
+[GraphQL](adapters/extractor-graphql.md), and [operations](adapters/extractor-operations.md).
 
 Linking/checking: [Markdown linker](adapters/linker-markdown.md),
 [Rust linker](adapters/linker-rust.md), [JS/TS linker](adapters/linker-js-ts.md),
