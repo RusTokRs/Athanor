@@ -168,6 +168,9 @@ fn architecture_profile_enforces_limits_and_discloses_omissions() {
             .content
             .contains("- Omitted: entities 2, facts 0, relations 1, diagnostics 0")
     );
+    assert!(profile.document.content.contains(
+        "- Unsupported relations: 1 relations are outside the bounded context and are not represented by relationship claims or Mermaid edges."
+    ));
     assert_eq!(profile.validation_report.metrics.unsupported_relations, 1);
 }
 
