@@ -16,6 +16,10 @@ Port: `Extractor`
 
 The JavaScript/TypeScript extractor indexes mixed JavaScript and TypeScript projects through one built-in language adapter. It normalizes tree-sitter JavaScript, TypeScript, and TSX parser output into Athanor canonical objects without exposing parser-specific AST structures outside the adapter. An optional precision build runs Oxc as a second verification backend.
 
+The same crate also exposes a separate `NextJsExtractor` for bounded Next.js filesystem route
+conventions. That framework-specific owner is documented separately and does not change the
+framework-neutral semantics described on this page.
+
 ## Inputs
 
 The adapter supports source files whose language hint is one of:
@@ -80,7 +84,11 @@ in-process Rust dependency; the mode does not run commands or use the network.
 
 ## Boundaries
 
-The adapter deliberately avoids framework-specific semantics such as React components, Next.js pages, NestJS controllers, Express routes, Vue components, and project convention inference. Package and alias import resolution also remain outside the base language slice.
+`JsTsExtractor` deliberately avoids framework-specific semantics such as React components, Next.js
+routes/pages, NestJS controllers, Express routes, Vue components, and project convention inference.
+The separate built-in `NextJsExtractor` owns only the bounded Next.js filesystem-route projection;
+see [Next.js Route Extractor](extractor-nextjs.md). Package and alias import resolution remain outside
+the base language slice.
 
 ## Verification
 

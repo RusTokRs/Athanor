@@ -15,9 +15,9 @@ matrix-confirmed on `f1024cbc52f05de4d3ce96c556ef044ad48b3a0e`; the human-facing
 disclosure is exact-evaluation-confirmed on `6862aee81dd0f53fa8372d1ce3fcb6e2ed198cca`.
 
 Module expansion is source-implemented through Slice 2C, API through Slice 3C, operations through Slice
-4C, onboarding through Slice 5C, and documentation completeness through Slice 6B. Focused module, API,
-operations, onboarding, and completeness format/test/Clippy evidence remains pending and is not inferred
-from source presence.
+4C, onboarding through Slice 5C, documentation completeness through Slice 6B, and the first gap-driven
+framework projection through Next.js Slice 7A. Focused later-slice format/test/Clippy evidence remains
+pending and is not inferred from source presence.
 
 The existing coordinated `ath generate` command is unchanged. No model provider, daemon, MCP, or new dependency is enabled.
 
@@ -201,18 +201,17 @@ or layout drift, invalid validation status, and checksum drift.
   `32718598218`, Rustok evaluation `32718598212`, and Rustok probe `32718598232` are green.
 - Slice 3A landed on `0a4c0f78ef05b6c2ba9480b770c1ebf72038e049`; Rustok evaluation
   `32719989413` and Rustok probe `32719989450` are green. These are not focused API profile evidence.
-- Slices 2B–2C, API Slices 3A–3C, operations Slices 4A–4C, onboarding Slices 5A–5C, and completeness
-  Slices 6A–6B remain execution-pending for focused gates.
+- Slices 2B–2C, API Slices 3A–3C, operations Slices 4A–4C, onboarding Slices 5A–5C, completeness
+  Slices 6A–6B, and Next.js Slice 7A remain execution-pending for focused gates.
 
 The repaired bounded Rustok architecture-generation evaluation retains `DOCUMENTATION_REFERENCE_LIMIT`,
 `workflow_dispatch` support, and diagnostic evidence checks as explicit regression boundaries.
 
 ## Next Bounded Step
 
-1. Record formatting/build/test/Clippy evidence for module 2B–2C, API 3A–3C, operations 4A–4C,
-   onboarding 5A–5C, and completeness 6A–6B.
-2. Use an exact completeness report to select the first bounded framework-adapter gap; do not add adapters
-   speculatively or broaden the report into filesystem/latest-snapshot heuristics.
+1. Record formatting/build/test/Clippy evidence for later documentation/completeness/framework slices.
+2. Slice 7A closes the first bounded Next.js route-convention gap; use another exact completeness report
+   to select the next adapter gap rather than broadening Next.js or another framework speculatively.
 3. Keep provider, daemon, MCP, and coordinated `ath generate` changes out until separate deterministic
    quality gates justify them.
 

@@ -4,7 +4,13 @@ JavaScript and TypeScript source-code extractor adapter.
 
 Implements: `Extractor`
 
+The crate exposes two extractor types. `JsTsExtractor` owns framework-neutral JavaScript/TypeScript
+and `package.json` parsing. `NextJsExtractor` is a separate bounded framework projection for standard
+Next.js filesystem route conventions and is registered independently as `builtin.extractor.nextjs`.
+
 ## What It Emits
+
+`JsTsExtractor` emits:
 
 - `EntityKind::Module` for each supported source file
 - `EntityKind::Function` for function, method, arrow-function, and variable-bound function declarations
@@ -17,18 +23,28 @@ Implements: `Extractor`
 - feature-gated parser verification diagnostics for backend-only findings, source-range mismatches,
   and recovery differences between tree-sitter and Oxc
 
+`NextJsExtractor` emits one source-backed `EntityKind::Other("nextjs_route")` and one
+`FactKind::RouteDeclared` for recognized App Router `page`/`route` files and Pages Router route files.
+The adapter-scoped entity kind prevents generic operations/API/onboarding profiles from treating a web
+route as one of their own anchors. Dynamic segments and framework/router/route-kind metadata are
+preserved without inferring HTTP methods or React component semantics.
+
 All emitted objects include ownership metadata for the source file. Facts and diagnostics include source evidence.
 
 ## Inputs
 
-`SourceFile` with:
+`JsTsExtractor` accepts `SourceFile` with:
 
 ```text
 language_hint = javascript | javascriptreact | typescript | typescriptreact | json
 content = UTF-8 source text
 ```
 
-The adapter supports `.js`, `.jsx`, `.mjs`, `.cjs`, `.ts`, `.tsx`, `.mts`, `.cts`, and project `package.json` files.
+It supports `.js`, `.jsx`, `.mjs`, `.cjs`, `.ts`, `.tsx`, `.mts`, `.cts`, and project `package.json` files.
+
+`NextJsExtractor` recognizes standard `.js`, `.jsx`, `.ts`, and `.tsx` route files under `app/`,
+`src/app/`, `pages/`, and `src/pages/`. Route inventory is path-derived and does not require source
+content.
 
 ## Stable Keys
 
@@ -38,13 +54,14 @@ symbol://js-ts:src/auth.ts#login
 symbol://js-ts:src/App.tsx#App
 package://npm:example-app
 dependency://npm:@scope/package
+nextjs-route://src/app/products/[id]/page.tsx#route
 ```
 
-Source declarations are scoped to the project-relative file path. Package dependency stable keys are scoped by npm package name.
+Source declarations are scoped to the project-relative file path. Package dependency stable keys are scoped by npm package name. Next.js route entities are source-backed so conflicting route files remain distinct.
 
 ## Parser Backend
 
-The adapter uses tree-sitter JavaScript, TypeScript, and TSX grammars. Parser AST nodes are normalized into Athanor canonical entities and payload fields; parser-specific node types do not cross the adapter boundary.
+The base adapter uses tree-sitter JavaScript, TypeScript, and TSX grammars. Parser AST nodes are normalized into Athanor canonical entities and payload fields; parser-specific node types do not cross the adapter boundary.
 
 The parser input strips a leading UTF-8 BOM and accepts Node-style shebangs before handing source text to tree-sitter. Ambient TypeScript `declare module` blocks are accepted as known declaration syntax and are not reported as unsupported top-level declarations.
 
@@ -60,14 +77,17 @@ schema so unchanged JS/TS files are safely rebuilt once.
 
 ## Side Effects
 
-None. The adapter does not run commands, use the network, or modify project files.
+None. The extractors do not run commands, use the network, or modify project files.
 
 ## Limitations
 
 - Import/export data is stored in module payloads and definition facts. The separate
   `athanor-linker-js-ts` adapter materializes exact relative module imports.
 - JSX and TSX component semantics are not inferred. Components are emitted as normal functions or classes.
-- Framework-specific routes, controllers, pages, schemas, and conventions are intentionally out of scope.
+- Framework-specific semantics remain outside `JsTsExtractor`; the separate `NextJsExtractor` currently
+  covers only bounded filesystem route conventions.
+- Next.js HTTP methods, route-handler schemas/auth, layouts, metadata, middleware, rewrites, redirects,
+  server actions, custom `pageExtensions`, and interception-route semantics are not inferred.
 - Parser errors are reported as coalesced diagnostics, and extraction continues with recoverable declarations.
 - Top-level runtime statements in scripts and ambient module declarations are not treated as unsupported declaration diagnostics.
 - Dynamic CommonJS exports and computed declaration names are not fully resolved.
