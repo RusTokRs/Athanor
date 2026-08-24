@@ -4,8 +4,8 @@
 > Ветка: `main`  
 > Актуализировано: 2026-08-24  
 > Статус: `API-001`, `REL-001` verified; `DOCGEN-001 / Slices 0A–1C` execution-confirmed;
-> relation-disclosure exact-evaluation-confirmed; module 2A–2C, API 3A–3C, operations 4A–4C и onboarding 5A implemented in source,
-> focused execution evidence pending
+> relation-disclosure exact-evaluation-confirmed; module 2A–2C, API 3A–3C, operations 4A–4C и
+> onboarding 5A–5B implemented in source; focused execution evidence pending.
 
 ## 1. Статусы и evidence
 
@@ -20,9 +20,9 @@ Promotion требует успешных `athanor/verification-matrix`, `athano
 
 ## 2. Baselines
 
-Release baseline `609027eb02caa05346ebfea8538552c42b588c31`:
-CI `29995959544`, AppSec `29995960063`, Store `29995959512`, Release `29996579628`, clean-install
-smoke `29998347890`. Annotated `v0.2.1` указывает на этот SHA.
+Release baseline `609027eb02caa05346ebfea8538552c42b588c31`: CI `29995959544`, AppSec
+`29995960063`, Store `29995959512`, Release `29996579628`, clean-install smoke `29998347890`.
+Annotated `v0.2.1` указывает на этот SHA.
 
 Documentation generation:
 
@@ -41,14 +41,14 @@ Documentation generation:
   `31625608720`, probe `31625608721`, CI `31625608729`, AppSec `31625608723`, Store `31625608739`;
 - relation-disclosure tuning: `6862aee81dd0f53fa8372d1ce3fcb6e2ed198cca`, evaluation
   `32712992516`, probe `32712992421`; artifact confirms `unsupported_relation_disclosed = true`;
-- Slice 2A landed on `658d53fb03dd47a971beb6cf67b46cfe1f20b3fe`; post-merge contexts green:
-  Rustok evaluation `32714912841`, Rustok probe `32714912826`, AppSec `32714912809`, Store
-  Conformance `32714912932`. Focused module-profile format/test/Clippy evidence не заявляется.
-- Slice 2C landed on `b9e0eadc46175e15ec62f915a4729287f3884cd2`; post-merge Store Conformance
-  `32718598218`, Rustok evaluation `32718598212` и Rustok probe `32718598232` green. Это не заменяет
-  focused module execution evidence.
-- Slice 3A landed on `0a4c0f78ef05b6c2ba9480b770c1ebf72038e049`; post-merge Rustok evaluation
-  `32719989413` и Rustok probe `32719989450` green. Это не заменяет focused API execution evidence.
+- Slice 2A landed on `658d53fb03dd47a971beb6cf67b46cfe1f20b3fe`; post-merge Rustok evaluation
+  `32714912841`, Rustok probe `32714912826`, AppSec `32714912809`, Store `32714912932` were green;
+- Slice 2C landed on `b9e0eadc46175e15ec62f915a4729287f3884cd2`; Store `32718598218`, Rustok
+  evaluation `32718598212`, Rustok probe `32718598232` were green;
+- Slice 3A landed on `0a4c0f78ef05b6c2ba9480b770c1ebf72038e049`; Rustok evaluation
+  `32719989413` and Rustok probe `32719989450` were green.
+
+Последние post-merge contexts не заменяют focused execution evidence соответствующих профилей.
 
 ## 3. Завершённые пакеты
 
@@ -67,107 +67,73 @@ Documentation generation:
 
 #### Slices 0A–0B — contracts
 
-- [x] Strict request/manifest, hard limits, omissions, paths и checksums.
+- [x] Strict request/manifest, hard limits, omissions, portable paths и checksums.
 - [x] Versioned outline/context/citation/draft/validation contracts.
 - [x] Data policy, quality metrics, fixture repository и Rustok evaluation corpus.
 - [x] Full chain alignment и fail-closed regressions.
 
-#### Slice 1A — deterministic architecture profile
+#### Slices 1A–1C — architecture production surface
 
-- [x] Exact `CanonicalSnapshot`, deterministic sorting и hard limits.
-- [x] Overview/Components/Relationships/Diagnostics.
-- [x] Stable-key/evidence citations, Mermaid edges, footnotes и SHA-256.
-
-#### Slice 1B — immutable publication
-
-- [x] `.athanor/generated/documentation/generations/<8-digit-id>`.
-- [x] Manifest, Markdown, validation report и atomic `current.json`.
-- [x] Exact `UpToDate`, force, immutable history, tamper recovery и cancellation.
-
-#### Slice 1C1 — exact committed-snapshot operation
-
-- [x] `RuntimeComposition::init_store` and exact `CanonicalSnapshotStore::load_snapshot`.
-- [x] Missing/uncommitted and identity mismatch fail closed.
-- [x] Cancellation checks around Store and publication boundaries.
-- [x] Exact matrix on `4f567271ed6d38d30b3c15dc6999aa33152a9312`.
-
-#### Slice 1C2 — CLI generation and inspection
-
-- [x] `ath docs generate-architecture <PATH> --snapshot <EXACT-ID>`.
-- [x] `--force`, hard-limit flags, text/JSON output и Ctrl-C drain.
-- [x] `ath docs architecture current|manifest|validation` с confinement/identity/checksum validation.
-- [x] Exact matrix on `042d02ac6b4c89d90a5b76c818098eb0c6b41920`.
+- [x] Exact `CanonicalSnapshot`, deterministic ordering, hard limits, cited Markdown/Mermaid.
+- [x] Immutable generation publication, validation report и atomic `current.json`.
+- [x] Slice 1C1 exact Store loading через `RuntimeComposition::init_store` и
+  `CanonicalSnapshotStore::load_snapshot`; latest fallback отсутствует.
+- [x] Slice 1C2 `ath docs generate-architecture <PATH> --snapshot <EXACT-ID>` и validated
+  `architecture current|manifest|validation`.
+- [x] Exact matrix подтверждена на Slice 1C1/1C2 SHA и run IDs из раздела 2.
 
 #### Bounded Rustok evaluation — repaired gate и artifact review closed
 
-- [x] Первый Rustok gate `5e0b28099c48e22bdc172fa57b6d51db9e6efb7b` / `30029451096`
-  остановился на `documentation draft citations must contain between 1 and 256 entries`; общий reference
-  budget исправлен на 256.
+- [x] Первый gate `5e0b28099c48e22bdc172fa57b6d51db9e6efb7b` / `30029451096` остановился на
+  `documentation draft citations must contain between 1 and 256 entries`.
 - [x] Probe `12a8687c5d098ab05a5988508816aad5f0dc3e23` / `30030131126` зафиксировал repair path.
-- [x] Exact source `f1024cbc52f05de4d3ce96c556ef044ad48b3a0e` полностью green по evaluation,
-  probe, Verification Matrix, AppSec и Store Conformance.
-- [x] Artifact review выявил undisclosed `unsupported_relations = 6962`; `6862aee8…` добавил disclosure.
-- [x] Exact evaluation `32712992516` и probe `32712992421` успешны;
-  `unsupported_relation_disclosed = true`, deterministic repeatability unchanged.
+- [x] `f1024cbc52f05de4d3ce96c556ef044ad48b3a0e` полностью green по evaluation/probe/CI/AppSec/Store.
+- [x] `6862aee8…` добавил human-facing relation disclosure; exact evaluation/probe успешны.
 
 #### Slices 2A–2C — module documentation profile
 
-- [x] `DocumentationProfile::Module`, exact pure inventory, module-scoped facts/relations/open diagnostics.
-- [x] Shared 256-item round-robin budget, cited Markdown/Mermaid, omissions и semantic-parity regressions.
-- [x] Immutable `modules/index.md` publication, exact Store operation, `generate-module`, validated
-  `module current|manifest|validation`, profile-isolated shared `current.json`.
-- [ ] Focused format/test/Clippy evidence для Slices 2B–2C pending; source implementation не verified.
+- [x] Pure module inventory, scoped facts/relations/open diagnostics и shared 256-item budget.
+- [x] Immutable `modules/index.md`, exact Store operation, `generate-module`, validated inspection.
+- [ ] Focused format/test/Clippy execution evidence pending; source implementation не verified.
 
 #### Slices 3A–3C — API documentation profile
 
-- [x] `DocumentationProfile::Api`, pure endpoint/schema/example inventory и shared portable evidence owner.
-- [x] API-scoped facts, bounded canonical relation allowlist, open diagnostics, aggregate 256-item budget,
-  cited Mermaid, omissions и deterministic input-order regressions.
-- [x] Immutable `api/index.md`, exact Store operation, `generate-api`, validated
-  `api current|manifest|validation`, profile-isolated shared `current.json`.
-- [ ] Focused format/test/Clippy evidence для API Slices 3A–3C pending; source implementation не verified.
+- [x] Endpoint/schema/example inventory, scoped facts, canonical relation allowlist, open diagnostics.
+- [x] Aggregate 256 budget, cited Mermaid, immutable `api/index.md`, exact Store, CLI/inspection.
+- [ ] Focused format/test/Clippy execution evidence pending; source implementation не verified.
 
 #### Slices 4A–4C — operations documentation profile
 
-- [x] `DocumentationProfile::Operations`, pure exact-snapshot operational inventory and `operations/index.md`.
-- [x] Scope: evidence-backed `EnvVar`, `Script`/`ScriptCommand`/`CiJob`, `DockerService`,
-  `DbMigration`/`DbTable`, `Feature`, `Runbook`, `OperationStep`; `Package`/`Dependency` остаются вне inventory.
-- [x] Deterministic six-category entity round-robin, portable evidence, `max_entities` + shared 256 ceiling,
-  citations, omissions, SHA-256 и fail-closed identity/no-surface regressions.
-- [x] Slice 4B добавляет operations-scoped facts, bounded relation allowlist и open diagnostics with cited Mermaid.
-- [x] Slice 4C публикует immutable `operations/index.md` + validation report в общем generation root и
-  использует profile-aware atomic `current.json`; exact `UpToDate`, force, tamper recovery и cancellation защищены.
-- [x] `DocumentationOperationsOperationOptions` использует `RuntimeComposition::init_store` и только exact
-  `CanonicalSnapshotStore::load_snapshot(SnapshotId(request.snapshot))`; latest fallback отсутствует.
-- [x] Missing/uncommitted snapshot и Store identity mismatch fail closed; cancellation checks стоят вокруг
-  Store/publication boundaries.
-- [x] `ath docs generate-operations <PATH> --snapshot <EXACT-ID>` поддерживает hard-limit flags, `--force`,
-  `--json` и Ctrl-C cancellation/drain.
-- [x] `ath docs operations current|manifest|validation` проверяет profile, confinement, generation path,
-  exact artifact layout, manifest/report identity и SHA-256; старый `ath docs operations check` не меняется.
-- [x] Shared `current.json` изолирует architecture/module/API/operations inspectors по profile.
-- [x] Source regressions покрывают lifecycle, exact operation contract, profile isolation/path/checksum drift
-  и binary `index -> generate-operations -> inspect -> UpToDate` round-trip.
-- [ ] Focused format/test/Clippy execution evidence для operations Slices 4A–4C pending; source implementation не verified.
+- [x] Six-category operations inventory, scoped facts, bounded relations, open diagnostics, cited Mermaid.
+- [x] Immutable `operations/index.md`, exact Store, `generate-operations`, validated inspection.
+- [x] Existing `ath docs operations check` и coordinated generation не изменены.
+- [ ] Focused format/test/Clippy execution evidence pending; source implementation не verified.
 
-#### Slice 5A — onboarding documentation profile
+#### Slices 5A–5B — onboarding documentation profile
 
 - [x] `DocumentationProfile::Onboarding` и pure exact-snapshot `build_documentation_onboarding_profile`.
-- [x] Evidence-backed scope: `DocumentationPage`, `DocumentationSection`, `Package`, `ScriptCommand`, `EnvVar`,
-  `TestCase`/`CiJob`; другие entity kinds не расширяют onboarding inventory.
-- [x] Deterministic six-category round-robin, shared portable evidence owner, `max_entities` + shared 256 ceiling,
-  citations, omissions, `onboarding/index.md`, lowercase SHA-256 и input-order/fail-closed source regressions.
-- [x] Facts/relations/diagnostics, publication, Store, CLI, daemon, MCP, provider/LLM и coordinated `ath generate`
-  остаются вне Slice 5A.
-- [ ] Focused format/test/Clippy execution evidence для onboarding 5A pending; source implementation не verified.
+- [x] Anchor scope: `DocumentationPage`, `DocumentationSection`, `Package`, `ScriptCommand`, `EnvVar`,
+  `TestCase`/`CiJob`; six-category stable-key/entity-id round-robin сохраняет low-limit fairness.
+- [x] Slice 5B добавляет facts, если subject или object — selected onboarding anchor.
+- [x] Bounded supported relations: `Contains`, `Documents`, `UsesEnv`, `TestedBy`; relation должна касаться
+  selected anchor и иметь portable evidence. Общие `Calls`/`Imports`/change relations не входят в профиль.
+- [x] Только `Open` diagnostics, ссылающиеся на selected onboarding anchor, входят в bounded context.
+- [x] Per-kind limits применяются до aggregate `DOCUMENTATION_REFERENCE_LIMIT = 256`; финальный selection
+  round-robin по Entity/Fact/Relation/Diagnostic, omissions считаются по eligible onboarding scope.
+- [x] Каждый context item имеет citation; supported relations получают cited Mermaid edges;
+  `unsupported_relations = context.omitted.relations` и disclosure присутствует в Markdown.
+- [x] `onboarding/index.md` остаётся deterministic SHA-256-bound pure output; rendering/validation вынесены
+  в узкий sibling module, portable evidence использует общий owner.
+- [x] Source regressions покрывают scope leakage, unsupported relations, resolved/unrelated diagnostics,
+  input-order invariance, relation omissions и смешанный 256-item aggregate budget.
+- [ ] Focused format/test/Clippy execution evidence для onboarding 5A–5B pending; source implementation не verified.
 
 Existing coordinated `ath generate` is unchanged. Provider/LLM, daemon and MCP remain out of scope.
-`DOCGEN-001` остаётся `[-] in progress`: module/API/operations production surfaces и onboarding 5A pure profile
-source-implemented; focused verification и следующие documentation slices остаются отдельными packages.
+`DOCGEN-001` остаётся `[-] in progress`: module/API/operations production surfaces и onboarding 5A–5B
+source-implemented; focused verification и Slice 5C остаются отдельными packages.
 
 ### 4.2 Product backlog
 
-- [ ] Slice 5B: onboarding-scoped facts, bounded supported relations и open diagnostics;
 - [ ] Slice 5C: immutable onboarding publication, exact Store operation, CLI и validated inspection;
 - [ ] broader framework adapters and completeness reports;
 - [ ] optional provider, daemon, MCP, i18n and semantic retrieval after deterministic quality gates.
@@ -185,7 +151,7 @@ source-implemented; focused verification и следующие documentation sli
 | `VERIFY-001` | P1 | `[x] verified` | Full release baseline matrix |
 | `API-001` | P1 | `[x] verified` | Cross-protocol consistency |
 | `REL-001` | P1 | `[x] verified` | `v0.2.1` published and installed |
-| `DOCGEN-001` | P2 | `[-] in progress` | Module 2A–2C + API 3A–3C + operations 4A–4C + onboarding 5A source-implemented; execution pending |
+| `DOCGEN-001` | P2 | `[-] in progress` | Module 2A–2C + API 3A–3C + operations 4A–4C + onboarding 5A–5B source-implemented; execution pending |
 
 ## 6. Verification matrix
 
@@ -200,16 +166,6 @@ cargo test -p athanor-app --test documentation_module_profile_inventory --locked
 cargo test -p athanor-app --test documentation_api_profile_inventory --locked
 cargo test -p athanor-app --test documentation_operations_profile_inventory --locked
 cargo test -p athanor-app --test documentation_onboarding_profile_inventory --locked
-cargo test -p athanor-app --test documentation_architecture_publication_inventory --locked
-cargo test -p athanor-app --test documentation_module_publication_inventory --locked
-cargo test -p athanor-app --test documentation_api_publication_inventory --locked
-cargo test -p athanor-app --test documentation_operations_publication_inventory --locked
-cargo test -p athanor-app --test documentation_api_operation_inventory --locked
-cargo test -p athanor-app --test documentation_operations_operation_inventory --locked
-cargo test -p athanor-app --test documentation_architecture_inspection_inventory --locked
-cargo test -p athanor-app --test documentation_module_inspection_inventory --locked
-cargo test -p athanor-app --test documentation_api_inspection_inventory --locked
-cargo test -p athanor-app --test documentation_operations_inspection_inventory --locked
 cargo test -p athanor-app --test documentation_status_inventory --locked
 cargo test -p ath --test documentation_architecture_cli --locked
 cargo test -p ath --test documentation_module_cli --locked
@@ -220,6 +176,6 @@ cargo run -p ath --quiet --locked -- docs check
 
 ## 7. Следующий шаг
 
-Получить focused format/test/Clippy execution evidence для module 2B–2C, API 3A–3C, operations 4A–4C и onboarding 5A.
-Следующим отдельным bounded package сделать Slice 5B: onboarding-scoped facts, supported canonical relations
-и open diagnostics; не подключать publication/Store/CLI/provider/daemon/MCP и не менять coordinated `ath generate`.
+Получить focused format/test/Clippy execution evidence для module 2B–2C, API 3A–3C, operations 4A–4C и onboarding 5A–5B.
+Следующим отдельным bounded package сделать Slice 5C: immutable onboarding publication, exact Store operation,
+CLI и validated inspection; не подключать provider/daemon/MCP и не менять coordinated `ath generate`.
