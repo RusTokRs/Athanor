@@ -14,11 +14,10 @@ inspection surface passed the full cross-platform matrix. The repaired bounded R
 matrix-confirmed on `f1024cbc52f05de4d3ce96c556ef044ad48b3a0e`; the human-facing unsupported-relation
 disclosure is exact-evaluation-confirmed on `6862aee81dd0f53fa8372d1ce3fcb6e2ed198cca`.
 
-Module expansion is source-implemented through Slice 2C. API expansion is source-implemented through
-Slice 3C: Slice 3A established the pure endpoint/schema/example inventory, Slice 3B added scoped facts,
-supported canonical API relations and open diagnostics, and Slice 3C adds immutable publication, exact
-Store loading, CLI generation, and validated inspection. Focused module and API format/test/Clippy
-evidence remains pending and is not inferred from source presence.
+Module expansion is source-implemented through Slice 2C, API expansion through Slice 3C, and operations
+expansion begins with source-implemented Slice 4A: a pure exact-snapshot operational entity inventory.
+Focused module, API, and operations format/test/Clippy evidence remains pending and is not inferred from
+source presence.
 
 The existing coordinated `ath generate` command is unchanged. No model provider, daemon, MCP, or new dependency is enabled.
 
@@ -48,8 +47,8 @@ source files -> adapters -> exact committed snapshot -> bounded context -> cited
 - `athanor.documentation_validation_report.v1`
 - `athanor.documentation_current.v1`
 
-`DocumentationProfile` contains `architecture`, `module`, and backward-compatible `api`; the v1 schemas
-remain unchanged.
+`DocumentationProfile` contains `architecture`, `module`, `api`, and backward-compatible `operations`;
+the v1 schema names remain unchanged.
 
 ## Implemented Slices
 
@@ -105,79 +104,37 @@ or layout drift, invalid validation status, and checksum drift.
   `module current|manifest|validation` with profile-isolated shared `current.json`.
 - Module publication/Store/CLI source regressions are present; focused execution evidence is pending.
 
-### Slice 3A — Deterministic API Inventory Profile
+### Slices 3A–3C — API Documentation Profile
 
-`build_documentation_api_profile` established the first pure API documentation owner:
+- Slice 3A established exact endpoint/schema/example inventory, portable evidence, deterministic
+  round-robin selection, omissions, citations, `api/index.md`, and checksum binding.
+- Slice 3B added API-scoped facts, supported canonical relations, open diagnostics, aggregate 256-item
+  budgeting, and cited Mermaid relationships.
+- Slice 3C added immutable publication, exact Store loading, `generate-api`, and validated
+  `api current|manifest|validation` with profile-isolated shared `current.json`.
+- API source regressions are present; focused execution evidence remains pending.
 
-- exact snapshot/profile identity is mandatory;
-- `DocumentationProfile::Api` serializes as `api` without changing v1 schema names;
-- candidates are evidence-backed `EntityKind::ApiEndpoint`, `ApiSchema`, and `ApiExample` only;
-- each kind is stable-key/entity-id sorted, then endpoint/schema/example candidates are selected by
-  deterministic round-robin so low limits do not silently starve an available API kind;
-- `max_entities` and `DOCUMENTATION_REFERENCE_LIMIT = 256` bound context/citations;
-- deterministic `api/index.md` is cited and SHA-256 bound;
-- provider/network/raw-file/secrets access remains disabled;
-- wrong profile/snapshot or absence of evidence-backed API entities fails closed.
+### Slice 4A — Deterministic Operations Inventory Profile
 
-### Slice 3B — API-Scoped Facts, Relations, And Diagnostics
+`build_documentation_operations_profile` establishes the first pure operations owner:
 
-Slice 3B preserves the Slice 3A entity-selection contract and uses selected API entity IDs as the scope
-anchors for richer canonical evidence:
+- `DocumentationProfile::Operations` serializes as `operations` without changing v1 schema names;
+- exact request/snapshot identity is mandatory;
+- eligible evidence-backed kinds are `EnvVar`, `Script`, `ScriptCommand`, `CiJob`, `DockerService`,
+  `DbMigration`, `DbTable`, `Feature`, `Runbook`, and `OperationStep`;
+- general `Package` and `Dependency` entities remain outside this bounded operations inventory;
+- candidates are grouped into environment, automation, deployment, data, configuration, and runbooks,
+  sorted by stable key/entity id, then selected by deterministic category round-robin;
+- `max_entities` and `DOCUMENTATION_REFERENCE_LIMIT = 256` bound context and citations;
+- entity evidence uses the shared portable path normalization owner; entities without portable evidence
+  are excluded;
+- deterministic `operations/index.md`, omission disclosure, citations, valid metrics, and lowercase
+  SHA-256 are emitted without filesystem, Store, network, provider, daemon, MCP, or CLI access;
+- facts, relations, diagnostics, publication, and transport integration remain outside Slice 4A.
 
-- facts are eligible when subject or optional object is a selected API endpoint/schema/example;
-- relations must touch a selected API anchor and belong to the bounded canonical allowlist:
-  `ImplementedBy`, `SchemaForRequest`, `SchemaForResponse`, `ExampleFor`, `Documents`, `DocumentsApi`,
-  or `DocumentsOperation`;
-- GraphQL-specific `RelationKind::Other(...)` links remain outside this bounded relation contract;
-- diagnostics are eligible only when `status == open` and reference a selected API anchor;
-- shared evidence normalization combines canonical evidence with ownership fallback and portable paths;
-- per-kind limits feed the aggregate 256-item round-robin ceiling;
-- `API Facts`, `API Relationships`, and `API Diagnostics` are cited, and supported relations render
-  directed cited Mermaid edges;
-- omissions and omitted supported relations remain explicit.
-
-### Slice 3C — Immutable API Publication, Exact Store, CLI, And Inspection
-
-Slice 3C promotes the deterministic API profile to the same bounded production lifecycle as architecture
-and module documentation without changing the coordinated `ath generate` path:
-
-```text
-.athanor/generated/documentation/
-  current.json
-  generations/<8-digit-generation>/
-    manifest.json
-    api/index.md
-    validation-report.json
-```
-
-- publication is staged and immutable; exact `UpToDate` checks profile/snapshot, normalized generation
-  path, manifest identity, artifact IDs/paths/media types, validation identity, and SHA-256 bytes;
-- force creates a new immutable generation, tampered/incomplete generations are never reused, and
-  cancellation cannot advance the current pointer;
-- `DocumentationApiOperationOptions` initializes the configured Store and calls only
-  `CanonicalSnapshotStore::load_snapshot(SnapshotId(request.snapshot))`; missing/uncommitted snapshots
-  and identity mismatches fail closed;
-- generation checks cancellation before/after Store and publication boundaries;
-- CLI surface is:
-
-```bash
-ath docs generate-api <PATH> --snapshot <EXACT-ID> \
-  [--max-entities N] [--max-facts N] [--max-relations N] [--max-diagnostics N] [--force] [--json]
-ath docs api current <PATH> [--json]
-ath docs api manifest <PATH> [--json]
-ath docs api validation <PATH> [--json]
-```
-
-- Ctrl-C cancels and drains API generation before returning;
-- validated API inspection enforces profile `api`, path confinement, normalized generation identity,
-  exact two-artifact layout, valid validation status, and manifest-bound checksums;
-- the shared `current.json` remains profile-aware, so architecture/module/API inspectors fail closed on
-  another profile's pointer;
-- source regressions cover exact publication reuse, tamper recovery, force, cancellation, deterministic
-  content, operation identity, inspection drift/profile isolation, CLI parsing, binary OpenAPI
-  `index -> generate-api -> current/manifest/validation -> UpToDate`, and missing exact snapshot failure.
-
-Focused Slice 3C execution evidence remains pending; source presence is not verification.
+Focused regressions cover exact identity, operational-kind scope, category fairness, portable evidence,
+shared 256 ceiling, omission accounting, input-order invariance, checksum binding, and fail-closed
+no-operations behavior.
 
 ## Execution Evidence
 
@@ -204,23 +161,24 @@ Focused Slice 3C execution evidence remains pending; source presence is not veri
   `32718598218`, Rustok evaluation `32718598212`, and Rustok probe `32718598232` are green.
 - Slice 3A landed on `0a4c0f78ef05b6c2ba9480b770c1ebf72038e049`; Rustok evaluation
   `32719989413` and Rustok probe `32719989450` are green. These are not focused API profile evidence.
-- Slices 2B–2C and API Slices 3A–3C remain execution-pending for focused format/test/Clippy gates.
+- Slices 2B–2C, API Slices 3A–3C, and operations Slice 4A remain execution-pending for focused gates.
 
 The repaired bounded Rustok architecture-generation evaluation retains `DOCUMENTATION_REFERENCE_LIMIT`,
 `workflow_dispatch` support, and diagnostic evidence checks as explicit regression boundaries.
 
 ## Next Bounded Step
 
-1. Record formatting/build/test/Clippy evidence for module Slices 2B–2C and API Slices 3A–3C.
-2. Begin the next documentation profile as a pure exact-snapshot bounded owner, with operations/onboarding
-   as the next product backlog area.
-3. Keep provider, daemon, MCP, and coordinated `ath generate` changes out until separate deterministic
-   quality gates justify them.
+1. Record formatting/build/test/Clippy evidence for module 2B–2C, API 3A–3C, and operations 4A.
+2. Implement Slice 4B: operations-scoped facts, supported relations, and open diagnostics while retaining
+   the pure exact-snapshot owner and shared bounded reference budget.
+3. Keep operations publication/Store/CLI, onboarding, provider, daemon, MCP, and coordinated `ath generate`
+   changes out until separate bounded slices.
 
 ## Verification
 
 ```bash
 cargo fmt --all -- --check
+cargo test -p athanor-app --test documentation_operations_profile_inventory --locked
 cargo test -p athanor-app --test documentation_api_profile_inventory --locked
 cargo test -p athanor-app --test documentation_api_publication_inventory --locked
 cargo test -p athanor-app --test documentation_api_operation_inventory --locked
