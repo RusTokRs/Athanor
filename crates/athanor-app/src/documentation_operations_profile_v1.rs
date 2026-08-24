@@ -226,7 +226,10 @@ fn build_context(
             if selected.len() == selected_limit {
                 break;
             }
-            if let Some(candidate) = queues.get_mut(&category).and_then(VecDeque::pop_front) {
+            if let Some(candidate) = queues
+                .get_mut(&category)
+                .and_then(|queue| queue.pop_front())
+            {
                 selected.push(candidate);
                 progressed = true;
             }
