@@ -37,10 +37,10 @@ The module profile is source-implemented through Slice 2C: pure inventory, modul
 immutable publication, exact Store loading, CLI generation, and validated inspection. The shared
 `current.json` is profile-aware, so architecture and module inspection reject the other profile.
 
-Slice 3A starts the API documentation profile as a pure exact-snapshot owner. It selects only
-evidence-backed `ApiEndpoint`, `ApiSchema`, and `ApiExample` canonical entities, uses per-kind stable
-ordering plus deterministic round-robin selection, enforces the shared 256-reference ceiling, and emits
-cited checksum-bound `api/index.md`. API facts/relations/diagnostics, publication, Store loading, CLI,
+The API profile is source-implemented through Slice 3B. Slice 3A established the pure exact-snapshot
+endpoint/schema/example inventory. Slice 3B adds API-scoped facts, a bounded canonical relation allowlist
+for implementation/schema/example/documentation links, open API diagnostics, deterministic aggregate
+selection, cited Mermaid relationships, and explicit omissions. API publication, Store loading, CLI,
 daemon, MCP, and provider integration remain closed.
 
 Supported deterministic documentation CLI surface remains architecture/module only:
@@ -87,8 +87,9 @@ Relation-disclosure tuning is evaluation-confirmed on
 Slice 2A landed on `658d53fb03dd47a971beb6cf67b46cfe1f20b3fe`; its post-merge Rustok evaluation,
 probe, AppSec, and Store contexts are green. Slice 2C landed on
 `b9e0eadc46175e15ec62f915a4729287f3884cd2`; Store Conformance `32718598218`, Rustok evaluation
-`32718598212`, and Rustok probe `32718598232` are green. These do not substitute for focused module
-format/test/Clippy evidence. API Slice 3A is source-implemented with execution evidence pending.
+`32718598212`, and Rustok probe `32718598232` are green. Slice 3A landed on
+`0a4c0f78ef05b6c2ba9480b770c1ebf72038e049`; Rustok evaluation `32719989413` and Rustok probe
+`32719989450` are green. These do not substitute for focused module/API format/test/Clippy evidence.
 
 ## Implemented Packages
 
@@ -116,16 +117,17 @@ format/test/Clippy evidence. API Slice 3A is source-implemented with execution e
 - [x] Slice 2A: deterministic module inventory with cited `modules/index.md` and SHA-256;
 - [x] Slice 2B: module-scoped facts, relations, open diagnostics, Mermaid, omissions, parity regressions;
 - [x] Slice 2C: immutable module publication, exact Store operation, module CLI and validated inspection;
-- [x] Slice 3A implemented in source: `DocumentationProfile::Api`, exact pure endpoint/schema/example
-  inventory, deterministic round-robin selection, cited `api/index.md`, portable evidence normalization,
-  omission accounting, checksum binding, and focused identity/order/fail-closed regressions;
-- [ ] Focused module Slices 2B–2C and API Slice 3A execution evidence remains pending.
+- [x] Slice 3A: exact pure API endpoint/schema/example inventory, deterministic round-robin, citations,
+  portable evidence normalization, omission accounting, and checksum binding;
+- [x] Slice 3B implemented in source: API-scoped facts, supported canonical API relation allowlist,
+  open diagnostics, shared evidence/ownership normalization, deterministic per-kind + aggregate limits,
+  `API Facts`/`API Relationships`/`API Diagnostics`, cited Mermaid, omissions, and scoped regressions;
+- [ ] Focused module Slices 2B–2C and API Slices 3A–3B execution evidence remains pending.
 
-`DOCGEN-001` remains in progress. API publication/Store/CLI is not enabled by Slice 3A.
+`DOCGEN-001` remains in progress. API publication/Store/CLI is not enabled by Slices 3A–3B.
 
 ## Product Backlog
 
-- Slice 3B: API-scoped facts, relations, and open diagnostics;
 - Slice 3C: immutable API publication, exact Store operation, CLI, and validated inspection;
 - operations/onboarding documentation profiles;
 - broader framework adapters and completeness reporting;
