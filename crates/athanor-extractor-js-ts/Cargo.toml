@@ -11,6 +11,9 @@ publish.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
+[lib]
+path = "src/crate_root.rs"
+
 [dependencies]
 async-trait.workspace = true
 athanor-core = { path = "../athanor-core" }
