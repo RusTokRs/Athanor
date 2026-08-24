@@ -68,6 +68,10 @@ Slice 1C2 CLI generation and inspection are confirmed on
 `042d02ac6b4c89d90a5b76c818098eb0c6b41920`: CI `30025932615`, AppSec `30025931953`, Store
 `30025932704`.
 
+The first bounded Rustok architecture-generation evaluation on
+`5e0b28099c48e22bdc172fa57b6d51db9e6efb7b`, run `30029451096`, failed with
+`documentation draft citations must contain between 1 and 256 entries`; this remains failure evidence.
+
 The repaired bounded Rustok architecture-generation evaluation is matrix-confirmed on
 `f1024cbc52f05de4d3ce96c556ef044ad48b3a0e`: evaluation `31625608720`, probe `31625608721`, CI
 `31625608729`, AppSec `31625608723`, Store `31625608739`. The gate retains
