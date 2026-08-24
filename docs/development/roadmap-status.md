@@ -33,13 +33,17 @@ The architecture profile loads one exact committed canonical snapshot through th
 applies hard limits, emits cited Markdown/Mermaid output, and publishes immutable checksum-bound
 generations. Its CLI and validated inspection are execution-confirmed.
 
-The module profile is source-implemented through Slice 2C. Slice 2A established the pure module inventory;
-Slice 2B added module-scoped facts/relations/open diagnostics; Slice 2C adds immutable publication, exact
-Store loading, CLI generation, and validated inspection. The shared documentation `current.json` remains
-profile-aware, so architecture and module inspection reject a current generation belonging to the other
-profile.
+The module profile is source-implemented through Slice 2C: pure inventory, module-scoped evidence,
+immutable publication, exact Store loading, CLI generation, and validated inspection. The shared
+`current.json` is profile-aware, so architecture and module inspection reject the other profile.
 
-Supported deterministic documentation CLI surface:
+Slice 3A starts the API documentation profile as a pure exact-snapshot owner. It selects only
+evidence-backed `ApiEndpoint`, `ApiSchema`, and `ApiExample` canonical entities, uses per-kind stable
+ordering plus deterministic round-robin selection, enforces the shared 256-reference ceiling, and emits
+cited checksum-bound `api/index.md`. API facts/relations/diagnostics, publication, Store loading, CLI,
+daemon, MCP, and provider integration remain closed.
+
+Supported deterministic documentation CLI surface remains architecture/module only:
 
 ```bash
 ath docs generate-architecture <PATH> --snapshot <EXACT-ID> [--force] [--json]
@@ -49,8 +53,7 @@ ath docs module current|manifest|validation <PATH> [--json]
 ```
 
 Generation has no latest-snapshot fallback. Ctrl-C cancels and drains the operation before returning.
-The existing coordinated `ath generate` command is unchanged. Daemon, MCP, and provider integration are
-not enabled for these profiles.
+The existing coordinated `ath generate` command is unchanged.
 
 ### Exact Evidence
 
@@ -82,8 +85,10 @@ Relation-disclosure tuning is evaluation-confirmed on
 `unsupported_relations = 6962`, `unsupported_relation_disclosed = true`.
 
 Slice 2A landed on `658d53fb03dd47a971beb6cf67b46cfe1f20b3fe`; its post-merge Rustok evaluation,
-probe, AppSec, and Store contexts are green. These do not substitute for focused module format/test/Clippy
-evidence. Slices 2B–2C are source-implemented with execution evidence still pending.
+probe, AppSec, and Store contexts are green. Slice 2C landed on
+`b9e0eadc46175e15ec62f915a4729287f3884cd2`; Store Conformance `32718598218`, Rustok evaluation
+`32718598212`, and Rustok probe `32718598232` are green. These do not substitute for focused module
+format/test/Clippy evidence. API Slice 3A is source-implemented with execution evidence pending.
 
 ## Implemented Packages
 
@@ -110,17 +115,18 @@ evidence. Slices 2B–2C are source-implemented with execution evidence still pe
 - [x] Closed the human-facing unsupported-relation disclosure finding;
 - [x] Slice 2A: deterministic module inventory with cited `modules/index.md` and SHA-256;
 - [x] Slice 2B: module-scoped facts, relations, open diagnostics, Mermaid, omissions, parity regressions;
-- [x] Slice 2C implemented in source: immutable module publication, exact Store operation,
-  `generate-module`, profile-aware module/architecture current inspection, validated module
-  current/manifest/validation, and binary round-trip regressions;
-- [ ] Focused module Slices 2B–2C execution evidence remains pending.
+- [x] Slice 2C: immutable module publication, exact Store operation, module CLI and validated inspection;
+- [x] Slice 3A implemented in source: `DocumentationProfile::Api`, exact pure endpoint/schema/example
+  inventory, deterministic round-robin selection, cited `api/index.md`, portable evidence normalization,
+  omission accounting, checksum binding, and focused identity/order/fail-closed regressions;
+- [ ] Focused module Slices 2B–2C and API Slice 3A execution evidence remains pending.
 
-`DOCGEN-001` remains in progress until the module production surface is execution-confirmed and the next
-pure deterministic profile package is selected.
+`DOCGEN-001` remains in progress. API publication/Store/CLI is not enabled by Slice 3A.
 
 ## Product Backlog
 
-- API documentation profile;
+- Slice 3B: API-scoped facts, relations, and open diagnostics;
+- Slice 3C: immutable API publication, exact Store operation, CLI, and validated inspection;
 - operations/onboarding documentation profiles;
 - broader framework adapters and completeness reporting;
 - i18n, concepts, and optional semantic/vector retrieval;
