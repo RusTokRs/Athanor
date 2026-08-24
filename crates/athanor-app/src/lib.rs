@@ -45,8 +45,11 @@ mod daemon_write_job_contract_tests;
 mod daemon_write_jobs;
 pub mod derived_read_operation;
 pub mod docs;
+pub mod documentation_api_inspection;
+pub mod documentation_api_operation;
 #[path = "documentation_api_profile_v1.rs"]
 pub mod documentation_api_profile;
+pub mod documentation_api_publication;
 pub mod documentation_architecture_inspection;
 pub mod documentation_architecture_operation;
 #[path = "documentation_architecture_profile_v1.rs"]
@@ -150,6 +153,8 @@ pub mod indexing {
 
 /// Publication artefacts and lifecycle APIs.
 pub mod publication {
+    pub use crate::documentation_api_inspection::*;
+    pub use crate::documentation_api_publication::*;
     pub use crate::documentation_architecture_inspection::*;
     pub use crate::documentation_architecture_publication::*;
     pub use crate::documentation_module_inspection::*;
@@ -208,7 +213,10 @@ pub use daemon::*;
 pub use daemon_runtime::*;
 pub use derived_read_operation::*;
 pub use docs::*;
+pub use documentation_api_inspection::*;
+pub use documentation_api_operation::*;
 pub use documentation_api_profile::*;
+pub use documentation_api_publication::*;
 pub use documentation_architecture_inspection::*;
 pub use documentation_architecture_operation::*;
 pub use documentation_architecture_profile::*;
