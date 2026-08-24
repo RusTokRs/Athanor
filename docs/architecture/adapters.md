@@ -90,6 +90,7 @@ Ownership should list every source file that can invalidate the emitted object. 
 | `athanor-extractor-markdown` | `Extractor` | Parse YAML documentation frontmatter and CommonMark/GFM headings, then emit documentation page/section, runbook, and operation-step knowledge. |
 | `athanor-extractor-js-ts` | `Extractor` | Parse JavaScript, JSX, TypeScript, TSX, and `package.json` through tree-sitter grammars, optionally verify normalized JS/TS findings with feature-gated Oxc, then emit source modules, declarations, package/dependency entities, definition facts, and evidence-backed parser diagnostics. |
 | `athanor-extractor-js-ts::NextJsExtractor` | `Extractor` | Project standard Next.js App/Pages Router filesystem conventions into source-backed adapter-scoped route entities and route-declaration facts without inferring React or HTTP semantics. |
+| `athanor-extractor-js-ts::ExpressExtractor` | `Extractor` | Project explicit Express application/router bindings plus exact two-argument literal route calls into adapter-scoped route entities and route-declaration facts without inferring schemas/auth/middleware. |
 | `athanor-extractor-openapi` | `Extractor` | Parse project OpenAPI 3.1 through `oas3`, retain a 3.0 fallback, ignore test fixture specs during project discovery, and emit operation/schema/example knowledge. |
 | `athanor-extractor-graphql` | `Extractor` | Extract standalone GraphQL SDL root schema/type, operation, fragment, directive, and introspection JSON files into shared API endpoint/schema or adapter-scoped fragment/directive knowledge with evidence-backed declarations and same-file validation diagnostics for unresolved fragment spreads, unresolved inline type conditions, deprecated field usage, invalid directive locations, undeclared variable references, and unused variables. |
 | `athanor-extractor-operations` | `Extractor` | Parse operations files such as dotenv, Cargo manifest, Makefile, Dockerfile, shell script, docker-compose, GitHub Actions, Kubernetes YAML, SQL migration, and runtime config sources into environment, package/dependency, command, deployment/service, database migration, and runtime configuration knowledge without storing raw secret values. |
@@ -176,6 +177,7 @@ builtin.extractor.file
 builtin.extractor.markdown
 builtin.extractor.js_ts
 builtin.extractor.nextjs
+builtin.extractor.express
 builtin.extractor.openapi
 builtin.extractor.graphql
 builtin.extractor.operations
