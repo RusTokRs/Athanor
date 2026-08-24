@@ -182,6 +182,9 @@ generate → inspect → `up_to_date` plus missing snapshot. Execution evidence 
   probe, AppSec, and Store contexts are green. Focused module evidence is not claimed.
 - Slices 2B–2C: source implementations and regressions are present; focused execution evidence pending.
 
+The repaired bounded Rustok architecture-generation evaluation retains `DOCUMENTATION_REFERENCE_LIMIT`,
+`workflow_dispatch` support, and diagnostic evidence checks as explicit regression boundaries.
+
 ## Next Bounded Step
 
 1. Record formatting/build/test/Clippy evidence for module Slices 2B–2C, including module profile,
