@@ -4,7 +4,7 @@
 > Ветка: `main`  
 > Актуализировано: 2026-08-24  
 > Статус: `API-001`, `REL-001` verified; `DOCGEN-001 / Slices 0A–1C` execution-confirmed;
-> relation-disclosure exact-evaluation-confirmed; module 2A–2C, API 3A–3C, operations 4A–4C и onboarding 5A–5B implemented in source,
+> relation-disclosure exact-evaluation-confirmed; module 2A–2C, API 3A–3C, operations 4A–4C и onboarding 5A–5C implemented in source,
 > focused execution evidence pending
 
 ## 1. Статусы и evidence
@@ -150,7 +150,7 @@ Documentation generation:
   и binary `index -> generate-operations -> inspect -> UpToDate` round-trip.
 - [ ] Focused format/test/Clippy execution evidence для operations Slices 4A–4C pending; source implementation не verified.
 
-#### Slices 5A–5B — onboarding documentation profile
+#### Slices 5A–5C — onboarding documentation profile
 
 - [x] `DocumentationProfile::Onboarding` и pure exact-snapshot `build_documentation_onboarding_profile`.
 - [x] Evidence-backed anchors: `DocumentationPage`, `DocumentationSection`, `Package`, `ScriptCommand`, `EnvVar`,
@@ -160,18 +160,27 @@ Documentation generation:
 - [x] Только `Open` diagnostics, ссылающиеся на selected anchor, входят в context; unsupported/unrelated evidence не протекает.
 - [x] Per-kind limits + aggregate `DOCUMENTATION_REFERENCE_LIMIT = 256`, cited Mermaid, omissions и
   `unsupported_relations = context.omitted.relations` regression-protected.
-- [x] `onboarding/index.md` остаётся deterministic SHA-256-bound pure output; shared portable evidence owner не дублируется.
-- [x] Facts/relations/diagnostics source regressions покрывают input-order invariance, relation disclosure и mixed 256 budget.
-- [x] Publication, Store, CLI, daemon, MCP, provider/LLM и coordinated `ath generate` остаются вне Slice 5B.
-- [ ] Focused format/test/Clippy execution evidence для onboarding 5A–5B pending; source implementation не verified.
+- [x] Slice 5C публикует immutable `onboarding/index.md` + validation report в общем generation root и
+  использует profile-aware atomic `current.json`; exact `UpToDate`, force, tamper recovery и cancellation защищены.
+- [x] `DocumentationOnboardingOperationOptions` использует `RuntimeComposition::init_store` и только exact
+  `CanonicalSnapshotStore::load_snapshot(SnapshotId(request.snapshot))`; latest fallback отсутствует.
+- [x] Missing/uncommitted snapshot и Store identity mismatch fail closed; cancellation checks стоят вокруг
+  Store/publication boundaries.
+- [x] `ath docs generate-onboarding <PATH> --snapshot <EXACT-ID>` поддерживает hard-limit flags, `--force`,
+  `--json` и Ctrl-C cancellation/drain.
+- [x] `ath docs onboarding current|manifest|validation` проверяет profile, confinement, generation path,
+  exact artifact layout, manifest/report identity и SHA-256.
+- [x] Shared `current.json` изолирует architecture/module/API/operations/onboarding inspectors по profile.
+- [x] Source regressions покрывают lifecycle, exact operation contract, profile isolation/path/checksum drift
+  и binary `index -> generate-onboarding -> inspect -> UpToDate` round-trip.
+- [ ] Focused format/test/Clippy execution evidence для onboarding 5A–5C pending; source implementation не verified.
 
 Existing coordinated `ath generate` is unchanged. Provider/LLM, daemon and MCP remain out of scope.
-`DOCGEN-001` остаётся `[-] in progress`: module/API/operations production surfaces и onboarding 5A–5B pure profile
-source-implemented; focused verification и следующие documentation slices остаются отдельными packages.
+`DOCGEN-001` остаётся `[-] in progress`: module/API/operations/onboarding production surfaces source-implemented;
+focused verification и следующие documentation packages остаются отдельными этапами.
 
 ### 4.2 Product backlog
 
-- [ ] Slice 5C: immutable onboarding publication, exact Store operation, CLI и validated inspection;
 - [ ] broader framework adapters and completeness reports;
 - [ ] optional provider, daemon, MCP, i18n and semantic retrieval after deterministic quality gates.
 
@@ -188,7 +197,7 @@ source-implemented; focused verification и следующие documentation sli
 | `VERIFY-001` | P1 | `[x] verified` | Full release baseline matrix |
 | `API-001` | P1 | `[x] verified` | Cross-protocol consistency |
 | `REL-001` | P1 | `[x] verified` | `v0.2.1` published and installed |
-| `DOCGEN-001` | P2 | `[-] in progress` | Module 2A–2C + API 3A–3C + operations 4A–4C + onboarding 5A–5B source-implemented; execution pending |
+| `DOCGEN-001` | P2 | `[-] in progress` | Module 2A–2C + API 3A–3C + operations 4A–4C + onboarding 5A–5C source-implemented; execution pending |
 
 ## 6. Verification matrix
 
@@ -207,22 +216,26 @@ cargo test -p athanor-app --test documentation_architecture_publication_inventor
 cargo test -p athanor-app --test documentation_module_publication_inventory --locked
 cargo test -p athanor-app --test documentation_api_publication_inventory --locked
 cargo test -p athanor-app --test documentation_operations_publication_inventory --locked
+cargo test -p athanor-app --test documentation_onboarding_publication_inventory --locked
 cargo test -p athanor-app --test documentation_api_operation_inventory --locked
 cargo test -p athanor-app --test documentation_operations_operation_inventory --locked
+cargo test -p athanor-app --test documentation_onboarding_operation_inventory --locked
 cargo test -p athanor-app --test documentation_architecture_inspection_inventory --locked
 cargo test -p athanor-app --test documentation_module_inspection_inventory --locked
 cargo test -p athanor-app --test documentation_api_inspection_inventory --locked
 cargo test -p athanor-app --test documentation_operations_inspection_inventory --locked
+cargo test -p athanor-app --test documentation_onboarding_inspection_inventory --locked
 cargo test -p athanor-app --test documentation_status_inventory --locked
 cargo test -p ath --test documentation_architecture_cli --locked
 cargo test -p ath --test documentation_module_cli --locked
 cargo test -p ath --test documentation_api_cli --locked
 cargo test -p ath --test documentation_operations_cli --locked
+cargo test -p ath --test documentation_onboarding_cli --locked
 cargo run -p ath --quiet --locked -- docs check
 ```
 
 ## 7. Следующий шаг
 
-Получить focused format/test/Clippy execution evidence для module 2B–2C, API 3A–3C, operations 4A–4C и onboarding 5A–5B.
-Следующим отдельным bounded package сделать Slice 5C: immutable onboarding publication, exact Store operation,
-CLI и validated inspection; не подключать provider/daemon/MCP и не менять coordinated `ath generate`.
+Получить focused format/test/Clippy execution evidence для module 2B–2C, API 3A–3C, operations 4A–4C и onboarding 5A–5C.
+Следующий bounded documentation package — broader framework adapters/completeness reporting; provider/daemon/MCP
+и coordinated `ath generate` не менять до отдельного deterministic quality gate.
