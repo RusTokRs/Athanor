@@ -23,7 +23,7 @@ use athanor_extractor_js_ts::{JsTsExtractor, NextJsExtractor};
 use athanor_extractor_markdown::MarkdownExtractor;
 use athanor_extractor_openapi::OpenApiExtractor;
 use athanor_extractor_operations::OperationsExtractor;
-use athanor_extractor_rust::RustExtractor;
+use athanor_extractor_rust::{AxumExtractor, RustExtractor};
 use athanor_linker_api::ApiKnowledgeLinker;
 use athanor_linker_js_ts::JsTsImportLinker;
 use athanor_linker_markdown::MarkdownContainmentLinker;
@@ -173,6 +173,7 @@ pub fn default_adapter_registry() -> AdapterRegistry {
         .register_extractor_id("builtin.extractor.js_ts", || Box::new(JsTsExtractor))
         .register_extractor_id("builtin.extractor.nextjs", || Box::new(NextJsExtractor))
         .register_extractor_id("builtin.extractor.rust", || Box::new(RustExtractor))
+        .register_extractor_id("builtin.extractor.axum", || Box::new(AxumExtractor))
         .register_linker_id("builtin.linker.markdown_containment", || {
             Box::new(MarkdownContainmentLinker)
         })
@@ -241,6 +242,9 @@ pub fn resolve_builtin_adapter(
         ),
         (AdapterPluginKind::Extractor, "builtin.extractor.rust") => Some(
             registry.register_extractor_id("builtin.extractor.rust", || Box::new(RustExtractor)),
+        ),
+        (AdapterPluginKind::Extractor, "builtin.extractor.axum") => Some(
+            registry.register_extractor_id("builtin.extractor.axum", || Box::new(AxumExtractor)),
         ),
         (AdapterPluginKind::Extractor, "builtin.extractor.rustok_ffa") => Some(
             registry.register_extractor_id("builtin.extractor.rustok_ffa", || {
