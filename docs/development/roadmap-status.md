@@ -59,11 +59,12 @@ contribution, deterministic limits/omissions, and entity-only canonical processi
 Slice 6B adds exact Store loading, read-only `ath docs completeness`, cancellation/drain, and registered
 `athanor.documentation_completeness.v1` JSON transport. No latest fallback or publication/current pointer exists.
 
-Slice 7A adds the first gap-driven framework projection: built-in `NextJsExtractor` recognizes bounded App
-Router and Pages Router filesystem route conventions and emits source-backed adapter-scoped
-`EntityKind::Other("nextjs_route")` plus `RouteDeclared` knowledge. The base `JsTsExtractor` remains
-framework-neutral; HTTP methods, React semantics, configuration, interception routes, middleware, schemas,
-and auth remain deferred rather than inferred.
+Slices 7A–7B add the first bounded framework projections selected from explicit coverage gaps. `NextJsExtractor`
+recognizes App/Pages Router filesystem conventions and emits adapter-scoped `nextjs_route` entities plus
+`RouteDeclared` evidence. `AxumExtractor` recognizes literal `.route()` declarations backed by direct,
+renamed, namespace, or fully-qualified `axum::routing` method constructors and emits adapter-scoped
+`axum_route` entities plus `RouteDeclared` evidence. Base JS/TS and Rust extractors remain framework-neutral;
+framework-specific HTTP/schema/auth/middleware semantics are deferred rather than inferred.
 
 The shared `current.json` is profile-aware across architecture, module, API, operations, and onboarding.
 Every inspector fails closed when another published profile owns the current pointer.
@@ -146,14 +147,15 @@ probe, AppSec, and Store contexts are green. Slice 2C landed on
 - [x] Slices 4A–4C: operations inventory/evidence/publication/exact Store/CLI/inspection;
 - [x] Slices 5A–5C: onboarding inventory/evidence/publication/exact Store/CLI/inspection;
 - [x] Slices 6A–6B: pure completeness plus exact Store/read-only CLI/versioned JSON transport;
-- [x] Slice 7A: bounded built-in Next.js filesystem route projection;
-- [ ] Focused module 2B–2C, API 3A–3C, operations 4A–4C, onboarding 5A–5C, completeness 6A–6B, and Next.js 7A execution evidence remains pending.
+- [x] Slices 7A–7B: bounded built-in Next.js and Axum route projections;
+- [ ] Focused module 2B–2C, API 3A–3C, operations 4A–4C, onboarding 5A–5C, completeness 6A–6B, and framework 7A–7B execution evidence remains pending.
 
 `DOCGEN-001` remains in progress. Architecture is execution-confirmed; later profile/completeness/framework
 surfaces are source-implemented but are not promoted without focused gates.
 
 ## Product Backlog
 
-- use exact completeness gaps to select the next bounded framework-adapter expansion;
-- only extend Next.js into HTTP/layout/configuration semantics when exact repository evidence justifies it;
+- use exact completeness gaps and explicit framework plans to select the next bounded adapter expansion;
+- keep Next.js/Axum HTTP-schema/auth/middleware expansion separate until evidence justifies it;
+- Dart/Flutter remains blocked on a portable DartScope dependency boundary rather than a local-only path dependency;
 - optional i18n, semantic/vector retrieval, provider, daemon, and MCP integration after quality gates.
