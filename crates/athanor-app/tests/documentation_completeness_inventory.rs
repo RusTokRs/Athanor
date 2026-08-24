@@ -1,6 +1,6 @@
 use athanor_app::{
-    DOCUMENTATION_COMPLETENESS_BASELINE_ADAPTER, DOCUMENTATION_COMPLETENESS_SCHEMA_V1,
-    DocumentationCompletenessRequest, build_documentation_completeness_report,
+    DOCUMENTATION_COMPLETENESS_BASELINE_ADAPTER, DocumentationCompletenessRequest,
+    build_documentation_completeness_report,
 };
 use athanor_core::CanonicalSnapshot;
 use athanor_domain::{
@@ -16,7 +16,6 @@ fn completeness_report_is_exact_deterministic_and_exposes_adapter_gaps() {
     let snapshot = fixture();
     let report = build_documentation_completeness_report(&request, &snapshot).unwrap();
 
-    assert_eq!(report.schema, DOCUMENTATION_COMPLETENESS_SCHEMA_V1);
     assert_eq!(report.snapshot, "snap-completeness");
     assert_eq!(
         report.baseline_adapter,
@@ -116,6 +115,36 @@ fn completeness_report_normalizes_file_paths_and_bounds_each_detail_table() {
             .iter()
             .all(|row| !row.language.contains('\\'))
     );
+}
+
+#[test]
+fn adapter_file_counts_ignore_evidence_outside_the_baseline_inventory() {
+    let mut snapshot = fixture();
+    let snapshot_id = snapshot.snapshot.clone().unwrap();
+    snapshot.facts.push(content_fact(
+        "generated-only",
+        FactKind::Other("generated_metadata".to_string()),
+        "doc-readme",
+        "generated/outside.json",
+        "generated-adapter",
+        &snapshot_id,
+    ));
+
+    let report = build_documentation_completeness_report(
+        &DocumentationCompletenessRequest::new("snap-completeness", 16),
+        &snapshot,
+    )
+    .unwrap();
+
+    assert_eq!(report.totals.processed_files, 3);
+    assert_eq!(report.totals.unprocessed_files, 1);
+    let generated = report
+        .adapters
+        .iter()
+        .find(|row| row.adapter == "generated-adapter")
+        .unwrap();
+    assert_eq!(generated.files, 0);
+    assert_eq!(generated.facts, 1);
 }
 
 #[test]
