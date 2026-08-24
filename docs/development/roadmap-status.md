@@ -29,34 +29,29 @@ factories are selected by `ath`, `athd`, or MCP composition roots. Process-globa
 Indexing uses bounded phases and staged publication. Documentation generation uses strict request,
 manifest, outline, context, citation, draft, validation, and current-pointer contracts.
 
-The architecture profile loads one exact committed canonical snapshot through the configured Store,
-applies hard limits, emits cited Markdown/Mermaid output, and publishes immutable checksum-bound
-generations. Its CLI and validated inspection are execution-confirmed.
+Architecture documentation is execution-confirmed through Slice 1C2: exact committed-snapshot Store
+loading, immutable checksum-bound publication, CLI generation, and validated inspection.
 
-The module profile is source-implemented through Slice 2C: pure inventory, module-scoped evidence,
-immutable publication, exact Store loading, CLI generation, and validated inspection.
+Module, API, and operations profiles are source-implemented through Slices 2C, 3C, and 4C respectively.
+Their production surfaces use deterministic bounded context, immutable publication, exact Store loading,
+CLI generation, validated inspection, and profile-aware shared `current.json`.
 
-The API profile is source-implemented through Slice 3C: endpoint/schema/example inventory, scoped facts,
-supported canonical relations, open diagnostics, immutable publication, exact Store loading, CLI, and
-validated inspection.
+Onboarding is source-implemented through Slice 5B as a pure exact-snapshot profile. Anchor inventory is
+`DocumentationPage`, `DocumentationSection`, `Package`, `ScriptCommand`, `EnvVar`, and `TestCase`/`CiJob`
+with deterministic six-category round-robin selection. Facts are scoped when subject or object is a
+selected anchor. Supported relations are `Contains`, `Documents`, `UsesEnv`, and `TestedBy`; relations must
+touch a selected anchor. Only open diagnostics referencing an anchor enter the context.
 
-Operations documentation is source-implemented through Slice 4C. Slices 4A–4B provide the bounded exact
-snapshot profile with six-category entity selection, operations-scoped facts, a canonical relation allowlist,
-open diagnostics, aggregate 256-item budgeting, cited Mermaid, omissions, and deterministic SHA-256 output.
-Slice 4C adds immutable `operations/index.md` publication, exact Store loading, CLI generation, and
-validated inspection.
-
-Onboarding Slice 5A is source-implemented as a pure exact-snapshot profile. It projects evidence-backed
-documentation pages/sections, packages, runnable script commands, environment variables, and test/CI
-verification entrypoints through deterministic six-category round-robin selection into
-`onboarding/index.md`. It uses the shared portable evidence owner and `DOCUMENTATION_REFERENCE_LIMIT = 256`;
-facts, relations, diagnostics, publication, Store loading, and CLI are still deferred.
+Onboarding applies per-kind hard limits followed by deterministic aggregate Entity/Fact/Relation/Diagnostic
+round-robin under `DOCUMENTATION_REFERENCE_LIMIT = 256`. Every context item is cited; supported relations
+produce cited Mermaid edges, and omitted supported relations are explicitly disclosed. Shared portable
+evidence normalization remains the single path/evidence owner. `onboarding/index.md` is deterministic and
+SHA-256-bound. Publication, Store, CLI, and inspection remain Slice 5C work.
 
 The shared `current.json` remains profile-aware across architecture, module, API, and operations. Onboarding
-does not join that publication lifecycle until Slice 5C. Existing inspectors continue to fail closed when
-another published profile owns the current pointer.
+does not join that publication lifecycle until Slice 5C. Existing inspectors fail closed on another profile.
 
-Supported deterministic documentation CLI surface includes:
+Supported deterministic documentation CLI surface remains:
 
 ```bash
 ath docs generate-architecture <PATH> --snapshot <EXACT-ID> [--force] [--json]
@@ -70,14 +65,13 @@ ath docs operations current|manifest|validation <PATH> [--json]
 ath docs operations check [--path <PATH>] [--json]
 ```
 
-All generation surfaces retain hard-limit flags. Generation has no latest-snapshot fallback. Ctrl-C
-cancels and drains the operation before returning. The existing coordinated `ath generate` command is unchanged.
+All generation surfaces retain hard-limit flags and have no latest-snapshot fallback. Ctrl-C cancels and
+drains generation. The existing coordinated `ath generate` command is unchanged.
 
 ### Exact Evidence
 
-Released product baseline remains `609027eb02caa05346ebfea8538552c42b588c31` with CI
-`29995959544`, AppSec `29995960063`, Store `29995959512`, release `29996579628`, and clean-install
-smoke `29998347890`.
+Released baseline remains `609027eb02caa05346ebfea8538552c42b588c31`: CI `29995959544`, AppSec
+`29995960063`, Store `29995959512`, release `29996579628`, clean-install smoke `29998347890`.
 
 Slices 1A–1B are confirmed on `0cfeca8ad4dc3c0632246afa01e43372f4ec3d71`: CI `30013208011`,
 AppSec `30013208197`, Store `30013208312`.
@@ -102,12 +96,10 @@ Relation-disclosure tuning is evaluation-confirmed on
 `6862aee81dd0f53fa8372d1ce3fcb6e2ed198cca`: evaluation `32712992516`, probe `32712992421`,
 `unsupported_relations = 6962`, `unsupported_relation_disclosed = true`.
 
-Slice 2A landed on `658d53fb03dd47a971beb6cf67b46cfe1f20b3fe`; its post-merge Rustok evaluation,
-probe, AppSec, and Store contexts are green. Slice 2C landed on
-`b9e0eadc46175e15ec62f915a4729287f3884cd2`; Store Conformance `32718598218`, Rustok evaluation
-`32718598212`, and Rustok probe `32718598232` are green. Slice 3A landed on
-`0a4c0f78ef05b6c2ba9480b770c1ebf72038e049`; Rustok evaluation `32719989413` and Rustok probe
-`32719989450` are green. These do not substitute for focused module/API/operations/onboarding execution evidence.
+Slice 2A landed on `658d53fb03dd47a971beb6cf67b46cfe1f20b3fe`; Slice 2C landed on
+`b9e0eadc46175e15ec62f915a4729287f3884cd2`. Slice 3A landed on
+`0a4c0f78ef05b6c2ba9480b770c1ebf72038e049`. Their later green generic contexts do not substitute for
+focused module/API/operations/onboarding execution evidence.
 
 ## Implemented Packages
 
@@ -129,16 +121,16 @@ probe, AppSec, and Store contexts are green. Slice 2C landed on
 - [x] Slices 2A–2C: module inventory/evidence/publication/Store/CLI/inspection;
 - [x] Slices 3A–3C: API inventory/evidence/publication/Store/CLI/inspection;
 - [x] Slices 4A–4C: operations inventory/evidence/publication/exact Store/CLI/inspection;
-- [x] Slice 5A: pure onboarding inventory, six-category round-robin, shared portable evidence, citations,
-  omissions, `onboarding/index.md`, shared 256 ceiling, checksum binding, and source regressions;
-- [ ] Focused module 2B–2C, API 3A–3C, operations 4A–4C, and onboarding 5A execution evidence remains pending.
+- [x] Slice 5A: pure onboarding inventory, six-category selection, citations, omissions, checksum binding;
+- [x] Slice 5B: onboarding-scoped facts, bounded `Contains`/`Documents`/`UsesEnv`/`TestedBy` relations,
+  open diagnostics, cited Mermaid, relation disclosure, mixed-kind aggregate 256 budget, source regressions;
+- [ ] Focused module 2B–2C, API 3A–3C, operations 4A–4C, and onboarding 5A–5B execution evidence pending.
 
 `DOCGEN-001` remains in progress. Architecture is execution-confirmed; module/API/operations production
-surfaces and onboarding 5A are source-implemented but are not promoted to verified without focused execution gates.
+surfaces and onboarding 5A–5B are source-implemented but are not promoted to verified without focused gates.
 
 ## Product Backlog
 
-- Slice 5B: onboarding-scoped facts, bounded supported relations, and open diagnostics;
-- Slice 5C: immutable onboarding publication, exact Store operation, CLI, and validated inspection;
+- Slice 5C: immutable onboarding publication, exact Store operation, CLI, validated inspection;
 - broader framework adapters and completeness reporting;
 - optional i18n, semantic/vector retrieval, provider, daemon, and MCP integration after quality gates.
