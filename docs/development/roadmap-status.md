@@ -56,7 +56,8 @@ generation, and validated inspection.
 Slice 6A adds a pure exact-snapshot documentation completeness report over the canonical baseline `file`
 inventory. It reports processed/unprocessed files, per-language basis-point coverage, named non-baseline
 adapter contribution across facts/relations/diagnostics, deterministic limits/omissions, and keeps entity-only
-canonical processing visible without inventing adapter attribution. Store/CLI integration remains deferred.
+canonical processing visible without inventing adapter attribution. Exact Store/CLI and the versioned JSON
+transport contract remain deferred to Slice 6B.
 
 The shared `current.json` is profile-aware across architecture, module, API, operations, and onboarding.
 Every inspector fails closed when another published profile owns the current pointer.
