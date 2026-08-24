@@ -321,7 +321,14 @@ mod tests {
         assert_eq!(entity.payload["dynamic"], json!(true));
         assert_eq!(output.facts[0].kind, FactKind::RouteDeclared);
         assert_eq!(output.facts[0].extractor, NEXTJS_EXTRACTOR_NAME);
-        assert_eq!(output.facts[0].object.as_ref().unwrap().0.starts_with("ent_file_"), true);
+        assert!(
+            output.facts[0]
+                .object
+                .as_ref()
+                .unwrap()
+                .0
+                .starts_with("ent_file_")
+        );
         assert!(!output.facts[0].evidence.is_empty());
         assert!(!output.facts[0].ownership.is_empty());
     }
