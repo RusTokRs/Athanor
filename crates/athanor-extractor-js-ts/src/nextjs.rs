@@ -7,6 +7,7 @@ use athanor_extractor_basic::{evidence_for_file, file_entity, ownership_for_file
 use serde_json::json;
 
 const NEXTJS_EXTRACTOR_NAME: &str = "nextjs";
+const NEXTJS_ROUTE_ENTITY_KIND: &str = "nextjs_route";
 
 #[derive(Debug, Clone, Default)]
 pub struct NextJsExtractor;
@@ -30,7 +31,7 @@ impl Extractor for NextJsExtractor {
             return Ok(ExtractOutput::default());
         };
         let normalized_path = normalize_path(&input.source.path);
-        let stable_key = StableKey(format!("feature://nextjs:{normalized_path}#route"));
+        let stable_key = StableKey(format!("nextjs-route://{normalized_path}#route"));
         let entity_id = EntityId(format!(
             "ent_nextjs_route_{:016x}",
             stable_hash(stable_key.0.as_bytes())
@@ -47,7 +48,7 @@ impl Extractor for NextJsExtractor {
         let entity = Entity {
             id: entity_id.clone(),
             stable_key: stable_key.clone(),
-            kind: EntityKind::Feature,
+            kind: EntityKind::Other(NEXTJS_ROUTE_ENTITY_KIND.to_string()),
             name: route.route.clone(),
             title: Some(format!("Next.js {} {}", route.kind.label(), route.route)),
             source: Some(SourceLocation {
@@ -59,7 +60,6 @@ impl Extractor for NextJsExtractor {
             aliases: Vec::new(),
             ownership: ownership.clone(),
             payload: json!({
-                "feature_kind": "nextjs_route",
                 "framework": "nextjs",
                 "router": route.router.as_str(),
                 "route_kind": route.kind.as_str(),
@@ -313,7 +313,10 @@ mod tests {
         assert_eq!(output.entities.len(), 1);
         assert_eq!(output.facts.len(), 1);
         let entity = &output.entities[0];
-        assert_eq!(entity.kind, EntityKind::Feature);
+        assert_eq!(
+            entity.kind,
+            EntityKind::Other(NEXTJS_ROUTE_ENTITY_KIND.to_string())
+        );
         assert_eq!(entity.payload["framework"], json!("nextjs"));
         assert_eq!(entity.payload["router"], json!("app"));
         assert_eq!(entity.payload["route_kind"], json!("page"));
@@ -364,7 +367,7 @@ mod tests {
         assert_eq!(entity.payload["source_path"], json!("src/app/dashboard/page.tsx"));
         assert_eq!(
             entity.stable_key.0,
-            "feature://nextjs:src/app/dashboard/page.tsx#route"
+            "nextjs-route://src/app/dashboard/page.tsx#route"
         );
     }
 
