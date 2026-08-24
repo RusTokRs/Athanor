@@ -46,9 +46,15 @@ open diagnostics, aggregate 256-item budgeting, cited Mermaid, omissions, and de
 Slice 4C adds immutable `operations/index.md` publication, exact Store loading, CLI generation, and
 validated inspection.
 
-The shared `current.json` is now profile-aware across architecture, module, API, and operations. Each
-inspector fails closed when another profile owns the current pointer; operations publication retains the
-same staged immutable lifecycle, exact `UpToDate`, force/tamper recovery, and cancellation semantics.
+Onboarding Slice 5A is source-implemented as a pure exact-snapshot profile. It projects evidence-backed
+documentation pages/sections, packages, runnable script commands, environment variables, and test/CI
+verification entrypoints through deterministic six-category round-robin selection into
+`onboarding/index.md`. It uses the shared portable evidence owner and `DOCUMENTATION_REFERENCE_LIMIT = 256`;
+facts, relations, diagnostics, publication, Store loading, and CLI are still deferred.
+
+The shared `current.json` remains profile-aware across architecture, module, API, and operations. Onboarding
+does not join that publication lifecycle until Slice 5C. Existing inspectors continue to fail closed when
+another published profile owns the current pointer.
 
 Supported deterministic documentation CLI surface includes:
 
@@ -101,7 +107,7 @@ probe, AppSec, and Store contexts are green. Slice 2C landed on
 `b9e0eadc46175e15ec62f915a4729287f3884cd2`; Store Conformance `32718598218`, Rustok evaluation
 `32718598212`, and Rustok probe `32718598232` are green. Slice 3A landed on
 `0a4c0f78ef05b6c2ba9480b770c1ebf72038e049`; Rustok evaluation `32719989413` and Rustok probe
-`32719989450` are green. These do not substitute for focused module/API/operations execution evidence.
+`32719989450` are green. These do not substitute for focused module/API/operations/onboarding execution evidence.
 
 ## Implemented Packages
 
@@ -122,16 +128,17 @@ probe, AppSec, and Store contexts are green. Slice 2C landed on
 - [x] repaired aggregate citation selection, exact Rustok evaluation, and relation disclosure;
 - [x] Slices 2A–2C: module inventory/evidence/publication/Store/CLI/inspection;
 - [x] Slices 3A–3C: API inventory/evidence/publication/Store/CLI/inspection;
-- [x] Slices 4A–4B: operations inventory/evidence, relation allowlist, diagnostics, cited Mermaid, omissions;
-- [x] Slice 4C: immutable operations publication, exact Store operation, `generate-operations`, validated
-  `operations current|manifest|validation`, profile-isolated shared `current.json`, and source regressions;
-- [ ] Focused module 2B–2C, API 3A–3C, and operations 4A–4C execution evidence remains pending.
+- [x] Slices 4A–4C: operations inventory/evidence/publication/exact Store/CLI/inspection;
+- [x] Slice 5A: pure onboarding inventory, six-category round-robin, shared portable evidence, citations,
+  omissions, `onboarding/index.md`, shared 256 ceiling, checksum binding, and source regressions;
+- [ ] Focused module 2B–2C, API 3A–3C, operations 4A–4C, and onboarding 5A execution evidence remains pending.
 
 `DOCGEN-001` remains in progress. Architecture is execution-confirmed; module/API/operations production
-surfaces are source-implemented but are not promoted to verified without focused execution gates.
+surfaces and onboarding 5A are source-implemented but are not promoted to verified without focused execution gates.
 
 ## Product Backlog
 
-- onboarding documentation profile;
+- Slice 5B: onboarding-scoped facts, bounded supported relations, and open diagnostics;
+- Slice 5C: immutable onboarding publication, exact Store operation, CLI, and validated inspection;
 - broader framework adapters and completeness reporting;
 - optional i18n, semantic/vector retrieval, provider, daemon, and MCP integration after quality gates.
