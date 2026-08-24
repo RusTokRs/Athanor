@@ -9,13 +9,16 @@ status: active
 
 ## Status
 
-In progress. Slices 0A–1C are execution-confirmed. The supported exact-snapshot CLI generation and
-validated inspection surface has passed the full cross-platform matrix. The repaired bounded Rustok
-evaluation is exact-commit green on `f1024cbc52f05de4d3ce96c556ef044ad48b3a0e`, but artifact review
-found one remaining usability defect: the validation metric reported `6962` unsupported relations while
-the generated Markdown did not explicitly disclose them. The current bounded step closes that review
-finding before profile expansion.
-The existing coordinated `ath generate` command is unchanged. No model provider, daemon, MCP, or new dependency is enabled.
+In progress. Slices 0A–1C are execution-confirmed. The supported exact-snapshot architecture CLI and
+validated inspection surface has passed the full cross-platform matrix. The bounded Rustok evaluation
+repair is fully matrix-confirmed on `f1024cbc52f05de4d3ce96c556ef044ad48b3a0e`, and the follow-up
+unsupported-relation disclosure is exact-evaluation-confirmed on
+`6862aee81dd0f53fa8372d1ce3fcb6e2ed198cca` with `unsupported_relation_disclosed = true`.
+
+Slice 2A now begins profile expansion with a pure deterministic module inventory profile. Its source and
+focused regressions are present; execution evidence remains pending. The existing coordinated
+`ath generate` command is unchanged. No model provider, daemon, MCP, module publication, or new
+dependency is enabled.
 
 ```text
 source files -> adapters -> exact committed snapshot -> bounded context -> cited document -> immutable generation
@@ -31,6 +34,7 @@ source files -> adapters -> exact committed snapshot -> bounded context -> cited
 - Invalid, tampered, or cancelled work cannot advance `current.json`.
 - Inspection validates path confinement, identities, exact artifact layout, and checksums.
 - Editable documentation remains an explicit patch workflow.
+- New profiles are introduced as pure deterministic owners before publication or transport integration.
 
 ## Implemented Contracts
 
@@ -42,6 +46,9 @@ source files -> adapters -> exact committed snapshot -> bounded context -> cited
 - `athanor.documentation_draft.v1`
 - `athanor.documentation_validation_report.v1`
 - `athanor.documentation_current.v1`
+
+`DocumentationProfile` now contains the backward-compatible serialized variants `architecture` and
+`module`; the request and downstream v1 contracts remain the same schemas.
 
 No reference becomes a dependency without license, maintenance, MSRV, security, adapter-boundary,
 fixture-comparison, and replacement analysis.
@@ -102,6 +109,30 @@ snapshot/profile drift, invalid validation status, and checksum mismatch.
 Executable regression coverage indexes a real temporary project, captures the exact snapshot ID,
 generates and inspects all outputs, verifies repeated `up_to_date`, and rejects a missing snapshot.
 
+### Slice 2A — Deterministic Module Inventory Profile
+
+`build_documentation_module_profile` is a new pure application owner for
+`DocumentationProfile::Module`. The slice intentionally proves the smallest useful profile boundary
+before module publication or evidence enrichment:
+
+- requires one exact snapshot identity and rejects any non-`module` request;
+- selects only source-backed canonical `EntityKind::Module` entries;
+- orders candidates by stable key and entity id, making input ordering irrelevant;
+- applies `max_entities` and the shared `DOCUMENTATION_REFERENCE_LIMIT` of 256;
+- records omitted module count when the requested limit or aggregate reference ceiling truncates input;
+- emits `Module Overview` and `Modules` sections with one evidence citation per selected module;
+- renders deterministic `modules/index.md` and binds it to a lowercase SHA-256 checksum;
+- keeps provider/network/raw-file/secrets policy disabled and emits no provider metrics;
+- fails closed for wrong profile, wrong snapshot, or a snapshot with no source-backed module entities.
+
+Slice 2A intentionally sets module facts, relations, diagnostics, publication, Store loading, CLI,
+daemon, MCP, and provider integration out of scope. Those additions must reuse shared evidence semantics
+rather than copy architecture-profile helper logic into a second owner.
+
+Focused regression coverage checks serialized `module` identity, exact snapshot binding, citations,
+checksum, stable ordering, ordering invariance, limit omissions, and fail-closed cases. This source
+coverage is not execution evidence until the relevant Rust verification commands succeed.
+
 ## Execution Evidence
 
 - Slices 0A–0B: source `2a049303e797f00ac53f1e91fc010f284993926d`; CI `30005828864`,
@@ -122,6 +153,12 @@ generates and inspects all outputs, verifies repeated `up_to_date`, and rejects 
   produced `256` citation footnotes and `84` Mermaid edges, and reported all three validity metrics at
   `10_000` basis points. Artifact review found `8740` omitted entities, `8403` omitted facts, `6962`
   omitted/unsupported relations, no omitted diagnostics, and `unsupported_relation_disclosed = false`.
+- Relation-disclosure tuning: source `6862aee81dd0f53fa8372d1ce3fcb6e2ed198cca`; evaluation
+  `32712992516`, probe `32712992421`. The uploaded artifact again published generation `00000001`,
+  repeated as `up_to_date`, retained `256` citation footnotes and `84` Mermaid edges, reported
+  `unsupported_relations = 6962`, and now records `unsupported_relation_disclosed = true`. This is exact
+  evaluation evidence; no new full CI/AppSec/Store matrix is claimed for this SHA.
+- Slice 2A module inventory: source implementation and regressions present; execution evidence pending.
 
 The Slice 1C2 matrix covered formatting, workspace tests, Clippy, Linux/macOS/Windows smoke, installers,
 default/store-surreal/js-ts-precision/all-features, cargo-deny, documentation checks, and source coverage.
@@ -140,24 +177,21 @@ diagnostic, fills all `256` citations, remains valid, and is invariant to canoni
 
 The repaired workflows preserve JSON stdout separately from stderr, construct status endpoints from
 environment variables, and expose `workflow_dispatch`. The exact run on
-`f1024cbc52f05de4d3ce96c556ef044ad48b3a0e` proved the repaired path end-to-end. Its uploaded artifact
-also exposed the next review finding: omitted relations were present in manifest/validation metrics but
-not named as unsupported in the human-facing Markdown.
-
-The current tuning slice therefore adds an explicit `Unsupported relations` disclosure derived from the
-same deterministic omitted relation count, adds source regression coverage, and makes the bounded Rustok
-evaluation fail when `unsupported_relations > 0` without the disclosure. This keeps the metric and human
-artifact aligned without expanding the contract or selecting more evidence.
+`f1024cbc52f05de4d3ce96c556ef044ad48b3a0e` proved the repaired path end-to-end. The follow-up exact run
+on `6862aee81dd0f53fa8372d1ce3fcb6e2ed198cca` proves the generated Markdown now explicitly discloses
+unsupported relations while deterministic repeatability remains unchanged.
 
 ## Next Bounded Step
 
-1. Publish the unsupported-relation disclosure and fail-closed evaluation guard.
-2. Obtain exact-commit evaluation/CI/AppSec/Store evidence and confirm the uploaded evaluation summary
-   reports `unsupported_relation_disclosed = true` with deterministic repeatability unchanged.
-3. After that review finding is closed, begin the first additional deterministic profile as a separate
-   bounded package; module documentation is first in backlog.
+1. Obtain formatting/build/test/Clippy execution evidence for Slice 2A, including the focused module
+   profile inventory regression.
+2. Implement Slice 2B as module-scoped evidence enrichment: facts, relations, and open diagnostics must
+   be selected through shared/reused evidence semantics rather than duplicated architecture helpers.
+3. Only after the enriched module profile is quality-gated, add immutable module publication, exact Store
+   loading, and CLI/inspection as a separate Slice 2C.
 
-Provider, daemon, MCP, and changes to coordinated `ath generate` remain later work.
+Provider, daemon, MCP, API/operations/onboarding profiles, and changes to coordinated `ath generate`
+remain later work.
 
 ## Verification
 
@@ -166,6 +200,7 @@ cargo fmt --all -- --check
 cargo test -p athanor-app --test documentation_generation_contract_inventory --locked
 cargo test -p athanor-app --test documentation_generation_slice0b_inventory --locked
 cargo test -p athanor-app --test documentation_architecture_profile_inventory --locked
+cargo test -p athanor-app --test documentation_module_profile_inventory --locked
 cargo test -p athanor-app --test documentation_architecture_publication_inventory --locked
 cargo test -p athanor-app --test documentation_architecture_inspection_inventory --locked
 cargo test -p athanor-app --test documentation_status_inventory --locked
