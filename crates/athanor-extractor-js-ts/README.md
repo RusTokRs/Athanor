@@ -23,10 +23,11 @@ Next.js filesystem route conventions and is registered independently as `builtin
 - feature-gated parser verification diagnostics for backend-only findings, source-range mismatches,
   and recovery differences between tree-sitter and Oxc
 
-`NextJsExtractor` emits one source-backed `EntityKind::Feature` and one `FactKind::RouteDeclared` for
-recognized App Router `page`/`route` files and Pages Router route files. It preserves dynamic route
-segments and records framework/router/route-kind metadata without inferring HTTP methods or React
-component semantics.
+`NextJsExtractor` emits one source-backed `EntityKind::Other("nextjs_route")` and one
+`FactKind::RouteDeclared` for recognized App Router `page`/`route` files and Pages Router route files.
+The adapter-scoped entity kind prevents generic operations/API/onboarding profiles from treating a web
+route as one of their own anchors. Dynamic segments and framework/router/route-kind metadata are
+preserved without inferring HTTP methods or React component semantics.
 
 All emitted objects include ownership metadata for the source file. Facts and diagnostics include source evidence.
 
@@ -53,10 +54,10 @@ symbol://js-ts:src/auth.ts#login
 symbol://js-ts:src/App.tsx#App
 package://npm:example-app
 dependency://npm:@scope/package
-feature://nextjs:src/app/products/[id]/page.tsx#route
+nextjs-route://src/app/products/[id]/page.tsx#route
 ```
 
-Source declarations are scoped to the project-relative file path. Package dependency stable keys are scoped by npm package name. Next.js route features are source-backed so conflicting route files remain distinct.
+Source declarations are scoped to the project-relative file path. Package dependency stable keys are scoped by npm package name. Next.js route entities are source-backed so conflicting route files remain distinct.
 
 ## Parser Backend
 
