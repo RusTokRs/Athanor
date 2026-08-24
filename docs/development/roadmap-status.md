@@ -40,16 +40,17 @@ The API profile is source-implemented through Slice 3C: endpoint/schema/example 
 supported canonical relations, open diagnostics, immutable publication, exact Store loading, CLI, and
 validated inspection.
 
-Operations documentation is source-implemented through Slice 4B. The pure exact-snapshot owner selects
-evidence-backed environment, automation, deployment, database, configuration, runbook, and operation-step
-entities by deterministic six-category round-robin; operations-scoped facts, a bounded relation allowlist,
-and open scoped diagnostics then share the aggregate 256-item context budget. Supported relations emit
-cited Mermaid edges, omissions are explicit, and `operations/index.md` remains SHA-256 bound.
+Operations documentation is source-implemented through Slice 4C. Slices 4A–4B provide the bounded exact
+snapshot profile with six-category entity selection, operations-scoped facts, a canonical relation allowlist,
+open diagnostics, aggregate 256-item budgeting, cited Mermaid, omissions, and deterministic SHA-256 output.
+Slice 4C adds immutable `operations/index.md` publication, exact Store loading, CLI generation, and
+validated inspection.
 
-Operations still has no publication/Store/CLI/inspection surface, so it does not participate in the shared
-`current.json` lifecycle yet. Architecture/module/API profile isolation remains unchanged.
+The shared `current.json` is now profile-aware across architecture, module, API, and operations. Each
+inspector fails closed when another profile owns the current pointer; operations publication retains the
+same staged immutable lifecycle, exact `UpToDate`, force/tamper recovery, and cancellation semantics.
 
-Supported deterministic documentation CLI surface remains:
+Supported deterministic documentation CLI surface includes:
 
 ```bash
 ath docs generate-architecture <PATH> --snapshot <EXACT-ID> [--force] [--json]
@@ -58,6 +59,9 @@ ath docs generate-module <PATH> --snapshot <EXACT-ID> [--force] [--json]
 ath docs module current|manifest|validation <PATH> [--json]
 ath docs generate-api <PATH> --snapshot <EXACT-ID> [--force] [--json]
 ath docs api current|manifest|validation <PATH> [--json]
+ath docs generate-operations <PATH> --snapshot <EXACT-ID> [--force] [--json]
+ath docs operations current|manifest|validation <PATH> [--json]
+ath docs operations check [--path <PATH>] [--json]
 ```
 
 All generation surfaces retain hard-limit flags. Generation has no latest-snapshot fallback. Ctrl-C
@@ -118,19 +122,16 @@ probe, AppSec, and Store contexts are green. Slice 2C landed on
 - [x] repaired aggregate citation selection, exact Rustok evaluation, and relation disclosure;
 - [x] Slices 2A–2C: module inventory/evidence/publication/Store/CLI/inspection;
 - [x] Slices 3A–3C: API inventory/evidence/publication/Store/CLI/inspection;
-- [x] Slice 4A: pure exact operations inventory, six-category round-robin, portable evidence, citations,
-  omissions, `operations/index.md`, SHA-256, shared 256 ceiling, and fail-closed regressions;
-- [x] Slice 4B: operations-scoped facts, `Defines`/`Contains`/`Documents`/`DocumentsOperation`/`UsesEnv`/
-  `QueriesTable` relation allowlist, open scoped diagnostics, aggregate budgeting, cited Mermaid, omissions,
-  and deterministic scope/order regressions;
-- [ ] Focused module 2B–2C, API 3A–3C, and operations 4A–4B execution evidence remains pending.
+- [x] Slices 4A–4B: operations inventory/evidence, relation allowlist, diagnostics, cited Mermaid, omissions;
+- [x] Slice 4C: immutable operations publication, exact Store operation, `generate-operations`, validated
+  `operations current|manifest|validation`, profile-isolated shared `current.json`, and source regressions;
+- [ ] Focused module 2B–2C, API 3A–3C, and operations 4A–4C execution evidence remains pending.
 
-`DOCGEN-001` remains in progress. Architecture is execution-confirmed; module/API production surfaces and
-operations 4A–4B are source-implemented but are not promoted to verified without focused execution gates.
+`DOCGEN-001` remains in progress. Architecture is execution-confirmed; module/API/operations production
+surfaces are source-implemented but are not promoted to verified without focused execution gates.
 
 ## Product Backlog
 
-- Slice 4C: immutable operations publication, exact Store operation, CLI, and validated inspection;
 - onboarding documentation profile;
 - broader framework adapters and completeness reporting;
 - optional i18n, semantic/vector retrieval, provider, daemon, and MCP integration after quality gates.
