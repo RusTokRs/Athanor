@@ -15,8 +15,9 @@ matrix-confirmed on `f1024cbc52f05de4d3ce96c556ef044ad48b3a0e`; the human-facing
 disclosure is exact-evaluation-confirmed on `6862aee81dd0f53fa8372d1ce3fcb6e2ed198cca`.
 
 Module expansion is source-implemented through Slice 2C, API through Slice 3C, operations through Slice
-4C, and onboarding through Slice 5C. Focused module, API, operations, and onboarding format/test/Clippy
-evidence remains pending and is not inferred from source presence.
+4C, onboarding through Slice 5C, and documentation completeness through Slice 6B. Focused module, API,
+operations, onboarding, and completeness format/test/Clippy evidence remains pending and is not inferred
+from source presence.
 
 The existing coordinated `ath generate` command is unchanged. No model provider, daemon, MCP, or new dependency is enabled.
 
@@ -45,6 +46,7 @@ source files -> adapters -> exact committed snapshot -> bounded context -> cited
 - `athanor.documentation_draft.v1`
 - `athanor.documentation_validation_report.v1`
 - `athanor.documentation_current.v1`
+- `athanor.documentation_completeness.v1`
 
 `DocumentationProfile` contains `architecture`, `module`, `api`, `operations`, and `onboarding`; the v1
 schema names remain unchanged.
@@ -158,6 +160,22 @@ or layout drift, invalid validation status, and checksum drift.
 - Shared `current.json` is profile-isolated across architecture, module, API, operations, and onboarding.
 - Onboarding profile/publication/Store/CLI source regressions are present; focused execution evidence remains pending.
 
+### Slices 6A–6B — Documentation Completeness Reporting
+
+- Slice 6A adds a pure exact-snapshot completeness owner over canonical baseline `EntityKind::File` inventory.
+  It reports tracked/processed/unprocessed files, per-language basis-point coverage, named non-baseline adapter
+  contribution across facts/relations/diagnostics, deterministic limits/omissions, and keeps entity-only
+  canonical processing visible without inventing adapter attribution.
+- Adapter file contribution is confined to baseline-tracked portable paths; generated/untracked evidence cannot
+  inflate tracked-file coverage. Shared documentation evidence/path normalization remains the path policy owner.
+- Slice 6B initializes the configured Store and loads only exact `SnapshotId(request.snapshot)`; missing snapshots,
+  identity mismatch, invalid requests, and cancellation fail closed. There is no latest-snapshot fallback.
+- `ath docs completeness <PATH> --snapshot <EXACT-ID> [--limit N] [--json]` is read-only and publishes no
+  generation/current pointer. Ctrl-C cancels and drains the exact Store/report operation.
+- JSON output uses registered `athanor.documentation_completeness.v1` through
+  `VersionedDocumentationCompletenessReport`; registry uniqueness and a golden fixture are source protected.
+- Completeness source regressions are present; focused format/test/Clippy execution evidence remains pending.
+
 ## Execution Evidence
 
 - Slices 0A–0B: source `2a049303e797f00ac53f1e91fc010f284993926d`; CI `30005828864`,
@@ -183,16 +201,18 @@ or layout drift, invalid validation status, and checksum drift.
   `32718598218`, Rustok evaluation `32718598212`, and Rustok probe `32718598232` are green.
 - Slice 3A landed on `0a4c0f78ef05b6c2ba9480b770c1ebf72038e049`; Rustok evaluation
   `32719989413` and Rustok probe `32719989450` are green. These are not focused API profile evidence.
-- Slices 2B–2C, API Slices 3A–3C, operations Slices 4A–4C, and onboarding Slices 5A–5C remain
-  execution-pending for focused gates.
+- Slices 2B–2C, API Slices 3A–3C, operations Slices 4A–4C, onboarding Slices 5A–5C, and completeness
+  Slices 6A–6B remain execution-pending for focused gates.
 
 The repaired bounded Rustok architecture-generation evaluation retains `DOCUMENTATION_REFERENCE_LIMIT`,
 `workflow_dispatch` support, and diagnostic evidence checks as explicit regression boundaries.
 
 ## Next Bounded Step
 
-1. Record formatting/build/test/Clippy evidence for module 2B–2C, API 3A–3C, operations 4A–4C, and onboarding 5A–5C.
-2. Take the next deterministic documentation package from broader framework adapters/completeness reporting.
+1. Record formatting/build/test/Clippy evidence for module 2B–2C, API 3A–3C, operations 4A–4C,
+   onboarding 5A–5C, and completeness 6A–6B.
+2. Use an exact completeness report to select the first bounded framework-adapter gap; do not add adapters
+   speculatively or broaden the report into filesystem/latest-snapshot heuristics.
 3. Keep provider, daemon, MCP, and coordinated `ath generate` changes out until separate deterministic
    quality gates justify them.
 
@@ -200,6 +220,9 @@ The repaired bounded Rustok architecture-generation evaluation retains `DOCUMENT
 
 ```bash
 cargo fmt --all -- --check
+cargo test -p athanor-app --test documentation_completeness_inventory --locked
+cargo test -p athanor-app --test documentation_completeness_operation_inventory --locked
+cargo test -p athanor-app --test documentation_completeness_transport_inventory --locked
 cargo test -p athanor-app --test documentation_onboarding_profile_inventory --locked
 cargo test -p athanor-app --test documentation_onboarding_publication_inventory --locked
 cargo test -p athanor-app --test documentation_onboarding_operation_inventory --locked
@@ -216,6 +239,7 @@ cargo test -p athanor-app --test documentation_module_profile_inventory --locked
 cargo test -p athanor-app --test documentation_module_publication_inventory --locked
 cargo test -p athanor-app --test documentation_module_inspection_inventory --locked
 cargo test -p athanor-app --test documentation_architecture_inspection_inventory --locked
+cargo test -p ath --test documentation_completeness_cli --locked
 cargo test -p ath --test documentation_onboarding_cli --locked
 cargo test -p ath --test documentation_operations_cli --locked
 cargo test -p ath --test documentation_api_cli --locked
