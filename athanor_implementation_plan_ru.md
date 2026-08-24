@@ -34,6 +34,9 @@ Documentation generation:
   `30015691399`, Store `30015689363`;
 - Slice 1C2: `042d02ac6b4c89d90a5b76c818098eb0c6b41920`, CI `30025932615`, AppSec
   `30025931953`, Store `30025932704`;
+- first bounded Rustok gate: source `5e0b28099c48e22bdc172fa57b6d51db9e6efb7b`, run `30029451096`,
+  failure `documentation draft citations must contain between 1 and 256 entries`;
+- isolated probe evidence: source `12a8687c5d098ab05a5988508816aad5f0dc3e23`, run `30030131126`;
 - repaired bounded Rustok evaluation: `f1024cbc52f05de4d3ce96c556ef044ad48b3a0e`, evaluation
   `31625608720`, probe `31625608721`, CI `31625608729`, AppSec `31625608723`, Store `31625608739`;
 - relation-disclosure tuning: `6862aee81dd0f53fa8372d1ce3fcb6e2ed198cca`, evaluation
@@ -97,7 +100,10 @@ Documentation generation:
 
 #### Bounded Rustok evaluation — repaired gate и artifact review closed
 
-- [x] Первый Rustok gate выявил aggregate citation overflow; общий reference budget исправлен на 256.
+- [x] Первый Rustok gate `5e0b28099c48e22bdc172fa57b6d51db9e6efb7b` / `30029451096`
+  остановился на `documentation draft citations must contain between 1 and 256 entries`; общий reference
+  budget исправлен на 256.
+- [x] Probe `12a8687c5d098ab05a5988508816aad5f0dc3e23` / `30030131126` зафиксировал repair path.
 - [x] Exact source `f1024cbc52f05de4d3ce96c556ef044ad48b3a0e` полностью green по evaluation,
   probe, Verification Matrix, AppSec и Store Conformance.
 - [x] Artifact review выявил undisclosed `unsupported_relations = 6962`.
