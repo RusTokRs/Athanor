@@ -4,18 +4,19 @@
 > Ветка: `main`  
 > Актуализировано: 2026-08-24  
 > Статус: `API-001`, `REL-001` verified; `DOCGEN-001 / Slices 0A–1C` execution-confirmed;
-> relation-disclosure tuning exact-evaluation-confirmed; Slice 2A module inventory implemented,
-> execution pending
+> relation-disclosure exact-evaluation-confirmed; module profile Slices 2A–2B implemented in source,
+> focused execution evidence pending
 
 ## 1. Статусы и evidence
 
-- `[x] implemented` — код и regressions присутствуют.
+- `[x] implemented` — код, документация и source regressions присутствуют.
 - `[-] in progress` — package Definition of Done закрыт частично.
 - `[x] verified` — required matrix успешна на одном exact source commit.
 - `[ ] planned` — следующий bounded этап.
 
 Promotion требует успешных `athanor/verification-matrix`, `athanor/appsec` и
-`athanor/store-conformance` на одном SHA.
+`athanor/store-conformance` на одном SHA, когда такой matrix входит в Definition of Done конкретного
+пакета. Наличие кода или metadata не является execution evidence.
 
 ## 2. Baselines
 
@@ -36,8 +37,10 @@ Documentation generation:
 - repaired bounded Rustok evaluation: `f1024cbc52f05de4d3ce96c556ef044ad48b3a0e`, evaluation
   `31625608720`, probe `31625608721`, CI `31625608729`, AppSec `31625608723`, Store `31625608739`;
 - relation-disclosure tuning: `6862aee81dd0f53fa8372d1ce3fcb6e2ed198cca`, evaluation
-  `32712992516`, probe `32712992421`; exact artifact confirms `unsupported_relation_disclosed = true`
-  with deterministic repeatability unchanged. Это evaluation evidence, не новый full matrix.
+  `32712992516`, probe `32712992421`; artifact confirms `unsupported_relation_disclosed = true`;
+- Slice 2A landed on `658d53fb03dd47a971beb6cf67b46cfe1f20b3fe`; post-merge contexts green:
+  Rustok evaluation `32714912841`, Rustok probe `32714912826`, AppSec `32714912809`, Store
+  Conformance `32714912932`. Focused module-profile format/test/Clippy evidence не заявляется.
 
 ## 3. Завершённые пакеты
 
@@ -90,65 +93,55 @@ Documentation generation:
 - [x] `ath docs architecture current|manifest|validation`.
 - [x] Inspection validates path confinement, identity, exact artifact layout and checksums.
 - [x] Executable test covers index → generate → inspect → `up_to_date` and missing snapshot.
-- [x] Exact matrix on `042d02ac6b4c89d90a5b76c818098eb0c6b41920`:
-  - Verification Matrix `30025932615`;
-  - AppSec `30025931953`;
-  - Store Conformance `30025932704`.
+- [x] Exact matrix on `042d02ac6b4c89d90a5b76c818098eb0c6b41920`.
 
 #### Bounded Rustok evaluation — repaired gate и artifact review closed
 
-- [x] Историческая попытка на `5e0b28099c48e22bdc172fa57b6d51db9e6efb7b`, workflow `30029451096`, с
-  точным RusTok `3b76a530c82c0faaed22ccec384d4fd950811862` завершила Index, но остановилась на
-  `documentation draft citations must contain between 1 and 256 entries`.
-- [x] Профиль применяет общий `DOCUMENTATION_REFERENCE_LIMIT` в `256` context/citations после per-kind
-  caps; deterministic round-robin сохраняет представленные kinds и корректно раскрывает omissions.
-- [x] Evaluation/probe workflows разделяют JSON stdout и stderr, используют environment variables для
-  status endpoint и имеют `workflow_dispatch`.
-- [x] Exact source `f1024cbc52f05de4d3ce96c556ef044ad48b3a0e` полностью green:
-  - Rustok evaluation `31625608720`;
-  - Rustok probe `31625608721`;
-  - Verification Matrix `31625608729`;
-  - AppSec `31625608723`;
-  - Store Conformance `31625608739`.
-- [x] Uploaded evaluation artifact: Rustok revision `3b76a530c82c0faaed22ccec384d4fd950811862`, `681` files,
-  `4_193_940` bytes, snapshot `snap_jsonl_00000001`, generation `00000001`, repeat `up_to_date`, `256`
-  citation footnotes, `84` Mermaid edges, citation/diagram validity `10_000` bp.
-- [x] Artifact review нашёл tuning: `8740` entities, `8403` facts и `6962` relations omitted;
-  validation сообщала `unsupported_relations = 6962`, но исходный Markdown не содержал явного disclosure.
-- [x] Tuning опубликован в `6862aee81dd0f53fa8372d1ce3fcb6e2ed198cca`: human-facing Markdown явно
-  раскрывает unsupported relations, source regression связывает disclosure с metric, а evaluation fail
-  closed при `unsupported_relations > 0` без disclosure.
-- [x] Exact evaluation `32712992516` и probe `32712992421` на `6862aee81dd0f53fa8372d1ce3fcb6e2ed198cca`
-  успешны; artifact сохраняет `unsupported_relations = 6962`, теперь
-  `unsupported_relation_disclosed = true`, repeat остаётся `up_to_date`.
+- [x] Первый Rustok gate выявил aggregate citation overflow; общий reference budget исправлен на 256.
+- [x] Exact source `f1024cbc52f05de4d3ce96c556ef044ad48b3a0e` полностью green по evaluation,
+  probe, Verification Matrix, AppSec и Store Conformance.
+- [x] Artifact review выявил undisclosed `unsupported_relations = 6962`.
+- [x] `6862aee81dd0f53fa8372d1ce3fcb6e2ed198cca` добавил explicit disclosure и fail-closed guard.
+- [x] Exact evaluation `32712992516` и probe `32712992421` успешны;
+  `unsupported_relation_disclosed = true`, deterministic repeatability unchanged.
 
 #### Slice 2A — deterministic module inventory profile
 
-- [x] `DocumentationProfile` расширен backward-compatible variant `Module`, сериализуемым как `module`;
-  versioned v1 request/outline/context/draft/report schemas не меняются.
-- [x] Новый pure application owner `build_documentation_module_profile` принимает только exact
-  `CanonicalSnapshot` и требует `DocumentationProfile::Module`.
-- [x] Slice выбирает только source-backed `EntityKind::Module`, сортирует по stable key + entity id и
-  ограничивает выбор `max_entities` и общим `DOCUMENTATION_REFERENCE_LIMIT = 256`.
-- [x] Контекст раскрывает omitted modules и сохраняет закрытыми provider/network/raw-file/secrets.
-- [x] Draft содержит `Module Overview` и `Modules`, каждый выбранный module имеет evidence citation;
-  deterministic output — `modules/index.md` с SHA-256.
-- [x] Focused source regressions покрывают exact profile/snapshot identity, сериализацию `module`,
-  citations/checksum, stable ordering, input-order invariance, limit omissions и fail-closed отсутствие
-  source-backed modules.
-- [x] Scope guard: module facts/relations/diagnostics, publication, Store loading, CLI, daemon, MCP и
-  provider не включены в Slice 2A.
-- [ ] Execution evidence для Slice 2A остаётся pending; код не считается verified до соответствующих
-  format/test/Clippy checks.
+- [x] `DocumentationProfile::Module` добавлен backward-compatible в существующий v1 contract chain.
+- [x] Pure `build_documentation_module_profile` требует exact snapshot и profile `module`.
+- [x] Source-backed `EntityKind::Module` сортируются по stable key + entity id.
+- [x] `max_entities` и общий `DOCUMENTATION_REFERENCE_LIMIT = 256` ограничивают context/citations.
+- [x] `Module Overview` + `Modules`, evidence footnotes, `modules/index.md`, SHA-256.
+- [x] Focused regressions: identity, ordering, input-order invariance, omissions, checksum, fail-closed.
+- [x] Slice 2A landed on `658d53fb03dd47a971beb6cf67b46cfe1f20b3fe`; Rustok/AppSec/Store post-merge
+  contexts green, но focused format/test/Clippy execution evidence остаётся отдельно.
+
+#### Slice 2B — module-scoped evidence enrichment
+
+- [x] Module facts включаются только когда subject или object — выбранный canonical module.
+- [x] Module relations включаются только когда source или target — выбранный canonical module.
+- [x] Diagnostics включаются только в status `open` и только если ссылаются на выбранный module.
+- [x] Для facts/relations/diagnostics обязательны resolved canonical stable keys и evidence/ownership
+  locations с portable slash paths, line defaults, deduplication и deterministic ordering semantics,
+  совместимыми с architecture profile.
+- [x] Per-kind limits применяются до общего deterministic round-robin budget в 256 context items.
+- [x] `Modules` содержит module entities + facts; `Module Relationships` содержит cited claims и Mermaid
+  edges; `Module Diagnostics` содержит cited open diagnostics.
+- [x] Markdown раскрывает omitted module/fact/relation/diagnostic counts и unsupported module relations;
+  validation metric `unsupported_relations` связан с bounded module relation omissions.
+- [x] Unrelated canonical relation из общей fixture не попадает в module profile.
+- [x] Regression фиксирует exact scope, relation endpoints, ordering invariance и semantic parity с
+  architecture profile для stable keys/evidence соответствующих entity/fact/relation/diagnostic items.
+- [x] Publication, Store loading, CLI, daemon, MCP, provider и coordinated `ath generate` не затронуты.
+- [ ] Focused execution evidence для Slice 2B pending; source implementation не считается verified.
 
 Existing coordinated `ath generate` is unchanged. Provider/LLM, daemon and MCP remain out of scope.
-`DOCGEN-001` остаётся `[-] in progress`: pure module profile появился, но его evidence enrichment и
-publication/CLI будут отдельными bounded slices после execution evidence 2A.
+`DOCGEN-001` остаётся `[-] in progress`: enriched pure module profile source-implemented, production
+publication/operation surface ещё закрыта.
 
 ### 4.2 Product backlog
 
-- [ ] Slice 2B: module-scoped facts/relations/open diagnostics через shared evidence semantics;
-- [ ] Slice 2C: immutable module publication, exact Store operation и CLI/validated inspection;
+- [ ] Slice 2C: immutable module publication + exact Store operation + CLI/validated inspection;
 - [ ] API/operations/onboarding profiles;
 - [ ] broader framework adapters and completeness reports;
 - [ ] optional provider, daemon, MCP, i18n and semantic retrieval after deterministic quality gates.
@@ -166,7 +159,7 @@ publication/CLI будут отдельными bounded slices после execut
 | `VERIFY-001` | P1 | `[x] verified` | Full release baseline matrix |
 | `API-001` | P1 | `[x] verified` | Cross-protocol consistency |
 | `REL-001` | P1 | `[x] verified` | `v0.2.1` published and installed |
-| `DOCGEN-001` | P2 | `[-] in progress` | Relation disclosure exact-confirmed; module Slice 2A implemented, execution pending |
+| `DOCGEN-001` | P2 | `[-] in progress` | Module Slices 2A–2B source-implemented; Slice 2C pending |
 
 ## 6. Verification matrix
 
@@ -194,8 +187,7 @@ cargo run -p ath --quiet --locked -- docs check
 
 ## 7. Следующий шаг
 
-Получить execution evidence для pure Slice 2A module profile. Затем отдельным Slice 2B добавить
-module-scoped facts/relations/open diagnostics, переиспользуя shared evidence semantics вместо копирования
-architecture-profile helpers. Только после quality gate 2B переходить к Slice 2C с immutable publication,
-exact Store loading и CLI/validated inspection. Не подключать provider, daemon или MCP и не менять
-coordinated `ath generate` без отдельного contract migration.
+Получить focused format/test/Clippy execution evidence для enriched Slice 2B. После этого отдельным
+Slice 2C добавить immutable module publication, exact committed-snapshot Store loading и module
+CLI/validated inspection. Не подключать provider, daemon или MCP и не менять coordinated `ath generate`
+без отдельного contract migration.
