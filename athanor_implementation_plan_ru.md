@@ -4,7 +4,7 @@
 > Ветка: `main`  
 > Актуализировано: 2026-08-24  
 > Статус: `API-001`, `REL-001` verified; `DOCGEN-001 / Slices 0A–1C` execution-confirmed;
-> relation-disclosure exact-evaluation-confirmed; module 2A–2C, API 3A–3C и operations 4A–4B implemented in source,
+> relation-disclosure exact-evaluation-confirmed; module 2A–2C, API 3A–3C и operations 4A–4C implemented in source,
 > focused execution evidence pending
 
 ## 1. Статусы и evidence
@@ -127,29 +127,35 @@ Documentation generation:
   `api current|manifest|validation`, profile-isolated shared `current.json`.
 - [ ] Focused format/test/Clippy evidence для API Slices 3A–3C pending; source implementation не verified.
 
-#### Slices 4A–4B — operations documentation profile
+#### Slices 4A–4C — operations documentation profile
 
 - [x] `DocumentationProfile::Operations`, pure exact-snapshot operational inventory and `operations/index.md`.
 - [x] Scope: evidence-backed `EnvVar`, `Script`/`ScriptCommand`/`CiJob`, `DockerService`,
   `DbMigration`/`DbTable`, `Feature`, `Runbook`, `OperationStep`; `Package`/`Dependency` остаются вне inventory.
 - [x] Deterministic six-category entity round-robin, portable evidence, `max_entities` + shared 256 ceiling,
   citations, omissions, SHA-256 и fail-closed identity/no-surface regressions.
-- [x] Slice 4B добавляет facts, если subject или object — выбранный operations anchor.
-- [x] Relations ограничены canonical allowlist `Defines`, `Contains`, `Documents`, `DocumentsOperation`,
-  `UsesEnv`, `QueriesTable`; `RelationKind::Other(...)` и другие kinds не расширяют bounded contract.
-- [x] Diagnostics: только `open` и с reference на выбранный operations anchor; named `Other(...)` payload
-  сохраняется в deterministic human-readable summary.
-- [x] Fact/relation/diagnostic evidence использует shared normalization owner; per-kind limits затем проходят
-  через aggregate 256-item round-robin; cited Mermaid и omission disclosure source-regression protected.
-- [ ] Operations publication, exact Store operation, CLI/inspection и focused execution evidence остаются отдельным Slice 4C.
+- [x] Slice 4B добавляет operations-scoped facts, bounded relation allowlist и open diagnostics with cited Mermaid.
+- [x] Slice 4C публикует immutable `operations/index.md` + validation report в общем generation root и
+  использует profile-aware atomic `current.json`; exact `UpToDate`, force, tamper recovery и cancellation защищены.
+- [x] `DocumentationOperationsOperationOptions` использует `RuntimeComposition::init_store` и только exact
+  `CanonicalSnapshotStore::load_snapshot(SnapshotId(request.snapshot))`; latest fallback отсутствует.
+- [x] Missing/uncommitted snapshot и Store identity mismatch fail closed; cancellation checks стоят вокруг
+  Store/publication boundaries.
+- [x] `ath docs generate-operations <PATH> --snapshot <EXACT-ID>` поддерживает hard-limit flags, `--force`,
+  `--json` и Ctrl-C cancellation/drain.
+- [x] `ath docs operations current|manifest|validation` проверяет profile, confinement, generation path,
+  exact artifact layout, manifest/report identity и SHA-256; старый `ath docs operations check` не меняется.
+- [x] Shared `current.json` изолирует architecture/module/API/operations inspectors по profile.
+- [x] Source regressions покрывают lifecycle, exact operation contract, profile isolation/path/checksum drift
+  и binary `index -> generate-operations -> inspect -> UpToDate` round-trip.
+- [ ] Focused format/test/Clippy execution evidence для operations Slices 4A–4C pending; source implementation не verified.
 
 Existing coordinated `ath generate` is unchanged. Provider/LLM, daemon and MCP remain out of scope.
-`DOCGEN-001` остаётся `[-] in progress`: module/API production surfaces и operations 4A–4B pure profile
-source-implemented; focused verification и следующие slices остаются отдельными packages.
+`DOCGEN-001` остаётся `[-] in progress`: module/API/operations deterministic production surfaces source-implemented;
+focused verification и следующие documentation profiles остаются отдельными packages.
 
 ### 4.2 Product backlog
 
-- [ ] Slice 4C: immutable operations publication, exact Store operation, CLI и validated inspection;
 - [ ] onboarding documentation profile;
 - [ ] broader framework adapters and completeness reports;
 - [ ] optional provider, daemon, MCP, i18n and semantic retrieval after deterministic quality gates.
@@ -167,7 +173,7 @@ source-implemented; focused verification и следующие slices остаю
 | `VERIFY-001` | P1 | `[x] verified` | Full release baseline matrix |
 | `API-001` | P1 | `[x] verified` | Cross-protocol consistency |
 | `REL-001` | P1 | `[x] verified` | `v0.2.1` published and installed |
-| `DOCGEN-001` | P2 | `[-] in progress` | Module 2A–2C + API 3A–3C + operations 4A–4B source-implemented; execution pending |
+| `DOCGEN-001` | P2 | `[-] in progress` | Module 2A–2C + API 3A–3C + operations 4A–4C source-implemented; execution pending |
 
 ## 6. Verification matrix
 
@@ -184,20 +190,23 @@ cargo test -p athanor-app --test documentation_operations_profile_inventory --lo
 cargo test -p athanor-app --test documentation_architecture_publication_inventory --locked
 cargo test -p athanor-app --test documentation_module_publication_inventory --locked
 cargo test -p athanor-app --test documentation_api_publication_inventory --locked
+cargo test -p athanor-app --test documentation_operations_publication_inventory --locked
 cargo test -p athanor-app --test documentation_api_operation_inventory --locked
+cargo test -p athanor-app --test documentation_operations_operation_inventory --locked
 cargo test -p athanor-app --test documentation_architecture_inspection_inventory --locked
 cargo test -p athanor-app --test documentation_module_inspection_inventory --locked
 cargo test -p athanor-app --test documentation_api_inspection_inventory --locked
+cargo test -p athanor-app --test documentation_operations_inspection_inventory --locked
 cargo test -p athanor-app --test documentation_status_inventory --locked
 cargo test -p ath --test documentation_architecture_cli --locked
 cargo test -p ath --test documentation_module_cli --locked
 cargo test -p ath --test documentation_api_cli --locked
+cargo test -p ath --test documentation_operations_cli --locked
 cargo run -p ath --quiet --locked -- docs check
 ```
 
 ## 7. Следующий шаг
 
-Получить focused format/test/Clippy execution evidence для module 2B–2C, API 3A–3C и operations 4A–4B.
-Следующим отдельным bounded package сделать Slice 4C: immutable operations publication, exact committed-snapshot
-Store operation, CLI generation и validated inspection; не подключать provider/daemon/MCP и не менять
-coordinated `ath generate`.
+Получить focused format/test/Clippy execution evidence для module 2B–2C, API 3A–3C и operations 4A–4C.
+Следующим отдельным bounded package начать onboarding documentation profile с pure exact-snapshot owner;
+не подключать provider/daemon/MCP и не менять coordinated `ath generate`.

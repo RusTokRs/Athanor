@@ -17,6 +17,7 @@ mod direct_validate_changed_cli;
 mod docs_cli;
 mod index_cli;
 mod mcp_cli;
+mod operations_docgen_cli;
 mod projects_cli;
 mod render;
 mod repair;
@@ -70,6 +71,10 @@ fn run() -> Result<()> {
         }
         root_command::Command::Index(command) => {
             runtime("Athanor index runtime")?.block_on(index_cli::run(command))
+        }
+        root_command::Command::OperationsDocgen(command) => {
+            runtime("Athanor operations documentation runtime")?
+                .block_on(operations_docgen_cli::run(command))
         }
         root_command::Command::Docs(command) => {
             runtime("Athanor documentation runtime")?.block_on(docs_cli::run(command))
