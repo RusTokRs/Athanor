@@ -15,9 +15,10 @@ matrix-confirmed on `f1024cbc52f05de4d3ce96c556ef044ad48b3a0e`; the human-facing
 disclosure is exact-evaluation-confirmed on `6862aee81dd0f53fa8372d1ce3fcb6e2ed198cca`.
 
 Module expansion is source-implemented through Slice 2C. API expansion is source-implemented through
-Slice 3B: Slice 3A established the pure endpoint/schema/example inventory and Slice 3B adds scoped facts,
-supported canonical API relations, open diagnostics, and Mermaid relationship rendering. Focused module
-and API format/test/Clippy evidence remains pending and is not inferred from source presence.
+Slice 3C: Slice 3A established the pure endpoint/schema/example inventory, Slice 3B added scoped facts,
+supported canonical API relations and open diagnostics, and Slice 3C adds immutable publication, exact
+Store loading, CLI generation, and validated inspection. Focused module and API format/test/Clippy
+evidence remains pending and is not inferred from source presence.
 
 The existing coordinated `ath generate` command is unchanged. No model provider, daemon, MCP, or new dependency is enabled.
 
@@ -120,33 +121,63 @@ or layout drift, invalid validation status, and checksum drift.
 
 ### Slice 3B — API-Scoped Facts, Relations, And Diagnostics
 
-Slice 3B preserves the Slice 3A entity-selection contract and uses the selected API entity IDs as the
-scope anchors for richer canonical evidence:
+Slice 3B preserves the Slice 3A entity-selection contract and uses selected API entity IDs as the scope
+anchors for richer canonical evidence:
 
 - facts are eligible when subject or optional object is a selected API endpoint/schema/example;
 - relations must touch a selected API anchor and belong to the bounded canonical allowlist:
   `ImplementedBy`, `SchemaForRequest`, `SchemaForResponse`, `ExampleFor`, `Documents`, `DocumentsApi`,
   or `DocumentsOperation`;
-- GraphQL-specific `RelationKind::Other(...)` links remain outside this bounded relation contract even if
-  they touch a selected API entity;
-- diagnostics are eligible only when `status == open` and at least one referenced entity is a selected
-  API anchor; named `DiagnosticKind::Other(...)` payloads remain visible in deterministic summaries;
-- fact/relation/diagnostic evidence uses the shared `documentation_evidence_location` owner, combining
-  canonical evidence with source-file ownership fallback, slash normalization, portable-path filtering,
-  line defaults, and deduplication;
-- facts sort by serialized kind/id, relations by source stable key/kind/target stable key/id, diagnostics
-  by severity/kind/id;
-- per-kind limits are applied before the same aggregate 256-item round-robin ceiling used by the module
-  profile;
-- `API Facts`, `API Relationships`, and `API Diagnostics` are added to the cited draft;
-- supported relations render directed cited Mermaid edges;
-- omitted entity/fact/relation/diagnostic counts are explicit and `unsupported_relations` equals omitted
-  eligible supported API relations.
+- GraphQL-specific `RelationKind::Other(...)` links remain outside this bounded relation contract;
+- diagnostics are eligible only when `status == open` and reference a selected API anchor;
+- shared evidence normalization combines canonical evidence with ownership fallback and portable paths;
+- per-kind limits feed the aggregate 256-item round-robin ceiling;
+- `API Facts`, `API Relationships`, and `API Diagnostics` are cited, and supported relations render
+  directed cited Mermaid edges;
+- omissions and omitted supported relations remain explicit.
 
-Focused regressions cover relation allowlisting, scoped facts, open diagnostics including named `Other`
-findings, exclusion of unsupported `Other` relations, omission accounting, deterministic canonical input
-reordering, exact identity, path normalization, checksum binding, and fail-closed no-API behavior.
-Publication, Store loading, CLI, daemon, MCP, and provider remain out of scope for Slice 3B.
+### Slice 3C — Immutable API Publication, Exact Store, CLI, And Inspection
+
+Slice 3C promotes the deterministic API profile to the same bounded production lifecycle as architecture
+and module documentation without changing the coordinated `ath generate` path:
+
+```text
+.athanor/generated/documentation/
+  current.json
+  generations/<8-digit-generation>/
+    manifest.json
+    api/index.md
+    validation-report.json
+```
+
+- publication is staged and immutable; exact `UpToDate` checks profile/snapshot, normalized generation
+  path, manifest identity, artifact IDs/paths/media types, validation identity, and SHA-256 bytes;
+- force creates a new immutable generation, tampered/incomplete generations are never reused, and
+  cancellation cannot advance the current pointer;
+- `DocumentationApiOperationOptions` initializes the configured Store and calls only
+  `CanonicalSnapshotStore::load_snapshot(SnapshotId(request.snapshot))`; missing/uncommitted snapshots
+  and identity mismatches fail closed;
+- generation checks cancellation before/after Store and publication boundaries;
+- CLI surface is:
+
+```bash
+ath docs generate-api <PATH> --snapshot <EXACT-ID> \
+  [--max-entities N] [--max-facts N] [--max-relations N] [--max-diagnostics N] [--force] [--json]
+ath docs api current <PATH> [--json]
+ath docs api manifest <PATH> [--json]
+ath docs api validation <PATH> [--json]
+```
+
+- Ctrl-C cancels and drains API generation before returning;
+- validated API inspection enforces profile `api`, path confinement, normalized generation identity,
+  exact two-artifact layout, valid validation status, and manifest-bound checksums;
+- the shared `current.json` remains profile-aware, so architecture/module/API inspectors fail closed on
+  another profile's pointer;
+- source regressions cover exact publication reuse, tamper recovery, force, cancellation, deterministic
+  content, operation identity, inspection drift/profile isolation, CLI parsing, binary OpenAPI
+  `index -> generate-api -> current/manifest/validation -> UpToDate`, and missing exact snapshot failure.
+
+Focused Slice 3C execution evidence remains pending; source presence is not verification.
 
 ## Execution Evidence
 
@@ -173,28 +204,32 @@ Publication, Store loading, CLI, daemon, MCP, and provider remain out of scope f
   `32718598218`, Rustok evaluation `32718598212`, and Rustok probe `32718598232` are green.
 - Slice 3A landed on `0a4c0f78ef05b6c2ba9480b770c1ebf72038e049`; Rustok evaluation
   `32719989413` and Rustok probe `32719989450` are green. These are not focused API profile evidence.
-- Slices 2B–2C and API Slices 3A–3B remain execution-pending for focused format/test/Clippy gates.
+- Slices 2B–2C and API Slices 3A–3C remain execution-pending for focused format/test/Clippy gates.
 
 The repaired bounded Rustok architecture-generation evaluation retains `DOCUMENTATION_REFERENCE_LIMIT`,
 `workflow_dispatch` support, and diagnostic evidence checks as explicit regression boundaries.
 
 ## Next Bounded Step
 
-1. Record formatting/build/test/Clippy evidence for module Slices 2B–2C and API Slices 3A–3B.
-2. Implement Slice 3C: immutable API publication, exact committed-snapshot Store operation, API CLI, and
-   validated inspection, while preserving profile-isolated `current.json` behavior.
-3. Keep provider, daemon, MCP, operations/onboarding profiles, and coordinated `ath generate` changes out
-   of Slice 3C unless separately approved.
+1. Record formatting/build/test/Clippy evidence for module Slices 2B–2C and API Slices 3A–3C.
+2. Begin the next documentation profile as a pure exact-snapshot bounded owner, with operations/onboarding
+   as the next product backlog area.
+3. Keep provider, daemon, MCP, and coordinated `ath generate` changes out until separate deterministic
+   quality gates justify them.
 
 ## Verification
 
 ```bash
 cargo fmt --all -- --check
 cargo test -p athanor-app --test documentation_api_profile_inventory --locked
+cargo test -p athanor-app --test documentation_api_publication_inventory --locked
+cargo test -p athanor-app --test documentation_api_operation_inventory --locked
+cargo test -p athanor-app --test documentation_api_inspection_inventory --locked
 cargo test -p athanor-app --test documentation_module_profile_inventory --locked
 cargo test -p athanor-app --test documentation_module_publication_inventory --locked
 cargo test -p athanor-app --test documentation_module_inspection_inventory --locked
 cargo test -p athanor-app --test documentation_architecture_inspection_inventory --locked
+cargo test -p ath --test documentation_api_cli --locked
 cargo test -p ath --test documentation_module_cli --locked
 cargo test -p ath --test documentation_architecture_cli --locked
 cargo test -p athanor-app --test documentation_status_inventory --locked
