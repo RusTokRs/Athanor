@@ -34,11 +34,12 @@ configured Store, applies hard limits, emits cited Markdown and relation-backed 
 publishes immutable checksum-bound generations. Validated inspection rejects pointer escape, unsupported
 artifact layouts, identity drift, and checksum drift.
 
-The first additional deterministic profile is the Slice 2A module inventory. It is a pure application
-owner over one exact `CanonicalSnapshot`: source-backed `EntityKind::Module` entries are stable-key
-ordered, bounded by `max_entities` and the shared 256-reference ceiling, cited, and rendered to
-`modules/index.md` with a SHA-256 checksum. Module facts, relations, diagnostics, publication, Store
-loading, and transport integration remain later bounded slices.
+The first additional deterministic profile is the module profile. Slice 2A established the exact-snapshot
+pure module inventory; Slice 2B enriches it with canonical facts whose subject/object is a selected module,
+relations whose source/target is a selected module, and open diagnostics that reference a selected module.
+All selected items remain evidence-backed, deterministically ordered, bounded by per-kind limits and the
+shared 256-reference ceiling, and rendered as cited Markdown. Module relations produce bounded Mermaid
+edges and omitted module-scope counts remain explicit.
 
 Supported CLI surface remains architecture-only:
 
@@ -50,8 +51,8 @@ ath docs architecture validation <PATH> [--json]
 ```
 
 Generation has no latest-snapshot fallback. Ctrl-C cancels and drains the operation before returning.
-The existing coordinated `ath generate` command is unchanged. Daemon, MCP, and provider integration are
-not enabled.
+The existing coordinated `ath generate` command is unchanged. Module publication, daemon, MCP, and
+provider integration are not enabled.
 
 ### Exact Evidence
 
@@ -76,9 +77,13 @@ The repaired bounded Rustok evaluation is fully matrix-confirmed on
 
 The follow-up relation-disclosure tuning is evaluation-confirmed on
 `6862aee81dd0f53fa8372d1ce3fcb6e2ed198cca`: evaluation `32712992516` and probe `32712992421` are
-successful. Its uploaded artifact remains deterministic (`published` then `up_to_date`), retains 256
-citation footnotes and 84 Mermaid edges, reports `unsupported_relations = 6962`, and now records
-`unsupported_relation_disclosed = true`. This is exact evaluation evidence, not a new full matrix claim.
+successful. Its artifact reports `unsupported_relations = 6962`,
+`unsupported_relation_disclosed = true`, and unchanged deterministic repeatability.
+
+Slice 2A landed on `658d53fb03dd47a971beb6cf67b46cfe1f20b3fe`. Post-merge status contexts are green for
+Rustok evaluation `32714912841`, Rustok probe `32714912826`, AppSec `32714912809`, and Store
+Conformance `32714912932`. These statuses do not substitute for the focused module-profile format/test/
+Clippy execution evidence, which remains user-owned and unclaimed here.
 
 ## Implemented Packages
 
@@ -100,29 +105,21 @@ citation footnotes and 84 Mermaid edges, reports `unsupported_relations = 6962`,
 - [x] Slice 1A: deterministic architecture composition;
 - [x] Slice 1B: immutable atomic publication and tamper recovery;
 - [x] Slice 1C1: exact committed-snapshot loading through `RuntimeComposition`;
-- [x] Slice 1C2: exact-snapshot CLI generation, hard-limit/force flags, text/JSON output, validated
-  current/manifest/validation inspection, Ctrl-C cancellation, and executable round-trip tests;
-- [x] Slice 1C exact evidence on `042d02ac6b4c89d90a5b76c818098eb0c6b41920`: CI `30025932615`,
-  AppSec `30025931953`, Store `30025932704`;
-- [x] Repaired aggregate citation selection and evaluation/probe workflows;
-- [x] Exact bounded Rustok evaluation on `f1024cbc52f05de4d3ce96c556ef044ad48b3a0e` with green
-  evaluation/probe/CI/AppSec/Store statuses, `256` citations, `84` Mermaid edges, valid metrics, and
-  deterministic `up_to_date` repeat;
-- [x] Closed the artifact-review relation-disclosure finding on
-  `6862aee81dd0f53fa8372d1ce3fcb6e2ed198cca`: evaluation `32712992516`, probe `32712992421`,
-  `unsupported_relations = 6962`, `unsupported_relation_disclosed = true`, deterministic repeatability
-  unchanged;
-- [x] Slice 2A implemented in source: `DocumentationProfile::Module`, exact-snapshot pure module builder,
-  source-backed module selection, stable-key ordering, `max_entities` plus shared 256-reference budget,
-  cited `modules/index.md`, SHA-256 binding, and focused source regressions;
-- [ ] Obtain execution evidence for Slice 2A before expanding its evidence model or enabling publication.
+- [x] Slice 1C2: exact-snapshot CLI generation and validated inspection;
+- [x] Repaired aggregate citation selection and exact Rustok evaluation;
+- [x] Closed the human-facing unsupported-relation disclosure finding;
+- [x] Slice 2A: exact-snapshot deterministic module inventory with cited `modules/index.md` and SHA-256;
+- [x] Slice 2B implemented in source: module-scoped facts, relations, and open diagnostics; deterministic
+  per-kind ordering and aggregate 256-item budgeting; relation-backed Mermaid edges; explicit module-scope
+  omissions and unsupported-relation metric; focused scope/order/parity regressions;
+- [ ] Slice 2B execution evidence remains pending. Source presence is not verification.
 
-`DOCGEN-001` remains in progress. Slice 2A deliberately does not publish files or expose a CLI command;
-those boundaries stay closed until module evidence enrichment is independently implemented and checked.
+`DOCGEN-001` remains in progress. Module publication, Store loading, CLI, and validated inspection stay
+closed until the enriched pure profile is independently checked.
 
 ## Product Backlog
 
-- module facts/relations/diagnostics enrichment, then module publication/CLI;
+- Slice 2C: immutable module publication, exact Store operation, CLI, and validated inspection;
 - API/operations/onboarding profiles;
 - broader framework adapters and completeness reporting;
 - i18n, concepts, and optional semantic/vector retrieval;
