@@ -4,7 +4,7 @@
 > Ветка: `main`  
 > Актуализировано: 2026-08-24  
 > Статус: `API-001`, `REL-001` verified; `DOCGEN-001 / Slices 0A–1C` execution-confirmed;
-> relation-disclosure exact-evaluation-confirmed; module profile Slices 2A–2B implemented in source,
+> relation-disclosure exact-evaluation-confirmed; module profile Slices 2A–2C implemented in source,
 > focused execution evidence pending
 
 ## 1. Статусы и evidence
@@ -91,7 +91,7 @@ Documentation generation:
 - [x] `--force`, hard-limit flags, text and JSON output.
 - [x] Ctrl-C cancellation drains the operation before exit.
 - [x] `ath docs architecture current|manifest|validation`.
-- [x] Inspection validates path confinement, identity, exact artifact layout and checksums.
+- [x] Inspection validates path confinement, profile/identity, exact artifact layout and checksums.
 - [x] Executable test covers index → generate → inspect → `up_to_date` and missing snapshot.
 - [x] Exact matrix on `042d02ac6b4c89d90a5b76c818098eb0c6b41920`.
 
@@ -113,36 +113,42 @@ Documentation generation:
 - [x] `max_entities` и общий `DOCUMENTATION_REFERENCE_LIMIT = 256` ограничивают context/citations.
 - [x] `Module Overview` + `Modules`, evidence footnotes, `modules/index.md`, SHA-256.
 - [x] Focused regressions: identity, ordering, input-order invariance, omissions, checksum, fail-closed.
-- [x] Slice 2A landed on `658d53fb03dd47a971beb6cf67b46cfe1f20b3fe`; Rustok/AppSec/Store post-merge
-  contexts green, но focused format/test/Clippy execution evidence остаётся отдельно.
 
 #### Slice 2B — module-scoped evidence enrichment
 
-- [x] Module facts включаются только когда subject или object — выбранный canonical module.
-- [x] Module relations включаются только когда source или target — выбранный canonical module.
-- [x] Diagnostics включаются только в status `open` и только если ссылаются на выбранный module.
-- [x] Для facts/relations/diagnostics обязательны resolved canonical stable keys и evidence/ownership
-  locations с portable slash paths, line defaults, deduplication и deterministic ordering semantics,
-  совместимыми с architecture profile.
-- [x] Per-kind limits применяются до общего deterministic round-robin budget в 256 context items.
-- [x] `Modules` содержит module entities + facts; `Module Relationships` содержит cited claims и Mermaid
-  edges; `Module Diagnostics` содержит cited open diagnostics.
-- [x] Markdown раскрывает omitted module/fact/relation/diagnostic counts и unsupported module relations;
-  validation metric `unsupported_relations` связан с bounded module relation omissions.
-- [x] Unrelated canonical relation из общей fixture не попадает в module profile.
-- [x] Regression фиксирует exact scope, relation endpoints, ordering invariance и semantic parity с
-  architecture profile для stable keys/evidence соответствующих entity/fact/relation/diagnostic items.
-- [x] Publication, Store loading, CLI, daemon, MCP, provider и coordinated `ath generate` не затронуты.
+- [x] Facts: subject или object — выбранный canonical module.
+- [x] Relations: source или target — выбранный canonical module.
+- [x] Diagnostics: только `open` и с reference на выбранный module.
+- [x] Evidence/ownership locations, portable paths, line defaults, dedup и deterministic ordering
+  совместимы с architecture profile; parity regression фиксирует shared semantics.
+- [x] Per-kind limits → deterministic round-robin aggregate budget 256.
+- [x] Cited module facts/relations/diagnostics, Mermaid edges, omissions и unsupported module relations.
+- [x] Unrelated canonical relation не протекает в module scope.
 - [ ] Focused execution evidence для Slice 2B pending; source implementation не считается verified.
 
+#### Slice 2C — immutable module publication, Store operation и CLI
+
+- [x] Module profile публикуется в общий immutable generation root с `modules/index.md`, manifest и
+  validation report; exact `UpToDate`, force, tamper recovery, immutable history и cancellation сохранены.
+- [x] Shared profile-aware `current.json` используется без schema migration; architecture/module
+  inspection fail closed, если current pointer принадлежит другому profile.
+- [x] `RuntimeComposition::init_store` + exact `CanonicalSnapshotStore::load_snapshot` используются без
+  latest fallback; missing/uncommitted snapshot и identity mismatch fail closed.
+- [x] CLI: `ath docs generate-module <PATH> --snapshot <EXACT-ID>` + hard limits/`--force`/`--json`.
+- [x] Inspection: `ath docs module current|manifest|validation`; проверяются profile, confinement,
+  generation identity, exact artifact layout и checksums.
+- [x] Source regressions покрывают publication lifecycle, cancellation/tamper, profile isolation и
+  executable index → module generate → inspect → `up_to_date` + missing snapshot.
+- [ ] Focused execution evidence для Slice 2C pending; тесты/Clippy в этом workstream не запускались.
+
 Existing coordinated `ath generate` is unchanged. Provider/LLM, daemon and MCP remain out of scope.
-`DOCGEN-001` остаётся `[-] in progress`: enriched pure module profile source-implemented, production
-publication/operation surface ещё закрыта.
+`DOCGEN-001` остаётся `[-] in progress`: module production surface source-implemented, verification и
+следующие deterministic profiles остаются отдельными packages.
 
 ### 4.2 Product backlog
 
-- [ ] Slice 2C: immutable module publication + exact Store operation + CLI/validated inspection;
-- [ ] API/operations/onboarding profiles;
+- [ ] API documentation profile;
+- [ ] operations/onboarding documentation profiles;
 - [ ] broader framework adapters and completeness reports;
 - [ ] optional provider, daemon, MCP, i18n and semantic retrieval after deterministic quality gates.
 
@@ -159,7 +165,7 @@ publication/operation surface ещё закрыта.
 | `VERIFY-001` | P1 | `[x] verified` | Full release baseline matrix |
 | `API-001` | P1 | `[x] verified` | Cross-protocol consistency |
 | `REL-001` | P1 | `[x] verified` | `v0.2.1` published and installed |
-| `DOCGEN-001` | P2 | `[-] in progress` | Module Slices 2A–2B source-implemented; Slice 2C pending |
+| `DOCGEN-001` | P2 | `[-] in progress` | Module Slices 2A–2C source-implemented; execution pending |
 
 ## 6. Verification matrix
 
@@ -173,21 +179,20 @@ cargo test -p athanor-app --test documentation_generation_slice0b_inventory --lo
 cargo test -p athanor-app --test documentation_architecture_profile_inventory --locked
 cargo test -p athanor-app --test documentation_module_profile_inventory --locked
 cargo test -p athanor-app --test documentation_architecture_publication_inventory --locked
+cargo test -p athanor-app --test documentation_module_publication_inventory --locked
 cargo test -p athanor-app --test documentation_architecture_inspection_inventory --locked
+cargo test -p athanor-app --test documentation_module_inspection_inventory --locked
 cargo test -p athanor-app --test documentation_status_inventory --locked
 cargo test -p athanor-app --test json_contract_inventory --locked
-cargo test -p athanor-app --test process_persistence_contract_inventory --locked
 cargo test -p athanor-app --test release_readiness_inventory --locked
 cargo test -p athanor-app --test verification_evidence_inventory --locked
 cargo test -p ath --test documentation_architecture_cli --locked
-cargo test -p athanor-transport-mcp --test control_plane_saturation_inventory --locked
-cargo run -p ath --quiet --locked -- index .
+cargo test -p ath --test documentation_module_cli --locked
 cargo run -p ath --quiet --locked -- docs check
 ```
 
 ## 7. Следующий шаг
 
-Получить focused format/test/Clippy execution evidence для enriched Slice 2B. После этого отдельным
-Slice 2C добавить immutable module publication, exact committed-snapshot Store loading и module
-CLI/validated inspection. Не подключать provider, daemon или MCP и не менять coordinated `ath generate`
-без отдельного contract migration.
+Получить focused format/test/Clippy execution evidence для module Slices 2B–2C. После этого отдельным
+bounded package начать API documentation profile поверх exact canonical snapshot, не подключая provider,
+daemon или MCP и не меняя coordinated `ath generate` без отдельного contract migration.
