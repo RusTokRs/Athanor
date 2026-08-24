@@ -10,9 +10,11 @@ status: active
 ## Status
 
 In progress. Slices 0A–1C are execution-confirmed. The supported exact-snapshot CLI generation and
-validated inspection surface has passed the full cross-platform matrix. The first bounded Rustok
-generation attempt exposed an aggregate citation-limit defect; its repair and local rerun now pass, but
-the published workflow rerun and exact-commit matrix remain pending.
+validated inspection surface has passed the full cross-platform matrix. The repaired bounded Rustok
+evaluation is exact-commit green on `f1024cbc52f05de4d3ce96c556ef044ad48b3a0e`, but artifact review
+found one remaining usability defect: the validation metric reported `6962` unsupported relations while
+the generated Markdown did not explicitly disclose them. The current bounded step closes that review
+finding before profile expansion.
 The existing coordinated `ath generate` command is unchanged. No model provider, daemon, MCP, or new dependency is enabled.
 
 ```text
@@ -106,21 +108,27 @@ generates and inspects all outputs, verifies repeated `up_to_date`, and rejects 
   AppSec `30005828850`, Store `30005828956`.
 - Slices 1A–1B: source `0cfeca8ad4dc3c0632246afa01e43372f4ec3d71`; CI `30013208011`,
   AppSec `30013208197`, Store `30013208312`.
-- Slice 1C1: source `4f567271ed6d38d30b3c15dc6999aa33152a9312`; CI `30015689753`,
-  AppSec `30015691399`, Store `30015689363`.
-- Slice 1C2: source `042d02ac6b4c89d90a5b76c818098eb0c6b41920`; CI `30025932615`,
-  AppSec `30025931953`, Store `30025932704`.
+- Slice 1C1: source `4f567271ed6d38d30b3c15dc6999aa33152a9312`; CI `30015689753`, AppSec
+  `30015691399`, Store `30015689363`.
+- Slice 1C2: source `042d02ac6b4c89d90a5b76c818098eb0c6b41920`; CI `30025932615`, AppSec
+  `30025931953`, Store `30025932704`.
 - First Rustok attempt: source `5e0b28099c48e22bdc172fa57b6d51db9e6efb7b`, workflow run
   `30029451096`, and Rustok `3b76a530c82c0faaed22ccec384d4fd950811862`. Indexing completed, but
   architecture generation failed with `documentation draft citations must contain between 1 and 256 entries`;
   this is failure evidence, not a completed evaluation.
+- Repaired bounded evaluation: source `f1024cbc52f05de4d3ce96c556ef044ad48b3a0e`; evaluation
+  `31625608720`, probe `31625608721`, CI `31625608729`, AppSec `31625608723`, Store `31625608739`.
+  The evaluation published generation `00000001` for `snap_jsonl_00000001`, repeated as `up_to_date`,
+  produced `256` citation footnotes and `84` Mermaid edges, and reported all three validity metrics at
+  `10_000` basis points. Artifact review found `8740` omitted entities, `8403` omitted facts, `6962`
+  omitted/unsupported relations, no omitted diagnostics, and `unsupported_relation_disclosed = false`.
 
 The Slice 1C2 matrix covered formatting, workspace tests, Clippy, Linux/macOS/Windows smoke, installers,
 default/store-surreal/js-ts-precision/all-features, cargo-deny, documentation checks, and source coverage.
 
 ## Rustok Evaluation Gate
 
-The architecture profile now applies the shared `DOCUMENTATION_REFERENCE_LIMIT` of `256` context
+The architecture profile applies the shared `DOCUMENTATION_REFERENCE_LIMIT` of `256` context
 items/citations after the requested per-kind candidate caps. The deterministic round-robin selector
 preserves every represented kind while capacity remains and reassigns unused capacity when a kind is
 exhausted. It keeps the v1 draft contract unchanged, records the resulting omission counts, and
@@ -130,32 +138,26 @@ discloses the aggregate citation/context budget in the generated Markdown.
 facts, and relations plus one diagnostic. The selector produces `85` of each abundant kind and the
 diagnostic, fills all `256` citations, remains valid, and is invariant to canonical input ordering.
 
-The probe workflow at `12a8687c5d098ab05a5988508816aad5f0dc3e23`, run `30030131126`, had combined
-`--json` output with diagnostics before passing it to `jq`. Both Rustok workflows now preserve JSON
-stdout separately from stderr, construct their status endpoint from environment variables, and expose
-`workflow_dispatch` for a rerunnable bounded evaluation. The changed workflow files pass `actionlint`
-and `zizmor 1.26.1` locally; the committed GitHub AppSec run remains required evidence.
+The repaired workflows preserve JSON stdout separately from stderr, construct status endpoints from
+environment variables, and expose `workflow_dispatch`. The exact run on
+`f1024cbc52f05de4d3ce96c556ef044ad48b3a0e` proved the repaired path end-to-end. Its uploaded artifact
+also exposed the next review finding: omitted relations were present in manifest/validation metrics but
+not named as unsupported in the human-facing Markdown.
 
-An isolated local rerun on 2026-08-01 against Rustok
-`3b76a530c82c0faaed22ccec384d4fd950811862` used the original `96/192/192/96` caps and published
-generation `00000001` for `snap_jsonl_00000001`. It produced exactly `256` citation footnotes,
-all four required sections, a valid report with all three validity metrics at `10_000`, and a
-deterministic `up_to_date` repeat. This is local diagnostic evidence, not the exact-commit CI/AppSec/
-Store matrix.
+The current tuning slice therefore adds an explicit `Unsupported relations` disclosure derived from the
+same deterministic omitted relation count, adds source regression coverage, and makes the bounded Rustok
+evaluation fail when `unsupported_relations > 0` without the disclosure. This keeps the metric and human
+artifact aligned without expanding the contract or selecting more evidence.
 
 ## Next Bounded Step
 
-1. Run the full local verification matrix on the repaired source.
-2. Publish the source and manually dispatch the repaired bounded Rustok workflows.
-3. Record the uploaded evaluation artifact review and tuning decisions, then obtain the exact-commit
-   CI/AppSec/Store matrix. The review must include:
-   - useful and missing sections;
-   - citation and diagram validity;
-   - omitted counts and unsupported relations;
-   - deterministic repeatability;
-   - review findings and tuning decisions.
+1. Publish the unsupported-relation disclosure and fail-closed evaluation guard.
+2. Obtain exact-commit evaluation/CI/AppSec/Store evidence and confirm the uploaded evaluation summary
+   reports `unsupported_relation_disclosed = true` with deterministic repeatability unchanged.
+3. After that review finding is closed, begin the first additional deterministic profile as a separate
+   bounded package; module documentation is first in backlog.
 
-Provider, daemon, MCP, additional profiles, and changes to coordinated `ath generate` remain later work.
+Provider, daemon, MCP, and changes to coordinated `ath generate` remain later work.
 
 ## Verification
 

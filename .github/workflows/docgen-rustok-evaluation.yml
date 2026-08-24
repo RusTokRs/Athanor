@@ -138,6 +138,7 @@ jobs:
           ]
           report = validation["report"]
           manifest_value = manifest["manifest"]
+          unsupported_relation_disclosed = "unsupported relations:" in markdown.lower()
           summary = {
               "schema": "athanor.documentation_rustok_evaluation.v1",
               "athanor_source": os.environ["ATHANOR_SHA"],
@@ -160,7 +161,7 @@ jobs:
               "sections": {heading: f"## {heading}" in markdown for heading in headings},
               "mermaid_edges": len(re.findall(r"^\s*[^\n]+-->(?:\|[^|]+\|)?[^\n]+$", markdown, re.MULTILINE)),
               "citation_footnotes": len(re.findall(r"^\[\^[^\]]+\]:", markdown, re.MULTILINE)),
-              "unsupported_relation_disclosed": "unsupported" in markdown.lower(),
+              "unsupported_relation_disclosed": unsupported_relation_disclosed,
               "deterministic_repeatability": (
                   repeated["status"] == "up_to_date"
                   and repeated["generation"] == generation["generation"]
@@ -169,6 +170,8 @@ jobs:
           (root / "evaluation-summary.json").write_text(
               json.dumps(summary, indent=2) + "\n", encoding="utf-8"
           )
+          if report["metrics"]["unsupported_relations"] > 0 and not unsupported_relation_disclosed:
+              raise SystemExit("bounded document omits relations without explicit unsupported-relations disclosure")
           PY
 
       - name: Upload evaluation artifact
