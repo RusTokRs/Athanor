@@ -15,7 +15,7 @@ matrix-confirmed on `f1024cbc52f05de4d3ce96c556ef044ad48b3a0e`; the human-facing
 disclosure is exact-evaluation-confirmed on `6862aee81dd0f53fa8372d1ce3fcb6e2ed198cca`.
 
 Module expansion is source-implemented through Slice 2C, API through Slice 3C, operations through Slice
-4C, and onboarding through pure Slice 5A. Focused module, API, operations, and onboarding format/test/Clippy
+4C, and onboarding through Slice 5B. Focused module, API, operations, and onboarding format/test/Clippy
 evidence remains pending and is not inferred from source presence.
 
 The existing coordinated `ath generate` command is unchanged. No model provider, daemon, MCP, or new dependency is enabled.
@@ -29,11 +29,11 @@ source files -> adapters -> exact committed snapshot -> bounded context -> cited
 - The canonical snapshot is the only source for factual claims.
 - Every request names an exact committed snapshot and hard limits; there is no latest fallback.
 - Claims and diagram edges carry in-scope stable keys/evidence or an explicit inference marker.
-- Omitted counts are visible.
+- Omitted counts are visible, including unrepresented supported relations.
 - Secrets/raw-file explorer access are forbidden; network/provider use is opt-in and currently absent.
-- Invalid, tampered, or cancelled work cannot advance `current.json`.
-- Inspection validates profile, path confinement, identities, exact artifact layout, and checksums.
+- Invalid, tampered, or cancelled publication cannot advance `current.json`.
 - New profiles start as pure deterministic owners before publication or transport integration.
+- Portable evidence normalization has one shared owner; profile code must not duplicate path rules.
 
 ## Implemented Contracts
 
@@ -56,32 +56,11 @@ schema names remain unchanged.
 Strict schemas, hard limits, omissions, portable paths, SHA-256, data policy, quality metrics, fixture
 repository, Rustok evaluation corpus, and full-chain fail-closed alignment.
 
-### Slice 1A — Deterministic Architecture Profile
+### Slices 1A–1C — Architecture Production Surface
 
-`build_documentation_architecture_profile` consumes one explicit `CanonicalSnapshot`, applies stable
-ordering and hard limits, and emits Overview, Components, Relationships, Diagnostics, cited claims,
-Mermaid source, evidence footnotes, validation metrics, and Markdown SHA-256 without filesystem, Store,
-network, or provider access.
-
-### Slice 1B — Immutable Architecture Publication
-
-```text
-.athanor/generated/documentation/
-  current.json
-  generations/<8-digit-generation>/
-    manifest.json
-    architecture/index.md
-    validation-report.json
-```
-
-Publication is staged and immutable. `UpToDate` requires exact artifact IDs, paths, media types,
-identities, and deterministic hashes. Force, tamper recovery, history retention, and cancellation are
-regression protected.
-
-### Slice 1C — Exact Store Operation, CLI, And Inspection
-
-The operation initializes the configured Store, loads exactly `SnapshotId(request.snapshot)` through
-`CanonicalSnapshotStore`, verifies identity, checks cancellation, and delegates publication.
+The architecture profile consumes one explicit `CanonicalSnapshot`, emits deterministic cited Markdown
+and Mermaid, publishes an immutable generation, loads only the exact committed snapshot through the
+configured Store, and exposes validated CLI inspection.
 
 ```bash
 ath docs generate-architecture <PATH> --snapshot <EXACT-ID> \
@@ -91,61 +70,49 @@ ath docs architecture manifest <PATH> [--json]
 ath docs architecture validation <PATH> [--json]
 ```
 
-Generation drains after Ctrl-C cancellation. Inspection rejects path escape, wrong profile, identity
-or layout drift, invalid validation status, and checksum drift.
+Slice 1C1 is exact Store operation wiring; Slice 1C2 is CLI generation and inspection. Generation drains
+after Ctrl-C cancellation, and inspection rejects path escape, wrong profile, identity/layout drift,
+invalid validation status, and checksum drift.
 
 ### Slices 2A–2C — Module Documentation Profile
 
-- Slice 2A established the exact-snapshot evidence-backed module inventory and `modules/index.md`.
-- Slice 2B added module-scoped facts, relations, open diagnostics, Mermaid edges, omissions, and the
-  deterministic aggregate 256-item round-robin budget.
-- Slice 2C added immutable publication, exact Store loading, `generate-module`, and validated
-  `module current|manifest|validation` with profile-isolated shared `current.json`.
-- Module publication/Store/CLI source regressions are present; focused execution evidence is pending.
+Pure module inventory expanded to module-scoped facts/relations/open diagnostics with the aggregate
+256-item budget, then immutable publication, exact Store loading, CLI generation, and validated inspection.
+Focused module execution evidence is pending.
 
 ### Slices 3A–3C — API Documentation Profile
 
-- Slice 3A established exact endpoint/schema/example inventory, portable evidence, deterministic
-  round-robin selection, omissions, citations, `api/index.md`, and checksum binding.
-- Slice 3B added API-scoped facts, supported canonical relations, open diagnostics, aggregate 256-item
-  budgeting, and cited Mermaid relationships.
-- Slice 3C added immutable publication, exact Store loading, `generate-api`, and validated
-  `api current|manifest|validation` with profile-isolated shared `current.json`.
-- API source regressions are present; focused execution evidence remains pending.
+Endpoint/schema/example inventory expanded to API-scoped facts, supported canonical relations, open
+diagnostics, aggregate 256-item budgeting, and cited Mermaid, then immutable publication, exact Store,
+CLI, and validated inspection. Focused API execution evidence is pending.
 
 ### Slices 4A–4C — Operations Documentation Profile
 
-- Slices 4A–4B establish the pure exact-snapshot operations profile over evidence-backed `EnvVar`,
-  script/CI, deployment, database, configuration, runbook, and operation-step entities; general
-  `Package`/`Dependency` entities remain outside the bounded inventory.
-- Facts are scoped by selected operations anchors. Supported relations are `Defines`, `Contains`,
-  `Documents`, `DocumentsOperation`, `UsesEnv`, and `QueriesTable`; open diagnostics require an anchor.
-- Shared portable evidence normalization, per-kind limits, aggregate `DOCUMENTATION_REFERENCE_LIMIT = 256`,
-  cited Mermaid, omissions, validation metrics, deterministic `operations/index.md`, and SHA-256 remain
-  regression protected.
-- Slice 4C publishes `operations/index.md` plus `validation-report.json` in the shared immutable generation
-  root and advances the profile-aware `current.json` only after a complete staged publication.
-- Exact `UpToDate` validates profile, snapshot, generation path, manifest layout, artifact checksums, and
-  validation identity/status. Force, tamper recovery, immutable history, and cancellation are protected.
-- `DocumentationOperationsOperationOptions` initializes the configured Store and loads only exact
-  `SnapshotId(request.snapshot)`; missing snapshots and Store identity mismatch fail closed.
-- `ath docs generate-operations <PATH> --snapshot <EXACT-ID>` supports hard limits, `--force`, `--json`,
-  and Ctrl-C cancellation/drain. `ath docs operations current|manifest|validation` validates profile,
-  confinement, layout, identities, and SHA-256. Existing `ath docs operations check` remains unchanged.
-- Operations publication/Store/CLI source regressions are present; focused execution evidence is pending.
+Six-category operations inventory expanded to operations-scoped facts, supported relations, open
+diagnostics, cited Mermaid, and aggregate `DOCUMENTATION_REFERENCE_LIMIT = 256`, then immutable
+`operations/index.md` publication, exact Store loading, CLI generation, and validated inspection.
+Existing `ath docs operations check` remains unchanged. Focused operations execution evidence is pending.
 
-### Slice 5A — Onboarding Documentation Profile
+### Slices 5A–5B — Onboarding Documentation Profile
 
-- `DocumentationProfile::Onboarding` serializes as `onboarding` without changing v1 schema names.
-- `build_documentation_onboarding_profile` is pure over one exact `CanonicalSnapshot`; no Store,
-  filesystem publication, CLI, daemon, MCP, network, or provider access is introduced.
-- Eligible evidence-backed entities are `DocumentationPage`, `DocumentationSection`, `Package`,
-  `ScriptCommand`, `EnvVar`, and `TestCase`/`CiJob`; other entity kinds do not expand onboarding scope.
-- Six category queues sort by stable key/entity id and use deterministic round-robin selection, so a low
-  `max_entities` limit does not silently starve an available onboarding category.
-- Shared portable evidence normalization, `max_entities`, `DOCUMENTATION_REFERENCE_LIMIT = 256`, citations,
-  omissions, deterministic `onboarding/index.md`, validation metrics, and lowercase SHA-256 are source protected.
-- Facts, relations, diagnostics, publication, Store loading, and CLI remain deferred to Slices 5B–5C.
+- Slice 5A established the pure exact-snapshot onboarding inventory over evidence-backed
+  `DocumentationPage`, `DocumentationSection`, `Package`, `ScriptCommand`, `EnvVar`, and
+  `TestCase`/`CiJob` anchors with deterministic six-category round-robin selection.
+- Slice 5B adds facts when subject or object is a selected onboarding anchor.
+- Supported relations are deliberately bounded to `Contains`, `Documents`, `UsesEnv`, and `TestedBy`;
+  each relation must touch a selected anchor and carry portable evidence. General call/import/change graph
+  relations do not leak into onboarding documentation.
+- Only open diagnostics referencing a selected onboarding anchor enter the context.
+- Per-kind limits are applied before deterministic aggregate round-robin across Entity/Fact/Relation/
+  Diagnostic, capped by `DOCUMENTATION_REFERENCE_LIMIT = 256`.
+- Every context item owns one citation. Supported relations produce cited Mermaid edges. Omitted supported
+  relations are disclosed and feed `validation.metrics.unsupported_relations`.
+- `onboarding/index.md` remains deterministic and lowercase-SHA-256-bound. Rendering/validation is split
+  into an onboarding-specific sibling module; shared evidence/path normalization remains the common owner.
+- Source regressions cover unrelated/unsupported leakage, resolved diagnostics, input-order invariance,
+  relation-limit disclosure, portable evidence, and a mixed-kind 256-item budget.
+- Publication, Store loading, CLI, inspection, daemon, MCP, provider/LLM, and coordinated generation remain
+  outside Slice 5B. Focused onboarding execution evidence is pending.
 
 ## Execution Evidence
 
@@ -166,25 +133,24 @@ or layout drift, invalid validation status, and checksum drift.
 - Relation disclosure: source `6862aee81dd0f53fa8372d1ce3fcb6e2ed198cca`; evaluation `32712992516`,
   probe `32712992421`; artifact records `unsupported_relations = 6962` and
   `unsupported_relation_disclosed = true`.
-- Slice 2A landed on `658d53fb03dd47a971beb6cf67b46cfe1f20b3fe`; post-merge contexts are green,
+- Slice 2A landed on `658d53fb03dd47a971beb6cf67b46cfe1f20b3fe`; later module contexts are green
   but focused module evidence is not claimed.
-- Slice 2C landed on `b9e0eadc46175e15ec62f915a4729287f3884cd2`; Store Conformance
-  `32718598218`, Rustok evaluation `32718598212`, and Rustok probe `32718598232` are green.
+- Slice 2C landed on `b9e0eadc46175e15ec62f915a4729287f3884cd2`; Store `32718598218`, Rustok
+  evaluation `32718598212`, and Rustok probe `32718598232` were green.
 - Slice 3A landed on `0a4c0f78ef05b6c2ba9480b770c1ebf72038e049`; Rustok evaluation
-  `32719989413` and Rustok probe `32719989450` are green. These are not focused API profile evidence.
-- Slices 2B–2C, API Slices 3A–3C, operations Slices 4A–4C, and onboarding Slice 5A remain
-  execution-pending for focused gates.
+  `32719989413` and Rustok probe `32719989450` were green.
+- Module 2B–2C, API 3A–3C, operations 4A–4C, and onboarding 5A–5B remain execution-pending for focused gates.
 
 The repaired bounded Rustok architecture-generation evaluation retains `DOCUMENTATION_REFERENCE_LIMIT`,
 `workflow_dispatch` support, and diagnostic evidence checks as explicit regression boundaries.
 
 ## Next Bounded Step
 
-1. Record formatting/build/test/Clippy evidence for module 2B–2C, API 3A–3C, operations 4A–4C, and onboarding 5A.
-2. Implement Slice 5B: onboarding-scoped facts, a bounded supported canonical relation set, and open
-   onboarding diagnostics while keeping the profile pure.
-3. Keep publication/Store/CLI for Slice 5C and keep provider, daemon, MCP, and coordinated `ath generate`
-   changes out until separate deterministic quality gates justify them.
+1. Record focused format/test/Clippy evidence for the source-implemented profiles.
+2. Implement Slice 5C as immutable onboarding publication, exact Store operation, CLI generation, and
+   validated inspection with profile-isolated shared `current.json`.
+3. Keep provider, daemon, MCP, and coordinated `ath generate` changes out until separate deterministic
+   quality gates justify them.
 
 ## Verification
 
@@ -192,22 +158,11 @@ The repaired bounded Rustok architecture-generation evaluation retains `DOCUMENT
 cargo fmt --all -- --check
 cargo test -p athanor-app --test documentation_onboarding_profile_inventory --locked
 cargo test -p athanor-app --test documentation_operations_profile_inventory --locked
-cargo test -p athanor-app --test documentation_operations_publication_inventory --locked
-cargo test -p athanor-app --test documentation_operations_operation_inventory --locked
-cargo test -p athanor-app --test documentation_operations_inspection_inventory --locked
 cargo test -p athanor-app --test documentation_api_profile_inventory --locked
-cargo test -p athanor-app --test documentation_api_publication_inventory --locked
-cargo test -p athanor-app --test documentation_api_operation_inventory --locked
-cargo test -p athanor-app --test documentation_api_inspection_inventory --locked
 cargo test -p athanor-app --test documentation_module_profile_inventory --locked
-cargo test -p athanor-app --test documentation_module_publication_inventory --locked
-cargo test -p athanor-app --test documentation_module_inspection_inventory --locked
-cargo test -p athanor-app --test documentation_architecture_inspection_inventory --locked
-cargo test -p ath --test documentation_operations_cli --locked
-cargo test -p ath --test documentation_api_cli --locked
-cargo test -p ath --test documentation_module_cli --locked
-cargo test -p ath --test documentation_architecture_cli --locked
+cargo test -p athanor-app --test documentation_architecture_profile_inventory --locked
 cargo test -p athanor-app --test documentation_status_inventory --locked
+cargo test -p ath --test documentation_architecture_cli --locked
 cargo test --workspace --quiet --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings
 ```
