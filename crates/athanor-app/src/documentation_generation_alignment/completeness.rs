@@ -9,11 +9,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use athanor_core::CanonicalSnapshot;
 use athanor_domain::{Diagnostic, EntityKind, Evidence, Fact, Relation};
-use serde::Serialize;
 
 use crate::documentation_evidence_location::{entity_evidence_locations, evidence_locations};
 
-pub const DOCUMENTATION_COMPLETENESS_SCHEMA_V1: &str = "athanor.documentation_completeness.v1";
 pub const DOCUMENTATION_COMPLETENESS_DEFAULT_LIMIT: usize = 50;
 pub const DOCUMENTATION_COMPLETENESS_BASELINE_ADAPTER: &str = "file";
 const UNKNOWN_LANGUAGE: &str = "unknown";
@@ -45,9 +43,8 @@ impl DocumentationCompletenessRequest {
     }
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DocumentationCompletenessReport {
-    pub schema: &'static str,
     pub snapshot: String,
     pub baseline_adapter: &'static str,
     pub limit: usize,
@@ -58,7 +55,7 @@ pub struct DocumentationCompletenessReport {
     pub omitted: DocumentationCompletenessOmitted,
 }
 
-#[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DocumentationCompletenessTotals {
     pub tracked_files: usize,
     pub processed_files: usize,
@@ -71,7 +68,7 @@ pub struct DocumentationCompletenessTotals {
     pub diagnostics: usize,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DocumentationLanguageCompleteness {
     pub language: String,
     pub tracked_files: usize,
@@ -81,7 +78,7 @@ pub struct DocumentationLanguageCompleteness {
     pub adapters: usize,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DocumentationAdapterCompleteness {
     pub adapter: String,
     pub files: usize,
@@ -90,13 +87,13 @@ pub struct DocumentationAdapterCompleteness {
     pub diagnostics: usize,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DocumentationUnprocessedFile {
     pub path: String,
     pub language: String,
 }
 
-#[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DocumentationCompletenessOmitted {
     pub languages: usize,
     pub adapters: usize,
@@ -181,6 +178,10 @@ pub fn build_documentation_completeness_report(
         .into_iter()
         .filter(|path| tracked_files.contains_key(path))
         .collect::<BTreeSet<_>>();
+    for adapter in adapters.values_mut() {
+        adapter.files.retain(|path| tracked_files.contains_key(path));
+    }
+    path_adapters.retain(|path, _| tracked_files.contains_key(path));
 
     let mut languages = BTreeMap::<String, LanguageAccumulator>::new();
     let mut unprocessed_files = Vec::<DocumentationUnprocessedFile>::new();
@@ -277,7 +278,6 @@ pub fn build_documentation_completeness_report(
     unprocessed_files.truncate(request.limit);
 
     Ok(DocumentationCompletenessReport {
-        schema: DOCUMENTATION_COMPLETENESS_SCHEMA_V1,
         snapshot: request.snapshot.clone(),
         baseline_adapter: DOCUMENTATION_COMPLETENESS_BASELINE_ADAPTER,
         limit: request.limit,
