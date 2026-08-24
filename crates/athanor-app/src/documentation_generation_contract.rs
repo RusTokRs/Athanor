@@ -23,6 +23,7 @@ pub const DOCUMENTATION_GENERATION_LIMIT_MAX: usize = 100_000;
 #[serde(rename_all = "snake_case")]
 pub enum DocumentationProfile {
     Architecture,
+    Module,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

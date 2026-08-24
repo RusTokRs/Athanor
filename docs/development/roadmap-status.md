@@ -34,7 +34,13 @@ configured Store, applies hard limits, emits cited Markdown and relation-backed 
 publishes immutable checksum-bound generations. Validated inspection rejects pointer escape, unsupported
 artifact layouts, identity drift, and checksum drift.
 
-Supported CLI surface:
+The first additional deterministic profile is the Slice 2A module inventory. It is a pure application
+owner over one exact `CanonicalSnapshot`: source-backed `EntityKind::Module` entries are stable-key
+ordered, bounded by `max_entities` and the shared 256-reference ceiling, cited, and rendered to
+`modules/index.md` with a SHA-256 checksum. Module facts, relations, diagnostics, publication, Store
+loading, and transport integration remain later bounded slices.
+
+Supported CLI surface remains architecture-only:
 
 ```bash
 ath docs generate-architecture <PATH> --snapshot <EXACT-ID> [--force] [--json]
@@ -64,11 +70,15 @@ Slice 1C2 CLI generation and validated inspection are confirmed on
 `042d02ac6b4c89d90a5b76c818098eb0c6b41920`: CI `30025932615`, AppSec `30025931953`, Store
 `30025932704`.
 
-The repaired bounded Rustok evaluation is confirmed on
+The repaired bounded Rustok evaluation is fully matrix-confirmed on
 `f1024cbc52f05de4d3ce96c556ef044ad48b3a0e`: evaluation `31625608720`, probe `31625608721`, CI
-`31625608729`, AppSec `31625608723`, Store `31625608739`. The uploaded artifact is valid and
-repeatable, but review found that `6962` unsupported relations were not explicitly disclosed in the
-human-facing Markdown.
+`31625608729`, AppSec `31625608723`, Store `31625608739`.
+
+The follow-up relation-disclosure tuning is evaluation-confirmed on
+`6862aee81dd0f53fa8372d1ce3fcb6e2ed198cca`: evaluation `32712992516` and probe `32712992421` are
+successful. Its uploaded artifact remains deterministic (`published` then `up_to_date`), retains 256
+citation footnotes and 84 Mermaid edges, reports `unsupported_relations = 6962`, and now records
+`unsupported_relation_disclosed = true`. This is exact evaluation evidence, not a new full matrix claim.
 
 ## Implemented Packages
 
@@ -98,17 +108,22 @@ human-facing Markdown.
 - [x] Exact bounded Rustok evaluation on `f1024cbc52f05de4d3ce96c556ef044ad48b3a0e` with green
   evaluation/probe/CI/AppSec/Store statuses, `256` citations, `84` Mermaid edges, valid metrics, and
   deterministic `up_to_date` repeat;
-- [x] Artifact review recorded the remaining tuning finding: `6962` omitted/unsupported relations are
-  reported by validation but `unsupported_relation_disclosed = false` in the generated Markdown;
-- [ ] Publish explicit unsupported-relation disclosure plus a fail-closed evaluation guard, then confirm
-  `unsupported_relation_disclosed = true` on one exact source commit.
+- [x] Closed the artifact-review relation-disclosure finding on
+  `6862aee81dd0f53fa8372d1ce3fcb6e2ed198cca`: evaluation `32712992516`, probe `32712992421`,
+  `unsupported_relations = 6962`, `unsupported_relation_disclosed = true`, deterministic repeatability
+  unchanged;
+- [x] Slice 2A implemented in source: `DocumentationProfile::Module`, exact-snapshot pure module builder,
+  source-backed module selection, stable-key ordering, `max_entities` plus shared 256-reference budget,
+  cited `modules/index.md`, SHA-256 binding, and focused source regressions;
+- [ ] Obtain execution evidence for Slice 2A before expanding its evidence model or enabling publication.
 
-`DOCGEN-001` remains in progress only until that artifact-review finding is closed with exact-commit
-evidence. Additional profiles stay out of this bounded fix.
+`DOCGEN-001` remains in progress. Slice 2A deliberately does not publish files or expose a CLI command;
+those boundaries stay closed until module evidence enrichment is independently implemented and checked.
 
 ## Product Backlog
 
-- module/API/operations/onboarding profiles;
+- module facts/relations/diagnostics enrichment, then module publication/CLI;
+- API/operations/onboarding profiles;
 - broader framework adapters and completeness reporting;
 - i18n, concepts, and optional semantic/vector retrieval;
 - optional provider, daemon, and MCP integration after deterministic quality gates.
