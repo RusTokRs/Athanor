@@ -15,9 +15,9 @@ matrix-confirmed on `f1024cbc52f05de4d3ce96c556ef044ad48b3a0e`; the human-facing
 disclosure is exact-evaluation-confirmed on `6862aee81dd0f53fa8372d1ce3fcb6e2ed198cca`.
 
 Module expansion is source-implemented through Slice 2C, API expansion through Slice 3C, and operations
-expansion begins with source-implemented Slice 4A: a pure exact-snapshot operational entity inventory.
-Focused module, API, and operations format/test/Clippy evidence remains pending and is not inferred from
-source presence.
+expansion through Slice 4B: a pure exact-snapshot operational inventory enriched with scoped facts,
+supported canonical relations, and open diagnostics. Focused module, API, and operations format/test/Clippy
+evidence remains pending and is not inferred from source presence.
 
 The existing coordinated `ath generate` command is unchanged. No model provider, daemon, MCP, or new dependency is enabled.
 
@@ -114,27 +114,31 @@ or layout drift, invalid validation status, and checksum drift.
   `api current|manifest|validation` with profile-isolated shared `current.json`.
 - API source regressions are present; focused execution evidence remains pending.
 
-### Slice 4A — Deterministic Operations Inventory Profile
+### Slices 4A–4B — Deterministic Operations Profile
 
-`build_documentation_operations_profile` establishes the first pure operations owner:
+`build_documentation_operations_profile` remains a pure exact-snapshot owner:
 
 - `DocumentationProfile::Operations` serializes as `operations` without changing v1 schema names;
-- exact request/snapshot identity is mandatory;
 - eligible evidence-backed kinds are `EnvVar`, `Script`, `ScriptCommand`, `CiJob`, `DockerService`,
-  `DbMigration`, `DbTable`, `Feature`, `Runbook`, and `OperationStep`;
-- general `Package` and `Dependency` entities remain outside this bounded operations inventory;
-- candidates are grouped into environment, automation, deployment, data, configuration, and runbooks,
-  sorted by stable key/entity id, then selected by deterministic category round-robin;
-- `max_entities` and `DOCUMENTATION_REFERENCE_LIMIT = 256` bound context and citations;
-- entity evidence uses the shared portable path normalization owner; entities without portable evidence
-  are excluded;
-- deterministic `operations/index.md`, omission disclosure, citations, valid metrics, and lowercase
-  SHA-256 are emitted without filesystem, Store, network, provider, daemon, MCP, or CLI access;
-- facts, relations, diagnostics, publication, and transport integration remain outside Slice 4A.
+  `DbMigration`, `DbTable`, `Feature`, `Runbook`, and `OperationStep`; general `Package`/`Dependency`
+  entities remain outside the bounded inventory;
+- environment, automation, deployment, data, configuration, and runbook candidates are stable-key/entity-id
+  sorted and selected by deterministic category round-robin;
+- Slice 4B scopes facts when subject or optional object is a selected operations anchor;
+- supported relations must touch a selected anchor and belong to `Defines`, `Contains`, `Documents`,
+  `DocumentsOperation`, `UsesEnv`, or `QueriesTable`; `RelationKind::Other(...)` does not expand the contract;
+- diagnostics are eligible only when `status == open` and reference a selected operations anchor;
+  named `DiagnosticKind::Other(...)` payload remains human-readable and deterministic;
+- fact/relation/diagnostic evidence uses shared portable normalization with ownership fallback;
+- per-kind limits feed the aggregate `DOCUMENTATION_REFERENCE_LIMIT = 256` round-robin ceiling;
+- `Operations Facts`, `Operations Relationships`, and `Operations Diagnostics` are cited, supported
+  relations render directed cited Mermaid edges, and omissions remain explicit;
+- deterministic `operations/index.md`, validation metrics, and lowercase SHA-256 remain pure: no
+  filesystem, Store, network, provider, daemon, MCP, CLI, or coordinated `ath generate` integration.
 
-Focused regressions cover exact identity, operational-kind scope, category fairness, portable evidence,
-shared 256 ceiling, omission accounting, input-order invariance, checksum binding, and fail-closed
-no-operations behavior.
+Focused regressions cover exact identity, category fairness, fact/diagnostic scope, relation allowlist,
+`Other(...)` exclusion/preservation boundaries, portable evidence, aggregate omissions, input-order
+invariance, shared 256 ceiling, checksum binding, and fail-closed no-operations behavior.
 
 ## Execution Evidence
 
@@ -161,18 +165,18 @@ no-operations behavior.
   `32718598218`, Rustok evaluation `32718598212`, and Rustok probe `32718598232` are green.
 - Slice 3A landed on `0a4c0f78ef05b6c2ba9480b770c1ebf72038e049`; Rustok evaluation
   `32719989413` and Rustok probe `32719989450` are green. These are not focused API profile evidence.
-- Slices 2B–2C, API Slices 3A–3C, and operations Slice 4A remain execution-pending for focused gates.
+- Slices 2B–2C, API Slices 3A–3C, and operations Slices 4A–4B remain execution-pending for focused gates.
 
 The repaired bounded Rustok architecture-generation evaluation retains `DOCUMENTATION_REFERENCE_LIMIT`,
 `workflow_dispatch` support, and diagnostic evidence checks as explicit regression boundaries.
 
 ## Next Bounded Step
 
-1. Record formatting/build/test/Clippy evidence for module 2B–2C, API 3A–3C, and operations 4A.
-2. Implement Slice 4B: operations-scoped facts, supported relations, and open diagnostics while retaining
-   the pure exact-snapshot owner and shared bounded reference budget.
-3. Keep operations publication/Store/CLI, onboarding, provider, daemon, MCP, and coordinated `ath generate`
-   changes out until separate bounded slices.
+1. Record formatting/build/test/Clippy evidence for module 2B–2C, API 3A–3C, and operations 4A–4B.
+2. Implement Slice 4C: immutable operations publication, exact committed-snapshot Store operation,
+   operations CLI generation, and validated inspection while preserving profile isolation.
+3. Keep onboarding, provider, daemon, MCP, and coordinated `ath generate` changes out until separate
+   deterministic quality gates justify them.
 
 ## Verification
 
