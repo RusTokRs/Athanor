@@ -60,9 +60,10 @@ Slice 6B adds exact Store loading, read-only `ath docs completeness`, cancellati
 `athanor.documentation_completeness.v1` JSON transport. No latest fallback or publication/current pointer exists.
 
 Slice 7A adds the first gap-driven framework projection: built-in `NextJsExtractor` recognizes bounded App
-Router and Pages Router filesystem route conventions and emits source-backed `Feature`/`RouteDeclared`
-knowledge. The base `JsTsExtractor` remains framework-neutral; HTTP methods, React semantics, configuration,
-interception routes, middleware, schemas, and auth remain deferred rather than inferred.
+Router and Pages Router filesystem route conventions and emits source-backed adapter-scoped
+`EntityKind::Other("nextjs_route")` plus `RouteDeclared` knowledge. The base `JsTsExtractor` remains
+framework-neutral; HTTP methods, React semantics, configuration, interception routes, middleware, schemas,
+and auth remain deferred rather than inferred.
 
 The shared `current.json` is profile-aware across architecture, module, API, operations, and onboarding.
 Every inspector fails closed when another published profile owns the current pointer.
