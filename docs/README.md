@@ -82,8 +82,9 @@ ath docs module validation . --json
 ```
 
 Generation requires an exact committed snapshot, has no latest fallback, accepts hard-limit and `--force`
-flags, and cancels on Ctrl-C. Inspection validates the requested profile, pointer confinement, identities,
-artifact layout, and checksums before output. Provider, daemon, and MCP integration are not enabled.
+flags, and cancels on Ctrl-C. Architecture and module selectors retain the shared `256` citation/context
+budget. Inspection validates the requested profile, pointer confinement, identities, artifact layout, and
+checksums before output. Provider, daemon, and MCP integration are not enabled.
 
 Editable documentation remains review-oriented:
 
