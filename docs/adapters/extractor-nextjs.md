@@ -40,15 +40,19 @@ out of this bounded slice. Pages Router `_app`, `_document`, and `_error` files 
 
 Each recognized route file emits:
 
-- one `EntityKind::Feature` with `feature_kind = "nextjs_route"`;
-- one `FactKind::RouteDeclared` from that feature to the canonical file entity;
+- one adapter-scoped `EntityKind::Other("nextjs_route")` route entity;
+- one `FactKind::RouteDeclared` from that route entity to the canonical file entity;
 - framework, router (`app` or `pages`), route kind, normalized route pattern, dynamic-route flag,
   and normalized source path metadata.
 
-The feature stable key is source-backed:
+Using an adapter-scoped entity kind keeps Next.js web routes out of generic operations/API/onboarding
+profile inventories while still making the source file processed and attributed to the `nextjs`
+adapter in exact completeness reporting.
+
+The route stable key is source-backed:
 
 ```text
-feature://nextjs:<project-relative-source-path>#route
+nextjs-route://<project-relative-source-path>#route
 ```
 
 This keeps conflicting files distinct while exposing the framework route in payload metadata.
