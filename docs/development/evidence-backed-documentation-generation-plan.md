@@ -15,7 +15,7 @@ matrix-confirmed on `f1024cbc52f05de4d3ce96c556ef044ad48b3a0e`; the human-facing
 disclosure is exact-evaluation-confirmed on `6862aee81dd0f53fa8372d1ce3fcb6e2ed198cca`.
 
 Module expansion is source-implemented through Slice 2C, API through Slice 3C, operations through Slice
-4C, and onboarding through pure Slices 5A–5B. Focused module, API, operations, and onboarding format/test/Clippy
+4C, and onboarding through Slice 5C. Focused module, API, operations, and onboarding format/test/Clippy
 evidence remains pending and is not inferred from source presence.
 
 The existing coordinated `ath generate` command is unchanged. No model provider, daemon, MCP, or new dependency is enabled.
@@ -134,22 +134,29 @@ or layout drift, invalid validation status, and checksum drift.
   confinement, layout, identities, and SHA-256. Existing `ath docs operations check` remains unchanged.
 - Operations publication/Store/CLI source regressions are present; focused execution evidence is pending.
 
-### Slices 5A–5B — Onboarding Documentation Profile
+### Slices 5A–5C — Onboarding Documentation Profile
 
 - `DocumentationProfile::Onboarding` serializes as `onboarding` without changing v1 schema names.
-- `build_documentation_onboarding_profile` is pure over one exact `CanonicalSnapshot`; no Store,
-  filesystem publication, CLI, daemon, MCP, network, or provider access is introduced.
-- Eligible evidence-backed anchors are `DocumentationPage`, `DocumentationSection`, `Package`,
-  `ScriptCommand`, `EnvVar`, and `TestCase`/`CiJob`; six category queues use stable-key/entity-id round-robin.
-- Slice 5B adds facts when subject or object is a selected onboarding anchor, supported `Contains`,
-  `Documents`, `UsesEnv`, and `TestedBy` relations touching an anchor, and open diagnostics referencing an anchor.
+- `build_documentation_onboarding_profile` is pure over one exact `CanonicalSnapshot`; eligible evidence-backed
+  anchors are `DocumentationPage`, `DocumentationSection`, `Package`, `ScriptCommand`, `EnvVar`, and `TestCase`/`CiJob`.
+- Six category queues use stable-key/entity-id round-robin. Slice 5B adds facts when subject or object is a
+  selected anchor, supported `Contains`, `Documents`, `UsesEnv`, and `TestedBy` relations touching an anchor,
+  and open diagnostics referencing an anchor.
 - Per-kind limits feed deterministic Entity/Fact/Relation/Diagnostic round-robin under the aggregate
   `DOCUMENTATION_REFERENCE_LIMIT = 256`; each selected item is cited and supported relations emit Mermaid edges.
 - Omitted counts are scoped to eligible onboarding evidence; omitted supported relations are disclosed and
   feed `validation.metrics.unsupported_relations`. Shared portable evidence normalization remains the owner.
-- Deterministic `onboarding/index.md`, lowercase SHA-256, scope-leakage checks, input-order invariance,
-  relation-limit disclosure, and mixed-kind 256-budget regressions are source protected.
-- Publication, Store loading, and CLI remain deferred to Slice 5C.
+- Slice 5C publishes deterministic `onboarding/index.md` plus `validation-report.json` in the shared immutable
+  generation root and advances profile-aware `current.json` only after complete staged publication.
+- Exact `UpToDate` validates profile, snapshot, generation path, manifest layout, artifact checksums, and
+  validation identity/status. Force, tamper recovery, immutable history, and cancellation are source protected.
+- `DocumentationOnboardingOperationOptions` initializes the configured Store and loads only exact
+  `SnapshotId(request.snapshot)`; missing snapshots and Store identity mismatch fail closed.
+- `ath docs generate-onboarding <PATH> --snapshot <EXACT-ID>` supports hard limits, `--force`, `--json`, and
+  Ctrl-C cancellation/drain. `ath docs onboarding current|manifest|validation` validates profile, confinement,
+  layout, identities, and SHA-256.
+- Shared `current.json` is profile-isolated across architecture, module, API, operations, and onboarding.
+- Onboarding profile/publication/Store/CLI source regressions are present; focused execution evidence remains pending.
 
 ## Execution Evidence
 
@@ -176,7 +183,7 @@ or layout drift, invalid validation status, and checksum drift.
   `32718598218`, Rustok evaluation `32718598212`, and Rustok probe `32718598232` are green.
 - Slice 3A landed on `0a4c0f78ef05b6c2ba9480b770c1ebf72038e049`; Rustok evaluation
   `32719989413` and Rustok probe `32719989450` are green. These are not focused API profile evidence.
-- Slices 2B–2C, API Slices 3A–3C, operations Slices 4A–4C, and onboarding Slices 5A–5B remain
+- Slices 2B–2C, API Slices 3A–3C, operations Slices 4A–4C, and onboarding Slices 5A–5C remain
   execution-pending for focused gates.
 
 The repaired bounded Rustok architecture-generation evaluation retains `DOCUMENTATION_REFERENCE_LIMIT`,
@@ -184,9 +191,8 @@ The repaired bounded Rustok architecture-generation evaluation retains `DOCUMENT
 
 ## Next Bounded Step
 
-1. Record formatting/build/test/Clippy evidence for module 2B–2C, API 3A–3C, operations 4A–4C, and onboarding 5A–5B.
-2. Implement Slice 5C: immutable onboarding publication, exact Store operation, CLI generation, and
-   validated inspection with profile-isolated shared `current.json`.
+1. Record formatting/build/test/Clippy evidence for module 2B–2C, API 3A–3C, operations 4A–4C, and onboarding 5A–5C.
+2. Take the next deterministic documentation package from broader framework adapters/completeness reporting.
 3. Keep provider, daemon, MCP, and coordinated `ath generate` changes out until separate deterministic
    quality gates justify them.
 
@@ -195,6 +201,9 @@ The repaired bounded Rustok architecture-generation evaluation retains `DOCUMENT
 ```bash
 cargo fmt --all -- --check
 cargo test -p athanor-app --test documentation_onboarding_profile_inventory --locked
+cargo test -p athanor-app --test documentation_onboarding_publication_inventory --locked
+cargo test -p athanor-app --test documentation_onboarding_operation_inventory --locked
+cargo test -p athanor-app --test documentation_onboarding_inspection_inventory --locked
 cargo test -p athanor-app --test documentation_operations_profile_inventory --locked
 cargo test -p athanor-app --test documentation_operations_publication_inventory --locked
 cargo test -p athanor-app --test documentation_operations_operation_inventory --locked
@@ -207,6 +216,7 @@ cargo test -p athanor-app --test documentation_module_profile_inventory --locked
 cargo test -p athanor-app --test documentation_module_publication_inventory --locked
 cargo test -p athanor-app --test documentation_module_inspection_inventory --locked
 cargo test -p athanor-app --test documentation_architecture_inspection_inventory --locked
+cargo test -p ath --test documentation_onboarding_cli --locked
 cargo test -p ath --test documentation_operations_cli --locked
 cargo test -p ath --test documentation_api_cli --locked
 cargo test -p ath --test documentation_module_cli --locked
