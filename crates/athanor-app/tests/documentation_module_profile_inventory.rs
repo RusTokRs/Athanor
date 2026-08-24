@@ -1,7 +1,8 @@
 use athanor_app::{
     MODULE_DOCUMENT_MEDIA_TYPE, MODULE_DOCUMENT_PATH, DocumentationContextItemKind,
     DocumentationGenerationLimits, DocumentationGenerationRequest, DocumentationProfile,
-    DocumentationValidationStatus, build_documentation_module_profile,
+    DocumentationValidationStatus, build_documentation_architecture_profile,
+    build_documentation_module_profile,
 };
 use athanor_core::CanonicalSnapshot;
 use athanor_domain::{EntityId, EntityKind};
@@ -25,8 +26,14 @@ fn module_profile_is_exact_scoped_cited_and_checksum_bound() {
         ["overview", "modules", "relationships", "diagnostics"]
     );
     assert_eq!(profile.context.profile, DocumentationProfile::Module);
-    assert_eq!(count_kind(&profile.context.items, DocumentationContextItemKind::Entity), 1);
-    assert_eq!(count_kind(&profile.context.items, DocumentationContextItemKind::Fact), 1);
+    assert_eq!(
+        count_kind(&profile.context.items, DocumentationContextItemKind::Entity),
+        1
+    );
+    assert_eq!(
+        count_kind(&profile.context.items, DocumentationContextItemKind::Fact),
+        1
+    );
     assert_eq!(
         count_kind(
             &profile.context.items,
@@ -84,6 +91,52 @@ fn module_profile_is_exact_scoped_cited_and_checksum_bound() {
         serde_json::to_value(DocumentationProfile::Module).unwrap(),
         serde_json::Value::String("module".to_string())
     );
+}
+
+#[test]
+fn module_profile_matches_architecture_evidence_semantics_for_shared_items() {
+    let snapshot = fixture_snapshot();
+    let module = build_documentation_module_profile(&request(16), &snapshot).unwrap();
+    let architecture = build_documentation_architecture_profile(
+        &DocumentationGenerationRequest::new(
+            "snap-architecture-0001",
+            DocumentationProfile::Architecture,
+            limits(16),
+        ),
+        &snapshot,
+    )
+    .unwrap();
+
+    for kind in [
+        DocumentationContextItemKind::Entity,
+        DocumentationContextItemKind::Fact,
+        DocumentationContextItemKind::Relation,
+        DocumentationContextItemKind::Diagnostic,
+    ] {
+        let module_item = module
+            .context
+            .items
+            .iter()
+            .find(|item| item.kind == kind)
+            .unwrap();
+        let architecture_item = architecture
+            .context
+            .items
+            .iter()
+            .find(|item| {
+                item.kind == kind
+                    && item.stable_keys == module_item.stable_keys
+                    && item.source_stable_key == module_item.source_stable_key
+                    && item.target_stable_key == module_item.target_stable_key
+            })
+            .unwrap();
+        assert_eq!(module_item.stable_keys, architecture_item.stable_keys);
+        assert_eq!(module_item.evidence, architecture_item.evidence);
+        assert_eq!(
+            module_item.relation_direction,
+            architecture_item.relation_direction
+        );
+    }
 }
 
 #[test]
@@ -207,7 +260,10 @@ fn multi_module_snapshot() -> CanonicalSnapshot {
     snapshot
 }
 
-fn count_kind(items: &[athanor_app::DocumentationContextItem], kind: DocumentationContextItemKind) -> usize {
+fn count_kind(
+    items: &[athanor_app::DocumentationContextItem],
+    kind: DocumentationContextItemKind,
+) -> usize {
     items.iter().filter(|item| item.kind == kind).count()
 }
 
