@@ -4,7 +4,7 @@
 > Ветка: `main`  
 > Актуализировано: 2026-08-24  
 > Статус: `API-001`, `REL-001` verified; `DOCGEN-001 / Slices 0A–1C` execution-confirmed;
-> relation-disclosure exact-evaluation-confirmed; module Slices 2A–2C и API Slice 3A implemented in source,
+> relation-disclosure exact-evaluation-confirmed; module Slices 2A–2C и API Slices 3A–3B implemented in source,
 > focused execution evidence pending
 
 ## 1. Статусы и evidence
@@ -47,6 +47,8 @@ Documentation generation:
 - Slice 2C landed on `b9e0eadc46175e15ec62f915a4729287f3884cd2`; post-merge Store Conformance
   `32718598218`, Rustok evaluation `32718598212` и Rustok probe `32718598232` green. Это не заменяет
   focused module execution evidence.
+- Slice 3A landed on `0a4c0f78ef05b6c2ba9480b770c1ebf72038e049`; post-merge Rustok evaluation
+  `32719989413` и Rustok probe `32719989450` green. Это не заменяет focused API execution evidence.
 
 ## 3. Завершённые пакеты
 
@@ -122,21 +124,34 @@ Documentation generation:
 - [x] Pure `build_documentation_api_profile` требует exact snapshot и profile `api`.
 - [x] В scope только evidence-backed `EntityKind::ApiEndpoint`, `ApiSchema`, `ApiExample`.
 - [x] Per-kind stable-key/entity-id ordering и deterministic endpoint/schema/example round-robin.
-- [x] `max_entities` + `DOCUMENTATION_REFERENCE_LIMIT = 256`; omissions явны, facts/relations/diagnostics = 0.
-- [x] `API Overview`, `API Endpoints`, `API Schemas`, `API Examples`, citations, `api/index.md`, SHA-256.
-- [x] Новый `documentation_evidence_location` owner нормализует portable evidence paths для новых profiles,
-  чтобы Slice 3A не создавал третью копию path/evidence semantics.
-- [x] Regression: exact identity, mixed-kind selection, input-order invariance, omissions, checksum,
-  Windows slash normalization и fail-closed no-API/wrong-profile/wrong-snapshot.
-- [ ] Slice 3A execution evidence pending; publication/Store/CLI intentionally не включены.
+- [x] `max_entities` + `DOCUMENTATION_REFERENCE_LIMIT = 256`; citations, omissions, `api/index.md`, SHA-256.
+- [x] `documentation_evidence_location` owner нормализует portable entity evidence paths.
+
+#### Slice 3B — API-scoped evidence enrichment
+
+- [x] Facts: subject или object — выбранный API endpoint/schema/example anchor.
+- [x] Relations: только canonical API allowlist `ImplementedBy`, `SchemaForRequest`, `SchemaForResponse`,
+  `ExampleFor`, `Documents`, `DocumentsApi`, `DocumentsOperation`, и source/target касается выбранного API anchor.
+- [x] GraphQL-specific `RelationKind::Other(...)` сознательно не расширяет bounded 3B relation contract.
+- [x] Diagnostics: только `open` и с reference на выбранный API anchor; `DiagnosticKind::Other(...)`
+  сохраняет именованный payload для человекочитаемого вывода.
+- [x] Fact/relation/diagnostic evidence использует общий `documentation_evidence_location` owner:
+  canonical evidence + ownership fallback, slash normalization, portable paths, line defaults и dedup.
+- [x] Deterministic sorting: facts по kind/id, relations по source/kind/target/id, diagnostics по severity/kind/id.
+- [x] Per-kind limits + deterministic aggregate round-robin ceiling 256; omitted counts и
+  `unsupported_relations` отражают eligible supported API relations за пределами bounded context.
+- [x] Добавлены `API Facts`, `API Relationships`, `API Diagnostics`; supported relations получают cited
+  Mermaid edges, а все non-inference claims остаются evidence-backed.
+- [x] Regressions покрывают allowlist, scoped facts/open diagnostics, unsupported `Other` relation exclusion,
+  named `Other` diagnostics, omissions, input-order invariance, exact identity, checksum и fail-closed cases.
+- [ ] Slices 3A–3B focused format/test/Clippy execution evidence pending; API publication/Store/CLI отсутствуют.
 
 Existing coordinated `ath generate` is unchanged. Provider/LLM, daemon and MCP remain out of scope.
-`DOCGEN-001` остаётся `[-] in progress`: module production surface и pure API Slice 3A source-implemented;
-verification и API evidence enrichment остаются отдельными packages.
+`DOCGEN-001` остаётся `[-] in progress`: module production surface и pure API Slices 3A–3B
+source-implemented; verification и API production integration остаются отдельными packages.
 
 ### 4.2 Product backlog
 
-- [ ] Slice 3B: API-scoped facts, implementation/schema/example/doc relations и open API diagnostics;
 - [ ] Slice 3C: immutable API publication + exact Store operation + CLI/validated inspection;
 - [ ] operations/onboarding documentation profiles;
 - [ ] broader framework adapters and completeness reports;
@@ -155,7 +170,7 @@ verification и API evidence enrichment остаются отдельными pa
 | `VERIFY-001` | P1 | `[x] verified` | Full release baseline matrix |
 | `API-001` | P1 | `[x] verified` | Cross-protocol consistency |
 | `REL-001` | P1 | `[x] verified` | `v0.2.1` published and installed |
-| `DOCGEN-001` | P2 | `[-] in progress` | Module 2A–2C + API 3A source-implemented; execution pending |
+| `DOCGEN-001` | P2 | `[-] in progress` | Module 2A–2C + API 3A–3B source-implemented; execution pending |
 
 ## 6. Verification matrix
 
@@ -180,6 +195,6 @@ cargo run -p ath --quiet --locked -- docs check
 
 ## 7. Следующий шаг
 
-Получить focused format/test/Clippy execution evidence для module Slices 2B–2C и API Slice 3A. Затем
-отдельным Slice 3B добавить API-scoped facts/relations/open diagnostics, переиспользуя canonical evidence
-semantics; не подключать publication/provider/daemon/MCP и не менять coordinated `ath generate`.
+Получить focused format/test/Clippy execution evidence для module Slices 2B–2C и API Slices 3A–3B.
+После этого отдельным Slice 3C добавить immutable API publication, exact committed-snapshot Store operation
+и API CLI/validated inspection; не подключать provider/daemon/MCP и не менять coordinated `ath generate`.
