@@ -63,8 +63,11 @@ pub mod documentation_module_operation;
 #[path = "documentation_module_profile_v1.rs"]
 pub mod documentation_module_profile;
 pub mod documentation_module_publication;
+pub mod documentation_onboarding_inspection;
+pub mod documentation_onboarding_operation;
 #[path = "documentation_onboarding_profile_v1.rs"]
 pub mod documentation_onboarding_profile;
+pub mod documentation_onboarding_publication;
 pub mod documentation_operations_inspection;
 pub mod documentation_operations_operation;
 #[path = "documentation_operations_profile_v1.rs"]
@@ -166,6 +169,8 @@ pub mod publication {
     pub use crate::documentation_architecture_publication::*;
     pub use crate::documentation_module_inspection::*;
     pub use crate::documentation_module_publication::*;
+    pub use crate::documentation_onboarding_inspection::*;
+    pub use crate::documentation_onboarding_publication::*;
     pub use crate::documentation_operations_inspection::*;
     pub use crate::documentation_operations_publication::*;
     pub use crate::index_current::{resolve_index_state_path, resolve_read_model_path};
@@ -236,7 +241,10 @@ pub use documentation_module_inspection::*;
 pub use documentation_module_operation::*;
 pub use documentation_module_profile::*;
 pub use documentation_module_publication::*;
+pub use documentation_onboarding_inspection::*;
+pub use documentation_onboarding_operation::*;
 pub use documentation_onboarding_profile::*;
+pub use documentation_onboarding_publication::*;
 pub use documentation_operations_inspection::*;
 pub use documentation_operations_operation::*;
 pub use documentation_operations_profile::*;

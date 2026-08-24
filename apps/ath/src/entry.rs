@@ -17,6 +17,7 @@ mod direct_validate_changed_cli;
 mod docs_cli;
 mod index_cli;
 mod mcp_cli;
+mod onboarding_docgen_cli;
 mod operations_docgen_cli;
 mod projects_cli;
 mod render;
@@ -71,6 +72,10 @@ fn run() -> Result<()> {
         }
         root_command::Command::Index(command) => {
             runtime("Athanor index runtime")?.block_on(index_cli::run(command))
+        }
+        root_command::Command::OnboardingDocgen(command) => {
+            runtime("Athanor onboarding documentation runtime")?
+                .block_on(onboarding_docgen_cli::run(command))
         }
         root_command::Command::OperationsDocgen(command) => {
             runtime("Athanor operations documentation runtime")?

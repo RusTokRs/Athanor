@@ -14,6 +14,7 @@ pub(crate) enum Command {
     Search(crate::direct_search_cli::Command),
     Read(crate::direct_read::Command),
     Index(crate::index_cli::Command),
+    OnboardingDocgen(crate::onboarding_docgen_cli::Command),
     OperationsDocgen(crate::operations_docgen_cli::Command),
     Docs(crate::docs_cli::Command),
     Api(crate::api_cli::Command),
@@ -73,6 +74,9 @@ pub(crate) fn parse(args: &[String]) -> Result<Command> {
     }
     if let Some(command) = crate::index_cli::parse(args)? {
         return Ok(Command::Index(command));
+    }
+    if let Some(command) = crate::onboarding_docgen_cli::parse(args)? {
+        return Ok(Command::OnboardingDocgen(command));
     }
     if let Some(command) = crate::operations_docgen_cli::parse(args)? {
         return Ok(Command::OperationsDocgen(command));
@@ -172,6 +176,16 @@ mod tests {
             ])
             .unwrap(),
             Command::Docs(_)
+        ));
+        assert!(matches!(
+            parse(&[
+                "docs".to_string(),
+                "generate-onboarding".to_string(),
+                "--snapshot".to_string(),
+                "snap-exact".to_string(),
+            ])
+            .unwrap(),
+            Command::OnboardingDocgen(_)
         ));
         assert!(matches!(
             parse(&[
