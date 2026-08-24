@@ -52,6 +52,8 @@ pub mod documentation_architecture_profile;
 pub mod documentation_architecture_publication;
 pub mod documentation_generation_alignment;
 pub mod documentation_generation_contract;
+#[path = "documentation_module_profile_v1.rs"]
+pub mod documentation_module_profile;
 pub mod explain;
 #[cfg(test)]
 mod fact_query_tests;
@@ -204,6 +206,7 @@ pub use documentation_architecture_profile::*;
 pub use documentation_architecture_publication::*;
 pub use documentation_generation_alignment::*;
 pub use documentation_generation_contract::*;
+pub use documentation_module_profile::*;
 pub use explain::*;
 pub use generation::*;
 pub use graph::*;
