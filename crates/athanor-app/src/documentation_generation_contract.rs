@@ -25,6 +25,7 @@ pub enum DocumentationProfile {
     Architecture,
     Module,
     Api,
+    Operations,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
