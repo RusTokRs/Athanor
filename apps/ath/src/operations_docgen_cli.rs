@@ -1,17 +1,21 @@
 use std::path::PathBuf;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use athanor_app::{
     CancellationToken, DocumentationGenerationLimits, DocumentationGenerationRequest,
     DocumentationOperationsCurrentInspection, DocumentationOperationsManifestInspection,
     DocumentationOperationsOperationOptions, DocumentationOperationsPublicationReport,
     DocumentationOperationsPublicationStatus, DocumentationOperationsValidationInspection,
-    DocumentationProfile, generate_documentation_operations_with_composition_cancellable,
+    DocumentationProfile, OperationsDocsCheckOptions, OperationsDocsCheckReport,
+    check_operations_docs_with_composition,
+    generate_documentation_operations_with_composition_cancellable,
     inspect_documentation_operations_current, inspect_documentation_operations_manifest,
     inspect_documentation_operations_validation,
 };
 use clap::error::ErrorKind;
 use clap::{Parser, Subcommand};
+
+use crate::render::check;
 
 const DEFAULT_MAX_ENTITIES: usize = 512;
 const DEFAULT_MAX_FACTS: usize = 1_024;
@@ -54,7 +58,7 @@ pub(crate) enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Inspect the validated current operations documentation generation.
+    /// Check or inspect operations documentation.
     Operations {
         #[command(subcommand)]
         command: OperationsCommand,
@@ -63,6 +67,12 @@ pub(crate) enum Command {
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum OperationsCommand {
+    Check {
+        #[arg(long, default_value = ".")]
+        path: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
     Current {
         #[arg(default_value = ".")]
         path: PathBuf,
@@ -87,14 +97,10 @@ pub(crate) fn parse(args: &[String]) -> Result<Option<Command>> {
     if args.first().map(String::as_str) != Some("docs") {
         return Ok(None);
     }
-    let owned = match args.get(1).map(String::as_str) {
-        Some("generate-operations") => true,
-        Some("operations") => matches!(
-            args.get(2).map(String::as_str),
-            Some("current" | "manifest" | "validation")
-        ),
-        _ => false,
-    };
+    let owned = matches!(
+        args.get(1).map(String::as_str),
+        Some("generate-operations" | "operations")
+    );
     if !owned {
         return Ok(None);
     }
@@ -166,6 +172,22 @@ pub(crate) async fn run(command: Command) -> Result<()> {
             render_generation(&report, json)?;
         }
         Command::Operations {
+            command: OperationsCommand::Check { path, json },
+        } => {
+            let report = check_operations_docs_with_composition(
+                OperationsDocsCheckOptions { root: path },
+                &composition,
+            )
+            .await?;
+            render_operations(&report, json)?;
+            if report.counts.total > 0 {
+                bail!(
+                    "operational documentation check failed with {} open diagnostics",
+                    report.counts.total
+                );
+            }
+        }
+        Command::Operations {
             command: OperationsCommand::Current { path, json },
         } => render_current(&inspect_documentation_operations_current(path)?, json)?,
         Command::Operations {
@@ -197,6 +219,32 @@ fn render_generation(report: &DocumentationOperationsPublicationReport, json: bo
     println!("validation: {}", report.validation_report.display());
     println!("manifest: {}", report.manifest.display());
     println!("current: {}", report.current_pointer.display());
+    Ok(())
+}
+
+fn render_operations(report: &OperationsDocsCheckReport, json: bool) -> Result<()> {
+    if json {
+        println!("{}", serde_json::to_string_pretty(report)?);
+        return Ok(());
+    }
+    println!(
+        "operational documentation in {}: {} open ({} critical, {} high, {} medium, {} low)",
+        report.snapshot,
+        report.counts.total,
+        report.counts.critical,
+        report.counts.high,
+        report.counts.medium,
+        report.counts.low
+    );
+    for scoped in [
+        &report.env,
+        &report.scripts,
+        &report.deployment,
+        &report.runbooks,
+    ] {
+        println!();
+        check::print_diagnostics(scoped)?;
+    }
     Ok(())
 }
 
