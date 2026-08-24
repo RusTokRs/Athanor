@@ -1,6 +1,5 @@
 //! Cross-contract alignment for the documentation-generation contract chain.
 
-#[path = "documentation_completeness.rs"]
 mod completeness;
 pub use completeness::*;
 
