@@ -34,26 +34,29 @@ applies hard limits, emits cited Markdown/Mermaid output, and publishes immutabl
 generations. Its CLI and validated inspection are execution-confirmed.
 
 The module profile is source-implemented through Slice 2C: pure inventory, module-scoped evidence,
-immutable publication, exact Store loading, CLI generation, and validated inspection. The shared
-`current.json` is profile-aware, so architecture and module inspection reject the other profile.
+immutable publication, exact Store loading, CLI generation, and validated inspection.
 
-The API profile is source-implemented through Slice 3B. Slice 3A established the pure exact-snapshot
-endpoint/schema/example inventory. Slice 3B adds API-scoped facts, a bounded canonical relation allowlist
-for implementation/schema/example/documentation links, open API diagnostics, deterministic aggregate
-selection, cited Mermaid relationships, and explicit omissions. API publication, Store loading, CLI,
-daemon, MCP, and provider integration remain closed.
+The API profile is source-implemented through Slice 3C. Slice 3A established the pure exact-snapshot
+endpoint/schema/example inventory; Slice 3B added API-scoped facts, supported canonical relations, open
+diagnostics, deterministic aggregate selection, cited Mermaid, and explicit omissions; Slice 3C adds
+immutable `api/index.md` publication, exact Store loading, CLI generation, and validated inspection.
 
-Supported deterministic documentation CLI surface remains architecture/module only:
+The shared `current.json` is profile-aware across architecture, module, and API inspection: each surface
+fails closed when the pointer belongs to another profile.
+
+Supported deterministic documentation CLI surface is now:
 
 ```bash
 ath docs generate-architecture <PATH> --snapshot <EXACT-ID> [--force] [--json]
 ath docs architecture current|manifest|validation <PATH> [--json]
 ath docs generate-module <PATH> --snapshot <EXACT-ID> [--force] [--json]
 ath docs module current|manifest|validation <PATH> [--json]
+ath docs generate-api <PATH> --snapshot <EXACT-ID> [--force] [--json]
+ath docs api current|manifest|validation <PATH> [--json]
 ```
 
-Generation has no latest-snapshot fallback. Ctrl-C cancels and drains the operation before returning.
-The existing coordinated `ath generate` command is unchanged.
+All generation surfaces retain hard-limit flags. Generation has no latest-snapshot fallback. Ctrl-C
+cancels and drains the operation before returning. The existing coordinated `ath generate` command is unchanged.
 
 ### Exact Evidence
 
@@ -119,16 +122,18 @@ probe, AppSec, and Store contexts are green. Slice 2C landed on
 - [x] Slice 2C: immutable module publication, exact Store operation, module CLI and validated inspection;
 - [x] Slice 3A: exact pure API endpoint/schema/example inventory, deterministic round-robin, citations,
   portable evidence normalization, omission accounting, and checksum binding;
-- [x] Slice 3B implemented in source: API-scoped facts, supported canonical API relation allowlist,
-  open diagnostics, shared evidence/ownership normalization, deterministic per-kind + aggregate limits,
-  `API Facts`/`API Relationships`/`API Diagnostics`, cited Mermaid, omissions, and scoped regressions;
-- [ ] Focused module Slices 2B–2C and API Slices 3A–3B execution evidence remains pending.
+- [x] Slice 3B: API-scoped facts, supported canonical API relation allowlist, open diagnostics, shared
+  evidence normalization, aggregate limits, cited Mermaid, omissions, and scoped regressions;
+- [x] Slice 3C implemented in source: immutable API publication, exact committed-snapshot Store operation,
+  `generate-api`, validated `api current|manifest|validation`, profile-isolated shared current pointer,
+  and publication/operation/inspection/binary-CLI regressions;
+- [ ] Focused module Slices 2B–2C and API Slices 3A–3C execution evidence remains pending.
 
-`DOCGEN-001` remains in progress. API publication/Store/CLI is not enabled by Slices 3A–3B.
+`DOCGEN-001` remains in progress. Architecture is execution-confirmed; module/API deterministic production
+surfaces are source-implemented but are not promoted to verified without their focused execution gates.
 
 ## Product Backlog
 
-- Slice 3C: immutable API publication, exact Store operation, CLI, and validated inspection;
 - operations/onboarding documentation profiles;
 - broader framework adapters and completeness reporting;
 - i18n, concepts, and optional semantic/vector retrieval;
