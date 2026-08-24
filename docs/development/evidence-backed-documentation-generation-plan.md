@@ -15,8 +15,8 @@ matrix-confirmed on `f1024cbc52f05de4d3ce96c556ef044ad48b3a0e`; the human-facing
 disclosure is exact-evaluation-confirmed on `6862aee81dd0f53fa8372d1ce3fcb6e2ed198cca`.
 
 Module expansion is source-implemented through Slice 2C, API through Slice 3C, operations through Slice
-4C, onboarding through Slice 5C, documentation completeness through Slice 6B, and the first gap-driven
-framework projection through Next.js Slice 7A. Focused later-slice format/test/Clippy evidence remains
+4C, onboarding through Slice 5C, documentation completeness through Slice 6B, and gap-driven framework
+projections through Next.js 7A and Axum 7B. Focused later-slice format/test/Clippy evidence remains
 pending and is not inferred from source presence.
 
 The existing coordinated `ath generate` command is unchanged. No model provider, daemon, MCP, or new dependency is enabled.
@@ -176,6 +176,17 @@ or layout drift, invalid validation status, and checksum drift.
   `VersionedDocumentationCompletenessReport`; registry uniqueness and a golden fixture are source protected.
 - Completeness source regressions are present; focused format/test/Clippy execution evidence remains pending.
 
+### Slices 7A–7B — Bounded Framework Route Projections
+
+- Slice 7A adds built-in `NextJsExtractor` beside framework-neutral JS/TS extraction and maps only standard
+  App/Pages Router filesystem conventions to adapter-scoped `nextjs_route` + `RouteDeclared` evidence.
+- Slice 7B adds built-in `AxumExtractor` beside framework-neutral Rust extraction. It accepts only literal
+  `.route()` declarations backed by supported direct/renamed/namespace/fully-qualified `axum::routing`
+  constructors and path handlers, emitting adapter-scoped `axum_route` + `RouteDeclared` evidence.
+- Neither slice promotes framework routes to shared API endpoint entities or infers schemas/auth/middleware;
+  both remain side-effect-free and use existing parser/dependency surfaces.
+- Framework source regressions and builtin resolver regressions are present; focused execution is pending.
+
 ## Execution Evidence
 
 - Slices 0A–0B: source `2a049303e797f00ac53f1e91fc010f284993926d`; CI `30005828864`,
@@ -202,7 +213,7 @@ or layout drift, invalid validation status, and checksum drift.
 - Slice 3A landed on `0a4c0f78ef05b6c2ba9480b770c1ebf72038e049`; Rustok evaluation
   `32719989413` and Rustok probe `32719989450` are green. These are not focused API profile evidence.
 - Slices 2B–2C, API Slices 3A–3C, operations Slices 4A–4C, onboarding Slices 5A–5C, completeness
-  Slices 6A–6B, and Next.js Slice 7A remain execution-pending for focused gates.
+  Slices 6A–6B, and framework Slices 7A–7B remain execution-pending for focused gates.
 
 The repaired bounded Rustok architecture-generation evaluation retains `DOCUMENTATION_REFERENCE_LIMIT`,
 `workflow_dispatch` support, and diagnostic evidence checks as explicit regression boundaries.
@@ -210,8 +221,8 @@ The repaired bounded Rustok architecture-generation evaluation retains `DOCUMENT
 ## Next Bounded Step
 
 1. Record formatting/build/test/Clippy evidence for later documentation/completeness/framework slices.
-2. Slice 7A closes the first bounded Next.js route-convention gap; use another exact completeness report
-   to select the next adapter gap rather than broadening Next.js or another framework speculatively.
+2. Use exact completeness gaps plus explicit framework plans to select the next bounded adapter; Dart/Flutter
+   remains blocked until DartScope is available through a portable dependency rather than a local-only path.
 3. Keep provider, daemon, MCP, and coordinated `ath generate` changes out until separate deterministic
    quality gates justify them.
 
@@ -219,6 +230,9 @@ The repaired bounded Rustok architecture-generation evaluation retains `DOCUMENT
 
 ```bash
 cargo fmt --all -- --check
+cargo test -p athanor-extractor-rust --locked
+cargo test -p athanor-runtime-defaults --test axum_registry --locked
+cargo test -p athanor-runtime-defaults --test nextjs_registry --locked
 cargo test -p athanor-app --test documentation_completeness_inventory --locked
 cargo test -p athanor-app --test documentation_completeness_operation_inventory --locked
 cargo test -p athanor-app --test documentation_completeness_transport_inventory --locked
