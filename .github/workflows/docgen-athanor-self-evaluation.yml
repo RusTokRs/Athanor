@@ -126,6 +126,9 @@ jobs:
 
           root = Path(os.environ["OUTPUT_ROOT"])
           profiles = ["architecture", "module", "api", "operations", "onboarding"]
+          not_applicable_errors = {
+              "api": "documentation API context has no evidence-backed API endpoint, schema, or example entity",
+          }
           result = {
               "schema": "athanor.documentation_self_evaluation.v1",
               "athanor_source": os.environ["ATHANOR_SHA"],
@@ -147,7 +150,11 @@ jobs:
           for profile in profiles:
               status_path = root / f"{profile}-generation.status"
               status = int(status_path.read_text().strip()) if status_path.exists() else 127
-              entry = {"exit_status": status, "generated": status == 0}
+              entry = {
+                  "exit_status": status,
+                  "generated": status == 0,
+                  "not_applicable": False,
+              }
               document_path = root / f"{profile}.md"
               if document_path.exists():
                   markdown = document_path.read_text(encoding="utf-8")
@@ -160,7 +167,10 @@ jobs:
                   })
               stderr_path = root / f"{profile}-generation.stderr"
               if status != 0 and stderr_path.exists():
-                  entry["error"] = stderr_path.read_text(encoding="utf-8")[-4000:]
+                  error = stderr_path.read_text(encoding="utf-8")[-4000:]
+                  entry["error"] = error
+                  marker = not_applicable_errors.get(profile)
+                  entry["not_applicable"] = marker is not None and marker in error
               result["profiles"][profile] = entry
           completeness_status_path = root / "completeness.status"
           completeness_status = (
@@ -196,8 +206,8 @@ jobs:
         run: |
           set -euo pipefail
           jq -e '
-            ([.profiles[] | .exit_status] | all(. == 0))
-            and (.completeness.exit_status == 0)
+            ([.profiles[] | (.generated == true or .not_applicable == true)] | all)
+            and (.completeness.generated == true)
           ' "$OUTPUT_ROOT/self-evaluation-summary.json" >/dev/null
 
       - name: Publish exact self-documentation status
