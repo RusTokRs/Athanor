@@ -8,7 +8,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use athanor_core::CanonicalSnapshot;
 use athanor_domain::{
-    Diagnostic, DiagnosticStatus, Entity, Evidence, Fact, Relation, Severity, SourceLocation,
+    Diagnostic, DiagnosticStatus, Entity, EntityKind, Evidence, Fact, FactKind, Relation,
+    RelationKind, Severity, SourceLocation,
 };
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -237,6 +238,7 @@ fn build_context(
 
 #[derive(Debug)]
 struct Candidate {
+    priority: u8,
     sort_key: String,
     summary: String,
     stable_keys: Vec<String>,
@@ -252,6 +254,7 @@ fn entity_candidate(entity: &Entity) -> Option<Candidate> {
         return None;
     }
     Some(Candidate {
+        priority: architecture_entity_priority(&entity.kind),
         sort_key: format!(
             "{}\0{}\0{}",
             serialized_name(&entity.kind),
@@ -294,7 +297,10 @@ fn fact_candidate(fact: &Fact, entities: &HashMap<&str, &Entity>) -> Option<Cand
     if evidence.is_empty() {
         return None;
     }
+    let touches_primary = architecture_entity_priority(&subject.kind) == 0
+        || object.is_some_and(|entity| architecture_entity_priority(&entity.kind) == 0);
     Some(Candidate {
+        priority: u8::from(!touches_primary || !architecture_fact_kind_is_primary(&fact.kind)),
         sort_key: format!("{}\0{}", serialized_name(&fact.kind), fact.id.0),
         summary: object.map_or_else(
             || {
@@ -338,7 +344,12 @@ fn relation_candidate(relation: &Relation, entities: &HashMap<&str, &Entity>) ->
     let mut stable_keys = vec![source.stable_key.0.clone(), target.stable_key.0.clone()];
     stable_keys.sort();
     stable_keys.dedup();
+    let touches_primary = architecture_entity_priority(&source.kind) == 0
+        || architecture_entity_priority(&target.kind) == 0;
     Some(Candidate {
+        priority: u8::from(
+            !touches_primary || !architecture_relation_kind_is_primary(&relation.kind),
+        ),
         sort_key: format!(
             "{}\0{}\0{}\0{}",
             source.stable_key.0, relation_name, target.stable_key.0, relation.id.0
@@ -359,10 +370,14 @@ fn diagnostic_candidate(
     diagnostic: &Diagnostic,
     entities: &HashMap<&str, &Entity>,
 ) -> Option<Candidate> {
-    let mut stable_keys = diagnostic
+    let referenced_entities = diagnostic
         .entities
         .iter()
         .filter_map(|entity| entities.get(entity.0.as_str()))
+        .copied()
+        .collect::<Vec<_>>();
+    let mut stable_keys = referenced_entities
+        .iter()
         .map(|entity| entity.stable_key.0.clone())
         .collect::<Vec<_>>();
     stable_keys.sort();
@@ -380,7 +395,11 @@ fn diagnostic_candidate(
     if evidence.is_empty() {
         return None;
     }
+    let touches_primary = referenced_entities
+        .iter()
+        .any(|entity| architecture_entity_priority(&entity.kind) == 0);
     Some(Candidate {
+        priority: u8::from(!touches_primary),
         sort_key: format!(
             "{}\0{}\0{}",
             severity_rank(diagnostic.severity),
@@ -411,7 +430,7 @@ fn select_candidates(
         DocumentationContextItemKind::Entity | DocumentationContextItemKind::Fact => 0,
         DocumentationContextItemKind::Relation | DocumentationContextItemKind::Diagnostic => 1,
     };
-    let mut buckets = BTreeMap::<String, Vec<Candidate>>::new();
+    let mut tiers = BTreeMap::<u8, BTreeMap<String, Vec<Candidate>>>::new();
     for candidate in candidates {
         let bucket = candidate
             .sort_key
@@ -419,29 +438,41 @@ fn select_candidates(
             .nth(bucket_index)
             .unwrap_or_default()
             .to_string();
-        buckets.entry(bucket).or_default().push(candidate);
+        tiers
+            .entry(candidate.priority)
+            .or_default()
+            .entry(bucket)
+            .or_default()
+            .push(candidate);
     }
-    for candidates in buckets.values_mut() {
-        candidates.sort_by(|left, right| left.sort_key.cmp(&right.sort_key));
+    for buckets in tiers.values_mut() {
+        for candidates in buckets.values_mut() {
+            candidates.sort_by(|left, right| left.sort_key.cmp(&right.sort_key));
+        }
     }
 
-    let mut buckets = buckets
-        .into_values()
-        .map(Vec::into_iter)
-        .collect::<Vec<_>>();
     let mut selected = Vec::with_capacity(limit);
-    while selected.len() < limit {
-        let mut progressed = false;
-        for candidates in &mut buckets {
-            if selected.len() == limit {
+    for buckets in tiers.into_values() {
+        let mut buckets = buckets
+            .into_values()
+            .map(Vec::into_iter)
+            .collect::<Vec<_>>();
+        while selected.len() < limit {
+            let mut progressed = false;
+            for candidates in &mut buckets {
+                if selected.len() == limit {
+                    break;
+                }
+                if let Some(candidate) = candidates.next() {
+                    selected.push(candidate);
+                    progressed = true;
+                }
+            }
+            if !progressed {
                 break;
             }
-            if let Some(candidate) = candidates.next() {
-                selected.push(candidate);
-                progressed = true;
-            }
         }
-        if !progressed {
+        if selected.len() == limit {
             break;
         }
     }
@@ -922,6 +953,64 @@ fn entity_title(entity: &Entity) -> String {
         .filter(|title| !title.trim().is_empty())
         .unwrap_or(&entity.name)
         .to_string()
+}
+
+fn architecture_entity_priority(kind: &EntityKind) -> u8 {
+    match kind {
+        EntityKind::Symbol
+        | EntityKind::Function
+        | EntityKind::Class
+        | EntityKind::Module
+        | EntityKind::ApiEndpoint
+        | EntityKind::ApiSchema
+        | EntityKind::DbTable
+        | EntityKind::DockerService
+        | EntityKind::Feature
+        | EntityKind::Package
+        | EntityKind::Dependency
+        | EntityKind::Concept => 0,
+        EntityKind::File
+        | EntityKind::ApiExample
+        | EntityKind::DocumentationPage
+        | EntityKind::DocumentationSection
+        | EntityKind::Script
+        | EntityKind::ScriptCommand
+        | EntityKind::EnvVar
+        | EntityKind::DbMigration
+        | EntityKind::TestCase
+        | EntityKind::CiJob
+        | EntityKind::Runbook
+        | EntityKind::OperationStep
+        | EntityKind::Other(_) => 1,
+    }
+}
+
+fn architecture_fact_kind_is_primary(kind: &FactKind) -> bool {
+    matches!(
+        kind,
+        FactKind::SymbolDefined
+            | FactKind::RouteDeclared
+            | FactKind::MigrationCreatesTable
+            | FactKind::FunctionQueriesTable
+    )
+}
+
+fn architecture_relation_kind_is_primary(kind: &RelationKind) -> bool {
+    matches!(
+        kind,
+        RelationKind::Defines
+            | RelationKind::Contains
+            | RelationKind::Imports
+            | RelationKind::Calls
+            | RelationKind::Implements
+            | RelationKind::ImplementedBy
+            | RelationKind::DeclaredInOpenapi
+            | RelationKind::SchemaForRequest
+            | RelationKind::SchemaForResponse
+            | RelationKind::RequiresAuth
+            | RelationKind::RequiresPermission
+            | RelationKind::QueriesTable
+    )
 }
 
 fn relation_name(summary: &str) -> String {
