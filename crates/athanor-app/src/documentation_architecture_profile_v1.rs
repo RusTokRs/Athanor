@@ -252,7 +252,12 @@ fn entity_candidate(entity: &Entity) -> Option<Candidate> {
         return None;
     }
     Some(Candidate {
-        sort_key: format!("{}\0{}", entity.stable_key.0, entity.id.0),
+        sort_key: format!(
+            "{}\0{}\0{}",
+            serialized_name(&entity.kind),
+            entity.stable_key.0,
+            entity.id.0
+        ),
         summary: format!(
             "{} `{}` is a canonical {} entity.",
             entity_title(entity),
@@ -397,15 +402,52 @@ fn diagnostic_candidate(
 }
 
 fn select_candidates(
-    mut candidates: Vec<Candidate>,
+    candidates: Vec<Candidate>,
     limit: usize,
     kind: DocumentationContextItemKind,
     prefix: &str,
 ) -> Vec<DocumentationContextItem> {
-    candidates.sort_by(|left, right| left.sort_key.cmp(&right.sort_key));
-    candidates
+    let bucket_index = match kind {
+        DocumentationContextItemKind::Entity | DocumentationContextItemKind::Fact => 0,
+        DocumentationContextItemKind::Relation | DocumentationContextItemKind::Diagnostic => 1,
+    };
+    let mut buckets = BTreeMap::<String, Vec<Candidate>>::new();
+    for candidate in candidates {
+        let bucket = candidate
+            .sort_key
+            .split('\0')
+            .nth(bucket_index)
+            .unwrap_or_default()
+            .to_string();
+        buckets.entry(bucket).or_default().push(candidate);
+    }
+    for candidates in buckets.values_mut() {
+        candidates.sort_by(|left, right| left.sort_key.cmp(&right.sort_key));
+    }
+
+    let mut buckets = buckets
+        .into_values()
+        .map(Vec::into_iter)
+        .collect::<Vec<_>>();
+    let mut selected = Vec::with_capacity(limit);
+    while selected.len() < limit {
+        let mut progressed = false;
+        for candidates in &mut buckets {
+            if selected.len() == limit {
+                break;
+            }
+            if let Some(candidate) = candidates.next() {
+                selected.push(candidate);
+                progressed = true;
+            }
+        }
+        if !progressed {
+            break;
+        }
+    }
+
+    selected
         .into_iter()
-        .take(limit)
         .enumerate()
         .map(|(index, candidate)| DocumentationContextItem {
             id: format!("{prefix}-{:04}", index + 1),
