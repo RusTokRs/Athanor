@@ -376,6 +376,12 @@ fn diagnostic_candidate(
         .filter_map(|entity| entities.get(entity.0.as_str()))
         .copied()
         .collect::<Vec<_>>();
+    let touches_primary = referenced_entities
+        .iter()
+        .any(|entity| architecture_entity_priority(&entity.kind) == 0);
+    if !touches_primary {
+        return None;
+    }
     let mut stable_keys = referenced_entities
         .iter()
         .map(|entity| entity.stable_key.0.clone())
@@ -395,11 +401,8 @@ fn diagnostic_candidate(
     if evidence.is_empty() {
         return None;
     }
-    let touches_primary = referenced_entities
-        .iter()
-        .any(|entity| architecture_entity_priority(&entity.kind) == 0);
     Some(Candidate {
-        priority: u8::from(!touches_primary),
+        priority: 0,
         sort_key: format!(
             "{}\0{}\0{}",
             severity_rank(diagnostic.severity),
