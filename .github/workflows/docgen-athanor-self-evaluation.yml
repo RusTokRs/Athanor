@@ -1,0 +1,228 @@
+name: DOCGEN Athanor Self Evaluation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/docgen-athanor-self-evaluation.yml"
+      - ".github/actions/setup-rust/**"
+      - "apps/ath/src/docs_cli.rs"
+      - "apps/ath/src/*docgen_cli.rs"
+      - "crates/athanor-app/src/documentation_*.rs"
+      - "crates/athanor-app/src/documentation_*/**"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: docgen-athanor-self-evaluation-main
+  cancel-in-progress: false
+
+jobs:
+  evaluate:
+    name: Generate Athanor documentation profiles
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out Athanor
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install repository Rust toolchain
+        uses: ./.github/actions/setup-rust
+
+      - name: Build Athanor CLI
+        shell: bash
+        run: cargo build -p ath --locked
+
+      - name: Index exact Athanor source snapshot
+        shell: bash
+        env:
+          SOURCE_ROOT: ${{ runner.temp }}/athanor-self-doc-source
+          OUTPUT_ROOT: ${{ runner.temp }}/athanor-self-doc-evaluation
+        run: |
+          set -euo pipefail
+          rm -rf "$SOURCE_ROOT" "$OUTPUT_ROOT"
+          mkdir -p "$SOURCE_ROOT" "$OUTPUT_ROOT"
+          git archive --format=tar HEAD | tar -xf - -C "$SOURCE_ROOT"
+          find "$SOURCE_ROOT" -type f -print0 \
+            | sort -z \
+            | xargs -0 -r stat --printf='%n\t%s\n' \
+            > "$OUTPUT_ROOT/source-files.tsv"
+          target/debug/ath index "$SOURCE_ROOT" --json > "$OUTPUT_ROOT/index.json"
+
+      - name: Generate all documentation profiles and completeness
+        shell: bash
+        env:
+          SOURCE_ROOT: ${{ runner.temp }}/athanor-self-doc-source
+          OUTPUT_ROOT: ${{ runner.temp }}/athanor-self-doc-evaluation
+        run: |
+          set -euo pipefail
+          snapshot="$(jq -er '.snapshot' "$OUTPUT_ROOT/index.json")"
+
+          run_profile() {
+            profile="$1"
+            command="$2"
+            set +e
+            target/debug/ath docs "$command" "$SOURCE_ROOT" \
+              --snapshot "$snapshot" \
+              --max-entities 96 \
+              --max-facts 192 \
+              --max-relations 192 \
+              --max-diagnostics 96 \
+              --json \
+              > "$OUTPUT_ROOT/$profile-generation.json" \
+              2> "$OUTPUT_ROOT/$profile-generation.stderr"
+            status=$?
+            set -e
+            printf '%s\n' "$status" > "$OUTPUT_ROOT/$profile-generation.status"
+            if [ "$status" -eq 0 ]; then
+              document="$(jq -er '.document' "$OUTPUT_ROOT/$profile-generation.json")"
+              validation="$(jq -er '.validation_report' "$OUTPUT_ROOT/$profile-generation.json")"
+              manifest="$(jq -er '.manifest' "$OUTPUT_ROOT/$profile-generation.json")"
+              cp "$document" "$OUTPUT_ROOT/$profile.md"
+              cp "$validation" "$OUTPUT_ROOT/$profile-validation.json"
+              cp "$manifest" "$OUTPUT_ROOT/$profile-manifest.json"
+              sha256sum "$OUTPUT_ROOT/$profile.md" > "$OUTPUT_ROOT/$profile.sha256"
+            fi
+          }
+
+          run_profile architecture generate-architecture
+          run_profile module generate-module
+          run_profile api generate-api
+          run_profile operations generate-operations
+          run_profile onboarding generate-onboarding
+
+          set +e
+          target/debug/ath docs completeness "$SOURCE_ROOT" \
+            --snapshot "$snapshot" \
+            --limit 256 \
+            --json \
+            > "$OUTPUT_ROOT/completeness.json" \
+            2> "$OUTPUT_ROOT/completeness.stderr"
+          completeness_status=$?
+          set -e
+          printf '%s\n' "$completeness_status" > "$OUTPUT_ROOT/completeness.status"
+
+      - name: Build self-documentation summary
+        if: ${{ always() }}
+        shell: bash
+        env:
+          OUTPUT_ROOT: ${{ runner.temp }}/athanor-self-doc-evaluation
+          ATHANOR_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          root = Path(os.environ["OUTPUT_ROOT"])
+          profiles = ["architecture", "module", "api", "operations", "onboarding"]
+          result = {
+              "schema": "athanor.documentation_self_evaluation.v1",
+              "athanor_source": os.environ["ATHANOR_SHA"],
+              "snapshot": None,
+              "source_files": 0,
+              "source_bytes": 0,
+              "profiles": {},
+              "completeness": {},
+          }
+          index_path = root / "index.json"
+          if index_path.exists() and index_path.stat().st_size:
+              index = json.loads(index_path.read_text(encoding="utf-8"))
+              result["snapshot"] = index.get("snapshot")
+          rows_path = root / "source-files.tsv"
+          if rows_path.exists():
+              rows = [line.rsplit("\t", 1) for line in rows_path.read_text(encoding="utf-8").splitlines()]
+              result["source_files"] = len(rows)
+              result["source_bytes"] = sum(int(size) for _, size in rows)
+          for profile in profiles:
+              status_path = root / f"{profile}-generation.status"
+              status = int(status_path.read_text().strip()) if status_path.exists() else 127
+              entry = {"exit_status": status, "generated": status == 0}
+              document_path = root / f"{profile}.md"
+              if document_path.exists():
+                  markdown = document_path.read_text(encoding="utf-8")
+                  entry.update({
+                      "bytes": document_path.stat().st_size,
+                      "lines": len(markdown.splitlines()),
+                      "h2_sections": re.findall(r"^## (.+)$", markdown, re.MULTILINE),
+                      "citation_footnotes": len(re.findall(r"^\[\^[^\]]+\]:", markdown, re.MULTILINE)),
+                      "mermaid_edges": len(re.findall(r"^\s*[^\n]+-->(?:\|[^|]+\|)?[^\n]+$", markdown, re.MULTILINE)),
+                  })
+              stderr_path = root / f"{profile}-generation.stderr"
+              if status != 0 and stderr_path.exists():
+                  entry["error"] = stderr_path.read_text(encoding="utf-8")[-4000:]
+              result["profiles"][profile] = entry
+          completeness_status_path = root / "completeness.status"
+          completeness_status = (
+              int(completeness_status_path.read_text().strip())
+              if completeness_status_path.exists()
+              else 127
+          )
+          result["completeness"] = {
+              "exit_status": completeness_status,
+              "generated": completeness_status == 0,
+          }
+          if completeness_status != 0 and (root / "completeness.stderr").exists():
+              result["completeness"]["error"] = (root / "completeness.stderr").read_text(encoding="utf-8")[-4000:]
+          (root / "self-evaluation-summary.json").write_text(
+              json.dumps(result, indent=2) + "\n", encoding="utf-8"
+          )
+          PY
+
+      - name: Upload self-documentation artifact
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: docgen-athanor-self-evaluation
+          path: ${{ runner.temp }}/athanor-self-doc-evaluation
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Enforce self-documentation result
+        if: ${{ always() }}
+        shell: bash
+        env:
+          OUTPUT_ROOT: ${{ runner.temp }}/athanor-self-doc-evaluation
+        run: |
+          set -euo pipefail
+          jq -e '
+            ([.profiles[] | .exit_status] | all(. == 0))
+            and (.completeness.exit_status == 0)
+          ' "$OUTPUT_ROOT/self-evaluation-summary.json" >/dev/null
+
+      - name: Publish exact self-documentation status
+        if: ${{ always() }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+          JOB_STATUS: ${{ job.status }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          API_URL: ${{ github.api_url }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ "$JOB_STATUS" = success ]; then
+            state=success
+            description="Athanor self-documentation evaluation succeeded"
+          else
+            state=failure
+            description="Athanor self-documentation evaluation failed"
+          fi
+          curl --proto '=https' --tlsv1.2 --silent --show-error --fail \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "$API_URL/repos/$REPOSITORY/statuses/$SHA" \
+            -d "$(jq -nc --arg state "$state" --arg target_url "$RUN_URL" --arg description "$description" '{state:$state,context:"athanor/self-docgen-evaluation",description:$description,target_url:$target_url}')"
