@@ -75,11 +75,18 @@ processed. General PowerShell functions, cmdlets, assignments, control flow, AST
 expression inference remain out of scope. This exact completeness confirmation is execution evidence for the
 coverage effect; it does not promote Slice 8A to fully verified without the required focused gate.
 
-Slice 8B is source-implemented from that exact rerun's remaining TOML gap. The same report shows `toml` at
-33/35 with exactly `athanor.toml` and `deny.toml` unprocessed. The operations adapter now recognizes only the
-first-party root `athanor.toml` as runtime configuration and reuses the existing redacted `Feature` /
-`SymbolDefined` contracts. Arbitrary root TOML, including `deny.toml`, remains outside the adapter. Focused
-execution and an exact post-merge completeness confirmation for Slice 8B remain pending.
+Slice 8B recognizes only the first-party root `athanor.toml` as runtime configuration and reuses the existing
+redacted `Feature` / `SymbolDefined` contracts. Exact post-merge self-evaluation on
+`e219157ac0afd4be7e6b2982342096e2ab926445`, run `33680051765`, is green: completeness is 665/718
+processed (`9261` basis points), TOML is 34/35, and `deny.toml` is the only remaining TOML gap. This confirms
+the Slice 8B coverage effect without promoting the slice to fully verified focused execution.
+
+Slice 8C is selected, not implemented, from the same exact report. YAML remains 10/15 processed; among the
+five gaps, `.github/actions/setup-rust/action.yml` is first-party reusable CI automation rather than an issue
+template, dependency-maintenance file, or extractor fixture. The bounded target is composite actions only:
+`.github/actions/**/action.yml|yaml` with `runs.using: composite`, action plus `run`/`uses` steps, and step `env`
+through existing script/environment contracts. Inputs/outputs expression semantics, JavaScript/Docker actions,
+permissions, secrets, and generic YAML remain out of scope.
 
 The shared `current.json` is profile-aware across architecture, module, API, operations, and onboarding.
 Every inspector fails closed when another published profile owns the current pointer.
@@ -144,9 +151,13 @@ The exact Athanor self-evaluation on `2c5e94220b8fb2cb396938f96bb3dedb0e535816`,
 selected Slice 8A: the completeness artifact reported `ps1` with two tracked files and zero processed.
 
 The exact Athanor self-evaluation on `75562e19a8eed3a84c47a346a19d0f078550fa22`, run `33676558603`,
-is green and confirms the Slice 8A coverage effect: `ps1` is 2/2 processed. It also provides selection evidence
-for Slice 8B: `toml` is 33/35, with only `athanor.toml` and `deny.toml` unprocessed. Slice 8B intentionally
-selects the first-party Athanor config and leaves generic policy/tool TOML unsupported.
+is green and confirms the Slice 8A coverage effect: `ps1` is 2/2 processed. It also selects Slice 8B from
+`toml = 33/35`, where only `athanor.toml` and `deny.toml` were unprocessed.
+
+The exact Athanor self-evaluation on `e219157ac0afd4be7e6b2982342096e2ab926445`, run `33680051765`,
+is green and confirms Slice 8B: total completeness is 665/718 (`9261` basis points), `toml = 34/35`, and only
+`deny.toml` remains unprocessed in TOML. Its five YAML gaps select Slice 8C around the first-party composite
+action `.github/actions/setup-rust/action.yml`; generic YAML expansion is not implied.
 
 ## Implemented Packages
 
@@ -172,18 +183,20 @@ selects the first-party Athanor config and leaves generic policy/tool TOML unsup
 - [x] Slices 6A–6B: pure completeness plus exact Store/read-only CLI/versioned JSON transport;
 - [x] Slices 7A–7C: bounded built-in Next.js, Axum, and Express route projections;
 - [x] Slice 8A source implementation plus exact completeness confirmation: bounded PowerShell environment references;
-- [x] Slice 8B source implementation: first-party `athanor.toml` runtime-config recognition;
+- [x] Slice 8B source implementation plus exact completeness confirmation: first-party `athanor.toml` runtime config;
+- [ ] Slice 8C implementation: bounded first-party GitHub composite-action projection;
 - [ ] Focused module 2B–2C, API 3A–3C, operations 4A–4C, onboarding 5A–5C, completeness 6A–6B,
-  framework 7A–7C, Slice 8A focused verification, and Slice 8B execution/completeness confirmation remain pending.
+  framework 7A–7C, and Slices 8A–8B focused verification remain pending.
 
 `DOCGEN-001` remains in progress. Architecture is execution-confirmed; later profile/completeness/framework
-surfaces and Slices 8A–8B are not promoted without their required focused gates.
+surfaces and Slices 8A–8B are not promoted without their required focused gates. Slice 8C is planned only.
 
 ## Product Backlog
 
-- after Slice 8B lands, use its automatic exact Athanor self-evaluation/completeness result to select the next bounded semantic gap;
+- implement Slice 8C for bounded `.github/actions/**/action.yml|yaml` composite actions, then rerun exact completeness;
 - do not add generic JSON/fixture parsing solely to raise coverage without explicit product semantics;
 - keep arbitrary root tool/policy TOML such as `deny.toml` outside runtime config unless explicit product semantics justify it;
+- keep issue-template, Dependabot, and OpenAPI-fixture YAML outside Slice 8C unless separately justified;
 - keep Next.js/Axum/Express schema/auth/middleware and route-composition expansion separate until evidence justifies it;
 - Dart/Flutter remains blocked on a portable DartScope dependency boundary rather than a local-only path dependency;
 - optional i18n, semantic/vector retrieval, provider, daemon, and MCP integration after quality gates.
