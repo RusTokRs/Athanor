@@ -192,6 +192,8 @@ async fn wait_for_termination(
 /// group signal. Windows starts `taskkill /T` for descendant cleanup, immediately signals the direct
 /// child, then waits for both cleanup and reaping; Job Object containment remains future hardening.
 async fn terminate_external_process_tree(child: &mut tokio::process::Child) {
+    let _ = child.start_kill();
+
     #[cfg(unix)]
     if let Some(pid) = child.id() {
         let process_group = format!("-{pid}");
@@ -217,17 +219,12 @@ async fn terminate_external_process_tree(child: &mut tokio::process::Child) {
                 .spawn()
                 .ok()
         });
-        let _ = child.start_kill();
         if let Some(tree_kill) = tree_kill.as_mut() {
             let _ = tree_kill.wait().await;
         }
-        let _ = child.wait().await;
     }
 
-    #[cfg(not(windows))]
-    {
-        let _ = child.kill().await;
-    }
+    let _ = child.wait().await;
 }
 
 async fn read_limited(
@@ -407,7 +404,7 @@ mod tests {
     #[test]
     #[ignore]
     fn helper_process_writes_completion_after_delay() {
-        std::thread::sleep(Duration::from_millis(250));
+        std::thread::sleep(Duration::from_millis(1_000));
         fs::write("completed.marker", b"completed").unwrap();
     }
 
