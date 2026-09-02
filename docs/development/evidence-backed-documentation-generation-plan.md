@@ -15,9 +15,10 @@ matrix-confirmed on `f1024cbc52f05de4d3ce96c556ef044ad48b3a0e`; the human-facing
 disclosure is exact-evaluation-confirmed on `6862aee81dd0f53fa8372d1ce3fcb6e2ed198cca`.
 
 Module expansion is source-implemented through Slice 2C, API through Slice 3C, operations through Slice
-4C, onboarding through Slice 5C, documentation completeness through Slice 6B, and the first gap-driven
-framework projection through Next.js Slice 7A. Focused later-slice format/test/Clippy evidence remains
-pending and is not inferred from source presence.
+4C, onboarding through Slice 5C, documentation completeness through Slice 6B, bounded framework route
+projections through Next.js/Axum/Express Slices 7A–7C, and the next completeness-selected operations gap
+through PowerShell Slice 8A. Focused later-slice format/test/Clippy and post-change completeness evidence
+remain pending and are not inferred from source presence.
 
 The existing coordinated `ath generate` command is unchanged. No model provider, daemon, MCP, or new dependency is enabled.
 
@@ -35,6 +36,7 @@ source files -> adapters -> exact committed snapshot -> bounded context -> cited
 - Invalid, tampered, or cancelled work cannot advance `current.json`.
 - Inspection validates profile, path confinement, identities, exact artifact layout, and checksums.
 - New profiles start as pure deterministic owners before publication or transport integration.
+- Coverage expansion follows exact completeness evidence and bounded product semantics rather than raw percentage chasing.
 
 ## Implemented Contracts
 
@@ -176,6 +178,34 @@ or layout drift, invalid validation status, and checksum drift.
   `VersionedDocumentationCompletenessReport`; registry uniqueness and a golden fixture are source protected.
 - Completeness source regressions are present; focused format/test/Clippy execution evidence remains pending.
 
+### Slices 7A–7C — Bounded Framework Route Projections
+
+- Slice 7A adds `NextJsExtractor`, projecting standard App/Pages Router filesystem conventions into
+  adapter-scoped `nextjs_route` entities plus evidence-backed `RouteDeclared` facts without inferring React,
+  schema, auth, middleware, or handler semantics.
+- Slice 7B adds `AxumExtractor`, recognizing bounded literal `.route()` declarations backed by supported
+  `axum::routing` method constructors and emitting adapter-scoped `axum_route` knowledge.
+- Slice 7C adds `ExpressExtractor`, recognizing explicit application/router bindings and exact two-argument
+  literal route calls and emitting adapter-scoped `express_route` knowledge.
+- Base JS/TS and Rust extractors remain framework-neutral. Framework schema/auth/middleware, composed routers,
+  and handler linking remain separate future slices.
+- Source regressions are present; focused execution evidence for Slices 7A–7C remains pending.
+
+### Slice 8A — Completeness-Driven PowerShell Environment References
+
+- Selection is grounded in the exact Athanor self-evaluation on
+  `2c5e94220b8fb2cb396938f96bb3dedb0e535816`, run `32815625060`: the completeness artifact reports
+  two tracked `ps1` files and zero processed.
+- `athanor-extractor-operations` recognizes `*.ps1` and lexically extracts bounded `$env:NAME` and
+  `${env:NAME}` references.
+- The slice reuses existing canonical `env://<NAME>` entities and `FactKind::EnvVarUsed` with
+  `mechanism/source_kind = "powershell"`, evidence, and ownership. Raw process-environment values are not stored.
+- The source regression covers path recognition, case-insensitive `$Env:` marker handling, deterministic env keys,
+  evidence/ownership, and value non-disclosure.
+- General PowerShell AST parsing, cmdlets, functions, assignments, control flow, and inline string/comment semantics
+  are deliberately out of scope.
+- Focused execution evidence and an exact post-change completeness rerun remain pending; source presence is not verification.
+
 ## Execution Evidence
 
 - Slices 0A–0B: source `2a049303e797f00ac53f1e91fc010f284993926d`; CI `30005828864`,
@@ -201,24 +231,30 @@ or layout drift, invalid validation status, and checksum drift.
   `32718598218`, Rustok evaluation `32718598212`, and Rustok probe `32718598232` are green.
 - Slice 3A landed on `0a4c0f78ef05b6c2ba9480b770c1ebf72038e049`; Rustok evaluation
   `32719989413` and Rustok probe `32719989450` are green. These are not focused API profile evidence.
+- Exact Athanor self-evaluation `2c5e94220b8fb2cb396938f96bb3dedb0e535816` / `32815625060` is
+  selection evidence for Slice 8A (`ps1 tracked = 2`, `processed = 0`), not execution evidence for the implementation.
 - Slices 2B–2C, API Slices 3A–3C, operations Slices 4A–4C, onboarding Slices 5A–5C, completeness
-  Slices 6A–6B, and Next.js Slice 7A remain execution-pending for focused gates.
+  Slices 6A–6B, framework Slices 7A–7C, and PowerShell Slice 8A remain execution-pending for focused gates.
 
 The repaired bounded Rustok architecture-generation evaluation retains `DOCUMENTATION_REFERENCE_LIMIT`,
 `workflow_dispatch` support, and diagnostic evidence checks as explicit regression boundaries.
 
 ## Next Bounded Step
 
-1. Record formatting/build/test/Clippy evidence for later documentation/completeness/framework slices.
-2. Slice 7A closes the first bounded Next.js route-convention gap; use another exact completeness report
-   to select the next adapter gap rather than broadening Next.js or another framework speculatively.
-3. Keep provider, daemon, MCP, and coordinated `ath generate` changes out until separate deterministic
+1. Record formatting/build/test/Clippy evidence for later documentation/completeness/framework slices and Slice 8A.
+2. After Slice 8A is execution-verified, rerun exact Athanor completeness and select the next bounded adapter gap
+   from the artifact. Do not add generic JSON/fixture parsing solely to improve the percentage without explicit
+   product semantics.
+3. Keep Next.js/Axum/Express schema/auth/middleware and route-composition expansion separate until evidence
+   justifies those scopes.
+4. Keep provider, daemon, MCP, and coordinated `ath generate` changes out until separate deterministic
    quality gates justify them.
 
 ## Verification
 
 ```bash
 cargo fmt --all -- --check
+cargo test -p athanor-extractor-operations --locked
 cargo test -p athanor-app --test documentation_completeness_inventory --locked
 cargo test -p athanor-app --test documentation_completeness_operation_inventory --locked
 cargo test -p athanor-app --test documentation_completeness_transport_inventory --locked
