@@ -39,6 +39,7 @@ operations files and whose content is UTF-8 text:
   `.sql` filenames
 - JSON, TOML, or YAML config files in `config/`, `configs/`, or `settings/`, plus common
   `config.*`, `settings.*`, `appsettings.*`, and `*.config.*` filenames
+- the first-party root `athanor.toml`
 
 Supported dotenv declarations:
 
@@ -251,8 +252,10 @@ declaration or reference.
   `ALTER TABLE`, views, indexes, triggers, functions, down migrations, or ORM-specific migration
   metadata.
 - Runtime configuration parsing flattens scalar JSON, TOML, and YAML keys into redacted
-  configuration knowledge. It does not interpret framework-specific config schemas, environment
-  interpolation, includes/imports, profiles, encrypted values, or arrays of objects.
+  configuration knowledge. Root-level recognition is intentionally bounded to known configuration
+  names including `athanor.toml`; arbitrary root tool/policy TOML such as `deny.toml` remains out of
+  scope. It does not interpret framework-specific config schemas, environment interpolation,
+  includes/imports, profiles, encrypted values, or arrays of objects.
 - runbooks remain separate Phase 5 work.
 
 ## Tests
