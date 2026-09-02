@@ -6,9 +6,7 @@ pub(super) fn is_powershell_script_path(path: &str) -> bool {
     file_name(path).to_ascii_lowercase().ends_with(".ps1")
 }
 
-pub(super) fn parse_powershell_env_references(
-    content: &str,
-) -> BTreeMap<String, EnvDeclaration> {
+pub(super) fn parse_powershell_env_references(content: &str) -> BTreeMap<String, EnvDeclaration> {
     let mut references = BTreeMap::new();
 
     for (index, line) in content.lines().enumerate() {
@@ -40,9 +38,7 @@ fn collect_env_references(
         let value = &line[value_start..];
         let name_len = value
             .char_indices()
-            .take_while(|(_, character)| {
-                character.is_ascii_alphanumeric() || *character == '_'
-            })
+            .take_while(|(_, character)| character.is_ascii_alphanumeric() || *character == '_')
             .map(|(offset, character)| offset + character.len_utf8())
             .last()
             .unwrap_or(0);
