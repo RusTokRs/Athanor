@@ -2,10 +2,11 @@
 
 > Репозиторий: `RusTokRs/Athanor`  
 > Ветка: `main`  
-> Актуализировано: 2026-08-24  
+> Актуализировано: 2026-09-02  
 > Статус: `API-001`, `REL-001` verified; `DOCGEN-001 / Slices 0A–1C` execution-confirmed;
-> relation-disclosure exact-evaluation-confirmed; module 2A–2C, API 3A–3C, operations 4A–4C и onboarding 5A–5C implemented in source,
-> focused execution evidence pending
+> relation-disclosure exact-evaluation-confirmed; module 2A–2C, API 3A–3C, operations 4A–4C,
+> onboarding 5A–5C, completeness 6A–6B, framework projections 7A–7C и bounded PowerShell Slice 8A
+> implemented in source; focused execution evidence для later slices pending
 
 ## 1. Статусы и evidence
 
@@ -49,6 +50,9 @@ Documentation generation:
   focused module execution evidence.
 - Slice 3A landed on `0a4c0f78ef05b6c2ba9480b770c1ebf72038e049`; post-merge Rustok evaluation
   `32719989413` и Rustok probe `32719989450` green. Это не заменяет focused API execution evidence.
+- Athanor self-evaluation на exact `2c5e94220b8fb2cb396938f96bb3dedb0e535816`, run `32815625060`,
+  дал selection evidence для Slice 8A: в completeness artifact `ps1` имеет `tracked = 2`,
+  `processed = 0`. Это evidence выбора следующего bounded gap, но не verification реализации 8A.
 
 ## 3. Завершённые пакеты
 
@@ -175,13 +179,52 @@ Documentation generation:
   и binary `index -> generate-onboarding -> inspect -> UpToDate` round-trip.
 - [ ] Focused format/test/Clippy execution evidence для onboarding 5A–5C pending; source implementation не verified.
 
+#### Slices 6A–6B — documentation completeness
+
+- [x] Slice 6A добавляет pure completeness owner на canonical baseline `file` inventory: processed/unprocessed
+  paths, per-language basis-point coverage, named non-baseline adapter contribution, deterministic limits и omissions.
+- [x] Canonical entity presence считается processing evidence без выдуманной attribution; baseline `basic` не
+  маскирует coverage gaps.
+- [x] Slice 6B добавляет exact Store loading, read-only `ath docs completeness`, cancellation/drain и
+  зарегистрированный `athanor.documentation_completeness.v1` JSON transport.
+- [x] Latest fallback, publication generations и shared `current.json` для completeness отсутствуют намеренно.
+- [ ] Focused execution evidence для 6A–6B pending; source implementation не verified.
+
+#### Slices 7A–7C — bounded framework route projections
+
+- [x] Slice 7A: `NextJsExtractor` проецирует стандартные App/Pages Router filesystem conventions в
+  adapter-scoped `nextjs_route` entities + `RouteDeclared` evidence без React/HTTP inference.
+- [x] Slice 7B: `AxumExtractor` распознаёт bounded literal `.route()` declarations с поддерживаемыми
+  `axum::routing` constructors и создаёт adapter-scoped `axum_route` knowledge.
+- [x] Slice 7C: `ExpressExtractor` распознаёт explicit application/router bindings и exact two-argument
+  literal route calls, создавая adapter-scoped `express_route` knowledge.
+- [x] Base JS/TS и Rust extractors остаются framework-neutral; schemas/auth/middleware, route composition и
+  handler linking сознательно отложены.
+- [ ] Focused execution evidence для 7A–7C pending; source implementation не verified.
+
+#### Slice 8A — completeness-driven bounded PowerShell environment references
+
+- [x] Выбор scope основан на exact Athanor self-completeness: source
+  `2c5e94220b8fb2cb396938f96bb3dedb0e535816`, run `32815625060`, `ps1 tracked = 2`, `processed = 0`.
+- [x] `athanor-extractor-operations` распознаёт `*.ps1` и лексически извлекает простые `$env:NAME` и
+  `${env:NAME}` references.
+- [x] Используется существующий canonical contract `env://<NAME>` + `FactKind::EnvVarUsed` с
+  `mechanism/source_kind = "powershell"`, evidence и ownership; raw environment values не сохраняются.
+- [x] Source regression покрывает path detection, case-insensitive `$Env:` marker, deterministic keys,
+  evidence/ownership и отсутствие raw values.
+- [x] Общий PowerShell AST, cmdlets, functions, assignments, control flow и inline string/comment semantics
+  остаются вне Slice 8A.
+- [ ] Focused execution evidence и exact post-change completeness rerun pending; Slice 8A не verified.
+
 Existing coordinated `ath generate` is unchanged. Provider/LLM, daemon and MCP remain out of scope.
-`DOCGEN-001` остаётся `[-] in progress`: module/API/operations/onboarding production surfaces source-implemented;
-focused verification и следующие documentation packages остаются отдельными этапами.
+`DOCGEN-001` остаётся `[-] in progress`: later documentation/completeness/framework surfaces и Slice 8A
+source-implemented; focused verification и следующий evidence-selected bounded gap остаются отдельными этапами.
 
 ### 4.2 Product backlog
 
-- [ ] broader framework adapters and completeness reports;
+- [ ] после verification Slice 8A повторить exact Athanor completeness и выбрать следующий bounded gap;
+- [ ] не добавлять generic JSON/fixture parsing только ради coverage без explicit product semantics;
+- [ ] Next.js/Axum/Express schemas/auth/middleware и route composition расширять отдельными evidence-backed slices;
 - [ ] optional provider, daemon, MCP, i18n and semantic retrieval after deterministic quality gates.
 
 ## 5. Программа работ
@@ -197,7 +240,7 @@ focused verification и следующие documentation packages остаютс
 | `VERIFY-001` | P1 | `[x] verified` | Full release baseline matrix |
 | `API-001` | P1 | `[x] verified` | Cross-protocol consistency |
 | `REL-001` | P1 | `[x] verified` | `v0.2.1` published and installed |
-| `DOCGEN-001` | P2 | `[-] in progress` | Module 2A–2C + API 3A–3C + operations 4A–4C + onboarding 5A–5C source-implemented; execution pending |
+| `DOCGEN-001` | P2 | `[-] in progress` | Profiles 2A–5C + completeness 6A–6B + framework 7A–7C + bounded PowerShell 8A source-implemented; focused execution pending |
 
 ## 6. Verification matrix
 
@@ -236,6 +279,7 @@ cargo run -p ath --quiet --locked -- docs check
 
 ## 7. Следующий шаг
 
-Получить focused format/test/Clippy execution evidence для module 2B–2C, API 3A–3C, operations 4A–4C и onboarding 5A–5C.
-Следующий bounded documentation package — broader framework adapters/completeness reporting; provider/daemon/MCP
-и coordinated `ath generate` не менять до отдельного deterministic quality gate.
+Получить focused execution evidence для pending module/API/operations/onboarding, completeness 6A–6B,
+framework 7A–7C и Slice 8A в соответствующих gates. После verification 8A повторить exact Athanor completeness
+и выбрать следующий bounded adapter gap по artifact evidence. Provider/daemon/MCP и coordinated `ath generate`
+не менять до отдельного deterministic quality gate.
