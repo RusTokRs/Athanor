@@ -301,8 +301,8 @@ fn architecture_status_documents_remain_bounded() {
         ("pipeline", PIPELINE, 380),
         ("operation context", OPERATION_CONTEXT, 260),
         ("release guide", RELEASE_GUIDE, 180),
-        ("documentation generation plan", DOCGEN_PLAN, 300),
-        ("implementation plan", PLAN, 300),
+        ("documentation generation plan", DOCGEN_PLAN, 320),
+        ("implementation plan", PLAN, 320),
     ] {
         let lines = source.lines().count();
         assert!(lines <= max_lines, "{name} grew to {lines} lines");

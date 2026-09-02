@@ -5,8 +5,8 @@
 > Актуализировано: 2026-09-02  
 > Статус: `API-001`, `REL-001` verified; `DOCGEN-001 / Slices 0A–1C` execution-confirmed;
 > relation-disclosure exact-evaluation-confirmed; module 2A–2C, API 3A–3C, operations 4A–4C,
-> onboarding 5A–5C, completeness 6A–6B, framework projections 7A–7C и bounded PowerShell Slice 8A
-> implemented in source; focused execution evidence для later slices pending
+> onboarding 5A–5C, completeness 6A–6B, framework projections 7A–7C, bounded PowerShell Slice 8A и
+> first-party `athanor.toml` Slice 8B implemented in source; focused execution evidence для later slices pending
 
 ## 1. Статусы и evidence
 
@@ -52,7 +52,11 @@ Documentation generation:
   `32719989413` и Rustok probe `32719989450` green. Это не заменяет focused API execution evidence.
 - Athanor self-evaluation на exact `2c5e94220b8fb2cb396938f96bb3dedb0e535816`, run `32815625060`,
   дал selection evidence для Slice 8A: в completeness artifact `ps1` имеет `tracked = 2`,
-  `processed = 0`. Это evidence выбора следующего bounded gap, но не verification реализации 8A.
+  `processed = 0`.
+- Athanor self-evaluation на exact `75562e19a8eed3a84c47a346a19d0f078550fa22`, run `33676558603`,
+  green и подтверждает coverage effect Slice 8A: `ps1 = 2/2 processed`. Тот же artifact даёт
+  selection evidence для Slice 8B: `toml = 33/35`, unprocessed ровно `athanor.toml` и `deny.toml`.
+  Это exact completeness evidence, но не замена focused verification matrix.
 
 ## 3. Завершённые пакеты
 
@@ -214,16 +218,29 @@ Documentation generation:
   evidence/ownership и отсутствие raw values.
 - [x] Общий PowerShell AST, cmdlets, functions, assignments, control flow и inline string/comment semantics
   остаются вне Slice 8A.
-- [ ] Focused execution evidence и exact post-change completeness rerun pending; Slice 8A не verified.
+- [x] Exact self-evaluation `75562e19a8eed3a84c47a346a19d0f078550fa22` / `33676558603` green и
+  подтверждает `ps1 tracked = 2`, `processed = 2`. Это exact completeness confirmation, но не full focused verification.
+
+#### Slice 8B — first-party `athanor.toml` runtime configuration
+
+- [x] Scope выбран по exact artifact `75562e19a8eed3a84c47a346a19d0f078550fa22` / `33676558603`:
+  `toml tracked = 35`, `processed = 33`; unprocessed ровно `athanor.toml` и `deny.toml`.
+- [x] `athanor-extractor-operations` распознаёт root `athanor.toml` и использует существующий runtime-config
+  parser без нового generic TOML owner.
+- [x] Canonical output остаётся redacted: `Feature` + `SymbolDefined`, uppercase config leaves при необходимости
+  используют существующий `EnvVarUsed`; raw config values не сохраняются.
+- [x] `deny.toml` и произвольные root tool/policy TOML остаются вне scope; path regression фиксирует границу.
+- [ ] Focused execution evidence и exact post-merge completeness confirmation pending; Slice 8B не verified.
 
 Existing coordinated `ath generate` is unchanged. Provider/LLM, daemon and MCP remain out of scope.
-`DOCGEN-001` остаётся `[-] in progress`: later documentation/completeness/framework surfaces и Slice 8A
+`DOCGEN-001` остаётся `[-] in progress`: later documentation/completeness/framework surfaces и Slices 8A–8B
 source-implemented; focused verification и следующий evidence-selected bounded gap остаются отдельными этапами.
 
 ### 4.2 Product backlog
 
-- [ ] после verification Slice 8A повторить exact Athanor completeness и выбрать следующий bounded gap;
+- [ ] после merge Slice 8B использовать automatic exact Athanor self-evaluation/completeness и выбрать следующий bounded semantic gap;
 - [ ] не добавлять generic JSON/fixture parsing только ради coverage без explicit product semantics;
+- [ ] не расширять runtime config на arbitrary root tool/policy TOML (`deny.toml`) без отдельной продуктовой семантики;
 - [ ] Next.js/Axum/Express schemas/auth/middleware и route composition расширять отдельными evidence-backed slices;
 - [ ] optional provider, daemon, MCP, i18n and semantic retrieval after deterministic quality gates.
 
@@ -240,7 +257,7 @@ source-implemented; focused verification и следующий evidence-selected
 | `VERIFY-001` | P1 | `[x] verified` | Full release baseline matrix |
 | `API-001` | P1 | `[x] verified` | Cross-protocol consistency |
 | `REL-001` | P1 | `[x] verified` | `v0.2.1` published and installed |
-| `DOCGEN-001` | P2 | `[-] in progress` | Profiles 2A–5C + completeness 6A–6B + framework 7A–7C + bounded PowerShell 8A source-implemented; focused execution pending |
+| `DOCGEN-001` | P2 | `[-] in progress` | Profiles 2A–5C + completeness 6A–6B + framework 7A–7C + bounded Slices 8A–8B source-implemented; focused execution pending |
 
 ## 6. Verification matrix
 
@@ -280,6 +297,7 @@ cargo run -p ath --quiet --locked -- docs check
 ## 7. Следующий шаг
 
 Получить focused execution evidence для pending module/API/operations/onboarding, completeness 6A–6B,
-framework 7A–7C и Slice 8A в соответствующих gates. После verification 8A повторить exact Athanor completeness
-и выбрать следующий bounded adapter gap по artifact evidence. Provider/daemon/MCP и coordinated `ath generate`
-не менять до отдельного deterministic quality gate.
+framework 7A–7C и Slices 8A–8B в соответствующих gates. После merge 8B использовать automatic exact Athanor
+self-evaluation/completeness для выбора следующего bounded adapter gap по artifact evidence. Generic fixture/TOML
+coverage без explicit product semantics не добавлять. Provider/daemon/MCP и coordinated `ath generate` не менять
+до отдельного deterministic quality gate.

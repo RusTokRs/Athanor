@@ -2788,6 +2788,7 @@ fn is_runtime_config_path(path: &str) -> bool {
         || file_name == "config.toml"
         || file_name == "config.yml"
         || file_name == "config.yaml"
+        || file_name == "athanor.toml"
         || file_name.starts_with("settings.")
         || file_name.starts_with("appsettings.")
         || file_name.ends_with(".config.json")
@@ -3155,7 +3156,7 @@ mod tests {
                     language_hint: Some("yaml".to_string()),
                     content_hash: Some("hash".to_string()),
                     content: Some(
-                        "services:\n  web:\n    image: example/web:latest\n    command: [\"ath\", \"serve\"]\n    environment:\n      DATABASE_URL: postgres://example\n      API_TOKEN:\n  worker:\n    build:\n      context: .\n    entrypoint: ./worker\n    environment:\n      - DATABASE_URL=postgres://example\n      - WORKER_CONCURRENCY=4\n"
+                        "services:\n  web:\n    image: example/web:latest\n    build: .\n    command: [\"ath\", \"serve\"]\n    entrypoint: ./entrypoint.sh\n    environment:\n      DATABASE_URL: postgres://example\n      API_TOKEN:\n  worker:\n    build:\n      context: .\n    entrypoint: ./worker\n    environment:\n      - DATABASE_URL=postgres://example\n      - WORKER_CONCURRENCY=4\n"
                             .to_string(),
                     ),
                 },
@@ -3486,6 +3487,8 @@ mod tests {
         assert!(is_runtime_config_path("config/app.toml"));
         assert!(is_runtime_config_path("settings/appsettings.json"));
         assert!(is_runtime_config_path("service.config.yaml"));
+        assert!(is_runtime_config_path("athanor.toml"));
+        assert!(!is_runtime_config_path("deny.toml"));
         assert!(!is_runtime_config_path("Cargo.toml"));
         assert!(!is_runtime_config_path("docker-compose.yml"));
         assert!(is_github_actions_workflow_path(".github/workflows/ci.yml"));

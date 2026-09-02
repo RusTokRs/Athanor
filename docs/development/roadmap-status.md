@@ -67,12 +67,19 @@ recognizes explicit Express application/router bindings and exact two-argument l
 adapter-scoped `express_route` knowledge. Base JS/TS and Rust extractors remain framework-neutral;
 framework-specific schema/auth/middleware, route composition, and handler linking remain deferred.
 
-Slice 8A is source-implemented from the next exact completeness gap. The Athanor self-evaluation on exact
-`2c5e94220b8fb2cb396938f96bb3dedb0e535816`, run `32815625060`, reported two tracked PowerShell files and
-zero processed. The operations adapter now recognizes `*.ps1` and projects bounded `$env:NAME` and
-`${env:NAME}` references into the existing `env://<NAME>` / `EnvVarUsed` contract without storing values.
-General PowerShell functions, cmdlets, assignments, control flow, AST semantics, and inline expression
-inference remain out of scope. Focused execution and an exact completeness rerun remain pending.
+Slice 8A adds bounded PowerShell environment references selected from exact completeness evidence. The
+operations adapter recognizes `*.ps1` and projects `$env:NAME` and `${env:NAME}` references into the existing
+`env://<NAME>` / `EnvVarUsed` contract without storing values. The exact Athanor self-evaluation on
+`75562e19a8eed3a84c47a346a19d0f078550fa22`, run `33676558603`, is green and confirms `ps1` at 2/2
+processed. General PowerShell functions, cmdlets, assignments, control flow, AST semantics, and inline
+expression inference remain out of scope. This exact completeness confirmation is execution evidence for the
+coverage effect; it does not promote Slice 8A to fully verified without the required focused gate.
+
+Slice 8B is source-implemented from that exact rerun's remaining TOML gap. The same report shows `toml` at
+33/35 with exactly `athanor.toml` and `deny.toml` unprocessed. The operations adapter now recognizes only the
+first-party root `athanor.toml` as runtime configuration and reuses the existing redacted `Feature` /
+`SymbolDefined` contracts. Arbitrary root TOML, including `deny.toml`, remains outside the adapter. Focused
+execution and an exact post-merge completeness confirmation for Slice 8B remain pending.
 
 The shared `current.json` is profile-aware across architecture, module, API, operations, and onboarding.
 Every inspector fails closed when another published profile owns the current pointer.
@@ -134,8 +141,12 @@ probe, AppSec, and Store contexts are green. Slice 2C landed on
 `32719989450` are green. These do not substitute for focused module/API/operations/onboarding execution evidence.
 
 The exact Athanor self-evaluation on `2c5e94220b8fb2cb396938f96bb3dedb0e535816`, run `32815625060`,
-is selection evidence for Slice 8A only: the completeness artifact reported `ps1` with two tracked files and
-zero processed. It does not verify the Slice 8A implementation itself.
+selected Slice 8A: the completeness artifact reported `ps1` with two tracked files and zero processed.
+
+The exact Athanor self-evaluation on `75562e19a8eed3a84c47a346a19d0f078550fa22`, run `33676558603`,
+is green and confirms the Slice 8A coverage effect: `ps1` is 2/2 processed. It also provides selection evidence
+for Slice 8B: `toml` is 33/35, with only `athanor.toml` and `deny.toml` unprocessed. Slice 8B intentionally
+selects the first-party Athanor config and leaves generic policy/tool TOML unsupported.
 
 ## Implemented Packages
 
@@ -160,17 +171,19 @@ zero processed. It does not verify the Slice 8A implementation itself.
 - [x] Slices 5A–5C: onboarding inventory/evidence/publication/exact Store/CLI/inspection;
 - [x] Slices 6A–6B: pure completeness plus exact Store/read-only CLI/versioned JSON transport;
 - [x] Slices 7A–7C: bounded built-in Next.js, Axum, and Express route projections;
-- [x] Slice 8A source implementation: bounded PowerShell environment references selected from exact completeness evidence;
+- [x] Slice 8A source implementation plus exact completeness confirmation: bounded PowerShell environment references;
+- [x] Slice 8B source implementation: first-party `athanor.toml` runtime-config recognition;
 - [ ] Focused module 2B–2C, API 3A–3C, operations 4A–4C, onboarding 5A–5C, completeness 6A–6B,
-  framework 7A–7C, and Slice 8A execution/completeness confirmation remain pending.
+  framework 7A–7C, Slice 8A focused verification, and Slice 8B execution/completeness confirmation remain pending.
 
 `DOCGEN-001` remains in progress. Architecture is execution-confirmed; later profile/completeness/framework
-surfaces and Slice 8A are source-implemented but are not promoted without focused gates.
+surfaces and Slices 8A–8B are not promoted without their required focused gates.
 
 ## Product Backlog
 
-- rerun exact Athanor completeness after Slice 8A execution verification, then select the next bounded gap;
+- after Slice 8B lands, use its automatic exact Athanor self-evaluation/completeness result to select the next bounded semantic gap;
 - do not add generic JSON/fixture parsing solely to raise coverage without explicit product semantics;
+- keep arbitrary root tool/policy TOML such as `deny.toml` outside runtime config unless explicit product semantics justify it;
 - keep Next.js/Axum/Express schema/auth/middleware and route-composition expansion separate until evidence justifies it;
 - Dart/Flutter remains blocked on a portable DartScope dependency boundary rather than a local-only path dependency;
 - optional i18n, semantic/vector retrieval, provider, daemon, and MCP integration after quality gates.

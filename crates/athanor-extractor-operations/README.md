@@ -21,7 +21,8 @@ The current slice parses:
 - Cargo package manifests from `Cargo.toml`
 - Kubernetes YAML manifests from common deployment paths and filenames
 - SQL database migrations from common migration paths and filenames
-- JSON, TOML, and YAML runtime configuration files from common config/settings paths and filenames
+- JSON, TOML, and YAML runtime configuration files from common config/settings paths and filenames,
+  plus the first-party root `athanor.toml`
 
 Entities:
 
@@ -95,8 +96,10 @@ None. The adapter does not run commands, use the network, or modify project file
   `ALTER TABLE`, views, indexes, triggers, functions, down migrations, or ORM-specific migration
   metadata.
 - Runtime configuration parsing flattens scalar JSON, TOML, and YAML keys into redacted
-  configuration knowledge. It does not interpret framework-specific config schemas, environment
-  interpolation, includes/imports, profiles, encrypted values, or arrays of objects.
+  configuration knowledge. Root-level recognition is intentionally bounded to known configuration
+  names such as `athanor.toml`; arbitrary tool/policy TOML files such as `deny.toml` remain outside
+  this adapter. It does not interpret framework-specific config schemas, environment interpolation,
+  includes/imports, profiles, encrypted values, or arrays of objects.
 - Variable interpolation, shell command substitution, multiline values, and comments inside quoted
   values are not interpreted.
 - runbooks remain separate Phase 5 work.
