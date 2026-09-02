@@ -11,6 +11,7 @@ on:
       - "apps/ath/src/*docgen_cli.rs"
       - "crates/athanor-app/src/documentation_*.rs"
       - "crates/athanor-app/src/documentation_*/**"
+      - "crates/athanor-extractor-*/**"
       - "Cargo.lock"
       - "Cargo.toml"
       - "rust-toolchain.toml"
