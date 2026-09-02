@@ -13,6 +13,7 @@ The current slice parses:
 - Dockerfile stages, command instructions, and `ENV` declarations from `Dockerfile` and
   `*.Dockerfile`
 - shell script functions and exported environment variables from `*.sh`, `*.bash`, and `*.zsh`
+- bounded PowerShell environment references from `*.ps1`
 - docker-compose services, service commands, and environment declarations from common compose
   filenames such as `docker-compose.yml`, `compose.yaml`, and `*.compose.yml`
 - GitHub Actions workflow, job, and step declarations from `.github/workflows/*.yml` and
@@ -50,10 +51,11 @@ Facts:
 - `FactKind::SymbolDefined` from operational command/stage entities to the canonical file entity
 
 Environment fact payloads mark the declaration source as `dotenv`, `dockerfile`, `shell`,
-`docker_compose`, `github_actions`, `kubernetes`, or `runtime_config`. Raw values are not stored, so
-real `.env`, Dockerfile defaults, exported shell values, compose environment values, workflow
-environment values, Kubernetes Secret/ConfigMap/container environment values, or runtime config
-values do not leak into canonical snapshots.
+`powershell`, `docker_compose`, `github_actions`, `kubernetes`, or `runtime_config`. Raw values are
+not stored, so real `.env`, Dockerfile defaults, exported shell values, PowerShell environment
+references, compose environment values, workflow environment values, Kubernetes
+Secret/ConfigMap/container environment values, or runtime config values do not leak into canonical
+snapshots.
 
 ## Inputs
 
@@ -72,6 +74,9 @@ None. The adapter does not run commands, use the network, or modify project file
 - Shell script parsing recognizes `export KEY=value`, `readonly KEY=value`, `name() {`,
   `function name {`, and `function name() {`; it does not parse command invocations, sourced files,
   control flow, traps, or here-documents.
+- PowerShell parsing is intentionally lexical and limited to simple `$env:NAME` and `${env:NAME}`
+  references in `*.ps1`. It does not parse cmdlets, functions, assignments, control flow, AST
+  semantics, or inline comment/string boundaries, and it never stores referenced environment values.
 - docker-compose parsing is limited to the top-level `services` map, service `image`, `build`,
   `command`, `entrypoint`, and `environment` declarations. It does not resolve `env_file`, profiles,
   includes, extends, anchors, volume semantics, healthchecks, dependencies, or networks.

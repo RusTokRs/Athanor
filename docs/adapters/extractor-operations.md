@@ -2,9 +2,8 @@
 id: doc://docs/adapters/extractor-operations.md
 kind: module_documentation
 language: en
-last_verified_snapshot: snap_jsonl_00000272
 source_language: en
-status: verified
+status: active
 ---
 # Operations Extractor
 
@@ -15,9 +14,10 @@ Port: `Extractor`
 The operations extractor reads operational configuration files and emits canonical operations
 knowledge. The current slice parses dotenv-style files, Cargo package manifests, Makefile targets,
 Dockerfile stages, commands and environment declarations, shell script functions plus exported
-environment variables, docker-compose services, commands, and environment declarations, GitHub
-Actions workflow jobs, steps, actions, and environment declarations, Kubernetes YAML deployment
-manifests, SQL database migrations, and runtime configuration files.
+environment variables, bounded PowerShell environment references, docker-compose services, commands,
+and environment declarations, GitHub Actions workflow jobs, steps, actions, and environment
+declarations, Kubernetes YAML deployment manifests, SQL database migrations, and runtime
+configuration files.
 
 ## Inputs
 
@@ -29,6 +29,7 @@ operations files and whose content is UTF-8 text:
 - `Makefile`, `makefile`, and `*.mk`
 - `Dockerfile` and `*.Dockerfile`
 - `*.sh`, `*.bash`, and `*.zsh`
+- `*.ps1`
 - `docker-compose.yml`, `docker-compose.yaml`, `compose.yml`, `compose.yaml`, `*.compose.yml`,
   and `*.compose.yaml`
 - `.github/workflows/*.yml` and `.github/workflows/*.yaml`
@@ -86,6 +87,13 @@ readonly KEY=value
 name() {
 function name {
 function name() {
+```
+
+Supported bounded PowerShell environment references:
+
+```text
+$env:NAME
+${env:NAME}
 ```
 
 Supported docker-compose declarations:
@@ -183,6 +191,7 @@ Facts:
 - `FactKind::EnvVarUsed` with `mechanism = "dotenv"` and `source_kind = "dotenv"`
 - `FactKind::EnvVarUsed` with `mechanism = "dockerfile"` and `source_kind = "dockerfile"`
 - `FactKind::EnvVarUsed` with `mechanism = "shell"` and `source_kind = "shell"`
+- `FactKind::EnvVarUsed` with `mechanism = "powershell"` and `source_kind = "powershell"`
 - `FactKind::EnvVarUsed` with `mechanism = "docker_compose"` and `source_kind = "docker_compose"`
 - `FactKind::EnvVarUsed` with `mechanism = "github_actions"` and `source_kind = "github_actions"`
 - `FactKind::EnvVarUsed` with `mechanism = "kubernetes"` and `source_kind = "kubernetes"`
@@ -193,14 +202,15 @@ Facts:
   instructions, shell functions, docker-compose services or service commands, and GitHub Actions
   workflow/job/step declarations
 
-The adapter records whether an environment default value was present, but it does not store raw
-values. This prevents accidental secret leakage from real `.env` files or Dockerfile defaults into
-canonical snapshots.
+The adapter records whether an environment default value was present where the source form exposes
+one, but it does not store raw values. PowerShell references are recorded as references only. This
+prevents accidental secret leakage from real `.env` files, Dockerfile defaults, shell exports, or
+PowerShell process environment values into canonical snapshots.
 
 ## Evidence And Ownership
 
 Every emitted entity and fact is owned by the source file. Facts include line evidence for the
-declaration.
+declaration or reference.
 
 ## Commands And Network
 
@@ -219,6 +229,9 @@ declaration.
 - Shell script parsing is limited to exported or readonly environment declarations and function
   declarations; it does not parse command invocations, control flow, sourced files, traps, or
   here-documents.
+- PowerShell parsing is intentionally lexical and limited to `$env:NAME` and `${env:NAME}` references
+  in `*.ps1`. It does not parse cmdlets, functions, assignments, control flow, AST semantics, or
+  inline comment/string boundaries, and it never stores referenced environment values.
 - docker-compose parsing is limited to the top-level `services` map, service `image`, `build`,
   `command`, `entrypoint`, and `environment` declarations. It does not resolve `env_file`, profiles,
   includes, extends, anchors, volume semantics, healthchecks, dependencies, or networks.

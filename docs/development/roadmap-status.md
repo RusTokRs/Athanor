@@ -67,6 +67,13 @@ recognizes explicit Express application/router bindings and exact two-argument l
 adapter-scoped `express_route` knowledge. Base JS/TS and Rust extractors remain framework-neutral;
 framework-specific schema/auth/middleware, route composition, and handler linking remain deferred.
 
+Slice 8A is source-implemented from the next exact completeness gap. The Athanor self-evaluation on exact
+`2c5e94220b8fb2cb396938f96bb3dedb0e535816`, run `32815625060`, reported two tracked PowerShell files and
+zero processed. The operations adapter now recognizes `*.ps1` and projects bounded `$env:NAME` and
+`${env:NAME}` references into the existing `env://<NAME>` / `EnvVarUsed` contract without storing values.
+General PowerShell functions, cmdlets, assignments, control flow, AST semantics, and inline expression
+inference remain out of scope. Focused execution and an exact completeness rerun remain pending.
+
 The shared `current.json` is profile-aware across architecture, module, API, operations, and onboarding.
 Every inspector fails closed when another published profile owns the current pointer.
 
@@ -126,6 +133,10 @@ probe, AppSec, and Store contexts are green. Slice 2C landed on
 `0a4c0f78ef05b6c2ba9480b770c1ebf72038e049`; Rustok evaluation `32719989413` and Rustok probe
 `32719989450` are green. These do not substitute for focused module/API/operations/onboarding execution evidence.
 
+The exact Athanor self-evaluation on `2c5e94220b8fb2cb396938f96bb3dedb0e535816`, run `32815625060`,
+is selection evidence for Slice 8A only: the completeness artifact reported `ps1` with two tracked files and
+zero processed. It does not verify the Slice 8A implementation itself.
+
 ## Implemented Packages
 
 - `COMP-003` / `COMP-003C2B2C2B`: explicit composition and bounded owners.
@@ -149,14 +160,17 @@ probe, AppSec, and Store contexts are green. Slice 2C landed on
 - [x] Slices 5A–5C: onboarding inventory/evidence/publication/exact Store/CLI/inspection;
 - [x] Slices 6A–6B: pure completeness plus exact Store/read-only CLI/versioned JSON transport;
 - [x] Slices 7A–7C: bounded built-in Next.js, Axum, and Express route projections;
-- [ ] Focused module 2B–2C, API 3A–3C, operations 4A–4C, onboarding 5A–5C, completeness 6A–6B, and framework 7A–7C execution evidence remains pending.
+- [x] Slice 8A source implementation: bounded PowerShell environment references selected from exact completeness evidence;
+- [ ] Focused module 2B–2C, API 3A–3C, operations 4A–4C, onboarding 5A–5C, completeness 6A–6B,
+  framework 7A–7C, and Slice 8A execution/completeness confirmation remain pending.
 
 `DOCGEN-001` remains in progress. Architecture is execution-confirmed; later profile/completeness/framework
-surfaces are source-implemented but are not promoted without focused gates.
+surfaces and Slice 8A are source-implemented but are not promoted without focused gates.
 
 ## Product Backlog
 
-- use exact completeness gaps and explicit framework plans to select the next bounded adapter expansion;
+- rerun exact Athanor completeness after Slice 8A execution verification, then select the next bounded gap;
+- do not add generic JSON/fixture parsing solely to raise coverage without explicit product semantics;
 - keep Next.js/Axum/Express schema/auth/middleware and route-composition expansion separate until evidence justifies it;
 - Dart/Flutter remains blocked on a portable DartScope dependency boundary rather than a local-only path dependency;
 - optional i18n, semantic/vector retrieval, provider, daemon, and MCP integration after quality gates.
