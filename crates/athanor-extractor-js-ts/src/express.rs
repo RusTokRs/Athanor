@@ -1,7 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use async_trait::async_trait;
-use athanor_core::{CoreResult, ExtractInput, ExtractOutput, Extractor, InvalidationPolicy, SourceFile};
+use athanor_core::{
+    CoreResult, ExtractInput, ExtractOutput, Extractor, InvalidationPolicy, SourceFile,
+};
 use athanor_domain::{
     Entity, EntityId, EntityKind, Fact, FactId, FactKind, LanguageCode, SourceLocation, StableKey,
 };
@@ -227,7 +229,11 @@ fn parse_esm_import(text: &str, bindings: &mut ExpressBindings) {
 }
 
 fn parse_named_router_binding(text: &str, bindings: &mut ExpressBindings) {
-    let Some(inner) = text.trim().strip_prefix('{').and_then(|value| value.strip_suffix('}')) else {
+    let Some(inner) = text
+        .trim()
+        .strip_prefix('{')
+        .and_then(|value| value.strip_suffix('}'))
+    else {
         return;
     };
     for item in inner.split(',') {
@@ -264,7 +270,10 @@ fn collect_commonjs_binding(node: Node<'_>, bytes: &[u8], bindings: &mut Express
 }
 
 fn parse_commonjs_router_pattern(text: &str, bindings: &mut ExpressBindings) {
-    let Some(inner) = text.strip_prefix('{').and_then(|value| value.strip_suffix('}')) else {
+    let Some(inner) = text
+        .strip_prefix('{')
+        .and_then(|value| value.strip_suffix('}'))
+    else {
         return;
     };
     for item in inner.split(',') {
@@ -406,7 +415,9 @@ fn route_from_call(
 fn member_parts(node: Node<'_>, bytes: &[u8]) -> Option<(String, String)> {
     let object = node.child_by_field_name("object")?;
     let property = node.child_by_field_name("property")?;
-    if object.kind() != "identifier" || !matches!(property.kind(), "property_identifier" | "identifier") {
+    if object.kind() != "identifier"
+        || !matches!(property.kind(), "property_identifier" | "identifier")
+    {
         return None;
     }
     Some((
@@ -506,11 +517,7 @@ mod tests {
             "typescript",
             "export const value = 1;"
         )));
-        assert!(!extractor.supports(&source(
-            "src/server.rs",
-            "rust",
-            "// express"
-        )));
+        assert!(!extractor.supports(&source("src/server.rs", "rust", "// express")));
     }
 
     #[tokio::test]

@@ -5,7 +5,10 @@ version = 2
 db-path = "~/.cargo/advisories"
 db-urls = ["https://github.com/rustsec/advisory-db"]
 unmaintained = "workspace"
-ignore = []
+ignore = [
+    # rkyv 0.7.46 is an unused optional dependency in rust_decimal via surrealdb
+    "RUSTSEC-2026-0235",
+]
 
 [licenses]
 version = 2

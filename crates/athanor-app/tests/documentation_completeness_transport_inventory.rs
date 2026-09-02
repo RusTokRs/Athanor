@@ -26,9 +26,8 @@ fn completeness_transport_matches_registered_golden_contract() {
         .expect("completeness transport contract must validate");
 
     let actual = serde_json::to_value(&transport).expect("serialize completeness transport");
-    let expected: Value = serde_json::from_str(include_str!(
-        "fixtures/documentation_completeness.v1.json"
-    ))
-    .expect("golden completeness JSON must parse");
+    let expected: Value =
+        serde_json::from_str(include_str!("fixtures/documentation_completeness.v1.json"))
+            .expect("golden completeness JSON must parse");
     assert_eq!(actual, expected);
 }

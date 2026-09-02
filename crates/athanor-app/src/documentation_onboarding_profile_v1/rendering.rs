@@ -6,8 +6,9 @@ use crate::{
     DOCUMENTATION_REFERENCE_LIMIT, DocumentationCitation, DocumentationContext,
     DocumentationContextItem, DocumentationContextItemKind, DocumentationDraft,
     DocumentationDraftClaim, DocumentationDraftDiagramEdge, DocumentationDraftSection,
-    DocumentationInference, DocumentationOutline, DocumentationOutlineSection, DocumentationProfile,
-    DocumentationQualityMetrics, DocumentationValidationReport, DocumentationValidationStatus,
+    DocumentationInference, DocumentationOutline, DocumentationOutlineSection,
+    DocumentationProfile, DocumentationQualityMetrics, DocumentationValidationReport,
+    DocumentationValidationStatus,
 };
 
 pub(super) fn build_draft(
@@ -146,7 +147,10 @@ pub(super) fn build_validation_report(
     }
 }
 
-pub(super) fn render_markdown(context: &DocumentationContext, draft: &DocumentationDraft) -> String {
+pub(super) fn render_markdown(
+    context: &DocumentationContext,
+    draft: &DocumentationDraft,
+) -> String {
     let mut output = String::from("# Onboarding Documentation\n\n");
     output.push_str(&format!("- Snapshot: `{}`\n", context.snapshot));
     output.push_str("- Profile: `onboarding`\n");
@@ -339,7 +343,11 @@ fn relation_name(summary: &str) -> String {
 }
 
 fn count_kind(context: &DocumentationContext, kind: DocumentationContextItemKind) -> usize {
-    context.items.iter().filter(|item| item.kind == kind).count()
+    context
+        .items
+        .iter()
+        .filter(|item| item.kind == kind)
+        .count()
 }
 
 fn escape_mermaid(value: &str) -> String {

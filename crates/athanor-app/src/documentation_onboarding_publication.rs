@@ -18,7 +18,8 @@ use crate::{
     DOCUMENTATION_VALIDATION_REPORT_PATH, DOCUMENTATION_VALIDATION_REPORT_SCHEMA_V1,
     DocumentationDocumentManifest, DocumentationGenerationManifest, DocumentationGenerationRequest,
     DocumentationGenerationStatus, DocumentationProfile, DocumentationValidationStatus,
-    ONBOARDING_DOCUMENT_MEDIA_TYPE, ONBOARDING_DOCUMENT_PATH, build_documentation_onboarding_profile,
+    ONBOARDING_DOCUMENT_MEDIA_TYPE, ONBOARDING_DOCUMENT_PATH,
+    build_documentation_onboarding_profile,
 };
 
 const ONBOARDING_DOCUMENT_ID: &str = "onboarding-overview";
@@ -65,7 +66,12 @@ pub fn publish_documentation_onboarding_generation_cancellable(
     snapshot: &CanonicalSnapshot,
     cancellation: CancellationToken,
 ) -> Result<DocumentationOnboardingPublicationReport> {
-    publish_documentation_onboarding_generation_inner(options, request, snapshot, Some(cancellation))
+    publish_documentation_onboarding_generation_inner(
+        options,
+        request,
+        snapshot,
+        Some(cancellation),
+    )
 }
 
 fn publish_documentation_onboarding_generation_inner(
@@ -151,8 +157,11 @@ fn publish_documentation_onboarding_generation_inner(
         .map_err(anyhow::Error::msg)
         .context("invalid documentation generation manifest")?;
 
-    write_output_file(&staging.join(ONBOARDING_DOCUMENT_PATH), &profile.document.content)
-        .context("failed to write onboarding Markdown")?;
+    write_output_file(
+        &staging.join(ONBOARDING_DOCUMENT_PATH),
+        &profile.document.content,
+    )
+    .context("failed to write onboarding Markdown")?;
     write_output_file(
         &staging.join(DOCUMENTATION_VALIDATION_REPORT_PATH),
         &validation_json,

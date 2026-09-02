@@ -39,7 +39,8 @@ pub async fn generate_documentation_module_with_composition_cancellable(
     composition: &RuntimeComposition,
     cancellation: CancellationToken,
 ) -> Result<DocumentationModulePublicationReport> {
-    generate_documentation_module_with_composition_inner(options, composition, Some(cancellation)).await
+    generate_documentation_module_with_composition_inner(options, composition, Some(cancellation))
+        .await
 }
 
 async fn generate_documentation_module_with_composition_inner(

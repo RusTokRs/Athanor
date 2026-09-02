@@ -11,7 +11,9 @@ use athanor_app::{
     publish_documentation_operations_generation_cancellable,
 };
 use athanor_core::CanonicalSnapshot;
-use athanor_domain::{Entity, EntityId, EntityKind, Ownership, SnapshotId, SourceLocation, StableKey};
+use athanor_domain::{
+    Entity, EntityId, EntityKind, Ownership, SnapshotId, SourceLocation, StableKey,
+};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
@@ -21,9 +23,13 @@ fn operations_publication_is_immutable_checksum_bound_and_reuses_exact_current()
     let request = request();
     let snapshot = snapshot();
 
-    let first = publish_documentation_operations_generation(options(&project, false), &request, &snapshot)
-        .expect("publish first operations documentation generation");
-    assert_eq!(first.status, DocumentationOperationsPublicationStatus::Published);
+    let first =
+        publish_documentation_operations_generation(options(&project, false), &request, &snapshot)
+            .expect("publish first operations documentation generation");
+    assert_eq!(
+        first.status,
+        DocumentationOperationsPublicationStatus::Published
+    );
     assert_eq!(first.generation, "00000001");
     assert!(first.document.is_file());
     assert!(first.validation_report.is_file());
@@ -39,7 +45,12 @@ fn operations_publication_is_immutable_checksum_bound_and_reuses_exact_current()
         .validate_for_request(&request)
         .expect("published manifest matches operations request");
     assert_eq!(manifest.documents.len(), 2);
-    assert!(manifest.documents.iter().any(|document| document.path == OPERATIONS_DOCUMENT_PATH));
+    assert!(
+        manifest
+            .documents
+            .iter()
+            .any(|document| document.path == OPERATIONS_DOCUMENT_PATH)
+    );
     for document in &manifest.documents {
         let bytes = fs::read(first.generation_dir.join(&document.path)).unwrap();
         assert_eq!(sha256_hex(&bytes), document.sha256);
@@ -48,9 +59,13 @@ fn operations_publication_is_immutable_checksum_bound_and_reuses_exact_current()
     assert_eq!(validation.profile, DocumentationProfile::Operations);
 
     let pointer_before = fs::read(&first.current_pointer).unwrap();
-    let second = publish_documentation_operations_generation(options(&project, false), &request, &snapshot)
-        .expect("reuse exact operations generation");
-    assert_eq!(second.status, DocumentationOperationsPublicationStatus::UpToDate);
+    let second =
+        publish_documentation_operations_generation(options(&project, false), &request, &snapshot)
+            .expect("reuse exact operations generation");
+    assert_eq!(
+        second.status,
+        DocumentationOperationsPublicationStatus::UpToDate
+    );
     assert_eq!(second.generation, first.generation);
     assert_eq!(fs::read(&second.current_pointer).unwrap(), pointer_before);
 }
@@ -60,18 +75,24 @@ fn tamper_force_and_cancellation_preserve_immutable_operations_lifecycle() {
     let project = TempProject::new("lifecycle");
     let request = request();
     let snapshot = snapshot();
-    let first = publish_documentation_operations_generation(options(&project, false), &request, &snapshot)
-        .unwrap();
+    let first =
+        publish_documentation_operations_generation(options(&project, false), &request, &snapshot)
+            .unwrap();
 
     fs::write(&first.document, "# tampered\n").unwrap();
-    let repaired = publish_documentation_operations_generation(options(&project, false), &request, &snapshot)
-        .expect("tamper must publish a new immutable generation");
+    let repaired =
+        publish_documentation_operations_generation(options(&project, false), &request, &snapshot)
+            .expect("tamper must publish a new immutable generation");
     assert_eq!(repaired.generation, "00000002");
-    assert_eq!(repaired.status, DocumentationOperationsPublicationStatus::Published);
+    assert_eq!(
+        repaired.status,
+        DocumentationOperationsPublicationStatus::Published
+    );
     assert!(first.generation_dir.is_dir());
 
-    let forced = publish_documentation_operations_generation(options(&project, true), &request, &snapshot)
-        .expect("force must publish another generation");
+    let forced =
+        publish_documentation_operations_generation(options(&project, true), &request, &snapshot)
+            .expect("force must publish another generation");
     assert_eq!(forced.generation, "00000003");
 
     let pointer_before = fs::read(&forced.current_pointer).unwrap();

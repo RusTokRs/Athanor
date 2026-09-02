@@ -1,7 +1,7 @@
 use athanor_app::{
-    MODULE_DOCUMENT_MEDIA_TYPE, MODULE_DOCUMENT_PATH, DocumentationContextItemKind,
-    DocumentationGenerationLimits, DocumentationGenerationRequest, DocumentationProfile,
-    DocumentationValidationStatus, build_documentation_architecture_profile,
+    DocumentationContextItemKind, DocumentationGenerationLimits, DocumentationGenerationRequest,
+    DocumentationProfile, DocumentationValidationStatus, MODULE_DOCUMENT_MEDIA_TYPE,
+    MODULE_DOCUMENT_PATH, build_documentation_architecture_profile,
     build_documentation_module_profile,
 };
 use athanor_core::CanonicalSnapshot;
@@ -158,9 +158,12 @@ fn module_profile_orders_modules_discloses_omissions_and_ignores_input_order() {
             .collect::<Vec<_>>(),
         ["rust://module/alpha", "rust://module/service"]
     );
-    assert!(profile.document.content.contains(
-        "- Omitted module scope: modules 1, facts 0, relations 0, diagnostics 0"
-    ));
+    assert!(
+        profile
+            .document
+            .content
+            .contains("- Omitted module scope: modules 1, facts 0, relations 0, diagnostics 0")
+    );
 
     let mut reordered = snapshot.clone();
     reordered.entities.reverse();

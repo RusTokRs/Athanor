@@ -1,5 +1,7 @@
 use async_trait::async_trait;
-use athanor_core::{CoreResult, ExtractInput, ExtractOutput, Extractor, InvalidationPolicy, SourceFile};
+use athanor_core::{
+    CoreResult, ExtractInput, ExtractOutput, Extractor, InvalidationPolicy, SourceFile,
+};
 use athanor_domain::{
     Entity, EntityId, EntityKind, Fact, FactId, FactKind, LanguageCode, SourceLocation, StableKey,
 };
@@ -250,7 +252,10 @@ fn split_extension(file: &str) -> Option<(&str, &str)> {
 }
 
 fn is_next_source_extension(extension: &str) -> bool {
-    matches!(extension.to_ascii_lowercase().as_str(), "js" | "jsx" | "ts" | "tsx")
+    matches!(
+        extension.to_ascii_lowercase().as_str(),
+        "js" | "jsx" | "ts" | "tsx"
+    )
 }
 
 fn normalize_path(path: &str) -> String {
@@ -303,7 +308,10 @@ mod tests {
             "app/(.)photo/page.tsx",
             "pages/_app.tsx",
         ] {
-            assert!(!extractor.supports(&source(path)), "unexpectedly supported {path}");
+            assert!(
+                !extractor.supports(&source(path)),
+                "unexpectedly supported {path}"
+            );
         }
     }
 
@@ -364,7 +372,10 @@ mod tests {
         let output = extract("src\\app\\dashboard\\page.tsx").await;
         let entity = &output.entities[0];
         assert_eq!(entity.payload["route"], json!("/dashboard"));
-        assert_eq!(entity.payload["source_path"], json!("src/app/dashboard/page.tsx"));
+        assert_eq!(
+            entity.payload["source_path"],
+            json!("src/app/dashboard/page.tsx")
+        );
         assert_eq!(
             entity.stable_key.0,
             "nextjs-route://src/app/dashboard/page.tsx#route"
@@ -386,6 +397,9 @@ mod tests {
             .unwrap();
         assert_eq!(output.entities.len(), 1);
         assert_eq!(output.facts.len(), 1);
-        assert_eq!(output.entities[0].source.as_ref().unwrap().line_end, Some(1));
+        assert_eq!(
+            output.entities[0].source.as_ref().unwrap().line_end,
+            Some(1)
+        );
     }
 }

@@ -7,6 +7,8 @@ on:
 
 permissions:
   contents: read
+  issues: write
+  checks: write
 
 jobs:
   audit:
@@ -21,5 +23,6 @@ jobs:
         uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          ignore: RUSTSEC-2026-0235
       - name: Enforce unsafe-code policy
         run: cargo check --workspace --config 'build.rustflags=["-Dunsafe_code"]'

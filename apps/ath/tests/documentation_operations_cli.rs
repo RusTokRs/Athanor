@@ -37,7 +37,11 @@ fn exact_snapshot_operations_generation_and_inspection_round_trip_through_binary
     let root_arg = root.to_str().expect("UTF-8 temp path");
 
     let indexed = run(&["index", root_arg, "--json"]);
-    assert!(indexed.status.success(), "index stderr: {}", stderr(&indexed));
+    assert!(
+        indexed.status.success(),
+        "index stderr: {}",
+        stderr(&indexed)
+    );
     let index: Value = serde_json::from_slice(&indexed.stdout).expect("index JSON");
     let snapshot = index["snapshot"].as_str().expect("snapshot id");
 
@@ -62,11 +66,13 @@ fn exact_snapshot_operations_generation_and_inspection_round_trip_through_binary
 
     let manifest = json_command(&["docs", "operations", "manifest", root_arg, "--json"]);
     assert_eq!(manifest["manifest"]["profile"], "operations");
-    assert!(manifest["manifest"]["documents"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|document| document["path"] == "operations/index.md"));
+    assert!(
+        manifest["manifest"]["documents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|document| document["path"] == "operations/index.md")
+    );
 
     let validation = json_command(&["docs", "operations", "validation", root_arg, "--json"]);
     assert_eq!(validation["report"]["snapshot"], snapshot);

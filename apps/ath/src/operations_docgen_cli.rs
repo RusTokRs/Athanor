@@ -117,7 +117,9 @@ pub(crate) fn parse(args: &[String]) -> Result<Option<Command>> {
                 ErrorKind::DisplayHelp | ErrorKind::DisplayVersion
             ) =>
         {
-            error.print().context("failed to print operations documentation help")?;
+            error
+                .print()
+                .context("failed to print operations documentation help")?;
             std::process::exit(0);
         }
         Err(error) => Err(error.into()),
@@ -285,7 +287,10 @@ fn render_manifest(report: &DocumentationOperationsManifestInspection, json: boo
     Ok(())
 }
 
-fn render_validation(report: &DocumentationOperationsValidationInspection, json: bool) -> Result<()> {
+fn render_validation(
+    report: &DocumentationOperationsValidationInspection,
+    json: bool,
+) -> Result<()> {
     if json {
         println!("{}", serde_json::to_string_pretty(report)?);
         return Ok(());

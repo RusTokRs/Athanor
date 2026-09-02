@@ -232,13 +232,16 @@ fn build_context(
         if evidence.is_empty() {
             continue;
         }
-        buckets.entry(category).or_default().push(OperationsEntityCandidate {
-            entity_id: entity.id.0.clone(),
-            stable_key: entity.stable_key.0.clone(),
-            category,
-            summary: entity_summary(entity, category),
-            evidence,
-        });
+        buckets
+            .entry(category)
+            .or_default()
+            .push(OperationsEntityCandidate {
+                entity_id: entity.id.0.clone(),
+                stable_key: entity.stable_key.0.clone(),
+                category,
+                summary: entity_summary(entity, category),
+                evidence,
+            });
     }
 
     let eligible_entities = buckets.values().map(Vec::len).sum::<usize>();
@@ -262,11 +265,7 @@ fn build_context(
         .into_iter()
         .enumerate()
         .map(|(index, candidate)| DocumentationContextItem {
-            id: format!(
-                "operations-{}-{:04}",
-                candidate.category.id(),
-                index + 1
-            ),
+            id: format!("operations-{}-{:04}", candidate.category.id(), index + 1),
             kind: DocumentationContextItemKind::Entity,
             summary: candidate.summary,
             stable_keys: vec![candidate.stable_key],
@@ -322,15 +321,19 @@ fn build_context(
         "operations-diagnostic",
     );
 
-    let items = apply_context_item_budget(entity_items, fact_items, relation_items, diagnostic_items);
+    let items =
+        apply_context_item_budget(entity_items, fact_items, relation_items, diagnostic_items);
     let omitted = DocumentationOmittedCounts {
         entities: eligible_entities
             .saturating_sub(count_items(&items, DocumentationContextItemKind::Entity)),
-        facts: eligible_facts.saturating_sub(count_items(&items, DocumentationContextItemKind::Fact)),
+        facts: eligible_facts
+            .saturating_sub(count_items(&items, DocumentationContextItemKind::Fact)),
         relations: eligible_relations
             .saturating_sub(count_items(&items, DocumentationContextItemKind::Relation)),
-        diagnostics: eligible_diagnostics
-            .saturating_sub(count_items(&items, DocumentationContextItemKind::Diagnostic)),
+        diagnostics: eligible_diagnostics.saturating_sub(count_items(
+            &items,
+            DocumentationContextItemKind::Diagnostic,
+        )),
     };
 
     Ok(DocumentationContext {
@@ -406,7 +409,9 @@ fn operations_category(kind: &EntityKind) -> Option<OperationsCategory> {
 fn entity_summary(entity: &Entity, category: OperationsCategory) -> String {
     format!(
         "{} `{}` — {}",
-        category.label(), entity.name, entity.stable_key.0
+        category.label(),
+        entity.name,
+        entity.stable_key.0
     )
 }
 
@@ -631,7 +636,10 @@ fn apply_context_item_budget(
     items
 }
 
-fn build_draft(outline: &DocumentationOutline, context: &DocumentationContext) -> DocumentationDraft {
+fn build_draft(
+    outline: &DocumentationOutline,
+    context: &DocumentationContext,
+) -> DocumentationDraft {
     let citations = context
         .items
         .iter()

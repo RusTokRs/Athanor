@@ -5,8 +5,8 @@ use athanor_app::{
 use athanor_core::CanonicalSnapshot;
 use athanor_domain::{
     Diagnostic, DiagnosticId, DiagnosticKind, DiagnosticStatus, Entity, EntityId, EntityKind,
-    Evidence, EvidenceStatus, Fact, FactId, FactKind, LanguageCode, Ownership, Relation, RelationId,
-    RelationKind, RelationStatus, Severity, SnapshotId, SourceLocation, StableKey,
+    Evidence, EvidenceStatus, Fact, FactId, FactKind, LanguageCode, Ownership, Relation,
+    RelationId, RelationKind, RelationStatus, Severity, SnapshotId, SourceLocation, StableKey,
 };
 use serde_json::json;
 
@@ -51,7 +51,10 @@ fn completeness_report_is_exact_deterministic_and_exposes_adapter_gaps() {
         .find(|row| row.language == "rust")
         .unwrap();
     assert_eq!(rust.processed_files, 1);
-    assert_eq!(rust.adapters, 0, "entity-only processing stays unattributed");
+    assert_eq!(
+        rust.adapters, 0,
+        "entity-only processing stays unattributed"
+    );
 
     let markdown_extractor = report
         .adapters
@@ -190,12 +193,7 @@ fn fixture() -> CanonicalSnapshot {
     let snapshot = SnapshotId("snap-completeness".to_string());
     let readme_file = file_entity("file-readme", "README.md", "README.md", "markdown");
     let rust_file = file_entity("file-rust", "src/lib.rs", "src/lib.rs", "rust");
-    let api_file = file_entity(
-        "file-api",
-        "api\\openapi.yaml",
-        "api/openapi.yaml",
-        "yaml",
-    );
+    let api_file = file_entity("file-api", "api\\openapi.yaml", "api/openapi.yaml", "yaml");
     let template_file = file_entity(
         "file-template",
         "templates/page.twig",
@@ -239,12 +237,7 @@ fn fixture() -> CanonicalSnapshot {
         facts: vec![
             baseline_fact("baseline-readme", "file-readme", "README.md", &snapshot),
             baseline_fact("baseline-rust", "file-rust", "src/lib.rs", &snapshot),
-            baseline_fact(
-                "baseline-api",
-                "file-api",
-                "api/openapi.yaml",
-                &snapshot,
-            ),
+            baseline_fact("baseline-api", "file-api", "api/openapi.yaml", &snapshot),
             baseline_fact(
                 "baseline-template",
                 "file-template",
@@ -298,16 +291,10 @@ fn fixture() -> CanonicalSnapshot {
             suggested_fix: None,
             payload: json!({}),
         }],
-        ..CanonicalSnapshot::default()
     }
 }
 
-fn file_entity(
-    id: &str,
-    source_path: &str,
-    ownership_path: &str,
-    language: &str,
-) -> Entity {
+fn file_entity(id: &str, source_path: &str, ownership_path: &str, language: &str) -> Entity {
     Entity {
         id: EntityId(id.to_string()),
         stable_key: StableKey(format!("file://{ownership_path}")),

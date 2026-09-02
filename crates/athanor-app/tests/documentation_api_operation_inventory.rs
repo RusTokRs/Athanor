@@ -1,6 +1,6 @@
 use athanor_app::{
-    DocumentationApiOperationOptions, DocumentationGenerationLimits, DocumentationGenerationRequest,
-    DocumentationProfile,
+    DocumentationApiOperationOptions, DocumentationGenerationLimits,
+    DocumentationGenerationRequest, DocumentationProfile,
 };
 
 #[test]

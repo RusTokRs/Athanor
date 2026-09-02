@@ -155,7 +155,12 @@ pub fn build_documentation_completeness_report(
     let mut path_adapters = BTreeMap::<String, BTreeSet<String>>::new();
 
     for fact in &snapshot.facts {
-        collect_fact(fact, &mut processed_paths, &mut adapters, &mut path_adapters);
+        collect_fact(
+            fact,
+            &mut processed_paths,
+            &mut adapters,
+            &mut path_adapters,
+        );
     }
     for relation in &snapshot.relations {
         collect_relation(
@@ -179,7 +184,9 @@ pub fn build_documentation_completeness_report(
         .filter(|path| tracked_files.contains_key(path))
         .collect::<BTreeSet<_>>();
     for adapter in adapters.values_mut() {
-        adapter.files.retain(|path| tracked_files.contains_key(path));
+        adapter
+            .files
+            .retain(|path| tracked_files.contains_key(path));
     }
     path_adapters.retain(|path, _| tracked_files.contains_key(path));
 
@@ -207,19 +214,21 @@ pub fn build_documentation_completeness_report(
 
     let mut language_rows = languages
         .into_iter()
-        .map(|(language, accumulator)| DocumentationLanguageCompleteness {
-            language,
-            tracked_files: accumulator.tracked_files,
-            processed_files: accumulator.processed_files,
-            unprocessed_files: accumulator
-                .tracked_files
-                .saturating_sub(accumulator.processed_files),
-            processed_ratio_basis_points: ratio_basis_points(
-                accumulator.processed_files,
-                accumulator.tracked_files,
-            ),
-            adapters: accumulator.adapters.len(),
-        })
+        .map(
+            |(language, accumulator)| DocumentationLanguageCompleteness {
+                language,
+                tracked_files: accumulator.tracked_files,
+                processed_files: accumulator.processed_files,
+                unprocessed_files: accumulator
+                    .tracked_files
+                    .saturating_sub(accumulator.processed_files),
+                processed_ratio_basis_points: ratio_basis_points(
+                    accumulator.processed_files,
+                    accumulator.tracked_files,
+                ),
+                adapters: accumulator.adapters.len(),
+            },
+        )
         .collect::<Vec<_>>();
     language_rows.sort_by(|left, right| {
         right
@@ -289,16 +298,18 @@ pub fn build_documentation_completeness_report(
     })
 }
 
-fn tracked_file_inventory(snapshot: &CanonicalSnapshot) -> Result<BTreeMap<String, String>, String> {
+fn tracked_file_inventory(
+    snapshot: &CanonicalSnapshot,
+) -> Result<BTreeMap<String, String>, String> {
     let mut files = BTreeMap::<String, String>::new();
     for entity in &snapshot.entities {
         if entity.kind != EntityKind::File {
             continue;
         }
-        let language = entity
-            .language
-            .as_ref()
-            .map_or_else(|| UNKNOWN_LANGUAGE.to_string(), |language| language.0.clone());
+        let language = entity.language.as_ref().map_or_else(
+            || UNKNOWN_LANGUAGE.to_string(),
+            |language| language.0.clone(),
+        );
         let paths = entity_evidence_locations(entity)
             .into_iter()
             .map(|location| location.path)
@@ -360,7 +371,10 @@ fn collect_relation(
         entry.relations += 1;
         entry.files.extend(paths.iter().cloned());
         for path in paths {
-            path_adapters.entry(path).or_default().insert(adapter.clone());
+            path_adapters
+                .entry(path)
+                .or_default()
+                .insert(adapter.clone());
         }
     }
 }
@@ -378,7 +392,10 @@ fn collect_diagnostic(
         entry.diagnostics += 1;
         entry.files.extend(paths.iter().cloned());
         for path in paths {
-            path_adapters.entry(path).or_default().insert(adapter.clone());
+            path_adapters
+                .entry(path)
+                .or_default()
+                .insert(adapter.clone());
         }
     }
 }

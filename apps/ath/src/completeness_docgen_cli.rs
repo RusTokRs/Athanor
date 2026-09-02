@@ -59,7 +59,9 @@ pub(crate) fn parse(args: &[String]) -> Result<Option<Command>> {
                 ErrorKind::DisplayHelp | ErrorKind::DisplayVersion
             ) =>
         {
-            error.print().context("failed to print documentation completeness help")?;
+            error
+                .print()
+                .context("failed to print documentation completeness help")?;
             std::process::exit(0);
         }
         Err(error) => Err(error.into()),

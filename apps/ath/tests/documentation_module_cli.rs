@@ -78,11 +78,13 @@ fn exact_snapshot_module_generation_and_inspection_round_trip_through_binary() {
         manifest["manifest"]["documents"].as_array().map(Vec::len),
         Some(2)
     );
-    assert!(manifest["manifest"]["documents"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|document| document["path"] == "modules/index.md"));
+    assert!(
+        manifest["manifest"]["documents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|document| document["path"] == "modules/index.md")
+    );
 
     let validation = json_command(&["docs", "module", "validation", root_arg, "--json"]);
     assert_eq!(validation["report"]["snapshot"], snapshot);

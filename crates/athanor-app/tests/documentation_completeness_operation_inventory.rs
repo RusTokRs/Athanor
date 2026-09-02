@@ -1,6 +1,4 @@
-use athanor_app::{
-    DocumentationCompletenessOperationOptions, DocumentationCompletenessRequest,
-};
+use athanor_app::{DocumentationCompletenessOperationOptions, DocumentationCompletenessRequest};
 
 #[test]
 fn completeness_operation_options_bind_one_exact_snapshot_and_limit() {

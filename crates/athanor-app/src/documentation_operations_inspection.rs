@@ -121,14 +121,18 @@ fn resolve_current(root: &Path) -> Result<ResolvedCurrent> {
         .with_context(|| format!("failed to canonicalize {}", root.display()))?;
     let documentation_root = root.join(".athanor/generated/documentation");
     let current_pointer = documentation_root.join("current.json");
-    let current: CurrentDocumentationGeneration = read_json(&current_pointer).with_context(|| {
-        format!(
-            "failed to read current documentation pointer in {}",
-            root.display()
-        )
-    })?;
+    let current: CurrentDocumentationGeneration =
+        read_json(&current_pointer).with_context(|| {
+            format!(
+                "failed to read current documentation pointer in {}",
+                root.display()
+            )
+        })?;
     if current.schema != DOCUMENTATION_CURRENT_SCHEMA_V1 {
-        bail!("unsupported documentation current schema {}", current.schema);
+        bail!(
+            "unsupported documentation current schema {}",
+            current.schema
+        );
     }
     if current.profile != DocumentationProfile::Operations {
         bail!("current documentation generation is not an operations profile");

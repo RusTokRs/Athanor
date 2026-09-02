@@ -10,11 +10,12 @@ use athanor_app::{
     DocumentationArchitectureCurrentInspection, DocumentationArchitectureManifestInspection,
     DocumentationArchitectureOperationOptions, DocumentationArchitecturePublicationReport,
     DocumentationArchitecturePublicationStatus, DocumentationArchitectureValidationInspection,
-    DocumentationGenerationLimits, DocumentationGenerationRequest, DocumentationModuleCurrentInspection,
-    DocumentationModuleManifestInspection, DocumentationModuleOperationOptions,
-    DocumentationModulePublicationReport, DocumentationModulePublicationStatus,
-    DocumentationModuleValidationInspection, DocumentationProfile, OperationsDocsCheckOptions,
-    OperationsDocsCheckReport, VersionedDocsProposeFixReport, check_docs_with_composition,
+    DocumentationGenerationLimits, DocumentationGenerationRequest,
+    DocumentationModuleCurrentInspection, DocumentationModuleManifestInspection,
+    DocumentationModuleOperationOptions, DocumentationModulePublicationReport,
+    DocumentationModulePublicationStatus, DocumentationModuleValidationInspection,
+    DocumentationProfile, OperationsDocsCheckOptions, OperationsDocsCheckReport,
+    VersionedDocsProposeFixReport, check_docs_with_composition,
     check_operations_docs_with_composition, docs_apply_patch_with_composition,
     docs_drift_with_composition, generate_documentation_api_with_composition_cancellable,
     generate_documentation_architecture_with_composition_cancellable,
@@ -367,8 +368,8 @@ pub(crate) async fn run(command: Command) -> Result<()> {
             );
             let cancellation = CancellationToken::new();
             let signal_cancellation = cancellation.clone();
-            let mut generation = Box::pin(
-                generate_documentation_module_with_composition_cancellable(
+            let mut generation =
+                Box::pin(generate_documentation_module_with_composition_cancellable(
                     DocumentationModuleOperationOptions {
                         root: path,
                         request,
@@ -376,8 +377,7 @@ pub(crate) async fn run(command: Command) -> Result<()> {
                     },
                     &composition,
                     cancellation,
-                ),
-            );
+                ));
             let mut ctrl_c = Box::pin(tokio::signal::ctrl_c());
             let report = tokio::select! {
                 result = &mut generation => result?,
@@ -530,7 +530,10 @@ fn render_architecture_generation(
     Ok(())
 }
 
-fn render_module_generation(report: &DocumentationModulePublicationReport, json: bool) -> Result<()> {
+fn render_module_generation(
+    report: &DocumentationModulePublicationReport,
+    json: bool,
+) -> Result<()> {
     if json {
         println!("{}", serde_json::to_string_pretty(report)?);
         return Ok(());
@@ -649,7 +652,10 @@ fn render_architecture_manifest(
     Ok(())
 }
 
-fn render_module_manifest(report: &DocumentationModuleManifestInspection, json: bool) -> Result<()> {
+fn render_module_manifest(
+    report: &DocumentationModuleManifestInspection,
+    json: bool,
+) -> Result<()> {
     if json {
         println!("{}", serde_json::to_string_pretty(report)?);
         return Ok(());
@@ -714,7 +720,10 @@ fn render_architecture_validation(
     Ok(())
 }
 
-fn render_module_validation(report: &DocumentationModuleValidationInspection, json: bool) -> Result<()> {
+fn render_module_validation(
+    report: &DocumentationModuleValidationInspection,
+    json: bool,
+) -> Result<()> {
     if json {
         println!("{}", serde_json::to_string_pretty(report)?);
         return Ok(());

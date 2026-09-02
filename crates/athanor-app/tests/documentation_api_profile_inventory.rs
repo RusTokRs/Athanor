@@ -7,8 +7,8 @@ use athanor_app::{
 use athanor_core::CanonicalSnapshot;
 use athanor_domain::{
     Diagnostic, DiagnosticId, DiagnosticKind, DiagnosticStatus, Entity, EntityId, EntityKind,
-    Evidence, EvidenceStatus, Fact, FactId, FactKind, Ownership, Relation, RelationId, RelationKind,
-    RelationStatus, Severity, SnapshotId, SourceLocation, StableKey,
+    Evidence, EvidenceStatus, Fact, FactId, FactKind, Ownership, Relation, RelationId,
+    RelationKind, RelationStatus, Severity, SnapshotId, SourceLocation, StableKey,
 };
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -37,16 +37,28 @@ fn api_profile_is_exact_scoped_cited_and_checksum_bound() {
         ]
     );
     assert_eq!(profile.context.profile, DocumentationProfile::Api);
-    assert_eq!(count_kind(&profile, DocumentationContextItemKind::Entity), 5);
+    assert_eq!(
+        count_kind(&profile, DocumentationContextItemKind::Entity),
+        5
+    );
     assert_eq!(count_kind(&profile, DocumentationContextItemKind::Fact), 2);
-    assert_eq!(count_kind(&profile, DocumentationContextItemKind::Relation), 7);
-    assert_eq!(count_kind(&profile, DocumentationContextItemKind::Diagnostic), 2);
+    assert_eq!(
+        count_kind(&profile, DocumentationContextItemKind::Relation),
+        7
+    );
+    assert_eq!(
+        count_kind(&profile, DocumentationContextItemKind::Diagnostic),
+        2
+    );
     assert_eq!(profile.context.omitted.entities, 0);
     assert_eq!(profile.context.omitted.facts, 0);
     assert_eq!(profile.context.omitted.relations, 0);
     assert_eq!(profile.context.omitted.diagnostics, 0);
     assert_eq!(profile.draft.citations.len(), 16);
-    assert_eq!(profile.validation_report.status, DocumentationValidationStatus::Valid);
+    assert_eq!(
+        profile.validation_report.status,
+        DocumentationValidationStatus::Valid
+    );
     assert_eq!(profile.validation_report.profile, DocumentationProfile::Api);
     assert_eq!(profile.validation_report.metrics.unsupported_relations, 0);
     assert_eq!(profile.document.path, API_DOCUMENT_PATH);
@@ -147,27 +159,41 @@ fn api_profile_orders_scoped_evidence_discloses_omissions_and_ignores_input_orde
         max_relations: 2,
         max_diagnostics: 1,
     };
-    let request = DocumentationGenerationRequest::new(
-        "snap-api-0001",
-        DocumentationProfile::Api,
-        limits,
-    );
+    let request =
+        DocumentationGenerationRequest::new("snap-api-0001", DocumentationProfile::Api, limits);
     let snapshot = api_snapshot();
     let profile = build_documentation_api_profile(&request, &snapshot).unwrap();
 
-    assert_eq!(count_kind(&profile, DocumentationContextItemKind::Entity), 2);
+    assert_eq!(
+        count_kind(&profile, DocumentationContextItemKind::Entity),
+        2
+    );
     assert_eq!(count_kind(&profile, DocumentationContextItemKind::Fact), 1);
-    assert_eq!(count_kind(&profile, DocumentationContextItemKind::Relation), 2);
-    assert_eq!(count_kind(&profile, DocumentationContextItemKind::Diagnostic), 1);
+    assert_eq!(
+        count_kind(&profile, DocumentationContextItemKind::Relation),
+        2
+    );
+    assert_eq!(
+        count_kind(&profile, DocumentationContextItemKind::Diagnostic),
+        1
+    );
     assert_eq!(profile.context.omitted.entities, 3);
     assert_eq!(profile.context.omitted.facts, 1);
     assert_eq!(profile.context.omitted.relations, 2);
     assert_eq!(profile.context.omitted.diagnostics, 0);
     assert_eq!(profile.validation_report.metrics.unsupported_relations, 2);
-    assert!(profile.document.content.contains(
-        "Omitted API scope: entities 3, facts 1, relations 2, diagnostics 0"
-    ));
-    assert!(profile.document.content.contains("Unsupported API relations: 2"));
+    assert!(
+        profile
+            .document
+            .content
+            .contains("Omitted API scope: entities 3, facts 1, relations 2, diagnostics 0")
+    );
+    assert!(
+        profile
+            .document
+            .content
+            .contains("Unsupported API relations: 2")
+    );
 
     let selected_entities = profile
         .context
@@ -209,11 +235,8 @@ fn api_profile_fails_closed_for_wrong_identity_or_missing_api_surface() {
             .contains("requires profile `api`")
     );
 
-    let wrong_snapshot = DocumentationGenerationRequest::new(
-        "snap-other",
-        DocumentationProfile::Api,
-        limits(8),
-    );
+    let wrong_snapshot =
+        DocumentationGenerationRequest::new("snap-other", DocumentationProfile::Api, limits(8));
     assert!(
         build_documentation_api_profile(&wrong_snapshot, &snapshot)
             .unwrap_err()
@@ -460,13 +483,7 @@ fn entity(
     }
 }
 
-fn fact(
-    id: &str,
-    kind: FactKind,
-    subject: &Entity,
-    object: Option<&Entity>,
-    path: &str,
-) -> Fact {
+fn fact(id: &str, kind: FactKind, subject: &Entity, object: Option<&Entity>, path: &str) -> Fact {
     Fact {
         id: FactId(id.to_string()),
         kind,

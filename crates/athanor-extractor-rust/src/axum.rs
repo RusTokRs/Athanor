@@ -1,7 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use async_trait::async_trait;
-use athanor_core::{CoreError, CoreResult, ExtractInput, ExtractOutput, Extractor, InvalidationPolicy, SourceFile};
+use athanor_core::{
+    CoreError, CoreResult, ExtractInput, ExtractOutput, Extractor, InvalidationPolicy, SourceFile,
+};
 use athanor_domain::{
     Entity, EntityId, EntityKind, Fact, FactId, FactKind, LanguageCode, SourceLocation, StableKey,
 };
@@ -215,9 +217,7 @@ fn collect_axum_use_tree(
             let mut full = prefix.clone();
             full.push(rename.ident.to_string());
             if full.as_slice() == ["axum", "routing"] {
-                imports
-                    .routing_namespaces
-                    .insert(rename.rename.to_string());
+                imports.routing_namespaces.insert(rename.rename.to_string());
             } else if let [axum, routing, method] = full.as_slice()
                 && axum == "axum"
                 && routing == "routing"
@@ -399,10 +399,7 @@ mod tests {
             "src/routes.rs",
             "use axum::{Router, routing::get};"
         )));
-        assert!(!extractor.supports(&source(
-            "src/routes.rs",
-            "fn route() {}"
-        )));
+        assert!(!extractor.supports(&source("src/routes.rs", "fn route() {}")));
         let mut javascript = source("src/routes.js", "import axum from 'axum';");
         javascript.language_hint = Some("javascript".to_string());
         assert!(!extractor.supports(&javascript));

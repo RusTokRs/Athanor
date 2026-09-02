@@ -1,13 +1,14 @@
 use athanor_app::{
     DOCUMENTATION_REFERENCE_LIMIT, DocumentationContextItemKind, DocumentationGenerationLimits,
     DocumentationGenerationRequest, DocumentationProfile, DocumentationValidationStatus,
-    ONBOARDING_DOCUMENT_MEDIA_TYPE, ONBOARDING_DOCUMENT_PATH, build_documentation_onboarding_profile,
+    ONBOARDING_DOCUMENT_MEDIA_TYPE, ONBOARDING_DOCUMENT_PATH,
+    build_documentation_onboarding_profile,
 };
 use athanor_core::CanonicalSnapshot;
 use athanor_domain::{
     Diagnostic, DiagnosticId, DiagnosticKind, DiagnosticStatus, Entity, EntityId, EntityKind,
-    Evidence, EvidenceStatus, Fact, FactId, FactKind, Ownership, Relation, RelationId, RelationKind,
-    RelationStatus, Severity, SnapshotId, SourceLocation, StableKey,
+    Evidence, EvidenceStatus, Fact, FactId, FactKind, Ownership, Relation, RelationId,
+    RelationKind, RelationStatus, Severity, SnapshotId, SourceLocation, StableKey,
 };
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -41,10 +42,7 @@ fn onboarding_profile_is_exact_bounded_cited_and_checksum_bound() {
     );
     assert_eq!(profile.validation_report.metrics.unsupported_relations, 0);
     assert_eq!(profile.document.path, ONBOARDING_DOCUMENT_PATH);
-    assert_eq!(
-        profile.document.media_type,
-        ONBOARDING_DOCUMENT_MEDIA_TYPE
-    );
+    assert_eq!(profile.document.media_type, ONBOARDING_DOCUMENT_MEDIA_TYPE);
     assert_eq!(
         profile.document.sha256,
         sha256_hex(profile.document.content.as_bytes())
@@ -55,12 +53,7 @@ fn onboarding_profile_is_exact_bounded_cited_and_checksum_bound() {
             .content
             .contains("# Onboarding Documentation")
     );
-    assert!(
-        profile
-            .document
-            .content
-            .contains("## Onboarding Overview")
-    );
+    assert!(profile.document.content.contains("## Onboarding Overview"));
     assert!(
         profile
             .document
@@ -83,7 +76,12 @@ fn onboarding_profile_is_exact_bounded_cited_and_checksum_bound() {
     assert!(profile.document.content.contains("- Profile: `onboarding`"));
     assert!(profile.document.content.contains("Slice 5B scope"));
     assert!(!profile.document.content.contains("module://core"));
-    assert!(!profile.document.content.contains("automation://script/bootstrap"));
+    assert!(
+        !profile
+            .document
+            .content
+            .contains("automation://script/bootstrap")
+    );
     assert_eq!(
         serde_json::to_value(DocumentationProfile::Onboarding).unwrap(),
         json!("onboarding")
@@ -159,9 +157,18 @@ fn onboarding_profile_scopes_facts_relations_and_open_diagnostics() {
     );
     let profile = build_documentation_onboarding_profile(&request, &snapshot).unwrap();
 
-    assert_eq!(count_kind(&profile.context, DocumentationContextItemKind::Entity), 7);
-    assert_eq!(count_kind(&profile.context, DocumentationContextItemKind::Fact), 2);
-    assert_eq!(count_kind(&profile.context, DocumentationContextItemKind::Relation), 4);
+    assert_eq!(
+        count_kind(&profile.context, DocumentationContextItemKind::Entity),
+        7
+    );
+    assert_eq!(
+        count_kind(&profile.context, DocumentationContextItemKind::Fact),
+        2
+    );
+    assert_eq!(
+        count_kind(&profile.context, DocumentationContextItemKind::Relation),
+        4
+    );
     assert_eq!(
         count_kind(&profile.context, DocumentationContextItemKind::Diagnostic),
         1
@@ -202,7 +209,12 @@ fn onboarding_profile_scopes_facts_relations_and_open_diagnostics() {
     assert!(profile.document.content.contains("-->|uses_env|"));
     assert!(profile.document.content.contains("-->|tested_by|"));
     assert!(profile.document.content.contains("missing_env_var"));
-    assert!(!profile.document.content.contains("resolved-script-reference"));
+    assert!(
+        !profile
+            .document
+            .content
+            .contains("resolved-script-reference")
+    );
     assert!(!profile.document.content.contains("unrelated-orphan"));
     assert!(!profile.document.content.contains(" calls `"));
 
@@ -232,7 +244,10 @@ fn onboarding_profile_discloses_relation_limit_and_ignores_unsupported_relations
     );
     let profile = build_documentation_onboarding_profile(&request, &snapshot).unwrap();
 
-    assert_eq!(count_kind(&profile.context, DocumentationContextItemKind::Relation), 2);
+    assert_eq!(
+        count_kind(&profile.context, DocumentationContextItemKind::Relation),
+        2
+    );
     assert_eq!(profile.context.omitted.relations, 2);
     assert_eq!(profile.validation_report.metrics.unsupported_relations, 2);
     assert!(
@@ -352,7 +367,6 @@ fn onboarding_profile_honors_shared_reference_ceiling_across_all_kinds() {
         facts,
         relations,
         diagnostics,
-        ..CanonicalSnapshot::default()
     };
     let request = DocumentationGenerationRequest::new(
         "snap-onboarding-budget",
@@ -723,13 +737,7 @@ fn entity_with_title(
     }
 }
 
-fn relation(
-    id: &str,
-    kind: RelationKind,
-    from: &str,
-    to: &str,
-    path: &str,
-) -> Relation {
+fn relation(id: &str, kind: RelationKind, from: &str, to: &str, path: &str) -> Relation {
     Relation {
         id: RelationId(id.to_string()),
         kind,
@@ -777,7 +785,11 @@ fn count_kind(
     context: &athanor_app::DocumentationContext,
     kind: DocumentationContextItemKind,
 ) -> usize {
-    context.items.iter().filter(|item| item.kind == kind).count()
+    context
+        .items
+        .iter()
+        .filter(|item| item.kind == kind)
+        .count()
 }
 
 fn sha256_hex(content: &[u8]) -> String {

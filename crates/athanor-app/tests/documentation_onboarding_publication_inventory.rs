@@ -11,7 +11,9 @@ use athanor_app::{
     publish_documentation_onboarding_generation_cancellable,
 };
 use athanor_core::CanonicalSnapshot;
-use athanor_domain::{Entity, EntityId, EntityKind, Ownership, SnapshotId, SourceLocation, StableKey};
+use athanor_domain::{
+    Entity, EntityId, EntityKind, Ownership, SnapshotId, SourceLocation, StableKey,
+};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
@@ -21,8 +23,9 @@ fn onboarding_publication_is_immutable_checksum_bound_and_reuses_exact_current()
     let request = request();
     let snapshot = snapshot();
 
-    let first = publish_documentation_onboarding_generation(options(&project, false), &request, &snapshot)
-        .expect("publish first onboarding documentation generation");
+    let first =
+        publish_documentation_onboarding_generation(options(&project, false), &request, &snapshot)
+            .expect("publish first onboarding documentation generation");
     assert_eq!(
         first.status,
         DocumentationOnboardingPublicationStatus::Published
@@ -56,8 +59,9 @@ fn onboarding_publication_is_immutable_checksum_bound_and_reuses_exact_current()
     assert_eq!(validation.profile, DocumentationProfile::Onboarding);
 
     let pointer_before = fs::read(&first.current_pointer).unwrap();
-    let second = publish_documentation_onboarding_generation(options(&project, false), &request, &snapshot)
-        .expect("reuse exact onboarding generation");
+    let second =
+        publish_documentation_onboarding_generation(options(&project, false), &request, &snapshot)
+            .expect("reuse exact onboarding generation");
     assert_eq!(
         second.status,
         DocumentationOnboardingPublicationStatus::UpToDate
@@ -71,12 +75,14 @@ fn tamper_force_and_cancellation_preserve_immutable_onboarding_lifecycle() {
     let project = TempProject::new("lifecycle");
     let request = request();
     let snapshot = snapshot();
-    let first = publish_documentation_onboarding_generation(options(&project, false), &request, &snapshot)
-        .unwrap();
+    let first =
+        publish_documentation_onboarding_generation(options(&project, false), &request, &snapshot)
+            .unwrap();
 
     fs::write(&first.document, "# tampered\n").unwrap();
-    let repaired = publish_documentation_onboarding_generation(options(&project, false), &request, &snapshot)
-        .expect("tamper must publish a new immutable generation");
+    let repaired =
+        publish_documentation_onboarding_generation(options(&project, false), &request, &snapshot)
+            .expect("tamper must publish a new immutable generation");
     assert_eq!(repaired.generation, "00000002");
     assert_eq!(
         repaired.status,
@@ -84,8 +90,9 @@ fn tamper_force_and_cancellation_preserve_immutable_onboarding_lifecycle() {
     );
     assert!(first.generation_dir.is_dir());
 
-    let forced = publish_documentation_onboarding_generation(options(&project, true), &request, &snapshot)
-        .expect("force must publish another generation");
+    let forced =
+        publish_documentation_onboarding_generation(options(&project, true), &request, &snapshot)
+            .expect("force must publish another generation");
     assert_eq!(forced.generation, "00000003");
 
     let pointer_before = fs::read(&forced.current_pointer).unwrap();

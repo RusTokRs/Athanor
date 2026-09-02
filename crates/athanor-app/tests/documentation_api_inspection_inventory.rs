@@ -3,13 +3,16 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use athanor_app::{
-    DocumentationApiPublicationOptions, DocumentationGenerationLimits, DocumentationGenerationRequest,
-    DocumentationProfile, inspect_documentation_api_current, inspect_documentation_api_manifest,
-    inspect_documentation_api_validation, inspect_documentation_architecture_current,
-    inspect_documentation_module_current, publish_documentation_api_generation,
+    DocumentationApiPublicationOptions, DocumentationGenerationLimits,
+    DocumentationGenerationRequest, DocumentationProfile, inspect_documentation_api_current,
+    inspect_documentation_api_manifest, inspect_documentation_api_validation,
+    inspect_documentation_architecture_current, inspect_documentation_module_current,
+    publish_documentation_api_generation,
 };
 use athanor_core::CanonicalSnapshot;
-use athanor_domain::{Entity, EntityId, EntityKind, Ownership, SnapshotId, SourceLocation, StableKey};
+use athanor_domain::{
+    Entity, EntityId, EntityKind, Ownership, SnapshotId, SourceLocation, StableKey,
+};
 use serde_json::json;
 
 #[test]

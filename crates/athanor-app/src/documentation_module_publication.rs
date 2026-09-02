@@ -153,8 +153,11 @@ fn publish_documentation_module_generation_inner(
         .map_err(anyhow::Error::msg)
         .context("invalid documentation generation manifest")?;
 
-    write_output_file(&staging.join(MODULE_DOCUMENT_PATH), &profile.document.content)
-        .context("failed to write module Markdown")?;
+    write_output_file(
+        &staging.join(MODULE_DOCUMENT_PATH),
+        &profile.document.content,
+    )
+    .context("failed to write module Markdown")?;
     write_output_file(
         &staging.join(DOCUMENTATION_VALIDATION_REPORT_PATH),
         &validation_json,

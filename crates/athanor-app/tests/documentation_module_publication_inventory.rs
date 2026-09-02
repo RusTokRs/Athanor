@@ -24,7 +24,10 @@ fn module_publication_is_immutable_checksum_bound_and_reuses_exact_current() {
     let first =
         publish_documentation_module_generation(options(&project, false), &request, &snapshot)
             .expect("publish first module documentation generation");
-    assert_eq!(first.status, DocumentationModulePublicationStatus::Published);
+    assert_eq!(
+        first.status,
+        DocumentationModulePublicationStatus::Published
+    );
     assert_eq!(first.generation, "00000001");
     assert!(first.generation_dir.is_dir());
     assert!(first.document.is_file());
@@ -62,7 +65,10 @@ fn module_publication_is_immutable_checksum_bound_and_reuses_exact_current() {
     let second =
         publish_documentation_module_generation(options(&project, false), &request, &snapshot)
             .expect("reuse exact module documentation generation");
-    assert_eq!(second.status, DocumentationModulePublicationStatus::UpToDate);
+    assert_eq!(
+        second.status,
+        DocumentationModulePublicationStatus::UpToDate
+    );
     assert_eq!(second.generation, first.generation);
     assert_eq!(generation_count(&project), 1);
     assert_eq!(fs::read(&second.current_pointer).unwrap(), pointer_before);
@@ -95,7 +101,10 @@ fn incomplete_or_tampered_module_generation_is_never_reused() {
         DocumentationModulePublicationStatus::Published
     );
     assert_eq!(repaired_manifest.generation, "00000002");
-    assert!(first.generation_dir.is_dir(), "immutable history was removed");
+    assert!(
+        first.generation_dir.is_dir(),
+        "immutable history was removed"
+    );
 
     fs::write(&repaired_manifest.document, "# tampered\n").unwrap();
     let repaired_document =
@@ -111,7 +120,10 @@ fn incomplete_or_tampered_module_generation_is_never_reused() {
         publish_documentation_module_generation(options(&project, true), &request, &snapshot)
             .expect("force must publish another immutable module generation");
     assert_eq!(forced.generation, "00000004");
-    assert_eq!(forced.status, DocumentationModulePublicationStatus::Published);
+    assert_eq!(
+        forced.status,
+        DocumentationModulePublicationStatus::Published
+    );
     assert_eq!(generation_count(&project), 4);
     assert!(forced.generation_dir.join(MODULE_DOCUMENT_PATH).is_file());
     assert!(
@@ -162,7 +174,8 @@ fn module_publication_content_is_deterministic_across_canonical_input_order() {
         publish_documentation_module_generation(options(&project, false), &request, &snapshot)
             .unwrap();
     let second =
-        publish_documentation_module_generation(options(&project, true), &request, &reversed).unwrap();
+        publish_documentation_module_generation(options(&project, true), &request, &reversed)
+            .unwrap();
 
     assert_eq!(
         fs::read(first.document).unwrap(),

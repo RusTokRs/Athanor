@@ -18,7 +18,8 @@ use crate::{
     DOCUMENTATION_VALIDATION_REPORT_PATH, DOCUMENTATION_VALIDATION_REPORT_SCHEMA_V1,
     DocumentationDocumentManifest, DocumentationGenerationManifest, DocumentationGenerationRequest,
     DocumentationGenerationStatus, DocumentationProfile, DocumentationValidationStatus,
-    OPERATIONS_DOCUMENT_MEDIA_TYPE, OPERATIONS_DOCUMENT_PATH, build_documentation_operations_profile,
+    OPERATIONS_DOCUMENT_MEDIA_TYPE, OPERATIONS_DOCUMENT_PATH,
+    build_documentation_operations_profile,
 };
 
 const OPERATIONS_DOCUMENT_ID: &str = "operations-overview";
@@ -65,7 +66,12 @@ pub fn publish_documentation_operations_generation_cancellable(
     snapshot: &CanonicalSnapshot,
     cancellation: CancellationToken,
 ) -> Result<DocumentationOperationsPublicationReport> {
-    publish_documentation_operations_generation_inner(options, request, snapshot, Some(cancellation))
+    publish_documentation_operations_generation_inner(
+        options,
+        request,
+        snapshot,
+        Some(cancellation),
+    )
 }
 
 fn publish_documentation_operations_generation_inner(
@@ -151,8 +157,11 @@ fn publish_documentation_operations_generation_inner(
         .map_err(anyhow::Error::msg)
         .context("invalid documentation generation manifest")?;
 
-    write_output_file(&staging.join(OPERATIONS_DOCUMENT_PATH), &profile.document.content)
-        .context("failed to write operations Markdown")?;
+    write_output_file(
+        &staging.join(OPERATIONS_DOCUMENT_PATH),
+        &profile.document.content,
+    )
+    .context("failed to write operations Markdown")?;
     write_output_file(
         &staging.join(DOCUMENTATION_VALIDATION_REPORT_PATH),
         &validation_json,

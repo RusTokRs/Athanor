@@ -256,15 +256,19 @@ fn build_context(
         "api-diagnostic",
     );
 
-    let items = apply_context_item_budget(entity_items, fact_items, relation_items, diagnostic_items);
+    let items =
+        apply_context_item_budget(entity_items, fact_items, relation_items, diagnostic_items);
     let omitted = DocumentationOmittedCounts {
         entities: eligible_entities
             .saturating_sub(count_items(&items, DocumentationContextItemKind::Entity)),
-        facts: eligible_facts.saturating_sub(count_items(&items, DocumentationContextItemKind::Fact)),
+        facts: eligible_facts
+            .saturating_sub(count_items(&items, DocumentationContextItemKind::Fact)),
         relations: eligible_relations
             .saturating_sub(count_items(&items, DocumentationContextItemKind::Relation)),
-        diagnostics: eligible_diagnostics
-            .saturating_sub(count_items(&items, DocumentationContextItemKind::Diagnostic)),
+        diagnostics: eligible_diagnostics.saturating_sub(count_items(
+            &items,
+            DocumentationContextItemKind::Diagnostic,
+        )),
     };
 
     Ok(DocumentationContext {
@@ -782,9 +786,7 @@ fn entity_section(
                 format!(
                     "No evidence-backed API {label} entities were selected within the effective limit."
                 ),
-                &format!(
-                    "deterministic absence in the bounded API {label} documentation context"
-                ),
+                &format!("deterministic absence in the bounded API {label} documentation context"),
             )]
         } else {
             items

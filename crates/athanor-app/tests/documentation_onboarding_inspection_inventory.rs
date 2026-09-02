@@ -11,7 +11,9 @@ use athanor_app::{
     inspect_documentation_operations_current, publish_documentation_onboarding_generation,
 };
 use athanor_core::CanonicalSnapshot;
-use athanor_domain::{Entity, EntityId, EntityKind, Ownership, SnapshotId, SourceLocation, StableKey};
+use athanor_domain::{
+    Entity, EntityId, EntityKind, Ownership, SnapshotId, SourceLocation, StableKey,
+};
 use serde_json::json;
 
 #[test]

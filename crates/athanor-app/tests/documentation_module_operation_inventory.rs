@@ -1,6 +1,6 @@
 use athanor_app::{
-    DocumentationGenerationLimits, DocumentationGenerationRequest, DocumentationModuleOperationOptions,
-    DocumentationProfile,
+    DocumentationGenerationLimits, DocumentationGenerationRequest,
+    DocumentationModuleOperationOptions, DocumentationProfile,
 };
 
 #[test]
@@ -22,5 +22,8 @@ fn module_operation_options_bind_module_profile_and_exact_snapshot_contract() {
 
     assert_eq!(options.request.snapshot, "snap-exact");
     assert_eq!(options.request.profile, DocumentationProfile::Module);
-    options.request.validate().expect("valid exact module request");
+    options
+        .request
+        .validate()
+        .expect("valid exact module request");
 }

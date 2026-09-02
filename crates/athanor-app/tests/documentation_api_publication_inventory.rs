@@ -12,7 +12,9 @@ use athanor_app::{
     publish_documentation_api_generation_cancellable,
 };
 use athanor_core::CanonicalSnapshot;
-use athanor_domain::{Entity, EntityId, EntityKind, Ownership, SnapshotId, SourceLocation, StableKey};
+use athanor_domain::{
+    Entity, EntityId, EntityKind, Ownership, SnapshotId, SourceLocation, StableKey,
+};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
@@ -59,8 +61,9 @@ fn api_publication_is_immutable_checksum_bound_and_reuses_exact_current() {
     assert_eq!(validation.profile, DocumentationProfile::Api);
 
     let pointer_before = fs::read(&first.current_pointer).unwrap();
-    let second = publish_documentation_api_generation(options(&project, false), &request, &snapshot)
-        .expect("reuse exact API documentation generation");
+    let second =
+        publish_documentation_api_generation(options(&project, false), &request, &snapshot)
+            .expect("reuse exact API documentation generation");
     assert_eq!(second.status, DocumentationApiPublicationStatus::UpToDate);
     assert_eq!(second.generation, first.generation);
     assert_eq!(generation_count(&project), 1);
@@ -93,7 +96,10 @@ fn incomplete_or_tampered_api_generation_is_never_reused() {
         DocumentationApiPublicationStatus::Published
     );
     assert_eq!(repaired_manifest.generation, "00000002");
-    assert!(first.generation_dir.is_dir(), "immutable history was removed");
+    assert!(
+        first.generation_dir.is_dir(),
+        "immutable history was removed"
+    );
 
     fs::write(&repaired_manifest.document, "# tampered\n").unwrap();
     let repaired_document =
@@ -153,8 +159,8 @@ fn api_publication_content_is_deterministic_across_canonical_input_order() {
 
     let first = publish_documentation_api_generation(options(&project, false), &request, &snapshot)
         .unwrap();
-    let second = publish_documentation_api_generation(options(&project, true), &request, &reversed)
-        .unwrap();
+    let second =
+        publish_documentation_api_generation(options(&project, true), &request, &reversed).unwrap();
 
     assert_eq!(
         fs::read(first.document).unwrap(),

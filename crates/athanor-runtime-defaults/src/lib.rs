@@ -239,10 +239,12 @@ pub fn resolve_builtin_adapter(
             registry.register_extractor_id("builtin.extractor.js_ts", || Box::new(JsTsExtractor)),
         ),
         (AdapterPluginKind::Extractor, "builtin.extractor.nextjs") => Some(
-            registry.register_extractor_id("builtin.extractor.nextjs", || Box::new(NextJsExtractor)),
+            registry
+                .register_extractor_id("builtin.extractor.nextjs", || Box::new(NextJsExtractor)),
         ),
         (AdapterPluginKind::Extractor, "builtin.extractor.express") => Some(
-            registry.register_extractor_id("builtin.extractor.express", || Box::new(ExpressExtractor)),
+            registry
+                .register_extractor_id("builtin.extractor.express", || Box::new(ExpressExtractor)),
         ),
         (AdapterPluginKind::Extractor, "builtin.extractor.rust") => Some(
             registry.register_extractor_id("builtin.extractor.rust", || Box::new(RustExtractor)),

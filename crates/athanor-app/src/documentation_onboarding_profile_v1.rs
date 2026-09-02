@@ -266,11 +266,7 @@ fn build_context(
         .into_iter()
         .enumerate()
         .map(|(index, candidate)| DocumentationContextItem {
-            id: format!(
-                "onboarding-{}-{:04}",
-                candidate.category.id(),
-                index + 1
-            ),
+            id: format!("onboarding-{}-{:04}", candidate.category.id(), index + 1),
             kind: DocumentationContextItemKind::Entity,
             summary: candidate.summary,
             stable_keys: vec![candidate.stable_key],
@@ -326,15 +322,19 @@ fn build_context(
         "onboarding-diagnostic",
     );
 
-    let items = apply_context_item_budget(entity_items, fact_items, relation_items, diagnostic_items);
+    let items =
+        apply_context_item_budget(entity_items, fact_items, relation_items, diagnostic_items);
     let omitted = DocumentationOmittedCounts {
         entities: eligible_entities
             .saturating_sub(count_items(&items, DocumentationContextItemKind::Entity)),
-        facts: eligible_facts.saturating_sub(count_items(&items, DocumentationContextItemKind::Fact)),
+        facts: eligible_facts
+            .saturating_sub(count_items(&items, DocumentationContextItemKind::Fact)),
         relations: eligible_relations
             .saturating_sub(count_items(&items, DocumentationContextItemKind::Relation)),
-        diagnostics: eligible_diagnostics
-            .saturating_sub(count_items(&items, DocumentationContextItemKind::Diagnostic)),
+        diagnostics: eligible_diagnostics.saturating_sub(count_items(
+            &items,
+            DocumentationContextItemKind::Diagnostic,
+        )),
     };
 
     Ok(DocumentationContext {
@@ -422,10 +422,7 @@ fn fact_is_onboarding_scoped(fact: &Fact, onboarding_ids: &BTreeSet<String>) -> 
             .is_some_and(|object| onboarding_ids.contains(&object.0))
 }
 
-fn relation_is_onboarding_scoped(
-    relation: &Relation,
-    onboarding_ids: &BTreeSet<String>,
-) -> bool {
+fn relation_is_onboarding_scoped(relation: &Relation, onboarding_ids: &BTreeSet<String>) -> bool {
     onboarding_ids.contains(&relation.from.0) || onboarding_ids.contains(&relation.to.0)
 }
 

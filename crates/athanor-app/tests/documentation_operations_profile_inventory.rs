@@ -7,8 +7,8 @@ use athanor_app::{
 use athanor_core::CanonicalSnapshot;
 use athanor_domain::{
     Diagnostic, DiagnosticId, DiagnosticKind, DiagnosticStatus, Entity, EntityId, EntityKind,
-    Evidence, EvidenceStatus, Fact, FactId, FactKind, Ownership, Relation, RelationId, RelationKind,
-    RelationStatus, Severity, SnapshotId, SourceLocation, StableKey,
+    Evidence, EvidenceStatus, Fact, FactId, FactKind, Ownership, Relation, RelationId,
+    RelationKind, RelationStatus, Severity, SnapshotId, SourceLocation, StableKey,
 };
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -26,27 +26,58 @@ fn operations_profile_is_exact_scoped_cited_and_checksum_bound() {
             .iter()
             .map(|section| section.id.as_str())
             .collect::<Vec<_>>(),
-        vec!["overview", "inventory", "facts", "relationships", "diagnostics"]
+        vec![
+            "overview",
+            "inventory",
+            "facts",
+            "relationships",
+            "diagnostics"
+        ]
     );
-    assert_eq!(count_kind(&profile, DocumentationContextItemKind::Entity), 10);
+    assert_eq!(
+        count_kind(&profile, DocumentationContextItemKind::Entity),
+        10
+    );
     assert_eq!(count_kind(&profile, DocumentationContextItemKind::Fact), 3);
-    assert_eq!(count_kind(&profile, DocumentationContextItemKind::Relation), 6);
-    assert_eq!(count_kind(&profile, DocumentationContextItemKind::Diagnostic), 3);
+    assert_eq!(
+        count_kind(&profile, DocumentationContextItemKind::Relation),
+        6
+    );
+    assert_eq!(
+        count_kind(&profile, DocumentationContextItemKind::Diagnostic),
+        3
+    );
     assert_eq!(profile.context.omitted.entities, 0);
     assert_eq!(profile.context.omitted.facts, 0);
     assert_eq!(profile.context.omitted.relations, 0);
     assert_eq!(profile.context.omitted.diagnostics, 0);
     assert_eq!(profile.draft.citations.len(), 22);
-    assert_eq!(profile.validation_report.status, DocumentationValidationStatus::Valid);
-    assert_eq!(profile.validation_report.profile, DocumentationProfile::Operations);
+    assert_eq!(
+        profile.validation_report.status,
+        DocumentationValidationStatus::Valid
+    );
+    assert_eq!(
+        profile.validation_report.profile,
+        DocumentationProfile::Operations
+    );
     assert_eq!(profile.validation_report.metrics.unsupported_relations, 0);
     assert_eq!(profile.document.path, OPERATIONS_DOCUMENT_PATH);
     assert_eq!(profile.document.media_type, OPERATIONS_DOCUMENT_MEDIA_TYPE);
     assert!(profile.document.content.contains("- Profile: `operations`"));
     assert!(profile.document.content.contains("## Operations Inventory"));
     assert!(profile.document.content.contains("## Operations Facts"));
-    assert!(profile.document.content.contains("## Operations Relationships"));
-    assert!(profile.document.content.contains("## Operations Diagnostics"));
+    assert!(
+        profile
+            .document
+            .content
+            .contains("## Operations Relationships")
+    );
+    assert!(
+        profile
+            .document
+            .content
+            .contains("## Operations Diagnostics")
+    );
     assert!(profile.document.content.contains("```mermaid"));
     assert!(profile.document.content.contains("Slice 4B scope"));
     assert!(!profile.document.content.contains("depends_on_runtime"));
@@ -67,15 +98,14 @@ fn operations_profile_is_exact_scoped_cited_and_checksum_bound() {
         .find(|item| item.stable_keys == ["env://DATABASE_URL".to_string()])
         .unwrap();
     assert!(env.evidence.iter().any(|location| {
-        location.path == "config/runtime.env"
-            && location.start_line == 3
-            && location.end_line == 3
+        location.path == "config/runtime.env" && location.start_line == 3 && location.end_line == 3
     }));
 }
 
 #[test]
 fn operations_profile_keeps_supported_relations_and_only_open_scoped_diagnostics() {
-    let profile = build_documentation_operations_profile(&request(16), &operations_snapshot()).unwrap();
+    let profile =
+        build_documentation_operations_profile(&request(16), &operations_snapshot()).unwrap();
     let relations = profile
         .context
         .items
@@ -112,7 +142,11 @@ fn operations_profile_keeps_supported_relations_and_only_open_scoped_diagnostics
         .filter(|item| item.kind == DocumentationContextItemKind::Diagnostic)
         .collect::<Vec<_>>();
     assert_eq!(diagnostics.len(), 3);
-    assert!(diagnostics.iter().any(|item| item.summary.contains("missing_env_var")));
+    assert!(
+        diagnostics
+            .iter()
+            .any(|item| item.summary.contains("missing_env_var"))
+    );
     assert!(
         diagnostics
             .iter()
@@ -151,19 +185,36 @@ fn operations_profile_discloses_limits_and_ignores_input_order() {
     let snapshot = operations_snapshot();
     let profile = build_documentation_operations_profile(&request, &snapshot).unwrap();
 
-    assert_eq!(count_kind(&profile, DocumentationContextItemKind::Entity), 10);
+    assert_eq!(
+        count_kind(&profile, DocumentationContextItemKind::Entity),
+        10
+    );
     assert_eq!(count_kind(&profile, DocumentationContextItemKind::Fact), 1);
-    assert_eq!(count_kind(&profile, DocumentationContextItemKind::Relation), 2);
-    assert_eq!(count_kind(&profile, DocumentationContextItemKind::Diagnostic), 1);
+    assert_eq!(
+        count_kind(&profile, DocumentationContextItemKind::Relation),
+        2
+    );
+    assert_eq!(
+        count_kind(&profile, DocumentationContextItemKind::Diagnostic),
+        1
+    );
     assert_eq!(profile.context.omitted.entities, 0);
     assert_eq!(profile.context.omitted.facts, 2);
     assert_eq!(profile.context.omitted.relations, 4);
     assert_eq!(profile.context.omitted.diagnostics, 2);
     assert_eq!(profile.validation_report.metrics.unsupported_relations, 4);
-    assert!(profile.document.content.contains(
-        "Omitted operations scope: entities 0, facts 2, relations 4, diagnostics 2"
-    ));
-    assert!(profile.document.content.contains("Unrepresented supported operations relations: 4"));
+    assert!(
+        profile
+            .document
+            .content
+            .contains("Omitted operations scope: entities 0, facts 2, relations 4, diagnostics 2")
+    );
+    assert!(
+        profile
+            .document
+            .content
+            .contains("Unrepresented supported operations relations: 4")
+    );
 
     let mut reversed = snapshot.clone();
     reversed.entities.reverse();
@@ -566,7 +617,6 @@ fn operations_snapshot() -> CanonicalSnapshot {
                 "Cargo.toml",
             ),
         ],
-        ..CanonicalSnapshot::default()
     }
 }
 

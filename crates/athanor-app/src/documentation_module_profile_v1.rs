@@ -53,7 +53,9 @@ pub fn build_documentation_module_profile(
 ) -> Result<DocumentationModuleProfile, DocumentationContractError> {
     request.validate()?;
     if request.profile != DocumentationProfile::Module {
-        return Err(error("module documentation profile requires profile `module`"));
+        return Err(error(
+            "module documentation profile requires profile `module`",
+        ));
     }
     let snapshot_id = snapshot
         .snapshot
@@ -222,11 +224,14 @@ fn build_context(
     let omitted = DocumentationOmittedCounts {
         entities: eligible_modules
             .saturating_sub(count_items(&items, DocumentationContextItemKind::Entity)),
-        facts: eligible_facts.saturating_sub(count_items(&items, DocumentationContextItemKind::Fact)),
+        facts: eligible_facts
+            .saturating_sub(count_items(&items, DocumentationContextItemKind::Fact)),
         relations: eligible_relations
             .saturating_sub(count_items(&items, DocumentationContextItemKind::Relation)),
-        diagnostics: eligible_diagnostics
-            .saturating_sub(count_items(&items, DocumentationContextItemKind::Diagnostic)),
+        diagnostics: eligible_diagnostics.saturating_sub(count_items(
+            &items,
+            DocumentationContextItemKind::Diagnostic,
+        )),
     };
 
     Ok(DocumentationContext {
@@ -266,7 +271,10 @@ fn module_entity_candidate(entity: &Entity) -> Option<Candidate> {
     }
     Some(Candidate {
         sort_key: format!("{}\0{}", entity.stable_key.0, entity.id.0),
-        summary: format!("Module `{}` is a canonical module entity.", entity.stable_key.0),
+        summary: format!(
+            "Module `{}` is a canonical module entity.",
+            entity.stable_key.0
+        ),
         stable_keys: vec![entity.stable_key.0.clone()],
         evidence,
         source_stable_key: None,
@@ -288,10 +296,7 @@ fn relation_is_module_scoped(relation: &Relation, module_ids: &BTreeSet<String>)
     module_ids.contains(&relation.from.0) || module_ids.contains(&relation.to.0)
 }
 
-fn diagnostic_is_module_scoped(
-    diagnostic: &Diagnostic,
-    module_ids: &BTreeSet<String>,
-) -> bool {
+fn diagnostic_is_module_scoped(diagnostic: &Diagnostic, module_ids: &BTreeSet<String>) -> bool {
     diagnostic
         .entities
         .iter()

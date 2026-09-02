@@ -34,7 +34,8 @@ pub async fn documentation_completeness_with_composition_cancellable(
     composition: &RuntimeComposition,
     cancellation: CancellationToken,
 ) -> Result<DocumentationCompletenessReport> {
-    documentation_completeness_with_composition_inner(options, composition, Some(cancellation)).await
+    documentation_completeness_with_composition_inner(options, composition, Some(cancellation))
+        .await
 }
 
 async fn documentation_completeness_with_composition_inner(

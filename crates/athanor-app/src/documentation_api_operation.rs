@@ -39,7 +39,8 @@ pub async fn generate_documentation_api_with_composition_cancellable(
     composition: &RuntimeComposition,
     cancellation: CancellationToken,
 ) -> Result<DocumentationApiPublicationReport> {
-    generate_documentation_api_with_composition_inner(options, composition, Some(cancellation)).await
+    generate_documentation_api_with_composition_inner(options, composition, Some(cancellation))
+        .await
 }
 
 async fn generate_documentation_api_with_composition_inner(

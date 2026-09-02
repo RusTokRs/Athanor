@@ -37,8 +37,12 @@ pub async fn generate_documentation_operations_with_composition_cancellable(
     composition: &RuntimeComposition,
     cancellation: CancellationToken,
 ) -> Result<DocumentationOperationsPublicationReport> {
-    generate_documentation_operations_with_composition_inner(options, composition, Some(cancellation))
-        .await
+    generate_documentation_operations_with_composition_inner(
+        options,
+        composition,
+        Some(cancellation),
+    )
+    .await
 }
 
 async fn generate_documentation_operations_with_composition_inner(
@@ -98,7 +102,9 @@ async fn generate_documentation_operations_with_composition_inner(
             &snapshot,
             cancellation,
         ),
-        None => publish_documentation_operations_generation(publication, &options.request, &snapshot),
+        None => {
+            publish_documentation_operations_generation(publication, &options.request, &snapshot)
+        }
     }
 }
 
