@@ -17,10 +17,10 @@ disclosure is exact-evaluation-confirmed on `6862aee81dd0f53fa8372d1ce3fcb6e2ed1
 Module expansion is source-implemented through Slice 2C, API through Slice 3C, operations through Slice
 4C, onboarding through Slice 5C, documentation completeness through Slice 6B, bounded framework route
 projections through Next.js/Axum/Express Slices 7A–7C, PowerShell through Slice 8A, and first-party
-`athanor.toml` runtime-config recognition through Slice 8B. The exact Athanor self-evaluation on
-`75562e19a8eed3a84c47a346a19d0f078550fa22`, run `33676558603`, is green and confirms the Slice 8A
-coverage effect (`ps1 = 2/2`). Focused later-slice format/test/Clippy gates and Slice 8B post-change
-completeness evidence remain separate and are not inferred from source presence.
+`athanor.toml` runtime-config recognition through Slice 8B. Exact Athanor self-evaluation on
+`e219157ac0afd4be7e6b2982342096e2ab926445`, run `33680051765`, is green and confirms the Slice 8B
+coverage effect. Slice 8C is selected/planned for bounded first-party GitHub composite actions; it is not yet
+implemented or verified.
 
 The existing coordinated `ath generate` command is unchanged. No model provider, daemon, MCP, or new dependency is enabled.
 
@@ -220,7 +220,20 @@ or layout drift, invalid validation status, and checksum drift.
   `EnvVarUsed` without storing values.
 - Arbitrary root TOML remains intentionally unsupported; `deny.toml` is a negative regression boundary rather
   than a coverage target.
-- Focused execution evidence and exact post-merge completeness confirmation remain pending; source presence is not verification.
+- Exact self-evaluation `e219157ac0afd4be7e6b2982342096e2ab926445` / `33680051765` is green: total
+  completeness is 665/718 (`9261` basis points), `toml = 34/35`, and `deny.toml` is the only TOML gap. This is
+  exact coverage confirmation, not full focused verification.
+
+### Slice 8C — Selected GitHub Composite Action Projection
+
+- Selection is grounded in exact `e219157ac0afd4be7e6b2982342096e2ab926445` / `33680051765`: YAML is
+  10/15 processed. The first-party reusable CI surface `.github/actions/setup-rust/action.yml` is selected ahead
+  of issue templates, Dependabot maintenance config, and extractor fixtures.
+- Planned scope is `.github/actions/**/action.yml|yaml` only when `runs.using: composite`, projecting the action,
+  `run`/`uses` steps, and step `env` through existing script/environment contracts.
+- Inputs/outputs expression semantics, JavaScript/Docker actions, permissions, secrets, issue templates,
+  Dependabot config, OpenAPI fixtures, and generic YAML are out of scope.
+- Slice 8C is selected/planned only; no source implementation or execution evidence is claimed yet.
 
 ## Execution Evidence
 
@@ -247,27 +260,26 @@ or layout drift, invalid validation status, and checksum drift.
   `32718598218`, Rustok evaluation `32718598212`, and Rustok probe `32718598232` are green.
 - Slice 3A landed on `0a4c0f78ef05b6c2ba9480b770c1ebf72038e049`; Rustok evaluation
   `32719989413` and Rustok probe `32719989450` are green. These are not focused API profile evidence.
-- Exact Athanor self-evaluation `2c5e94220b8fb2cb396938f96bb3dedb0e535816` / `32815625060` is
-  selection evidence for Slice 8A (`ps1 tracked = 2`, `processed = 0`), not execution evidence for the implementation.
+- Exact Athanor self-evaluation `2c5e94220b8fb2cb396938f96bb3dedb0e535816` / `32815625060` selected
+  Slice 8A (`ps1 tracked = 2`, `processed = 0`).
 - Exact Athanor self-evaluation `75562e19a8eed3a84c47a346a19d0f078550fa22` / `33676558603` is green,
-  confirms Slice 8A at `ps1 = 2/2`, and selects Slice 8B from the bounded TOML gap (`33/35`, only
-  `athanor.toml` and `deny.toml` unprocessed).
-- Slices 2B–2C, API Slices 3A–3C, operations Slices 4A–4C, onboarding Slices 5A–5C, completeness
-  Slices 6A–6B, framework Slices 7A–7C, Slice 8A focused verification, and Slice 8B execution evidence remain pending.
+  confirms Slice 8A at `ps1 = 2/2`, and selects Slice 8B from `toml = 33/35`.
+- Exact Athanor self-evaluation `e219157ac0afd4be7e6b2982342096e2ab926445` / `33680051765` is green,
+  confirms Slice 8B at `toml = 34/35`, total `665/718`, and selects Slice 8C from the remaining YAML surface.
+- Slices 2B–2C, API 3A–3C, operations 4A–4C, onboarding 5A–5C, completeness 6A–6B, framework 7A–7C,
+  and Slices 8A–8B focused verification remain pending; Slice 8C is not implemented.
 
 The repaired bounded Rustok architecture-generation evaluation retains `DOCUMENTATION_REFERENCE_LIMIT`,
 `workflow_dispatch` support, and diagnostic evidence checks as explicit regression boundaries.
 
 ## Next Bounded Step
 
-1. Record formatting/build/test/Clippy evidence for later documentation/completeness/framework slices and Slices 8A–8B.
-2. After Slice 8B lands, use its automatic exact Athanor self-evaluation/completeness artifact to select the
-   next bounded semantic adapter gap. Do not add generic JSON/fixture parsing or arbitrary root TOML solely to
-   improve the percentage without explicit product semantics.
-3. Keep Next.js/Axum/Express schema/auth/middleware and route-composition expansion separate until evidence
-   justifies those scopes.
-4. Keep provider, daemon, MCP, and coordinated `ath generate` changes out until separate deterministic
-   quality gates justify them.
+1. Implement Slice 8C over the selected first-party composite-action path and keep generic YAML out of scope.
+2. After Slice 8C lands, use its automatic exact Athanor self-evaluation/completeness artifact to select the next
+   bounded semantic gap. Do not add generic JSON/fixture parsing, arbitrary root TOML, or unrelated YAML solely
+   to improve the percentage.
+3. Record formatting/build/test/Clippy evidence for later documentation/completeness/framework slices and Slices 8A–8C.
+4. Keep provider, daemon, MCP, and coordinated `ath generate` changes out until separate deterministic quality gates.
 
 ## Verification
 
