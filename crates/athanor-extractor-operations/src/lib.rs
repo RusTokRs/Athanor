@@ -10,6 +10,10 @@ use athanor_domain::{
 use athanor_extractor_basic::{evidence_for_file, file_entity, ownership_for_file, stable_hash};
 use serde_json::json;
 
+mod powershell;
+
+use powershell::{is_powershell_script_path, parse_powershell_env_references};
+
 #[derive(Debug, Clone, Default)]
 pub struct OperationsExtractor;
 
@@ -29,6 +33,7 @@ impl Extractor for OperationsExtractor {
             || is_makefile_path(&source.path)
             || is_dockerfile_path(&source.path)
             || is_shell_script_path(&source.path)
+            || is_powershell_script_path(&source.path)
             || is_docker_compose_path(&source.path)
             || is_kubernetes_manifest_path(&source.path)
             || is_database_migration_path(&source.path)
@@ -104,6 +109,18 @@ impl Extractor for OperationsExtractor {
                 &input,
                 &file_id,
                 content,
+                &mut entities,
+                &mut facts,
+            );
+        }
+
+        if is_powershell_script_path(&input.source.path) {
+            extract_env_declarations(
+                self.name(),
+                &input,
+                &file_id,
+                "powershell",
+                parse_powershell_env_references(content),
                 &mut entities,
                 &mut facts,
             );
