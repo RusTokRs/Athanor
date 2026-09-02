@@ -5,8 +5,8 @@
 > Актуализировано: 2026-09-02  
 > Статус: `API-001`, `REL-001` verified; `DOCGEN-001 / Slices 0A–1C` execution-confirmed;
 > relation-disclosure exact-evaluation-confirmed; module 2A–2C, API 3A–3C, operations 4A–4C,
-> onboarding 5A–5C, completeness 6A–6B, framework projections 7A–7C, bounded PowerShell Slice 8A и
-> first-party `athanor.toml` Slice 8B implemented in source; focused execution evidence для later slices pending
+> onboarding 5A–5C, completeness 6A–6B, framework projections 7A–7C и Slices 8A–8B source-implemented;
+> exact completeness подтверждает coverage effects 8A–8B; bounded composite-action Slice 8C selected/planned
 
 ## 1. Статусы и evidence
 
@@ -51,12 +51,12 @@ Documentation generation:
 - Slice 3A landed on `0a4c0f78ef05b6c2ba9480b770c1ebf72038e049`; post-merge Rustok evaluation
   `32719989413` и Rustok probe `32719989450` green. Это не заменяет focused API execution evidence.
 - Athanor self-evaluation на exact `2c5e94220b8fb2cb396938f96bb3dedb0e535816`, run `32815625060`,
-  дал selection evidence для Slice 8A: в completeness artifact `ps1` имеет `tracked = 2`,
-  `processed = 0`.
+  дал selection evidence для Slice 8A: `ps1 tracked = 2`, `processed = 0`.
 - Athanor self-evaluation на exact `75562e19a8eed3a84c47a346a19d0f078550fa22`, run `33676558603`,
-  green и подтверждает coverage effect Slice 8A: `ps1 = 2/2 processed`. Тот же artifact даёт
-  selection evidence для Slice 8B: `toml = 33/35`, unprocessed ровно `athanor.toml` и `deny.toml`.
-  Это exact completeness evidence, но не замена focused verification matrix.
+  green: `ps1 = 2/2 processed`; тот же artifact выбрал Slice 8B из `toml = 33/35`.
+- Athanor self-evaluation на exact `e219157ac0afd4be7e6b2982342096e2ab926445`, run `33680051765`,
+  green: total `665/718` (`9261` basis points), `toml = 34/35`, единственный TOML gap — `deny.toml`.
+  Пять YAML gaps дают следующий bounded semantic target: `.github/actions/setup-rust/action.yml`.
 
 ## 3. Завершённые пакеты
 
@@ -230,17 +230,27 @@ Documentation generation:
 - [x] Canonical output остаётся redacted: `Feature` + `SymbolDefined`, uppercase config leaves при необходимости
   используют существующий `EnvVarUsed`; raw config values не сохраняются.
 - [x] `deny.toml` и произвольные root tool/policy TOML остаются вне scope; path regression фиксирует границу.
-- [ ] Focused execution evidence и exact post-merge completeness confirmation pending; Slice 8B не verified.
+- [x] Exact self-evaluation `e219157ac0afd4be7e6b2982342096e2ab926445` / `33680051765` green:
+  total `665/718`, `toml = 34/35`, единственный TOML gap — `deny.toml`. Это coverage confirmation, не full focused verification.
+
+#### Slice 8C — bounded GitHub composite action projection
+
+- [ ] Implementation selected from exact `e219157ac0afd4be7e6b2982342096e2ab926445` / `33680051765`.
+- [ ] Scope: `.github/actions/**/action.yml|yaml` only when `runs.using: composite`; emit the composite action,
+  `run`/`uses` steps and step `env` through existing script/environment contracts.
+- [ ] Inputs/outputs expression semantics, JavaScript/Docker actions, permissions, secrets, issue templates,
+  Dependabot configuration, OpenAPI fixtures and generic YAML remain outside Slice 8C.
 
 Existing coordinated `ath generate` is unchanged. Provider/LLM, daemon and MCP remain out of scope.
 `DOCGEN-001` остаётся `[-] in progress`: later documentation/completeness/framework surfaces и Slices 8A–8B
-source-implemented; focused verification и следующий evidence-selected bounded gap остаются отдельными этапами.
+source-implemented; focused verification pending, Slice 8C selected/planned.
 
 ### 4.2 Product backlog
 
-- [ ] после merge Slice 8B использовать automatic exact Athanor self-evaluation/completeness и выбрать следующий bounded semantic gap;
+- [ ] реализовать bounded Slice 8C для first-party GitHub composite actions, затем повторить exact completeness;
 - [ ] не добавлять generic JSON/fixture parsing только ради coverage без explicit product semantics;
 - [ ] не расширять runtime config на arbitrary root tool/policy TOML (`deny.toml`) без отдельной продуктовой семантики;
+- [ ] issue-template/Dependabot/OpenAPI-fixture YAML не включать в 8C без отдельного evidence-backed scope;
 - [ ] Next.js/Axum/Express schemas/auth/middleware и route composition расширять отдельными evidence-backed slices;
 - [ ] optional provider, daemon, MCP, i18n and semantic retrieval after deterministic quality gates.
 
@@ -257,7 +267,7 @@ source-implemented; focused verification и следующий evidence-selected
 | `VERIFY-001` | P1 | `[x] verified` | Full release baseline matrix |
 | `API-001` | P1 | `[x] verified` | Cross-protocol consistency |
 | `REL-001` | P1 | `[x] verified` | `v0.2.1` published and installed |
-| `DOCGEN-001` | P2 | `[-] in progress` | Profiles 2A–5C + completeness 6A–6B + framework 7A–7C + bounded Slices 8A–8B source-implemented; focused execution pending |
+| `DOCGEN-001` | P2 | `[-] in progress` | Profiles 2A–5C + completeness 6A–6B + framework 7A–7C + Slices 8A–8B source-implemented; Slice 8C selected |
 
 ## 6. Verification matrix
 
@@ -296,8 +306,7 @@ cargo run -p ath --quiet --locked -- docs check
 
 ## 7. Следующий шаг
 
-Получить focused execution evidence для pending module/API/operations/onboarding, completeness 6A–6B,
-framework 7A–7C и Slices 8A–8B в соответствующих gates. После merge 8B использовать automatic exact Athanor
-self-evaluation/completeness для выбора следующего bounded adapter gap по artifact evidence. Generic fixture/TOML
-coverage без explicit product semantics не добавлять. Provider/daemon/MCP и coordinated `ath generate` не менять
-до отдельного deterministic quality gate.
+Реализовать Slice 8C поверх свежего `main`: bounded `.github/actions/**/action.yml|yaml` composite actions,
+`run`/`uses` steps и step `env` через существующие canonical contracts. После merge использовать automatic exact
+Athanor self-evaluation/completeness для следующего выбора. Generic fixture/JSON/YAML coverage без explicit
+product semantics не добавлять; provider/daemon/MCP и coordinated `ath generate` не менять без отдельного gate.
