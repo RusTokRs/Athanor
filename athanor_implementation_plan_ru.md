@@ -2,11 +2,11 @@
 
 > Репозиторий: `RusTokRs/Athanor`  
 > Ветка: `main`  
-> Актуализировано: 2026-09-02  
+> Актуализировано: 2026-09-03  
 > Статус: `API-001`, `REL-001` verified; `DOCGEN-001 / Slices 0A–1C` execution-confirmed;
 > relation-disclosure exact-evaluation-confirmed; module 2A–2C, API 3A–3C, operations 4A–4C,
-> onboarding 5A–5C, completeness 6A–6B, framework projections 7A–7C и Slices 8A–8B source-implemented;
-> exact completeness подтверждает coverage effects 8A–8B; bounded composite-action Slice 8C selected/planned
+> onboarding 5A–5C, completeness 6A–6B, framework projections 7A–7C и Slices 8A–8E source-implemented;
+> exact completeness подтверждает coverage effects 8A–8E; focused verification later slices pending
 
 ## 1. Статусы и evidence
 
@@ -56,7 +56,12 @@ Documentation generation:
   green: `ps1 = 2/2 processed`; тот же artifact выбрал Slice 8B из `toml = 33/35`.
 - Athanor self-evaluation на exact `e219157ac0afd4be7e6b2982342096e2ab926445`, run `33680051765`,
   green: total `665/718` (`9261` basis points), `toml = 34/35`, единственный TOML gap — `deny.toml`.
-  Пять YAML gaps дают следующий bounded semantic target: `.github/actions/setup-rust/action.yml`.
+  Пять YAML gaps дали bounded target `.github/actions/setup-rust/action.yml` для Slice 8C.
+- Self-evaluation `33712810332` на `5d195069dc068d830de81ecd2f7eef3fb181018f` подтверждает Slice 8C:
+  `667/719` (`9276` bps), `yaml = 11/15`; `33714498524` на `424da862d34ef7d8812b65c4c467a17015f9a907`
+  подтверждает Slice 8D: `669/720` (`9291` bps), `yaml = 12/15`, `toml = 34/35`.
+- Self-evaluation `33722472453` на `c10ab848e9f0250da14ccaa0e455ab7d26d920bd` подтверждает Slice 8E:
+  `670/720` (`9305` bps), `toml = 35/35`, `yaml = 12/15`, facts `9051`, relations `13208`, diagnostics `169`.
 
 ## 3. Завершённые пакеты
 
@@ -206,52 +211,30 @@ Documentation generation:
   handler linking сознательно отложены.
 - [ ] Focused execution evidence для 7A–7C pending; source implementation не verified.
 
-#### Slice 8A — completeness-driven bounded PowerShell environment references
+#### Slices 8A–8E — completeness-driven first-party operational semantics
 
-- [x] Выбор scope основан на exact Athanor self-completeness: source
-  `2c5e94220b8fb2cb396938f96bb3dedb0e535816`, run `32815625060`, `ps1 tracked = 2`, `processed = 0`.
-- [x] `athanor-extractor-operations` распознаёт `*.ps1` и лексически извлекает простые `$env:NAME` и
-  `${env:NAME}` references.
-- [x] Используется существующий canonical contract `env://<NAME>` + `FactKind::EnvVarUsed` с
-  `mechanism/source_kind = "powershell"`, evidence и ownership; raw environment values не сохраняются.
-- [x] Source regression покрывает path detection, case-insensitive `$Env:` marker, deterministic keys,
-  evidence/ownership и отсутствие raw values.
-- [x] Общий PowerShell AST, cmdlets, functions, assignments, control flow и inline string/comment semantics
-  остаются вне Slice 8A.
-- [x] Exact self-evaluation `75562e19a8eed3a84c47a346a19d0f078550fa22` / `33676558603` green и
-  подтверждает `ps1 tracked = 2`, `processed = 2`. Это exact completeness confirmation, но не full focused verification.
-
-#### Slice 8B — first-party `athanor.toml` runtime configuration
-
-- [x] Scope выбран по exact artifact `75562e19a8eed3a84c47a346a19d0f078550fa22` / `33676558603`:
-  `toml tracked = 35`, `processed = 33`; unprocessed ровно `athanor.toml` и `deny.toml`.
-- [x] `athanor-extractor-operations` распознаёт root `athanor.toml` и использует существующий runtime-config
-  parser без нового generic TOML owner.
-- [x] Canonical output остаётся redacted: `Feature` + `SymbolDefined`, uppercase config leaves при необходимости
-  используют существующий `EnvVarUsed`; raw config values не сохраняются.
-- [x] `deny.toml` и произвольные root tool/policy TOML остаются вне scope; path regression фиксирует границу.
-- [x] Exact self-evaluation `e219157ac0afd4be7e6b2982342096e2ab926445` / `33680051765` green:
-  total `665/718`, `toml = 34/35`, единственный TOML gap — `deny.toml`. Это coverage confirmation, не full focused verification.
-
-#### Slice 8C — bounded GitHub composite action projection
-
-- [ ] Implementation selected from exact `e219157ac0afd4be7e6b2982342096e2ab926445` / `33680051765`.
-- [ ] Scope: `.github/actions/**/action.yml|yaml` only when `runs.using: composite`; emit the composite action,
-  `run`/`uses` steps and step `env` through existing script/environment contracts.
-- [ ] Inputs/outputs expression semantics, JavaScript/Docker actions, permissions, secrets, issue templates,
-  Dependabot configuration, OpenAPI fixtures and generic YAML remain outside Slice 8C.
+- [x] 8A: bounded PowerShell environment references; exact `33676558603` confirms `ps1 = 2/2`.
+- [x] 8B: root `athanor.toml` runtime config; exact `33680051765` confirms 665/718, TOML 34/35.
+- [x] 8C: first-party composite actions; exact `33712810332` confirms 667/719, YAML 11/15.
+- [x] 8D: `.github/dependabot.yml|yaml` version-2 update policies; exact `33714498524` confirms 669/720,
+  YAML 12/15. Verification Matrix `33714498496` exposed rustfmt-only test hunks; #91 repaired them.
+- [x] 8E: root `deny.toml` cargo-deny `advisories/licenses/bans/sources` summaries, selected scalar modes and
+  list counts only. Exact `33722472453` confirms 670/720 (`9305` bps), TOML 35/35 and all four cargo-deny keys.
+- [x] #93 fixed the one post-8E `clippy::collapsible_if`; PR CI `33723374660` confirmed formatting, workspace
+  tests and Clippy green on macOS before squash merge to `2310215b61980de3300a93e43e10a68daa27f800`.
+- [ ] Focused execution evidence for Slices 8A–8E remains pending; completeness evidence is not full promotion.
 
 Existing coordinated `ath generate` is unchanged. Provider/LLM, daemon and MCP remain out of scope.
-`DOCGEN-001` остаётся `[-] in progress`: later documentation/completeness/framework surfaces и Slices 8A–8B
-source-implemented; focused verification pending, Slice 8C selected/planned.
+`DOCGEN-001` остаётся `[-] in progress`: later profile/completeness/framework surfaces and Slices 8A–8E are
+source-implemented; focused verification remains pending.
 
 ### 4.2 Product backlog
 
-- [ ] реализовать bounded Slice 8C для first-party GitHub composite actions, затем повторить exact completeness;
+- [ ] выбрать следующий bounded semantic gap из exact 8E artifact; сначала проверить root `install.sh` и
+  `scripts/verify_release_version.py`, а не generic JSON/test fixtures;
 - [ ] не добавлять generic JSON/fixture parsing только ради coverage без explicit product semantics;
-- [ ] не расширять runtime config на arbitrary root tool/policy TOML (`deny.toml`) без отдельной продуктовой семантики;
-- [ ] issue-template/Dependabot/OpenAPI-fixture YAML не включать в 8C без отдельного evidence-backed scope;
-- [ ] Next.js/Axum/Express schemas/auth/middleware и route composition расширять отдельными evidence-backed slices;
+- [ ] issue forms и OpenAPI fixture YAML не включать без отдельного evidence-backed scope;
+- [ ] Next.js/Axum/Express schemas/auth/middleware и route composition расширять отдельными slices;
 - [ ] optional provider, daemon, MCP, i18n and semantic retrieval after deterministic quality gates.
 
 ## 5. Программа работ
@@ -267,7 +250,7 @@ source-implemented; focused verification pending, Slice 8C selected/planned.
 | `VERIFY-001` | P1 | `[x] verified` | Full release baseline matrix |
 | `API-001` | P1 | `[x] verified` | Cross-protocol consistency |
 | `REL-001` | P1 | `[x] verified` | `v0.2.1` published and installed |
-| `DOCGEN-001` | P2 | `[-] in progress` | Profiles 2A–5C + completeness 6A–6B + framework 7A–7C + Slices 8A–8B source-implemented; Slice 8C selected |
+| `DOCGEN-001` | P2 | `[-] in progress` | Profiles 2A–5C + completeness 6A–6B + framework 7A–7C + Slices 8A–8E source-implemented |
 
 ## 6. Verification matrix
 
@@ -306,7 +289,6 @@ cargo run -p ath --quiet --locked -- docs check
 
 ## 7. Следующий шаг
 
-Реализовать Slice 8C поверх свежего `main`: bounded `.github/actions/**/action.yml|yaml` composite actions,
-`run`/`uses` steps и step `env` через существующие canonical contracts. После merge использовать automatic exact
-Athanor self-evaluation/completeness для следующего выбора. Generic fixture/JSON/YAML coverage без explicit
-product semantics не добавлять; provider/daemon/MCP и coordinated `ath generate` не менять без отдельного gate.
+Выбрать Slice 8F из exact `33722472453`: предпочтение полезной first-party семантике. Root `install.sh`
+уже подтверждён как отдельный unprocessed operational surface; до реализации проверить текущий shell parser и
+ограничить scope без generic shell AST. Generic JSON/test fixtures не использовать как coverage target.
