@@ -10,6 +10,7 @@ use athanor_domain::{
 use athanor_extractor_basic::{evidence_for_file, file_entity, ownership_for_file, stable_hash};
 use serde_json::json;
 
+mod github_composite;
 mod powershell;
 
 use powershell::{is_powershell_script_path, parse_powershell_env_references};
@@ -39,6 +40,7 @@ impl Extractor for OperationsExtractor {
             || is_database_migration_path(&source.path)
             || is_runtime_config_path(&source.path)
             || is_github_actions_workflow_path(&source.path)
+            || github_composite::is_github_composite_action_path(&source.path)
     }
 
     async fn extract(&self, input: ExtractInput) -> CoreResult<ExtractOutput> {
@@ -172,6 +174,17 @@ impl Extractor for OperationsExtractor {
 
         if is_github_actions_workflow_path(&input.source.path) {
             extract_github_actions_workflow(
+                self.name(),
+                &input,
+                &file_id,
+                content,
+                &mut entities,
+                &mut facts,
+            );
+        }
+
+        if github_composite::is_github_composite_action_path(&input.source.path) {
+            github_composite::extract_github_composite_action(
                 self.name(),
                 &input,
                 &file_id,
