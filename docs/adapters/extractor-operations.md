@@ -16,7 +16,8 @@ knowledge. The current slice parses dotenv-style files, Cargo package manifests,
 Dockerfile stages, commands and environment declarations, shell script functions plus exported
 environment variables, bounded PowerShell environment references, docker-compose services, commands,
 and environment declarations, GitHub Actions workflow jobs/steps and first-party composite actions,
-Kubernetes YAML deployment manifests, SQL database migrations, and runtime configuration files.
+first-party Dependabot update policies, Kubernetes YAML deployment manifests, SQL database migrations,
+and runtime configuration files.
 
 ## Inputs
 
@@ -33,6 +34,7 @@ operations files and whose content is UTF-8 text:
   and `*.compose.yaml`
 - `.github/workflows/*.yml` and `.github/workflows/*.yaml`
 - `.github/actions/**/action.yml` and `.github/actions/**/action.yaml` when `runs.using: composite`
+- `.github/dependabot.yml` and `.github/dependabot.yaml` when `version: 2`
 - Kubernetes-style YAML files in `k8s/`, `kubernetes/`, `deploy/`, or `deployments/`, and common
   manifest filenames such as `deployment.yaml`, `service.yaml`, `configmap.yaml`, and `secret.yaml`
 - SQL migration files in `migrations/`, `db/`, `sqlx/`, `diesel/`, or `prisma/`, plus migration-like
@@ -143,6 +145,18 @@ runs:
         CARGO_TERM_COLOR: always
 ```
 
+Supported first-party Dependabot declarations:
+
+```yaml
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    target-branch: main
+```
+
 Supported Kubernetes declarations:
 
 ```yaml
@@ -188,7 +202,7 @@ Entities:
 - `EntityKind::EnvVar` with stable keys like `env://DATABASE_URL`
 - `EntityKind::DbMigration` for SQL migration files
 - `EntityKind::DbTable` for tables declared by SQL migrations
-- `EntityKind::Feature` for runtime configuration keys
+- `EntityKind::Feature` for runtime configuration keys and bounded dependency-update policies
 - `EntityKind::Package` for Cargo packages and workspaces
 - `EntityKind::Dependency` for Cargo dependencies, dev-dependencies, build-dependencies,
   workspace dependencies, and target-specific dependencies
@@ -213,7 +227,8 @@ Facts:
 - `FactKind::EnvVarUsed` with `mechanism = "kubernetes"` and `source_kind = "kubernetes"`
 - `FactKind::EnvVarUsed` with `mechanism = "runtime_config"` and `source_kind = "runtime_config"`
 - `FactKind::MigrationCreatesTable` from SQL migration entities to table entities
-- `FactKind::SymbolDefined` for Cargo packages, workspaces, and dependencies
+- `FactKind::SymbolDefined` for Cargo packages, workspaces, dependencies, runtime-config keys, and
+  Dependabot update policies
 - `FactKind::SymbolDefined` for Makefile targets, Dockerfile stages, Dockerfile command
   instructions, shell functions, docker-compose services or service commands, and GitHub Actions
   workflow/job/composite-action/step declarations
@@ -257,8 +272,12 @@ declaration or reference.
   permissions, matrices, reusable workflows, service containers, caches, artifacts, or secrets.
 - GitHub composite-action parsing is limited to first-party `.github/actions/**/action.yml|yaml`
   metadata with `runs.using: composite`, plus `run`/`uses` steps and step `env`. Inputs/outputs
-  expression semantics, JavaScript/Docker actions, permissions, secrets, issue templates,
-  Dependabot configuration, extractor fixtures, and generic YAML remain outside this slice.
+  expression semantics, JavaScript/Docker actions, permissions, secrets, issue templates, and
+  extractor fixtures remain outside this slice.
+- Dependabot parsing is limited to first-party `.github/dependabot.yml|yaml` with `version: 2` and
+  `updates[]` entries that provide `package-ecosystem` plus `directory`. Only optional
+  `schedule.interval` and `target-branch` metadata are projected. Registries/credentials, groups,
+  ignore/allow rules, labels, reviewers, commit-message behavior, and generic YAML remain out of scope.
 - Cargo manifest parsing is limited to package/workspace metadata and direct dependency sections.
   It records dependency version/path/git/registry/package/optional/features metadata where present,
   but it does not resolve inherited workspace fields, target expressions, patches, replacements,
