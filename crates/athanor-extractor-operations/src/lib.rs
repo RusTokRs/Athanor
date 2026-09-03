@@ -14,6 +14,7 @@ mod dependabot;
 mod github_composite;
 mod install_script;
 mod powershell;
+mod release_version_verifier;
 
 use powershell::{is_powershell_script_path, parse_powershell_env_references};
 
@@ -44,6 +45,7 @@ impl Extractor for OperationsExtractor {
             || is_github_actions_workflow_path(&source.path)
             || github_composite::is_github_composite_action_path(&source.path)
             || dependabot::is_dependabot_config_path(&source.path)
+            || release_version_verifier::is_release_version_verifier_path(&source.path)
     }
 
     async fn extract(&self, input: ExtractInput) -> CoreResult<ExtractOutput> {
@@ -134,6 +136,17 @@ impl Extractor for OperationsExtractor {
                 &file_id,
                 "powershell",
                 parse_powershell_env_references(content),
+                &mut entities,
+                &mut facts,
+            );
+        }
+
+        if release_version_verifier::is_release_version_verifier_path(&input.source.path) {
+            release_version_verifier::extract_release_version_verifier(
+                self.name(),
+                &input,
+                &file_id,
+                content,
                 &mut entities,
                 &mut facts,
             );
