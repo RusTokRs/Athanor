@@ -160,7 +160,7 @@ fn parse_github_composite_action(content: &str) -> Option<GithubCompositeAction>
 
 #[cfg(test)]
 mod tests {
-    use athanor_core::{ExtractInput, Extractor, SourceFile};
+    use athanor_core::{Extractor, SourceFile};
     use athanor_domain::{EntityKind, RepoId, SnapshotId};
 
     use super::*;
