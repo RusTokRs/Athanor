@@ -169,7 +169,9 @@ mod tests {
         assert!(is_dependabot_config_path(".github/dependabot.yml"));
         assert!(is_dependabot_config_path(".github/dependabot.yaml"));
         assert!(!is_dependabot_config_path("dependabot.yml"));
-        assert!(!is_dependabot_config_path(".github/workflows/dependabot.yml"));
+        assert!(!is_dependabot_config_path(
+            ".github/workflows/dependabot.yml"
+        ));
     }
 
     #[test]
@@ -185,10 +187,12 @@ mod tests {
         assert_eq!(policies[1].target_branch.as_deref(), Some("main"));
         assert_eq!(policies[1].line, 7);
 
-        assert!(parse_dependabot_update_policies(
-            "version: 1\nupdates:\n  - package-ecosystem: cargo\n    directory: /\n"
-        )
-        .is_empty());
+        assert!(
+            parse_dependabot_update_policies(
+                "version: 1\nupdates:\n  - package-ecosystem: cargo\n    directory: /\n"
+            )
+            .is_empty()
+        );
     }
 
     #[tokio::test]
