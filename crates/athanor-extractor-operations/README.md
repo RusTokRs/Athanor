@@ -22,6 +22,7 @@ The current slice parses:
   `runs.using: composite`, including `run`/`uses` steps and step environment declarations
 - first-party Dependabot version-2 update policies from `.github/dependabot.yml` and
   `.github/dependabot.yaml`
+- first-party cargo-deny supply-chain policy summaries from the root `deny.toml`
 - Cargo package manifests from `Cargo.toml`
 - Kubernetes YAML manifests from common deployment paths and filenames
 - SQL database migrations from common migration paths and filenames
@@ -33,7 +34,7 @@ Entities:
 - `EntityKind::EnvVar` with `env://<NAME>` stable keys
 - `EntityKind::DbMigration` for SQL migration files
 - `EntityKind::DbTable` for tables declared by SQL migrations
-- `EntityKind::Feature` for runtime configuration keys and bounded dependency-update policies
+- `EntityKind::Feature` for runtime configuration keys and bounded dependency/supply-chain policies
 - `EntityKind::Package` for Cargo packages and workspaces
 - `EntityKind::Dependency` for Cargo dependencies, dev-dependencies, build-dependencies,
   workspace dependencies, and target-specific dependencies
@@ -52,8 +53,8 @@ Facts:
 
 - `FactKind::EnvVarUsed` from the environment variable entity to the canonical file entity
 - `FactKind::MigrationCreatesTable` from SQL migration entities to table entities
-- `FactKind::SymbolDefined` from Cargo package, workspace, dependency, runtime-config, and Dependabot
-  policy entities to the canonical file entity
+- `FactKind::SymbolDefined` from Cargo package, workspace, dependency, runtime-config, Dependabot,
+  and cargo-deny policy entities to the canonical file entity
 - `FactKind::SymbolDefined` from operational command/stage entities to the canonical file entity
 
 Environment fact payloads mark the declaration source as `dotenv`, `dockerfile`, `shell`,
@@ -97,6 +98,10 @@ None. The adapter does not run commands, use the network, or modify project file
   and projects only `updates[]` entries with `package-ecosystem`, `directory`, plus optional
   `schedule.interval` and `target-branch`. Registries/credentials, groups, ignore/allow rules,
   labels, reviewers, commit-message behavior, and generic YAML semantics remain outside this slice.
+- cargo-deny parsing is limited to the root `deny.toml` and the `advisories`, `licenses`, `bans`, and
+  `sources` tables. It records selected scalar enforcement modes plus list counts only; advisory IDs,
+  license allowlists/exceptions, registry URLs, git sources, and arbitrary TOML fields are not copied
+  into canonical payloads.
 - Cargo manifest parsing is limited to package/workspace metadata and direct dependency sections.
   It does not resolve inherited workspace fields, features, target expressions, patches,
   replacements, profiles, or build scripts.
@@ -109,10 +114,11 @@ None. The adapter does not run commands, use the network, or modify project file
   `ALTER TABLE`, views, indexes, triggers, functions, down migrations, or ORM-specific migration
   metadata.
 - Runtime configuration parsing flattens scalar JSON, TOML, and YAML keys into redacted
-  configuration knowledge. Root-level recognition is intentionally bounded to known configuration
-  names such as `athanor.toml`; arbitrary tool/policy TOML files such as `deny.toml` remain outside
-  this adapter. It does not interpret framework-specific config schemas, environment interpolation,
-  includes/imports, profiles, encrypted values, or arrays of objects.
+  configuration knowledge. Root-level recognition is intentionally bounded to known runtime
+  configuration names such as `athanor.toml`; `deny.toml` is handled separately by its cargo-deny
+  policy projection rather than generic runtime-config parsing. It does not interpret framework-specific
+  config schemas, environment interpolation, includes/imports, profiles, encrypted values, or arrays
+  of objects.
 - Variable interpolation, shell command substitution, multiline values, and comments inside quoted
   values are not interpreted.
 - runbooks remain separate Phase 5 work.
