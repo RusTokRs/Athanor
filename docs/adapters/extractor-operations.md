@@ -16,8 +16,8 @@ knowledge. The current slice parses dotenv-style files, Cargo package manifests,
 Dockerfile stages, commands and environment declarations, shell script functions plus exported
 environment variables, bounded PowerShell environment references, docker-compose services, commands,
 and environment declarations, GitHub Actions workflow jobs/steps and first-party composite actions,
-first-party Dependabot update policies, Kubernetes YAML deployment manifests, SQL database migrations,
-and runtime configuration files.
+first-party Dependabot update policies, bounded cargo-deny supply-chain policy, Kubernetes YAML
+deployment manifests, SQL database migrations, and runtime configuration files.
 
 ## Inputs
 
@@ -35,6 +35,7 @@ operations files and whose content is UTF-8 text:
 - `.github/workflows/*.yml` and `.github/workflows/*.yaml`
 - `.github/actions/**/action.yml` and `.github/actions/**/action.yaml` when `runs.using: composite`
 - `.github/dependabot.yml` and `.github/dependabot.yaml` when `version: 2`
+- root `deny.toml` for bounded cargo-deny policy projection
 - Kubernetes-style YAML files in `k8s/`, `kubernetes/`, `deploy/`, or `deployments/`, and common
   manifest filenames such as `deployment.yaml`, `service.yaml`, `configmap.yaml`, and `secret.yaml`
 - SQL migration files in `migrations/`, `db/`, `sqlx/`, `diesel/`, or `prisma/`, plus migration-like
@@ -157,6 +158,27 @@ updates:
     target-branch: main
 ```
 
+Supported bounded cargo-deny declarations:
+
+```toml
+[advisories]
+version = 2
+unmaintained = "workspace"
+ignore = ["RUSTSEC-..."]
+
+[licenses]
+version = 2
+allow = ["MIT", "Apache-2.0"]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "allow"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+```
+
 Supported Kubernetes declarations:
 
 ```yaml
@@ -202,7 +224,7 @@ Entities:
 - `EntityKind::EnvVar` with stable keys like `env://DATABASE_URL`
 - `EntityKind::DbMigration` for SQL migration files
 - `EntityKind::DbTable` for tables declared by SQL migrations
-- `EntityKind::Feature` for runtime configuration keys and bounded dependency-update policies
+- `EntityKind::Feature` for runtime configuration keys and bounded dependency/supply-chain policies
 - `EntityKind::Package` for Cargo packages and workspaces
 - `EntityKind::Dependency` for Cargo dependencies, dev-dependencies, build-dependencies,
   workspace dependencies, and target-specific dependencies
@@ -227,8 +249,8 @@ Facts:
 - `FactKind::EnvVarUsed` with `mechanism = "kubernetes"` and `source_kind = "kubernetes"`
 - `FactKind::EnvVarUsed` with `mechanism = "runtime_config"` and `source_kind = "runtime_config"`
 - `FactKind::MigrationCreatesTable` from SQL migration entities to table entities
-- `FactKind::SymbolDefined` for Cargo packages, workspaces, dependencies, runtime-config keys, and
-  Dependabot update policies
+- `FactKind::SymbolDefined` for Cargo packages, workspaces, dependencies, runtime-config keys,
+  Dependabot update policies, and cargo-deny policy sections
 - `FactKind::SymbolDefined` for Makefile targets, Dockerfile stages, Dockerfile command
   instructions, shell functions, docker-compose services or service commands, and GitHub Actions
   workflow/job/composite-action/step declarations
@@ -237,7 +259,8 @@ The adapter records whether an environment default value was present where the s
 one, but it does not store raw values. PowerShell references are recorded as references only. This
 prevents accidental secret leakage from real `.env` files, Dockerfile defaults, shell exports,
 PowerShell process environment values, workflow/composite-action step environment values, or other
-supported operational sources into canonical snapshots.
+supported operational sources into canonical snapshots. cargo-deny projection similarly stores
+selected enforcement modes and list counts, not advisory IDs, license lists, or source URLs.
 
 ## Evidence And Ownership
 
@@ -278,6 +301,10 @@ declaration or reference.
   `updates[]` entries that provide `package-ecosystem` plus `directory`. Only optional
   `schedule.interval` and `target-branch` metadata are projected. Registries/credentials, groups,
   ignore/allow rules, labels, reviewers, commit-message behavior, and generic YAML remain out of scope.
+- cargo-deny parsing is limited to root `deny.toml` and the `advisories`, `licenses`, `bans`, and
+  `sources` tables. Selected scalar enforcement modes and list counts are projected; advisory IDs,
+  license allowlists/exceptions, registry URLs, git sources, nested rule semantics, and generic TOML
+  remain out of scope.
 - Cargo manifest parsing is limited to package/workspace metadata and direct dependency sections.
   It records dependency version/path/git/registry/package/optional/features metadata where present,
   but it does not resolve inherited workspace fields, target expressions, patches, replacements,
@@ -291,10 +318,10 @@ declaration or reference.
   `ALTER TABLE`, views, indexes, triggers, functions, down migrations, or ORM-specific migration
   metadata.
 - Runtime configuration parsing flattens scalar JSON, TOML, and YAML keys into redacted
-  configuration knowledge. Root-level recognition is intentionally bounded to known configuration
-  names including `athanor.toml`; arbitrary root tool/policy TOML such as `deny.toml` remains out of
-  scope. It does not interpret framework-specific config schemas, environment interpolation,
-  includes/imports, profiles, encrypted values, or arrays of objects.
+  configuration knowledge. Root-level recognition is intentionally bounded to known runtime
+  configuration names including `athanor.toml`; `deny.toml` is handled separately by the cargo-deny
+  policy projection. It does not interpret framework-specific config schemas, environment
+  interpolation, includes/imports, profiles, encrypted values, or arrays of objects.
 - runbooks remain separate Phase 5 work.
 
 ## Tests
