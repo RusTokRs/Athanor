@@ -255,10 +255,10 @@ fn parse_cargo_deny_policies(content: &str) -> Vec<CargoDenyPolicy> {
             let mut list_counts = BTreeMap::new();
 
             for key in cargo_deny_mode_keys(section) {
-                if let Some(value) = table.get(*key) {
-                    if let Some(value) = cargo_deny_scalar_text(value) {
-                        modes.insert((*key).to_string(), value);
-                    }
+                if let Some(value) = table.get(*key)
+                    && let Some(value) = cargo_deny_scalar_text(value)
+                {
+                    modes.insert((*key).to_string(), value);
                 }
             }
 
