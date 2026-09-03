@@ -191,14 +191,22 @@ mod tests {
 
         assert_eq!(action.name.as_deref(), Some("Setup"));
         assert_eq!(action.steps.len(), 2);
-        assert!(matches!(action.steps[0].kind, GithubActionsStepKind::Uses(_)));
-        assert!(matches!(action.steps[1].kind, GithubActionsStepKind::Run(_)));
+        assert!(matches!(
+            action.steps[0].kind,
+            GithubActionsStepKind::Uses(_)
+        ));
+        assert!(matches!(
+            action.steps[1].kind,
+            GithubActionsStepKind::Run(_)
+        ));
         assert!(action.steps[1].environment.contains_key("CARGO_TERM_COLOR"));
 
-        assert!(parse_github_composite_action(
-            "name: JavaScript action\nruns:\n  using: node24\n  main: index.js\n"
-        )
-        .is_none());
+        assert!(
+            parse_github_composite_action(
+                "name: JavaScript action\nruns:\n  using: node24\n  main: index.js\n"
+            )
+            .is_none()
+        );
     }
 
     #[tokio::test]
