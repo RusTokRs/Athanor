@@ -15,9 +15,8 @@ The operations extractor reads operational configuration files and emits canonic
 knowledge. The current slice parses dotenv-style files, Cargo package manifests, Makefile targets,
 Dockerfile stages, commands and environment declarations, shell script functions plus exported
 environment variables, bounded PowerShell environment references, docker-compose services, commands,
-and environment declarations, GitHub Actions workflow jobs, steps, actions, and environment
-declarations, Kubernetes YAML deployment manifests, SQL database migrations, and runtime
-configuration files.
+and environment declarations, GitHub Actions workflow jobs/steps and first-party composite actions,
+Kubernetes YAML deployment manifests, SQL database migrations, and runtime configuration files.
 
 ## Inputs
 
@@ -33,6 +32,7 @@ operations files and whose content is UTF-8 text:
 - `docker-compose.yml`, `docker-compose.yaml`, `compose.yml`, `compose.yaml`, `*.compose.yml`,
   and `*.compose.yaml`
 - `.github/workflows/*.yml` and `.github/workflows/*.yaml`
+- `.github/actions/**/action.yml` and `.github/actions/**/action.yaml` when `runs.using: composite`
 - Kubernetes-style YAML files in `k8s/`, `kubernetes/`, `deploy/`, or `deployments/`, and common
   manifest filenames such as `deployment.yaml`, `service.yaml`, `configmap.yaml`, and `secret.yaml`
 - SQL migration files in `migrations/`, `db/`, `sqlx/`, `diesel/`, or `prisma/`, plus migration-like
@@ -111,7 +111,7 @@ services:
       OTHER_KEY:
 ```
 
-Supported GitHub Actions declarations:
+Supported GitHub Actions workflow declarations:
 
 ```yaml
 name: CI
@@ -127,6 +127,20 @@ jobs:
       - run: cargo test
         env:
           TEST_KEY:
+```
+
+Supported first-party composite action declarations:
+
+```yaml
+name: Setup Rust
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@v7
+    - run: cargo build
+      shell: bash
+      env:
+        CARGO_TERM_COLOR: always
 ```
 
 Supported Kubernetes declarations:
@@ -181,7 +195,8 @@ Entities:
 - `EntityKind::ScriptCommand` for Makefile targets and Dockerfile command instructions
 - `EntityKind::ScriptCommand` for shell script functions
 - `EntityKind::ScriptCommand` for docker-compose service `command` and `entrypoint` declarations
-- `EntityKind::ScriptCommand` for GitHub Actions workflows, jobs, `run` steps, and `uses` steps
+- `EntityKind::ScriptCommand` for GitHub Actions workflows, jobs, composite actions, `run` steps, and
+  `uses` steps
 - `EntityKind::ScriptCommand` for Kubernetes container `command` and `args` declarations
 - `EntityKind::DockerService` for Dockerfile stages and docker-compose services
 - `EntityKind::DockerService` for Kubernetes workloads, services, ConfigMaps, Secrets, and related
@@ -201,12 +216,13 @@ Facts:
 - `FactKind::SymbolDefined` for Cargo packages, workspaces, and dependencies
 - `FactKind::SymbolDefined` for Makefile targets, Dockerfile stages, Dockerfile command
   instructions, shell functions, docker-compose services or service commands, and GitHub Actions
-  workflow/job/step declarations
+  workflow/job/composite-action/step declarations
 
 The adapter records whether an environment default value was present where the source form exposes
 one, but it does not store raw values. PowerShell references are recorded as references only. This
-prevents accidental secret leakage from real `.env` files, Dockerfile defaults, shell exports, or
-PowerShell process environment values into canonical snapshots.
+prevents accidental secret leakage from real `.env` files, Dockerfile defaults, shell exports,
+PowerShell process environment values, workflow/composite-action step environment values, or other
+supported operational sources into canonical snapshots.
 
 ## Evidence And Ownership
 
@@ -236,9 +252,13 @@ declaration or reference.
 - docker-compose parsing is limited to the top-level `services` map, service `image`, `build`,
   `command`, `entrypoint`, and `environment` declarations. It does not resolve `env_file`, profiles,
   includes, extends, anchors, volume semantics, healthchecks, dependencies, or networks.
-- GitHub Actions parsing is limited to workflow name, top-level `env`, jobs, job `runs-on`, job
-  `env`, and step `run`, `uses`, and `env` declarations. It does not evaluate expressions,
+- GitHub Actions workflow parsing is limited to workflow name, top-level `env`, jobs, job `runs-on`,
+  job `env`, and step `run`, `uses`, and `env` declarations. It does not evaluate expressions,
   permissions, matrices, reusable workflows, service containers, caches, artifacts, or secrets.
+- GitHub composite-action parsing is limited to first-party `.github/actions/**/action.yml|yaml`
+  metadata with `runs.using: composite`, plus `run`/`uses` steps and step `env`. Inputs/outputs
+  expression semantics, JavaScript/Docker actions, permissions, secrets, issue templates,
+  Dependabot configuration, extractor fixtures, and generic YAML remain outside this slice.
 - Cargo manifest parsing is limited to package/workspace metadata and direct dependency sections.
   It records dependency version/path/git/registry/package/optional/features metadata where present,
   but it does not resolve inherited workspace fields, target expressions, patches, replacements,
