@@ -16,11 +16,10 @@ disclosure is exact-evaluation-confirmed on `6862aee81dd0f53fa8372d1ce3fcb6e2ed1
 
 Module expansion is source-implemented through Slice 2C, API through Slice 3C, operations through Slice
 4C, onboarding through Slice 5C, documentation completeness through Slice 6B, bounded framework route
-projections through Next.js/Axum/Express Slices 7A–7C, PowerShell through Slice 8A, and first-party
-`athanor.toml` runtime-config recognition through Slice 8B. Exact Athanor self-evaluation on
-`e219157ac0afd4be7e6b2982342096e2ab926445`, run `33680051765`, is green and confirms the Slice 8B
-coverage effect. Slice 8C is selected/planned for bounded first-party GitHub composite actions; it is not yet
-implemented or verified.
+projections through Next.js/Axum/Express Slices 7A–7C, and completeness-driven first-party operational
+semantics through Slices 8A–8E. Exact Athanor self-evaluation `33722472453` on
+`c10ab848e9f0250da14ccaa0e455ab7d26d920bd` is green and confirms the Slice 8E coverage effect at
+670/720 processed (`9305` basis points), with TOML 35/35. Focused verification for later slices remains pending.
 
 The existing coordinated `ath generate` command is unchanged. No model provider, daemon, MCP, or new dependency is enabled.
 
@@ -195,91 +194,69 @@ or layout drift, invalid validation status, and checksum drift.
 
 ### Slice 8A — Completeness-Driven PowerShell Environment References
 
-- Selection is grounded in the exact Athanor self-evaluation on
-  `2c5e94220b8fb2cb396938f96bb3dedb0e535816`, run `32815625060`: the completeness artifact reports
+- Selection is grounded in exact self-evaluation `32815625060` on `2c5e94220b8fb2cb396938f96bb3dedb0e535816`:
   two tracked `ps1` files and zero processed.
-- `athanor-extractor-operations` recognizes `*.ps1` and lexically extracts bounded `$env:NAME` and
-  `${env:NAME}` references.
-- The slice reuses existing canonical `env://<NAME>` entities and `FactKind::EnvVarUsed` with
-  `mechanism/source_kind = "powershell"`, evidence, and ownership. Raw process-environment values are not stored.
-- The source regression covers path recognition, case-insensitive `$Env:` marker handling, deterministic env keys,
-  evidence/ownership, and value non-disclosure.
-- General PowerShell AST parsing, cmdlets, functions, assignments, control flow, and inline string/comment semantics
-  are deliberately out of scope.
-- Exact self-evaluation `75562e19a8eed3a84c47a346a19d0f078550fa22` / `33676558603` is green and
-  confirms `ps1 tracked = 2`, `processed = 2`. This is exact completeness confirmation, not full focused verification.
+- `athanor-extractor-operations` recognizes `*.ps1`, projects bounded `$env:NAME` / `${env:NAME}` through the
+  existing `env://<NAME>` / `EnvVarUsed` contract, and stores no raw process-environment values.
+- General PowerShell AST/cmdlet/function/assignment/control-flow semantics remain out of scope.
+- Exact self-evaluation `33676558603` on `75562e19a8eed3a84c47a346a19d0f078550fa22` is green and confirms `ps1 = 2/2`.
 
 ### Slice 8B — First-Party Athanor Runtime Configuration
 
-- Selection is grounded in the same exact self-evaluation `75562e19a8eed3a84c47a346a19d0f078550fa22` /
-  `33676558603`: `toml` reports 35 tracked and 33 processed files, with only `athanor.toml` and `deny.toml`
-  remaining unprocessed.
-- The operations adapter recognizes only the first-party root `athanor.toml` as runtime configuration and reuses
-  the existing TOML runtime-config parser and redacted `Feature` / `SymbolDefined` contracts.
-- Raw configuration values remain absent from canonical output. Existing uppercase config-leaf handling may emit
-  `EnvVarUsed` without storing values.
-- Arbitrary root TOML remains intentionally unsupported; `deny.toml` is a negative regression boundary rather
-  than a coverage target.
-- Exact self-evaluation `e219157ac0afd4be7e6b2982342096e2ab926445` / `33680051765` is green: total
-  completeness is 665/718 (`9261` basis points), `toml = 34/35`, and `deny.toml` is the only TOML gap. This is
-  exact coverage confirmation, not full focused verification.
+- Root `athanor.toml` reuses the existing redacted TOML runtime-config `Feature` / `SymbolDefined` contract;
+  arbitrary root TOML remains unsupported by that owner.
+- Exact self-evaluation `33680051765` on `e219157ac0afd4be7e6b2982342096e2ab926445` is green: 665/718
+  (`9261` bps), TOML 34/35; `deny.toml` is the only remaining TOML gap.
 
-### Slice 8C — Selected GitHub Composite Action Projection
+### Slice 8C — Bounded GitHub Composite Actions
 
-- Selection is grounded in exact `e219157ac0afd4be7e6b2982342096e2ab926445` / `33680051765`: YAML is
-  10/15 processed. The first-party reusable CI surface `.github/actions/setup-rust/action.yml` is selected ahead
-  of issue templates, Dependabot maintenance config, and extractor fixtures.
-- Planned scope is `.github/actions/**/action.yml|yaml` only when `runs.using: composite`, projecting the action,
-  `run`/`uses` steps, and step `env` through existing script/environment contracts.
-- Inputs/outputs expression semantics, JavaScript/Docker actions, permissions, secrets, issue templates,
-  Dependabot config, OpenAPI fixtures, and generic YAML are out of scope.
-- Slice 8C is selected/planned only; no source implementation or execution evidence is claimed yet.
+- `.github/actions/**/action.yml|yaml` is recognized only when `runs.using: composite`.
+- Existing ScriptCommand and redacted environment contracts project the action, bounded `run`/`uses` steps,
+  and step `env`; JS/Docker actions, inputs/outputs expression semantics, permissions, secrets, and generic YAML stay out.
+- Exact self-evaluation `33712810332` on `5d195069dc068d830de81ecd2f7eef3fb181018f` is green: 667/719
+  (`9276` bps), YAML 11/15.
+
+### Slice 8D — Bounded Dependabot Update Policies
+
+- Only `.github/dependabot.yml|yaml` with `version: 2` is recognized. `updates[]` entries with
+  `package-ecosystem` + `directory` reuse existing `Feature` / `SymbolDefined`; optional schedule/target metadata is bounded.
+- Registries/credentials, groups, ignore/allow rules, issue forms, extractor fixtures, and generic YAML remain out.
+- Exact self-evaluation `33714498524` on `424da862d34ef7d8812b65c4c467a17015f9a907` is green: 669/720
+  (`9291` bps), YAML 12/15, TOML 34/35.
+- Verification Matrix `33714498496` exposed formatter-only test hunks in Slices 8C/8D; #91 applied exactly them.
+
+### Slice 8E — Bounded Cargo-Deny Supply-Chain Policy
+
+- Only root `deny.toml` is recognized, and only policy domains `advisories`, `licenses`, `bans`, `sources`.
+- Existing `Feature` / `SymbolDefined` knowledge records selected scalar enforcement modes and list counts;
+  advisory IDs, license lists/exceptions, registry/git values, nested rules, and generic TOML are not copied.
+- Exact self-evaluation `33722472453` on `c10ab848e9f0250da14ccaa0e455ab7d26d920bd` is green: 670/720
+  (`9305` bps), TOML 35/35, YAML 12/15, 9051 facts, 13208 relations, 169 diagnostics. The operations artifact
+  includes `config://deny.toml#cargo-deny:{advisories,bans,licenses,sources}` evidence.
+- Post-merge CI `33722472454` passed formatting and workspace tests before one `clippy::collapsible_if` failure.
+  #93 applied only the requested let-chain; PR CI `33723374660` confirmed formatting, workspace tests, and Clippy
+  green on macOS before squash merge to `2310215b61980de3300a93e43e10a68daa27f800`.
 
 ## Execution Evidence
 
-- Slices 0A–0B: source `2a049303e797f00ac53f1e91fc010f284993926d`; CI `30005828864`,
-  AppSec `30005828850`, Store `30005828956`.
-- Slices 1A–1B: source `0cfeca8ad4dc3c0632246afa01e43372f4ec3d71`; CI `30013208011`,
-  AppSec `30013208197`, Store `30013208312`.
-- Slice 1C1: source `4f567271ed6d38d30b3c15dc6999aa33152a9312`; CI `30015689753`, AppSec
-  `30015691399`, Store `30015689363`.
-- Slice 1C2: source `042d02ac6b4c89d90a5b76c818098eb0c6b41920`; CI `30025932615`, AppSec
-  `30025931953`, Store `30025932704`.
-- First Rustok attempt: source `5e0b28099c48e22bdc172fa57b6d51db9e6efb7b`, workflow run
-  `30029451096`; generation failed with
-  `documentation draft citations must contain between 1 and 256 entries` after indexing completed.
-- Repair probe: source `12a8687c5d098ab05a5988508816aad5f0dc3e23`, run `30030131126`.
-- Repaired evaluation: source `f1024cbc52f05de4d3ce96c556ef044ad48b3a0e`; evaluation `31625608720`,
-  probe `31625608721`, CI `31625608729`, AppSec `31625608723`, Store `31625608739`.
-- Relation disclosure: source `6862aee81dd0f53fa8372d1ce3fcb6e2ed198cca`; evaluation `32712992516`,
-  probe `32712992421`; artifact records `unsupported_relations = 6962` and
-  `unsupported_relation_disclosed = true`.
-- Slice 2A landed on `658d53fb03dd47a971beb6cf67b46cfe1f20b3fe`; post-merge contexts are green,
-  but focused module evidence is not claimed.
-- Slice 2C landed on `b9e0eadc46175e15ec62f915a4729287f3884cd2`; Store Conformance
-  `32718598218`, Rustok evaluation `32718598212`, and Rustok probe `32718598232` are green.
-- Slice 3A landed on `0a4c0f78ef05b6c2ba9480b770c1ebf72038e049`; Rustok evaluation
-  `32719989413` and Rustok probe `32719989450` are green. These are not focused API profile evidence.
-- Exact Athanor self-evaluation `2c5e94220b8fb2cb396938f96bb3dedb0e535816` / `32815625060` selected
-  Slice 8A (`ps1 tracked = 2`, `processed = 0`).
-- Exact Athanor self-evaluation `75562e19a8eed3a84c47a346a19d0f078550fa22` / `33676558603` is green,
-  confirms Slice 8A at `ps1 = 2/2`, and selects Slice 8B from `toml = 33/35`.
-- Exact Athanor self-evaluation `e219157ac0afd4be7e6b2982342096e2ab926445` / `33680051765` is green,
-  confirms Slice 8B at `toml = 34/35`, total `665/718`, and selects Slice 8C from the remaining YAML surface.
-- Slices 2B–2C, API 3A–3C, operations 4A–4C, onboarding 5A–5C, completeness 6A–6B, framework 7A–7C,
-  and Slices 8A–8B focused verification remain pending; Slice 8C is not implemented.
+- Architecture baselines: Slices 0A–0B `2a049303…`; 1A–1B `0cfeca8a…`; 1C1 `4f567271…`; 1C2 `042d02ac…`.
+- First Rustok failure `30029451096` remains failure evidence; repaired evaluation `31625608720`, probe
+  `31625608721`, CI `31625608729`, AppSec `31625608723`, Store `31625608739` are green on `f1024cbc…`.
+- Relation disclosure is exact-evaluation-confirmed on `6862aee8…` by `32712992516` / `32712992421`.
+- Later source landings do not substitute for focused profile verification: module 2C `b9e0eadc…`, API 3A `0a4c0f78…`.
+- Completeness progression: 8B 665/718 (`9261`), 8C 667/719 (`9276`), 8D 669/720 (`9291`), 8E 670/720 (`9305`).
+- Focused module/API/operations/onboarding/completeness/framework and Slices 8A–8E verification remains pending.
 
 The repaired bounded Rustok architecture-generation evaluation retains `DOCUMENTATION_REFERENCE_LIMIT`,
 `workflow_dispatch` support, and diagnostic evidence checks as explicit regression boundaries.
 
 ## Next Bounded Step
 
-1. Implement Slice 8C over the selected first-party composite-action path and keep generic YAML out of scope.
-2. After Slice 8C lands, use its automatic exact Athanor self-evaluation/completeness artifact to select the next
-   bounded semantic gap. Do not add generic JSON/fixture parsing, arbitrary root TOML, or unrelated YAML solely
-   to improve the percentage.
-3. Record formatting/build/test/Clippy evidence for later documentation/completeness/framework slices and Slices 8A–8C.
-4. Keep provider, daemon, MCP, and coordinated `ath generate` changes out until separate deterministic quality gates.
+1. Select Slice 8F from exact `33722472453`, preferring first-party semantic value over percentage.
+2. Inspect root `install.sh` and `scripts/verify_release_version.py`; do not use generic JSON/test fixtures as a coverage target.
+3. For `install.sh`, reuse existing shell/operations contracts only if a narrow installer-specific semantic projection is justified;
+   do not introduce a generic shell AST or broad arbitrary-command extraction.
+4. Keep issue forms, OpenAPI fixtures, provider, daemon, MCP, and coordinated `ath generate` changes separately gated.
 
 ## Verification
 
