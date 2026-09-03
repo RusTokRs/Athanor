@@ -10,6 +10,7 @@ use athanor_domain::{
 use athanor_extractor_basic::{evidence_for_file, file_entity, ownership_for_file, stable_hash};
 use serde_json::json;
 
+mod dependabot;
 mod github_composite;
 mod powershell;
 
@@ -41,6 +42,7 @@ impl Extractor for OperationsExtractor {
             || is_runtime_config_path(&source.path)
             || is_github_actions_workflow_path(&source.path)
             || github_composite::is_github_composite_action_path(&source.path)
+            || dependabot::is_dependabot_config_path(&source.path)
     }
 
     async fn extract(&self, input: ExtractInput) -> CoreResult<ExtractOutput> {
@@ -185,6 +187,17 @@ impl Extractor for OperationsExtractor {
 
         if github_composite::is_github_composite_action_path(&input.source.path) {
             github_composite::extract_github_composite_action(
+                self.name(),
+                &input,
+                &file_id,
+                content,
+                &mut entities,
+                &mut facts,
+            );
+        }
+
+        if dependabot::is_dependabot_config_path(&input.source.path) {
+            dependabot::extract_dependabot_config(
                 self.name(),
                 &input,
                 &file_id,
