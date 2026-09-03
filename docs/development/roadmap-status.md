@@ -89,12 +89,20 @@ Slice 8C adds bounded first-party GitHub composite actions. The operations adapt
 processed (`9276` basis points) and YAML is 11/15, confirming the composite-action coverage effect. Focused
 execution evidence remains pending.
 
-Slice 8D is source-implemented from that exact report's remaining first-party operational YAML gap. The
-operations adapter recognizes only `.github/dependabot.yml|yaml` with `version: 2` and projects `updates[]`
-entries that provide `package-ecosystem` plus `directory` into existing `Feature` / `SymbolDefined` contracts;
-optional `schedule.interval` and `target-branch` metadata remain bounded payload. Registries/credentials,
-groups, ignore/allow rules, issue forms, extractor fixtures, and generic YAML remain out of scope. Exact
-post-merge completeness and focused execution evidence remain pending.
+Slice 8D adds bounded first-party Dependabot update policy. The operations adapter recognizes only
+`.github/dependabot.yml|yaml` with `version: 2` and projects `updates[]` entries with required
+`package-ecosystem` plus `directory` into existing `Feature` / `SymbolDefined` contracts; only optional
+`schedule.interval` and `target-branch` metadata are retained. Exact post-merge self-evaluation on
+`424da862d34ef7d8812b65c4c467a17015f9a907`, run `33714498524`, is green: completeness is 669/720
+processed (`9291` basis points), YAML is 12/15, and `deny.toml` remains the only TOML gap. Focused execution
+evidence remains pending.
+
+Slice 8E is source-implemented from that exact report's remaining first-party supply-chain policy gap. The
+operations adapter recognizes only root `deny.toml` and projects the cargo-deny `advisories`, `licenses`,
+`bans`, and `sources` tables into section-level `Feature` / `SymbolDefined` knowledge. Selected scalar
+enforcement modes and list counts are retained; advisory IDs, license allowlists/exceptions, source URLs,
+nested rule semantics, and generic TOML remain out of scope. Exact post-merge completeness and focused
+execution evidence remain pending.
 
 The shared `current.json` is profile-aware across architecture, module, API, operations, and onboarding.
 Every inspector fails closed when another published profile owns the current pointer.
@@ -169,8 +177,12 @@ action `.github/actions/setup-rust/action.yml`; generic YAML expansion is not im
 
 The exact Athanor self-evaluation on `5d195069dc068d830de81ecd2f7eef3fb181018f`, run `33712810332`,
 is green and confirms Slice 8C: total completeness is 667/719 (`9276` basis points), `yaml = 11/15`, and the
-composite action is processed. The four remaining YAML gaps are the two issue forms, `.github/dependabot.yml`,
-and the OpenAPI extractor fixture; the first-party operational Dependabot policy selects Slice 8D.
+composite action is processed. The four remaining YAML gaps selected Slice 8D around `.github/dependabot.yml`.
+
+The exact Athanor self-evaluation on `424da862d34ef7d8812b65c4c467a17015f9a907`, run `33714498524`,
+is green and confirms Slice 8D: total completeness is 669/720 (`9291` basis points), `yaml = 12/15`, and
+`.github/dependabot.yml` is processed. `toml = 34/35` leaves root `deny.toml` as the bounded first-party
+supply-chain policy gap selected for Slice 8E.
 
 ## Implemented Packages
 
@@ -198,19 +210,20 @@ and the OpenAPI extractor fixture; the first-party operational Dependabot policy
 - [x] Slice 8A source implementation plus exact completeness confirmation: bounded PowerShell environment references;
 - [x] Slice 8B source implementation plus exact completeness confirmation: first-party `athanor.toml` runtime config;
 - [x] Slice 8C source implementation plus exact completeness confirmation: bounded GitHub composite actions;
-- [x] Slice 8D source implementation: bounded first-party Dependabot update policies;
+- [x] Slice 8D source implementation plus exact completeness confirmation: bounded Dependabot update policies;
+- [x] Slice 8E source implementation: bounded cargo-deny supply-chain policy summary;
 - [ ] Focused module 2B–2C, API 3A–3C, operations 4A–4C, onboarding 5A–5C, completeness 6A–6B,
-  framework 7A–7C, Slices 8A–8C focused verification, and Slice 8D post-merge completeness remain pending.
+  framework 7A–7C, Slices 8A–8D focused verification, and Slice 8E post-merge completeness remain pending.
 
 `DOCGEN-001` remains in progress. Architecture is execution-confirmed; later profile/completeness/framework
-surfaces and Slices 8A–8D are not promoted without their required focused gates.
+surfaces and Slices 8A–8E are not promoted without their required focused gates.
 
 ## Product Backlog
 
-- after Slice 8D lands, use its automatic exact Athanor self-evaluation/completeness result to select the next bounded semantic gap;
+- after Slice 8E lands, use its automatic exact Athanor self-evaluation/completeness result to select the next bounded semantic gap;
 - do not add generic JSON/fixture parsing solely to raise coverage without explicit product semantics;
-- keep arbitrary root tool/policy TOML such as `deny.toml` outside runtime config unless explicit product semantics justify it;
-- keep issue-form and OpenAPI-fixture YAML outside Slice 8D unless separately justified;
+- keep issue-form and OpenAPI-fixture YAML outside Slice 8E unless separately justified;
+- keep cargo-deny nested rule semantics and arbitrary tool/policy TOML outside Slice 8E;
 - keep Next.js/Axum/Express schema/auth/middleware and route-composition expansion separate until evidence justifies it;
 - Dart/Flutter remains blocked on a portable DartScope dependency boundary rather than a local-only path dependency;
 - optional i18n, semantic/vector retrieval, provider, daemon, and MCP integration after quality gates.
