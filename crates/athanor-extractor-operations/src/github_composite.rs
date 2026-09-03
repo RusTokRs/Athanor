@@ -160,7 +160,11 @@ fn parse_github_composite_action(content: &str) -> Option<GithubCompositeAction>
 
 #[cfg(test)]
 mod tests {
+    use athanor_core::{ExtractInput, Extractor, SourceFile};
+    use athanor_domain::{EntityKind, RepoId, SnapshotId};
+
     use super::*;
+    use crate::OperationsExtractor;
 
     #[test]
     fn recognizes_only_first_party_action_metadata_paths() {
@@ -195,5 +199,56 @@ mod tests {
             "name: JavaScript action\nruns:\n  using: node24\n  main: index.js\n"
         )
         .is_none());
+    }
+
+    #[tokio::test]
+    async fn operations_extractor_projects_composite_action_steps_and_env_without_values() {
+        let source = SourceFile {
+            path: ".github/actions/setup-rust/action.yml".to_string(),
+            language_hint: Some("yaml".to_string()),
+            content_hash: Some("hash".to_string()),
+            content: Some(
+                "name: Setup Rust\nruns:\n  using: composite\n  steps:\n    - name: Checkout\n      uses: actions/checkout@v7\n    - name: Build\n      env:\n        CARGO_TERM_COLOR: always\n      run: cargo build\n      shell: bash\n"
+                    .to_string(),
+            ),
+        };
+        let extractor = OperationsExtractor;
+        assert!(extractor.supports(&source));
+
+        let output = extractor
+            .extract(ExtractInput {
+                repo: RepoId("repo_test".to_string()),
+                snapshot: SnapshotId("snap_test".to_string()),
+                source,
+            })
+            .await
+            .unwrap();
+
+        let command_keys = output
+            .entities
+            .iter()
+            .filter(|entity| entity.kind == EntityKind::ScriptCommand)
+            .map(|entity| entity.stable_key.0.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            command_keys,
+            vec![
+                "script-command://.github/actions/setup-rust/action.yml#github-actions:composite",
+                "script-command://.github/actions/setup-rust/action.yml#github-actions:composite:step:1:uses",
+                "script-command://.github/actions/setup-rust/action.yml#github-actions:composite:step:2:run",
+            ]
+        );
+        assert!(output.entities.iter().any(|entity| {
+            entity.kind == EntityKind::EnvVar
+                && entity.stable_key.0 == "env://CARGO_TERM_COLOR"
+                && entity.payload.get("value").is_none()
+        }));
+        assert_eq!(output.facts.len(), 4);
+        assert!(
+            output
+                .facts
+                .iter()
+                .all(|fact| !fact.evidence.is_empty() && !fact.ownership.is_empty())
+        );
     }
 }
