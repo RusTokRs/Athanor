@@ -81,12 +81,12 @@ redacted `Feature` / `SymbolDefined` contracts. Exact post-merge self-evaluation
 processed (`9261` basis points), TOML is 34/35, and `deny.toml` is the only remaining TOML gap. This confirms
 the Slice 8B coverage effect without promoting the slice to fully verified focused execution.
 
-Slice 8C is selected, not implemented, from the same exact report. YAML remains 10/15 processed; among the
-five gaps, `.github/actions/setup-rust/action.yml` is first-party reusable CI automation rather than an issue
-template, dependency-maintenance file, or extractor fixture. The bounded target is composite actions only:
-`.github/actions/**/action.yml|yaml` with `runs.using: composite`, action plus `run`/`uses` steps, and step `env`
-through existing script/environment contracts. Inputs/outputs expression semantics, JavaScript/Docker actions,
-permissions, secrets, and generic YAML remain out of scope.
+Slice 8C is source-implemented from that report's first-party YAML gap. The operations adapter recognizes
+`.github/actions/**/action.yml|yaml` and emits knowledge only when `runs.using: composite`: one composite-action
+`ScriptCommand`, bounded `run`/`uses` step commands, and step `env` through the existing redacted
+`github_actions` environment contract. Inputs/outputs expression semantics, JavaScript/Docker actions,
+permissions, secrets, issue templates, Dependabot configuration, extractor fixtures, and generic YAML remain
+out of scope. Exact post-merge completeness and focused execution evidence remain pending.
 
 The shared `current.json` is profile-aware across architecture, module, API, operations, and onboarding.
 Every inspector fails closed when another published profile owns the current pointer.
@@ -156,7 +156,7 @@ is green and confirms the Slice 8A coverage effect: `ps1` is 2/2 processed. It a
 
 The exact Athanor self-evaluation on `e219157ac0afd4be7e6b2982342096e2ab926445`, run `33680051765`,
 is green and confirms Slice 8B: total completeness is 665/718 (`9261` basis points), `toml = 34/35`, and only
-`deny.toml` remains unprocessed in TOML. Its five YAML gaps select Slice 8C around the first-party composite
+`deny.toml` remains unprocessed in TOML. Its five YAML gaps selected Slice 8C around the first-party composite
 action `.github/actions/setup-rust/action.yml`; generic YAML expansion is not implied.
 
 ## Implemented Packages
@@ -184,16 +184,16 @@ action `.github/actions/setup-rust/action.yml`; generic YAML expansion is not im
 - [x] Slices 7A–7C: bounded built-in Next.js, Axum, and Express route projections;
 - [x] Slice 8A source implementation plus exact completeness confirmation: bounded PowerShell environment references;
 - [x] Slice 8B source implementation plus exact completeness confirmation: first-party `athanor.toml` runtime config;
-- [ ] Slice 8C implementation: bounded first-party GitHub composite-action projection;
+- [x] Slice 8C source implementation: bounded first-party GitHub composite-action projection;
 - [ ] Focused module 2B–2C, API 3A–3C, operations 4A–4C, onboarding 5A–5C, completeness 6A–6B,
-  framework 7A–7C, and Slices 8A–8B focused verification remain pending.
+  framework 7A–7C, Slices 8A–8B focused verification, and Slice 8C post-merge completeness remain pending.
 
 `DOCGEN-001` remains in progress. Architecture is execution-confirmed; later profile/completeness/framework
-surfaces and Slices 8A–8B are not promoted without their required focused gates. Slice 8C is planned only.
+surfaces and Slices 8A–8C are not promoted without their required focused gates.
 
 ## Product Backlog
 
-- implement Slice 8C for bounded `.github/actions/**/action.yml|yaml` composite actions, then rerun exact completeness;
+- after Slice 8C lands, use its automatic exact Athanor self-evaluation/completeness result to select the next bounded semantic gap;
 - do not add generic JSON/fixture parsing solely to raise coverage without explicit product semantics;
 - keep arbitrary root tool/policy TOML such as `deny.toml` outside runtime config unless explicit product semantics justify it;
 - keep issue-template, Dependabot, and OpenAPI-fixture YAML outside Slice 8C unless separately justified;
