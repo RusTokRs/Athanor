@@ -13,6 +13,7 @@ use serde_json::json;
 mod dependabot;
 mod github_composite;
 mod powershell;
+mod shell_installer;
 
 use powershell::{is_powershell_script_path, parse_powershell_env_references};
 
@@ -109,6 +110,14 @@ impl Extractor for OperationsExtractor {
                 &mut facts,
             );
             extract_shell_functions(
+                self.name(),
+                &input,
+                &file_id,
+                content,
+                &mut entities,
+                &mut facts,
+            );
+            shell_installer::extract_first_party_shell_installer(
                 self.name(),
                 &input,
                 &file_id,
