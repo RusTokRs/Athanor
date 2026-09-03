@@ -17,8 +17,9 @@ struct DependabotUpdatePolicy {
 }
 
 pub(super) fn is_dependabot_config_path(path: &str) -> bool {
+    let normalized = path.replace('\\', "/").to_ascii_lowercase();
     matches!(
-        path.replace('\\', "/").to_ascii_lowercase().as_str(),
+        normalized.as_str(),
         ".github/dependabot.yml" | ".github/dependabot.yaml"
     )
 }
@@ -221,11 +222,11 @@ mod tests {
         assert_eq!(policies.len(), 2);
         assert_eq!(
             policies[0].stable_key.0,
-            "config://.github/dependabot.yml#dependabot:cargo:_"
+            "config://.github/dependabot.yml#dependabot:cargo:-"
         );
         assert_eq!(
             policies[1].stable_key.0,
-            "config://.github/dependabot.yml#dependabot:github-actions:_"
+            "config://.github/dependabot.yml#dependabot:github-actions:-"
         );
         assert!(policies.iter().all(|entity| {
             entity.payload.get("feature_kind")
