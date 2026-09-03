@@ -20,6 +20,8 @@ The current slice parses:
   `.github/workflows/*.yaml`
 - first-party GitHub composite actions from `.github/actions/**/action.yml` and `action.yaml` when
   `runs.using: composite`, including `run`/`uses` steps and step environment declarations
+- first-party Dependabot version-2 update policies from `.github/dependabot.yml` and
+  `.github/dependabot.yaml`
 - Cargo package manifests from `Cargo.toml`
 - Kubernetes YAML manifests from common deployment paths and filenames
 - SQL database migrations from common migration paths and filenames
@@ -31,7 +33,7 @@ Entities:
 - `EntityKind::EnvVar` with `env://<NAME>` stable keys
 - `EntityKind::DbMigration` for SQL migration files
 - `EntityKind::DbTable` for tables declared by SQL migrations
-- `EntityKind::Feature` for runtime configuration keys
+- `EntityKind::Feature` for runtime configuration keys and bounded dependency-update policies
 - `EntityKind::Package` for Cargo packages and workspaces
 - `EntityKind::Dependency` for Cargo dependencies, dev-dependencies, build-dependencies,
   workspace dependencies, and target-specific dependencies
@@ -50,8 +52,8 @@ Facts:
 
 - `FactKind::EnvVarUsed` from the environment variable entity to the canonical file entity
 - `FactKind::MigrationCreatesTable` from SQL migration entities to table entities
-- `FactKind::SymbolDefined` from Cargo package, workspace, and dependency entities to the
-  canonical file entity
+- `FactKind::SymbolDefined` from Cargo package, workspace, dependency, runtime-config, and Dependabot
+  policy entities to the canonical file entity
 - `FactKind::SymbolDefined` from operational command/stage entities to the canonical file entity
 
 Environment fact payloads mark the declaration source as `dotenv`, `dockerfile`, `shell`,
@@ -91,6 +93,10 @@ None. The adapter does not run commands, use the network, or modify project file
   metadata with `runs.using: composite`, plus `run`/`uses` steps and step `env`. Inputs/outputs
   expression semantics, JavaScript/Docker actions, permissions, secrets, and generic YAML remain
   outside this slice.
+- Dependabot parsing is limited to first-party `.github/dependabot.yml|yaml`, requires `version: 2`,
+  and projects only `updates[]` entries with `package-ecosystem`, `directory`, plus optional
+  `schedule.interval` and `target-branch`. Registries/credentials, groups, ignore/allow rules,
+  labels, reviewers, commit-message behavior, and generic YAML semantics remain outside this slice.
 - Cargo manifest parsing is limited to package/workspace metadata and direct dependency sections.
   It does not resolve inherited workspace fields, features, target expressions, patches,
   replacements, profiles, or build scripts.
