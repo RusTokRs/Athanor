@@ -1,10 +1,19 @@
-use super::{GithubActionsStep, parse_github_actions_step, yaml_key_line};
+use std::collections::BTreeMap;
+
+use athanor_core::ExtractInput;
+use athanor_domain::{Entity, EntityId, Fact, StableKey};
+use serde_json::json;
+
+use super::{
+    EnvDeclaration, GithubActionsStep, GithubActionsStepKind, extract_env_declarations,
+    parse_github_actions_step, push_script_command_entity_and_fact, yaml_key_line,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct GithubCompositeAction {
-    pub(super) name: Option<String>,
-    pub(super) line: u32,
-    pub(super) steps: Vec<GithubActionsStep>,
+struct GithubCompositeAction {
+    name: Option<String>,
+    line: u32,
+    steps: Vec<GithubActionsStep>,
 }
 
 pub(super) fn is_github_composite_action_path(path: &str) -> bool {
@@ -18,7 +27,108 @@ pub(super) fn is_github_composite_action_path(path: &str) -> bool {
     )
 }
 
-pub(super) fn parse_github_composite_action(content: &str) -> Option<GithubCompositeAction> {
+pub(super) fn extract_github_composite_action(
+    extractor: &str,
+    input: &ExtractInput,
+    file_id: &EntityId,
+    content: &str,
+    entities: &mut Vec<Entity>,
+    facts: &mut Vec<Fact>,
+) {
+    let Some(action) = parse_github_composite_action(content) else {
+        return;
+    };
+
+    let action_name = action
+        .name
+        .clone()
+        .unwrap_or_else(|| "composite action".to_string());
+    let action_key = StableKey(format!(
+        "script-command://{}#github-actions:composite",
+        input.source.path
+    ));
+    push_script_command_entity_and_fact(
+        extractor,
+        input,
+        file_id,
+        action_key,
+        action_name.clone(),
+        Some(format!("GitHub composite action {action_name}")),
+        action.line,
+        "github_actions",
+        json!({
+            "command_kind": "github_composite_action",
+            "action": action_name,
+        }),
+        json!({
+            "path": input.source.path,
+            "source_kind": "github_actions",
+            "action_kind": "composite",
+        }),
+        entities,
+        facts,
+    );
+
+    let mut environment = BTreeMap::<String, EnvDeclaration>::new();
+    for step in action.steps {
+        for (name, declaration) in &step.environment {
+            environment
+                .entry(name.clone())
+                .or_insert_with(|| declaration.clone());
+        }
+
+        let (step_kind, value) = match &step.kind {
+            GithubActionsStepKind::Run(command) => ("run", command.as_str()),
+            GithubActionsStepKind::Uses(action) => ("uses", action.as_str()),
+        };
+        let step_key = StableKey(format!(
+            "script-command://{}#github-actions:composite:step:{}:{}",
+            input.source.path, step.index, step_kind
+        ));
+        let step_name = step
+            .name
+            .clone()
+            .unwrap_or_else(|| format!("composite step {}", step.index));
+        push_script_command_entity_and_fact(
+            extractor,
+            input,
+            file_id,
+            step_key,
+            step_name.clone(),
+            Some(format!("GitHub composite {step_kind} step {step_name}")),
+            step.line,
+            "github_actions",
+            json!({
+                "command_kind": "github_composite_step",
+                "step": step.index,
+                "step_name": &step.name,
+                "step_kind": step_kind,
+                "value": value,
+            }),
+            json!({
+                "path": input.source.path,
+                "source_kind": "github_actions",
+                "action_kind": "composite",
+                "step": step.index,
+                "step_kind": step_kind,
+            }),
+            entities,
+            facts,
+        );
+    }
+
+    extract_env_declarations(
+        extractor,
+        input,
+        file_id,
+        "github_actions",
+        environment,
+        entities,
+        facts,
+    );
+}
+
+fn parse_github_composite_action(content: &str) -> Option<GithubCompositeAction> {
     let root_value = serde_yaml_ng::from_str::<serde_json::Value>(content).ok()?;
     let root = root_value.as_object()?;
     let runs = root.get("runs")?.as_object()?;
@@ -51,7 +161,6 @@ pub(super) fn parse_github_composite_action(content: &str) -> Option<GithubCompo
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::GithubActionsStepKind;
 
     #[test]
     fn recognizes_only_first_party_action_metadata_paths() {
