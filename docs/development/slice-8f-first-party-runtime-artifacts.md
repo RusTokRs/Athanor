@@ -6,16 +6,35 @@ status: active
 
 # Slice 8F — First-party runtime artifacts
 
+## Status
+
+Source implementation is landed on `main` through the bounded operations extractor. Focused format/test/
+Clippy verification remains pending; the maintainer runs those checks separately.
+
 ## Scope
 
-Continue from the 8E completeness baseline with a bounded semantic projection of first-party runtime
-artifacts. The next implementation should prefer product meaning over raw coverage percentage.
+Continue from the 8E completeness baseline with bounded semantic projections of first-party runtime
+artifacts. The implementation prefers product meaning over raw coverage percentage.
 
-## Initial candidates
+## Implemented projections
 
-- `install.sh`: inspect whether installer lifecycle facts can be represented using existing contracts.
-- `scripts/verify_release_version.py`: inspect whether release verification semantics expose useful
-  repository knowledge facts.
+### Root `install.sh`
+
+- Recognizes only the repository-root `install.sh` path and a supported POSIX-shell shebang.
+- Projects one `ScriptCommand` entry point with `ath`/`athd` installation targets.
+- Records `SHA256SUMS` plus the bounded `sha256sum`/`shasum` verification anchors.
+- Attaches deterministic source-line evidence and ownership.
+- Does not expose `ATHANOR_INSTALL_DIR`, `$HOME`, resolved filesystem paths, filesystem state, or shell control flow.
+
+### `scripts/verify_release_version.py`
+
+- Recognizes only the exact first-party script path and its Python 3 shebang.
+- Projects one `ScriptCommand` for the release-contract verifier.
+- Records the bounded `v<semver>` tag contract, Cargo `package.version` coherence requirement, dated changelog
+  section requirement, substantive release-note requirement, output-writing contract, and declared CLI inputs.
+- Uses exact local contract anchors and fails closed when a required anchor drifts.
+- Does not execute Python, inspect manifests/changelog contents, capture concrete versions/tags/paths, or parse
+  generic Python AST/control flow.
 
 ## Constraints
 
@@ -26,5 +45,6 @@ artifacts. The next implementation should prefer product meaning over raw covera
 
 ## Acceptance direction
 
-A future implementation slice should add only deterministic, evidence-backed facts with exact source
-commit verification.
+Focused verification must run against one exact source commit before Slice 8F is promoted to verified.
+Completeness should be re-evaluated after verification; its resulting percentage must not be inferred from the
+number of newly recognized files alone.
