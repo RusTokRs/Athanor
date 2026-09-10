@@ -230,8 +230,9 @@ source-implemented; focused verification remains pending.
 
 ### 4.2 Product backlog
 
-- [ ] выбрать следующий bounded semantic gap из exact 8E artifact; сначала проверить root `install.sh` и
-  `scripts/verify_release_version.py`, а не generic JSON/test fixtures;
+- [ ] выполнить focused verification Slice 8F на одном exact source commit;
+- [ ] повторно запустить self-evaluation/completeness после 8F и зафиксировать фактический delta;
+- [ ] выбрать следующий bounded semantic gap уже из post-8F artifact, а не по предположению о coverage;
 - [ ] не добавлять generic JSON/fixture parsing только ради coverage без explicit product semantics;
 - [ ] issue forms и OpenAPI fixture YAML не включать без отдельного evidence-backed scope;
 - [ ] Next.js/Axum/Express schemas/auth/middleware и route composition расширять отдельными slices;
@@ -250,7 +251,7 @@ source-implemented; focused verification remains pending.
 | `VERIFY-001` | P1 | `[x] verified` | Full release baseline matrix |
 | `API-001` | P1 | `[x] verified` | Cross-protocol consistency |
 | `REL-001` | P1 | `[x] verified` | `v0.2.1` published and installed |
-| `DOCGEN-001` | P2 | `[-] in progress` | Profiles 2A–5C + completeness 6A–6B + framework 7A–7C + Slices 8A–8E source-implemented |
+| `DOCGEN-001` | P2 | `[-] in progress` | Profiles 2A–5C + completeness 6A–6B + framework 7A–7C + Slices 8A–8F source-implemented |
 
 ## 6. Verification matrix
 
@@ -289,6 +290,8 @@ cargo run -p ath --quiet --locked -- docs check
 
 ## 7. Следующий шаг
 
-Выбрать Slice 8F из exact `33722472453`: предпочтение полезной first-party семантике. Root `install.sh`
-уже подтверждён как отдельный unprocessed operational surface; до реализации проверить текущий shell parser и
-ограничить scope без generic shell AST. Generic JSON/test fixtures не использовать как coverage target.
+Slice 8F уже source-implemented: root `install.sh` и `scripts/verify_release_version.py` получили bounded
+first-party projections через `ScriptCommand`, exact local evidence и fail-closed drift boundaries. После merge
+`c978187d…` Verification Matrix выявила только rustfmt drift в двух новых файлах; форматирование исправлено
+в follow-up branch. Следующий шаг — выполнить focused verification на exact follow-up commit и заново получить
+self-evaluation/completeness evidence. Generic JSON/test fixtures не использовать как coverage target.
