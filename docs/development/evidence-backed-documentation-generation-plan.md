@@ -271,7 +271,7 @@ or layout drift, invalid validation status, and checksum drift.
 - Relation disclosure is exact-evaluation-confirmed on `6862aee8…` by `32712992516` / `32712992421`.
 - Later source landings do not substitute for focused profile verification: module 2C `b9e0eadc…`, API 3A `0a4c0f78…`.
 - Completeness progression: 8B 665/718 (`9261`), 8C 667/719 (`9276`), 8D 669/720 (`9291`), 8E 670/720 (`9305`).
-- Focused module/API/operations/onboarding/completeness/framework and Slices 8A–8E verification remains pending.
+- Focused module/API/operations/onboarding/completeness/framework and Slices 8A–8H verification remains pending.
 
 The repaired bounded Rustok architecture-generation evaluation retains `DOCUMENTATION_REFERENCE_LIMIT`,
 `workflow_dispatch` support, and diagnostic evidence checks as explicit regression boundaries.
@@ -280,8 +280,8 @@ The repaired bounded Rustok architecture-generation evaluation retains `DOCUMENT
 
 1. Run focused verification for Slices 8F–8H on the exact follow-up source commit.
 2. Rerun the exact self-evaluation/completeness report and record the resulting coverage delta rather than inferring it.
-3. Select the next bounded semantic gap from that post-8H artifact; keep issue forms, OpenAPI fixtures, provider,
-   daemon, MCP, and coordinated `ath generate` changes separately gated.
+3. Select the next bounded semantic gap from that post-8H artifact; issue forms are now implemented, while OpenAPI fixtures, provider,
+   daemon, MCP, and coordinated `ath generate` changes remain separately gated.
 
 ## Verification
 
