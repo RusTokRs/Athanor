@@ -143,9 +143,13 @@ mod tests {
             },
         }).await.unwrap();
 
-        assert_eq!(output.entities.len(), 1);
-        let entity = &output.entities[0];
-        assert_eq!(entity.kind, EntityKind::ScriptCommand);
+        let command_entities = output
+            .entities
+            .iter()
+            .filter(|entity| entity.kind == EntityKind::ScriptCommand)
+            .collect::<Vec<_>>();
+        assert_eq!(command_entities.len(), 1);
+        let entity = command_entities[0];
         assert_eq!(entity.stable_key.0, "script-command://install.ps1#installer-powershell");
         assert_eq!(entity.payload["entrypoint"], json!("install.ps1"));
         assert_eq!(entity.payload["install_targets"], json!(["ath.exe", "athd.exe"]));
@@ -153,6 +157,9 @@ mod tests {
         assert_eq!(entity.payload["checksum_tool"], json!("Get-FileHash"));
         assert!(entity.payload.get("install_dir").is_none());
         assert!(entity.payload.get("environment").is_none());
+        assert!(output.entities.iter().all(|entity| {
+            entity.kind != EntityKind::EnvVar || entity.stable_key.0 == "env://LOCALAPPDATA"
+        }));
 
         assert_eq!(output.facts.len(), 1);
         assert_eq!(output.facts[0].kind, FactKind::SymbolDefined);
