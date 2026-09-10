@@ -164,3 +164,8 @@ not promote later slices to fully verified unless their required focused gate su
 ### Slice 8H — First-party GitHub Issue Forms
 
 Slice 8H adds a bounded first-party projection for a single-level `.github/ISSUE_TEMPLATE/*.yml|yaml` file, treating contributor issue forms as structured repository-owned operational interfaces. It records form identity and bounded body-field metadata with evidence, while leaving rendering/expression semantics out of scope. Boundary hardening rejects nested paths and empty form names. Focused verification and completeness evidence remain pending.
+
+
+### Slice 8H contract hardening
+
+The first-party issue-form projection now fails closed on unsupported GitHub form body item types and only accepts the bounded native item kinds `input`, `textarea`, `dropdown`, `checkboxes`, and `markdown`.
