@@ -12,6 +12,7 @@ use serde_json::json;
 
 mod dependabot;
 mod github_composite;
+mod github_issue_form;
 mod install_ps1;
 mod install_script;
 mod powershell;
@@ -45,6 +46,7 @@ impl Extractor for OperationsExtractor {
             || is_runtime_config_path(&source.path)
             || is_github_actions_workflow_path(&source.path)
             || github_composite::is_github_composite_action_path(&source.path)
+            || github_issue_form::is_github_issue_form_path(&source.path)
             || dependabot::is_dependabot_config_path(&source.path)
             || install_ps1::is_root_install_ps1_path(&source.path)
             || release_version_verifier::is_release_version_verifier_path(&source.path)
@@ -211,6 +213,17 @@ impl Extractor for OperationsExtractor {
 
         if is_github_actions_workflow_path(&input.source.path) {
             extract_github_actions_workflow(
+                self.name(),
+                &input,
+                &file_id,
+                content,
+                &mut entities,
+                &mut facts,
+            );
+        }
+
+        if github_issue_form::is_github_issue_form_path(&input.source.path) {
+            github_issue_form::extract_github_issue_form(
                 self.name(),
                 &input,
                 &file_id,
