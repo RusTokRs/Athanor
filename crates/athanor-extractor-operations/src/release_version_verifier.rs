@@ -141,11 +141,10 @@ fn parse_release_version_verifier(content: &str) -> Option<ReleaseVerifierMetada
 }
 
 fn find_line(content: &str, marker: &str) -> Option<u32> {
-    content.lines().enumerate().find_map(|(index, line)| {
-        line.trim()
-            .contains(marker)
-            .then_some((index + 1) as u32)
-    })
+    content
+        .lines()
+        .enumerate()
+        .find_map(|(index, line)| line.trim().contains(marker).then_some((index + 1) as u32))
 }
 
 #[cfg(test)]

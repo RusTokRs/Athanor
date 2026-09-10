@@ -48,7 +48,8 @@ Extraction: [basic](adapters/extractor-basic.md), [Markdown](adapters/extractor-
 [Rust](adapters/extractor-rust.md), [Axum](adapters/extractor-axum.md),
 [JavaScript/TypeScript](adapters/extractor-js-ts.md), [Next.js](adapters/extractor-nextjs.md),
 [Express](adapters/extractor-express.md), [OpenAPI](adapters/extractor-openapi.md),
-[GraphQL](adapters/extractor-graphql.md), and [operations](adapters/extractor-operations.md).
+[GraphQL](adapters/extractor-graphql.md), [operations](adapters/extractor-operations.md),
+[install script](adapters/install-script.md), and [release version verifier](adapters/release-version-verifier.md).
 
 Linking/checking: [Markdown linker](adapters/linker-markdown.md),
 [Rust linker](adapters/linker-rust.md), [JS/TS linker](adapters/linker-js-ts.md),
