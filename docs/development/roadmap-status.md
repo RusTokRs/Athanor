@@ -169,3 +169,6 @@ Slice 8H adds a bounded first-party projection for a single-level `.github/ISSUE
 ### Slice 8H contract hardening
 
 The first-party issue-form projection now fails closed on unsupported GitHub form body item types and only accepts the bounded native item kinds `input`, `textarea`, `dropdown`, `checkboxes`, and `markdown`.
+
+
+Slice 8H hardening also rejects a form atomically when any body item uses an unsupported type; valid items are not partially projected from an otherwise unsupported form.
