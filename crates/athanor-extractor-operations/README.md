@@ -128,3 +128,8 @@ None. The adapter does not run commands, use the network, or modify project file
 ```bash
 cargo test -p athanor-extractor-operations
 ```
+
+
+### First-party PowerShell installer
+
+The root `install.ps1` is recognized by an exact path and a bounded first-party contract: the `SHA256SUMS` manifest, the packaged `ath.exe`/`athd.exe` targets, and SHA-256 verification via `Get-FileHash`. Runtime install directories, environment values, filesystem state, and generic PowerShell semantics are not projected.
