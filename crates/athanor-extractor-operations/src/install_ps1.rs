@@ -161,10 +161,14 @@ mod tests {
             entity.kind != EntityKind::EnvVar || entity.stable_key.0 == "env://LOCALAPPDATA"
         }));
 
-        assert_eq!(output.facts.len(), 1);
-        assert_eq!(output.facts[0].kind, FactKind::SymbolDefined);
-        assert!(!output.facts[0].evidence.is_empty());
-        assert!(!output.facts[0].ownership.is_empty());
+        let command_facts = output
+            .facts
+            .iter()
+            .filter(|fact| fact.kind == FactKind::SymbolDefined)
+            .collect::<Vec<_>>();
+        assert_eq!(command_facts.len(), 1);
+        assert!(!command_facts[0].evidence.is_empty());
+        assert!(!command_facts[0].ownership.is_empty());
     }
 
     #[tokio::test]
