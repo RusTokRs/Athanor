@@ -237,7 +237,8 @@ source-implemented; focused verification remains pending.
 - [ ] повторно запустить self-evaluation/completeness после 8F и зафиксировать фактический delta;
 - [ ] выбрать следующий bounded semantic gap уже из post-8F artifact, а не по предположению о coverage;
 - [ ] не добавлять generic JSON/fixture parsing только ради coverage без explicit product semantics;
-- [ ] issue forms и OpenAPI fixture YAML не включать без отдельного evidence-backed scope;
+- [x] issue forms: bounded first-party projection implemented in Slice 8H;
+- [ ] OpenAPI fixture YAML не включать без отдельного evidence-backed scope;
 - [ ] Next.js/Axum/Express schemas/auth/middleware и route composition расширять отдельными slices;
 - [ ] optional provider, daemon, MCP, i18n and semantic retrieval after deterministic quality gates.
 
@@ -254,7 +255,7 @@ source-implemented; focused verification remains pending.
 | `VERIFY-001` | P1 | `[x] verified` | Full release baseline matrix |
 | `API-001` | P1 | `[x] verified` | Cross-protocol consistency |
 | `REL-001` | P1 | `[x] verified` | `v0.2.1` published and installed |
-| `DOCGEN-001` | P2 | `[-] in progress` | Profiles 2A–5C + completeness 6A–6B + framework 7A–7C + Slices 8A–8F source-implemented |
+| `DOCGEN-001` | P2 | `[-] in progress` | Profiles 2A–5C + completeness 6A–6B + framework 7A–7C + Slices 8A–8H source-implemented |
 
 ## 6. Verification matrix
 
@@ -296,5 +297,5 @@ cargo run -p ath --quiet --locked -- docs check
 Slice 8F уже source-implemented: root `install.sh` и `scripts/verify_release_version.py` получили bounded
 first-party projections через `ScriptCommand`, exact local evidence и fail-closed drift boundaries. После merge
 `c978187d…` Verification Matrix выявила только rustfmt drift в двух новых файлах; форматирование исправлено
-в follow-up branch. Следующий шаг — выполнить focused verification на exact follow-up commit и заново получить
-self-evaluation/completeness evidence. Generic JSON/test fixtures не использовать как coverage target.
+в follow-up branch. Следующий шаг — выполнить focused verification для Slices 8F–8H на одном exact source commit и заново получить
+self-evaluation/completeness evidence; после этого выбрать следующий bounded semantic gap из результата. Generic JSON/test fixtures не использовать как coverage target.
