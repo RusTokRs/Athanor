@@ -227,8 +227,14 @@ mod tests {
         assert_eq!(entity.payload["entrypoint"], json!("install.sh"));
         assert_eq!(entity.payload["install_targets"], json!(["ath", "athd"]));
         assert_eq!(entity.payload["checksum_manifest"], json!("SHA256SUMS"));
-        assert_eq!(entity.payload["checksum_tools"], json!(["sha256sum", "shasum"]));
-        assert_eq!(entity.payload["security_anchor"], json!("checksum_verification"));
+        assert_eq!(
+            entity.payload["checksum_tools"],
+            json!(["sha256sum", "shasum"])
+        );
+        assert_eq!(
+            entity.payload["security_anchor"],
+            json!("checksum_verification")
+        );
         assert!(entity.payload.get("prefix").is_none());
         assert!(entity.payload.get("environment").is_none());
 
