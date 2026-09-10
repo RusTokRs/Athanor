@@ -27,10 +27,12 @@ struct IssueFormItem {
 
 pub(super) fn is_github_issue_form_path(path: &str) -> bool {
     let normalized = path.replace('\\', "/").to_ascii_lowercase();
-    normalized.starts_with(".github/issue_template/")
-        && normalized.ends_with(".yml")
-        || normalized.starts_with(".github/issue_template/")
-            && normalized.ends_with(".yaml")
+    let Some(filename) = normalized.strip_prefix(".github/issue_template/") else {
+        return false;
+    };
+    !filename.is_empty()
+        && !filename.contains('/')
+        && (filename.ends_with(".yml") || filename.ends_with(".yaml"))
 }
 
 pub(super) fn extract_github_issue_form(
@@ -186,6 +188,9 @@ fn parse_issue_form(content: &str) -> Option<IssueForm> {
     let root = serde_yaml_ng::from_str::<serde_json::Value>(content).ok()?;
     let object = root.as_object()?;
     let name = object.get("name")?.as_str()?.trim();
+    if name.is_empty() {
+        return None;
+    }
     let description = object
         .get("description")
         .and_then(serde_json::Value::as_str)
@@ -262,6 +267,14 @@ mod tests {
         ));
         assert!(!is_github_issue_form_path(".github/dependabot.yml"));
         assert!(!is_github_issue_form_path(".github/ISSUE_TEMPLATE/config.yml"));
+        assert!(!is_github_issue_form_path(".github/ISSUE_TEMPLATE/nested/form.yml"));
+        assert!(!is_github_issue_form_path(".github/ISSUE_TEMPLATE/"));
+        assert!(!is_github_issue_form_path("github/ISSUE_TEMPLATE/form.yml"));
+    }
+
+    #[test]
+    fn rejects_empty_form_name() {
+        assert!(parse_issue_form("name: \\nbody:\n  - type: textarea\n").is_none());
     }
 
     #[test]
