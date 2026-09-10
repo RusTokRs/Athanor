@@ -79,7 +79,8 @@ and workspace tests before exposing one `clippy::collapsible_if`; #93 applied ex
 and PR CI `33723374660` confirmed formatting, workspace tests, and Clippy green on macOS before merge.
 
 ### Slice 8F adds bounded first-party runtime artifact projections for the root `install.sh` and
-`scripts/verify_release_version.py`. The operations extractor emits one `ScriptCommand` per artifact with
+`scripts/verify_release_version.py`. Slice 8G extends the same boundary to the root `install.ps1`, projecting
+only the packaged Windows binaries and SHA-256 verification contract. The operations extractor emits one `ScriptCommand` per artifact with
 exact local contract anchors, source evidence, ownership, and fail-closed drift behavior. It does not execute
 shell/Python or expose runtime values and paths. Focused verification remains pending; the latest recorded
 verification-matrix run on `c978187d…` failed only at rustfmt in the new Slice 8F files and must not be treated as
@@ -139,6 +140,7 @@ generic/test JSON fixtures, `Cargo.lock`, and non-semantic repository files.
 - [x] Slices 7A–7C: bounded built-in Next.js, Axum, and Express route projections;
 - [x] Slices 8A–8E source implementation plus exact completeness confirmation;
 - [x] Slice 8F source implementation for `install.sh` and `verify_release_version.py`;
+- [x] Slice 8G source implementation for the first-party `install.ps1` installer;
 - [ ] focused verification for later profile/completeness/framework slices and Slices 8A–8F remains pending.
 
 `DOCGEN-001` remains in progress. Exact completeness confirms Slices 8A–8E coverage effects; that evidence does
@@ -146,8 +148,8 @@ not promote later slices to fully verified unless their required focused gate su
 
 ## Product Backlog
 
-- run the focused verification for Slice 8F and then rerun exact completeness/self-evaluation;
-- select the next slice only after the post-8F artifact is available, preferring useful first-party semantics over raw percentage;
+- run the focused verification for Slices 8F–8G and then rerun exact completeness/self-evaluation;
+- select the next slice only after the post-8G artifact is available, preferring useful first-party semantics over raw percentage;
 - keep issue forms and OpenAPI fixtures out unless independently justified by product semantics;
 - do not add generic JSON/fixture parsing solely to raise coverage;
 - keep Next.js/Axum/Express schema/auth/middleware and route-composition expansion evidence-driven;
