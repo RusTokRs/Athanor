@@ -12,6 +12,7 @@ use serde_json::json;
 
 mod dependabot;
 mod github_composite;
+mod install_ps1;
 mod install_script;
 mod powershell;
 mod release_version_verifier;
@@ -120,6 +121,17 @@ impl Extractor for OperationsExtractor {
                 &mut facts,
             );
             install_script::extract_install_script(
+                self.name(),
+                &input,
+                &file_id,
+                content,
+                &mut entities,
+                &mut facts,
+            );
+        }
+
+        if install_ps1::is_root_install_ps1_path(&input.source.path) {
+            install_ps1::extract_install_ps1(
                 self.name(),
                 &input,
                 &file_id,
