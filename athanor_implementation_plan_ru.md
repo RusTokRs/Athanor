@@ -230,7 +230,7 @@ source-implemented; focused verification remains pending.
 
 ### 4.2 Product backlog
 
-- [ ] выполнить focused verification Slice 8F на одном exact source commit;
+- [ ] выполнить focused verification Slices 8F–8G на одном exact source commit;
 - [ ] повторно запустить self-evaluation/completeness после 8F и зафиксировать фактический delta;
 - [ ] выбрать следующий bounded semantic gap уже из post-8F artifact, а не по предположению о coverage;
 - [ ] не добавлять generic JSON/fixture parsing только ради coverage без explicit product semantics;
