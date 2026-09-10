@@ -128,3 +128,8 @@ None. The adapter does not run commands, use the network, or modify project file
 ```bash
 cargo test -p athanor-extractor-operations
 ```
+
+
+### Slice 8H — First-party GitHub Issue Forms
+
+First-party GitHub issue forms under `.github/ISSUE_TEMPLATE/*.yml|yaml` are projected as bounded feature metadata: form identity, labels, body-item types/labels, and required flags. Arbitrary YAML and GitHub rendering semantics remain unsupported.
