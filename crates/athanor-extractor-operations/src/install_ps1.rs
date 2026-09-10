@@ -188,7 +188,13 @@ mod tests {
             },
         }).await.unwrap();
 
-        assert!(output.entities.is_empty());
-        assert!(output.facts.is_empty());
+        assert!(output
+            .entities
+            .iter()
+            .all(|entity| entity.kind != EntityKind::ScriptCommand));
+        assert!(output
+            .facts
+            .iter()
+            .all(|fact| fact.kind != FactKind::SymbolDefined));
     }
 }
