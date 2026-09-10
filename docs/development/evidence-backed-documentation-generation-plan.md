@@ -230,6 +230,7 @@ or layout drift, invalid validation status, and checksum drift.
 - `.github/ISSUE_TEMPLATE/*.yml|yaml` is recognized as a first-party contributor interface through a bounded YAML projection.
 - The projection records form identity plus body-item type, label, and required state; descriptions and labels are retained as bounded metadata.
 - GitHub rendering, expressions, markdown semantics, and arbitrary YAML are not projected.
+- Path recognition is restricted to a single file directly under `.github/ISSUE_TEMPLATE/`; empty form names fail closed.
 - Focused verification and completeness evidence remain pending.
 
 ### Slice 8G — First-party PowerShell Installer
