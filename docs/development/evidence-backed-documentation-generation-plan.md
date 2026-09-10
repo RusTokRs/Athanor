@@ -225,6 +225,13 @@ or layout drift, invalid validation status, and checksum drift.
   (`9291` bps), YAML 12/15, TOML 34/35.
 - Verification Matrix `33714498496` exposed formatter-only test hunks in Slices 8C/8D; #91 applied exactly them.
 
+### Slice 8G — First-party PowerShell Installer
+
+- The repository-root `install.ps1` is recognized through an exact path and bounded first-party contract.
+- The projection records `ath.exe`/`athd.exe`, `SHA256SUMS`, and SHA-256 verification through `Get-FileHash`.
+- Runtime install directories, environment values, filesystem state, and generic PowerShell control flow are not projected.
+- Focused verification and completeness evidence remain pending.
+
 ### Slice 8F — First-party Runtime Artifacts
 
 - Root `install.sh` is recognized through a dedicated bounded installer projection with `ath`/`athd` targets and
@@ -263,9 +270,9 @@ The repaired bounded Rustok architecture-generation evaluation retains `DOCUMENT
 
 ## Next Bounded Step
 
-1. Run focused verification for Slice 8F on the exact follow-up source commit.
+1. Run focused verification for Slices 8F–8G on the exact follow-up source commit.
 2. Rerun the exact self-evaluation/completeness report and record the resulting coverage delta rather than inferring it.
-3. Select the next bounded semantic gap from that post-8F artifact; keep issue forms, OpenAPI fixtures, provider,
+3. Select the next bounded semantic gap from that post-8G artifact; keep issue forms, OpenAPI fixtures, provider,
    daemon, MCP, and coordinated `ath generate` changes separately gated.
 
 ## Verification

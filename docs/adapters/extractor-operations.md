@@ -329,3 +329,8 @@ declaration or reference.
 ```bash
 cargo test -p athanor-extractor-operations
 ```
+
+
+### First-party PowerShell installer
+
+The root `install.ps1` is recognized through an exact path and a bounded first-party contract. The adapter records the packaged `ath.exe`/`athd.exe` targets, `SHA256SUMS`, and SHA-256 verification through `Get-FileHash`, while excluding runtime install paths, environment values, filesystem state, and generic PowerShell semantics.
