@@ -159,3 +159,8 @@ not promote later slices to fully verified unless their required focused gate su
 - keep Next.js/Axum/Express schema/auth/middleware and route-composition expansion evidence-driven;
 - Dart/Flutter remains blocked on a portable DartScope dependency boundary rather than a local-only path dependency;
 - optional i18n, semantic/vector retrieval, provider, daemon, and MCP integration after quality gates.
+
+
+### Slice 8H — First-party GitHub Issue Forms
+
+Slice 8H adds a bounded first-party projection for `.github/ISSUE_TEMPLATE/*.yml|yaml`, treating contributor issue forms as structured repository-owned operational interfaces. It records form identity and bounded body-field metadata with evidence, while leaving rendering/expression semantics out of scope. Focused verification and completeness evidence remain pending.
