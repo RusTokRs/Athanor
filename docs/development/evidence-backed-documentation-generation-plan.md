@@ -225,6 +225,17 @@ or layout drift, invalid validation status, and checksum drift.
   (`9291` bps), YAML 12/15, TOML 34/35.
 - Verification Matrix `33714498496` exposed formatter-only test hunks in Slices 8C/8D; #91 applied exactly them.
 
+### Slice 8F — First-party Runtime Artifacts
+
+- Root `install.sh` is recognized through a dedicated bounded installer projection with `ath`/`athd` targets and
+  checksum-verification anchors, without generic shell parsing or runtime path/value capture.
+- `scripts/verify_release_version.py` is recognized through exact local contract anchors for release-tag format,
+  Cargo version coherence, changelog/date/substantive-notes checks, notes output, and CLI inputs, without Python
+  execution or generic AST parsing.
+- Both projections use existing `ScriptCommand`, evidence, ownership, and fail-closed extraction contracts.
+- Focused verification is still pending. The first post-merge Verification Matrix run on `c978187d…` failed at
+  formatting only; the formatting drift is now repaired on a follow-up branch.
+
 ### Slice 8E — Bounded Cargo-Deny Supply-Chain Policy
 
 - Only root `deny.toml` is recognized, and only policy domains `advisories`, `licenses`, `bans`, `sources`.
@@ -252,11 +263,10 @@ The repaired bounded Rustok architecture-generation evaluation retains `DOCUMENT
 
 ## Next Bounded Step
 
-1. Select Slice 8F from exact `33722472453`, preferring first-party semantic value over percentage.
-2. Inspect root `install.sh` and `scripts/verify_release_version.py`; do not use generic JSON/test fixtures as a coverage target.
-3. For `install.sh`, reuse existing shell/operations contracts only if a narrow installer-specific semantic projection is justified;
-   do not introduce a generic shell AST or broad arbitrary-command extraction.
-4. Keep issue forms, OpenAPI fixtures, provider, daemon, MCP, and coordinated `ath generate` changes separately gated.
+1. Run focused verification for Slice 8F on the exact follow-up source commit.
+2. Rerun the exact self-evaluation/completeness report and record the resulting coverage delta rather than inferring it.
+3. Select the next bounded semantic gap from that post-8F artifact; keep issue forms, OpenAPI fixtures, provider,
+   daemon, MCP, and coordinated `ath generate` changes separately gated.
 
 ## Verification
 
