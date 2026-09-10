@@ -209,7 +209,7 @@ fn parse_issue_form(content: &str) -> Option<IssueForm> {
         .into_iter()
         .flatten()
         .enumerate()
-        .filter_map(|(index, value)| {
+        .map(|(index, value)| {
             let item = value.as_object()?;
             let kind = item.get("type")?.as_str()?.trim();
             if !matches!(kind, "input" | "textarea" | "dropdown" | "checkboxes" | "markdown") {
@@ -234,7 +234,7 @@ fn parse_issue_form(content: &str) -> Option<IssueForm> {
                 line: yaml_key_line(content, "body").unwrap_or(1),
             })
         })
-        .collect::<Vec<_>>();
+        .collect::<Option<Vec<_>>>()?;
 
     if body_items.is_empty() {
         return None;
@@ -293,6 +293,10 @@ mod tests {
         assert!(form.body_items[1].required);
         assert!(parse_issue_form(
             "name: Unknown\nbody:\n  - type: unsupported\n"
+        )
+        .is_none());
+        assert!(parse_issue_form(
+            "name: Mixed\nbody:\n  - type: textarea\n  - type: unsupported\n"
         )
         .is_none());
     }
