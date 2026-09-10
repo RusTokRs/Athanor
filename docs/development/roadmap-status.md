@@ -78,6 +78,13 @@ contains all four `config://deny.toml#cargo-deny:<section>` keys. Post-merge CI 
 and workspace tests before exposing one `clippy::collapsible_if`; #93 applied exactly the requested let-chain,
 and PR CI `33723374660` confirmed formatting, workspace tests, and Clippy green on macOS before merge.
 
+### Slice 8F adds bounded first-party runtime artifact projections for the root `install.sh` and
+`scripts/verify_release_version.py`. The operations extractor emits one `ScriptCommand` per artifact with
+exact local contract anchors, source evidence, ownership, and fail-closed drift behavior. It does not execute
+shell/Python or expose runtime values and paths. Focused verification remains pending; the latest recorded
+verification-matrix run on `c978187d…` failed only at rustfmt in the new Slice 8F files and must not be treated as
+8F verification evidence.
+
 The shared `current.json` is profile-aware across architecture, module, API, operations, and onboarding.
 Every inspector fails closed when another published profile owns the current pointer.
 
@@ -104,9 +111,11 @@ evaluation `32718598212`, probe `32718598232`, and API Slice 3A `0a4c0f78…` wi
 `32719989413` / probe `32719989450`; these do not substitute for focused profile execution evidence.
 
 Completeness progression is exact and monotonic for selected semantic gaps: 8B `665/718` (`9261` bps),
-8C `667/719` (`9276` bps), 8D `669/720` (`9291` bps), 8E `670/720` (`9305` bps). After 8E, TOML is 35/35;
-remaining deliberate gaps include two issue-form YAML files, an OpenAPI YAML fixture, generic/test JSON fixtures,
-`Cargo.lock`, one Python release verifier, root `install.sh`, and non-semantic repository files.
+8C `667/719` (`9276` bps), 8D `669/720` (`9291` bps), 8E `670/720` (`9305` bps). After 8E, TOML is 35/35.
+Slice 8F source implementation now covers the previously deliberate first-party gaps for root `install.sh` and
+`scripts/verify_release_version.py`; a new completeness percentage is intentionally not claimed until the exact
+self-evaluation is rerun. Remaining deliberate gaps include issue-form YAML, an OpenAPI YAML fixture,
+generic/test JSON fixtures, `Cargo.lock`, and non-semantic repository files.
 
 ## Implemented Packages
 
@@ -129,15 +138,16 @@ remaining deliberate gaps include two issue-form YAML files, an OpenAPI YAML fix
 - [x] Slices 6A–6B: pure completeness plus exact Store/read-only CLI/versioned JSON transport;
 - [x] Slices 7A–7C: bounded built-in Next.js, Axum, and Express route projections;
 - [x] Slices 8A–8E source implementation plus exact completeness confirmation;
-- [ ] focused verification for later profile/completeness/framework slices and Slices 8A–8E remains pending.
+- [x] Slice 8F source implementation for `install.sh` and `verify_release_version.py`;
+- [ ] focused verification for later profile/completeness/framework slices and Slices 8A–8F remains pending.
 
 `DOCGEN-001` remains in progress. Exact completeness confirms Slices 8A–8E coverage effects; that evidence does
 not promote later slices to fully verified unless their required focused gate succeeds on one exact source commit.
 
 ## Product Backlog
 
-- select the next slice from the exact 8E artifact, preferring useful first-party semantics over raw percentage;
-- inspect root `install.sh` and `scripts/verify_release_version.py` before considering generic JSON/test fixtures;
+- run the focused verification for Slice 8F and then rerun exact completeness/self-evaluation;
+- select the next slice only after the post-8F artifact is available, preferring useful first-party semantics over raw percentage;
 - keep issue forms and OpenAPI fixtures out unless independently justified by product semantics;
 - do not add generic JSON/fixture parsing solely to raise coverage;
 - keep Next.js/Axum/Express schema/auth/middleware and route-composition expansion evidence-driven;
