@@ -141,7 +141,7 @@ generic/test JSON fixtures, `Cargo.lock`, and non-semantic repository files.
 - [x] Slices 8A–8E source implementation plus exact completeness confirmation;
 - [x] Slice 8F source implementation for `install.sh` and `verify_release_version.py`;
 - [x] Slice 8G source implementation for the first-party `install.ps1` installer;
-- [ ] focused verification for later profile/completeness/framework slices and Slices 8A–8F remains pending.
+- [ ] focused verification for later profile/completeness/framework slices and Slices 8A–8G remains pending.
 
 `DOCGEN-001` remains in progress. Exact completeness confirms Slices 8A–8E coverage effects; that evidence does
 not promote later slices to fully verified unless their required focused gate succeeds on one exact source commit.
