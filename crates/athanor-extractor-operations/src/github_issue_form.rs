@@ -212,7 +212,7 @@ fn parse_issue_form(content: &str) -> Option<IssueForm> {
         .filter_map(|(index, value)| {
             let item = value.as_object()?;
             let kind = item.get("type")?.as_str()?.trim();
-            if kind.is_empty() {
+            if !matches!(kind, "input" | "textarea" | "dropdown" | "checkboxes" | "markdown") {
                 return None;
             }
             let attributes = item.get("attributes").and_then(serde_json::Value::as_object);
@@ -291,6 +291,10 @@ mod tests {
         assert!(form.body_items[0].required);
         assert_eq!(form.body_items[1].label.as_deref(), Some("Version"));
         assert!(form.body_items[1].required);
+        assert!(parse_issue_form(
+            "name: Unknown\nbody:\n  - type: unsupported\n"
+        )
+        .is_none());
     }
 
     #[tokio::test]
