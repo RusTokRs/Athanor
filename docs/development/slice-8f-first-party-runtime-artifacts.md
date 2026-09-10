@@ -36,6 +36,15 @@ artifacts. The implementation prefers product meaning over raw coverage percenta
 - Does not execute Python, inspect manifests/changelog contents, capture concrete versions/tags/paths, or parse
   generic Python AST/control flow.
 
+## Slice 8G follow-up
+
+The Windows counterpart `install.ps1` is implemented separately from the generic PowerShell environment
+reference extractor. It emits one bounded `ScriptCommand` only for the exact root installer path, anchored by
+`SHA256SUMS`, `ath.exe`/`athd.exe`, and `Get-FileHash`. It intentionally does not publish `$InstallDir`,
+`$env:LOCALAPPDATA`, concrete filesystem paths, or generic PowerShell control flow.
+
+Focused verification and completeness evidence remain pending for 8F–8G.
+
 ## Constraints
 
 - Do not add generic shell parsing.
