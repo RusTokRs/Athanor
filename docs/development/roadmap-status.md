@@ -145,14 +145,14 @@ generic/test JSON fixtures, `Cargo.lock`, and non-semantic repository files.
 - [x] Slices 8A–8E source implementation plus exact completeness confirmation;
 - [x] Slice 8F source implementation for `install.sh` and `verify_release_version.py`;
 - [x] Slice 8G source implementation for the first-party `install.ps1` installer;
-- [ ] focused verification for later profile/completeness/framework slices and Slices 8A–8G remains pending.
+- [ ] focused verification for later profile/completeness/framework slices and Slices 8A–8H remains pending.
 
 `DOCGEN-001` remains in progress. Exact completeness confirms Slices 8A–8E coverage effects; that evidence does
 not promote later slices to fully verified unless their required focused gate succeeds on one exact source commit.
 
 ## Product Backlog
 
-- run the focused verification for Slices 8F–8G and then rerun exact completeness/self-evaluation;
+- run the focused verification for Slices 8F–8H and then rerun exact completeness/self-evaluation;
 - select the next slice only after the post-8G artifact is available, preferring useful first-party semantics over raw percentage;
 - keep issue forms and OpenAPI fixtures out unless independently justified by product semantics;
 - do not add generic JSON/fixture parsing solely to raise coverage;
@@ -163,4 +163,4 @@ not promote later slices to fully verified unless their required focused gate su
 
 ### Slice 8H — First-party GitHub Issue Forms
 
-Slice 8H adds a bounded first-party projection for `.github/ISSUE_TEMPLATE/*.yml|yaml`, treating contributor issue forms as structured repository-owned operational interfaces. It records form identity and bounded body-field metadata with evidence, while leaving rendering/expression semantics out of scope. Focused verification and completeness evidence remain pending.
+Slice 8H adds a bounded first-party projection for a single-level `.github/ISSUE_TEMPLATE/*.yml|yaml` file, treating contributor issue forms as structured repository-owned operational interfaces. It records form identity and bounded body-field metadata with evidence, while leaving rendering/expression semantics out of scope. Boundary hardening rejects nested paths and empty form names. Focused verification and completeness evidence remain pending.
