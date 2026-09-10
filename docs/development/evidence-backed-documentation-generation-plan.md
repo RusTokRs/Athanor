@@ -225,6 +225,13 @@ or layout drift, invalid validation status, and checksum drift.
   (`9291` bps), YAML 12/15, TOML 34/35.
 - Verification Matrix `33714498496` exposed formatter-only test hunks in Slices 8C/8D; #91 applied exactly them.
 
+### Slice 8H — First-party GitHub Issue Forms
+
+- `.github/ISSUE_TEMPLATE/*.yml|yaml` is recognized as a first-party contributor interface through a bounded YAML projection.
+- The projection records form identity plus body-item type, label, and required state; descriptions and labels are retained as bounded metadata.
+- GitHub rendering, expressions, markdown semantics, and arbitrary YAML are not projected.
+- Focused verification and completeness evidence remain pending.
+
 ### Slice 8G — First-party PowerShell Installer
 
 - The repository-root `install.ps1` is recognized through an exact path and bounded first-party contract.
@@ -270,9 +277,9 @@ The repaired bounded Rustok architecture-generation evaluation retains `DOCUMENT
 
 ## Next Bounded Step
 
-1. Run focused verification for Slices 8F–8G on the exact follow-up source commit.
+1. Run focused verification for Slices 8F–8H on the exact follow-up source commit.
 2. Rerun the exact self-evaluation/completeness report and record the resulting coverage delta rather than inferring it.
-3. Select the next bounded semantic gap from that post-8G artifact; keep issue forms, OpenAPI fixtures, provider,
+3. Select the next bounded semantic gap from that post-8H artifact; keep issue forms, OpenAPI fixtures, provider,
    daemon, MCP, and coordinated `ath generate` changes separately gated.
 
 ## Verification
