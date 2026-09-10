@@ -334,3 +334,8 @@ cargo test -p athanor-extractor-operations
 ### First-party PowerShell installer
 
 The root `install.ps1` is recognized through an exact path and a bounded first-party contract. The adapter records the packaged `ath.exe`/`athd.exe` targets, `SHA256SUMS`, and SHA-256 verification through `Get-FileHash`, while excluding runtime install paths, environment values, filesystem state, and generic PowerShell semantics.
+
+
+### Slice 8H — First-party GitHub Issue Forms
+
+The operations adapter also recognizes first-party GitHub issue forms under `.github/ISSUE_TEMPLATE/*.yml|yaml`. The bounded projection records the form name/description/labels and each body item's type, label, and required flag with source evidence. It does not execute or model GitHub form rendering, expressions, markdown, or arbitrary YAML.
