@@ -230,6 +230,9 @@ source-implemented; focused verification remains pending.
 
 ### 4.2 Product backlog
 
+- [x] Slice 8H source implementation: bounded first-party GitHub issue forms under `.github/ISSUE_TEMPLATE/`;
+- [ ] выполнить focused verification для Slices 8F–8H и повторно получить exact completeness/self-evaluation;
+
 - [ ] выполнить focused verification Slice 8F на одном exact source commit;
 - [ ] повторно запустить self-evaluation/completeness после 8F и зафиксировать фактический delta;
 - [ ] выбрать следующий bounded semantic gap уже из post-8F artifact, а не по предположению о coverage;
