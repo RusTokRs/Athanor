@@ -155,7 +155,7 @@ mod tests {
                     path: "install.ps1".to_string(),
                     language_hint: Some("powershell".to_string()),
                     content_hash: Some("hash".to_string()),
-                    content: Some(include_str!("../../../../install.ps1").to_string()),
+                    content: Some(include_str!("../../../install.ps1").to_string()),
                 },
             })
             .await
@@ -199,7 +199,7 @@ mod tests {
 
     #[tokio::test]
     async fn rejects_script_with_drifted_checksum_contract() {
-        let content = include_str!("../../../../install.ps1").replace(
+        let content = include_str!("../../../install.ps1").replace(
             "Get-FileHash -Algorithm SHA256",
             "Get-FileHash -Algorithm MD5",
         );
