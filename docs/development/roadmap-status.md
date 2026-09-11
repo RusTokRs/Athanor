@@ -44,16 +44,19 @@ Operations documentation is source-implemented through Slice 4C. Slices 4A–4B 
 inventory/evidence with deterministic limits, citations, omissions, Mermaid, and SHA-256 output. Slice 4C adds
 immutable `operations/index.md`, exact Store loading, CLI generation, and validated inspection.
 
-Onboarding documentation is source-implemented through Slice 5C with bounded documentation/package/command/
-environment/test-CI anchors, scoped facts/relations/open diagnostics, shared 256-item budgeting, cited Mermaid,
-immutable publication, exact Store loading, CLI generation, and validated inspection.
+Onboarding documentation is source-implemented and exact-execution-verified through Slice 5C. Slices 5A–5B
+provide bounded documentation/package/command/environment/test-CI anchors, scoped facts/relations/open
+diagnostics, shared 256-item budgeting, cited Mermaid, and fail-closed evidence. Slice 5C adds immutable
+`onboarding/index.md`, exact Store loading, CLI generation, and validated inspection.
 
-Slices 6A–6B add completeness reporting from canonical `file` inventory: processed/unprocessed paths,
-per-language basis-point coverage, named adapter contribution, deterministic limits/omissions, exact Store
-loading, read-only CLI, cancellation/drain, and versioned JSON transport.
+Completeness reporting is exact-execution-verified through Slices 6A–6B. The package computes canonical `file`
+inventory coverage with processed/unprocessed paths, per-language basis-point coverage, named adapter
+contribution, deterministic limits/omissions, exact Store loading, read-only CLI, cancellation/drain, and
+versioned JSON transport.
 
-Slices 7A–7C add bounded Next.js, Axum, and Express route projections while base JS/TS and Rust extractors
-remain framework-neutral. Schema/auth/middleware, route composition, and handler linking remain deferred.
+Framework projections are exact-execution-verified through Slices 7A–7C. Bounded Next.js, Axum, and Express
+route projections remain framework-specific while the base JS/TS and Rust extractors stay framework-neutral.
+Schema/auth/middleware, route composition, and handler linking remain deferred.
 
 Slice 8A adds bounded PowerShell `$env:NAME` / `${env:NAME}` references through the existing redacted
 env://<NAME> / EnvVarUsed contract. Exact self-evaluation `33676558603` on `75562e19…` confirms `ps1 = 2/2`.
@@ -113,6 +116,15 @@ matrix, cargo-deny, and source coverage; AppSec covers CodeQL, Zizmor, and Gitle
 `34604807150` and probe `34604807128` are also green on the same source. This exact evidence promotes operations
 Slices 4A–4C to `Verified`.
 
+The exact onboarding focused matrix on `76f90d69975a7ae0a29463413f88f40d6b8aca83` is green across Ubuntu,
+Windows, and macOS in run `34644333635`, covering formatting, onboarding operation/publication/inspection
+inventories, and focused Clippy. This exact evidence promotes onboarding Slices 5A–5C to `Verified`.
+
+On the same exact `76f90d69975a7ae0a29463413f88f40d6b8aca83`, completeness run `34644333634` is green across
+Ubuntu, Windows, and macOS, covering profile/operation/transport/CLI inventories and focused Clippy; framework
+projection run `34644333569` is green across Ubuntu, Windows, and macOS, covering Next.js/Express and Axum tests
+plus focused Clippy. These exact gates promote Slices 6A–6B and 7A–7C to `Verified` on one shared source commit.
+
 Completeness progression is exact and monotonic for selected semantic gaps: 8B `665/718` (`9261` bps),
 8C `667/719` (`9276` bps), 8D `669/720` (`9291` bps), 8E `670/720` (`9305` bps). After 8E, TOML is 35/35.
 The exact post-8H self-evaluation on `e246a71b…` is green at `685/731` (`9370` bps), YAML `15/16`; the only
@@ -147,10 +159,13 @@ fixtures, `Cargo.lock`, and non-semantic repository files remain out of scope un
 - [x] focused execution verification for Slices 2A–2C on `00d649d43117c842f24f806d45ee2fdb4ad56aa7`;
 - [x] focused execution verification for Slices 3A–3C on `1a7da6817f162ae26ad9500ca94408e14f8ae94a`;
 - [x] focused execution verification for Slices 4A–4C on `037a28d6e037061f87c2f395764b5e6783b18ca0`;
-- [ ] focused verification for onboarding/completeness/framework slices remains pending.
+- [x] focused execution verification for Slices 5A–5C on `76f90d69975a7ae0a29463413f88f40d6b8aca83`;
+- [x] focused execution verification for Slices 6A–6B on `76f90d69975a7ae0a29463413f88f40d6b8aca83`;
+- [x] focused execution verification for Slices 7A–7C on `76f90d69975a7ae0a29463413f88f40d6b8aca83`.
 
-`DOCGEN-001` remains in progress. Slices 2A–2C, 3A–3C, 4A–4C, and 8F–8H are promoted to `Verified` by
-exact-commit execution matrices. The next verification pass starts with Slices 5A–5C, then 6A–6B and 7A–7C.
+`DOCGEN-001` remains in progress. Slices 2A–2C, 3A–3C, 4A–4C, 5A–5C, 6A–6B, 7A–7C, and 8F–8H are promoted to
+`Verified` by exact-commit execution matrices. The next semantic pass should select the next bounded gap from
+the exact post-gate artifact rather than adding generic fixture coverage.
 
 The existing coordinated `ath generate` command remains unchanged.
 
@@ -160,8 +175,9 @@ The existing coordinated `ath generate` command remains unchanged.
 - [x] run exact cross-platform execution verification for Slices 2A–2C on one `main` commit;
 - [x] run exact cross-platform execution verification for Slices 3A–3C on one exact `main` source commit;
 - [x] run exact cross-platform execution verification for Slices 4A–4C on one exact `main` source commit;
-- [ ] next verification pass: execute the existing matrix on one exact `main` commit in this order:
-  Slices 5A–5C → 6A–6B → 7A–7C;
+- [x] run exact cross-platform execution verification for Slices 5A–5C on one exact `main` source commit;
+- [x] run exact cross-platform execution verification for Slices 6A–6B on one exact `main` source commit;
+- [x] run exact cross-platform execution verification for Slices 7A–7C on one exact `main` source commit;
 - [ ] select the next bounded semantic gap from the exact post-gate artifact after that verification pass;
 - [ ] keep issue forms and OpenAPI fixtures out unless independently justified by product semantics;
 - [ ] do not add generic JSON/fixture parsing solely to raise coverage;
