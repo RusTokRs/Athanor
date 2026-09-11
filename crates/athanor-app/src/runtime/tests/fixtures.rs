@@ -43,7 +43,7 @@ fn powershell_json_command(json: &str) -> AdapterProcessCommand {
         args: vec![
             "-NoProfile".to_string(),
             "-Command".to_string(),
-            format!("$input | Out-Null; '{}'", json.replace('\'', "''")),
+            format!("'{}'", json.replace('\'', "''")),
         ],
     }
 }
@@ -79,7 +79,7 @@ pub(super) fn sleep_command() -> ProcessCommand {
         args: vec![
             "-NoProfile".to_string(),
             "-Command".to_string(),
-            "$input | Out-Null; Start-Sleep -Seconds 5".to_string(),
+            "Start-Sleep -Seconds 5".to_string(),
         ],
         working_dir: test_working_dir(),
         expected_content_hash: None,
@@ -107,7 +107,7 @@ pub(super) fn stdout_bytes_command(bytes: usize) -> ProcessCommand {
         args: vec![
             "-NoProfile".to_string(),
             "-Command".to_string(),
-            format!("$input | Out-Null; [Console]::Out.Write(('x' * {bytes}))"),
+            format!("[Console]::Out.Write(('x' * {bytes}))"),
         ],
         working_dir: test_working_dir(),
         expected_content_hash: None,
@@ -138,7 +138,7 @@ pub(super) fn failing_command() -> ProcessCommand {
         args: vec![
             "-NoProfile".to_string(),
             "-Command".to_string(),
-            "$input | Out-Null; [Console]::Error.Write('intentional failure'); exit 7".to_string(),
+            "[Console]::Error.Write('intentional failure'); exit 7".to_string(),
         ],
         working_dir: test_working_dir(),
         expected_content_hash: None,
