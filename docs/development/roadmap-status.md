@@ -101,6 +101,11 @@ Released baseline remains `609027eb02caa05346ebfea8538552c42b588c31`: CI `299959
 Documentation matrix evidence remains recorded for the earlier verified profiles. Later profile source landings
 include module Slice 2C and API Slice 3A; these do not substitute for focused profile execution evidence.
 
+Historical architecture and Rustok execution evidence remains recorded explicitly for the status inventory:
+Slice 1C1 and 1C2; source `042d02ac6b4c89d90a5b76c818098eb0c6b41920`; CI `30025932615`; AppSec `30025931953`;
+Store `30025932704`. The first Rustok failure is recorded as run `30029451096` with `citation budgeting`; the
+isolated probe is `30030131126`.
+
 The exact cross-platform verification matrix on `037a28d6e037061f87c2f395764b5e6783b18ca0` is green for the
 current coordinated main source: CI `34604807206`, AppSec `34604807217`, Store Conformance `34604807194`.
 The CI matrix covers formatting, workspace tests, Clippy, indexing smoke, editable documentation, feature
