@@ -151,7 +151,9 @@ useful first-party product semantics over coverage-only targets.
 ## Product Backlog
 
 - [x] run the focused verification for Slices 8F–8H and rerun exact completeness/self-evaluation;
-- [ ] select the next bounded semantic gap from the exact post-gate artifact;
+- [ ] next verification pass: execute the existing matrix on one exact `main` commit in this order:
+  Slices 2A–2C → 3A–3C → 4A–4C → 5A–5C → 6A–6B → 7A–7C;
+- [ ] select the next bounded semantic gap from the exact post-gate artifact after that verification pass;
 - [ ] keep issue forms and OpenAPI fixtures out unless independently justified by product semantics;
 - [ ] do not add generic JSON/fixture parsing solely to raise coverage;
 - [ ] keep Next.js/Axum/Express schemas/auth/middleware and route-composition expansion evidence-driven;
