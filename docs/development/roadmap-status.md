@@ -102,7 +102,7 @@ Documentation matrix evidence remains recorded for the earlier verified profiles
 include module Slice 2C and API Slice 3A; these do not substitute for focused profile execution evidence.
 
 Historical architecture and Rustok execution evidence remains recorded explicitly for the status inventory:
-Slice 1C1 and 1C2; both slices are retained in the roadmap ledger so the documentation status inventory can verify their exact execution evidence. source `042d02ac6b4c89d90a5b76c818098eb0c6b41920`; CI `30025932615`; AppSec `30025931953`;
+Slice 1C1 and Slice 1C2; both slices are retained in the roadmap ledger so the documentation status inventory can verify their exact execution evidence. source `042d02ac6b4c89d90a5b76c818098eb0c6b41920`; CI `30025932615`; AppSec `30025931953`;
 Store `30025932704`. The first Rustok failure is recorded as run `30029451096` with `citation budgeting`; the
 isolated probe is `30030131126`.
 
