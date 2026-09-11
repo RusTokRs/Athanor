@@ -25,6 +25,7 @@ struct IssueFormItem {
     line: u32,
 }
 
+// Verification gate note: Slice 8H keeps issue-form extraction bounded and fail-closed.
 pub(super) fn is_github_issue_form_path(path: &str) -> bool {
     let normalized = path.replace('\\', "/").to_ascii_lowercase();
     let Some(filename) = normalized.strip_prefix(".github/issue_template/") else {
