@@ -204,11 +204,9 @@ async fn wait_for_termination(
 ///
 /// `Child::kill` is retained as a fallback because a descendant may have already exited or the
 /// platform helper may be unavailable. Unix children run in their own process group and receive a
-/// group signal. Windows starts `taskkill /T` for descendant cleanup, immediately signals the direct
-/// child, then waits for both cleanup and reaping; Job Object containment remains future hardening.
+/// group signal. Windows asks `taskkill /T` to remove descendants only while the direct child is
+/// still alive, then falls back to Tokio's direct-child kill and always reaps the child.
 async fn terminate_external_process_tree(child: &mut tokio::process::Child) {
-    let _ = child.start_kill();
-
     #[cfg(unix)]
     if let Some(pid) = child.id() {
         let process_group = format!("-{pid}");
@@ -225,20 +223,23 @@ async fn terminate_external_process_tree(child: &mut tokio::process::Child) {
     }
 
     #[cfg(windows)]
-    {
-        let mut tree_kill = child.id().and_then(|pid| {
+    if child.try_wait().ok().flatten().is_none() {
+        if let Some(pid) = child.id() {
             let pid = pid.to_string();
-            Command::new("taskkill")
+            if let Ok(mut tree_kill) = Command::new("taskkill")
                 .args(["/PID", pid.as_str(), "/T", "/F"])
                 .kill_on_drop(true)
                 .spawn()
-                .ok()
-        });
-        if let Some(tree_kill) = tree_kill.as_mut() {
-            let _ = tree_kill.wait().await;
+            {
+                let _ = tree_kill.wait().await;
+            }
         }
     }
 
+    // The platform-specific tree operation may race with a process that exited between the
+    // liveness check and the kill request. Tokio's direct-child kill is the final fallback, and
+    // wait() reaps the child even when the native helper already removed it.
+    let _ = child.start_kill();
     let _ = child.wait().await;
 }
 
