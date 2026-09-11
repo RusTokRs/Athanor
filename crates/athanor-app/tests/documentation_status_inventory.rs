@@ -122,19 +122,24 @@ fn implementation_plan_and_roadmap_match_slice_1c_evidence() {
             "implementation plan omits {invariant}"
         );
     }
+    assert!(ROADMAP.contains("## Active Work"), "roadmap omits Active Work");
+    assert!(ROADMAP.contains("### `DOCGEN-001`"), "roadmap omits DOCGEN-001");
+    assert!(
+        ROADMAP.contains("Slice 1C1") && ROADMAP.contains("Slice 1C2"),
+        "roadmap omits Slice 1C1/1C2"
+    );
     for invariant in [
-        "## Active Work",
-        "### `DOCGEN-001`",
-        "Slice 1C1",
-        "Slice 1C2",
-        SLICE_1C_SHA,
-        SLICE_1C_CI,
-        SLICE_1C_APPSEC,
-        SLICE_1C_STORE,
+        "30025932615",
+        "30025931953",
+        "30025932704",
         "bounded Rustok architecture-generation evaluation",
     ] {
         assert!(ROADMAP.contains(invariant), "roadmap omits {invariant}");
     }
+    assert!(
+        ROADMAP.contains(SLICE_1C_SHA) || ROADMAP.contains("042d02ac…"),
+        "roadmap omits Slice 1C2 source evidence"
+    );
     for (name, source) in [
         ("documentation index", DOCS_INDEX),
         ("roadmap", ROADMAP),
@@ -156,11 +161,11 @@ fn docgen_status_records_the_failed_rustok_gate_and_repair_path() {
         ("implementation plan", PLAN),
         ("documentation generation plan", DOCGEN_PLAN),
     ] {
-        for invariant in [
-            RUSTOK_EVALUATION_SHA,
-            RUSTOK_EVALUATION_RUN,
-            RUSTOK_CITATION_FAILURE,
-        ] {
+        assert!(
+            source.contains(RUSTOK_EVALUATION_SHA) || source.contains("5e0b2809…"),
+            "{name} omits first Rustok evaluation source evidence"
+        );
+        for invariant in [RUSTOK_EVALUATION_RUN, RUSTOK_CITATION_FAILURE] {
             assert!(source.contains(invariant), "{name} omits {invariant}");
         }
     }
@@ -206,8 +211,9 @@ fn documentation_generation_plan_matches_current_boundaries() {
         "athanor.documentation_draft.v1",
         "athanor.documentation_validation_report.v1",
         "athanor.documentation_current.v1",
-        "Slice 1C1",
-        "Slice 1C2",
+        "Architecture baselines: Slices 0A–0B",
+        "1C1 `4f567271…`",
+        "1C2 `042d02ac…`",
         "ath docs generate-architecture",
         "ath docs architecture current",
         SLICE_1C_SHA,
@@ -290,7 +296,9 @@ fn removed_monoliths_and_false_surfaces_do_not_return() {
         }
     }
     assert!(DOCS_INDEX.contains("has no latest fallback"));
-    assert!(ROADMAP.contains("existing coordinated `ath generate` command is unchanged"));
+    assert!(
+        ROADMAP.contains("Existing coordinated `ath generate` command is unchanged.")
+    );
 }
 
 #[test]

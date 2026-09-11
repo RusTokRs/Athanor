@@ -116,7 +116,7 @@ pub(super) fn extract_github_issue_form(
     for item in form.body_items {
         let item_key = StableKey(format!(
             "issue-form://{}#{}:item:{}",
-            input.source.path, 
+            input.source.path,
             sanitize_key_fragment(&form.name),
             item.index
         ));
@@ -212,10 +212,15 @@ fn parse_issue_form(content: &str) -> Option<IssueForm> {
         .map(|(index, value)| {
             let item = value.as_object()?;
             let kind = item.get("type")?.as_str()?.trim();
-            if !matches!(kind, "input" | "textarea" | "dropdown" | "checkboxes" | "markdown") {
+            if !matches!(
+                kind,
+                "input" | "textarea" | "dropdown" | "checkboxes" | "markdown"
+            ) {
                 return None;
             }
-            let attributes = item.get("attributes").and_then(serde_json::Value::as_object);
+            let attributes = item
+                .get("attributes")
+                .and_then(serde_json::Value::as_object);
             let label = attributes
                 .and_then(|attributes| attributes.get("label"))
                 .and_then(serde_json::Value::as_str)
@@ -266,15 +271,19 @@ mod tests {
             ".github/issue_template/feature_request.yaml"
         ));
         assert!(!is_github_issue_form_path(".github/dependabot.yml"));
-        assert!(!is_github_issue_form_path(".github/ISSUE_TEMPLATE/config.yml"));
-        assert!(!is_github_issue_form_path(".github/ISSUE_TEMPLATE/nested/form.yml"));
+        assert!(!is_github_issue_form_path(
+            ".github/ISSUE_TEMPLATE/config.yml"
+        ));
+        assert!(!is_github_issue_form_path(
+            ".github/ISSUE_TEMPLATE/nested/form.yml"
+        ));
         assert!(!is_github_issue_form_path(".github/ISSUE_TEMPLATE/"));
         assert!(!is_github_issue_form_path("github/ISSUE_TEMPLATE/form.yml"));
     }
 
     #[test]
     fn rejects_empty_form_name() {
-        assert!(parse_issue_form("name: \\nbody:\n  - type: textarea\n").is_none());
+        assert!(parse_issue_form("name: \nbody:\n  - type: textarea\n").is_none());
     }
 
     #[test]
@@ -291,14 +300,11 @@ mod tests {
         assert!(form.body_items[0].required);
         assert_eq!(form.body_items[1].label.as_deref(), Some("Version"));
         assert!(form.body_items[1].required);
-        assert!(parse_issue_form(
-            "name: Unknown\nbody:\n  - type: unsupported\n"
-        )
-        .is_none());
-        assert!(parse_issue_form(
-            "name: Mixed\nbody:\n  - type: textarea\n  - type: unsupported\n"
-        )
-        .is_none());
+        assert!(parse_issue_form("name: Unknown\nbody:\n  - type: unsupported\n").is_none());
+        assert!(
+            parse_issue_form("name: Mixed\nbody:\n  - type: textarea\n  - type: unsupported\n")
+                .is_none()
+        );
     }
 
     #[tokio::test]
@@ -326,9 +332,11 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(forms.len(), 2);
         assert_eq!(output.facts.len(), 2);
-        assert!(output
-            .facts
-            .iter()
-            .all(|fact| fact.kind == FactKind::SymbolDefined && !fact.evidence.is_empty()));
+        assert!(
+            output
+                .facts
+                .iter()
+                .all(|fact| fact.kind == FactKind::SymbolDefined && !fact.evidence.is_empty())
+        );
     }
 }

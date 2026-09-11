@@ -217,13 +217,17 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(output
-            .entities
-            .iter()
-            .all(|entity| entity.kind != EntityKind::ScriptCommand));
-        assert!(output
-            .facts
-            .iter()
-            .all(|fact| fact.kind != FactKind::SymbolDefined));
+        assert!(
+            output
+                .entities
+                .iter()
+                .all(|entity| entity.kind != EntityKind::ScriptCommand)
+        );
+        assert!(
+            output
+                .facts
+                .iter()
+                .all(|fact| fact.kind != FactKind::SymbolDefined)
+        );
     }
 }
