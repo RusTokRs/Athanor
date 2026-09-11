@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 
 #[derive(Debug, Clone)]
 pub struct InitOptions {
@@ -21,20 +21,19 @@ pub fn init_project(options: InitOptions) -> Result<InitReport> {
     let knowledge_docs_dir = knowledge_dir.join("docs");
     let generated_dir = athanor_dir.join("generated");
     let config_path = root.join("athanor.toml");
-
-    validate_init_paths([
+    let dirs = [
         &athanor_dir,
         &knowledge_dir,
         &knowledge_docs_dir,
         &generated_dir,
-    ], &config_path)?;
+    ];
+
+    validate_init_paths(dirs, &config_path)?;
 
     let mut created = Vec::new();
-
-    create_dir(&athanor_dir, &mut created)?;
-    create_dir(&knowledge_dir, &mut created)?;
-    create_dir(&knowledge_docs_dir, &mut created)?;
-    create_dir(&generated_dir, &mut created)?;
+    for dir in dirs {
+        create_dir(dir, &mut created)?;
+    }
 
     if !config_path.exists() {
         fs::write(&config_path, default_config())
@@ -45,8 +44,12 @@ pub fn init_project(options: InitOptions) -> Result<InitReport> {
     Ok(InitReport { root, created })
 }
 
-fn validate_init_paths<'a>(directories: impl IntoIterator<Item = &'a Path>, config_path: &Path) -> Result<()> {
+fn validate_init_paths<P: AsRef<Path>>(
+    directories: impl IntoIterator<Item = P>,
+    config_path: &Path,
+) -> Result<()> {
     for path in directories {
+        let path = path.as_ref();
         if path.exists() && !path.is_dir() {
             bail!(
                 "refusing to initialize {}: path exists but is not a directory",

@@ -223,16 +223,16 @@ async fn terminate_external_process_tree(child: &mut tokio::process::Child) {
     }
 
     #[cfg(windows)]
-    if child.try_wait().ok().flatten().is_none() {
-        if let Some(pid) = child.id() {
-            let pid = pid.to_string();
-            if let Ok(mut tree_kill) = Command::new("taskkill")
-                .args(["/PID", pid.as_str(), "/T", "/F"])
-                .kill_on_drop(true)
-                .spawn()
-            {
-                let _ = tree_kill.wait().await;
-            }
+    if child.try_wait().ok().flatten().is_none()
+        && let Some(pid) = child.id()
+    {
+        let pid = pid.to_string();
+        if let Ok(mut tree_kill) = Command::new("taskkill")
+            .args(["/PID", pid.as_str(), "/T", "/F"])
+            .kill_on_drop(true)
+            .spawn()
+        {
+            let _ = tree_kill.wait().await;
         }
     }
 

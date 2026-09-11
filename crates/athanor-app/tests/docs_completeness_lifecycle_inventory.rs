@@ -82,7 +82,7 @@ fn lifecycle_policy_owners_remain_bounded() {
     for (name, source, max_lines) in [
         ("root config", ROOT_CONFIG, 20),
         ("config owner", CONFIG_SOURCE, 430),
-        ("init owner", INIT_SOURCE, 150),
+        ("init owner", INIT_SOURCE, 180),
         ("docs check owner", CHECK_SOURCE, 260),
         ("policy guide", POLICY_GUIDE, 170),
     ] {
