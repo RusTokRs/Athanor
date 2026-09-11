@@ -1,0 +1,57 @@
+name: DOCGEN / Completeness 6A-6B
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docgen-completeness-6a-6b-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  completeness-focused:
+    name: Completeness focused / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    env:
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: 1
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: ./.github/actions/setup-rust
+        with:
+          components: clippy rustfmt
+
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run completeness profile inventory
+        run: cargo test -p athanor-app --test documentation_completeness_inventory --locked
+
+      - name: Run completeness operation inventory
+        run: cargo test -p athanor-app --test documentation_completeness_operation_inventory --locked
+
+      - name: Run completeness transport inventory
+        run: cargo test -p athanor-app --test documentation_completeness_transport_inventory --locked
+
+      - name: Run completeness CLI inventory
+        run: cargo test -p ath --test documentation_completeness_cli --locked
+
+      - name: Run focused Clippy
+        run: cargo clippy -p athanor-app -p ath --all-targets --locked -- -D warnings
