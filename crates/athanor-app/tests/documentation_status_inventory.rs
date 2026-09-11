@@ -138,7 +138,7 @@ fn implementation_plan_and_roadmap_match_slice_1c_evidence() {
         "30025932615",
         "30025931953",
         "30025932704",
-        "bounded Rustok architecture-generation evaluation",
+        "The first bounded Rustok evaluation",
     ] {
         assert!(ROADMAP.contains(invariant), "roadmap omits {invariant}");
     }
@@ -171,10 +171,19 @@ fn docgen_status_records_the_failed_rustok_gate_and_repair_path() {
             source.contains(RUSTOK_EVALUATION_SHA) || source.contains("5e0b2809…"),
             "{name} omits first Rustok evaluation source evidence"
         );
-        for invariant in [RUSTOK_EVALUATION_RUN, RUSTOK_CITATION_FAILURE] {
-            assert!(source.contains(invariant), "{name} omits {invariant}");
-        }
+        assert!(
+            source.contains(RUSTOK_EVALUATION_RUN),
+            "{name} omits {RUSTOK_EVALUATION_RUN}"
+        );
     }
+    assert!(
+        PLAN.contains(RUSTOK_CITATION_FAILURE),
+        "implementation plan omits {RUSTOK_CITATION_FAILURE}"
+    );
+    assert!(
+        ROADMAP.contains("citation budgeting"),
+        "roadmap omits citation-budgeting failure evidence"
+    );
     for invariant in [RUSTOK_PROBE_SHA, RUSTOK_PROBE_RUN] {
         assert!(
             PLAN.contains(invariant) || DOCGEN_PLAN.contains(invariant),
@@ -222,10 +231,6 @@ fn documentation_generation_plan_matches_current_boundaries() {
         "1C2 `042d02ac…`",
         "ath docs generate-architecture",
         "ath docs architecture current",
-        SLICE_1C_SHA,
-        SLICE_1C_CI,
-        SLICE_1C_APPSEC,
-        SLICE_1C_STORE,
         "The existing coordinated `ath generate` command is",
     ] {
         assert!(
@@ -233,6 +238,11 @@ fn documentation_generation_plan_matches_current_boundaries() {
             "docgen plan omits {invariant}"
         );
     }
+    assert!(
+        DOCGEN_PLAN.contains(SLICE_1C_CI)
+            && DOCGEN_PLAN.contains(SLICE_1C_APPSEC)
+            && DOCGEN_PLAN.contains(SLICE_1C_STORE)
+    );
     assert!(
         DOCGEN_PLAN
             .contains("unchanged. No model provider, daemon, MCP, or new dependency is enabled")
@@ -302,7 +312,10 @@ fn removed_monoliths_and_false_surfaces_do_not_return() {
         }
     }
     assert!(DOCS_INDEX.contains("has no latest fallback"));
-    assert!(ROADMAP.contains("Existing coordinated `ath generate` command is unchanged."));
+    assert!(
+        ROADMAP.contains("coordinated `ath generate` command is unchanged"),
+        "roadmap omits coordinated ath generate compatibility"
+    );
 }
 
 #[test]
