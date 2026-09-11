@@ -18,24 +18,25 @@ pub fn init_project(options: InitOptions) -> Result<InitReport> {
     let root = options.root;
     let athanor_dir = root.join(".athanor");
     let knowledge_dir = athanor_dir.join("knowledge");
+    let knowledge_docs_dir = knowledge_dir.join("docs");
     let generated_dir = athanor_dir.join("generated");
     let config_path = root.join("athanor.toml");
+
+    validate_init_paths([
+        &athanor_dir,
+        &knowledge_dir,
+        &knowledge_docs_dir,
+        &generated_dir,
+    ], &config_path)?;
 
     let mut created = Vec::new();
 
     create_dir(&athanor_dir, &mut created)?;
     create_dir(&knowledge_dir, &mut created)?;
-    create_dir(&knowledge_dir.join("docs"), &mut created)?;
+    create_dir(&knowledge_docs_dir, &mut created)?;
     create_dir(&generated_dir, &mut created)?;
 
-    if config_path.exists() {
-        if !config_path.is_file() {
-            bail!(
-                "refusing to initialize {}: path exists but is not a file",
-                config_path.display()
-            );
-        }
-    } else {
+    if !config_path.exists() {
         fs::write(&config_path, default_config())
             .with_context(|| format!("failed to write {}", config_path.display()))?;
         created.push(config_path);
@@ -44,14 +45,28 @@ pub fn init_project(options: InitOptions) -> Result<InitReport> {
     Ok(InitReport { root, created })
 }
 
-fn create_dir(path: &Path, created: &mut Vec<PathBuf>) -> Result<()> {
-    if path.exists() {
-        if !path.is_dir() {
+fn validate_init_paths<'a>(directories: impl IntoIterator<Item = &'a Path>, config_path: &Path) -> Result<()> {
+    for path in directories {
+        if path.exists() && !path.is_dir() {
             bail!(
                 "refusing to initialize {}: path exists but is not a directory",
                 path.display()
             );
         }
+    }
+
+    if config_path.exists() && !config_path.is_file() {
+        bail!(
+            "refusing to initialize {}: path exists but is not a file",
+            config_path.display()
+        );
+    }
+
+    Ok(())
+}
+
+fn create_dir(path: &Path, created: &mut Vec<PathBuf>) -> Result<()> {
+    if path.exists() {
         return Ok(());
     }
 
