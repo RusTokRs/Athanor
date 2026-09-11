@@ -32,6 +32,8 @@ pub(super) fn is_github_issue_form_path(path: &str) -> bool {
     };
     !filename.is_empty()
         && !filename.contains('/')
+        && filename != "config.yml"
+        && filename != "config.yaml"
         && (filename.ends_with(".yml") || filename.ends_with(".yaml"))
 }
 
@@ -273,6 +275,9 @@ mod tests {
         assert!(!is_github_issue_form_path(".github/dependabot.yml"));
         assert!(!is_github_issue_form_path(
             ".github/ISSUE_TEMPLATE/config.yml"
+        ));
+        assert!(!is_github_issue_form_path(
+            ".github/issue_template/config.yaml"
         ));
         assert!(!is_github_issue_form_path(
             ".github/ISSUE_TEMPLATE/nested/form.yml"

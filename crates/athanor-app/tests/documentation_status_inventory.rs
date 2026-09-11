@@ -27,7 +27,10 @@ fn status_documents_are_active_and_separate_source_from_execution_state() {
         ("roadmap", ROADMAP),
         ("pipeline", PIPELINE),
     ] {
-        assert!(source.contains("status: active"), "{name} must remain active");
+        assert!(
+            source.contains("status: active"),
+            "{name} must remain active"
+        );
         assert!(!source.contains("status: verified"));
         assert!(!source.contains("last_verified_snapshot:"));
         assert!(
@@ -52,7 +55,10 @@ fn documentation_map_keeps_current_owners_and_cli_entrypoints() {
         "development/release.md",
         "development/evidence-backed-documentation-generation-plan.md",
     ] {
-        assert!(DOCS_INDEX.contains(target), "documentation map omits {target}");
+        assert!(
+            DOCS_INDEX.contains(target),
+            "documentation map omits {target}"
+        );
     }
     for command in [
         "ath docs architecture current .",
@@ -61,7 +67,10 @@ fn documentation_map_keeps_current_owners_and_cli_entrypoints() {
         "documentation_architecture_inspection_inventory",
         "documentation_architecture_cli",
     ] {
-        assert!(DOCS_INDEX.contains(command), "documentation map omits {command}");
+        assert!(
+            DOCS_INDEX.contains(command),
+            "documentation map omits {command}"
+        );
     }
 }
 
@@ -100,7 +109,10 @@ fn implementation_and_roadmap_record_slice_1c_execution_evidence() {
         SLICE_1C_STORE,
         "cargo test -p ath --test documentation_architecture_cli --locked",
     ] {
-        assert!(PLAN.contains(invariant), "implementation plan omits {invariant}");
+        assert!(
+            PLAN.contains(invariant),
+            "implementation plan omits {invariant}"
+        );
     }
     for invariant in [
         "Slice 1C1",
@@ -157,7 +169,10 @@ fn docgen_plan_uses_evidence_shape_not_exact_prose() {
         "ath docs architecture current",
         "The existing coordinated `ath generate` command is",
     ] {
-        assert!(DOCGEN_PLAN.contains(invariant), "docgen plan omits {invariant}");
+        assert!(
+            DOCGEN_PLAN.contains(invariant),
+            "docgen plan omits {invariant}"
+        );
     }
     assert!(DOCGEN_PLAN.contains("First Rustok failure"));
     assert!(DOCGEN_PLAN.contains("repaired evaluation"));
@@ -174,7 +189,10 @@ fn json_release_and_operation_status_owners_remain_present() {
         "athanor.documentation_validation_report.v1",
         "four intermediate documentation types",
     ] {
-        assert!(JSON_INVENTORY.contains(invariant), "JSON inventory omits {invariant}");
+        assert!(
+            JSON_INVENTORY.contains(invariant),
+            "JSON inventory omits {invariant}"
+        );
     }
     for invariant in [
         "# Release Procedure",
@@ -211,7 +229,10 @@ fn removed_monoliths_and_false_surfaces_do_not_return() {
             ("roadmap", ROADMAP),
             ("pipeline", PIPELINE),
         ] {
-            assert!(!source.contains(stale), "{name} contains stale claim {stale}");
+            assert!(
+                !source.contains(stale),
+                "{name} contains stale claim {stale}"
+            );
         }
     }
     assert!(DOCS_INDEX.contains("has no latest fallback"));
