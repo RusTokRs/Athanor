@@ -122,8 +122,14 @@ fn implementation_plan_and_roadmap_match_slice_1c_evidence() {
             "implementation plan omits {invariant}"
         );
     }
-    assert!(ROADMAP.contains("## Active Work"), "roadmap omits Active Work");
-    assert!(ROADMAP.contains("### `DOCGEN-001`"), "roadmap omits DOCGEN-001");
+    assert!(
+        ROADMAP.contains("## Active Work"),
+        "roadmap omits Active Work"
+    );
+    assert!(
+        ROADMAP.contains("### `DOCGEN-001`"),
+        "roadmap omits DOCGEN-001"
+    );
     assert!(
         ROADMAP.contains("Slice 1C1") && ROADMAP.contains("Slice 1C2"),
         "roadmap omits Slice 1C1/1C2"
@@ -296,9 +302,7 @@ fn removed_monoliths_and_false_surfaces_do_not_return() {
         }
     }
     assert!(DOCS_INDEX.contains("has no latest fallback"));
-    assert!(
-        ROADMAP.contains("Existing coordinated `ath generate` command is unchanged.")
-    );
+    assert!(ROADMAP.contains("Existing coordinated `ath generate` command is unchanged."));
 }
 
 #[test]
