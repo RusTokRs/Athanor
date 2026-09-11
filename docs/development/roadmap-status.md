@@ -111,6 +111,11 @@ Later profile source landings include module Slice 2C `b9e0eadc…` with green S
 evaluation `32718598212`, probe `32718598232`, and API Slice 3A `0a4c0f78…` with green Rustok evaluation
 `32719989413` / probe `32719989450`; these do not substitute for focused profile execution evidence.
 
+The exact cross-platform verification matrix on `00d649d43117c842f24f806d45ee2fdb4ad56aa7` is green for the
+module profile source: CI run `34583284102` / Verification Matrix `1914`, AppSec run `34583284194`, and Store
+Conformance run `34583284156`. Workspace tests and Clippy passed on Ubuntu, macOS, and Windows; the module
+profile's source regressions are therefore execution-covered on that exact commit.
+
 Completeness progression is exact and monotonic for selected semantic gaps: 8B `665/718` (`9261` bps),
 8C `667/719` (`9276` bps), 8D `669/720` (`9291` bps), 8E `670/720` (`9305` bps). After 8E, TOML is 35/35.
 The exact post-8H self-evaluation on `e246a71b…` is green at `685/731` (`9370` bps), YAML `15/16`; the only
@@ -142,19 +147,20 @@ fixtures, `Cargo.lock`, and non-semantic repository files remain out of scope un
 - [x] Slice 8G source implementation for the first-party `install.ps1` installer;
 - [x] Slice 8H source implementation and hardening for bounded GitHub Issue Forms;
 - [x] focused exact verification for Slices 8F–8H on `e246a71bcb094cb3553bf6770954a4617dc1a376`;
-- [ ] focused verification for earlier profile/framework slices remains pending.
+- [x] focused execution verification for Slices 2A–2C on `00d649d43117c842f24f806d45ee2fdb4ad56aa7`;
+- [ ] focused verification for API/operations/onboarding/completeness/framework slices remains pending.
 
-`DOCGEN-001` remains in progress. Slices 8F–8H are promoted to `Verified` by the exact-commit gate.
-The next bounded semantic slice must be selected from the post-gate completeness artifact and should prefer
-useful first-party product semantics over coverage-only targets.
+`DOCGEN-001` remains in progress. Slices 2A–2C and 8F–8H are promoted to `Verified` by exact-commit execution
+matrices. The next verification pass starts with Slices 3A–3C, then 4A–4C, 5A–5C, 6A–6B, and 7A–7C.
 
 The existing coordinated `ath generate` command remains unchanged.
 
 ## Product Backlog
 
 - [x] run the focused verification for Slices 8F–8H and rerun exact completeness/self-evaluation;
+- [x] run exact cross-platform execution verification for Slices 2A–2C on one `main` commit;
 - [ ] next verification pass: execute the existing matrix on one exact `main` commit in this order:
-  Slices 2A–2C → 3A–3C → 4A–4C → 5A–5C → 6A–6B → 7A–7C;
+  Slices 3A–3C → 4A–4C → 5A–5C → 6A–6B → 7A–7C;
 - [ ] select the next bounded semantic gap from the exact post-gate artifact after that verification pass;
 - [ ] keep issue forms and OpenAPI fixtures out unless independently justified by product semantics;
 - [ ] do not add generic JSON/fixture parsing solely to raise coverage;
