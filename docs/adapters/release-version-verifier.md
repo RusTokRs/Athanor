@@ -1,6 +1,8 @@
 ---
 id: doc://docs/adapters/release-version-verifier.md
 kind: adapter_guide
+language: en
+source_language: en
 status: active
 ---
 # Release Version Verifier Extraction Boundary

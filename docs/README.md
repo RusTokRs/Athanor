@@ -39,6 +39,7 @@ verification. Exact package evidence lives in `athanor_implementation_plan_ru.md
 - [Release procedure](development/release.md)
 - [Production operation](development/production.md)
 - [Documentation completeness](development/docs-completeness-policy.md)
+- [Post-8H verification gate](development/post-8h-verification-gate.md)
 - [Library adoption](development/library-adoption-plan.md)
 - [ADR template](development/adr-template.md)
 
@@ -112,6 +113,7 @@ Use `ath docs operations check` for canonical completeness diagnostics.
 ## Plans
 
 - [Evidence-backed documentation generation](development/evidence-backed-documentation-generation-plan.md)
+- [Slice 8F runtime artifacts](development/slice-8f-first-party-runtime-artifacts.md)
 - [RusTok FFA/FBA improvements](development/rustok-ffa-fba-adapter-improvement-plan.md)
 - [Dart/Flutter integration](development/dart-flutter-adapter-plan.md)
 

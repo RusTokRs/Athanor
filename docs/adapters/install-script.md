@@ -1,6 +1,8 @@
 ---
 id: doc://docs/adapters/install-script.md
 kind: adapter_guide
+language: en
+source_language: en
 status: active
 ---
 # Install Script Extraction Boundary

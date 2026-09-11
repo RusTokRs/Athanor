@@ -1,3 +1,10 @@
+---
+id: doc://docs/development/post-8h-verification-gate.md
+kind: developer_guide
+language: en
+source_language: en
+status: active
+---
 # Post-8H Verification Gate
 
 This gate is the required handoff after Slices 8F–8H and before selecting another bounded semantic slice.

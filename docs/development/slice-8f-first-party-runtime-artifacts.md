@@ -1,6 +1,8 @@
 ---
 id: doc://docs/development/slice-8f-first-party-runtime-artifacts.md
 kind: developer_guide
+language: en
+source_language: en
 status: active
 ---
 
