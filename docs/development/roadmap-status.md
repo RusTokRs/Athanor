@@ -19,18 +19,114 @@ This compact ledger describes current `main`. Detailed evidence lives in
 
 ## Current Architecture
 
-### Exact Evidence Update
+### Explicit Runtime Composition
 
-Slices 8F–8H are now **verified** on exact source commit `e246a71bcb094cb3553bf6770954a4617dc1a376`.
-The focused gate is green across Verification Matrix `34577131919`, AppSec `34577131939`, Store Conformance
-`34577131986`, and Athanor self-documentation evaluation `34577131980`. The exact self-evaluation reports
-`685/731` processed files (`9370` bps); YAML is `15/16`. Rustok evaluation and sanitized probe are also green.
+Application services receive `RuntimeComposition`; Store, search, projector, extractor, and transport
+factories are selected by `ath`, `athd`, or MCP composition roots. Process-global installers are gone.
 
-### Current Semantic Gap
+### Bounded Owners And Publication
 
-Post-gate completeness shows the only remaining YAML gap is `crates/athanor-extractor-openapi/tests/fixtures/basic.openapi.yaml`.
-The other 46 unprocessed files are generic JSON/test fixtures, OpenAPI fixture variants, `Cargo.lock`, or
-non-semantic repository files and remain explicitly out of scope unless product semantics justify them.
+Indexing uses bounded phases and staged publication. Documentation generation uses strict request,
+manifest, outline, context, citation, draft, validation, and current-pointer contracts.
+
+The architecture profile loads one exact committed canonical snapshot through the configured Store,
+applies hard limits, emits cited Markdown/Mermaid output, and publishes immutable checksum-bound
+generations. Its CLI and validated inspection are execution-confirmed.
+
+The module profile is source-implemented through Slice 2C: pure inventory, module-scoped evidence,
+immutable publication, exact Store loading, CLI generation, and validated inspection.
+
+The API profile is source-implemented through Slice 3C: endpoint/schema/example inventory, scoped facts,
+supported canonical relations, open diagnostics, immutable publication, exact Store loading, CLI, and
+validated inspection.
+
+Operations documentation is source-implemented through Slice 4C. Slices 4A–4B provide bounded exact-snapshot
+inventory/evidence with deterministic limits, citations, omissions, Mermaid, and SHA-256 output. Slice 4C adds
+immutable `operations/index.md`, exact Store loading, CLI generation, and validated inspection.
+
+Onboarding documentation is source-implemented through Slice 5C with bounded documentation/package/command/
+environment/test-CI anchors, scoped facts/relations/open diagnostics, shared 256-item budgeting, cited Mermaid,
+immutable publication, exact Store loading, CLI generation, and validated inspection.
+
+Slices 6A–6B add completeness reporting from canonical `file` inventory: processed/unprocessed paths,
+per-language basis-point coverage, named adapter contribution, deterministic limits/omissions, exact Store
+loading, read-only CLI, cancellation/drain, and versioned JSON transport.
+
+Slices 7A–7C add bounded Next.js, Axum, and Express route projections while base JS/TS and Rust extractors
+remain framework-neutral. Schema/auth/middleware, route composition, and handler linking remain deferred.
+
+Slice 8A adds bounded PowerShell `$env:NAME` / `${env:NAME}` references through the existing redacted
+`env://<NAME>` / `EnvVarUsed` contract. Exact self-evaluation `33676558603` on `75562e19…` confirms `ps1 = 2/2`.
+
+Slice 8B recognizes only root `athanor.toml` as first-party runtime config, reusing redacted `Feature` /
+`SymbolDefined`. Exact self-evaluation `33680051765` on `e219157a…` confirms 665/718 (`9261` bps), TOML 34/35.
+
+Slice 8C recognizes `.github/actions/**/action.yml|yaml` only when `runs.using: composite`, projecting bounded
+composite `ScriptCommand`, `run`/`uses` steps, and redacted step environment declarations. Exact self-evaluation
+`33712810332` on `5d195069…` confirms 667/719 (`9276` bps), YAML 11/15.
+
+Slice 8D recognizes only first-party `.github/dependabot.yml|yaml` version-2 update policies through existing
+`Feature` / `SymbolDefined` contracts. Exact self-evaluation `33714498524` on `424da862…` confirms 669/720
+(`9291` bps), TOML 34/35 and YAML 12/15. Post-merge Verification Matrix `33714498496` exposed test-only rustfmt
+hunks in Slices 8C/8D; #91 applied exactly those formatter changes.
+
+Slice 8E recognizes only root `deny.toml` cargo-deny policy domains `advisories`, `licenses`, `bans`, and
+`sources`. It records selected scalar enforcement modes plus list counts without raw advisory/license/source
+lists or generic TOML expansion. Exact self-evaluation `33722472453` on `c10ab848e…` is green: 670/720
+processed (`9305` bps), TOML 35/35, YAML 12/15, 9051 facts, 13208 relations, 169 diagnostics. The artifact
+contains all four `config://deny.toml#cargo-deny:<section>` keys. Post-merge CI `33722472454` passed formatting
+and workspace tests before exposing one `clippy::collapsible_if`; #93 applied exactly the requested let-chain,
+and PR CI `33723374660` confirmed formatting, workspace tests, and Clippy green on macOS before merge.
+
+### Slice 8F adds bounded first-party runtime artifact projections for the root `install.sh` and
+`scripts/verify_release_version.py`.
+
+### Slice 8G adds a bounded first-party projection for the repository-root `install.ps1`. It records only the
+Windows installer entry point, `ath.exe`/`athd.exe`, `SHA256SUMS`, and SHA-256 verification through
+`Get-FileHash`; runtime install paths, environment values, filesystem state, and generic PowerShell semantics
+remain out of scope. The operations extractor emits one `ScriptCommand` per artifact with exact local contract
+anchors, source evidence, ownership, and fail-closed drift behavior. It does not execute shell/Python or expose
+runtime values and paths.
+
+### Slice 8H adds a bounded first-party projection for single-level `.github/ISSUE_TEMPLATE/*.yml|yaml` files.
+It records form identity and bounded body-field metadata with evidence, rejects nested paths and empty form
+names, accepts only native `input`, `textarea`, `dropdown`, `checkboxes`, and `markdown` body kinds, and rejects
+mixed unsupported forms atomically.
+
+### Exact Evidence
+
+Released baseline remains `609027eb02caa05346ebfea8538552c42b588c31`: CI `29995959544`, AppSec
+`29995960063`, Store `29995959512`, release `29996579628`, clean-install smoke `29998347890`.
+
+Slices 1A–1B are confirmed on `0cfeca8ad4dc3c0632246afa01e43372f4ec3d71`: CI `30013208011`, AppSec
+`30013208197`, Store `30013208312`. Slice 1C1 exact Store loading is confirmed on `4f567271…`: CI
+`30015689753`, AppSec `30015691399`, Store `30015689363`. Slice 1C2 is confirmed on `042d02ac…`: CI
+`30025932615`, AppSec `30025931953`, Store `30025932704`.
+
+The first bounded Rustok evaluation `30029451096` on `5e0b2809…` failed at citation budgeting and remains
+failure evidence. Repaired evaluation/probe/matrix on `f1024cbc…` (`31625608720` / `31625608721` /
+`31625608729`) is green; relation disclosure is confirmed on `6862aee8…` by `32712992516` / `32712992421`.
+
+Later profile source landings include module Slice 2C `b9e0eadc…` with green Store `32718598218`, Rustok
+evaluation `32718598212`, probe `32718598232`, and API Slice 3A `0a4c0f78…` with green Rustok evaluation
+`32719989413` / probe `32719989450`; these do not substitute for focused profile execution evidence.
+
+Completeness progression is exact and monotonic for selected semantic gaps: 8B `665/718` (`9261` bps),
+8C `667/719` (`9276` bps), 8D `669/720` (`9291` bps), 8E `670/720` (`9305` bps). After 8E, TOML is 35/35.
+The exact post-8H self-evaluation on `e246a71b…` is green at `685/731` (`9370` bps), YAML `15/16`; the only
+remaining YAML gap is `crates/athanor-extractor-openapi/tests/fixtures/basic.openapi.yaml`. Generic JSON/test
+fixtures, `Cargo.lock`, and non-semantic repository files remain out of scope unless separately justified.
+
+## Implemented Packages
+
+- `COMP-003` / `COMP-003C2B2C2B`: explicit composition and bounded owners.
+- `MCP-007`: cancellation-safe transactional Index publication.
+- `JSON-003`: recursive, disjoint, fixture-backed contract lifecycle.
+- `DOC-001` / `DOC-002`: status hygiene and bounded architecture documents.
+- `MCP-004`: responsive control input under saturation.
+- `VERIFY-001`: exact cross-platform CI/AppSec/Store evidence.
+- `API-001`: verified GraphQL/OpenAPI request/response/security consistency.
+- `REL-001`: verified immutable `v0.2.1` release and clean installs.
 
 ## Active Work
 
@@ -49,15 +145,15 @@ non-semantic repository files and remain explicitly out of scope unless product 
 - [ ] focused verification for earlier profile/framework slices remains pending.
 
 `DOCGEN-001` remains in progress. Slices 8F–8H are promoted to `Verified` by the exact-commit gate.
-The next slice must be selected from the post-gate completeness artifact and should prefer useful first-party
-product semantics over coverage-only targets.
+The next bounded semantic slice must be selected from the post-gate completeness artifact and should prefer
+useful first-party product semantics over coverage-only targets.
 
 ## Product Backlog
 
-- [x] focused verification for Slices 8F–8H and exact completeness/self-evaluation;
-- [ ] select the next bounded semantic slice from the exact post-gate artifact;
-- [ ] keep generic JSON/test fixtures out of scope unless independently justified by product semantics;
-- [ ] OpenAPI fixture YAML remains excluded unless a separate evidence-backed product contract justifies it;
+- [x] run the focused verification for Slices 8F–8H and rerun exact completeness/self-evaluation;
+- [ ] select the next bounded semantic gap from the exact post-gate artifact;
+- [ ] keep issue forms and OpenAPI fixtures out unless independently justified by product semantics;
+- [ ] do not add generic JSON/fixture parsing solely to raise coverage;
 - [ ] keep Next.js/Axum/Express schemas/auth/middleware and route-composition expansion evidence-driven;
 - Dart/Flutter remains blocked on a portable DartScope dependency boundary rather than a local-only path dependency;
 - optional i18n, semantic/vector retrieval, provider, daemon, and MCP integration after quality gates.
