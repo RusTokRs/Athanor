@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 
 #[derive(Debug, Clone)]
 pub struct InitOptions {
@@ -28,7 +28,14 @@ pub fn init_project(options: InitOptions) -> Result<InitReport> {
     create_dir(&knowledge_dir.join("docs"), &mut created)?;
     create_dir(&generated_dir, &mut created)?;
 
-    if !config_path.exists() {
+    if config_path.exists() {
+        if !config_path.is_file() {
+            bail!(
+                "refusing to initialize {}: path exists but is not a file",
+                config_path.display()
+            );
+        }
+    } else {
         fs::write(&config_path, default_config())
             .with_context(|| format!("failed to write {}", config_path.display()))?;
         created.push(config_path);
@@ -38,11 +45,18 @@ pub fn init_project(options: InitOptions) -> Result<InitReport> {
 }
 
 fn create_dir(path: &Path, created: &mut Vec<PathBuf>) -> Result<()> {
-    if !path.exists() {
-        fs::create_dir_all(path).with_context(|| format!("failed to create {}", path.display()))?;
-        created.push(path.to_path_buf());
+    if path.exists() {
+        if !path.is_dir() {
+            bail!(
+                "refusing to initialize {}: path exists but is not a directory",
+                path.display()
+            );
+        }
+        return Ok(());
     }
 
+    fs::create_dir_all(path).with_context(|| format!("failed to create {}", path.display()))?;
+    created.push(path.to_path_buf());
     Ok(())
 }
 
