@@ -1,0 +1,54 @@
+name: DOCGEN / Framework projections 7A-7C
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docgen-framework-projections-7a-7c-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  framework-projections:
+    name: Framework projections / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    env:
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: 1
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: ./.github/actions/setup-rust
+        with:
+          components: clippy rustfmt
+
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Test Next.js and Express projections
+        run: cargo test -p athanor-extractor-js-ts --locked
+
+      - name: Test Axum projection
+        run: cargo test -p athanor-extractor-rust --locked
+
+      - name: Clippy Next.js and Express projections
+        run: cargo clippy -p athanor-extractor-js-ts --all-targets --locked -- -D warnings
+
+      - name: Clippy Axum projection
+        run: cargo clippy -p athanor-extractor-rust --all-targets --locked -- -D warnings
