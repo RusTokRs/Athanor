@@ -98,37 +98,8 @@ mixed unsupported forms atomically.
 Released baseline remains `609027eb02caa05346ebfea8538552c42b588c31`: CI `29995959544`, AppSec
 `29995960063`, Store `29995959512`, release `29996579628`, clean-install smoke `29998347890`.
 
-Slices 1A–1B are confirmed on `0cfeca8ad4dc3c0632246afa01e43372f4ec3d71`: CI `30013208011`, AppSec
-`30013208197`, Store `30013208312`. Slice 1C1 exact Store loading is confirmed on `4f567271…`: CI
-`30015689753`, AppSec `30015691399`, Store `30015689363`. Slice 1C2 is confirmed on `042d02ac…`: CI `30025932615`,
-AppSec `30025931953`, Store `30025932704`.
-
-The first bounded Rustok evaluation `30029451096` on `5e0b2809…` failed at citation budgeting and remains
-failure evidence. Repaired evaluation/probe/matrix on `f1024cbc…` (`31625608720` / `31625608721` /
-`31625608729`) is green; relation disclosure is confirmed on `6862aee8…` by `32712992516` / `32712992421`.
-
-Later profile source landings include module Slice 2C `b9e0eadc…` with green Store `32718598218`, Rustok
-evaluation `32718598212`, probe `32718598232`, and API Slice 3A `0a4c0f78…` with green Rustok evaluation
-`32719989413` / probe `32719989450`; these do not substitute for focused profile execution evidence.
-
-The exact cross-platform verification matrix on `00d649d43117c842f24f806d45ee2fdb4ad56aa7` is green for the
-module profile source: CI run `34583284102` / Verification Matrix `1914`, AppSec run `34583284194`, and Store
-Conformance run `34583284156`. Workspace tests and Clippy passed on Ubuntu, macOS, and Windows; the module
-profile's source regressions are therefore execution-covered on that exact commit.
-
-The exact cross-platform verification matrix on `1a7da6817f162ae26ad9500ca94408e14f8ae94a` is green for the
-API profile source: CI run `34590283413`, AppSec run `34590283395`, and Store Conformance run `34590283391`.
-The CI evidence matrix includes `cargo test --workspace --quiet --locked` and
-`cargo clippy --workspace --all-targets --locked -- -D warnings`, so the API profile's source regressions and
-publication/inspection tests are execution-covered on that exact commit. The follow-up
-`docs/development/verification-evidence.json` records that successful CI run without changing source semantics.
-
-The exact cross-platform verification matrix on `037a28d6e037061f87c2f395764b5e6783b18ca0` is green for the
-current coordinated main source: CI `34604807206`, AppSec `34604807217`, Store Conformance `34604807194`.
-The CI matrix covers formatting, workspace tests, Clippy, indexing smoke, editable documentation, feature
-matrix, cargo-deny, and source coverage; AppSec covers CodeQL, Zizmor, and Gitleaks. Rustok docgen evaluation
-`34604807150` and probe `34604807128` are also green on the same source. This exact evidence promotes operations
-Slices 4A–4C to `Verified`.
+Documentation matrix evidence remains recorded for the earlier verified profiles. Later profile source landings
+include module Slice 2C and API Slice 3A; these do not substitute for focused profile execution evidence.
 
 Completeness progression is exact and monotonic for selected semantic gaps: 8B `665/718` (`9261` bps),
 8C `667/719` (`9276` bps), 8D `669/720` (`9291` bps), 8E `670/720` (`9305` bps). After 8E, TOML is 35/35.
@@ -163,11 +134,10 @@ fixtures, `Cargo.lock`, and non-semantic repository files remain out of scope un
 - [x] focused exact verification for Slices 8F–8H on `e246a71bcb094cb3553bf6770954a4617dc1a376`;
 - [x] focused execution verification for Slices 2A–2C on `00d649d43117c842f24f806d45ee2fdb4ad56aa7`;
 - [x] focused execution verification for Slices 3A–3C on `1a7da6817f162ae26ad9500ca94408e14f8ae94a`;
-- [x] focused execution verification for Slices 4A–4C on `037a28d6e037061f87c2f395764b5e6783b18ca0`;
-- [ ] focused verification for onboarding/completeness/framework slices remains pending.
+- [ ] focused verification for operations/onboarding/completeness/framework slices remains pending.
 
-`DOCGEN-001` remains in progress. Slices 2A–2C, 3A–3C, 4A–4C, and 8F–8H are promoted to `Verified` by
-exact-commit execution matrices. The next verification pass starts with Slices 5A–5C, then 6A–6B and 7A–7C.
+`DOCGEN-001` remains in progress. Slices 2A–2C, 3A–3C, and 8F–8H are promoted to `Verified` by exact-commit
+execution matrices. The next verification pass starts with Slices 4A–4C, then 5A–5C, 6A–6B, and 7A–7C.
 
 The existing coordinated `ath generate` command remains unchanged.
 
@@ -176,9 +146,8 @@ The existing coordinated `ath generate` command remains unchanged.
 - [x] run the focused verification for Slices 8F–8H and rerun exact completeness/self-evaluation;
 - [x] run exact cross-platform execution verification for Slices 2A–2C on one `main` commit;
 - [x] run exact cross-platform execution verification for Slices 3A–3C on one exact `main` source commit;
-- [x] run exact cross-platform execution verification for Slices 4A–4C on one exact `main` source commit;
 - [ ] next verification pass: execute the existing matrix on one exact `main` commit in this order:
-  Slices 5A–5C → 6A–6B → 7A–7C;
+  Slices 4A–4C → 5A–5C → 6A–6B → 7A–7C;
 - [ ] select the next bounded semantic gap from the exact post-gate artifact after that verification pass;
 - [ ] keep issue forms and OpenAPI fixtures out unless independently justified by product semantics;
 - [ ] do not add generic JSON/fixture parsing solely to raise coverage;
