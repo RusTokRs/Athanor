@@ -277,6 +277,9 @@ mod tests {
             ".github/ISSUE_TEMPLATE/config.yml"
         ));
         assert!(!is_github_issue_form_path(
+            ".github/issue_template/config.yaml"
+        ));
+        assert!(!is_github_issue_form_path(
             ".github/ISSUE_TEMPLATE/nested/form.yml"
         ));
         assert!(!is_github_issue_form_path(".github/ISSUE_TEMPLATE/"));
@@ -320,3 +323,25 @@ mod tests {
                     language_hint: Some("yaml".to_string()),
                     content_hash: Some("hash".to_string()),
                     content: Some(
+                        "name: Bug report\ndescription: Reproducible defect\nlabels: [bug]\nbody:\n  - type: textarea\n    attributes:\n      label: Reproduction\n    validations:\n      required: true\n".to_string(),
+                    ),
+                },
+            })
+            .await
+            .unwrap();
+
+        let forms = output
+            .entities
+            .iter()
+            .filter(|entity| entity.kind == EntityKind::Feature)
+            .collect::<Vec<_>>();
+        assert_eq!(forms.len(), 2);
+        assert_eq!(output.facts.len(), 2);
+        assert!(
+            output
+                .facts
+                .iter()
+                .all(|fact| fact.kind == FactKind::SymbolDefined && !fact.evidence.is_empty())
+        );
+    }
+}
