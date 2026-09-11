@@ -56,7 +56,7 @@ Slices 7A–7C add bounded Next.js, Axum, and Express route projections while ba
 remain framework-neutral. Schema/auth/middleware, route composition, and handler linking remain deferred.
 
 Slice 8A adds bounded PowerShell `$env:NAME` / `${env:NAME}` references through the existing redacted
-`env://<NAME>` / `EnvVarUsed` contract. Exact self-evaluation `33676558603` on `75562e19…` confirms `ps1 = 2/2`.
+env://<NAME> / EnvVarUsed contract. Exact self-evaluation `33676558603` on `75562e19…` confirms `ps1 = 2/2`.
 
 Slice 8B recognizes only root `athanor.toml` as first-party runtime config, reusing redacted `Feature` /
 `SymbolDefined`. Exact self-evaluation `33680051765` on `e219157a…` confirms 665/718 (`9261` bps), TOML 34/35.
@@ -100,8 +100,8 @@ Released baseline remains `609027eb02caa05346ebfea8538552c42b588c31`: CI `299959
 
 Slices 1A–1B are confirmed on `0cfeca8ad4dc3c0632246afa01e43372f4ec3d71`: CI `30013208011`, AppSec
 `30013208197`, Store `30013208312`. Slice 1C1 exact Store loading is confirmed on `4f567271…`: CI
-`30015689753`, AppSec `30015691399`, Store `30015689363`. Slice 1C2 is confirmed on `042d02ac…`: CI
-`30025932615`, AppSec `30025931953`, Store `30025932704`.
+`30015689753`, AppSec `30015691399`, Store `30015689363`. Slice 1C2 is confirmed on `042d02ac…`: CI `30025932615`,
+AppSec `30025931953`, Store `30025932704`.
 
 The first bounded Rustok evaluation `30029451096` on `5e0b2809…` failed at citation budgeting and remains
 failure evidence. Repaired evaluation/probe/matrix on `f1024cbc…` (`31625608720` / `31625608721` /
@@ -147,6 +147,8 @@ fixtures, `Cargo.lock`, and non-semantic repository files remain out of scope un
 `DOCGEN-001` remains in progress. Slices 8F–8H are promoted to `Verified` by the exact-commit gate.
 The next bounded semantic slice must be selected from the post-gate completeness artifact and should prefer
 useful first-party product semantics over coverage-only targets.
+
+The existing coordinated `ath generate` command remains unchanged.
 
 ## Product Backlog
 
