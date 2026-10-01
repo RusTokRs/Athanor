@@ -62,7 +62,7 @@ oas3 = { version = "0.22", features = ["yaml-spec"] }
 oxc_allocator = "0.139.0"
 oxc_ast = "0.139.0"
 oxc_ast_visit = "0.139.0"
-oxc_parser = "0.139.0"
+oxc_parser = "0.140.0"
 oxc_span = "0.139.0"
 oxc_syntax = "0.139.0"
 quote = "1.0"
