@@ -191,6 +191,24 @@ jobs:
           )
           PY
 
+      - name: Report completeness summary
+        if: ${{ always() }}
+        shell: bash
+        env:
+          OUTPUT_ROOT: ${{ runner.temp }}/athanor-self-doc-evaluation
+        run: |
+          set -euo pipefail
+          if [ -s "$OUTPUT_ROOT/completeness.json" ]; then
+            jq '{
+              snapshot,
+              totals,
+              languages,
+              unprocessed_files
+            }' "$OUTPUT_ROOT/completeness.json"
+          else
+            echo "completeness.json is absent or empty"
+          fi
+
       - name: Upload self-documentation artifact
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
