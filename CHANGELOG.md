@@ -81,6 +81,8 @@ substantive release notes.
 
 ### Changed
 
+- Rename the root architecture audit briefing from `for agents. md` to `architecture_audit_briefing_ru.md`
+  so the first-party Markdown briefing is named and indexed like the other root planning artifacts.
 - Release tags are gated by repository-owned package-version, changelog, artifact, signature, provenance,
   SBOM, and release-note checks.
 - Release preparation rejects occupied tag names and pins an annotated tag to the exact verified candidate

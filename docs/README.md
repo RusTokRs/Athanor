@@ -17,6 +17,7 @@ verification. Exact package evidence lives in `athanor_implementation_plan_ru.md
 - [Agent workflow](development/agent-workflow.md)
 - [Roadmap status](development/roadmap-status.md)
 - [Implementation plan](../athanor_implementation_plan_ru.md)
+- [Architecture audit briefing](../architecture_audit_briefing_ru.md)
 - [Long-range plan](../start.md)
 
 ## Current Architecture
