@@ -10,6 +10,7 @@ use athanor_domain::{
 use athanor_extractor_basic::{evidence_for_file, file_entity, ownership_for_file, stable_hash};
 use serde_json::json;
 
+mod agent_mcp_config;
 mod dependabot;
 mod github_composite;
 mod github_issue_form;
@@ -44,6 +45,7 @@ impl Extractor for OperationsExtractor {
             || is_kubernetes_manifest_path(&source.path)
             || is_database_migration_path(&source.path)
             || is_runtime_config_path(&source.path)
+            || agent_mcp_config::is_agent_mcp_config_path(&source.path)
             || is_github_actions_workflow_path(&source.path)
             || github_composite::is_github_composite_action_path(&source.path)
             || github_issue_form::is_github_issue_form_path(&source.path)
@@ -213,6 +215,17 @@ impl Extractor for OperationsExtractor {
 
         if is_github_actions_workflow_path(&input.source.path) {
             extract_github_actions_workflow(
+                self.name(),
+                &input,
+                &file_id,
+                content,
+                &mut entities,
+                &mut facts,
+            );
+        }
+
+        if agent_mcp_config::is_agent_mcp_config_path(&input.source.path) {
+            agent_mcp_config::extract_agent_mcp_config(
                 self.name(),
                 &input,
                 &file_id,
@@ -2703,6 +2716,14 @@ fn yaml_key_line(content: &str, key: &str) -> Option<u32> {
         let trimmed = line.trim_start();
         (trimmed == needle || trimmed.starts_with(&format!("{needle} ")))
             .then_some((index + 1) as u32)
+    })
+}
+
+fn json_key_line(content: &str, key: &str) -> Option<u32> {
+    let needle = format!("\"{key}\":");
+    content.lines().enumerate().find_map(|(index, line)| {
+        let trimmed = line.trim_start();
+        trimmed.starts_with(&needle).then_some((index + 1) as u32)
     })
 }
 

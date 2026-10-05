@@ -17,7 +17,8 @@ Dockerfile stages, commands and environment declarations, shell script functions
 environment variables, bounded PowerShell environment references, docker-compose services, commands,
 and environment declarations, GitHub Actions workflow jobs/steps and first-party composite actions,
 first-party Dependabot update policies, bounded cargo-deny supply-chain policy, Kubernetes YAML
-deployment manifests, SQL database migrations, and runtime configuration files.
+deployment manifests, SQL database migrations, runtime configuration files, and bounded first-party
+agent-tool MCP configuration.
 
 ## Inputs
 
@@ -43,6 +44,7 @@ operations files and whose content is UTF-8 text:
 - JSON, TOML, or YAML config files in `config/`, `configs/`, or `settings/`, plus common
   `config.*`, `settings.*`, `appsettings.*`, and `*.config.*` filenames
 - the first-party root `athanor.toml`
+- the first-party root `.codex.json` and `antigravity.json` agent-tool MCP configuration files
 
 Supported dotenv declarations:
 
@@ -234,6 +236,7 @@ Entities:
 - `EntityKind::ScriptCommand` for GitHub Actions workflows, jobs, composite actions, `run` steps, and
   `uses` steps
 - `EntityKind::ScriptCommand` for Kubernetes container `command` and `args` declarations
+- `EntityKind::ScriptCommand` for first-party agent-tool MCP server declarations
 - `EntityKind::DockerService` for Dockerfile stages and docker-compose services
 - `EntityKind::DockerService` for Kubernetes workloads, services, ConfigMaps, Secrets, and related
   manifest resources
@@ -322,6 +325,11 @@ declaration or reference.
   configuration names including `athanor.toml`; `deny.toml` is handled separately by the cargo-deny
   policy projection. It does not interpret framework-specific config schemas, environment
   interpolation, includes/imports, profiles, encrypted values, or arrays of objects.
+- Agent-tool MCP configuration parsing is limited to the first-party root `.codex.json` (`mcp.servers`)
+  and `antigravity.json` (`mcpServers`) files. It projects one `ScriptCommand` per configured MCP
+  server with its literal command and argument tokens; malformed or partially supported files are
+  rejected atomically. Other agent-tool configuration formats, environment expansion, URLs, headers,
+  credentials, and generic JSON remain out of scope.
 - runbooks remain separate Phase 5 work.
 
 ## Tests
