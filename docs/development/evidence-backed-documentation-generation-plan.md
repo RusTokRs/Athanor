@@ -20,7 +20,8 @@ self-evaluation green at `685/731` (`9370` bps). Exact Athanor self-evaluation `
 `c10ab848e9f0250da14ccaa0e455ab7d26d920bd` confirms the Slice 8E effect at 670/720 (`9305` bps), TOML 35/35;
 focused verification for Slices 8A–8E remains pending. Slice 8I (first-party agent-tool MCP configuration) is
 source-implemented on `6fb5e34…`; exact self-evaluation `37292220926` confirms `691/735` (`9401` bps),
-JSON `2/35`.
+JSON `2/35`. The typo-named audit briefing rename on `0b42c28…` (run `37310134250`) reaches `692/735`
+(`9414` bps) with Markdown `151/151`, completing in-policy coverage.
 
 The existing coordinated `ath generate` command is unchanged. No model provider, daemon, MCP, or new dependency is enabled.
 
@@ -282,7 +283,7 @@ or layout drift, invalid validation status, and checksum drift.
 - Relation disclosure is exact-evaluation-confirmed on `6862aee8…` by `32712992516` / `32712992421`.
 - Later source landings do not substitute for focused profile verification: module 2C `b9e0eadc…`, API 3A `0a4c0f78…`.
 - Completeness progression: 8B 665/718 (`9261`), 8C 667/719 (`9276`), 8D 669/720 (`9291`), 8E 670/720 (`9305`),
-  post-8H `685/731` (`9370`), pre-8I `688/734` (`9373`), post-8I `691/735` (`9401`).
+  post-8H `685/731` (`9370`), post-8I `691/735` (`9401`), post-rename `692/735` (`9414`).
 - Slices 8F–8H are exact-verified on `e246a71b…`; Slice 8I is confirmed by self-evaluation `37292220926` on
   `6fb5e34…` plus the green pull request workflow set; 8A–8E focused verification remains pending.
 
@@ -291,11 +292,10 @@ The repaired bounded Rustok architecture-generation evaluation retains `DOCUMENT
 
 ## Next Bounded Step
 
-1. Keep the pull request workflow set green on the Slice 8I final head.
-2. Select the next bounded semantic gap from the post-8I artifact: the only in-policy gap left is the
-   typo-named `for agents. md` briefing (a repository rename, not extractor semantics); other unprocessed
-   files are policy-excluded fixtures, `Cargo.lock`, non-semantic files, or the separately-gated OpenAPI
-   fixture.
+1. Keep the pull request workflow set green on the final head (Slice 8I plus the `0b42c28…` briefing rename).
+2. In-policy coverage is complete after the rename; every remaining unprocessed file is a policy-excluded
+   fixture, `Cargo.lock`, a non-semantic file, or the separately-gated OpenAPI fixture. New semantic gaps
+   require a separately justified evidence-backed product scope.
 3. Keep provider, daemon, MCP, and coordinated `ath generate` changes separately gated.
 
 ## Verification

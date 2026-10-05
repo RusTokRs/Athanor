@@ -253,8 +253,8 @@ exact-verified, 8I подтверждён exact self-evaluation; финальн�
   bps) и реализовать: Slice 8I agent-tool MCP configuration; post-8I `37292220926` — `691/735` (`9401` bps);
 - [ ] не добавлять generic JSON/fixture parsing только ради coverage без explicit product semantics;
 - [ ] OpenAPI fixture YAML не включать без отдельного evidence-backed scope;
-- [ ] следующий bounded gap выбирать из post-8I artifact: в policy-scope остался только naming defect
-  `for agents. md` (rename в репозитории, не extractor semantics);
+- [x] post-8I bounded step: `for agents. md` → `architecture_audit_briefing_ru.md` (`0b42c28…`);
+  self-evaluation `37310134250`: `692/735` (`9414` bps), Markdown `151/151`, in-policy coverage complete;
 - [ ] Next.js/Axum/Express schemas/auth/middleware и route composition расширять отдельными slices;
 - [ ] optional provider, daemon, MCP, i18n and semantic retrieval after deterministic quality gates.
 
@@ -315,6 +315,6 @@ Slice 8I (first-party agent-tool MCP configuration) выбран из exact post
 exact self-evaluation `37292220926` подтверждает `691/735` (`9401` bps), JSON `2/35`. Финальная focused
 verification Slice 8I — зелёный workflow set на head pull request #137.
 
-Следующий bounded gap выбирать из post-8I artifact: в policy-scope остался только naming defect
-`for agents. md` (rename в репозитории); остальное unprocessed требует отдельного evidence-backed scope.
-Generic JSON/test fixtures не использовать как coverage target.
+Post-8I naming defect устранён: `for agents. md` → `architecture_audit_briefing_ru.md` (`0b42c28…`);
+self-evaluation `37310134250`: `692/735` (`9414` bps), Markdown `151/151`; in-policy coverage завершена,
+следующие gaps — только через отдельный evidence-backed product scope, fixtures — не coverage target.
