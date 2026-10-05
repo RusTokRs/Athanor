@@ -118,7 +118,11 @@ fn parse_agent_mcp_config(path: &str, content: &str) -> Option<AgentMcpConfig> {
     let object = root.as_object()?;
     let (tool, servers_object) = match normalized_path.as_str() {
         ".codex.json" => {
-            let servers = object.get("mcp")?.as_object()?.get("servers")?.as_object()?;
+            let servers = object
+                .get("mcp")?
+                .as_object()?
+                .get("servers")?
+                .as_object()?;
             ("codex", servers)
         }
         "antigravity.json" => ("antigravity", object.get("mcpServers")?.as_object()?),
@@ -276,7 +280,10 @@ mod tests {
             commands[0].stable_key.0,
             "script-command://.codex.json#agent-mcp-server:athanor"
         );
-        assert_eq!(commands[0].payload["command_kind"], json!("agent_mcp_server"));
+        assert_eq!(
+            commands[0].payload["command_kind"],
+            json!("agent_mcp_server")
+        );
         assert_eq!(commands[0].payload["agent_tool"], json!("codex"));
         assert_eq!(commands[0].payload["server"], json!("athanor"));
         assert_eq!(commands[0].payload["command"], json!("cargo"));
@@ -325,7 +332,10 @@ mod tests {
             commands[0].stable_key.0,
             "script-command://antigravity.json#agent-mcp-server:athanor"
         );
-        assert_eq!(commands[0].payload["command_kind"], json!("agent_mcp_server"));
+        assert_eq!(
+            commands[0].payload["command_kind"],
+            json!("agent_mcp_server")
+        );
         assert_eq!(commands[0].payload["agent_tool"], json!("antigravity"));
         assert_eq!(commands[0].payload["server"], json!("athanor"));
         assert_eq!(commands[0].payload["command"], json!("cargo"));
