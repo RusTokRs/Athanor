@@ -20,6 +20,7 @@ on:
 permissions:
   contents: read
   statuses: write
+  pull-requests: write
 
 concurrency:
   group: docgen-athanor-self-evaluation-main
