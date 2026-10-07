@@ -1,5 +1,13 @@
 #![allow(clippy::collapsible_if)]
 
+pub mod semantic;
+
+pub use semantic::{
+    HashingEmbeddingProvider, SEMANTIC_EMBEDDING_DIM, SEMANTIC_VECTOR_FILE,
+    SEMANTIC_VECTOR_STORE_VERSION, SemanticVectorStore, cosine_similarity, embed_text,
+    embed_with_dim,
+};
+
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -14,7 +22,7 @@ use tantivy::{
     collector::TopDocs,
     doc,
     indexer::NoMergePolicy,
-    query::QueryParser,
+    query::{QueryParser, TermQuery},
     schema::{
         Field, IndexRecordOption, STORED, STRING, Schema, TextFieldIndexing, TextOptions,
         Value as TantivyValue,
@@ -32,6 +40,8 @@ pub struct TantivySearchIndex {
     title_field: Field,
     body_field: Field,
     payload_field: Field,
+    semantic_store: SemanticVectorStore,
+    semantic_path: PathBuf,
 }
 
 impl TantivySearchIndex {
@@ -70,6 +80,9 @@ impl TantivySearchIndex {
         let writer = index.writer(50_000_000)?;
         writer.set_merge_policy(Box::new(NoMergePolicy));
         let reader = index.reader()?;
+        let semantic_path = path.join(SEMANTIC_VECTOR_FILE);
+        let semantic_store = SemanticVectorStore::load(&semantic_path)
+            .unwrap_or_else(|| SemanticVectorStore::new(SEMANTIC_EMBEDDING_DIM));
 
         Ok(Self {
             index,
@@ -79,6 +92,14 @@ impl TantivySearchIndex {
             title_field: fields.title,
             body_field: fields.body,
             payload_field: fields.payload,
+            semantic_store,
+            semantic_path,
+        })
+    }
+
+    fn persist_semantic_store(&self) -> CoreResult<()> {
+        self.semantic_store.save(&self.semantic_path).map_err(|error| {
+            CoreError::Adapter(format!("Semantic vector store persist error: {error}"))
         })
     }
 }
@@ -98,6 +119,12 @@ fn rebuild_with_checkpoint(
         let index = Index::create_in_dir(&staging, schema)?;
         register_tokenizer(&index);
         let mut writer = index.writer(50_000_000)?;
+        let semantic_store = SemanticVectorStore::from_documents(
+            SEMANTIC_EMBEDDING_DIM,
+            documents
+                .iter()
+                .map(|document| (document.id.clone(), format!("{}\n{}", document.title, document.body))),
+        );
 
         for (position, document) in documents.into_iter().enumerate() {
             if position % REBUILD_POLL_DOCUMENTS == 0 {
@@ -114,6 +141,8 @@ fn rebuild_with_checkpoint(
         checkpoint()?;
         commit_writer_with_checkpoint(&mut writer, &mut checkpoint)?;
         drop(writer);
+        checkpoint()?;
+        semantic_store.save(&staging.join(SEMANTIC_VECTOR_FILE))?;
         checkpoint()?;
 
         let backup = install_staging(path, &staging)?;
@@ -243,12 +272,14 @@ fn register_tokenizer(index: &Index) {
 #[async_trait]
 impl SearchIndex for TantivySearchIndex {
     async fn index_document(&self, document: SearchDocument) -> CoreResult<()> {
+        let id = document.id.clone();
+        let embedding = embed_text(&format!("{}\n{}", document.title, document.body));
         let payload = serde_json::to_string(&document.payload)
             .map_err(|error| CoreError::Adapter(format!("Failed to serialize payload: {error}")))?;
         let mut writer = self.writer.lock().map_err(|error| {
             CoreError::Adapter(format!("Failed to acquire Tantivy writer lock: {error}"))
         })?;
-        writer.delete_term(tantivy::Term::from_field_text(self.id_field, &document.id));
+        writer.delete_term(tantivy::Term::from_field_text(self.id_field, &id));
         writer
             .add_document(doc!(
                 self.id_field => document.id,
@@ -262,6 +293,8 @@ impl SearchIndex for TantivySearchIndex {
         self.reader
             .reload()
             .map_err(|error| CoreError::Adapter(format!("Tantivy reader reload error: {error}")))?;
+        self.semantic_store.upsert(&id, embedding, None);
+        self.persist_semantic_store()?;
         Ok(())
     }
 
@@ -275,6 +308,8 @@ impl SearchIndex for TantivySearchIndex {
         self.reader
             .reload()
             .map_err(|error| CoreError::Adapter(format!("Tantivy reader reload error: {error}")))?;
+        self.semantic_store.remove(id);
+        self.persist_semantic_store()?;
         Ok(())
     }
 
@@ -309,6 +344,42 @@ impl SearchIndex for TantivySearchIndex {
                 CoreError::Adapter(format!("Tantivy payload parse error: {error}"))
             })?;
             results.push(SearchResult { id, score, payload });
+        }
+        Ok(results)
+    }
+
+    async fn search_semantic(&self, query: SearchQuery) -> CoreResult<Vec<SearchResult>> {
+        let embedding = embed_text(&query.query);
+        let hits = self.semantic_store.search(&embedding, query.limit);
+        if hits.is_empty() {
+            return Ok(Vec::new());
+        }
+        let searcher = self.reader.searcher();
+        let mut results = Vec::with_capacity(hits.len());
+        for (id, score) in hits {
+            let term = tantivy::Term::from_field_text(self.id_field, &id);
+            let term_query = TermQuery::new(term, IndexRecordOption::Basic);
+            let top_docs = searcher
+                .search(&term_query, &TopDocs::with_limit(1))
+                .map_err(|error| CoreError::Adapter(format!("Tantivy search error: {error}")))?;
+            let Some((_, address)) = top_docs.into_iter().next() else {
+                continue;
+            };
+            let document: TantivyDocument = searcher.doc(address).map_err(|error| {
+                CoreError::Adapter(format!("Tantivy doc retrieval error: {error}"))
+            })?;
+            let payload = document
+                .get_first(self.payload_field)
+                .and_then(|value| value.as_str())
+                .unwrap_or("{}");
+            let payload: Value = serde_json::from_str(payload).map_err(|error| {
+                CoreError::Adapter(format!("Tantivy payload parse error: {error}"))
+            })?;
+            results.push(SearchResult {
+                id,
+                score: score.clamp(0.0, 1.0),
+                payload,
+            });
         }
         Ok(results)
     }
@@ -372,6 +443,112 @@ mod tests {
             .await
             .unwrap();
         assert!(results.is_empty());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn semantic_search_matches_related_documents() {
+        let root = test_root("semantic");
+        std::fs::create_dir_all(&root).unwrap();
+        let index = TantivySearchIndex::open_or_create(&root).unwrap();
+        index
+            .index_document(document(
+                "doc-auth",
+                "Authentication Module",
+                "login authentication session",
+                "auth",
+            ))
+            .await
+            .unwrap();
+        index
+            .index_document(document(
+                "doc-db",
+                "Database Migration",
+                "rollback schema migration",
+                "db",
+            ))
+            .await
+            .unwrap();
+
+        let results = index
+            .search_semantic(SearchQuery {
+                query: "authentication login".to_string(),
+                limit: 5,
+            })
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "doc-auth");
+        assert!(results[0].score > 0.0);
+        assert_eq!(results[0].payload, json!({ "key": "auth" }));
+
+        let unrelated = index
+            .search_semantic(SearchQuery {
+                query: "kubernetes deployment".to_string(),
+                limit: 5,
+            })
+            .await
+            .unwrap();
+        assert!(unrelated.is_empty());
+
+        index.remove_document("doc-auth").await.unwrap();
+        let gone = index
+            .search_semantic(SearchQuery {
+                query: "authentication login".to_string(),
+                limit: 5,
+            })
+            .await
+            .unwrap();
+        assert!(gone.is_empty());
+        drop(index);
+
+        let reopened = TantivySearchIndex::open_or_create(&root).unwrap();
+        let reloaded = reopened
+            .search_semantic(SearchQuery {
+                query: "schema rollback".to_string(),
+                limit: 5,
+            })
+            .await
+            .unwrap();
+        assert_eq!(reloaded.len(), 1);
+        assert_eq!(reloaded[0].id, "doc-db");
+        drop(reopened);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn rebuild_persists_semantic_sidecar() {
+        let root = test_root("semantic-rebuild");
+        std::fs::create_dir_all(&root).unwrap();
+        let index = TantivySearchIndex::rebuild(
+            &root,
+            vec![
+                document(
+                    "doc-auth",
+                    "Authentication Module",
+                    "login authentication",
+                    "auth",
+                ),
+                document(
+                    "doc-db",
+                    "Database Migration",
+                    "rollback schema migration",
+                    "db",
+                ),
+            ],
+        )
+        .unwrap();
+        let results = index
+            .search_semantic(SearchQuery {
+                query: "user auth".to_string(),
+                limit: 5,
+            })
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "doc-auth");
+        assert!(root.join(SEMANTIC_VECTOR_FILE).exists());
+        drop(index);
         let _ = std::fs::remove_dir_all(root);
     }
 
