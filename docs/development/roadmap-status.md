@@ -201,8 +201,9 @@ The existing coordinated `ath generate` command remains unchanged.
 - [x] run exact cross-platform execution verification for Slices 7A–7C on one exact `main` source commit;
 - [x] select the next bounded semantic gap from the exact post-gate artifact: Slice 8I first-party agent-tool MCP configuration;
 - [x] rename the typo-named `for agents. md` audit briefing to `architecture_audit_briefing_ru.md` (`0b42c28…`);
+- [x] start the semantic retrieval slice: local hashing embeddings implement the `EmbeddingProvider`/`VectorIndex` ports, persist in a JSON sidecar beside the Tantivy index, and expose `lexical`/`semantic`/`hybrid` modes in `ath search --mode` and MCP `search`;
 - [ ] keep issue forms and OpenAPI fixtures out unless independently justified by product semantics;
 - [ ] do not add generic JSON/fixture parsing solely to raise coverage;
 - [ ] keep Next.js/Axum/Express schemas/auth/middleware and route-composition expansion evidence-driven;
 - Dart/Flutter remains blocked on a portable DartScope dependency boundary rather than a local-only path dependency;
-- optional i18n, semantic/vector retrieval, provider, daemon, and MCP integration after quality gates.
+- optional i18n, provider, daemon, and MCP integration after quality gates; semantic/vector retrieval is in progress (local hashing embeddings + hybrid `ath search`/MCP `search` modes).
