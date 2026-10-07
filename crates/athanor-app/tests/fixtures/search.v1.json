@@ -3,6 +3,7 @@
   "root": "repo",
   "snapshot": "snap_fixture",
   "query": "contract",
+  "mode": "lexical",
   "limit": 5,
   "returned": 0,
   "truncated": false,
