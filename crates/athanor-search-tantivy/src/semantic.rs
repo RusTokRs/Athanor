@@ -119,7 +119,10 @@ impl SemanticVectorStore {
     }
 
     pub fn len(&self) -> usize {
-        self.vectors.lock().map(|vectors| vectors.len()).unwrap_or(0)
+        self.vectors
+            .lock()
+            .map(|vectors| vectors.len())
+            .unwrap_or(0)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -127,7 +130,10 @@ impl SemanticVectorStore {
     }
 
     /// Build a store from `(id, text)` pairs, embedding each text.
-    pub fn from_documents(dim: usize, documents: impl IntoIterator<Item = (String, String)>) -> Self {
+    pub fn from_documents(
+        dim: usize,
+        documents: impl IntoIterator<Item = (String, String)>,
+    ) -> Self {
         let store = Self::new(dim);
         for (id, text) in documents {
             let vector = embed_with_dim(&text, store.dim);
@@ -451,9 +457,12 @@ mod tests {
     #[tokio::test]
     async fn hashing_provider_matches_embed_text() {
         let provider = HashingEmbeddingProvider::new();
-        let vector = EmbeddingProvider::embed(&provider, EmbeddingInput {
-            text: "authentication login".to_string(),
-        })
+        let vector = EmbeddingProvider::embed(
+            &provider,
+            EmbeddingInput {
+                text: "authentication login".to_string(),
+            },
+        )
         .await
         .unwrap();
         assert_eq!(vector, embed_text("authentication login"));

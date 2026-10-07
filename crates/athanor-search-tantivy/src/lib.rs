@@ -98,9 +98,11 @@ impl TantivySearchIndex {
     }
 
     fn persist_semantic_store(&self) -> CoreResult<()> {
-        self.semantic_store.save(&self.semantic_path).map_err(|error| {
-            CoreError::Adapter(format!("Semantic vector store persist error: {error}"))
-        })
+        self.semantic_store
+            .save(&self.semantic_path)
+            .map_err(|error| {
+                CoreError::Adapter(format!("Semantic vector store persist error: {error}"))
+            })
     }
 }
 
@@ -121,9 +123,12 @@ fn rebuild_with_checkpoint(
         let mut writer = index.writer(50_000_000)?;
         let semantic_store = SemanticVectorStore::from_documents(
             SEMANTIC_EMBEDDING_DIM,
-            documents
-                .iter()
-                .map(|document| (document.id.clone(), format!("{}\n{}", document.title, document.body))),
+            documents.iter().map(|document| {
+                (
+                    document.id.clone(),
+                    format!("{}\n{}", document.title, document.body),
+                )
+            }),
         );
 
         for (position, document) in documents.into_iter().enumerate() {
