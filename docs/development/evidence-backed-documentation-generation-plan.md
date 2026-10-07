@@ -14,12 +14,14 @@ inspection surface passed the full cross-platform matrix. The repaired bounded R
 matrix-confirmed on `f1024cbc52f05de4d3ce96c556ef044ad48b3a0e`; the human-facing unsupported-relation
 disclosure is exact-evaluation-confirmed on `6862aee81dd0f53fa8372d1ce3fcb6e2ed198cca`.
 
-Module expansion is source-implemented through Slice 2C, API through Slice 3C, operations through Slice
-4C, onboarding through Slice 5C, documentation completeness through Slice 6B, bounded framework route
-projections through Next.js/Axum/Express Slices 7A–7C, and completeness-driven first-party operational
-semantics through Slices 8A–8E. Exact Athanor self-evaluation `33722472453` on
-`c10ab848e9f0250da14ccaa0e455ab7d26d920bd` is green and confirms the Slice 8E coverage effect at
-670/720 processed (`9305` basis points), with TOML 35/35. Focused verification for later slices remains pending.
+Module/API/operations/onboarding/completeness/framework expansion is exact-verified through Slices 2A–7C on
+the commits recorded in `roadmap-status.md`; Slices 8F–8H are exact-verified on `e246a71b…` with the post-8H
+self-evaluation green at `685/731` (`9370` bps). Exact Athanor self-evaluation `33722472453` on
+`c10ab848e9f0250da14ccaa0e455ab7d26d920bd` confirms the Slice 8E effect at 670/720 (`9305` bps), TOML 35/35;
+focused verification for Slices 8A–8E remains pending. Slice 8I (first-party agent-tool MCP configuration) is
+source-implemented on `6fb5e34…`; exact self-evaluation `37292220926` confirms `691/735` (`9401` bps),
+JSON `2/35`. The typo-named audit briefing rename on `0b42c28…` (run `37310134250`) reaches `692/735`
+(`9414` bps) with Markdown `151/151`, completing in-policy coverage.
 
 The existing coordinated `ath generate` command is unchanged. No model provider, daemon, MCP, or new dependency is enabled.
 
@@ -225,20 +227,31 @@ or layout drift, invalid validation status, and checksum drift.
   (`9291` bps), YAML 12/15, TOML 34/35.
 - Verification Matrix `33714498496` exposed formatter-only test hunks in Slices 8C/8D; #91 applied exactly them.
 
+### Slice 8I — First-party Agent-Tool MCP Configuration
+
+- Only the root `.codex.json` (`mcp.servers`) and `antigravity.json` (`mcpServers`) files are recognized; one
+  `ScriptCommand` per configured MCP server records the agent tool, server name, and literal command plus
+  argument tokens through the existing `ScriptCommand` / `SymbolDefined` contracts with evidence and ownership.
+- Malformed, partially supported, or server-less files are rejected atomically; generic JSON is not projected
+  and the configured commands are never executed.
+- Selected from the exact post-gate artifact on `aaf79d6…` (run `37290849626`, `688/734`, `9373` bps, 46
+  unprocessed, only in-policy product-semantic gap); exact self-evaluation `37292220926` on `6fb5e34…`
+  confirms `691/735` (`9401` bps), JSON `2/35`.
+
 ### Slice 8H — First-party GitHub Issue Forms
 
 - `.github/ISSUE_TEMPLATE/*.yml|yaml` is recognized as a first-party contributor interface through a bounded YAML projection.
 - The projection records form identity plus body-item type, label, and required state; descriptions and labels are retained as bounded metadata.
 - GitHub rendering, expressions, markdown semantics, and arbitrary YAML are not projected.
 - Path recognition is restricted to a single file directly under `.github/ISSUE_TEMPLATE/`; empty form names fail closed.
-- Focused verification and completeness evidence remain pending.
+- Focused verification is green on `e246a71b…` (post-8H self-evaluation `685/731`, `9370` bps).
 
 ### Slice 8G — First-party PowerShell Installer
 
 - The repository-root `install.ps1` is recognized through an exact path and bounded first-party contract.
 - The projection records `ath.exe`/`athd.exe`, `SHA256SUMS`, and SHA-256 verification through `Get-FileHash`.
 - Runtime install directories, environment values, filesystem state, and generic PowerShell control flow are not projected.
-- Focused verification and completeness evidence remain pending.
+- Focused verification is green on `e246a71b…`.
 
 ### Slice 8F — First-party Runtime Artifacts
 
@@ -248,8 +261,7 @@ or layout drift, invalid validation status, and checksum drift.
   Cargo version coherence, changelog/date/substantive-notes checks, notes output, and CLI inputs, without Python
   execution or generic AST parsing.
 - Both projections use existing `ScriptCommand`, evidence, ownership, and fail-closed extraction contracts.
-- Focused verification is still pending. The first post-merge Verification Matrix run on `c978187d…` failed at
-  formatting only; the formatting drift is now repaired on a follow-up branch.
+- Focused verification is green on `e246a71b…`; the first post-merge matrix on `c978187d…` failed at formatting only.
 
 ### Slice 8E — Bounded Cargo-Deny Supply-Chain Policy
 
@@ -270,50 +282,32 @@ or layout drift, invalid validation status, and checksum drift.
   `31625608721`, CI `31625608729`, AppSec `31625608723`, Store `31625608739` are green on `f1024cbc…`.
 - Relation disclosure is exact-evaluation-confirmed on `6862aee8…` by `32712992516` / `32712992421`.
 - Later source landings do not substitute for focused profile verification: module 2C `b9e0eadc…`, API 3A `0a4c0f78…`.
-- Completeness progression: 8B 665/718 (`9261`), 8C 667/719 (`9276`), 8D 669/720 (`9291`), 8E 670/720 (`9305`).
-- Focused module/API/operations/onboarding/completeness/framework and Slices 8A–8H verification remains pending.
+- Completeness progression: 8B 665/718 (`9261`), 8C 667/719 (`9276`), 8D 669/720 (`9291`), 8E 670/720 (`9305`),
+  post-8H `685/731` (`9370`), post-8I `691/735` (`9401`), post-rename `692/735` (`9414`).
+- Slices 8F–8H are exact-verified on `e246a71b…`; Slice 8I is confirmed by self-evaluation `37292220926` on
+  `6fb5e34…` plus the green pull request workflow set; 8A–8E focused verification remains pending.
 
 The repaired bounded Rustok architecture-generation evaluation retains `DOCUMENTATION_REFERENCE_LIMIT`,
 `workflow_dispatch` support, and diagnostic evidence checks as explicit regression boundaries.
 
 ## Next Bounded Step
 
-1. Run focused verification for Slices 8F–8H on the exact follow-up source commit.
-2. Rerun the exact self-evaluation/completeness report and record the resulting coverage delta rather than inferring it.
-3. Select the next bounded semantic gap from that post-8H artifact; issue forms are now implemented, while OpenAPI fixtures, provider,
-   daemon, MCP, and coordinated `ath generate` changes remain separately gated.
+1. Keep the pull request workflow set green on the final head (Slice 8I plus the `0b42c28…` briefing rename).
+2. In-policy coverage is complete after the rename; every remaining unprocessed file is a policy-excluded
+   fixture, `Cargo.lock`, a non-semantic file, or the separately-gated OpenAPI fixture. New semantic gaps
+   require a separately justified evidence-backed product scope.
+3. Keep provider, daemon, MCP, and coordinated `ath generate` changes separately gated.
 
 ## Verification
 
 ```bash
 cargo fmt --all -- --check
 cargo test -p athanor-extractor-operations --locked
-cargo test -p athanor-app --test documentation_completeness_inventory --locked
-cargo test -p athanor-app --test documentation_completeness_operation_inventory --locked
-cargo test -p athanor-app --test documentation_completeness_transport_inventory --locked
-cargo test -p athanor-app --test documentation_onboarding_profile_inventory --locked
-cargo test -p athanor-app --test documentation_onboarding_publication_inventory --locked
-cargo test -p athanor-app --test documentation_onboarding_operation_inventory --locked
-cargo test -p athanor-app --test documentation_onboarding_inspection_inventory --locked
-cargo test -p athanor-app --test documentation_operations_profile_inventory --locked
-cargo test -p athanor-app --test documentation_operations_publication_inventory --locked
-cargo test -p athanor-app --test documentation_operations_operation_inventory --locked
-cargo test -p athanor-app --test documentation_operations_inspection_inventory --locked
-cargo test -p athanor-app --test documentation_api_profile_inventory --locked
-cargo test -p athanor-app --test documentation_api_publication_inventory --locked
-cargo test -p athanor-app --test documentation_api_operation_inventory --locked
-cargo test -p athanor-app --test documentation_api_inspection_inventory --locked
-cargo test -p athanor-app --test documentation_module_profile_inventory --locked
-cargo test -p athanor-app --test documentation_module_publication_inventory --locked
-cargo test -p athanor-app --test documentation_module_inspection_inventory --locked
-cargo test -p athanor-app --test documentation_architecture_inspection_inventory --locked
-cargo test -p ath --test documentation_completeness_cli --locked
-cargo test -p ath --test documentation_onboarding_cli --locked
-cargo test -p ath --test documentation_operations_cli --locked
-cargo test -p ath --test documentation_api_cli --locked
-cargo test -p ath --test documentation_module_cli --locked
-cargo test -p ath --test documentation_architecture_cli --locked
-cargo test -p athanor-app --test documentation_status_inventory --locked
 cargo test --workspace --quiet --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo run -p ath --quiet --locked -- docs check
 ```
+
+The complete per-profile documentation inventory and CLI matrix is maintained in
+`athanor_implementation_plan_ru.md` §6; the focused docgen workflows run the per-profile inventories and
+CLI checks on every supported operating system.

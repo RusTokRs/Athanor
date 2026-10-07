@@ -1287,3 +1287,172 @@ fn init_tracing(log_file: Option<&std::path::Path>) -> Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_start_with_documented_defaults() {
+        let cli = Cli::try_parse_from(["athd", "start", "web-app"]).expect("start parses");
+        match cli.command {
+            Command::Start {
+                project_id,
+                listen,
+                transport,
+                max_concurrent_requests,
+                max_job_history,
+                watch,
+                debounce_ms,
+                insecure_allow_v1,
+                json,
+                ..
+            } => {
+                assert_eq!(project_id, "web-app");
+                assert_eq!(listen, "127.0.0.1:0".parse::<SocketAddr>().unwrap());
+                assert!(matches!(transport, TransportArg::Tcp));
+                assert_eq!(max_concurrent_requests, 4);
+                assert_eq!(max_job_history, 1000);
+                assert!(!watch);
+                assert_eq!(debounce_ms, 1000);
+                assert!(!insecure_allow_v1);
+                assert!(!json);
+            }
+            other => panic!("expected start, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_start_overrides() {
+        let cli = Cli::try_parse_from([
+            "athd",
+            "start",
+            "web-app",
+            "--listen",
+            "127.0.0.1:9100",
+            "--transport",
+            "local-socket",
+            "--max-concurrent-requests",
+            "8",
+            "--watch",
+            "--watch-poll",
+            "--debounce-ms",
+            "250",
+            "--insecure-allow-v1",
+            "--json",
+        ])
+        .expect("start overrides parse");
+        match cli.command {
+            Command::Start {
+                listen,
+                transport,
+                max_concurrent_requests,
+                watch,
+                watch_poll,
+                debounce_ms,
+                insecure_allow_v1,
+                json,
+                ..
+            } => {
+                assert_eq!(listen.port(), 9100);
+                assert!(matches!(transport, TransportArg::LocalSocket));
+                assert_eq!(max_concurrent_requests, 8);
+                assert!(watch);
+                assert!(watch_poll);
+                assert_eq!(debounce_ms, 250);
+                assert!(insecure_allow_v1);
+                assert!(json);
+            }
+            other => panic!("expected start, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn service_install_defaults_to_local_socket() {
+        let cli =
+            Cli::try_parse_from(["athd", "service", "install", "web-app"]).expect("install parses");
+        match cli.command {
+            Command::Service {
+                command:
+                    ServiceCommand::Install {
+                        project_id,
+                        transport,
+                        watch,
+                        ..
+                    },
+            } => {
+                assert_eq!(project_id, "web-app");
+                assert!(matches!(transport, TransportArg::LocalSocket));
+                assert!(!watch);
+            }
+            other => panic!("expected service install, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn overview_defaults_top_to_ten() {
+        let cli = Cli::try_parse_from(["athd", "overview", "web-app"]).expect("overview parses");
+        match cli.command {
+            Command::Overview { top, .. } => assert_eq!(top, 10),
+            other => panic!("expected overview, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn context_level_defaults_to_normal_and_accepts_deep() {
+        let cli =
+            Cli::try_parse_from(["athd", "context", "web-app", "auth"]).expect("context parses");
+        match cli.command {
+            Command::Context { task, level, .. } => {
+                assert_eq!(task.as_deref(), Some("auth"));
+                assert!(matches!(level, ContextLevelArg::Normal));
+            }
+            other => panic!("expected context, got {other:?}"),
+        }
+
+        let cli = Cli::try_parse_from(["athd", "context", "web-app", "auth", "--level", "deep"])
+            .expect("context level parses");
+        match cli.command {
+            Command::Context { level, .. } => assert!(matches!(level, ContextLevelArg::Deep)),
+            other => panic!("expected context, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn jobs_default_limit_is_twenty() {
+        let cli = Cli::try_parse_from(["athd", "jobs", "web-app"]).expect("jobs parses");
+        match cli.command {
+            Command::Jobs { limit, .. } => assert_eq!(limit, 20),
+            other => panic!("expected jobs, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn index_accepts_deadline() {
+        let cli = Cli::try_parse_from([
+            "athd",
+            "index",
+            "web-app",
+            "--deadline-unix-ms",
+            "1700000000000",
+        ])
+        .expect("index parses");
+        match cli.command {
+            Command::Index {
+                deadline_unix_ms, ..
+            } => assert_eq!(deadline_unix_ms, Some(1_700_000_000_000)),
+            other => panic!("expected index, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn missing_project_id_is_rejected() {
+        assert!(Cli::try_parse_from(["athd", "stop"]).is_err());
+        assert!(Cli::try_parse_from(["athd", "overview"]).is_err());
+    }
+
+    #[test]
+    fn unknown_subcommand_is_rejected() {
+        assert!(Cli::try_parse_from(["athd", "frobnicate"]).is_err());
+    }
+}

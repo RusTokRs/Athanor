@@ -194,12 +194,14 @@ fn is_read_tool(tool_name: &str) -> bool {
     matches!(
         tool_name,
         "explain"
+            | "overview"
             | "search"
             | "context"
             | "impact"
             | "change_map"
             | "rustok_architecture_context"
             | "check"
+            | "capabilities"
     )
 }
 

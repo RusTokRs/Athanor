@@ -3,9 +3,10 @@ use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use athanor_app::{
-    ChangeMapOptions, ContextLimitOverrides, ContextOptions, DiagnosticCheckOptions,
-    DiagnosticScope, ExplainOptions, ImpactOptions, IndexOptions, RuntimeComposition,
-    RustokArchitectureContextOptions, SearchOptions,
+    CapabilitiesOptions, ChangeMapOptions, ContextLimitOverrides, ContextOptions,
+    DEFAULT_CAPABILITIES_LIMIT, DEFAULT_CONFIDENCE_THRESHOLD, DiagnosticCheckOptions,
+    DiagnosticScope, ExplainOptions, ImpactOptions, IndexOptions, OverviewOptions,
+    RuntimeComposition, RustokArchitectureContextOptions, SearchOptions,
 };
 use athanor_core::{CoreError, CoreErrorCode, OperationContext, OperationContextCancellation};
 use serde_json::{Value, json};
@@ -51,6 +52,17 @@ async fn call_inner(
                 ExplainOptions {
                     root: root.to_path_buf(),
                     stable_key: string_arg(&args, "stable_key")?,
+                },
+                composition,
+            )
+            .await?;
+            serde_json::to_string_pretty(&report)?
+        }
+        "overview" => {
+            let report = athanor_app::overview_project_with_composition(
+                OverviewOptions {
+                    root: root.to_path_buf(),
+                    top: usize_arg(&args, "top", 10).max(1),
                 },
                 composition,
             )
@@ -168,6 +180,30 @@ async fn call_inner(
                 DiagnosticCheckOptions {
                     root: root.to_path_buf(),
                     scope,
+                },
+                composition,
+            )
+            .await?;
+            serde_json::to_string_pretty(&report)?
+        }
+        "capabilities" => {
+            let limit = usize_arg(&args, "limit", DEFAULT_CAPABILITIES_LIMIT);
+            if limit == 0 {
+                bail!("limit must be greater than zero");
+            }
+            let confidence_threshold = args
+                .get("min_confidence")
+                .and_then(Value::as_f64)
+                .map(|value| value as f32)
+                .unwrap_or(DEFAULT_CONFIDENCE_THRESHOLD);
+            if !(0.0..=1.0).contains(&confidence_threshold) {
+                bail!("min_confidence must be between 0.0 and 1.0");
+            }
+            let report = athanor_app::capabilities_project_with_composition(
+                CapabilitiesOptions {
+                    root: root.to_path_buf(),
+                    limit,
+                    confidence_threshold,
                 },
                 composition,
             )
