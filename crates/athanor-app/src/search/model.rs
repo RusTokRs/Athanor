@@ -11,11 +11,39 @@ pub type SearchIndexFactory =
 pub type SearchIndexOperationFactory =
     fn(&Path, Option<Vec<SearchDocument>>, &OperationContext) -> Result<Arc<dyn SearchIndex>>;
 
+/// Bump when the on-disk search index layout changes; stale indexes are rebuilt.
+pub(crate) const SEARCH_INDEX_FORMAT: u32 = 2;
+
+/// Retrieval mode for `search`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SearchMode {
+    /// BM25 lexical search (Tantivy) — the default.
+    #[default]
+    Lexical,
+    /// Semantic retrieval over local hashing embeddings (cosine similarity).
+    Semantic,
+    /// Both lexical and semantic retrieval, merged into one ranked list.
+    Hybrid,
+}
+
+impl std::fmt::Display for SearchMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let label = match self {
+            SearchMode::Lexical => "lexical",
+            SearchMode::Semantic => "semantic",
+            SearchMode::Hybrid => "hybrid",
+        };
+        f.write_str(label)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct SearchOptions {
     pub root: PathBuf,
     pub query: String,
     pub limit: usize,
+    pub mode: SearchMode,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -36,6 +64,7 @@ pub struct SearchReport {
     pub root: PathBuf,
     pub snapshot: String,
     pub query: String,
+    pub mode: SearchMode,
     pub limit: usize,
     pub returned: usize,
     pub truncated: bool,
@@ -52,4 +81,6 @@ pub struct SearchOmissions {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) struct IndexMeta {
     pub(super) snapshot_id: String,
+    #[serde(default)]
+    pub(super) search_format: u32,
 }

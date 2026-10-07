@@ -13,8 +13,8 @@ use crate::RuntimeComposition;
 mod core;
 
 pub use core::{
-    SearchIndexFactory, SearchIndexOperationFactory, SearchItem, SearchOmissions, SearchOptions,
-    SearchReport, entity_text,
+    SearchIndexFactory, SearchIndexOperationFactory, SearchItem, SearchMode, SearchOmissions,
+    SearchOptions, SearchReport, entity_text,
 };
 pub(crate) use core::{
     get_or_build_search_index_with_factory, get_or_build_search_index_with_factory_and_operation,
@@ -41,9 +41,10 @@ pub async fn search_snapshot_with_composition(
     snapshot: &CanonicalSnapshot,
     query: String,
     limit: usize,
+    mode: SearchMode,
     composition: &RuntimeComposition,
 ) -> Result<SearchReport> {
-    core::search_snapshot_with_composition(root, snapshot, query, limit, composition).await
+    core::search_snapshot_with_composition(root, snapshot, query, limit, mode, composition).await
 }
 
 pub async fn search_snapshot_with_composition_and_operation_context(
@@ -51,6 +52,7 @@ pub async fn search_snapshot_with_composition_and_operation_context(
     snapshot: &CanonicalSnapshot,
     query: String,
     limit: usize,
+    mode: SearchMode,
     composition: &RuntimeComposition,
     operation: &OperationContext,
 ) -> Result<SearchReport> {
@@ -59,6 +61,7 @@ pub async fn search_snapshot_with_composition_and_operation_context(
         snapshot,
         query,
         limit,
+        mode,
         composition,
         operation,
     )
@@ -70,7 +73,8 @@ pub async fn search_snapshot_with_index(
     snapshot: &CanonicalSnapshot,
     query: String,
     limit: usize,
+    mode: SearchMode,
     index: &dyn SearchIndex,
 ) -> Result<SearchReport> {
-    core::search_snapshot_with_index(root, snapshot, query, limit, index).await
+    core::search_snapshot_with_index(root, snapshot, query, limit, mode, index).await
 }

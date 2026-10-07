@@ -13,8 +13,8 @@ use athanor_app::{
     GraphRelated, GraphRelatedNode, IMPACT_ANALYSIS_SCHEMA_V1, OPERATIONS_DOCS_CHECK_SCHEMA_V1,
     OVERVIEW_SCHEMA_V1, OperationsDocsCheckReport, OperationsOverview, OverviewTotals,
     PROJECT_RESOLUTION_SCHEMA_V1, ProjectRegistration, ProjectResolutionReport, RepositoryOverview,
-    SEARCH_SCHEMA_V1, SearchOmissions, SearchReport, VersionedJsonContract, explain_snapshot,
-    impact_snapshot,
+    SEARCH_SCHEMA_V1, SearchMode, SearchOmissions, SearchReport, VersionedJsonContract,
+    explain_snapshot, impact_snapshot,
 };
 use athanor_core::CanonicalSnapshot;
 use athanor_domain::{
@@ -67,6 +67,7 @@ fn search_report_v1_matches_golden_fixture() {
         root: PathBuf::from("repo"),
         snapshot: "snap_fixture".to_string(),
         query: "contract".to_string(),
+        mode: SearchMode::Lexical,
         limit: 5,
         returned: 0,
         truncated: false,
