@@ -31,6 +31,16 @@ pub(crate) fn list() -> Value {
                 }
             },
             {
+                "name": "overview",
+                "description": "Summarize the latest canonical snapshot for repository orientation.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "top": { "type": "integer", "minimum": 1, "description": "Default 10." }
+                    }
+                }
+            },
+            {
                 "name": "search",
                 "description": "Search the project's knowledge base using BM25 lexical search.",
                 "inputSchema": {
@@ -119,6 +129,20 @@ pub(crate) fn list() -> Value {
                     },
                     "required": ["scope"]
                 }
+            },
+            {
+                "name": "capabilities",
+                "description": "Report bounded analysis-completeness of the latest canonical snapshot.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "limit": { "type": "integer", "minimum": 1, "description": "Default 50." },
+                        "min_confidence": {
+                            "type": "number",
+                            "description": "Confidence threshold between 0.0 and 1.0. Default 1.0."
+                        }
+                    }
+                }
             }
         ]
     });
@@ -150,7 +174,7 @@ mod tests {
     #[test]
     fn tool_list_has_deadline_on_every_tool() {
         let tools = list()["tools"].as_array().unwrap().clone();
-        assert_eq!(tools.len(), 8);
+        assert_eq!(tools.len(), 10);
         assert!(tools.iter().all(|tool| {
             tool["inputSchema"]["properties"]
                 .get("deadline_unix_ms")

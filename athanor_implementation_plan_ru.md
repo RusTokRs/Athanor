@@ -2,11 +2,11 @@
 
 > Репозиторий: `RusTokRs/Athanor`  
 > Ветка: `main`  
-> Актуализировано: 2026-09-03  
+> Актуализировано: 2026-10-05  
 > Статус: `API-001`, `REL-001` verified; `DOCGEN-001 / Slices 0A–1C` execution-confirmed;
 > relation-disclosure exact-evaluation-confirmed; module 2A–2C, API 3A–3C, operations 4A–4C,
-> onboarding 5A–5C, completeness 6A–6B, framework projections 7A–7C и Slices 8A–8E source-implemented;
-> exact completeness подтверждает coverage effects 8A–8E; focused verification later slices pending
+> onboarding 5A–5C, completeness 6A–6B, framework 7A–7C и 8F–8H exact-verified; 8A–8E и 8I
+> source-implemented с exact completeness/self-evaluation confirmation; 8A–8E focused verification pending
 
 ## 1. Статусы и evidence
 
@@ -62,6 +62,12 @@ Documentation generation:
   подтверждает Slice 8D: `669/720` (`9291` bps), `yaml = 12/15`, `toml = 34/35`.
 - Self-evaluation `33722472453` на `c10ab848e9f0250da14ccaa0e455ab7d26d920bd` подтверждает Slice 8E:
   `670/720` (`9305` bps), `toml = 35/35`, `yaml = 12/15`, facts `9051`, relations `13208`, diagnostics `169`.
+- Focused exact verification: module 2A–2C `00d649d4…`; API 3A–3C `1a7da68…`; operations 4A–4C
+  `037a28d6…` (CI/AppSec/Store `34604807206`/`34604807217`/`34604807194`); onboarding 5A–5C, completeness
+  6A–6B и framework 7A–7C на `76f90d6…` (`34644333635`/`34644333634`/`34644333569`); 8F–8H — `e246a71b…`.
+- Pre-8I baseline `37290849626` на `aaf79d6…`: `688/734` (`9373` bps), 46 unprocessed, `.codex.json`/
+  `antigravity.json` — единственный in-policy product-semantic gap; post-8I `37292220926` на `6fb5e34…`:
+  `691/735` (`9401` bps), JSON `2/35`, facts `9204`, relations `13274`, diagnostics `208`.
 
 ## 3. Завершённые пакеты
 
@@ -129,7 +135,7 @@ Documentation generation:
 - [x] Shared 256-item round-robin budget, cited Markdown/Mermaid, omissions и semantic-parity regressions.
 - [x] Immutable `modules/index.md` publication, exact Store operation, `generate-module`, validated
   `module current|manifest|validation`, profile-isolated shared `current.json`.
-- [ ] Focused format/test/Clippy evidence для Slices 2B–2C pending; source implementation не verified.
+- [x] Focused format/test/Clippy evidence для Slices 2A–2C получена на `00d649d4…`.
 
 #### Slices 3A–3C — API documentation profile
 
@@ -138,7 +144,7 @@ Documentation generation:
   cited Mermaid, omissions и deterministic input-order regressions.
 - [x] Immutable `api/index.md`, exact Store operation, `generate-api`, validated
   `api current|manifest|validation`, profile-isolated shared `current.json`.
-- [ ] Focused format/test/Clippy evidence для API Slices 3A–3C pending; source implementation не verified.
+- [x] Focused format/test/Clippy evidence для API Slices 3A–3C получена на `1a7da68…`.
 
 #### Slices 4A–4C — operations documentation profile
 
@@ -161,7 +167,7 @@ Documentation generation:
 - [x] Shared `current.json` изолирует architecture/module/API/operations inspectors по profile.
 - [x] Source regressions покрывают lifecycle, exact operation contract, profile isolation/path/checksum drift
   и binary `index -> generate-operations -> inspect -> UpToDate` round-trip.
-- [ ] Focused format/test/Clippy execution evidence для operations Slices 4A–4C pending; source implementation не verified.
+- [x] Focused execution evidence для operations Slices 4A–4C получена на `037a28d6…` (CI `34604807206`, AppSec `34604807217`, Store `34604807194`).
 
 #### Slices 5A–5C — onboarding documentation profile
 
@@ -186,7 +192,7 @@ Documentation generation:
 - [x] Shared `current.json` изолирует architecture/module/API/operations/onboarding inspectors по profile.
 - [x] Source regressions покрывают lifecycle, exact operation contract, profile isolation/path/checksum drift
   и binary `index -> generate-onboarding -> inspect -> UpToDate` round-trip.
-- [ ] Focused format/test/Clippy execution evidence для onboarding 5A–5C pending; source implementation не verified.
+- [x] Focused execution evidence для onboarding 5A–5C получена на `76f90d6…` (run `34644333635`).
 
 #### Slices 6A–6B — documentation completeness
 
@@ -197,7 +203,7 @@ Documentation generation:
 - [x] Slice 6B добавляет exact Store loading, read-only `ath docs completeness`, cancellation/drain и
   зарегистрированный `athanor.documentation_completeness.v1` JSON transport.
 - [x] Latest fallback, publication generations и shared `current.json` для completeness отсутствуют намеренно.
-- [ ] Focused execution evidence для 6A–6B pending; source implementation не verified.
+- [x] Focused execution evidence для 6A–6B получена на `76f90d6…` (run `34644333634`).
 
 #### Slices 7A–7C — bounded framework route projections
 
@@ -209,7 +215,7 @@ Documentation generation:
   literal route calls, создавая adapter-scoped `express_route` knowledge.
 - [x] Base JS/TS и Rust extractors остаются framework-neutral; schemas/auth/middleware, route composition и
   handler linking сознательно отложены.
-- [ ] Focused execution evidence для 7A–7C pending; source implementation не verified.
+- [x] Focused execution evidence для 7A–7C получена на `76f90d6…` (run `34644333569`).
 
 #### Slices 8A–8E — completeness-driven first-party operational semantics
 
@@ -224,21 +230,31 @@ Documentation generation:
   tests and Clippy green on macOS before squash merge to `2310215b61980de3300a93e43e10a68daa27f800`.
 - [ ] Focused execution evidence for Slices 8A–8E remains pending; completeness evidence is not full promotion.
 
+#### Slices 8F–8I — bounded first-party runtime artifacts, issue forms, agent-tool MCP configuration
+
+- [x] 8F/8G/8H: root `install.sh` + `scripts/verify_release_version.py`, `install.ps1` и single-level
+  `.github/ISSUE_TEMPLATE/*.yml|yaml` получили bounded fail-closed projections; focused verification на
+  `e246a71b…`, post-8H self-evaluation `685/731` (`9370` bps).
+- [x] 8I: root `.codex.json` (`mcp.servers`) и `antigravity.json` (`mcpServers`) проецируются в один
+  `ScriptCommand` на настроенный MCP server (agent tool, server name, literal command + args) через
+  существующие contracts; malformed/partially supported/server-less файлы отклоняются атомарно, generic
+  JSON не проецируется, команды не исполняются.
+- [x] 8I выбран из exact post-gate artifact на `aaf79d6…`; post-8I self-evaluation `37292220926` на
+  `6fb5e34…`: `691/735` (`9401` bps), JSON `2/35`.
+
 Existing coordinated `ath generate` is unchanged. Provider/LLM, daemon and MCP remain out of scope.
-`DOCGEN-001` остаётся `[-] in progress`: later profile/completeness/framework surfaces and Slices 8A–8E are
-source-implemented; focused verification remains pending.
+`DOCGEN-001` остаётся `[-] in progress`: 8A–8E source-implemented (focused verification pending), 8F–8H
+exact-verified, 8I подтверждён exact self-evaluation; финальная focused verification 8I — PR checks.
 
 ### 4.2 Product backlog
 
-- [x] Slice 8H source implementation: bounded first-party GitHub issue forms under `.github/ISSUE_TEMPLATE/`;
-- [ ] выполнить focused verification для Slices 8F–8H и повторно получить exact completeness/self-evaluation;
-
-- [ ] выполнить focused verification Slice 8F на одном exact source commit;
-- [ ] повторно запустить self-evaluation/completeness после 8F и зафиксировать фактический delta;
-- [ ] выбрать следующий bounded semantic gap уже из post-8F artifact, а не по предположению о coverage;
+- [x] focused verification Slices 8F–8H на `e246a71b…` + exact self-evaluation (`685/731`, `9370` bps);
+- [x] выбрать следующий bounded semantic gap из exact artifact (baseline `aaf79d6…`: `688/734`, `9373`
+  bps) и реализовать: Slice 8I agent-tool MCP configuration; post-8I `37292220926` — `691/735` (`9401` bps);
 - [ ] не добавлять generic JSON/fixture parsing только ради coverage без explicit product semantics;
-- [x] issue forms: bounded first-party projection implemented in Slice 8H;
 - [ ] OpenAPI fixture YAML не включать без отдельного evidence-backed scope;
+- [x] post-8I bounded step: `for agents. md` → `architecture_audit_briefing_ru.md` (`0b42c28…`);
+  self-evaluation `37310134250`: `692/735` (`9414` bps), Markdown `151/151`, in-policy coverage complete;
 - [ ] Next.js/Axum/Express schemas/auth/middleware и route composition расширять отдельными slices;
 - [ ] optional provider, daemon, MCP, i18n and semantic retrieval after deterministic quality gates.
 
@@ -255,7 +271,7 @@ source-implemented; focused verification remains pending.
 | `VERIFY-001` | P1 | `[x] verified` | Full release baseline matrix |
 | `API-001` | P1 | `[x] verified` | Cross-protocol consistency |
 | `REL-001` | P1 | `[x] verified` | `v0.2.1` published and installed |
-| `DOCGEN-001` | P2 | `[-] in progress` | Profiles 2A–5C + completeness 6A–6B + framework 7A–7C + Slices 8A–8H source-implemented |
+| `DOCGEN-001` | P2 | `[-] in progress` | Profiles 2A–5C, completeness 6A–6B, framework 7A–7C и Slices 8F–8H exact-verified; 8A–8E и 8I source-implemented с exact completeness confirmation |
 
 ## 6. Verification matrix
 
@@ -294,8 +310,11 @@ cargo run -p ath --quiet --locked -- docs check
 
 ## 7. Следующий шаг
 
-Slice 8F уже source-implemented: root `install.sh` и `scripts/verify_release_version.py` получили bounded
-first-party projections через `ScriptCommand`, exact local evidence и fail-closed drift boundaries. После merge
-`c978187d…` Verification Matrix выявила только rustfmt drift в двух новых файлах; форматирование исправлено
-в follow-up branch. Следующий шаг — выполнить focused verification для Slices 8F–8H на одном exact source commit и заново получить
-self-evaluation/completeness evidence; после этого выбрать следующий bounded semantic gap из результата. Generic JSON/test fixtures не использовать как coverage target.
+Slice 8I (first-party agent-tool MCP configuration) выбран из exact post-gate artifact на `aaf79d6…`
+(`688/734`, `9373` bps, единственный in-policy product-semantic gap) и source-implemented в `6fb5e34…`;
+exact self-evaluation `37292220926` подтверждает `691/735` (`9401` bps), JSON `2/35`. Финальная focused
+verification Slice 8I — зелёный workflow set на head pull request #137.
+
+Post-8I naming defect устранён: `for agents. md` → `architecture_audit_briefing_ru.md` (`0b42c28…`);
+self-evaluation `37310134250`: `692/735` (`9414` bps), Markdown `151/151`; in-policy coverage завершена,
+следующие gaps — только через отдельный evidence-backed product scope, fixtures — не coverage target.

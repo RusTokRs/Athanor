@@ -31,6 +31,12 @@ substantive release notes.
   text/JSON reports, and Ctrl-C cancellation; the existing coordinated `ath generate` remains unchanged.
 - Add validated `ath docs architecture current`, `manifest`, and `validation` inspection commands that
   reject pointer escape, identity drift, unsupported artifact layouts, and checksum mismatch.
+- Add `overview` and `capabilities` MCP tools exposing the repository overview and the bounded
+  analysis-completeness report to MCP clients.
+- Add a bounded first-party projection for agent-tool MCP configuration: the root `.codex.json` and
+  `antigravity.json` files project one `ScriptCommand` per configured MCP server with the agent
+  tool, server name, and literal command plus argument tokens, each with source evidence and
+  ownership, while malformed or partially supported files are rejected atomically.
 
 ### Fixed
 
@@ -77,6 +83,8 @@ substantive release notes.
 
 ### Changed
 
+- Rename the root architecture audit briefing from `for agents. md` to `architecture_audit_briefing_ru.md`
+  so the first-party Markdown briefing is named and indexed like the other root planning artifacts.
 - Release tags are gated by repository-owned package-version, changelog, artifact, signature, provenance,
   SBOM, and release-note checks.
 - Release preparation rejects occupied tag names and pins an annotated tag to the exact verified candidate

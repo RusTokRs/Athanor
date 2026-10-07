@@ -1,0 +1,31 @@
+name: Dependabot automerge
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  automerge:
+    name: Enable automerge for safe dependency updates
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@21025c705c08248db411dc16f3619e6b5f9ea21a # v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Enable pull request automerge
+        if: >-
+          (steps.metadata.outputs.ecosystem == 'cargo' || steps.metadata.outputs.ecosystem == 'github-actions')
+          && (steps.metadata.outputs.update-type == 'version-update:semver-patch'
+          || steps.metadata.outputs.update-type == 'version-update:semver-minor')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: gh pr merge --auto --squash "$PR_NUMBER"

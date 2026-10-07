@@ -96,6 +96,19 @@ It records form identity and bounded body-field metadata with evidence, rejects 
 names, accepts only native `input`, `textarea`, `dropdown`, `checkboxes`, and `markdown` body kinds, and rejects
 mixed unsupported forms atomically.
 
+### Slice 8I adds a bounded first-party projection for agent-tool MCP configuration.
+
+Slice 8I recognizes only the first-party root `.codex.json` (Codex CLI `mcp.servers`) and
+`antigravity.json` (`mcpServers`) agent-tool MCP configuration files. It records one `ScriptCommand` per
+configured MCP server with the agent tool, server name, and literal command plus argument tokens through
+the existing `ScriptCommand` / `SymbolDefined` contracts with source evidence and ownership. Malformed,
+partially supported, or server-less files are rejected atomically; other JSON files are not projected and
+the configured commands are never executed. The slice was selected from the exact post-gate completeness
+artifact on `aaf79d6…` (run `37290849626`): `688/734` processed (`9373` bps), 46 unprocessed files, and the
+two agent-tool MCP configurations were the only in-policy product-semantic gap. Exact self-evaluation run
+`37292220926` on the Slice 8I source commit `6fb5e34…` is green: `691/735` processed (`9401` bps),
+JSON `2/35`, facts `9204`, relations `13274`, diagnostics `208`.
+
 ### Exact Evidence
 
 Released baseline remains `609027eb02caa05346ebfea8538552c42b588c31`: CI `29995959544`, AppSec
@@ -130,6 +143,11 @@ Completeness progression is exact and monotonic for selected semantic gaps: 8B `
 The exact post-8H self-evaluation on `e246a71b…` is green at `685/731` (`9370` bps), YAML `15/16`; the only
 remaining YAML gap is `crates/athanor-extractor-openapi/tests/fixtures/basic.openapi.yaml`. Generic JSON/test
 fixtures, `Cargo.lock`, and non-semantic repository files remain out of scope unless separately justified.
+The exact pre-8I baseline on `aaf79d6…` is `688/734` (`9373` bps) with 46 unprocessed files; the Slice 8I
+self-evaluation on `6fb5e34…` is green at `691/735` (`9401` bps), JSON `2/35`. The last non-policy-excluded
+gap, the typo-named `for agents. md` briefing, was fixed by renaming it to
+`architecture_audit_briefing_ru.md` on `0b42c28…`: self-evaluation run `37310134250` is green at
+`692/735` (`9414` bps), Markdown `151/151`, and every remaining unprocessed file is policy-excluded.
 
 ## Implemented Packages
 
@@ -162,10 +180,13 @@ fixtures, `Cargo.lock`, and non-semantic repository files remain out of scope un
 - [x] focused execution verification for Slices 5A–5C on `76f90d69975a7ae0a29463413f88f40d6b8aca83`;
 - [x] focused execution verification for Slices 6A–6B on `76f90d69975a7ae0a29463413f88f40d6b8aca83`;
 - [x] focused execution verification for Slices 7A–7C on `76f90d69975a7ae0a29463413f88f40d6b8aca83`.
+- [x] Slice 8I source implementation for first-party agent-tool MCP configuration, selected from the
+  exact post-gate artifact on `aaf79d6…`;
 
 `DOCGEN-001` remains in progress. Slices 2A–2C, 3A–3C, 4A–4C, 5A–5C, 6A–6B, 7A–7C, and 8F–8H are promoted to
-`Verified` by exact-commit execution matrices. The next semantic pass should select the next bounded gap from
-the exact post-gate artifact rather than adding generic fixture coverage.
+`Verified` by exact-commit execution matrices. In-policy coverage is now complete: after the
+`0b42c28…` briefing rename, every remaining unprocessed file is policy-excluded, so further semantic
+gaps require a separately justified product scope rather than generic fixture coverage.
 
 The existing coordinated `ath generate` command remains unchanged.
 
@@ -178,7 +199,8 @@ The existing coordinated `ath generate` command remains unchanged.
 - [x] run exact cross-platform execution verification for Slices 5A–5C on one exact `main` source commit;
 - [x] run exact cross-platform execution verification for Slices 6A–6B on one exact `main` source commit;
 - [x] run exact cross-platform execution verification for Slices 7A–7C on one exact `main` source commit;
-- [ ] select the next bounded semantic gap from the exact post-gate artifact after that verification pass;
+- [x] select the next bounded semantic gap from the exact post-gate artifact: Slice 8I first-party agent-tool MCP configuration;
+- [x] rename the typo-named `for agents. md` audit briefing to `architecture_audit_briefing_ru.md` (`0b42c28…`);
 - [ ] keep issue forms and OpenAPI fixtures out unless independently justified by product semantics;
 - [ ] do not add generic JSON/fixture parsing solely to raise coverage;
 - [ ] keep Next.js/Axum/Express schemas/auth/middleware and route-composition expansion evidence-driven;

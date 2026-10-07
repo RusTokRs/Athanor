@@ -17,6 +17,7 @@ verification. Exact package evidence lives in `athanor_implementation_plan_ru.md
 - [Agent workflow](development/agent-workflow.md)
 - [Roadmap status](development/roadmap-status.md)
 - [Implementation plan](../athanor_implementation_plan_ru.md)
+- [Architecture audit briefing](../architecture_audit_briefing_ru.md)
 - [Long-range plan](../start.md)
 
 ## Current Architecture
@@ -42,6 +43,7 @@ verification. Exact package evidence lives in `athanor_implementation_plan_ru.md
 - [Post-8H verification gate](development/post-8h-verification-gate.md)
 - [Library adoption](development/library-adoption-plan.md)
 - [ADR template](development/adr-template.md)
+- [ADR-001: Dependency and advisory remediation strategy](development/adr-001-dependency-advisory-strategy.md)
 
 ## Adapter Documentation
 
