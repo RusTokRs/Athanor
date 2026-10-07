@@ -193,6 +193,7 @@ pub(crate) async fn run(command: Command) -> Result<()> {
                         root: path,
                         query,
                         limit,
+                        mode: athanor_app::SearchMode::Lexical,
                     },
                     &composition,
                 ),
