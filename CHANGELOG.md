@@ -18,6 +18,9 @@ substantive release notes.
 - Add the bounded `explore` MCP tool: one query returns ranked entries, citations, and one-hop relations.
 - Add `builtin.extractor.treesitter` over Python and Go: one data-driven engine records declarations,
   methods, imports, exports, and statically named call sites, so a language is a pack plus a fixture.
+- Add a monitoring operations category: the operations profile derives declared health, status, and
+  metrics endpoints and telemetry environment-variable names from canonical evidence, and discloses
+  that probes, alerts, dashboards, and SLOs have no evidence source yet.
 - Add the JavaScript/TypeScript call graph. The JS/TS extractor records each import statement's local
   bindings (`default_name`, `namespace_name`, `named`) and a bounded `calls` array per function,
   method, and variable-bound function declaration with the statically named callee, receiver, kind,
@@ -25,18 +28,15 @@ substantive release notes.
   evidence-backed `Calls` relations (same-module, `this.` member, imported binding, and unique-name
   fallbacks) and emits `TestedBy` when a test-location declaration calls production code.
 - Add strict versioned request and manifest contracts for evidence-backed documentation generation,
-  binding output to an exact snapshot, supported profile, hard input limits, omitted counts, portable
-  relative paths, and SHA-256 checksums without adding a provider dependency.
-- Add versioned outline, bounded context, citation, structured draft, and validation-report contracts
-  with stable-key/evidence traceability, explicit inference, relation-backed diagram edges, data policy,
-  deterministic quality metrics, and provider-cost fields.
+  binding output to an exact snapshot, hard input limits, omitted counts, portable paths, and checksums.
+- Add versioned outline, bounded context, citation, draft, and validation-report contracts with
+  stable-key/evidence traceability, relation-backed diagram edges, metrics, and provider-cost fields.
 - Add a minimal fixture repository and Rustok evaluation corpus with expected sections, citation paths,
   diagram edges, known gaps, repeatability, unsupported-relation disclosure, and review criteria.
 - Add a deterministic architecture profile that converts one explicit canonical snapshot into cited
   Markdown, relation-backed Mermaid, omission disclosure, footnotes, metrics, and checksums.
 - Add an application-layer immutable documentation publisher with staged generation directories,
-  checksum-bound Markdown and validation artifacts, an atomic `documentation/current.json` pointer,
-  exact `UpToDate` reuse, explicit `force`, and cancellation-safe pointer preservation.
+  checksum-bound artifacts, an atomic `documentation/current.json` pointer, and exact `UpToDate` reuse.
 - Add `ath docs generate-architecture` for one exact committed snapshot with hard-limit flags, `--force`,
   text/JSON reports, and Ctrl-C cancellation; the existing coordinated `ath generate` remains unchanged.
 - Add validated `ath docs architecture current`, `manifest`, and `validation` inspection commands that

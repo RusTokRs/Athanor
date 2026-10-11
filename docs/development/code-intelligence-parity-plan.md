@@ -88,7 +88,9 @@ Slice P1 is source-implemented and carries focused unit tests in `athanor-extrac
 `athanor-linker-js-ts`. Slice P2 is source-implemented in both halves: `trait_impl` facts plus
 `Implements` relations for Rust, and class heritage plus `builtin.linker.js_ts_implements` for
 JavaScript/TypeScript. Slice P4 is covered by the shipped `operations` documentation profile
-(DOCGEN-001 Slices 4A–4C). Slice P5 is source-implemented as the bounded `explore` MCP tool: one query
+(DOCGEN-001 Slices 4A–4C); its monitoring category derives declared health, status, and metrics endpoints
+and telemetry environment-variable names from canonical evidence, while container and Kubernetes probes,
+alert rules, dashboards, and SLOs still need their own evidence source before they may be documented. Slice P5 is source-implemented as the bounded `explore` MCP tool: one query
 returns search-ranked entries, their citations, and the one-hop relation neighbourhood with disclosed
 budgets; multi-hop call paths and full blast radius remain planned. Slice P3 is source-implemented as `builtin.extractor.treesitter`: one engine walks a
 per-language pack of node kinds and field names and records declaration, import, export, and call

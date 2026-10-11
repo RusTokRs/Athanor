@@ -125,6 +125,16 @@ or layout drift, invalid validation status, and checksum drift.
 - Slices 4A–4B establish the pure exact-snapshot operations profile over evidence-backed `EnvVar`,
   script/CI, deployment, database, configuration, runbook, and operation-step entities; general
   `Package`/`Dependency` entities remain outside the bounded inventory.
+- The monitoring category is an overlay on that inventory. It takes declared health, status, and
+  metrics endpoints (`/health`, `/healthz`, `/health/live`, `/health/ready`, `/livez`, `/readyz`,
+  `/ping`, `/status`, `/metrics`, `/debug/metrics`, and the Spring Actuator health/prometheus paths)
+  from `ApiEndpoint` and the axum/express/nextjs route kinds, plus environment-variable *names* with a
+  telemetry prefix (`OTEL_`, `OTLP_`, `PROMETHEUS_`, `SENTRY_`, `DATADOG_`, `DD_`, `NEW_RELIC_`,
+  `GRAFANA_`, `LOKI_`, `TEMPO_`, `JAEGER_`, `ELASTIC_APM_`, `HONEYCOMB_`, `SIGNALFX_`, `STATSD_`) or
+  name (`LOG_LEVEL`, `RUST_LOG`, `METRICS_PORT`, `TELEMETRY_ENABLED`). The path match is exact and
+  case-sensitive; a telemetry variable stays environment evidence as well, and a variable value is
+  never read. Container and Kubernetes probes, alert rules, dashboards, and SLOs have no evidence
+  source yet and are therefore absent from the section rather than inferred.
 - Facts are scoped by selected operations anchors. Supported relations are `Defines`, `Contains`,
   `Documents`, `DocumentsOperation`, `UsesEnv`, and `QueriesTable`; open diagnostics require an anchor.
 - Shared portable evidence normalization, per-kind limits, aggregate `DOCUMENTATION_REFERENCE_LIMIT = 256`,

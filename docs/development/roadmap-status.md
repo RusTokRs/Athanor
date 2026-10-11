@@ -166,12 +166,12 @@ gap, the typo-named `for agents. md` briefing, was fixed by renaming it to
 - [x] Slice P2: `implements` bridges — Rust `trait_impl` facts plus JS/TS class heritage.
 - [x] Slice P3: `builtin.extractor.treesitter` hosts bounded Python and Go packs on one data-driven
   tree-sitter engine; cross-file resolution and a published coverage measurement remain open.
-- [x] Slice P4: deterministic operations documentation — DOCGEN-001 4A–4C; deferral notes fixed.
+- [x] Slice P4: deterministic operations documentation — DOCGEN-001 4A–4C; the monitoring category
+  derives declared health/metrics endpoints and telemetry variable names, with probes/alerts still open.
 - [x] Slice P5: bounded `explore` MCP query — ranked entries, one-hop relations, citations, budgets.
-- Verified exact-commit evidence for P1, P2, and P5: sandbox diagnostics run `38152033388` on `191c65e`
-  reports every log PASSED with a `rustfmt` diff of 0 lines, and the repository matrix is green there.
-- Verified exact-commit evidence for the P3 engine and packs: sandbox diagnostics run `38157055780` on
-  `e07547e` reports every log PASSED with a `rustfmt` diff of 0 lines, and that commit's matrix is green.
+- Verified exact-commit evidence: run `38152033388` on `191c65e` (P1, P2, P5) and run `38157055780` on
+  `e07547e` (P3 engine and packs) report every log PASSED with a `rustfmt` diff of 0 lines, and both
+  commits' repository check matrices are fully successful or intentionally skipped.
 
 ### `DOCGEN-001` — Evidence-Backed Documentation Generation
 
@@ -213,8 +213,7 @@ The existing coordinated `ath generate` command remains unchanged.
 - [x] select the next bounded semantic gap from the exact post-gate artifact: Slice 8I first-party agent-tool MCP configuration;
 - [x] rename the typo-named `for agents. md` audit briefing to `architecture_audit_briefing_ru.md` (`0b42c28…`);
 - [x] start the semantic retrieval slice: local hashing embeddings implement the `EmbeddingProvider`/`VectorIndex` ports, persist in a JSON sidecar beside the Tantivy index, expose `lexical`/`semantic`/`hybrid` modes in `ath search --mode` and MCP `search`, and keep only hits at or above `SEMANTIC_MIN_SIMILARITY` (0.2 cosine) so unrelated documents are not returned as hashing noise;
-- [ ] keep issue forms and OpenAPI fixtures out unless independently justified by product semantics;
-- [ ] do not add generic JSON/fixture parsing solely to raise coverage;
+- [ ] keep issue forms, OpenAPI fixtures, and generic JSON parsing out unless justified by product semantics;
 - [ ] keep Next.js/Axum/Express schemas/auth/middleware and route-composition expansion evidence-driven;
 - Dart/Flutter remains blocked on a portable DartScope dependency boundary rather than a local-only path dependency;
 - optional i18n, provider, daemon, and MCP integration after quality gates; semantic/vector retrieval is in progress (local hashing embeddings + hybrid `ath search`/MCP `search` modes).
