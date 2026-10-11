@@ -406,7 +406,12 @@ impl FileExtraction<'_> {
             return;
         };
         let qualified_name = if scope.qualified_prefix.is_empty() {
-            name
+            // A method that carries a receiver is identified by the receiver type, so two types in
+            // one file can both declare the same method name without sharing one stable key.
+            match receiver_type(rule, node, self.bytes) {
+                Some(receiver) => format!("{receiver}.{name}"),
+                None => name,
+            }
         } else {
             format!("{}.{}", scope.qualified_prefix, name)
         };
@@ -465,6 +470,9 @@ impl FileExtraction<'_> {
         });
         if let Some(receiver) = receiver_type(rule, node, self.bytes) {
             payload["receiver"] = json!(receiver);
+            if let Some(binding) = receiver_binding(rule, node, self.bytes) {
+                payload["receiver_binding"] = json!(binding);
+            }
         }
 
         self.entities.push(Entity {
@@ -942,6 +950,12 @@ fn receiver_type(rule: &DeclarationRule, node: Node, bytes: &[u8]) -> Option<Str
     let field = rule.receiver_field?;
     let receiver = node.child_by_field_name(field)?;
     type_name(receiver, rule.receiver_type_kinds, bytes, 6)
+}
+
+/// The receiver variable name of a method declaration, when it is written (`s` in `func (s *Server)`).
+fn receiver_binding(rule: &DeclarationRule, node: Node, bytes: &[u8]) -> Option<String> {
+    let receiver = node.child_by_field_name(rule.receiver_field?)?;
+    type_name(receiver, &["identifier"], bytes, 6)
 }
 
 fn type_name(node: Node, kinds: &[&str], bytes: &[u8], depth: usize) -> Option<String> {

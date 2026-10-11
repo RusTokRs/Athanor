@@ -62,10 +62,12 @@ Two concrete targets:
 - Published coverage measurement: `resolution_coverage` reports, per language, recorded import
   statements and call sites inside declaration bodies against the resolved ones, with module-level call
   sites counted separately instead of lowering the denominator; the crate corpus pins the numbers.
-- Remaining: qualifying Go method identities by receiver type (the packs record methods under their
-  bare name, so same-named methods of one file collide on the stable key and the duplicate is
-  disclosed), receiver typing for calls on unresolvable variables, wildcard import bindings, and
-  dynamic dispatch, all of which stay unresolved rather than guessed.
+- Shipped after the first linker slice: Go methods are identified by their receiver type
+  (`func (s *Server) Serve` is `#Server.Serve` with `receiver_binding: "s"`), so same-named methods of
+  different types in one file stay distinct and a call through the caller's own receiver resolves at the
+  own-instance step instead of the unique-member fallback.
+- Remaining: receiver typing for calls on variables that are not the caller's own receiver, wildcard
+  import bindings, and dynamic dispatch, all of which stay unresolved rather than guessed.
 
 ### P4 — Operational Documentation Profile
 

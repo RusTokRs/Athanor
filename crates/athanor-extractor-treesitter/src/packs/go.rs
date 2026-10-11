@@ -2,9 +2,10 @@
 //!
 //! Node kinds and field names are taken from `tree-sitter-go` 0.25.0: `type_declaration` carries
 //! one `type_spec` per named type (an alias is a separate `type_alias` kind and stays out of the
-//! graph), struct and interface types classify the spec, methods carry a receiver, calls are
-//! `call_expression` nodes over `selector_expression` chains, and imports are `import_spec` nodes
-//! whose `path` is a quoted string. Export is a name property: a leading upper-case letter.
+//! graph), struct and interface types classify the spec, methods are identified by their receiver
+//! type and record the receiver variable when it is written, calls are `call_expression` nodes over
+//! `selector_expression` chains, and imports are `import_spec` nodes whose `path` is a quoted string.
+//! Export is a name property: a leading upper-case letter.
 
 use athanor_domain::EntityKind;
 use tree_sitter::Language;
@@ -201,9 +202,11 @@ handlers[key]()
         assert_eq!(constructor.payload["exported"], true);
         assert_eq!(constructor.payload["calls"], serde_json::json!([]));
 
-        let method = entity(&output, "symbol://go:api/server.go#Serve");
+        let method = entity(&output, "symbol://go:api/server.go#Server.Serve");
         assert_eq!(method.payload["symbol_kind"], "method");
+        assert_eq!(method.payload["qualified_name"], "Server.Serve");
         assert_eq!(method.payload["receiver"], "Server");
+        assert_eq!(method.payload["receiver_binding"], "s");
         assert_eq!(method.payload["exported"], true);
         assert_eq!(method.payload["async"], false);
         assert_eq!(
@@ -236,7 +239,7 @@ handlers[key]()
 
         assert!(output.facts.iter().any(|fact| {
             fact.kind == FactKind::SymbolDefined
-                && fact.value["stable_key"] == "symbol://go:api/server.go#Serve"
+                && fact.value["stable_key"] == "symbol://go:api/server.go#Server.Serve"
         }));
         assert!(output.diagnostics.is_empty());
     }
@@ -260,6 +263,35 @@ handlers[key]()
                 .entities
                 .iter()
                 .all(|entity| entity.stable_key.0 != "symbol://go:api/types.go#Alias")
+        );
+    }
+
+    #[tokio::test]
+    async fn identifies_methods_by_receiver_type_and_keeps_same_named_methods_apart() {
+        let output = TreeSitterExtractor
+            .extract(input(
+                "api/resources.go",
+                "package api\n\ntype Server struct{}\n\ntype Client struct{}\n\nfunc (s *Server) Close() {}\n\nfunc (c *Client) Close() {}\n",
+                "go",
+            ))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            entity(&output, "symbol://go:api/resources.go#Server.Close").payload
+                ["receiver_binding"],
+            "s"
+        );
+        assert_eq!(
+            entity(&output, "symbol://go:api/resources.go#Client.Close").payload
+                ["receiver_binding"],
+            "c"
+        );
+        assert!(
+            !output.diagnostics.iter().any(|diagnostic| {
+                diagnostic.kind == DiagnosticKind::Other("go_duplicate_declaration".to_string())
+            }),
+            "receiver-qualified methods of different types do not collide"
         );
     }
 

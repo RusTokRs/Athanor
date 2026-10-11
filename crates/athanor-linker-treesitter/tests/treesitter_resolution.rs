@@ -208,16 +208,16 @@ async fn calls_resolve_through_units_and_import_bindings() {
         0.9
     )));
     assert!(resolutions.contains(&(
-        "symbol://go:api/server.go#Listen".to_string(),
+        "symbol://go:api/server.go#Server.Listen".to_string(),
         "util.Helper".to_string(),
         "imported_exact_name".to_string(),
         0.85
     )));
     assert!(resolutions.contains(&(
-        "symbol://go:api/server.go#Listen".to_string(),
+        "symbol://go:api/server.go#Server.Listen".to_string(),
         "s.handle".to_string(),
-        "same_unit_member_name".to_string(),
-        0.5
+        "same_unit_own_receiver".to_string(),
+        0.9
     )));
 }
 

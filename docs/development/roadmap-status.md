@@ -165,7 +165,7 @@ gap, the typo-named `for agents. md` briefing, was fixed by renaming it to
 - [x] Slice P1: JS/TS call graph — import bindings, static call sites, `builtin.linker.js_ts_calls`.
 - [x] Slice P2: `implements` bridges — Rust `trait_impl` facts plus JS/TS class heritage.
 - [x] Slice P3: `builtin.extractor.treesitter` plus `builtin.linker.treesitter` host and resolve
-  bounded Python and Go packs, with a per-language coverage measurement; receiver typing stays open.
+  receiver-qualified Python and Go packs, with a per-language coverage measurement published.
 - [x] Slice P4: deterministic operations documentation — DOCGEN-001 4A–4C; the monitoring category
   derives declared health/metrics endpoints and telemetry variable names, with probes/alerts still open.
 - [x] Slice P5: bounded `explore` MCP query — ranked entries, one-hop relations, citations, budgets.

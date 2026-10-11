@@ -40,14 +40,16 @@ per recorded declaration:
 ```text
 module://python:api/client.py
 symbol://python:api/client.py#Client.send
-symbol://go:api/server.go#Serve
+symbol://go:api/server.go#Server.Serve
 ```
 
 - The module payload records `language_hint`, `parser`, `imports`, `exports`, module-level `calls`,
   and `declaration_count`.
 - A declaration payload records `symbol_kind` (`function`, `method`, `class`, `struct`, `interface`,
-  `type`), `qualified_name`, `exported`, `async`, `source_node`, and its `calls`; a Go method also
-  records its receiver type.
+  `type`), `qualified_name`, `exported`, `async`, `source_node`, and its `calls`; a Go method is
+  identified by its receiver type (`Server.Serve`) and records the receiver type plus, when it is
+  written, the receiver variable (`receiver_binding`), so same-named methods of different types in one
+  file stay distinct.
 - Every declaration emits one `FactKind::SymbolDefined` whose value carries `stable_key`, `path`, and
   `symbol_kind`; the module is the fact subject for itself and the object of each declaration fact.
 - Ownership covers the source file, and every fact and diagnostic carries line evidence.

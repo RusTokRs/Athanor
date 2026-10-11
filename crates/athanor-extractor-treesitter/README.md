@@ -39,7 +39,7 @@ evidence with the exact line range.
 module://python:api/client.py
 symbol://python:api/client.py#Client.send
 module://go:api/server.go
-symbol://go:api/server.go#Serve
+symbol://go:api/server.go#Server.Serve
 ```
 
 ## Bounds
@@ -71,6 +71,9 @@ traversal depth                 256
   usage.
 - Go `type_alias` declarations (`type A = B`) stay out of the graph; a `type_spec` whose type node a
   pack does not classify is recorded as `symbol_kind = "type"` instead of being mislabelled.
+- A Go method is identified by its receiver type (`Server.Close`), so same-named methods of different
+  types in one file stay distinct entities; the receiver variable is recorded as `receiver_binding`
+  when it is written.
 - A file whose parse contains errors still contributes the declarations and calls the grammar could
   build, plus a parse-error diagnostic; the damaged region is never interpreted.
 

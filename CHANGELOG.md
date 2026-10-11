@@ -17,9 +17,9 @@ substantive release notes.
   `trait_impl` fact and links unique type/trait names, and JS/TS records class heritage for the bridge.
 - Add the bounded `explore` MCP tool: one query returns ranked entries, citations, and one-hop relations.
 - Add `builtin.extractor.treesitter` over Python and Go: one data-driven engine records declarations,
-  methods, imports, exports, and statically named call sites, so a language is a pack plus a fixture.
-- Add `builtin.linker.treesitter`: Python and Go imports, cross-file calls through package units and
-  import bindings, test bridges, and a per-language resolution coverage measurement.
+  receiver-qualified methods and other declarations, imports, exports, and statically named call sites.
+- Add `builtin.linker.treesitter`: Python and Go imports, cross-file calls through package units,
+  receiver variables, and import bindings, test bridges, and a per-language coverage measurement.
 - Add a monitoring operations category: the operations profile derives declared health, status, and
   metrics endpoints and telemetry variable names from canonical evidence; probes, alerts, dashboards,
   and SLOs stay absent until they have an evidence source.

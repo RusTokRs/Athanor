@@ -31,7 +31,7 @@ recorded, so a new language pack receives cross-file resolution without a new cr
 | Language | Unit | Module layout | Own instance | Test convention |
 | --- | --- | --- | --- | --- |
 | `python` | File | Dotted module paths, `.py`/`.pyi` files, `__init__.py`/`__init__.pyi` packages | `self` | `test_*.py`, `*_test.py`, test directories |
-| `go` | Directory | Package directories matched by the longest import-path suffix | — | `*_test.go` |
+| `go` | Directory | Package directories matched by the longest import-path suffix | receiver variable | `*_test.go` |
 
 A pack id without a layout entry keeps resolving through the file layout and the generic test
 directory convention.
@@ -49,7 +49,9 @@ because they leave the repository.
 The call linker consumes the bounded `calls` arrays recorded per declaration and resolves each call
 site in this order:
 
-1. `same_unit_own_receiver` — `self.method()` inside `Class.method` resolves to the sibling member.
+1. `same_unit_own_receiver` — a member called on the caller's own instance resolves to the sibling
+   member: `self.method()` inside `Class.method`, or a call through the receiver variable of a Go
+   method.
 2. `same_unit_exact_name` — an exact qualified-name match inside the caller's resolution unit, which
    is the file for Python and the whole package directory for Go.
 3. `imported_exact_name` / `imported_symbol_name` — the callee head matches an import binding of the
@@ -84,9 +86,8 @@ use the network, or modify project files.
 - Go method calls whose receiver variable is not resolvable resolve through the unique member-name
   step or stay unresolved; the receiver type recorded on the declaration is not used to type
   variables.
-- Go methods are identified by their bare name (`symbol://go:<path>#Serve` with `receiver: "Server"`),
-  so same-named methods of different types in one file collide on the stable key and the extractor
-  discloses the second as a duplicate declaration.
+- Calls through variables that are not the caller's own receiver stay unresolved: the packs record
+  receiver types on declarations rather than typing every variable.
 
 ## Test
 

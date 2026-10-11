@@ -230,13 +230,9 @@ pub(crate) fn resolve_call<'a>(
     let last_segment = callee.rsplit('.').next().unwrap_or(callee);
     let tail = callee.contains('.').then_some(last_segment);
 
-    // 1. A member called on the language's own instance (`self.encode()` in `Client.send`).
-    if let Some(own) = layout(language).own_receiver
-        && let Some(member) = callee
-            .strip_prefix(own)
-            .and_then(|rest| rest.strip_prefix('.'))
-        && let Some(owner) = owner_of(caller)
-    {
+    // 1. A member called on the caller's own instance: `self.encode()` in `Client.send`, or a Go
+    //    method reached through the receiver variable the caller records.
+    if let Some((owner, member)) = own_instance_member(caller, callee, language) {
         let qualified = format!("{owner}.{member}");
         if let Some(target) = find_first(same_unit, |candidate| {
             qualified_name(candidate) == Some(qualified.as_str())
@@ -393,6 +389,30 @@ fn owner_of(entity: &Entity) -> Option<&str> {
     qualified_name(entity)?
         .split_once('.')
         .map(|(owner, _)| owner)
+}
+
+
+/// The owner type and member of a call the caller makes on its own instance.
+///
+/// Two shapes carry that evidence: the language's own-instance keyword with the owner taken from the
+/// caller's qualified name (`self.encode()` in `Client.send`), and the receiver variable a method
+/// declaration records together with its receiver type (`s.handle()` in `func (s *Server) Listen`).
+fn own_instance_member(caller: &Entity, callee: &str, language: &str) -> Option<(String, String)> {
+    if let Some(keyword) = layout(language).own_receiver
+        && let Some(member) = callee
+            .strip_prefix(keyword)
+            .and_then(|rest| rest.strip_prefix('.'))
+        && let Some(owner) = owner_of(caller)
+    {
+        return Some((owner.to_string(), member.to_string()));
+    }
+    let binding = caller
+        .payload
+        .get("receiver_binding")
+        .and_then(Value::as_str)?;
+    let owner = caller.payload.get("receiver").and_then(Value::as_str)?;
+    let member = callee.strip_prefix(binding)?.strip_prefix('.')?;
+    Some((owner.to_string(), member.to_string()))
 }
 
 fn find_first<'a>(

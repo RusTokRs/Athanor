@@ -30,7 +30,7 @@ cross-file resolution without a new crate.
 | Language | Unit | Module layout | Own instance | Test convention |
 | --- | --- | --- | --- | --- |
 | `python` | File | Dotted module paths; `.py`/`.pyi` files before `__init__.py`/`__init__.pyi` packages | `self` | `test_*.py`, `*_test.py`, `tests`/`test` directories |
-| `go` | Directory | Package directories matched by the longest import-path suffix | — | `*_test.go` |
+| `go` | Directory | Package directories matched by the longest import-path suffix | receiver variable | `*_test.go` |
 
 A pack id without a layout entry keeps resolving through the file layout and the generic test
 directory convention, so an unknown grammar keeps its references instead of dropping them silently.
@@ -57,8 +57,9 @@ union of both source files. One statement resolves to at most 32 modules.
 The linker consumes the bounded `calls` arrays recorded per declaration and resolves each call site
 in this order, from the strongest evidence to the weakest:
 
-1. `same_unit_own_receiver` — a member called on the language's own instance resolves to the sibling
-   member (`self.encode()` inside `Client.send`).
+1. `same_unit_own_receiver` — a member called on the caller's own instance resolves to the sibling
+   member: `self.encode()` inside `Client.send` in Python, or `s.handle()` inside
+   `func (s *Server) Listen` in Go, where the declaration records the receiver variable.
 2. `same_unit_exact_name` — an exact qualified-name match inside the caller's resolution unit, which
    is the file for Python and the whole package directory for Go, so a Go call into another file of
    the same package resolves without an import.
@@ -115,11 +116,9 @@ are not resolved. Go method calls whose receiver variable is not resolvable reac
 member-name step or no relation at all; the receiver type recorded on the declaration is not used to
 type variables.
 
-Go methods are also identified by their bare name: the extractor records `func (s *Server) Serve()`
-as `symbol://go:<path>#Serve` with the receiver type in the payload, so two same-named methods of
-different types in one file collide on the stable key and the second one is disclosed as a duplicate
-declaration rather than silently overwriting the first. Qualifying Go method identities by receiver
-type is the next bounded improvement for this axis.
+Calls through variables that are not the caller's own receiver stay unresolved, because the packs
+record receiver types on declarations rather than typing every variable, so such a call reaches the
+unique member-name step or no relation at all.
 
 ## Verification
 
