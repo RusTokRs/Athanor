@@ -94,7 +94,9 @@ is recorded once and disclosed as `DiagnosticKind::Other("<language>_duplicate_d
 A file whose parse contains an error or missing node still contributes the declarations and calls the
 grammar could build, plus `DiagnosticKind::Other("<language>_parse_error")` naming the parser, the
 damaged node kind, its line, and whether the node was missing. The damaged region is never
-interpreted, and the diagnostic is coalesced per line and node kind.
+interpreted, and the diagnostic is coalesced per line and node kind. When the grammar flags a file
+without an error or missing child of its own, one file-level finding is recorded with
+`file_level = true` instead of dropping the disclosure.
 
 ## Evidence And Ownership
 

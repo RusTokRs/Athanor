@@ -722,22 +722,42 @@ impl FileExtraction<'_> {
     fn collect_parse_errors(&mut self, root: Node) {
         let mut found: Vec<(u32, String, bool)> = Vec::new();
         self.scan_parse_errors(root, 0, &mut found);
+        let file_level = found.is_empty();
+        if file_level {
+            // A subtree can carry the error flag without an error or missing child of its own;
+            // the finding is disclosed for the file instead of being dropped.
+            found.push((
+                root.start_position().row as u32 + 1,
+                root.kind().to_string(),
+                false,
+            ));
+        }
         for (line, node_kind, missing) in found {
-            let diagnostic = self.diagnostic(
-                &format!("{}_parse_error", self.pack.id),
-                &format!("{node_kind}:{line}"),
-                "File contains a parse error",
+            let message = if file_level {
+                format!(
+                    "the {} parser reports a parse error in this file; declarations and call \
+                     sites inside the damaged region may be missing",
+                    self.pack.parser
+                )
+            } else {
                 format!(
                     "the {} parser reports a {} node on line {line}; declarations and call sites \
                      inside the damaged region may be missing",
                     self.pack.parser,
                     if missing { "missing" } else { "damaged" }
-                ),
+                )
+            };
+            let diagnostic = self.diagnostic(
+                &format!("{}_parse_error", self.pack.id),
+                &format!("{node_kind}:{line}"),
+                "File contains a parse error",
+                message,
                 (line, line),
                 json!({
                     "language": self.pack.id,
                     "node_kind": node_kind,
                     "missing": missing,
+                    "file_level": file_level,
                 }),
             );
             self.diagnostics.push(diagnostic);
@@ -759,7 +779,7 @@ impl FileExtraction<'_> {
             }
         }
         let mut cursor = node.walk();
-        for child in node.named_children(&mut cursor) {
+        for child in node.children(&mut cursor) {
             self.scan_parse_errors(child, depth + 1, found);
         }
     }
