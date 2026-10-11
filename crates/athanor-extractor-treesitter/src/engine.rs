@@ -184,7 +184,8 @@ impl LanguagePack {
     /// Reports whether this pack owns the file path.
     pub fn supports(&self, path: &str) -> bool {
         path.rsplit_once('.').is_some_and(|(_, extension)| {
-            self.extensions.contains(&extension.to_ascii_lowercase().as_str())
+            self.extensions
+                .contains(&extension.to_ascii_lowercase().as_str())
         })
     }
 }
@@ -301,7 +302,12 @@ impl FileExtraction<'_> {
             id: id.clone(),
             stable_key: stable_key.clone(),
             kind: EntityKind::Module,
-            name: self.path.rsplit('/').next().unwrap_or(self.path).to_string(),
+            name: self
+                .path
+                .rsplit('/')
+                .next()
+                .unwrap_or(self.path)
+                .to_string(),
             title: None,
             source: Some(SourceLocation {
                 path: self.path.to_string(),
@@ -320,13 +326,8 @@ impl FileExtraction<'_> {
                 "declaration_count": 0,
             }),
         });
-        self.facts.push(self.symbol_fact(
-            &id,
-            None,
-            &stable_key,
-            "module",
-            range,
-        ));
+        self.facts
+            .push(self.symbol_fact(&id, None, &stable_key, "module", range));
     }
 
     fn walk(&mut self, node: Node, scope: &Scope, depth: usize) {
@@ -566,7 +567,9 @@ impl FileExtraction<'_> {
                 if node.kind() != *node_kind {
                     continue;
                 }
-                let left = node.child_by_field_name(name_field).and_then(|l| self.text(l));
+                let left = node
+                    .child_by_field_name(name_field)
+                    .and_then(|l| self.text(l));
                 if left.as_deref() != Some(*name) {
                     continue;
                 }
@@ -1091,9 +1094,16 @@ fn import_payloads(rule: &ImportRule, node: Node, bytes: &[u8]) -> Vec<Value> {
 }
 
 /// Resolves one module name written by a dotted import statement.
-fn module_name(node: Node, module_kinds: &[&str], bytes: &[u8]) -> Option<(String, Option<String>)> {
+fn module_name(
+    node: Node,
+    module_kinds: &[&str],
+    bytes: &[u8],
+) -> Option<(String, Option<String>)> {
     if module_kinds.contains(&node.kind()) {
-        return node.utf8_text(bytes).ok().map(|text| (text.to_string(), None));
+        return node
+            .utf8_text(bytes)
+            .ok()
+            .map(|text| (text.to_string(), None));
     }
     let name = node.child_by_field_name("name")?;
     if !module_kinds.contains(&name.kind()) {

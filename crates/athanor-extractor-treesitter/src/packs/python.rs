@@ -9,7 +9,8 @@ use athanor_domain::EntityKind;
 use tree_sitter::Language;
 
 use crate::engine::{
-    CallRule, DeclarationKindRule, DeclarationRule, ExportRule, ImportRule, LanguagePack, MemberRule,
+    CallRule, DeclarationKindRule, DeclarationRule, ExportRule, ImportRule, LanguagePack,
+    MemberRule,
 };
 
 fn language() -> Language {
@@ -147,7 +148,10 @@ handlers[key]()
         assert_eq!(module.stable_key.0, "module://python:api/client.py");
         assert_eq!(module.payload["parser"], "tree-sitter-python");
         assert_eq!(module.payload["declaration_count"], 4);
-        assert_eq!(module.payload["exports"], serde_json::json!(["Client", "connect"]));
+        assert_eq!(
+            module.payload["exports"],
+            serde_json::json!(["Client", "connect"])
+        );
         assert_eq!(module.payload["imports"].as_array().unwrap().len(), 3);
         assert_eq!(module.payload["imports"][0]["module"], "os");
         assert_eq!(module.payload["imports"][1]["module"], "os.path");
@@ -225,11 +229,13 @@ handlers[key]()
             ])
         );
 
-        assert!(output
-            .facts
-            .iter()
-            .any(|fact| fact.kind == FactKind::SymbolDefined
-                && fact.value["stable_key"] == "symbol://python:api/client.py#Client.send"));
+        assert!(
+            output
+                .facts
+                .iter()
+                .any(|fact| fact.kind == FactKind::SymbolDefined
+                    && fact.value["stable_key"] == "symbol://python:api/client.py#Client.send")
+        );
         assert!(output.diagnostics.is_empty());
     }
 
@@ -244,10 +250,16 @@ handlers[key]()
             .await
             .unwrap();
 
-        let nested = entity(&output, "symbol://python:pkg/tools.py#Registry.register.normalize");
+        let nested = entity(
+            &output,
+            "symbol://python:pkg/tools.py#Registry.register.normalize",
+        );
         assert_eq!(nested.kind, EntityKind::Function);
         assert_eq!(nested.payload["symbol_kind"], "function");
-        assert_eq!(nested.payload["qualified_name"], "Registry.register.normalize");
+        assert_eq!(
+            nested.payload["qualified_name"],
+            "Registry.register.normalize"
+        );
     }
 
     #[tokio::test]
@@ -264,7 +276,10 @@ handlers[key]()
                 diagnostic.kind == DiagnosticKind::Other("python_parse_error".to_string())
             })
             .expect("parse error diagnostic");
-        assert_eq!(diagnostic.evidence[0].source_file.as_deref(), Some("broken.py"));
+        assert_eq!(
+            diagnostic.evidence[0].source_file.as_deref(),
+            Some("broken.py")
+        );
         assert_eq!(diagnostic.payload["language"], "python");
     }
 

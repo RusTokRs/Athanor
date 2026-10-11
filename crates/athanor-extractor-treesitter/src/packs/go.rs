@@ -10,7 +10,8 @@ use athanor_domain::EntityKind;
 use tree_sitter::Language;
 
 use crate::engine::{
-    CallRule, DeclarationKindRule, DeclarationRule, ExportRule, ImportRule, LanguagePack, MemberRule,
+    CallRule, DeclarationKindRule, DeclarationRule, ExportRule, ImportRule, LanguagePack,
+    MemberRule,
 };
 
 fn language() -> Language {
@@ -174,7 +175,10 @@ handlers[key]()
         assert_eq!(module.payload["imports"].as_array().unwrap().len(), 2);
         assert_eq!(module.payload["imports"][0]["module"], "fmt");
         assert_eq!(module.payload["imports"][0]["stdlib"], true);
-        assert_eq!(module.payload["imports"][0]["alias"], serde_json::Value::Null);
+        assert_eq!(
+            module.payload["imports"][0]["alias"],
+            serde_json::Value::Null
+        );
         assert_eq!(
             module.payload["imports"][1]["module"],
             "example.com/project/config"
@@ -252,16 +256,22 @@ handlers[key]()
         let named = entity(&output, "symbol://go:api/types.go#IDs");
         assert_eq!(named.kind, EntityKind::Symbol);
         assert_eq!(named.payload["symbol_kind"], "type");
-        assert!(output
-            .entities
-            .iter()
-            .all(|entity| entity.stable_key.0 != "symbol://go:api/types.go#Alias"));
+        assert!(
+            output
+                .entities
+                .iter()
+                .all(|entity| entity.stable_key.0 != "symbol://go:api/types.go#Alias")
+        );
     }
 
     #[tokio::test]
     async fn reports_parse_errors_for_damaged_go_files() {
         let output = TreeSitterExtractor
-            .extract(input("api/broken.go", "package api\n\nfunc broken( {\n", "go"))
+            .extract(input(
+                "api/broken.go",
+                "package api\n\nfunc broken( {\n",
+                "go",
+            ))
             .await
             .unwrap();
 
@@ -273,7 +283,10 @@ handlers[key]()
             })
             .expect("parse error diagnostic");
         assert_eq!(diagnostic.payload["language"], "go");
-        assert_eq!(diagnostic.evidence[0].source_file.as_deref(), Some("api/broken.go"));
+        assert_eq!(
+            diagnostic.evidence[0].source_file.as_deref(),
+            Some("api/broken.go")
+        );
     }
 
     fn entity<'a>(

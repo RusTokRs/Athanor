@@ -24,10 +24,22 @@ mod tests {
 
     #[test]
     fn packs_own_their_extensions_only() {
-        assert_eq!(pack_for_path("api/client.py").map(|pack| pack.id), Some("python"));
-        assert_eq!(pack_for_path("api/client.PY").map(|pack| pack.id), Some("python"));
-        assert_eq!(pack_for_path("types/stubs.pyi").map(|pack| pack.id), Some("python"));
-        assert_eq!(pack_for_path("cmd/server.go").map(|pack| pack.id), Some("go"));
+        assert_eq!(
+            pack_for_path("api/client.py").map(|pack| pack.id),
+            Some("python")
+        );
+        assert_eq!(
+            pack_for_path("api/client.PY").map(|pack| pack.id),
+            Some("python")
+        );
+        assert_eq!(
+            pack_for_path("types/stubs.pyi").map(|pack| pack.id),
+            Some("python")
+        );
+        assert_eq!(
+            pack_for_path("cmd/server.go").map(|pack| pack.id),
+            Some("go")
+        );
         assert_eq!(pack_for_path("src/lib.rs"), None);
         assert_eq!(pack_for_path("Makefile"), None);
     }
