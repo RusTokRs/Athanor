@@ -62,8 +62,9 @@ substantive release notes.
   snapshot, and preserve the previous current pointer when CLI generation is cancelled.
 - Repair the workspace build after the semantic-search slice: re-export the crate-internal
   `execute_search` through the `search` facade, declare the missing `serde` dependency of
-  `athanor-search-tantivy`, and use the score-ordered `TopDocs` collector when resolving semantic hits
-  back to indexed documents.
+  `athanor-search-tantivy`, release the vector-store lock before the loaded store is returned, use the
+  score-ordered `TopDocs` collector when resolving semantic hits back to indexed documents, and honor
+  the documented `mode` argument of the MCP `search` tool.
 
 ## [0.2.1] - 2026-07-23
 

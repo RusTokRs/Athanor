@@ -70,11 +70,17 @@ async fn call_inner(
             serde_json::to_string_pretty(&report)?
         }
         "search" => {
+            let mode = match args.get("mode").and_then(Value::as_str).unwrap_or("lexical") {
+                "semantic" => SearchMode::Semantic,
+                "hybrid" => SearchMode::Hybrid,
+                _ => SearchMode::Lexical,
+            };
             let report = athanor_app::search_project_with_composition_and_operation_context(
                 SearchOptions {
                     root: root.to_path_buf(),
                     query: string_arg(&args, "query")?,
                     limit: usize_arg(&args, "limit", 10),
+                    mode,
                 },
                 composition,
                 operation,

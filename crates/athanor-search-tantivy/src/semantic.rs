@@ -151,10 +151,12 @@ impl SemanticVectorStore {
             return None;
         }
         let store = Self::new(snapshot.dim);
-        let mut vectors = store.vectors.lock().ok()?;
-        for stored in snapshot.vectors {
-            if stored.vector.len() == snapshot.dim {
-                vectors.insert(stored.id, (stored.vector, stored.payload));
+        {
+            let mut vectors = store.vectors.lock().ok()?;
+            for stored in snapshot.vectors {
+                if stored.vector.len() == snapshot.dim {
+                    vectors.insert(stored.id, (stored.vector, stored.payload));
+                }
             }
         }
         Some(store)
