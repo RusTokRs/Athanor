@@ -103,13 +103,32 @@ jobs:
               echo "<details><summary><code>$(basename "$log")</code> — $status</summary>"
               echo
               echo '```text'
-              head -n 80 "$log" || true
+              head -n 120 "$log" || true
               echo "... (truncated) ..."
-              tail -n 220 "$log" || true
+              tail -n 400 "$log" || true
               echo '```'
               echo
               echo "</details>"
             } >> /tmp/summary.md
+          done
+          for log in /tmp/*.log; do
+            [ -e "$log" ] || continue
+            status="$(cat "$log.status" 2>/dev/null || echo unknown)"
+            case "$status" in
+              PASSED) continue ;;
+            esac
+            hits="$(grep -n -B2 -A10 -E 'panicked at|^error\[' "$log" | head -n 100 || true)"
+            if [ -n "$hits" ]; then
+              {
+                echo "<details><summary>failure digest: $(basename "$log")</summary>"
+                echo
+                echo '```text'
+                printf '%s\n' "$hits"
+                echo '```'
+                echo
+                echo "</details>"
+              } >> /tmp/summary.md
+            fi
           done
           jq -Rs '{body: .}' < /tmp/summary.md > /tmp/comment.json
           gh api "repos/$REPO/issues/$pr/comments" -X POST --input /tmp/comment.json

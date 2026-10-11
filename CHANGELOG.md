@@ -47,8 +47,8 @@ substantive release notes.
 - Add local semantic retrieval with zero new dependencies: hashing-trick embeddings (character
   trigrams plus word n-grams, FNV-1a signed buckets) implement the `EmbeddingProvider` and
   `VectorIndex` ports, persist in a JSON sidecar next to the Tantivy index, and power new
-  `semantic` and `hybrid` search modes in `ath search --mode` and the MCP `search` tool; `lexical`
-  BM25 remains the default, and hybrid merges min-max-normalized lexical and cosine scores.
+  `semantic` and `hybrid` modes in `ath search --mode` and the MCP `search` tool; `lexical` BM25
+  stays the default, and hybrid merges min-max-normalized lexical and cosine scores.
 
 ### Fixed
 
@@ -60,14 +60,10 @@ substantive release notes.
   up to date; rebuild into a new immutable generation while retaining publication history.
 - Reject missing or uncommitted documentation snapshot IDs instead of falling back to the latest visible
   snapshot, and preserve the previous current pointer when CLI generation is cancelled.
-- Keep the snapshot search core inside its bounded module contract: mode dispatch and hybrid result
-  ranking now live in `crates/athanor-app/src/search/execution.rs`, restoring the documented 300-line
-  budget of the search core without changing its behavior or public surface.
-- Repair the workspace build after the semantic-search slice: re-export the crate-internal
-  `execute_search` through the `search` facade, declare the missing `serde` dependency of
-  `athanor-search-tantivy`, release the vector-store lock before the loaded store is returned, use the
-  score-ordered `TopDocs` collector when resolving semantic hits back to indexed documents, and honor
-  the documented `mode` argument of the MCP `search` tool.
+- Restore the bounded snapshot-search module and rebuild the workspace after the semantic-search slice:
+  mode dispatch and hybrid ranking move to `search/execution.rs` with `execute_search` re-exported, the
+  `search` facade and `athanor-search-tantivy` compile again (declared `serde`, released vector-store
+  lock, score-ordered `TopDocs`), and the MCP `search` tool honors its documented `mode` argument.
 
 ## [0.2.1] - 2026-07-23
 
