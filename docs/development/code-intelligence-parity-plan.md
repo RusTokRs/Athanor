@@ -62,7 +62,9 @@ Two concrete targets:
 - Published coverage measurement: `resolution_coverage` reports, per language, recorded import
   statements and call sites inside declaration bodies against the resolved ones, with module-level call
   sites counted separately instead of lowering the denominator; the crate corpus pins the numbers.
-- Remaining: receiver typing for method calls on unresolvable variables, wildcard import bindings, and
+- Remaining: qualifying Go method identities by receiver type (the packs record methods under their
+  bare name, so same-named methods of one file collide on the stable key and the duplicate is
+  disclosed), receiver typing for calls on unresolvable variables, wildcard import bindings, and
   dynamic dispatch, all of which stay unresolved rather than guessed.
 
 ### P4 — Operational Documentation Profile

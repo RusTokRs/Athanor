@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use athanor_core::{AffectedSubset, ExtractInput, Extractor, LinkInput, Linker};
-use athanor_domain::{Entity, RelationKind, RepoId, SnapshotId, SourceFile};
+use athanor_core::{AffectedSubset, ExtractInput, Extractor, LinkInput, Linker, SourceFile};
+use athanor_domain::{Entity, RelationKind, RepoId, SnapshotId};
 use athanor_extractor_treesitter::TreeSitterExtractor;
 use athanor_linker_treesitter::{
     LanguageCoverage, TreeSitterLinker, resolution_coverage, resolve_entities,
@@ -208,13 +208,13 @@ async fn calls_resolve_through_units_and_import_bindings() {
         0.9
     )));
     assert!(resolutions.contains(&(
-        "symbol://go:api/server.go#Server.Listen".to_string(),
+        "symbol://go:api/server.go#Listen".to_string(),
         "util.Helper".to_string(),
         "imported_exact_name".to_string(),
         0.85
     )));
     assert!(resolutions.contains(&(
-        "symbol://go:api/server.go#Server.Listen".to_string(),
+        "symbol://go:api/server.go#Listen".to_string(),
         "s.handle".to_string(),
         "same_unit_member_name".to_string(),
         0.5

@@ -84,6 +84,9 @@ use the network, or modify project files.
 - Go method calls whose receiver variable is not resolvable resolve through the unique member-name
   step or stay unresolved; the receiver type recorded on the declaration is not used to type
   variables.
+- Go methods are identified by their bare name (`symbol://go:<path>#Serve` with `receiver: "Server"`),
+  so same-named methods of different types in one file collide on the stable key and the extractor
+  discloses the second as a duplicate declaration.
 
 ## Test
 

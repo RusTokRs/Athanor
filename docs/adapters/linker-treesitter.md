@@ -115,6 +115,12 @@ are not resolved. Go method calls whose receiver variable is not resolvable reac
 member-name step or no relation at all; the receiver type recorded on the declaration is not used to
 type variables.
 
+Go methods are also identified by their bare name: the extractor records `func (s *Server) Serve()`
+as `symbol://go:<path>#Serve` with the receiver type in the payload, so two same-named methods of
+different types in one file collide on the stable key and the second one is disclosed as a duplicate
+declaration rather than silently overwriting the first. Qualifying Go method identities by receiver
+type is the next bounded improvement for this axis.
+
 ## Verification
 
 ```bash
