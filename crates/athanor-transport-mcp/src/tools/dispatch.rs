@@ -70,7 +70,11 @@ async fn call_inner(
             serde_json::to_string_pretty(&report)?
         }
         "search" => {
-            let mode = match args.get("mode").and_then(Value::as_str).unwrap_or("lexical") {
+            let mode = match args
+                .get("mode")
+                .and_then(Value::as_str)
+                .unwrap_or("lexical")
+            {
                 "semantic" => SearchMode::Semantic,
                 "hybrid" => SearchMode::Hybrid,
                 _ => SearchMode::Lexical,
