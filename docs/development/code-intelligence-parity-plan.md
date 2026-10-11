@@ -69,6 +69,21 @@ Two concrete targets:
 - Same publication model as the other profiles: exact snapshot binding, hard limits with disclosed
   omissions, citations to evidence, immutable generations, and validated inspection.
 
+### P4b — Monitoring Evidence Classes
+
+- Monitoring endpoints: declared routes whose path is exactly `/health`, `/healthz`, `/health/live`,
+  `/health/ready`, `/healthcheck`, `/live`, `/livez`, `/ready`, `/readyz`, `/ping`, `/status`,
+  `/metrics`, `/debug/metrics`, `/actuator/health`, or `/actuator/prometheus`, taken from
+  `ApiEndpoint` entities and the adapter-scoped axum/express/nextjs route kinds.
+- Telemetry variables: environment-variable names carrying an `OTEL_`, `OTLP_`, `PROMETHEUS_`,
+  `SENTRY_`, `DATADOG_`, `DD_`, `NEW_RELIC_`, `GRAFANA_`, `LOKI_`, `TEMPO_`, `JAEGER_`,
+  `ELASTIC_APM_`, `HONEYCOMB_`, `SIGNALFX_`, or `STATSD_` prefix, or the exact names `LOG_LEVEL`,
+  `RUST_LOG`, `METRICS_PORT`, and `TELEMETRY_ENABLED`. Names only; a value is never read, and a
+  telemetry variable stays environment evidence as well.
+- Still without an evidence source: container and Kubernetes probes, Dockerfile and compose
+  healthchecks, alert rules, dashboards, and SLOs. They need extractor evidence before the category may
+  name them, which is the next bounded slice for this axis.
+
 ### P5 — Agent Surface
 
 - One bounded query that returns relevant declarations' source with the paths between them and the
