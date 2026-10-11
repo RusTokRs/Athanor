@@ -51,7 +51,7 @@ jobs:
           run_step "cargo check js-ts-precision" cargo check --workspace --features js-ts-precision --all-targets --locked
           run_step "cargo test extractor-js-ts" cargo test -p athanor-extractor-js-ts --locked
           run_step "cargo test linker-js-ts" cargo test -p athanor-linker-js-ts --locked
-          run_step "cargo test workspace" cargo test --workspace --quiet --locked
+          run_step "cargo test workspace" cargo test --workspace --quiet --locked --no-fail-fast
           run_step "cargo clippy workspace" cargo clippy --workspace --all-targets --locked -- -D warnings
           exit 0
 
@@ -84,6 +84,7 @@ jobs:
           {
             echo "### Agent diagnostics"
             echo
+            echo "- commit: \`$(git rev-parse --short HEAD)\`"
             echo "- rustfmt diff: \`$(wc -l < /tmp/rustfmt.diff 2>/dev/null || echo 0)\` lines (pushed when non-empty)"
             for log in /tmp/*.log; do
               [ -e "$log" ] || continue

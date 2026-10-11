@@ -60,6 +60,9 @@ substantive release notes.
   up to date; rebuild into a new immutable generation while retaining publication history.
 - Reject missing or uncommitted documentation snapshot IDs instead of falling back to the latest visible
   snapshot, and preserve the previous current pointer when CLI generation is cancelled.
+- Keep the snapshot search core inside its bounded module contract: mode dispatch and hybrid result
+  ranking now live in `crates/athanor-app/src/search/execution.rs`, restoring the documented 300-line
+  budget of the search core without changing its behavior or public surface.
 - Repair the workspace build after the semantic-search slice: re-export the crate-internal
   `execute_search` through the `search` facade, declare the missing `serde` dependency of
   `athanor-search-tantivy`, release the vector-store lock before the loaded store is returned, use the

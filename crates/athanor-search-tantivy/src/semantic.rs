@@ -96,6 +96,9 @@ struct VectorStoreSnapshot {
     vectors: Vec<StoredVector>,
 }
 
+/// One embedded vector and its optional payload, as held by the in-memory map.
+type StoredEntry = (Vec<f32>, Option<Value>);
+
 /// In-memory semantic vector store with JSON sidecar persistence.
 ///
 /// Vectors are keyed by document id; payloads are optional so the store can back
@@ -103,7 +106,7 @@ struct VectorStoreSnapshot {
 /// `VectorIndex` port (payloads travel with the sidecar).
 pub struct SemanticVectorStore {
     dim: usize,
-    vectors: Mutex<HashMap<String, (Vec<f32>, Option<Value>)>>,
+    vectors: Mutex<HashMap<String, StoredEntry>>,
 }
 
 impl SemanticVectorStore {
