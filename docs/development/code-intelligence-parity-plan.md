@@ -89,4 +89,6 @@ JavaScript/TypeScript. Slice P4 is covered by the shipped `operations` documenta
 (DOCGEN-001 Slices 4A–4C). Slice P5 is source-implemented as the bounded `explore` MCP tool: one query
 returns search-ranked entries, their citations, and the one-hop relation neighbourhood with disclosed
 budgets; multi-hop call paths and full blast radius remain planned. Slice P3 remains planned. Exact-commit
-verification for the new slices is pending and is tracked in `roadmap-status.md`.
+verification for P1, P2, and P5 is green on `191c65e`: sandbox diagnostics run `38152033388` reports every
+log PASSED with a `rustfmt` diff of 0 lines, and the repository check matrix on the same commit is fully
+successful or intentionally skipped. The status ledger in `roadmap-status.md` carries this evidence.

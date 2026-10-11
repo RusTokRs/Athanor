@@ -162,16 +162,13 @@ gap, the typo-named `for agents. md` briefing, was fixed by renaming it to
 
 ### `PARITY-001` — CodeGraph-Parity Code Intelligence
 
-- [x] Slice P1: JS/TS call graph — import bindings plus per-declaration static call sites in
-  `athanor-extractor-js-ts`, and `builtin.linker.js_ts_calls` resolving same-module, `this.` member,
-  imported-binding, and unique-name targets into `Calls`/`TestedBy` relations with call-site
-  evidence. Source implementation with focused unit tests; exact-commit verification pending.
-- [ ] Slice P2: `implements` edges and dynamic-dispatch bridges — Rust `trait_impl` facts and JS/TS
-  class-heritage payloads plus `Implements` bridges; exact-commit verification pending.
+- [x] Slice P1: JS/TS call graph — import bindings, static call sites, `builtin.linker.js_ts_calls`.
+- [x] Slice P2: `implements` bridges — Rust `trait_impl` facts plus JS/TS class heritage.
 - [ ] Slice P3: bounded Python and Go adapters on a generic tree-sitter query engine.
 - [x] Slice P4: deterministic operations documentation — DOCGEN-001 4A–4C; deferral notes fixed.
-- [ ] Slice P5: bounded `explore` MCP query (search-ranked entries, one-hop relations, citations, and
-  disclosed budgets) is source-implemented; plan in `docs/development/code-intelligence-parity-plan.md`.
+- [x] Slice P5: bounded `explore` MCP query — ranked entries, one-hop relations, citations, budgets.
+- Verified exact-commit evidence for P1, P2, and P5: sandbox diagnostics run `38152033388` on `191c65e`
+  reports every log PASSED with a `rustfmt` diff of 0 lines, and the repository matrix is green there.
 
 ### `DOCGEN-001` — Evidence-Backed Documentation Generation
 
