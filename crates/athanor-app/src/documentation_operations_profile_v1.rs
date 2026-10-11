@@ -863,7 +863,7 @@ fn render_markdown(context: &DocumentationContext, draft: &DocumentationDraft) -
         context.omitted.relations
     ));
     output.push_str(
-        "- Slice 4B scope: evidence-backed operational entities plus operations-scoped facts, supported definition/containment/documentation/environment/table relations, and open diagnostics; publication, Store loading, CLI, daemon, MCP, provider/LLM, and coordinated `ath generate` integration are deferred.\n\n",
+        "- Scope: evidence-backed operational entities plus operations-scoped facts, supported definition/containment/documentation/environment/table relations, and open diagnostics; the limits and omissions reported above bound every claim below.\n\n",
     );
 
     for section in &draft.sections {

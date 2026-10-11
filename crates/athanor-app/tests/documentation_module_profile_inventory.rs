@@ -72,7 +72,7 @@ fn module_profile_is_exact_scoped_cited_and_checksum_bound() {
         "medium diagnostic uncovered_symbol: Service lacks direct coverage",
         "flowchart LR",
         "src/lib.rs:3-8",
-        "Slice 2B scope: source-backed modules plus module-scoped facts, relations, and open diagnostics",
+        "- Scope: source-backed modules plus module-scoped facts, relations, and open diagnostics",
     ] {
         assert!(
             profile.document.content.contains(required),

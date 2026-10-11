@@ -177,7 +177,7 @@ pub(super) fn render_markdown(
         context.omitted.relations
     ));
     output.push_str(
-        "- Slice 5B scope: evidence-backed onboarding entities plus onboarding-scoped facts, supported containment/documentation/environment/test relations, and open diagnostics; publication, Store loading, CLI, daemon, MCP, provider/LLM, and coordinated `ath generate` integration are deferred.\n\n",
+        "- Scope: evidence-backed onboarding entities plus onboarding-scoped facts, supported containment/documentation/environment/test relations, and open diagnostics; the limits and omissions reported above bound every claim below.\n\n",
     );
 
     for section in &draft.sections {

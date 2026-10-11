@@ -699,7 +699,7 @@ fn render_markdown(context: &DocumentationContext, draft: &DocumentationDraft) -
         context.omitted.relations
     ));
     output.push_str(
-        "- Slice 2B scope: source-backed modules plus module-scoped facts, relations, and open diagnostics; publication, Store loading, and transport integration are deferred.\n\n",
+        "- Scope: source-backed modules plus module-scoped facts, relations, and open diagnostics; the limits and omissions reported above bound every claim below.\n\n",
     );
 
     for section in &draft.sections {

@@ -890,7 +890,7 @@ fn render_markdown(context: &DocumentationContext, draft: &DocumentationDraft) -
         context.omitted.relations
     ));
     output.push_str(
-        "- Slice 3B scope: evidence-backed API endpoint/schema/example entities plus API-scoped facts, supported implementation/schema/example/documentation relations, and open diagnostics; publication, Store loading, and transport integration are deferred.\n\n",
+        "- Scope: evidence-backed API endpoint/schema/example entities plus API-scoped facts, supported implementation/schema/example/documentation relations, and open diagnostics; the limits and omissions reported above bound every claim below.\n\n",
     );
 
     for section in &draft.sections {

@@ -79,7 +79,7 @@ fn operations_profile_is_exact_scoped_cited_and_checksum_bound() {
             .contains("## Operations Diagnostics")
     );
     assert!(profile.document.content.contains("```mermaid"));
-    assert!(profile.document.content.contains("Slice 4B scope"));
+    assert!(profile.document.content.contains("- Scope: evidence-backed operational entities"));
     assert!(!profile.document.content.contains("depends_on_runtime"));
     assert_eq!(
         profile.document.sha256,
