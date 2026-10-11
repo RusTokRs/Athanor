@@ -22,6 +22,7 @@ members = [
     "crates/athanor-linker-api",
     "crates/athanor-linker-js-ts",
     "crates/athanor-linker-rust",
+    "crates/athanor-linker-treesitter",
     "crates/athanor-projector-wiki",
     "crates/athanor-projector-support",
     "crates/athanor-projector-html",

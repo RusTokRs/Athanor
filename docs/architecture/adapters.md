@@ -104,6 +104,7 @@ Ownership should list every source file that can invalidate the emitted object. 
 | `athanor-linker-js-ts` | `Linker` | Resolve exact relative JavaScript/TypeScript module imports into evidence-backed canonical relations. |
 | `athanor-linker-markdown` | `Linker` | Link Markdown containment and exact frontmatter entity/concept references. |
 | `athanor-linker-rust` | `Linker` | Link Rust module containment, imports, static function call graph, and test cases. |
+| `athanor-linker-treesitter` | `Linker` | Resolve Python and Go module imports, the static call graph across files and packages, and test coverage bridges from the canonical tree-sitter pack payloads, with a per-language resolution coverage measurement. |
 | `athanor-checker-markdown` | `Checker` | Diagnose Markdown structure, unresolved frontmatter references, and duplicate document identities. |
 | `athanor-checker-api` | `Checker` | Diagnose missing API implementation/documentation links, unresolved local schema references, invalid examples, OpenAPI/GraphQL response field drift, undocumented environment variables, undocumented runtime configuration keys, undocumented script commands, undocumented deployment resources, runbooks not tied to operational knowledge, runbooks without operation steps, and runbook steps that do not cover declared targets. |
 | `athanor-projector-wiki` | `Projector` | Project the latest canonical snapshot into a neutral Markdown wiki. |
@@ -194,6 +195,7 @@ builtin.linker.js_ts_calls
 builtin.linker.js_ts_implements
 builtin.linker.markdown_containment
 builtin.linker.rust
+builtin.linker.treesitter
 builtin.linker.rustok_fba
 builtin.linker.rustok_ffa
 builtin.linker.rustok_page_builder

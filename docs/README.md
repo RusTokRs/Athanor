@@ -58,6 +58,7 @@ and [release version verifier](adapters/release-version-verifier.md).
 
 Linking/checking: [Markdown linker](adapters/linker-markdown.md),
 [Rust linker](adapters/linker-rust.md), [JS/TS linker](adapters/linker-js-ts.md),
+[Python/Go tree-sitter linker](adapters/linker-treesitter.md),
 [API linker](adapters/linker-api.md), [Markdown checker](adapters/checker-markdown.md), and
 [API/operations checker](adapters/checker-api.md).
 

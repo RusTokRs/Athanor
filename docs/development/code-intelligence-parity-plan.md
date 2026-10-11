@@ -56,9 +56,14 @@ Two concrete targets:
 
 - A generic tree-sitter query engine behind the existing `Extractor` port, with per-language query
   packs so a new language is data plus a test fixture, not a new crate.
-- Shipped: the engine plus Python and Go packs as `builtin.extractor.treesitter`.
-- Remaining: cross-file resolution for Python and Go, and a published coverage measurement per
-  language against a stated denominator.
+- Shipped: the engine plus Python and Go packs as `builtin.extractor.treesitter`, and cross-file
+  resolution as `builtin.linker.treesitter`: module imports (dotted, relative, and package-suffix),
+  calls through resolution units and import bindings, and test bridges, each with a stated confidence.
+- Published coverage measurement: `resolution_coverage` reports, per language, recorded import
+  statements and call sites inside declaration bodies against the resolved ones, with module-level call
+  sites counted separately instead of lowering the denominator; the crate corpus pins the numbers.
+- Remaining: receiver typing for method calls on unresolvable variables, wildcard import bindings, and
+  dynamic dispatch, all of which stay unresolved rather than guessed.
 
 ### P4 — Operational Documentation Profile
 

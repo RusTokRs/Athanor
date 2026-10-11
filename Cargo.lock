@@ -691,6 +691,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "athanor-linker-treesitter"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "athanor-core",
+ "athanor-domain",
+ "athanor-extractor-basic",
+ "athanor-extractor-treesitter",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "athanor-projector-html"
 version = "0.1.0"
 dependencies = [
@@ -751,6 +764,7 @@ dependencies = [
  "athanor-linker-js-ts",
  "athanor-linker-markdown",
  "athanor-linker-rust",
+ "athanor-linker-treesitter",
  "athanor-projector-html",
  "athanor-projector-wiki",
  "athanor-search-tantivy",

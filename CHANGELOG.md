@@ -18,19 +18,20 @@ substantive release notes.
 - Add the bounded `explore` MCP tool: one query returns ranked entries, citations, and one-hop relations.
 - Add `builtin.extractor.treesitter` over Python and Go: one data-driven engine records declarations,
   methods, imports, exports, and statically named call sites, so a language is a pack plus a fixture.
+- Add `builtin.linker.treesitter`: Python and Go imports, cross-file calls through package units and
+  import bindings, test bridges, and a per-language resolution coverage measurement.
 - Add a monitoring operations category: the operations profile derives declared health, status, and
-  metrics endpoints and telemetry environment-variable names from canonical evidence, and discloses
-  that probes, alerts, dashboards, and SLOs have no evidence source yet.
+  metrics endpoints and telemetry variable names from canonical evidence; probes, alerts, dashboards,
+  and SLOs stay absent until they have an evidence source.
 - Add the JavaScript/TypeScript call graph. The JS/TS extractor records each import statement's local
   bindings (`default_name`, `namespace_name`, `named`) and a bounded `calls` array per function,
   method, and variable-bound function declaration with the statically named callee, receiver, kind,
   argument count, and line/column. `builtin.linker.js_ts_calls` resolves those call sites into
   evidence-backed `Calls` relations (same-module, `this.` member, imported binding, and unique-name
   fallbacks) and emits `TestedBy` when a test-location declaration calls production code.
-- Add strict versioned request and manifest contracts for evidence-backed documentation generation,
-  binding output to an exact snapshot, hard input limits, omitted counts, portable paths, and checksums.
-- Add versioned outline, bounded context, citation, draft, and validation-report contracts with
-  stable-key/evidence traceability, relation-backed diagram edges, metrics, and provider-cost fields.
+- Add strict versioned request, outline, context, citation, draft, manifest, and validation-report
+  contracts for evidence-backed documentation generation: exact snapshot binding, portable paths,
+  stable-key/evidence traceability, cited diagram edges, metrics, and checksums.
 - Add a minimal fixture repository and Rustok evaluation corpus with expected sections, citation paths,
   diagram edges, known gaps, repeatability, unsupported-relation disclosure, and review criteria.
 - Add a deterministic architecture profile that converts one explicit canonical snapshot into cited
@@ -44,8 +45,7 @@ substantive release notes.
 - Add `overview` and `capabilities` MCP tools exposing the repository overview and the bounded
   analysis-completeness report to MCP clients.
 - Add a bounded first-party projection for agent-tool MCP configuration: `.codex.json` and
-  `antigravity.json` project one `ScriptCommand` per configured server with the agent tool, server
-  name, and literal command tokens plus evidence and ownership; malformed files are rejected.
+  `antigravity.json` project one `ScriptCommand` per server, with evidence and ownership.
 - Add local semantic retrieval with zero new dependencies: hashing-trick embeddings over character
   trigrams and word n-grams (FNV-1a buckets) power `ath search --mode semantic|hybrid` and MCP `search`.
 

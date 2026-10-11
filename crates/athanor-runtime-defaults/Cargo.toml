@@ -32,6 +32,7 @@ athanor-linker-api = { path = "../athanor-linker-api" }
 athanor-linker-js-ts = { path = "../athanor-linker-js-ts" }
 athanor-linker-markdown = { path = "../athanor-linker-markdown" }
 athanor-linker-rust = { path = "../athanor-linker-rust" }
+athanor-linker-treesitter = { path = "../athanor-linker-treesitter" }
 athanor-projector-html = { path = "../athanor-projector-html" }
 athanor-projector-wiki = { path = "../athanor-projector-wiki" }
 athanor-search-tantivy = { path = "../athanor-search-tantivy" }

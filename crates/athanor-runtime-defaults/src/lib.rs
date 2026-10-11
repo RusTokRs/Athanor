@@ -29,6 +29,7 @@ use athanor_linker_api::ApiKnowledgeLinker;
 use athanor_linker_js_ts::{JsTsCallLinker, JsTsImplementsLinker, JsTsImportLinker};
 use athanor_linker_markdown::MarkdownContainmentLinker;
 use athanor_linker_rust::RustLinker;
+use athanor_linker_treesitter::TreeSitterLinker;
 use athanor_source_fs::LocalFileSystemSource;
 
 use crate::projector_operation::publish_projector_output_cancellable;
@@ -193,6 +194,7 @@ pub fn default_adapter_registry() -> AdapterRegistry {
             Box::new(JsTsImplementsLinker)
         })
         .register_linker_id("builtin.linker.rust", || Box::new(RustLinker))
+        .register_linker_id("builtin.linker.treesitter", || Box::new(TreeSitterLinker))
         .register_checker_id("builtin.checker.markdown_structure", || {
             Box::new(MarkdownStructureChecker)
         })
@@ -264,6 +266,9 @@ pub fn resolve_builtin_adapter(
             registry.register_extractor_id("builtin.extractor.treesitter", || {
                 Box::new(TreeSitterExtractor)
             }),
+        ),
+        (AdapterPluginKind::Linker, "builtin.linker.treesitter") => Some(
+            registry.register_linker_id("builtin.linker.treesitter", || Box::new(TreeSitterLinker)),
         ),
         (AdapterPluginKind::Extractor, "builtin.extractor.rustok_ffa") => Some(
             registry.register_extractor_id("builtin.extractor.rustok_ffa", || {

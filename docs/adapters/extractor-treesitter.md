@@ -61,7 +61,8 @@ expressions, generic instantiations, and function literals are omitted rather th
 recorded call set is always a lower bound that the reader can audit.
 
 Call sites belong to the declaration body that contains them. A nested declaration owns its own call
-sites, and module-level statements are recorded in the module payload.
+sites, and module-level statements are recorded in the module payload. `builtin.linker.treesitter`
+resolves these records into cross-file `calls` relations; this adapter resolves nothing across files.
 
 ## Import Records
 
