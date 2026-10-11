@@ -221,7 +221,7 @@ impl Linker for RustLinker {
                 .get("symbol_kind")
                 .and_then(|value| value.as_str())
             {
-                Some(kind) if matches!(kind, "struct" | "enum" | "union" | "type_alias") => {
+                Some("struct" | "enum" | "union" | "type_alias") => {
                     types_by_name
                         .entry(entity.name.as_str())
                         .or_default()
