@@ -118,7 +118,11 @@ async fn dump_recorded_call_sites() {
     let entities = corpus().await;
     let mut lines = Vec::new();
     for entity in &entities {
-        let Some(calls) = entity.payload.get("calls").and_then(|value| value.as_array()) else {
+        let Some(calls) = entity
+            .payload
+            .get("calls")
+            .and_then(|value| value.as_array())
+        else {
             continue;
         };
         for call in calls {
