@@ -3,7 +3,9 @@ use std::sync::Arc;
 use athanor_core::{AffectedSubset, ExtractInput, Extractor, LinkInput, Linker};
 use athanor_domain::{Entity, RelationKind, RepoId, SnapshotId, SourceFile};
 use athanor_extractor_treesitter::TreeSitterExtractor;
-use athanor_linker_treesitter::{LanguageCoverage, TreeSitterLinker, resolution_coverage, resolve_entities};
+use athanor_linker_treesitter::{
+    LanguageCoverage, TreeSitterLinker, resolution_coverage, resolve_entities,
+};
 
 const CORPUS: &[(&str, &str)] = &[
     (
@@ -170,7 +172,10 @@ async fn calls_resolve_through_units_and_import_bindings() {
         .iter()
         .map(|relation| {
             (
-                relation.payload["from"].as_str().unwrap_or_default().to_string(),
+                relation.payload["from"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string(),
                 relation.payload["callee"]
                     .as_str()
                     .unwrap_or_default()
@@ -249,12 +254,8 @@ async fn test_callers_produce_tested_by_relations() {
         relation.payload["from"] == "symbol://go:api/router.go#routeHelper"
             && relation.payload["to"] == "symbol://go:api/server_test.go#TestRoute"
     }));
-    assert!(
-        tested_by
-            .iter()
-            .all(|relation| relation.confidence == 0.6
-                && relation.payload["reason"] == "treesitter_test_call")
-    );
+    assert!(tested_by.iter().all(|relation| relation.confidence == 0.6
+        && relation.payload["reason"] == "treesitter_test_call"));
 }
 
 #[tokio::test]

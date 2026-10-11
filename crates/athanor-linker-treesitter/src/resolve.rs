@@ -249,11 +249,7 @@ pub(crate) fn resolve_call<'a>(
     if let Some(target) = find_first(same_unit, |candidate| {
         qualified_name(candidate) == Some(callee)
     }) {
-        return Some((
-            target,
-            "same_unit_exact_name",
-            SAME_UNIT_EXACT_CONFIDENCE,
-        ));
+        return Some((target, "same_unit_exact_name", SAME_UNIT_EXACT_CONFIDENCE));
     }
 
     // 3. Import bindings of the calling module.
@@ -394,7 +390,9 @@ pub(crate) fn import_bindings<'a>(module: &'a Entity) -> Vec<Binding<'a>> {
 }
 
 fn owner_of(entity: &Entity) -> Option<&str> {
-    qualified_name(entity)?.split_once('.').map(|(owner, _)| owner)
+    qualified_name(entity)?
+        .split_once('.')
+        .map(|(owner, _)| owner)
 }
 
 fn find_first<'a>(

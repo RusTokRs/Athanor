@@ -159,9 +159,8 @@ fn resolve_relations(
                     column,
                 ),
             );
-            let target_is_test = declaration_path(target).is_some_and(|target_path| {
-                is_test_file(language, target_path)
-            });
+            let target_is_test = declaration_path(target)
+                .is_some_and(|target_path| is_test_file(language, target_path));
             if is_test_file(language, path) && !target_is_test {
                 push_unique(
                     &mut relations,
@@ -251,13 +250,7 @@ fn call_relation(
         to: target.id.clone(),
         status: RelationStatus::Inferred,
         confidence,
-        evidence: reference_evidence(
-            caller,
-            target,
-            line,
-            confidence,
-            RelationStatus::Inferred,
-        ),
+        evidence: reference_evidence(caller, target, line, confidence, RelationStatus::Inferred),
         ownership: combined_ownership(caller, target),
         snapshot: snapshot.clone(),
         payload: json!({
