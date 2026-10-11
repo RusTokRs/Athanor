@@ -11,8 +11,8 @@ use std::collections::{HashMap, HashSet};
 use async_trait::async_trait;
 use athanor_core::{CoreResult, InvalidationPolicy, InvalidationScope, LinkInput, Linker};
 use athanor_domain::{
-    Entity, EntityId, Evidence, EvidenceStatus, Relation, RelationId, RelationKind,
-    RelationStatus, SnapshotId,
+    Entity, EntityId, Evidence, EvidenceStatus, Relation, RelationId, RelationKind, RelationStatus,
+    SnapshotId,
 };
 use athanor_extractor_basic::stable_hash;
 use serde_json::json;
@@ -76,7 +76,11 @@ impl Linker for JsTsImplementsLinker {
             }
             let owner_path = entity_path(entity);
 
-            if let Some(name) = entity.payload.get("extends").and_then(|value| value.as_str()) {
+            if let Some(name) = entity
+                .payload
+                .get("extends")
+                .and_then(|value| value.as_str())
+            {
                 if let Some(target) =
                     resolve(&classes_by_name, name, owner_path.as_deref(), &entity.id)
                 {
@@ -272,9 +276,11 @@ mod tests {
                 && relation.payload["reason"] == "js_ts_class_heritage"
                 && !relation.evidence.is_empty()
         }));
-        assert!(relations.iter().any(|relation| {
-            relation.to == base.id && relation.payload["bridge"] == "extends"
-        }));
+        assert!(
+            relations.iter().any(|relation| {
+                relation.to == base.id && relation.payload["bridge"] == "extends"
+            })
+        );
         assert!(relations.iter().any(|relation| {
             relation.to == store.id
                 && relation.payload["bridge"] == "implements"
@@ -286,13 +292,7 @@ mod tests {
     async fn prefers_the_same_module_target_over_a_remote_one() {
         let local_store = interface_entity("ent_store_local", "src/service.ts", "Store");
         let remote_store = interface_entity("ent_store_remote", "src/other/store.ts", "Store");
-        let service = class_entity(
-            "ent_service",
-            "src/service.ts",
-            "Service",
-            None,
-            &["Store"],
-        );
+        let service = class_entity("ent_service", "src/service.ts", "Service", None, &["Store"]);
         let entities = vec![local_store.clone(), remote_store, service.clone()];
 
         let relations = JsTsImplementsLinker
