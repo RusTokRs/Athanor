@@ -365,7 +365,7 @@ impl SearchIndex for TantivySearchIndex {
             let term = tantivy::Term::from_field_text(self.id_field, &id);
             let term_query = TermQuery::new(term, IndexRecordOption::Basic);
             let top_docs = searcher
-                .search(&term_query, &TopDocs::with_limit(1))
+                .search(&term_query, &TopDocs::with_limit(1).order_by_score())
                 .map_err(|error| CoreError::Adapter(format!("Tantivy search error: {error}")))?;
             let Some((_, address)) = top_docs.into_iter().next() else {
                 continue;

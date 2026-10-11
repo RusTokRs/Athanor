@@ -17,7 +17,8 @@ pub use core::{
     SearchOptions, SearchReport, entity_text,
 };
 pub(crate) use core::{
-    get_or_build_search_index_with_factory, get_or_build_search_index_with_factory_and_operation,
+    execute_search, get_or_build_search_index_with_factory,
+    get_or_build_search_index_with_factory_and_operation,
 };
 
 pub async fn search_project_with_composition(

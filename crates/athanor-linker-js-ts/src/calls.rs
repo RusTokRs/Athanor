@@ -568,9 +568,9 @@ mod tests {
             client,
             session_module,
             auth,
-            login,
+            login.clone(),
             session,
-            refresh,
+            refresh.clone(),
             run.clone(),
         ];
         let relations = JsTsCallLinker
