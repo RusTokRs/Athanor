@@ -23,9 +23,9 @@ missing qualifier revisions fail closed.
 
 ## Registered Public Contracts
 
-`VERSIONED_JSON_CONTRACTS` contains 62 current Rust-owned public application/daemon reports:
+`VERSIONED_JSON_CONTRACTS` contains 64 current Rust-owned public application/daemon reports:
 
-- overview, search, explain, impact, check, coverage, capabilities, change map, and context;
+- overview, search, explore, explain, impact, check, coverage, capabilities, change map, and context;
 - index, benchmark, changed validation, coordinated generation, config, docs, API, wiki, and HTML;
 - documentation-generation request and manifest;
 - Graph and Rustok reports;

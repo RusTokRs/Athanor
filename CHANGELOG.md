@@ -13,9 +13,9 @@ substantive release notes.
 
 ### Added
 
-- Add `Implements` bridges for Rust and JS/TS: the Rust extractor records every `impl Trait for Type`
-  block as a `trait_impl` fact and the Rust linker resolves unique type/trait names, while the JS/TS
-  extractor records class heritage and `builtin.linker.js_ts_implements` links it.
+- Add `Implements` bridges for Rust and JS/TS: Rust records every `impl Trait for Type` block as a
+  `trait_impl` fact and links unique type/trait names, and JS/TS records class heritage for the bridge.
+- Add the bounded `explore` MCP tool: one query returns ranked entries, citations, and one-hop relations.
 - Add the JavaScript/TypeScript call graph. The JS/TS extractor records each import statement's local
   bindings (`default_name`, `namespace_name`, `named`) and a bounded `calls` array per function,
   method, and variable-bound function declaration with the statically named callee, receiver, kind,

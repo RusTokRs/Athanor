@@ -131,6 +131,7 @@ Every tool accepts an optional `deadline_unix_ms` field: a future Unix timestamp
 | `explain` | Explains one canonical entity, facts, relations, and diagnostics. | `stable_key: string` |
 | `overview` | Summarizes the latest canonical snapshot for repository orientation. | `top?: integer` |
 | `search` | Performs Tantivy BM25 search over workspace knowledge. | `query: string`, `limit?: integer` |
+| `explore` | Answers one code question in a single call: ranked entry entities with source anchors, citations, and the one-hop relation neighbourhood. | `query: string`, `entries?: integer`, `links?: integer`, `mode?: "lexical" | "semantic" | "hybrid"` |
 | `context` | Generates a task-focused context pack from the latest snapshot. | `task: string`, `level?: string`, limits... |
 | `impact` | Calculates the direct/transitive blast radius of changes. | `target?: string`, `diff?: boolean`, `max_depth?: integer` |
 | `change_map` | Returns bounded evidence-backed change locations and relation chains. | `task?: string`, `target?: string`, `diff?: boolean`, limits... |
@@ -138,7 +139,7 @@ Every tool accepts an optional `deadline_unix_ms` field: a future Unix timestamp
 | `check` | Returns scoped diagnostic reports. | `scope: "api" | "docs" | "env" | "scripts" | "deployment" | "runbooks"` |
 | `capabilities` | Reports bounded analysis-completeness of the latest canonical snapshot. | `limit?: integer`, `min_confidence?: number` |
 
-Read tools are registered by serialized JSON-RPC request id so cancellation notifications can address their operation. Overview and Capabilities are plain registered reads over the latest committed snapshot. Search, Context, Change Map, and RusTok architecture context use drained operation paths because they may own cooperative or blocking cleanup. `index` receives deadline state but remains excluded from notification-driven cancellation pending an explicit transactional rollback and durable-success review.
+Read tools are registered by serialized JSON-RPC request id so cancellation notifications can address their operation. Overview and Capabilities are plain registered reads over the latest committed snapshot. Search, Explore, Context, Change Map, and RusTok architecture context use drained operation paths because they may own cooperative or blocking cleanup. `index` receives deadline state but remains excluded from notification-driven cancellation pending an explicit transactional rollback and durable-success review.
 
 ## Logging
 

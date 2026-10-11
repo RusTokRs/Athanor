@@ -70,21 +70,28 @@ async fn call_inner(
             serde_json::to_string_pretty(&report)?
         }
         "search" => {
-            let mode = match args
-                .get("mode")
-                .and_then(Value::as_str)
-                .unwrap_or("lexical")
-            {
-                "semantic" => SearchMode::Semantic,
-                "hybrid" => SearchMode::Hybrid,
-                _ => SearchMode::Lexical,
-            };
+            let mode = search_mode_arg(&args);
             let report = athanor_app::search_project_with_composition_and_operation_context(
                 SearchOptions {
                     root: root.to_path_buf(),
                     query: string_arg(&args, "query")?,
                     limit: usize_arg(&args, "limit", 10),
                     mode,
+                },
+                composition,
+                operation,
+            )
+            .await?;
+            serde_json::to_string_pretty(&report)?
+        }
+        "explore" => {
+            let report = athanor_app::explore_project_with_composition_and_operation_context(
+                athanor_app::ExploreOptions {
+                    root: root.to_path_buf(),
+                    query: string_arg(&args, "query")?,
+                    entries: usize_arg(&args, "entries", athanor_app::DEFAULT_EXPLORE_ENTRIES),
+                    links: usize_arg(&args, "links", athanor_app::DEFAULT_EXPLORE_LINKS),
+                    mode: search_mode_arg(&args),
                 },
                 composition,
                 operation,
@@ -269,6 +276,14 @@ fn optional_string_arg(args: &Value, name: &str) -> Option<String> {
         .and_then(Value::as_str)
         .filter(|value| !value.trim().is_empty())
         .map(str::to_string)
+}
+
+fn search_mode_arg(args: &Value) -> SearchMode {
+    match args.get("mode").and_then(Value::as_str).unwrap_or("lexical") {
+        "semantic" => SearchMode::Semantic,
+        "hybrid" => SearchMode::Hybrid,
+        _ => SearchMode::Lexical,
+    }
 }
 
 fn bool_arg(args: &Value, name: &str, default: bool) -> bool {

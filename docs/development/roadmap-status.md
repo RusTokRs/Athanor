@@ -170,8 +170,8 @@ gap, the typo-named `for agents. md` briefing, was fixed by renaming it to
   class-heritage payloads plus `Implements` bridges; exact-commit verification pending.
 - [ ] Slice P3: bounded Python and Go adapters on a generic tree-sitter query engine.
 - [x] Slice P4: deterministic operations documentation — DOCGEN-001 4A–4C; deferral notes fixed.
-- [ ] Slice P5: single bounded `explore`-class agent query; plan in
-  `docs/development/code-intelligence-parity-plan.md`.
+- [ ] Slice P5: bounded `explore` MCP query (search-ranked entries, one-hop relations, citations, and
+  disclosed budgets) is source-implemented; plan in `docs/development/code-intelligence-parity-plan.md`.
 
 ### `DOCGEN-001` — Evidence-Backed Documentation Generation
 

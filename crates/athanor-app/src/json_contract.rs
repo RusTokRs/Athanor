@@ -129,6 +129,9 @@ fn validate_qualified_schema_id(schema: &str) -> Option<u32> {
     Some(major)
 }
 
+/// Bounded single-call code exploration report.
+pub const EXPLORE_SCHEMA_V1: &str = "athanor.explore.v1";
+
 macro_rules! descriptor {
     ($schema:ident, $rust_type:literal) => {
         JsonContractDescriptor {
@@ -141,6 +144,7 @@ macro_rules! descriptor {
 pub const VERSIONED_JSON_CONTRACTS: &[JsonContractDescriptor] = &[
     descriptor!(OVERVIEW_SCHEMA_V1, "RepositoryOverview"),
     descriptor!(SEARCH_SCHEMA_V1, "SearchReport"),
+    descriptor!(EXPLORE_SCHEMA_V1, "ExploreReport"),
     descriptor!(ENTITY_EXPLANATION_SCHEMA_V1, "EntityExplanation"),
     descriptor!(IMPACT_ANALYSIS_SCHEMA_V1, "ImpactAnalysis"),
     descriptor!(DIAGNOSTIC_CHECK_SCHEMA_V1, "DiagnosticCheckReport"),
@@ -266,7 +270,7 @@ mod tests {
     fn extended_registry_contains_application_daemon_and_adapter_owners() {
         validate_contract_registry(VERSIONED_JSON_CONTRACTS)
             .expect("extended JSON contract registry must remain valid");
-        assert_eq!(VERSIONED_JSON_CONTRACTS.len(), 63);
+        assert_eq!(VERSIONED_JSON_CONTRACTS.len(), 64);
         assert_eq!(
             DOCUMENTATION_COMPLETENESS_SCHEMA_V1,
             VersionedDocumentationCompletenessReport::SCHEMA

@@ -83,5 +83,10 @@ Two concrete targets:
 ## Current Status
 
 Slice P1 is source-implemented and carries focused unit tests in `athanor-extractor-js-ts` and
-`athanor-linker-js-ts`; its exact-commit verification is pending and is tracked in
-`roadmap-status.md`. Slices P2–P5 remain planned.
+`athanor-linker-js-ts`. Slice P2 is source-implemented in both halves: `trait_impl` facts plus
+`Implements` relations for Rust, and class heritage plus `builtin.linker.js_ts_implements` for
+JavaScript/TypeScript. Slice P4 is covered by the shipped `operations` documentation profile
+(DOCGEN-001 Slices 4A–4C). Slice P5 is source-implemented as the bounded `explore` MCP tool: one query
+returns search-ranked entries, their citations, and the one-hop relation neighbourhood with disclosed
+budgets; multi-hop call paths and full blast radius remain planned. Slice P3 remains planned. Exact-commit
+verification for the new slices is pending and is tracked in `roadmap-status.md`.
