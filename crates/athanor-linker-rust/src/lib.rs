@@ -5,11 +5,14 @@ use std::collections::{HashMap, HashSet};
 use async_trait::async_trait;
 use athanor_core::{CoreResult, InvalidationPolicy, InvalidationScope, LinkInput, Linker};
 use athanor_domain::{
-    Entity, EntityId, EntityKind, Evidence, EvidenceStatus, Ownership, Relation, RelationId,
+    Entity, EntityId, EntityKind, Evidence, EvidenceStatus, Fact, Ownership, Relation, RelationId,
     RelationKind, RelationStatus, SnapshotId,
 };
 use athanor_extractor_basic::stable_hash;
 use serde_json::json;
+
+/// Confidence of a trait-implementation bridge resolved by unique symbol name.
+const TRAIT_IMPL_CONFIDENCE: f32 = 0.7;
 
 #[derive(Debug, Clone, Default)]
 pub struct RustLinker;
@@ -207,6 +210,68 @@ impl Linker for RustLinker {
             }
         }
 
+        // Trait implementations recorded as facts become `Implements` bridges from the
+        // implementing type to the trait; both endpoints resolve by unique symbol name,
+        // so ambiguous names stay unresolved rather than guessed.
+        let mut types_by_name: HashMap<&str, Vec<&Entity>> = HashMap::new();
+        let mut traits_by_name: HashMap<&str, Vec<&Entity>> = HashMap::new();
+        for entity in rust_entities.iter().copied() {
+            match entity
+                .payload
+                .get("symbol_kind")
+                .and_then(|value| value.as_str())
+            {
+                Some(kind) if matches!(kind, "struct" | "enum" | "union" | "type_alias") => {
+                    types_by_name
+                        .entry(entity.name.as_str())
+                        .or_default()
+                        .push(entity);
+                }
+                Some("trait") => {
+                    traits_by_name
+                        .entry(entity.name.as_str())
+                        .or_default()
+                        .push(entity);
+                }
+                _ => {}
+            }
+        }
+
+        for fact in input.facts.iter() {
+            let impl_kind = fact.value.get("symbol_kind").and_then(|value| value.as_str());
+            if impl_kind != Some("trait_impl") {
+                continue;
+            }
+            let Some(self_type) = fact.value.get("self_type").and_then(|value| value.as_str())
+            else {
+                continue;
+            };
+            let Some(trait_name) = fact.value.get("trait_name").and_then(|value| value.as_str())
+            else {
+                continue;
+            };
+            let Some(type_entity) = unique_by_name(&types_by_name, self_type) else {
+                continue;
+            };
+            let Some(trait_entity) = unique_by_name(&traits_by_name, trait_name) else {
+                continue;
+            };
+            if !either_affected(type_entity, trait_entity, &affected_ids) {
+                continue;
+            }
+            push_unique(
+                &mut relations,
+                &mut relation_ids,
+                impl_relation(
+                    &input.snapshot,
+                    type_entity,
+                    trait_entity,
+                    fact,
+                    self.name(),
+                ),
+            );
+        }
+
         relations.extend(calls_relations);
         Ok(relations)
     }
@@ -373,6 +438,85 @@ fn ownership_for_entities(left: &Entity, right: &Entity) -> Vec<Ownership> {
     ownership
 }
 
+fn unique_by_name<'a>(index: &HashMap<&str, Vec<&'a Entity>>, name: &str) -> Option<&'a Entity> {
+    match index.get(name).map(Vec::as_slice) {
+        Some([entity]) => Some(*entity),
+        _ => None,
+    }
+}
+
+fn impl_relation(
+    snapshot: &SnapshotId,
+    type_entity: &Entity,
+    trait_entity: &Entity,
+    fact: &Fact,
+    linker: &str,
+) -> Relation {
+    let id_material = format!(
+        "rust_rel_implements\0{}\0{}",
+        type_entity.stable_key.0, trait_entity.stable_key.0
+    );
+    let trait_name = fact
+        .value
+        .get("trait_name")
+        .and_then(|value| value.as_str())
+        .unwrap_or_default()
+        .to_string();
+    Relation {
+        id: RelationId(format!(
+            "rel_rust_implements_{:016x}",
+            stable_hash(id_material.as_bytes())
+        )),
+        kind: RelationKind::Implements,
+        from: type_entity.id.clone(),
+        to: trait_entity.id.clone(),
+        status: RelationStatus::Inferred,
+        confidence: TRAIT_IMPL_CONFIDENCE,
+        evidence: impl_evidence(fact, type_entity, trait_entity, linker),
+        ownership: ownership_for_entities(type_entity, trait_entity),
+        snapshot: snapshot.clone(),
+        payload: json!({
+            "from": type_entity.stable_key.0,
+            "to": trait_entity.stable_key.0,
+            "reason": "rust_trait_impl",
+            "matched_value": trait_name.clone(),
+            "self_type": type_entity.name.clone(),
+            "trait_name": trait_name,
+        }),
+    }
+}
+
+/// The impl-block evidence recorded by the extractor plus one anchor per endpoint.
+fn impl_evidence(
+    fact: &Fact,
+    type_entity: &Entity,
+    trait_entity: &Entity,
+    linker: &str,
+) -> Vec<Evidence> {
+    let mut evidence = fact.evidence.clone();
+    for entity in [type_entity, trait_entity] {
+        let Some(source) = entity.source.as_ref() else {
+            continue;
+        };
+        if evidence
+            .iter()
+            .any(|existing| existing.source_file.as_deref() == Some(source.path.as_str()))
+        {
+            continue;
+        }
+        evidence.push(Evidence {
+            source_file: Some(source.path.clone()),
+            line_start: source.line_start,
+            line_end: source.line_end,
+            extractor: Some(linker.to_string()),
+            commit_hash: None,
+            confidence: TRAIT_IMPL_CONFIDENCE,
+            status: EvidenceStatus::Inferred,
+        });
+    }
+    evidence
+}
+
 fn push_unique(
     relations: &mut Vec<Relation>,
     relation_ids: &mut HashSet<RelationId>,
@@ -385,8 +529,10 @@ fn push_unique(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use athanor_core::AffectedSubset;
-    use athanor_domain::{LanguageCode, SourceLocation, StableKey};
+    use athanor_domain::{FactId, FactKind, LanguageCode, SourceLocation, StableKey};
 
     use super::*;
 
@@ -487,6 +633,87 @@ mod tests {
         assert!(relations.iter().any(|r| r.kind == RelationKind::TestedBy
             && r.from == function.id
             && r.to == test_case.id));
+    }
+
+    #[tokio::test]
+    async fn links_trait_impl_facts_to_implements_bridges() {
+        let trait_entity = entity(
+            "ent_trait_login",
+            "symbol://rust:crate::auth::Login",
+            EntityKind::Symbol,
+            "Login",
+            json!({ "symbol_kind": "trait", "qualified_name": "crate::auth::Login" }),
+        );
+        let type_entity = entity(
+            "ent_struct_session",
+            "symbol://rust:crate::auth::Session",
+            EntityKind::Symbol,
+            "Session",
+            json!({ "symbol_kind": "struct", "qualified_name": "crate::auth::Session" }),
+        );
+        // Two structs share one name, so the ambiguous name must stay unresolved.
+        let ambiguous = entity(
+            "ent_struct_session_other",
+            "symbol://rust:crate::other::Session",
+            EntityKind::Symbol,
+            "Session",
+            json!({ "symbol_kind": "struct", "qualified_name": "crate::other::Session" }),
+        );
+        let fact = Fact {
+            id: FactId("fact_trait_impl_test".to_string()),
+            kind: FactKind::SymbolDefined,
+            subject: type_entity.id.clone(),
+            object: None,
+            value: json!({
+                "symbol_kind": "trait_impl",
+                "self_type": "Session",
+                "trait_name": "Login",
+                "trait_path": "crate::auth::Login",
+            }),
+            evidence: Vec::new(),
+            ownership: Vec::new(),
+            snapshot: SnapshotId("snap_test".to_string()),
+            extractor: "rust".to_string(),
+            confidence: 1.0,
+        };
+        let entities = vec![trait_entity.clone(), type_entity.clone()];
+        let relations = RustLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(vec![fact.clone()]),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+        assert!(relations.iter().any(|relation| {
+            relation.kind == RelationKind::Implements
+                && relation.from == type_entity.id
+                && relation.to == trait_entity.id
+                && relation.status == RelationStatus::Inferred
+                && relation.payload["reason"] == "rust_trait_impl"
+                && relation.payload["trait_name"] == "Login"
+        }));
+
+        let ambiguous_entities = vec![
+            trait_entity.clone(),
+            type_entity.clone(),
+            ambiguous.clone(),
+        ];
+        let relations = RustLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(ambiguous_entities.clone()),
+                facts: Arc::new(vec![fact]),
+                affected: AffectedSubset::from_extracted(ambiguous_entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+        assert!(
+            !relations
+                .iter()
+                .any(|relation| relation.kind == RelationKind::Implements)
+        );
     }
 
     fn entity(

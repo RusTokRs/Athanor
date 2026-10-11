@@ -13,6 +13,8 @@ substantive release notes.
 
 ### Added
 
+- Add `Implements` bridges from trait-implementation facts: the Rust extractor records every
+  `impl Trait for Type` block, marker impls included, and the Rust linker resolves unique names.
 - Add the JavaScript/TypeScript call graph. The JS/TS extractor now records the local bindings of
   each import statement (`default_name`, `namespace_name`, `named`) and a bounded `calls` array per
   function, method, and variable-bound function declaration with the statically named callee, its
@@ -54,16 +56,14 @@ substantive release notes.
 - Reject Windows drive paths, reserved device names, trailing-dot/space components, and
   case-insensitive output-path collisions before documentation artifacts can be published.
 - Reject raw-file/secret context access, out-of-context citations and diagram endpoints, uncited factual
-  claims, malformed evidence ranges, provider metrics without opt-in, and inconsistent valid reports.
-- Reject incomplete or self-consistent-but-tampered documentation manifests and generated artifacts as
-  up to date; rebuild into a new immutable generation while retaining publication history.
+  claims, malformed evidence ranges, provider metrics without opt-in, and inconsistent valid reports;
+  reject tampered manifests/artifacts as up to date and rebuild instead of reusing them.
 - Reject missing or uncommitted documentation snapshot IDs instead of falling back to the latest visible
   snapshot, and preserve the previous current pointer when CLI generation is cancelled.
 - Restore the bounded snapshot-search module and rebuild the workspace after the semantic-search slice:
-  mode dispatch and hybrid ranking move to `search/execution.rs` with `execute_search` re-exported, the
+  mode dispatch and hybrid ranking move to `search/execution.rs`, `execute_search` is re-exported, the
   `search` facade and `athanor-search-tantivy` compile again (declared `serde`, released vector-store
-  lock, score-ordered `TopDocs`), the MCP `search` tool honors its `mode`, and semantic hits need
-  cosine similarity of at least `SEMANTIC_MIN_SIMILARITY` (0.2) instead of returning hashing noise.
+  lock, score-ordered `TopDocs`, `mode` honored), and semantic hits now need 0.2 cosine similarity.
 
 ## [0.2.1] - 2026-07-23
 

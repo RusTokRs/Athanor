@@ -18,6 +18,7 @@ Implements: `Linker`
 - **`RelationKind::Imports`**: Resolves `use` declarations (taking into account parent/self modules) to target symbols inside the workspace.
 - **`RelationKind::Calls`**: Resolves local/imported path calls or referenced variables to target functions/methods.
 - **`RelationKind::TestedBy`**: Links tested functions/methods to the `TestCase`s that invoke them during static analysis.
+- **`RelationKind::Implements`**: Resolves `trait_impl` facts from the Rust extractor into bridges from the implementing type to the trait. Both endpoints must resolve to exactly one `struct`, `enum`, `union`, `type_alias`, or `trait` symbol by name; ambiguous names stay unresolved and marker impls are included.
 
 All relations merge evidence and ownership from both sides.
 
