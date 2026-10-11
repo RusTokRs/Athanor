@@ -238,7 +238,10 @@ impl Linker for RustLinker {
         }
 
         for fact in input.facts.iter() {
-            let impl_kind = fact.value.get("symbol_kind").and_then(|value| value.as_str());
+            let impl_kind = fact
+                .value
+                .get("symbol_kind")
+                .and_then(|value| value.as_str());
             if impl_kind != Some("trait_impl") {
                 continue;
             }
@@ -246,7 +249,10 @@ impl Linker for RustLinker {
             else {
                 continue;
             };
-            let Some(trait_name) = fact.value.get("trait_name").and_then(|value| value.as_str())
+            let Some(trait_name) = fact
+                .value
+                .get("trait_name")
+                .and_then(|value| value.as_str())
             else {
                 continue;
             };
@@ -695,11 +701,7 @@ mod tests {
                 && relation.payload["trait_name"] == "Login"
         }));
 
-        let ambiguous_entities = vec![
-            trait_entity.clone(),
-            type_entity.clone(),
-            ambiguous.clone(),
-        ];
+        let ambiguous_entities = vec![trait_entity.clone(), type_entity.clone(), ambiguous.clone()];
         let relations = RustLinker
             .link(LinkInput {
                 snapshot: SnapshotId("snap_test".to_string()),

@@ -3,9 +3,9 @@
 pub mod semantic;
 
 pub use semantic::{
-    HashingEmbeddingProvider, SEMANTIC_EMBEDDING_DIM, SEMANTIC_MIN_SIMILARITY, SEMANTIC_VECTOR_FILE,
-    SEMANTIC_VECTOR_STORE_VERSION, SemanticVectorStore, cosine_similarity, embed_text,
-    embed_with_dim,
+    HashingEmbeddingProvider, SEMANTIC_EMBEDDING_DIM, SEMANTIC_MIN_SIMILARITY,
+    SEMANTIC_VECTOR_FILE, SEMANTIC_VECTOR_STORE_VERSION, SemanticVectorStore, cosine_similarity,
+    embed_text, embed_with_dim,
 };
 
 use std::path::{Path, PathBuf};
