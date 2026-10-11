@@ -16,6 +16,8 @@ substantive release notes.
 - Add `Implements` bridges for Rust and JS/TS: Rust records every `impl Trait for Type` block as a
   `trait_impl` fact and links unique type/trait names, and JS/TS records class heritage for the bridge.
 - Add the bounded `explore` MCP tool: one query returns ranked entries, citations, and one-hop relations.
+- Add `builtin.extractor.treesitter` over Python and Go: one data-driven engine records declarations,
+  methods, imports, exports, and statically named call sites, so a language is a pack plus a fixture.
 - Add the JavaScript/TypeScript call graph. The JS/TS extractor records each import statement's local
   bindings (`default_name`, `namespace_name`, `named`) and a bounded `calls` array per function,
   method, and variable-bound function declaration with the statically named callee, receiver, kind,
@@ -31,8 +33,7 @@ substantive release notes.
 - Add a minimal fixture repository and Rustok evaluation corpus with expected sections, citation paths,
   diagram edges, known gaps, repeatability, unsupported-relation disclosure, and review criteria.
 - Add a deterministic architecture profile that converts one explicit canonical snapshot into cited
-  Markdown, relation-backed Mermaid source, omission disclosure, evidence footnotes, quality metrics,
-  and checksum identity without store, network, or model access.
+  Markdown, relation-backed Mermaid, omission disclosure, footnotes, metrics, and checksums.
 - Add an application-layer immutable documentation publisher with staged generation directories,
   checksum-bound Markdown and validation artifacts, an atomic `documentation/current.json` pointer,
   exact `UpToDate` reuse, explicit `force`, and cancellation-safe pointer preservation.
@@ -45,14 +46,13 @@ substantive release notes.
 - Add a bounded first-party projection for agent-tool MCP configuration: `.codex.json` and
   `antigravity.json` project one `ScriptCommand` per configured server with the agent tool, server
   name, and literal command tokens plus evidence and ownership; malformed files are rejected.
-- Add local semantic retrieval with zero new dependencies: hashing-trick embeddings (character
-  trigrams plus word n-grams, FNV-1a signed buckets) implement the `EmbeddingProvider` and
-  `VectorIndex` ports and power `ath search --mode semantic|hybrid` and the MCP `search` tool.
+- Add local semantic retrieval with zero new dependencies: hashing-trick embeddings over character
+  trigrams and word n-grams (FNV-1a buckets) power `ath search --mode semantic|hybrid` and MCP `search`.
 
 ### Fixed
 
-- Stop generated module/API/operations/onboarding documents from claiming shipped publication,
-  Store loading, CLI, and transport integration are deferred: headers name the scope and its limits.
+- Stop generated module/API/operations/onboarding documents from claiming shipped publication, Store
+  loading, CLI, and transport integration; headers name the deferred scope and its limits.
 - Reject Windows drive paths, reserved device names, trailing-dot/space components, and
   case-insensitive output-path collisions before documentation artifacts can be published.
 - Reject raw-file/secret context access, out-of-context citations and diagram endpoints, uncited factual

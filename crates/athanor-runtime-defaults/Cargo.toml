@@ -27,6 +27,7 @@ athanor-extractor-markdown = { path = "../athanor-extractor-markdown" }
 athanor-extractor-openapi = { path = "../athanor-extractor-openapi" }
 athanor-extractor-operations = { path = "../athanor-extractor-operations" }
 athanor-extractor-rust = { path = "../athanor-extractor-rust" }
+athanor-extractor-treesitter = { path = "../athanor-extractor-treesitter" }
 athanor-linker-api = { path = "../athanor-linker-api" }
 athanor-linker-js-ts = { path = "../athanor-linker-js-ts" }
 athanor-linker-markdown = { path = "../athanor-linker-markdown" }

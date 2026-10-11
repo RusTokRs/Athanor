@@ -56,7 +56,9 @@ Two concrete targets:
 
 - A generic tree-sitter query engine behind the existing `Extractor` port, with per-language query
   packs so a new language is data plus a test fixture, not a new crate.
-- First targets: Python and Go, each with a published cross-file coverage measurement.
+- Shipped: the engine plus Python and Go packs as `builtin.extractor.treesitter`.
+- Remaining: cross-file resolution for Python and Go, and a published coverage measurement per
+  language against a stated denominator.
 
 ### P4 — Operational Documentation Profile
 
@@ -88,7 +90,9 @@ Slice P1 is source-implemented and carries focused unit tests in `athanor-extrac
 JavaScript/TypeScript. Slice P4 is covered by the shipped `operations` documentation profile
 (DOCGEN-001 Slices 4A–4C). Slice P5 is source-implemented as the bounded `explore` MCP tool: one query
 returns search-ranked entries, their citations, and the one-hop relation neighbourhood with disclosed
-budgets; multi-hop call paths and full blast radius remain planned. Slice P3 remains planned. Exact-commit
+budgets; multi-hop call paths and full blast radius remain planned. Slice P3 is source-implemented as `builtin.extractor.treesitter`: one engine walks a
+per-language pack of node kinds and field names and records declaration, import, export, and call
+evidence for Python and Go, with the existing cross-file linkers still owning resolution. Exact-commit
 verification for P1, P2, and P5 is green on `191c65e`: sandbox diagnostics run `38152033388` reports every
 log PASSED with a `rustfmt` diff of 0 lines, and the repository check matrix on the same commit is fully
 successful or intentionally skipped. The status ledger in `roadmap-status.md` carries this evidence.

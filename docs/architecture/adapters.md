@@ -96,6 +96,7 @@ Ownership should list every source file that can invalidate the emitted object. 
 | `athanor-extractor-operations` | `Extractor` | Parse operations files such as dotenv, Cargo manifest, Makefile, Dockerfile, shell script, docker-compose, GitHub Actions, Kubernetes YAML, SQL migration, and runtime config sources into environment, package/dependency, command, deployment/service, database migration, and runtime configuration knowledge without storing raw secret values. |
 | `athanor-extractor-rust` | `Extractor` | Emit framework-neutral Rust modules/functions/symbols/env usage; `AxumExtractor` separately projects bounded static Axum route declarations. |
 | `athanor-extractor-rust::AxumExtractor` | `Extractor` | Project static Axum `.route()` declarations backed by `axum::routing` method constructors into adapter-scoped route entities and route-declaration facts. |
+| `athanor-extractor-treesitter` | `Extractor` | Host Python and Go grammars through one data-driven pack engine and emit source modules, declarations, methods, imports, exports, static call sites, and evidence-backed parse-error/duplicate/truncation diagnostics. |
 | `athanor-adapter-rustok-page-builder` | `Extractor`, `Linker`, `Checker` | Opt-in RusTok Page Builder provider/consumer/FSD code-audit adapter that emits Page Builder provider, consumer, contract, capability, fallback, wave-evidence, adapter-seam, content-surface, and FSD-surface entities plus Page Builder-only diagnostics. |
 | `athanor-adapter-rustok-fba` | `Extractor`, `Linker`, `Checker` | Opt-in RusTok FBA code-audit adapter that emits FBA module/contract/port/operation/profile/dependency entities, FBA relations, and FBA-only diagnostics. |
 | `athanor-adapter-rustok-ffa` | `Extractor`, `Linker`, `Checker` | Opt-in RusTok FFA code-audit adapter that emits FFA surface/layer entities, surface/layer/file relations, and FFA-only diagnostics. |
@@ -183,6 +184,7 @@ builtin.extractor.graphql
 builtin.extractor.operations
 builtin.extractor.rust
 builtin.extractor.axum
+builtin.extractor.treesitter
 builtin.extractor.rustok_fba
 builtin.extractor.rustok_ffa
 builtin.extractor.rustok_page_builder

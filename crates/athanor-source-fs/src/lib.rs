@@ -184,7 +184,22 @@ fn fnv1a64_with_poller(bytes: &[u8], poller: &mut DiscoveryPoller<'_>) -> CoreRe
 fn should_ignore(file_name: &str) -> bool {
     matches!(
         file_name,
-        ".git" | ".athanor" | "target" | "node_modules" | ".idea" | ".vscode"
+        ".git"
+            | ".athanor"
+            | "target"
+            | "node_modules"
+            | ".idea"
+            | ".vscode"
+            | ".cache"
+            | "__pycache__"
+            | ".venv"
+            | "venv"
+            | ".tox"
+            | ".mypy_cache"
+            | ".pytest_cache"
+            | "vendor"
+            | "dist"
+            | "build"
     )
 }
 

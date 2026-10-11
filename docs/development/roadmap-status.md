@@ -164,7 +164,8 @@ gap, the typo-named `for agents. md` briefing, was fixed by renaming it to
 
 - [x] Slice P1: JS/TS call graph — import bindings, static call sites, `builtin.linker.js_ts_calls`.
 - [x] Slice P2: `implements` bridges — Rust `trait_impl` facts plus JS/TS class heritage.
-- [ ] Slice P3: bounded Python and Go adapters on a generic tree-sitter query engine.
+- [x] Slice P3 source implementation: `builtin.extractor.treesitter` hosts bounded Python and Go packs
+  on one data-driven tree-sitter engine, so a language is pack data plus a fixture.
 - [x] Slice P4: deterministic operations documentation — DOCGEN-001 4A–4C; deferral notes fixed.
 - [x] Slice P5: bounded `explore` MCP query — ranked entries, one-hop relations, citations, budgets.
 - Verified exact-commit evidence for P1, P2, and P5: sandbox diagnostics run `38152033388` on `191c65e`
