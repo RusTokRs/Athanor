@@ -98,10 +98,10 @@ call sites. The denominator is the evidence the extractor recorded, and module-l
 counted separately because no declaration owns them, so they stay out of the denominator instead of
 silently lowering it. The crate's corpus test pins the exact numbers.
 
-| Language | Declarations | Import statements | Resolved imports | Call sites | Resolved calls | Basis points |
-| --- | --- | --- | --- | --- | --- | --- |
-| `python` | 4 | 3 | 3 | 4 | 3 | 7,500 |
-| `go` | 7 | 2 | 1 | 4 | 4 | 10,000 |
+| Language | Declarations | Imports declared | Imports resolved | Call sites | Calls resolved | Calls bp | Imports bp |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `python` | 4 | 3 | 3 | 4 | 3 | 7,500 | 10,000 |
+| `go` | 7 | 2 | 1 | 4 | 4 | 10,000 | 5,000 |
 
 The corpus covers a Python package with a relative-file import chain, an imported binding, a test
 that calls into the package, a Go package with a cross-file call inside the same package, an imported

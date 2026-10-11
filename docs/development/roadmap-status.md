@@ -170,9 +170,9 @@ gap, the typo-named `for agents. md` briefing, was fixed by renaming it to
   derives declared health/metrics endpoints and telemetry variable names, with probes/alerts still open.
 - [x] Slice P5: bounded `explore` MCP query — ranked entries, one-hop relations, citations, budgets.
 - Verified exact-commit evidence: run `38152033388` on `191c65e` (P1, P2, P5), run `38157055780` on
-  `e07547e` (P3 engine and packs), and run `38160162759` on `69d8918` (P4b monitoring) report every log
-  PASSED with a `rustfmt` diff of 0 lines, and each commit's repository check matrix is fully successful
-  or intentionally skipped.
+  `e07547e` (P3 engine and packs), run `38160162759` on `69d8918` (P4b monitoring), and run `38165153178`
+  on `09ce6ab` (P3 cross-file linker) report every log PASSED with a `rustfmt` diff of 0 lines, and each
+  commit's check matrix is fully successful or intentionally skipped.
 
 ### `DOCGEN-001` — Evidence-Backed Documentation Generation
 
