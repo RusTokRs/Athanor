@@ -74,7 +74,12 @@ fn onboarding_profile_is_exact_bounded_cited_and_checksum_bound() {
             .contains("## Onboarding Diagnostics")
     );
     assert!(profile.document.content.contains("- Profile: `onboarding`"));
-    assert!(profile.document.content.contains("- Scope: evidence-backed onboarding entities"));
+    assert!(
+        profile
+            .document
+            .content
+            .contains("- Scope: evidence-backed onboarding entities")
+    );
     assert!(!profile.document.content.contains("module://core"));
     assert!(
         !profile

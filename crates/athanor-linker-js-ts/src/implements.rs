@@ -104,7 +104,13 @@ impl Linker for JsTsImplementsLinker {
                 if !affected_ids.contains(&entity.id) && !affected_ids.contains(&target.id) {
                     continue;
                 }
-                relations.push(heritage_relation(&input.snapshot, entity, target, bridge, name));
+                relations.push(heritage_relation(
+                    &input.snapshot,
+                    entity,
+                    target,
+                    bridge,
+                    name,
+                ));
             }
         }
 
