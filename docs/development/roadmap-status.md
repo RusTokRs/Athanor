@@ -164,12 +164,14 @@ gap, the typo-named `for agents. md` briefing, was fixed by renaming it to
 
 - [x] Slice P1: JS/TS call graph — import bindings, static call sites, `builtin.linker.js_ts_calls`.
 - [x] Slice P2: `implements` bridges — Rust `trait_impl` facts plus JS/TS class heritage.
-- [x] Slice P3 source implementation: `builtin.extractor.treesitter` hosts bounded Python and Go packs
-  on one data-driven tree-sitter engine, so a language is pack data plus a fixture.
+- [x] Slice P3: `builtin.extractor.treesitter` hosts bounded Python and Go packs on one data-driven
+  tree-sitter engine; cross-file resolution and a published coverage measurement remain open.
 - [x] Slice P4: deterministic operations documentation — DOCGEN-001 4A–4C; deferral notes fixed.
 - [x] Slice P5: bounded `explore` MCP query — ranked entries, one-hop relations, citations, budgets.
 - Verified exact-commit evidence for P1, P2, and P5: sandbox diagnostics run `38152033388` on `191c65e`
   reports every log PASSED with a `rustfmt` diff of 0 lines, and the repository matrix is green there.
+- Verified exact-commit evidence for the P3 engine and packs: sandbox diagnostics run `38157055780` on
+  `e07547e` reports every log PASSED with a `rustfmt` diff of 0 lines, and that commit's matrix is green.
 
 ### `DOCGEN-001` — Evidence-Backed Documentation Generation
 

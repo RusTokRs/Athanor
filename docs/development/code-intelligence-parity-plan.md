@@ -93,6 +93,9 @@ returns search-ranked entries, their citations, and the one-hop relation neighbo
 budgets; multi-hop call paths and full blast radius remain planned. Slice P3 is source-implemented as `builtin.extractor.treesitter`: one engine walks a
 per-language pack of node kinds and field names and records declaration, import, export, and call
 evidence for Python and Go, with the existing cross-file linkers still owning resolution. Exact-commit
-verification for P1, P2, and P5 is green on `191c65e`: sandbox diagnostics run `38152033388` reports every
-log PASSED with a `rustfmt` diff of 0 lines, and the repository check matrix on the same commit is fully
-successful or intentionally skipped. The status ledger in `roadmap-status.md` carries this evidence.
+verification for P1, P2, and P5 is green on `191c65e` (sandbox diagnostics run `38152033388`), and the P3
+engine and packs are green on `e07547e` (run `38157055780`); both runs report every log PASSED with a
+`rustfmt` diff of 0 lines, and each commit's repository check matrix is fully successful or intentionally
+skipped. Cross-file resolution for Python and Go, and the published coverage measurement, stay open, so P3
+is implemented-and-verified but not complete. The status ledger in `roadmap-status.md` carries this
+evidence.
