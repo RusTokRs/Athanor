@@ -228,7 +228,11 @@ fn resolve_call<'a>(
         if let Some(target) = find_first(same_module, |candidate| {
             qualified_name(candidate) == Some(qualified.as_str())
         }) {
-            return Some((target, "same_module_this_method", SAME_MODULE_THIS_CONFIDENCE));
+            return Some((
+                target,
+                "same_module_this_method",
+                SAME_MODULE_THIS_CONFIDENCE,
+            ));
         }
     }
 
@@ -561,7 +565,13 @@ mod tests {
         );
 
         let entities = vec![
-            client, session_module, auth, login, session, refresh, run.clone(),
+            client,
+            session_module,
+            auth,
+            login,
+            session,
+            refresh,
+            run.clone(),
         ];
         let relations = JsTsCallLinker
             .link(LinkInput {
