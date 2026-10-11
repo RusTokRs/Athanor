@@ -286,7 +286,7 @@ fn through_bindings<'a>(
     callee: &str,
     tail: Option<&str>,
 ) -> Option<(&'a Entity, &'static str, f32)> {
-    let (language, importer_path, _) = symbol_key(&caller_module.stable_key.0)?;
+    let (language, importer_path) = module_key(&caller_module.stable_key.0)?;
     let wanted = tail.unwrap_or(callee);
     let local = if tail.is_some() {
         callee.split('.').next().unwrap_or(callee)
