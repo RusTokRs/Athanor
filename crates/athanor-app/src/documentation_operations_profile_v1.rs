@@ -482,7 +482,8 @@ fn is_monitoring_evidence(entity: &Entity) -> bool {
         EntityKind::EnvVar => is_telemetry_env_var(&entity.name),
         EntityKind::ApiEndpoint => monitoring_endpoint_path(entity).is_some(),
         EntityKind::Other(kind) => {
-            ROUTE_ENTITY_KINDS.contains(&kind.as_str()) && monitoring_endpoint_path(entity).is_some()
+            ROUTE_ENTITY_KINDS.contains(&kind.as_str())
+                && monitoring_endpoint_path(entity).is_some()
         }
         _ => false,
     }
