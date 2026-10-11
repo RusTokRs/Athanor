@@ -13,15 +13,15 @@ substantive release notes.
 
 ### Added
 
-- Add `Implements` bridges from trait-implementation facts: the Rust extractor records every
-  `impl Trait for Type` block, marker impls included, and the Rust linker resolves unique names.
-- Add the JavaScript/TypeScript call graph. The JS/TS extractor now records the local bindings of
-  each import statement (`default_name`, `namespace_name`, `named`) and a bounded `calls` array per
-  function, method, and variable-bound function declaration with the statically named callee, its
-  receiver, kind, argument count, and line/column. The new `builtin.linker.js_ts_calls` linker
-  resolves those call sites into evidence-backed `Calls` relations (same-module, `this.` member,
-  imported binding, and unique-name fallbacks) and emits `TestedBy` when a test-location declaration
-  calls production code; call shapes that cannot be named statically stay unresolved.
+- Add `Implements` bridges for Rust and JS/TS: the Rust extractor records every `impl Trait for Type`
+  block as a `trait_impl` fact and the Rust linker resolves unique type/trait names, while the JS/TS
+  extractor records class heritage and `builtin.linker.js_ts_implements` links it.
+- Add the JavaScript/TypeScript call graph. The JS/TS extractor records each import statement's local
+  bindings (`default_name`, `namespace_name`, `named`) and a bounded `calls` array per function,
+  method, and variable-bound function declaration with the statically named callee, receiver, kind,
+  argument count, and line/column. `builtin.linker.js_ts_calls` resolves those call sites into
+  evidence-backed `Calls` relations (same-module, `this.` member, imported binding, and unique-name
+  fallbacks) and emits `TestedBy` when a test-location declaration calls production code.
 - Add strict versioned request and manifest contracts for evidence-backed documentation generation,
   binding output to an exact snapshot, supported profile, hard input limits, omitted counts, portable
   relative paths, and SHA-256 checksums without adding a provider dependency.

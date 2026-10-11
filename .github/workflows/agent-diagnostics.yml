@@ -50,7 +50,10 @@ jobs:
           run_step "cargo check workspace all targets" cargo check --workspace --all-targets --locked
           run_step "cargo check js-ts-precision" cargo check --workspace --features js-ts-precision --all-targets --locked
           run_step "cargo test extractor-js-ts" cargo test -p athanor-extractor-js-ts --locked
+          run_step "cargo test extractor-js-ts precision" cargo test -p athanor-extractor-js-ts --features js-ts-precision --locked
           run_step "cargo test linker-js-ts" cargo test -p athanor-linker-js-ts --locked
+          run_step "cargo test extractor-rust" cargo test -p athanor-extractor-rust --locked
+          run_step "cargo test linker-rust" cargo test -p athanor-linker-rust --locked
           run_step "cargo test workspace" cargo test --workspace --quiet --locked --no-fail-fast
           run_step "cargo clippy workspace" cargo clippy --workspace --all-targets --locked -- -D warnings
           exit 0

@@ -71,6 +71,16 @@ them, nested class bodies are skipped because their members are separate declara
 is capped at 256 entries per declaration so payloads stay bounded. Call sites are raw syntax
 evidence: resolving them to declarations is the job of the JS/TS call linker.
 
+## Class Heritage
+
+Class declarations additionally record their heritage as bare type names. `extends` holds the base
+class name and `implements` the interface names, in declaration order and deduplicated:
+`class Service extends api.Base implements Store<K>, Closeable {}` records `extends: "Base"` and
+`implements: ["Store", "Closeable"]`. Generic arguments and qualified paths are reduced to the final
+segment, because resolution to a canonical symbol is the linker's job; classes without heritage carry
+neither field, so payloads stay unchanged for the common case. Plain JavaScript has no `implements`
+clause, so only `extends` appears there.
+
 ## Diagnostics
 
 Recoverable parser errors produce `js_ts_parse_error` diagnostics coalesced at the outer parser error node, so one parser failure does not produce duplicate nested findings. Parser input strips a leading UTF-8 BOM and accepts Node-style shebangs before tree-sitter parsing. Unsupported top-level declaration shapes detected during extraction produce `js_ts_unsupported_syntax` diagnostics. Ordinary top-level runtime statements in scripts and ambient TypeScript `declare module` blocks are not treated as unsupported declaration diagnostics. Diagnostics include source evidence, ownership, and the originating parser/language metadata.
@@ -105,7 +115,7 @@ in-process Rust dependency; the mode does not run commands or use the network.
 `JsTsExtractor` deliberately avoids framework-specific semantics such as React components, Next.js
 routes/pages, NestJS controllers, Express routes, Vue components, and project convention inference.
 Call sites are recorded as syntax, not as resolved targets: overload resolution, receiver types,
-prototype mutation, `require`-based CommonJS calls, and reflective dispatch remain outside the base
+prototype mutation, `require`-based CommonJS calls, mixin patterns, and reflective dispatch remain outside the base
 language slice and never become facts. Parse order is deterministic, so a declaration's call array is
 stable across runs of the same source.
 The separate built-in `NextJsExtractor` owns only the bounded Next.js filesystem-route projection;

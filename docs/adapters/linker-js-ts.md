@@ -12,10 +12,11 @@ Crate: `athanor-linker-js-ts`
 
 Port: `Linker`
 
-The crate owns two linkers over the same normalized extractor payloads: `JsTsImportLinker`
-(`builtin.linker.js_ts_imports`) for module imports and `JsTsCallLinker`
-(`builtin.linker.js_ts_calls`) for the static call graph. Both read canonical entities from the
-current snapshot and never touch the filesystem.
+The crate owns three linkers over the same normalized extractor payloads: `JsTsImportLinker`
+(`builtin.linker.js_ts_imports`) for module imports, `JsTsCallLinker` (`builtin.linker.js_ts_calls`)
+for the static call graph, and `JsTsImplementsLinker` (`builtin.linker.js_ts_implements`) for class
+heritage. All three read canonical entities from the current snapshot and never touch the
+filesystem.
 
 ## Import Linker
 
@@ -75,11 +76,34 @@ declaration to the test declaration, mirroring the Rust linker.
 Relations are sorted by id and capped at 10,000 per snapshot, so output is bounded and reproducible
 for one snapshot.
 
+## Heritage Linker
+
+`JsTsImplementsLinker` turns the `extends` and `implements` names recorded on class entities into
+`RelationKind::Implements` relations, so traversal can follow a subclass to its base class and a
+class to the interfaces it promises.
+
+### Resolution
+
+A heritage name resolves to exactly one class (`extends`) or interface (`implements`) symbol. A
+candidate declared in the same module wins; otherwise the name must be unique across the snapshot
+and the class never resolves to itself. Ambiguous names stay unresolved rather than being guessed,
+mirroring the Rust linker's trait-implementation bridges. Package and workspace-alias targets are
+outside this resolution, because the extractor records heritage names rather than imported bindings.
+
+### Emitted Knowledge
+
+Each bridge is an inferred `RelationKind::Implements` relation from the class to the base
+class/interface, with evidence on both source ranges at 0.7 confidence: name-based resolution cannot
+prove that a rebuilt program links the same symbol. The payload records the `bridge`
+(`extends` or `implements`), the `matched_value`, and the reason. The relation vocabulary has no
+dedicated inheritance kind, so `extends` is expressed as `Implements` with an explicit `bridge`
+marker instead of a guessed trait relation.
+
 ## Boundaries
 
 Package imports, Node built-ins, workspace aliases, TypeScript path aliases, dynamic imports,
 CommonJS `require` calls, computed member calls, and receiver typing are not resolved in this slice.
-Both linkers emit relations only when either endpoint is in the affected subset, which keeps
+All linkers emit relations only when either endpoint is in the affected subset, which keeps
 incremental updates proportional to the change.
 
 ## Verification

@@ -10,9 +10,11 @@ use athanor_extractor_basic::stable_hash;
 use serde_json::json;
 
 mod calls;
+mod implements;
 mod paths;
 
 pub use calls::JsTsCallLinker;
+pub use implements::JsTsImplementsLinker;
 
 use paths::{normalize_path, resolve_local_import};
 

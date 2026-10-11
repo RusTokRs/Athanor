@@ -166,7 +166,7 @@ gap, the typo-named `for agents. md` briefing, was fixed by renaming it to
   `athanor-extractor-js-ts`, and `builtin.linker.js_ts_calls` resolving same-module, `this.` member,
   imported-binding, and unique-name targets into `Calls`/`TestedBy` relations with call-site
   evidence. Source implementation with focused unit tests; exact-commit verification pending.
-- [ ] Slice P2: `implements` edges and dynamic-dispatch bridges — the Rust half ships `trait_impl` facts and `RelationKind::Implements` bridges (`athanor-extractor-rust`, `athanor-linker-rust`); JS/TS class/interface heritage bridges remain open.
+- [ ] Slice P2: `implements` edges and dynamic-dispatch bridges — both halves are source-implemented: Rust `trait_impl` facts plus `RelationKind::Implements` in `athanor-extractor-rust`/`athanor-linker-rust`, and class `extends`/`implements` heritage plus `builtin.linker.js_ts_implements` in `athanor-extractor-js-ts`/`athanor-linker-js-ts`; exact-commit verification pending.
 - [ ] Slice P3: bounded Python and Go adapters on a generic tree-sitter query engine.
 - [ ] Slice P4: deterministic operational documentation profile over existing ops evidence.
 - [ ] Slice P5: single bounded `explore`-class agent query; plan in

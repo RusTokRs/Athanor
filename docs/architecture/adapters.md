@@ -189,6 +189,7 @@ builtin.extractor.rustok_page_builder
 builtin.linker.api_knowledge
 builtin.linker.js_ts_imports
 builtin.linker.js_ts_calls
+builtin.linker.js_ts_implements
 builtin.linker.markdown_containment
 builtin.linker.rust
 builtin.linker.rustok_fba

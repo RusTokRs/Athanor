@@ -188,6 +188,19 @@ impl Extractor for JsTsExtractor {
             ));
             let (line_start, line_end) = declaration.line_range;
 
+            let mut payload = json!({
+                "symbol_kind": declaration.symbol_kind,
+                "qualified_name": declaration.qualified_name,
+                "exported": declaration.exported,
+                "async": declaration.is_async,
+                "source_node": declaration.source_node,
+                "calls": declaration.calls,
+            });
+            if let Some(heritage) = &declaration.heritage {
+                payload["extends"] = json!(heritage.extends);
+                payload["implements"] = json!(heritage.implements);
+            }
+
             entities.push(Entity {
                 id: entity_id.clone(),
                 stable_key: stable_key.clone(),
@@ -202,14 +215,7 @@ impl Extractor for JsTsExtractor {
                 language: Some(LanguageCode(language.hint.to_string())),
                 aliases: Vec::new(),
                 ownership: ownership.clone(),
-                payload: json!({
-                    "symbol_kind": declaration.symbol_kind,
-                    "qualified_name": declaration.qualified_name,
-                    "exported": declaration.exported,
-                    "async": declaration.is_async,
-                    "source_node": declaration.source_node,
-                    "calls": declaration.calls,
-                }),
+                payload,
             });
 
             facts.push(symbol_fact(
@@ -306,6 +312,14 @@ struct SourceDeclaration {
     source_node: String,
     line_range: (u32, u32),
     calls: Vec<Value>,
+    heritage: Option<ClassHeritage>,
+}
+
+/// `extends`/`implements` heritage of a class declaration, reduced to bare type names.
+#[derive(Debug, Clone, Default)]
+struct ClassHeritage {
+    extends: Option<String>,
+    implements: Vec<String>,
 }
 
 impl SourceDeclaration {
@@ -360,6 +374,7 @@ fn collect_statement(
                     source_node: node.kind().to_string(),
                     line_range: line_range(node),
                     calls: collect_call_sites(node, bytes),
+                    heritage: None,
                 });
             }
         }
@@ -375,6 +390,7 @@ fn collect_statement(
                     source_node: node.kind().to_string(),
                     line_range: line_range(node),
                     calls: collect_call_sites(node, bytes),
+                    heritage: None,
                 });
             }
         }
@@ -390,6 +406,7 @@ fn collect_statement(
                     source_node: node.kind().to_string(),
                     line_range: line_range(node),
                     calls: Vec::new(),
+                    heritage: class_heritage(node, bytes),
                 });
                 collect_class_members(&name, node, bytes, exported, declarations);
             }
@@ -406,6 +423,7 @@ fn collect_statement(
                     source_node: node.kind().to_string(),
                     line_range: line_range(node),
                     calls: Vec::new(),
+                    heritage: None,
                 });
             }
         }
@@ -421,6 +439,7 @@ fn collect_statement(
                     source_node: node.kind().to_string(),
                     line_range: line_range(node),
                     calls: Vec::new(),
+                    heritage: None,
                 });
             }
         }
@@ -458,6 +477,7 @@ fn collect_class_members(
                     source_node: member.kind().to_string(),
                     line_range: line_range(member),
                     calls: collect_call_sites(member, bytes),
+                    heritage: None,
                 });
             }
         }
@@ -496,8 +516,65 @@ fn collect_variable_functions(
                 source_node: value_node.kind().to_string(),
                 line_range: line_range(child),
                 calls: collect_call_sites(value_node, bytes),
+                heritage: None,
             });
         }
+    }
+}
+
+/// Read the `extends`/`implements` clauses of a class declaration.
+///
+/// Both clauses are matched by node kind (`class_heritage` holds them in the JS and TS grammars)
+/// and reduced to bare type names, so generic arguments and qualified paths do not leak into the
+/// payload: `class Service extends api.Base implements Store<K> {}` records `Base` and `Store`.
+fn class_heritage(node: Node, bytes: &[u8]) -> Option<ClassHeritage> {
+    let mut heritage = ClassHeritage::default();
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        if child.kind() != "class_heritage" {
+            continue;
+        }
+        let mut clause_cursor = child.walk();
+        for clause in child.named_children(&mut clause_cursor) {
+            match clause.kind() {
+                "extends_clause" => {
+                    let value = clause
+                        .child_by_field_name("value")
+                        .or_else(|| clause.named_child(0));
+                    if let Some(name) = value.and_then(|value| heritage_name(value, bytes)) {
+                        heritage.extends = Some(name);
+                    }
+                }
+                "implements_clause" => {
+                    let mut list_cursor = clause.walk();
+                    for item in clause.named_children(&mut list_cursor) {
+                        let Some(name) = heritage_name(item, bytes) else {
+                            continue;
+                        };
+                        if !heritage.implements.contains(&name) {
+                            heritage.implements.push(name);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    if heritage.extends.is_none() && heritage.implements.is_empty() {
+        return None;
+    }
+    Some(heritage)
+}
+
+/// Bare type name of one heritage entry: generic arguments dropped, last path segment kept.
+fn heritage_name(node: Node, bytes: &[u8]) -> Option<String> {
+    let text = node_text(node, bytes)?;
+    let base = text.split('<').next()?.trim();
+    let name = base.rsplit(['.', ':']).next()?.trim();
+    if name.is_empty() {
+        None
+    } else {
+        Some(name.to_string())
     }
 }
 
@@ -1432,6 +1509,38 @@ mod tests {
                 .len(),
             0
         );
+    }
+
+    #[tokio::test]
+    async fn records_class_extends_and_implements_heritage() {
+        let output = JsTsExtractor
+            .extract(input(
+                "src/service.ts",
+                "export class Service extends api.Base implements Store<K>, Closeable {}\nclass Plain {}\ninterface Store<T> {}\n",
+                "typescript",
+            ))
+            .await
+            .unwrap();
+
+        let service = output
+            .entities
+            .iter()
+            .find(|entity| entity.stable_key.0 == "symbol://js-ts:src/service.ts#Service")
+            .expect("class entity must exist");
+        assert_eq!(service.payload["extends"], "Base");
+        assert_eq!(
+            service.payload["implements"],
+            json!(["Store", "Closeable"]),
+            "generic arguments are stripped and declaration order is preserved"
+        );
+
+        let plain = output
+            .entities
+            .iter()
+            .find(|entity| entity.stable_key.0 == "symbol://js-ts:src/service.ts#Plain")
+            .expect("plain class entity must exist");
+        assert!(plain.payload.get("extends").is_none());
+        assert!(plain.payload.get("implements").is_none());
     }
 
     #[tokio::test]
