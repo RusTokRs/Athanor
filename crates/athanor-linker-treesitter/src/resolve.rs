@@ -391,7 +391,6 @@ fn owner_of(entity: &Entity) -> Option<&str> {
         .map(|(owner, _)| owner)
 }
 
-
 /// The owner type and member of a call the caller makes on its own instance.
 ///
 /// Two shapes carry that evidence: the language's own-instance keyword with the owner taken from the

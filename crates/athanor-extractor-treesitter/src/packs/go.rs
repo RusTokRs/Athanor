@@ -278,13 +278,11 @@ handlers[key]()
             .unwrap();
 
         assert_eq!(
-            entity(&output, "symbol://go:api/resources.go#Server.Close").payload
-                ["receiver_binding"],
+            entity(&output, "symbol://go:api/resources.go#Server.Close").payload["receiver_binding"],
             "s"
         );
         assert_eq!(
-            entity(&output, "symbol://go:api/resources.go#Client.Close").payload
-                ["receiver_binding"],
+            entity(&output, "symbol://go:api/resources.go#Client.Close").payload["receiver_binding"],
             "c"
         );
         assert!(
