@@ -350,7 +350,10 @@ impl FileExtraction<'_> {
     }
 
     /// Returns the rule and node of every declaration carried by a matched node.
-    fn match_declarations(&self, node: Node) -> Vec<(&'static DeclarationRule, Node)> {
+    fn match_declarations<'tree>(
+        &self,
+        node: Node<'tree>,
+    ) -> Vec<(&'static DeclarationRule, Node<'tree>)> {
         let kind = node.kind();
         let Some(rule) = self
             .pack
