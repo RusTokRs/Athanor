@@ -25,7 +25,7 @@ use athanor_extractor_openapi::OpenApiExtractor;
 use athanor_extractor_operations::OperationsExtractor;
 use athanor_extractor_rust::{AxumExtractor, RustExtractor};
 use athanor_linker_api::ApiKnowledgeLinker;
-use athanor_linker_js_ts::JsTsImportLinker;
+use athanor_linker_js_ts::{JsTsCallLinker, JsTsImportLinker};
 use athanor_linker_markdown::MarkdownContainmentLinker;
 use athanor_linker_rust::RustLinker;
 use athanor_source_fs::LocalFileSystemSource;
@@ -184,6 +184,7 @@ pub fn default_adapter_registry() -> AdapterRegistry {
         .register_linker_id("builtin.linker.js_ts_imports", || {
             Box::new(JsTsImportLinker)
         })
+        .register_linker_id("builtin.linker.js_ts_calls", || Box::new(JsTsCallLinker))
         .register_linker_id("builtin.linker.rust", || Box::new(RustLinker))
         .register_checker_id("builtin.checker.markdown_structure", || {
             Box::new(MarkdownStructureChecker)
@@ -281,6 +282,9 @@ pub fn resolve_builtin_adapter(
             registry.register_linker_id("builtin.linker.js_ts_imports", || {
                 Box::new(JsTsImportLinker)
             }),
+        ),
+        (AdapterPluginKind::Linker, "builtin.linker.js_ts_calls") => Some(
+            registry.register_linker_id("builtin.linker.js_ts_calls", || Box::new(JsTsCallLinker)),
         ),
         (AdapterPluginKind::Linker, "builtin.linker.rust") => {
             Some(registry.register_linker_id("builtin.linker.rust", || Box::new(RustLinker)))

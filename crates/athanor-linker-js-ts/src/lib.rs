@@ -9,7 +9,12 @@ use athanor_domain::{
 use athanor_extractor_basic::stable_hash;
 use serde_json::json;
 
-const EXTENSIONS: &[&str] = &["js", "jsx", "mjs", "cjs", "ts", "tsx", "mts", "cts"];
+mod calls;
+mod paths;
+
+pub use calls::JsTsCallLinker;
+
+use paths::{normalize_path, resolve_local_import};
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct JsTsImportLinker;
@@ -85,65 +90,6 @@ impl Linker for JsTsImportLinker {
 
 fn is_js_ts_module(entity: &Entity) -> bool {
     entity.kind == EntityKind::Module && entity.stable_key.0.starts_with("module://js-ts:")
-}
-
-fn resolve_local_import<'a>(
-    source: &Entity,
-    specifier: &str,
-    modules: &HashMap<String, &'a Entity>,
-) -> Option<&'a Entity> {
-    if !specifier.starts_with('.') {
-        return None;
-    }
-    let source_path = normalize_path(&source.source.as_ref()?.path);
-    let parent = source_path
-        .rsplit_once('/')
-        .map_or("", |(parent, _)| parent);
-    let base = normalize_relative(parent, specifier)?;
-
-    import_candidates(&base)
-        .into_iter()
-        .find_map(|candidate| modules.get(&candidate).copied())
-}
-
-fn import_candidates(base: &str) -> Vec<String> {
-    let mut candidates = vec![base.to_string()];
-    let file_name = base.rsplit('/').next().unwrap_or(base);
-    if !file_name.contains('.') {
-        candidates.extend(
-            EXTENSIONS
-                .iter()
-                .map(|extension| format!("{base}.{extension}")),
-        );
-        candidates.extend(
-            EXTENSIONS
-                .iter()
-                .map(|extension| format!("{base}/index.{extension}")),
-        );
-    }
-    candidates
-}
-
-fn normalize_relative(parent: &str, specifier: &str) -> Option<String> {
-    let mut parts = parent
-        .split('/')
-        .filter(|part| !part.is_empty())
-        .map(ToString::to_string)
-        .collect::<Vec<_>>();
-    for part in specifier.replace('\\', "/").split('/') {
-        match part {
-            "" | "." => {}
-            ".." => {
-                parts.pop()?;
-            }
-            _ => parts.push(part.to_string()),
-        }
-    }
-    Some(parts.join("/"))
-}
-
-fn normalize_path(path: &str) -> String {
-    path.replace('\\', "/").trim_start_matches("./").to_string()
 }
 
 fn import_relation(

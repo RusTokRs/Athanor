@@ -30,6 +30,7 @@ verification. Exact package evidence lives in `athanor_implementation_plan_ru.md
 - [Direct operation context](development/direct-operation-context.md)
 - [JSON contract inventory](development/json-contract-inventory.md)
 - [Evidence-backed documentation generation](development/evidence-backed-documentation-generation-plan.md)
+- [Code intelligence parity and operational documentation](development/code-intelligence-parity-plan.md)
 
 ## Development And Governance
 

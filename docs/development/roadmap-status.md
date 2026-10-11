@@ -84,12 +84,10 @@ and PR CI `33723374660` confirmed formatting, workspace tests, and Clippy green 
 ### Slice 8F adds bounded first-party runtime artifact projections for the root `install.sh` and
 `scripts/verify_release_version.py`.
 
-### Slice 8G adds a bounded first-party projection for the repository-root `install.ps1`. It records only the
-Windows installer entry point, `ath.exe`/`athd.exe`, `SHA256SUMS`, and SHA-256 verification through
-`Get-FileHash`; runtime install paths, environment values, filesystem state, and generic PowerShell semantics
-remain out of scope. The operations extractor emits one `ScriptCommand` per artifact with exact local contract
-anchors, source evidence, ownership, and fail-closed drift behavior. It does not execute shell/Python or expose
-runtime values and paths.
+### Slice 8G adds a bounded first-party projection for the repository-root `install.ps1`: the Windows installer
+entry point, `ath.exe`/`athd.exe`, `SHA256SUMS`, and `Get-FileHash` verification as one `ScriptCommand` with
+contract anchors and source evidence. Runtime paths, environment values, filesystem state, and generic
+PowerShell semantics remain out of scope, and nothing is executed.
 
 ### Slice 8H adds a bounded first-party projection for single-level `.github/ISSUE_TEMPLATE/*.yml|yaml` files.
 It records form identity and bounded body-field metadata with evidence, rejects nested paths and empty form
@@ -161,6 +159,18 @@ gap, the typo-named `for agents. md` briefing, was fixed by renaming it to
 - `REL-001`: verified immutable `v0.2.1` release and clean installs.
 
 ## Active Work
+
+### `PARITY-001` — CodeGraph-Parity Code Intelligence
+
+- [x] Slice P1: JS/TS call graph — import bindings plus per-declaration static call sites in
+  `athanor-extractor-js-ts`, and `builtin.linker.js_ts_calls` resolving same-module, `this.` member,
+  imported-binding, and unique-name targets into `Calls`/`TestedBy` relations with call-site
+  evidence. Source implementation with focused unit tests; exact-commit verification pending.
+- [ ] Slice P2: `implements` edges and dynamic-dispatch bridges for Rust and JS/TS.
+- [ ] Slice P3: bounded Python and Go adapters on a generic tree-sitter query engine.
+- [ ] Slice P4: deterministic operational documentation profile over existing ops evidence.
+- [ ] Slice P5: single bounded `explore`-class agent query; plan in
+  `docs/development/code-intelligence-parity-plan.md`.
 
 ### `DOCGEN-001` — Evidence-Backed Documentation Generation
 

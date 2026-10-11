@@ -50,8 +50,26 @@ Source files emit:
 - `dependency` entities for dependency declarations
 - `symbol_defined` facts with dependency kind, version requirement, source evidence, and ownership
 
-Module payloads include normalized `imports` and `exports` arrays. The built-in JS/TS import linker
-uses those payloads to materialize exact relative module imports without exposing parser AST nodes.
+Module payloads include normalized `imports` and `exports` arrays. Each import entry records the
+specifier, its source range, and the local bindings it introduces: `default_name`, `namespace_name`,
+and the sorted local names of `named` specifiers (`import { fetchUser as fetch }` records `fetch`).
+The built-in JS/TS import linker uses those payloads to materialize exact relative module imports
+without exposing parser AST nodes.
+
+## Call Sites
+
+Function, method, and variable-bound function payloads include a bounded `calls` array of the
+statically named call sites in the declaration subtree. Each entry records `callee` (a dotted path
+such as `login`, `api.send`, or `this.refresh`), the terminal `name`, the optional `receiver`, the
+`kind` (`call` or `new`), the callee `line` and `column`, and the argument `arg_count`.
+
+Only shapes whose target can be named without running the program are recorded: identifiers, member
+chains rooted in an identifier or `this`/`super`, and constructor invocations. Computed calls
+(`handlers[key]()`), calls through call results or parenthesized expressions (`factory()()`), and JSX
+elements are omitted rather than guessed. Call sites are attributed to the declaration that contains
+them, nested class bodies are skipped because their members are separate declarations, and the array
+is capped at 256 entries per declaration so payloads stay bounded. Call sites are raw syntax
+evidence: resolving them to declarations is the job of the JS/TS call linker.
 
 ## Diagnostics
 
@@ -86,6 +104,10 @@ in-process Rust dependency; the mode does not run commands or use the network.
 
 `JsTsExtractor` deliberately avoids framework-specific semantics such as React components, Next.js
 routes/pages, NestJS controllers, Express routes, Vue components, and project convention inference.
+Call sites are recorded as syntax, not as resolved targets: overload resolution, receiver types,
+prototype mutation, `require`-based CommonJS calls, and reflective dispatch remain outside the base
+language slice and never become facts. Parse order is deterministic, so a declaration's call array is
+stable across runs of the same source.
 The separate built-in `NextJsExtractor` owns only the bounded Next.js filesystem-route projection;
 see [Next.js Route Extractor](extractor-nextjs.md). `ExpressExtractor` owns only static Express
 application/router route declarations with explicit framework bindings; see
