@@ -91,6 +91,7 @@ async fn change_map_project_inner(
             &snapshot,
             task.to_string(),
             search_limit,
+            crate::search::SearchMode::Lexical,
             composition,
         )
         .await?;

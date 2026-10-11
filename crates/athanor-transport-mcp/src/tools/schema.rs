@@ -42,12 +42,13 @@ pub(crate) fn list() -> Value {
             },
             {
                 "name": "search",
-                "description": "Search the project's knowledge base using BM25 lexical search.",
+                "description": "Search the project's knowledge base. Modes: lexical (BM25, default), semantic (local hashing embeddings, cosine), hybrid (both merged).",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "query": { "type": "string" },
-                        "limit": { "type": "integer", "description": "Default 10." }
+                        "limit": { "type": "integer", "description": "Default 10." },
+                        "mode": { "type": "string", "enum": ["lexical", "semantic", "hybrid"], "description": "Default lexical." }
                     },
                     "required": ["query"]
                 }

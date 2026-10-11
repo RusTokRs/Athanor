@@ -188,6 +188,7 @@ pub(crate) async fn search_with_operation_context(
         &snapshot,
         query,
         limit,
+        crate::search::SearchMode::Lexical,
         index.as_ref(),
         operation,
     )

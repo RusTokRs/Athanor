@@ -37,6 +37,11 @@ substantive release notes.
   `antigravity.json` files project one `ScriptCommand` per configured MCP server with the agent
   tool, server name, and literal command plus argument tokens, each with source evidence and
   ownership, while malformed or partially supported files are rejected atomically.
+- Add local semantic retrieval with zero new dependencies: hashing-trick embeddings (character
+  trigrams plus word n-grams, FNV-1a signed buckets) implement the `EmbeddingProvider` and
+  `VectorIndex` ports, persist in a JSON sidecar next to the Tantivy index, and power new
+  `semantic` and `hybrid` search modes in `ath search --mode` and the MCP `search` tool; `lexical`
+  BM25 remains the default, and hybrid merges min-max-normalized lexical and cosine scores.
 
 ### Fixed
 

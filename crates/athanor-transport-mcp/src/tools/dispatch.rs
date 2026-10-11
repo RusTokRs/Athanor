@@ -6,7 +6,7 @@ use athanor_app::{
     CapabilitiesOptions, ChangeMapOptions, ContextLimitOverrides, ContextOptions,
     DEFAULT_CAPABILITIES_LIMIT, DEFAULT_CONFIDENCE_THRESHOLD, DiagnosticCheckOptions,
     DiagnosticScope, ExplainOptions, ImpactOptions, IndexOptions, OverviewOptions,
-    RuntimeComposition, RustokArchitectureContextOptions, SearchOptions,
+    RuntimeComposition, RustokArchitectureContextOptions, SearchMode, SearchOptions,
 };
 use athanor_core::{CoreError, CoreErrorCode, OperationContext, OperationContextCancellation};
 use serde_json::{Value, json};

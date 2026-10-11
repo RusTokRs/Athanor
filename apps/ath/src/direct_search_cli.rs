@@ -4,7 +4,9 @@ use anyhow::{Context, Result};
 use clap::error::ErrorKind;
 use clap::{Parser, Subcommand};
 
-use athanor_app::{SearchOptions, search_project_with_composition_and_operation_context};
+use athanor_app::{
+    SearchMode, SearchOptions, search_project_with_composition_and_operation_context,
+};
 
 use crate::direct_operation::{await_drained_operation, operation};
 
@@ -15,6 +17,24 @@ struct DirectSearchCli {
     command: Command,
 }
 
+#[derive(Debug, Clone, Copy, Default, clap::ValueEnum)]
+pub(crate) enum SearchModeArg {
+    #[default]
+    Lexical,
+    Semantic,
+    Hybrid,
+}
+
+impl From<SearchModeArg> for SearchMode {
+    fn from(mode: SearchModeArg) -> Self {
+        match mode {
+            SearchModeArg::Lexical => SearchMode::Lexical,
+            SearchModeArg::Semantic => SearchMode::Semantic,
+            SearchModeArg::Hybrid => SearchMode::Hybrid,
+        }
+    }
+}
+
 #[derive(Debug, Subcommand)]
 pub(crate) enum Command {
     Search {
@@ -23,6 +43,8 @@ pub(crate) enum Command {
         path: PathBuf,
         #[arg(long, default_value_t = 10)]
         limit: usize,
+        #[arg(long, value_enum, default_value_t = SearchModeArg::Lexical)]
+        mode: SearchModeArg,
         #[arg(long)]
         json: bool,
         #[arg(long)]
@@ -62,6 +84,7 @@ pub(crate) async fn run(command: Command) -> Result<()> {
             query,
             path,
             limit,
+            mode,
             json,
             deadline_unix_ms,
         } => {
@@ -73,6 +96,7 @@ pub(crate) async fn run(command: Command) -> Result<()> {
                         root: path,
                         query,
                         limit,
+                        mode: mode.into(),
                     },
                     &composition,
                     &operation,
@@ -127,6 +151,8 @@ mod tests {
             "login".to_string(),
             "--limit".to_string(),
             "5".to_string(),
+            "--mode".to_string(),
+            "hybrid".to_string(),
             "--deadline-unix-ms".to_string(),
             "42".to_string(),
         ])
@@ -137,6 +163,7 @@ mod tests {
             command,
             Command::Search {
                 limit: 5,
+                mode: SearchModeArg::Hybrid,
                 deadline_unix_ms: Some(42),
                 ..
             }

@@ -598,6 +598,12 @@ pub trait SearchIndex: Send + Sync {
     async fn index_document(&self, doc: SearchDocument) -> CoreResult<()>;
     async fn remove_document(&self, id: &str) -> CoreResult<()>;
     async fn search(&self, query: SearchQuery) -> CoreResult<Vec<SearchResult>>;
+    /// Semantic (embedding-based) retrieval over the same indexed documents.
+    /// The default implementation falls back to lexical search so existing
+    /// indexes keep working; semantic-capable indexes override this method.
+    async fn search_semantic(&self, query: SearchQuery) -> CoreResult<Vec<SearchResult>> {
+        self.search(query).await
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

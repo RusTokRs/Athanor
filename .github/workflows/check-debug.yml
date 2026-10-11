@@ -1,0 +1,57 @@
+name: Cargo check debug (temporary)
+
+on:
+  push:
+    branches: [arena/9b76dc5a-athanor]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  check:
+    name: cargo check workspace
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Install repository Rust toolchain
+        uses: ./.github/actions/setup-rust
+
+      - name: Run cargo check
+        run: |
+          set -uo pipefail
+          cargo check --workspace --all-targets --locked > /tmp/check.log 2>&1
+          code=$?
+          echo "CHECK_EXIT=$code" >> "$GITHUB_ENV"
+          echo "cargo check exit: $code"
+          tail -n 60 /tmp/check.log || true
+          exit 0
+
+      - name: Comment diagnostics on PR
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+          API_URL: ${{ github.api_url }}
+        run: |
+          set -euo pipefail
+          pr="$(gh pr list --repo "$REPO" --head "$BRANCH" --json number --jq '.[0].number // empty' || true)"
+          if [ -z "$pr" ]; then
+            pr="141"
+          fi
+          tail_json="$(tail -n 400 /tmp/check.log 2>/dev/null | jq -Rs . || echo '"no log"')"
+          payload="$(jq -nc \
+            --arg t "$tail_json" \
+            --arg ce "${CHECK_EXIT:-unknown}" \
+            '{body: ("### Cargo check debug\n\nExit: " + $ce + "\n\n```\n" + $t + "\n```\n")}')"
+          curl --proto '=https' --tlsv1.2 --silent --show-error --fail \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "$API_URL/repos/$REPO/issues/$pr/comments" \
+            -d "$payload"

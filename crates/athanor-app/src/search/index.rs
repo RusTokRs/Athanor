@@ -7,7 +7,7 @@ use athanor_core::{CanonicalSnapshot, OperationContext, SearchDocument, SearchIn
 use athanor_domain::Entity;
 
 use super::check_active;
-use super::model::IndexMeta;
+use super::model::{IndexMeta, SEARCH_INDEX_FORMAT};
 
 const SEARCH_REBUILD_POLL_DOCUMENTS: usize = 256;
 
@@ -53,7 +53,9 @@ fn get_or_build_search_index_inner(
         fs::read_to_string(&meta_path)
             .ok()
             .and_then(|contents| serde_json::from_str::<IndexMeta>(&contents).ok())
-            .is_none_or(|meta| meta.snapshot_id != snapshot_id)
+            .is_none_or(|meta| {
+                meta.snapshot_id != snapshot_id || meta.search_format != SEARCH_INDEX_FORMAT
+            })
     } else {
         true
     };
@@ -79,6 +81,7 @@ fn get_or_build_search_index_inner(
         check_active(operation)?;
         let meta = IndexMeta {
             snapshot_id: snapshot_id.to_string(),
+            search_format: SEARCH_INDEX_FORMAT,
         };
         fs::write(&meta_path, serde_json::to_string_pretty(&meta)?)?;
         check_active(operation)?;

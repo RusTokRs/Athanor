@@ -130,6 +130,20 @@ pub trait SearchIndexOperationExt: SearchIndex {
         operation.check_active()?;
         Ok(result)
     }
+
+    /// Context-aware semantic search. Mirrors `search_with_operation_context` and
+    /// defaults to the lexical fallback when the index does not override
+    /// `search_semantic`.
+    async fn search_semantic_with_operation_context(
+        &self,
+        query: SearchQuery,
+        operation: &OperationContext,
+    ) -> CoreResult<Vec<SearchResult>> {
+        operation.check_active()?;
+        let result = self.search_semantic(query).await?;
+        operation.check_active()?;
+        Ok(result)
+    }
 }
 
 impl<T> SearchIndexOperationExt for T where T: SearchIndex + ?Sized {}

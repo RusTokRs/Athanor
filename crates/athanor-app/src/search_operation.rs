@@ -2,12 +2,11 @@ use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use athanor_core::{
-    CanonicalSnapshot, OperationContext, OperationContextCancellation, SearchIndex,
-    SearchIndexOperationExt, SearchQuery,
+    CanonicalSnapshot, OperationContext, OperationContextCancellation, SearchIndex, SearchQuery,
 };
 use athanor_domain::Entity;
 
-use crate::search::{SearchItem, SearchOmissions, SearchReport};
+use crate::search::{SearchItem, SearchMode, SearchOmissions, SearchReport, execute_search};
 
 /// Queries an already-built index under the shared operation cancellation/deadline contract.
 pub async fn search_snapshot_with_index_and_operation_context(
@@ -15,6 +14,7 @@ pub async fn search_snapshot_with_index_and_operation_context(
     snapshot: &CanonicalSnapshot,
     query: String,
     limit: usize,
+    mode: SearchMode,
     index: &dyn SearchIndex,
     operation: &OperationContext,
 ) -> Result<SearchReport> {
@@ -31,16 +31,17 @@ pub async fn search_snapshot_with_index_and_operation_context(
         .as_ref()
         .map(|snapshot| snapshot.0.clone())
         .ok_or_else(|| anyhow::anyhow!("latest canonical snapshot has no snapshot id"))?;
-    let results = index
-        .search_with_operation_context(
-            SearchQuery {
-                query: query.clone(),
-                limit: limit.saturating_add(1),
-            },
-            operation,
-        )
-        .await
-        .context("failed to query search index")?;
+    let results = execute_search(
+        index,
+        SearchQuery {
+            query: query.clone(),
+            limit: limit.saturating_add(1),
+        },
+        mode,
+        Some(operation),
+    )
+    .await
+    .context("failed to query search index")?;
     let truncated = results.len() > limit;
 
     let search_items = results
@@ -73,6 +74,7 @@ pub async fn search_snapshot_with_index_and_operation_context(
         root: root.to_path_buf(),
         snapshot: snapshot_id,
         query,
+        mode,
         limit,
         returned,
         truncated,
@@ -137,6 +139,7 @@ mod tests {
             &snapshot,
             "entity".to_string(),
             10,
+            SearchMode::Lexical,
             &index,
             &operation,
         )
