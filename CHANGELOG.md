@@ -42,17 +42,17 @@ substantive release notes.
   reject pointer escape, identity drift, unsupported artifact layouts, and checksum mismatch.
 - Add `overview` and `capabilities` MCP tools exposing the repository overview and the bounded
   analysis-completeness report to MCP clients.
-- Add a bounded first-party projection for agent-tool MCP configuration: the root `.codex.json` and
-  `antigravity.json` files project one `ScriptCommand` per configured MCP server with the agent
-  tool, server name, and literal command plus argument tokens, each with source evidence and
-  ownership, while malformed or partially supported files are rejected atomically.
+- Add a bounded first-party projection for agent-tool MCP configuration: `.codex.json` and
+  `antigravity.json` project one `ScriptCommand` per configured server with the agent tool, server
+  name, and literal command tokens plus evidence and ownership; malformed files are rejected.
 - Add local semantic retrieval with zero new dependencies: hashing-trick embeddings (character
   trigrams plus word n-grams, FNV-1a signed buckets) implement the `EmbeddingProvider` and
-  `VectorIndex` ports, persist in a JSON sidecar next to the Tantivy index, and power `semantic`
-  and `hybrid` modes in `ath search --mode` and the MCP `search` tool over BM25 `lexical` default.
+  `VectorIndex` ports and power `ath search --mode semantic|hybrid` and the MCP `search` tool.
 
 ### Fixed
 
+- Stop generated module/API/operations/onboarding documents from claiming shipped publication,
+  Store loading, CLI, and transport integration are deferred: headers name the scope and its limits.
 - Reject Windows drive paths, reserved device names, trailing-dot/space components, and
   case-insensitive output-path collisions before documentation artifacts can be published.
 - Reject raw-file/secret context access, out-of-context citations and diagram endpoints, uncited factual
@@ -61,9 +61,9 @@ substantive release notes.
 - Reject missing or uncommitted documentation snapshot IDs instead of falling back to the latest visible
   snapshot, and preserve the previous current pointer when CLI generation is cancelled.
 - Restore the bounded snapshot-search module and rebuild the workspace after the semantic-search slice:
-  mode dispatch and hybrid ranking move to `search/execution.rs`, `execute_search` is re-exported, the
-  `search` facade and `athanor-search-tantivy` compile again (declared `serde`, released vector-store
-  lock, score-ordered `TopDocs`, `mode` honored), and semantic hits now need 0.2 cosine similarity.
+  mode dispatch and hybrid ranking move to `search/execution.rs`, `execute_search` is re-exported, and
+  `athanor-search-tantivy` compiles again with the declared `serde` dependency and score-ordered
+  `TopDocs`; semantic hits are floored at 0.2 cosine similarity.
 
 ## [0.2.1] - 2026-07-23
 
