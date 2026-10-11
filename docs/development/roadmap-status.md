@@ -169,9 +169,10 @@ gap, the typo-named `for agents. md` briefing, was fixed by renaming it to
 - [x] Slice P4: deterministic operations documentation — DOCGEN-001 4A–4C; the monitoring category
   derives declared health/metrics endpoints and telemetry variable names, with probes/alerts still open.
 - [x] Slice P5: bounded `explore` MCP query — ranked entries, one-hop relations, citations, budgets.
-- Verified exact-commit evidence: run `38152033388` on `191c65e` (P1, P2, P5) and run `38157055780` on
-  `e07547e` (P3 engine and packs) report every log PASSED with a `rustfmt` diff of 0 lines, and both
-  commits' repository check matrices are fully successful or intentionally skipped.
+- Verified exact-commit evidence: run `38152033388` on `191c65e` (P1, P2, P5), run `38157055780` on
+  `e07547e` (P3 engine and packs), and run `38160162759` on `69d8918` (P4b monitoring) report every log
+  PASSED with a `rustfmt` diff of 0 lines, and each commit's repository check matrix is fully successful
+  or intentionally skipped.
 
 ### `DOCGEN-001` — Evidence-Backed Documentation Generation
 
