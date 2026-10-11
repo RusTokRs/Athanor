@@ -104,6 +104,7 @@ The active transport consists of conventional modules:
 - `runtime.rs` exports the transport contracts and explicit-composition server entry point;
 - `server.rs` owns JSON-RPC parsing, session state, request tasks, cancellation leases, response serialization, and stdio lifecycle;
 - `tools/schema.rs` owns the MCP tool schemas;
+- `tools/args.rs` reads the shared JSON arguments used by the dispatch arms;
 - `tools/dispatch.rs` maps tools to composition-aware application APIs.
 
 `RuntimeComposition` is wrapped in `Arc` at server startup and cloned into each request task. Tool dispatch calls application APIs such as `index_project_with_composition`, `search_project_with_composition_and_operation_context`, and `rustok_architecture_context_with_composition_and_operation_context`. The removed legacy dispatcher and its textual `include!` path are not part of the active crate.
