@@ -1,8 +1,8 @@
 //! Temporary diagnostic dump used while the corpus expectations were derived. Deleted before the
-//! slice is finalized.
+//! slice is finalized. Each test stays under ten lines of output so the CI failure digest keeps it.
 
 use athanor_core::{ExtractInput, Extractor, SourceFile};
-use athanor_domain::{Entity, RepoId, SnapshotId};
+use athanor_domain::{Entity, RelationKind, RepoId, SnapshotId};
 use athanor_extractor_treesitter::TreeSitterExtractor;
 use athanor_linker_treesitter::{resolution_coverage, resolve_entities};
 
@@ -92,8 +92,7 @@ func TestRoute(t *testing.T) {
     ),
 ];
 
-#[tokio::test]
-async fn dump_corpus_evidence() {
+async fn corpus() -> Vec<Entity> {
     let mut entities = Vec::new();
     for (path, content) in CORPUS {
         let output = TreeSitterExtractor
@@ -111,42 +110,58 @@ async fn dump_corpus_evidence() {
             .expect("extraction");
         entities.extend(output.entities);
     }
+    entities
+}
 
+#[tokio::test]
+async fn dump_recorded_call_sites() {
+    let entities = corpus().await;
     let mut lines = Vec::new();
-    let mut keys = entities
+    for entity in &entities {
+        let Some(calls) = entity.payload.get("calls").and_then(|value| value.as_array()) else {
+            continue;
+        };
+        for call in calls {
+            lines.push(format!(
+                "{:?} <= {}",
+                entity.stable_key.0,
+                call.get("callee").cloned().unwrap_or_default()
+            ));
+        }
+    }
+    lines.sort();
+    panic!("RECORDED:\n{}", lines.join("\n"));
+}
+
+#[tokio::test]
+async fn dump_resolved_references() {
+    let entities = corpus().await;
+    let mut lines = resolve_entities(&entities, &SnapshotId("snap_parity".to_string()))
         .iter()
-        .map(|entity| entity.stable_key.0.clone())
+        .filter(|relation| relation.kind != RelationKind::Imports)
+        .map(|relation| {
+            format!(
+                "{:?} {:?} => {:?} [{}]",
+                relation.kind,
+                relation.payload["from"].as_str().unwrap_or_default(),
+                relation.payload["to"].as_str().unwrap_or_default(),
+                relation.payload["resolution"]
+                    .as_str()
+                    .or(relation.payload["callee"].as_str())
+                    .unwrap_or_default(),
+            )
+        })
         .collect::<Vec<_>>();
-    keys.sort();
-    for key in keys {
-        let entity: &Entity = entities
-            .iter()
-            .find(|entity| entity.stable_key.0 == key)
-            .expect("entity");
-        let calls = entity
-            .payload
-            .get("calls")
-            .map(ToString::to_string)
-            .unwrap_or_default();
-        let imports = entity
-            .payload
-            .get("imports")
-            .map(ToString::to_string)
-            .unwrap_or_default();
-        lines.push(format!(
-            "E {key} name={:?} qualified={:?} calls={calls} imports={imports}",
-            entity.name,
-            entity.payload.get("qualified_name")
-        ));
-    }
-    for coverage in resolution_coverage(&entities) {
-        lines.push(format!("C {coverage:?}"));
-    }
-    for relation in resolve_entities(&entities, &SnapshotId("snap_parity".to_string())) {
-        lines.push(format!(
-            "R {:?} payload={}",
-            relation.kind, relation.payload
-        ));
-    }
-    panic!("DUMP\n{}", lines.join("\n"));
+    lines.sort();
+    panic!("RESOLVED:\n{}", lines.join("\n"));
+}
+
+#[tokio::test]
+async fn dump_coverage() {
+    let entities = corpus().await;
+    let lines = resolution_coverage(&entities)
+        .iter()
+        .map(|coverage| format!("COVERAGE {coverage:?}"))
+        .collect::<Vec<_>>();
+    panic!("COVERAGE:\n{}", lines.join("\n"));
 }
