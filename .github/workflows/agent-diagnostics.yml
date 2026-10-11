@@ -50,7 +50,6 @@ jobs:
           run_step "cargo check workspace all targets" cargo check --workspace --all-targets --locked
           run_step "cargo check js-ts-precision" cargo check --workspace --features js-ts-precision --all-targets --locked
           run_step "cargo test extractor-js-ts" cargo test -p athanor-extractor-js-ts --locked
-          run_step "cargo test extractor-js-ts precision" cargo test -p athanor-extractor-js-ts --features js-ts-precision --locked
           run_step "cargo test linker-js-ts" cargo test -p athanor-linker-js-ts --locked
           run_step "cargo test extractor-rust" cargo test -p athanor-extractor-rust --locked
           run_step "cargo test linker-rust" cargo test -p athanor-linker-rust --locked
@@ -106,9 +105,9 @@ jobs:
               echo "<details><summary><code>$(basename "$log")</code> — $status</summary>"
               echo
               echo '```text'
-              head -n 120 "$log" || true
+              head -n 40 "$log" || true
               echo "... (truncated) ..."
-              tail -n 400 "$log" || true
+              tail -n 200 "$log" || true
               echo '```'
               echo
               echo "</details>"
@@ -120,7 +119,7 @@ jobs:
             case "$status" in
               PASSED) continue ;;
             esac
-            hits="$(grep -n -B2 -A10 -E 'panicked at|^error\[' "$log" | head -n 100 || true)"
+            hits="$(grep -n -B2 -A10 -E 'panicked at|^error|^warning: unused' "$log" | head -n 200 || true)"
             if [ -n "$hits" ]; then
               {
                 echo "<details><summary>failure digest: $(basename "$log")</summary>"

@@ -75,53 +75,36 @@ impl Linker for JsTsImplementsLinker {
                 continue;
             }
             let owner_path = entity_path(entity);
-
+            let mut declared = Vec::new();
             if let Some(name) = entity
                 .payload
                 .get("extends")
                 .and_then(|value| value.as_str())
             {
-                if let Some(target) =
-                    resolve(&classes_by_name, name, owner_path.as_deref(), &entity.id)
-                {
-                    if affected_ids.contains(&entity.id) || affected_ids.contains(&target.id) {
-                        relations.push(heritage_relation(
-                            &input.snapshot,
-                            entity,
-                            target,
-                            "extends",
-                            name,
-                        ));
-                    }
-                }
+                declared.push(("extends", name));
             }
-
-            let Some(declared) = entity
+            if let Some(names) = entity
                 .payload
                 .get("implements")
                 .and_then(|value| value.as_array())
-            else {
-                continue;
-            };
-            for name in declared {
-                let Some(name) = name.as_str() else {
-                    continue;
+            {
+                for name in names.iter().filter_map(|value| value.as_str()) {
+                    declared.push(("implements", name));
+                }
+            }
+
+            for (bridge, name) in declared {
+                let index = match bridge {
+                    "extends" => &classes_by_name,
+                    _ => &interfaces_by_name,
                 };
-                let Some(target) =
-                    resolve(&interfaces_by_name, name, owner_path.as_deref(), &entity.id)
-                else {
+                let Some(target) = resolve(index, name, owner_path.as_deref(), &entity.id) else {
                     continue;
                 };
                 if !affected_ids.contains(&entity.id) && !affected_ids.contains(&target.id) {
                     continue;
                 }
-                relations.push(heritage_relation(
-                    &input.snapshot,
-                    entity,
-                    target,
-                    "implements",
-                    name,
-                ));
+                relations.push(heritage_relation(&input.snapshot, entity, target, bridge, name));
             }
         }
 
