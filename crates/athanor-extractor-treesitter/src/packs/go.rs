@@ -121,7 +121,6 @@ mod tests {
     use athanor_core::Extractor;
     use athanor_domain::{DiagnosticKind, EntityKind, FactKind};
 
-    use super::*;
     use crate::{TreeSitterExtractor, input};
 
     const SERVER: &str = "\

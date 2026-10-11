@@ -40,8 +40,8 @@ mod tests {
             pack_for_path("cmd/server.go").map(|pack| pack.id),
             Some("go")
         );
-        assert_eq!(pack_for_path("src/lib.rs"), None);
-        assert_eq!(pack_for_path("Makefile"), None);
+        assert!(pack_for_path("src/lib.rs").is_none());
+        assert!(pack_for_path("Makefile").is_none());
     }
 
     #[test]

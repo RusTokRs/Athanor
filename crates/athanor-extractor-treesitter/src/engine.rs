@@ -660,21 +660,21 @@ impl FileExtraction<'_> {
         if stop_at_declarations && self.is_declaration(node) {
             return;
         }
-        if node.kind() == self.pack.call.node_kind {
-            if let Some(payload) = self.call_site(node) {
-                let key = (
-                    payload
-                        .get("callee")
-                        .and_then(Value::as_str)
-                        .unwrap_or_default()
-                        .to_string(),
-                    payload.get("line").and_then(Value::as_u64).unwrap_or(0) as u32,
-                    payload.get("column").and_then(Value::as_u64).unwrap_or(0) as u32,
-                );
-                if seen.insert(key) {
-                    self.call_sites += 1;
-                    calls.push(payload);
-                }
+        if node.kind() == self.pack.call.node_kind
+            && let Some(payload) = self.call_site(node)
+        {
+            let key = (
+                payload
+                    .get("callee")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+                payload.get("line").and_then(Value::as_u64).unwrap_or(0) as u32,
+                payload.get("column").and_then(Value::as_u64).unwrap_or(0) as u32,
+            );
+            if seen.insert(key) {
+                self.call_sites += 1;
+                calls.push(payload);
             }
         }
         let mut cursor = node.walk();
