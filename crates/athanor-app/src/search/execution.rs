@@ -105,7 +105,6 @@ pub(crate) fn merge_hybrid_results(
     results
 }
 
-
 #[cfg(test)]
 mod tests {
     use async_trait::async_trait;

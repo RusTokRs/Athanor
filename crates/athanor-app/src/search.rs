@@ -257,4 +257,3 @@ fn search_item(payload: serde_json::Value, score: f32) -> Option<SearchItem> {
         score,
     })
 }
-
