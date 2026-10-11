@@ -279,7 +279,11 @@ fn optional_string_arg(args: &Value, name: &str) -> Option<String> {
 }
 
 fn search_mode_arg(args: &Value) -> SearchMode {
-    match args.get("mode").and_then(Value::as_str).unwrap_or("lexical") {
+    match args
+        .get("mode")
+        .and_then(Value::as_str)
+        .unwrap_or("lexical")
+    {
         "semantic" => SearchMode::Semantic,
         "hybrid" => SearchMode::Hybrid,
         _ => SearchMode::Lexical,
