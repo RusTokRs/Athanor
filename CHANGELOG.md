@@ -46,9 +46,8 @@ substantive release notes.
   ownership, while malformed or partially supported files are rejected atomically.
 - Add local semantic retrieval with zero new dependencies: hashing-trick embeddings (character
   trigrams plus word n-grams, FNV-1a signed buckets) implement the `EmbeddingProvider` and
-  `VectorIndex` ports, persist in a JSON sidecar next to the Tantivy index, and power new
-  `semantic` and `hybrid` modes in `ath search --mode` and the MCP `search` tool; `lexical` BM25
-  stays the default, and hybrid merges min-max-normalized lexical and cosine scores.
+  `VectorIndex` ports, persist in a JSON sidecar next to the Tantivy index, and power `semantic`
+  and `hybrid` modes in `ath search --mode` and the MCP `search` tool over BM25 `lexical` default.
 
 ### Fixed
 
@@ -63,7 +62,8 @@ substantive release notes.
 - Restore the bounded snapshot-search module and rebuild the workspace after the semantic-search slice:
   mode dispatch and hybrid ranking move to `search/execution.rs` with `execute_search` re-exported, the
   `search` facade and `athanor-search-tantivy` compile again (declared `serde`, released vector-store
-  lock, score-ordered `TopDocs`), and the MCP `search` tool honors its documented `mode` argument.
+  lock, score-ordered `TopDocs`), the MCP `search` tool honors its `mode`, and semantic hits need
+  cosine similarity of at least `SEMANTIC_MIN_SIMILARITY` (0.2) instead of returning hashing noise.
 
 ## [0.2.1] - 2026-07-23
 

@@ -211,7 +211,7 @@ The existing coordinated `ath generate` command remains unchanged.
 - [x] run exact cross-platform execution verification for Slices 7A–7C on one exact `main` source commit;
 - [x] select the next bounded semantic gap from the exact post-gate artifact: Slice 8I first-party agent-tool MCP configuration;
 - [x] rename the typo-named `for agents. md` audit briefing to `architecture_audit_briefing_ru.md` (`0b42c28…`);
-- [x] start the semantic retrieval slice: local hashing embeddings implement the `EmbeddingProvider`/`VectorIndex` ports, persist in a JSON sidecar beside the Tantivy index, and expose `lexical`/`semantic`/`hybrid` modes in `ath search --mode` and MCP `search`;
+- [x] start the semantic retrieval slice: local hashing embeddings implement the `EmbeddingProvider`/`VectorIndex` ports, persist in a JSON sidecar beside the Tantivy index, expose `lexical`/`semantic`/`hybrid` modes in `ath search --mode` and MCP `search`, and keep only hits at or above `SEMANTIC_MIN_SIMILARITY` (0.2 cosine) so unrelated documents are not returned as hashing noise;
 - [ ] keep issue forms and OpenAPI fixtures out unless independently justified by product semantics;
 - [ ] do not add generic JSON/fixture parsing solely to raise coverage;
 - [ ] keep Next.js/Axum/Express schemas/auth/middleware and route-composition expansion evidence-driven;

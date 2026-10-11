@@ -52,6 +52,19 @@ Incremental writer instances disable background segment merging. This prevents W
 from blocking deletion of memory-mapped segment files; later full snapshot rebuilds compact the
 disposable index.
 
+## Semantic Retrieval
+`SemanticVectorStore` keeps a JSON sidecar (`semantic-vectors.json`) beside the Tantivy index with
+local hashing-trick embeddings: word unigrams, word bigrams, and space-padded character trigrams hashed
+with FNV-1a into 384 signed buckets. The `semantic` and `hybrid` modes in `ath search --mode` and the
+MCP `search` tool read it; `lexical` BM25 stays the default, and hybrid merges min-max-normalized
+lexical and cosine scores.
+
+Semantic hits must reach `SEMANTIC_MIN_SIMILARITY` (0.2 cosine). Hashing embeddings give every document
+a small nonzero similarity to every query, so without the floor an unfiltered top-`limit` returns
+unrelated documents; the pinned fixtures score unrelated texts at 0.16 and below while related texts
+score 0.28 and above. The floor is a deterministic lexical-overlap heuristic, not a semantic model:
+weak true matches can fall below it and accidental token overlap can pass it.
+
 ## Configuration
 Add `athanor-search-tantivy` to workspace dependencies. It is used as a coordinate read-model alongside JSONL, wiki, and HTML reports.
 
