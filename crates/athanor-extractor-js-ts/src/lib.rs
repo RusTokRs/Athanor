@@ -188,6 +188,19 @@ impl Extractor for JsTsExtractor {
             ));
             let (line_start, line_end) = declaration.line_range;
 
+            let mut payload = json!({
+                "symbol_kind": declaration.symbol_kind,
+                "qualified_name": declaration.qualified_name,
+                "exported": declaration.exported,
+                "async": declaration.is_async,
+                "source_node": declaration.source_node,
+                "calls": declaration.calls,
+            });
+            if let Some(heritage) = &declaration.heritage {
+                payload["extends"] = json!(heritage.extends);
+                payload["implements"] = json!(heritage.implements);
+            }
+
             entities.push(Entity {
                 id: entity_id.clone(),
                 stable_key: stable_key.clone(),
@@ -202,13 +215,7 @@ impl Extractor for JsTsExtractor {
                 language: Some(LanguageCode(language.hint.to_string())),
                 aliases: Vec::new(),
                 ownership: ownership.clone(),
-                payload: json!({
-                    "symbol_kind": declaration.symbol_kind,
-                    "qualified_name": declaration.qualified_name,
-                    "exported": declaration.exported,
-                    "async": declaration.is_async,
-                    "source_node": declaration.source_node,
-                }),
+                payload,
             });
 
             facts.push(symbol_fact(
@@ -288,6 +295,12 @@ fn is_package_json(source: &SourceFile) -> bool {
     source.path.ends_with("package.json")
 }
 
+/// Upper bound on recorded call sites per declaration.
+///
+/// Payloads stay bounded and deterministic: call sites are recorded in source
+/// order and anything beyond this limit is omitted.
+const MAX_CALL_SITES_PER_DECLARATION: usize = 256;
+
 #[derive(Debug, Clone)]
 struct SourceDeclaration {
     name: String,
@@ -298,6 +311,15 @@ struct SourceDeclaration {
     is_async: bool,
     source_node: String,
     line_range: (u32, u32),
+    calls: Vec<Value>,
+    heritage: Option<ClassHeritage>,
+}
+
+/// `extends`/`implements` heritage of a class declaration, reduced to bare type names.
+#[derive(Debug, Clone, Default)]
+struct ClassHeritage {
+    extends: Option<String>,
+    implements: Vec<String>,
 }
 
 impl SourceDeclaration {
@@ -351,6 +373,8 @@ fn collect_statement(
                     is_async: has_child_kind(node, "async"),
                     source_node: node.kind().to_string(),
                     line_range: line_range(node),
+                    calls: collect_call_sites(node, bytes),
+                    heritage: None,
                 });
             }
         }
@@ -365,6 +389,8 @@ fn collect_statement(
                     is_async: has_child_kind(node, "async"),
                     source_node: node.kind().to_string(),
                     line_range: line_range(node),
+                    calls: collect_call_sites(node, bytes),
+                    heritage: None,
                 });
             }
         }
@@ -379,6 +405,8 @@ fn collect_statement(
                     is_async: false,
                     source_node: node.kind().to_string(),
                     line_range: line_range(node),
+                    calls: Vec::new(),
+                    heritage: class_heritage(node, bytes),
                 });
                 collect_class_members(&name, node, bytes, exported, declarations);
             }
@@ -394,6 +422,8 @@ fn collect_statement(
                     is_async: false,
                     source_node: node.kind().to_string(),
                     line_range: line_range(node),
+                    calls: Vec::new(),
+                    heritage: None,
                 });
             }
         }
@@ -408,6 +438,8 @@ fn collect_statement(
                     is_async: false,
                     source_node: node.kind().to_string(),
                     line_range: line_range(node),
+                    calls: Vec::new(),
+                    heritage: None,
                 });
             }
         }
@@ -444,6 +476,8 @@ fn collect_class_members(
                     is_async: has_child_kind(member, "async"),
                     source_node: member.kind().to_string(),
                     line_range: line_range(member),
+                    calls: collect_call_sites(member, bytes),
+                    heritage: None,
                 });
             }
         }
@@ -481,8 +515,66 @@ fn collect_variable_functions(
                 is_async: has_child_kind(value_node, "async"),
                 source_node: value_node.kind().to_string(),
                 line_range: line_range(child),
+                calls: collect_call_sites(value_node, bytes),
+                heritage: None,
             });
         }
+    }
+}
+
+/// Read the `extends`/`implements` clauses of a class declaration.
+///
+/// Both clauses are matched by node kind (`class_heritage` holds them in the JS and TS grammars)
+/// and reduced to bare type names, so generic arguments and qualified paths do not leak into the
+/// payload: `class Service extends api.Base implements Store<K> {}` records `Base` and `Store`.
+fn class_heritage(node: Node, bytes: &[u8]) -> Option<ClassHeritage> {
+    let mut heritage = ClassHeritage::default();
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        if child.kind() != "class_heritage" {
+            continue;
+        }
+        let mut clause_cursor = child.walk();
+        for clause in child.named_children(&mut clause_cursor) {
+            match clause.kind() {
+                "extends_clause" => {
+                    let value = clause
+                        .child_by_field_name("value")
+                        .or_else(|| clause.named_child(0));
+                    if let Some(name) = value.and_then(|value| heritage_name(value, bytes)) {
+                        heritage.extends = Some(name);
+                    }
+                }
+                "implements_clause" => {
+                    let mut list_cursor = clause.walk();
+                    for item in clause.named_children(&mut list_cursor) {
+                        let Some(name) = heritage_name(item, bytes) else {
+                            continue;
+                        };
+                        if !heritage.implements.contains(&name) {
+                            heritage.implements.push(name);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    if heritage.extends.is_none() && heritage.implements.is_empty() {
+        return None;
+    }
+    Some(heritage)
+}
+
+/// Bare type name of one heritage entry: generic arguments dropped, last path segment kept.
+fn heritage_name(node: Node, bytes: &[u8]) -> Option<String> {
+    let text = node_text(node, bytes)?;
+    let base = text.split('<').next()?.trim();
+    let name = base.rsplit(['.', ':']).next()?.trim();
+    if name.is_empty() {
+        None
+    } else {
+        Some(name.to_string())
     }
 }
 
@@ -500,12 +592,170 @@ fn has_child_kind(node: Node, kind: &str) -> bool {
 }
 
 fn import_payload(node: Node, bytes: &[u8]) -> Value {
+    let (default_name, namespace_name, named) = import_bindings(node, bytes);
     json!({
         "source": child_text(node, "source", bytes),
         "line_start": node.start_position().row as u32 + 1,
         "line_end": node.end_position().row as u32 + 1,
+        "default_name": default_name,
+        "namespace_name": namespace_name,
+        "named": named,
     })
 }
+
+/// Collects the local names bound by one `import_statement`.
+///
+/// Returns the default import name, the namespace import name, and the sorted,
+/// deduplicated local names of named import specifiers (`import { a as b }`
+/// records `b`). Callers resolve call sites through these bindings, so the
+/// payload stays a faithful record of the module surface without executing it.
+fn import_bindings(node: Node, bytes: &[u8]) -> (Option<String>, Option<String>, Vec<String>) {
+    let mut default_name = None;
+    let mut namespace_name = None;
+    let mut named = Vec::new();
+
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        if child.kind() != "import_clause" {
+            continue;
+        }
+        let mut clause_cursor = child.walk();
+        for item in child.named_children(&mut clause_cursor) {
+            match item.kind() {
+                "identifier" => default_name = node_text(item, bytes),
+                "namespace_import" => {
+                    let mut namespace_cursor = item.walk();
+                    for candidate in item.named_children(&mut namespace_cursor) {
+                        if candidate.kind() == "identifier" {
+                            namespace_name = node_text(candidate, bytes);
+                        }
+                    }
+                }
+                "named_imports" => {
+                    let mut named_cursor = item.walk();
+                    for specifier in item.named_children(&mut named_cursor) {
+                        if specifier.kind() != "import_specifier" {
+                            continue;
+                        }
+                        let local = specifier
+                            .child_by_field_name("alias")
+                            .or_else(|| specifier.child_by_field_name("name"))
+                            .and_then(|child| node_text(child, bytes));
+                        if let Some(local) = local {
+                            named.push(local);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    named.sort();
+    named.dedup();
+    (default_name, namespace_name, named)
+}
+
+fn node_text(node: Node, bytes: &[u8]) -> Option<String> {
+    node.utf8_text(bytes).ok().map(ToString::to_string)
+}
+
+/// Records the static call sites of one declaration subtree.
+///
+/// Only statically named callees are recorded: identifiers (`login()`),
+/// member chains rooted in an identifier or `this` (`api.send()`,
+/// `this.refresh()`), `super` calls, and constructor invocations
+/// (`new Session()`). Computed calls (`handlers[key]()`), calls through
+/// parenthesized or call results (`factory()()`), and tags/JSX are omitted
+/// rather than guessed. Call sites are attributed to the declaration that
+/// contains them; nested class bodies are skipped because their members are
+/// separate declarations.
+fn collect_call_sites(node: Node, bytes: &[u8]) -> Vec<Value> {
+    let mut calls = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    collect_call_sites_inner(node, bytes, &mut calls, &mut seen);
+    calls
+}
+
+fn collect_call_sites_inner(
+    node: Node,
+    bytes: &[u8],
+    calls: &mut Vec<Value>,
+    seen: &mut std::collections::HashSet<(String, u32, u32)>,
+) {
+    if calls.len() >= MAX_CALL_SITES_PER_DECLARATION {
+        return;
+    }
+    if matches!(node.kind(), "class_declaration" | "class") {
+        return;
+    }
+    if let Some(payload) = call_site_payload(node, bytes)
+        && let Some(callee) = payload.get("callee").and_then(Value::as_str)
+    {
+        let key = (
+            callee.to_string(),
+            payload.get("line").and_then(Value::as_u64).unwrap_or(0) as u32,
+            payload.get("column").and_then(Value::as_u64).unwrap_or(0) as u32,
+        );
+        if seen.insert(key) {
+            calls.push(payload);
+        }
+    }
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        collect_call_sites_inner(child, bytes, calls, seen);
+    }
+}
+
+fn call_site_payload(node: Node, bytes: &[u8]) -> Option<Value> {
+    let (call_kind, callee_node) = match node.kind() {
+        "call_expression" => ("call", node.child_by_field_name("function")?),
+        "new_expression" => ("new", node.child_by_field_name("constructor")?),
+        _ => return None,
+    };
+    let callee = callee_path(callee_node, bytes)?;
+    let (name, receiver) = match callee.rsplit_once('.') {
+        Some((receiver, name)) => (name.to_string(), Some(receiver.to_string())),
+        None => (callee.clone(), None),
+    };
+    let start = callee_node.start_position();
+    let arg_count = node
+        .child_by_field_name("arguments")
+        .map_or(0, |arguments| arguments.named_child_count());
+
+    Some(json!({
+        "callee": callee,
+        "name": name,
+        "receiver": receiver,
+        "kind": call_kind,
+        "line": start.row as u32 + 1,
+        "column": start.column as u32 + 1,
+        "arg_count": arg_count,
+    }))
+}
+
+/// Normalizes a statically named callee into a dotted path.
+///
+/// Returns `None` for call shapes whose target cannot be named statically.
+fn callee_path(node: Node, bytes: &[u8]) -> Option<String> {
+    match node.kind() {
+        "identifier"
+        | "property_identifier"
+        | "private_property_identifier"
+        | "type_identifier"
+        | "this"
+        | "super" => node_text(node, bytes),
+        "member_expression" => {
+            let object = node.child_by_field_name("object")?;
+            let property = node.child_by_field_name("property")?;
+            let object_path = callee_path(object, bytes)?;
+            let property_path = callee_path(property, bytes)?;
+            Some(format!("{object_path}.{property_path}"))
+        }
+        _ => None,
+    }
+}
+
 
 fn export_payload(node: Node, bytes: &[u8]) -> Value {
     json!({
@@ -1226,6 +1476,139 @@ mod tests {
                 && !fact.ownership.is_empty()
                 && fact.kind == FactKind::SymbolDefined
         }));
+    }
+
+    #[tokio::test]
+    async fn records_import_bindings_for_default_named_and_namespace_imports() {
+        let output = JsTsExtractor
+            .extract(input(
+                "src/auth.ts",
+                "import api, { fetchUser as fetch, login } from './client';\nimport * as utils from './utils';\nimport './side-effect';\n",
+                "typescript",
+            ))
+            .await
+            .unwrap();
+
+        let module = output
+            .entities
+            .iter()
+            .find(|entity| entity.kind == EntityKind::Module)
+            .expect("module entity must exist");
+
+        assert_eq!(module.payload["imports"][0]["source"], "./client");
+        assert_eq!(module.payload["imports"][0]["default_name"], "api");
+        assert_eq!(module.payload["imports"][0]["named"][0], "fetch");
+        assert_eq!(module.payload["imports"][0]["named"][1], "login");
+        assert_eq!(module.payload["imports"][0]["namespace_name"], Value::Null);
+        assert_eq!(module.payload["imports"][1]["namespace_name"], "utils");
+        assert!(module.payload["imports"][1]["default_name"].is_null());
+        assert_eq!(
+            module.payload["imports"][1]["named"]
+                .as_array()
+                .expect("named imports array")
+                .len(),
+            0
+        );
+    }
+
+    #[tokio::test]
+    async fn records_class_extends_and_implements_heritage() {
+        let output = JsTsExtractor
+            .extract(input(
+                "src/service.ts",
+                "export class Service extends api.Base implements Store<K>, Closeable {}\nclass Plain {}\ninterface Store<T> {}\n",
+                "typescript",
+            ))
+            .await
+            .unwrap();
+
+        let service = output
+            .entities
+            .iter()
+            .find(|entity| entity.stable_key.0 == "symbol://js-ts:src/service.ts#Service")
+            .expect("class entity must exist");
+        assert_eq!(service.payload["extends"], "Base");
+        assert_eq!(
+            service.payload["implements"],
+            json!(["Store", "Closeable"]),
+            "generic arguments are stripped and declaration order is preserved"
+        );
+
+        let plain = output
+            .entities
+            .iter()
+            .find(|entity| entity.stable_key.0 == "symbol://js-ts:src/service.ts#Plain")
+            .expect("plain class entity must exist");
+        assert!(plain.payload.get("extends").is_none());
+        assert!(plain.payload.get("implements").is_none());
+    }
+
+    #[tokio::test]
+    async fn records_per_declaration_call_sites_with_lines_and_receivers() {
+        let output = JsTsExtractor
+            .extract(input(
+                "src/auth.ts",
+                "import api, { login } from './client';\nimport * as utils from './utils';\nexport function run() {\n  login();\n  api.send({ id: 1 });\n  utils.normalize(id);\n  return new Session().refresh();\n}\nclass Session { refresh() { login(); } }\n",
+                "typescript",
+            ))
+            .await
+            .unwrap();
+
+        let run = output
+            .entities
+            .iter()
+            .find(|entity| entity.stable_key.0 == "symbol://js-ts:src/auth.ts#run")
+            .expect("run declaration must exist");
+        let calls = run.payload["calls"].as_array().expect("calls array");
+
+        assert!(calls.iter().any(|call| {
+            call["callee"] == "login" && call["kind"] == "call" && call["line"].as_u64() == Some(4)
+        }));
+        assert!(calls.iter().any(|call| {
+            call["callee"] == "api.send"
+                && call["name"] == "send"
+                && call["receiver"] == "api"
+                && call["arg_count"].as_u64() == Some(1)
+        }));
+        assert!(calls.iter().any(|call| call["callee"] == "utils.normalize"));
+        assert!(calls.iter().any(|call| {
+            call["callee"] == "Session" && call["kind"] == "new" && call["line"].as_u64() == Some(7)
+        }));
+
+        let refresh = output
+            .entities
+            .iter()
+            .find(|entity| entity.stable_key.0 == "symbol://js-ts:src/auth.ts#Session.refresh")
+            .expect("method declaration must exist");
+        assert!(
+            refresh.payload["calls"]
+                .as_array()
+                .expect("calls array")
+                .iter()
+                .any(|call| call["callee"] == "login")
+        );
+    }
+
+    #[tokio::test]
+    async fn skips_computed_and_dynamic_call_targets() {
+        let output = JsTsExtractor
+            .extract(input(
+                "src/dispatch.ts",
+                "export function dispatch() {\n  handlers[key]();\n  registry[cacheKey].run();\n  run();\n}\n",
+                "typescript",
+            ))
+            .await
+            .unwrap();
+
+        let dispatch = output
+            .entities
+            .iter()
+            .find(|entity| entity.stable_key.0 == "symbol://js-ts:src/dispatch.ts#dispatch")
+            .expect("dispatch declaration must exist");
+        let calls = dispatch.payload["calls"].as_array().expect("calls array");
+
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0]["callee"], "run");
     }
 
     #[tokio::test]

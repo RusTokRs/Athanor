@@ -76,6 +76,7 @@ pub mod documentation_operations_operation;
 pub mod documentation_operations_profile;
 pub mod documentation_operations_publication;
 pub mod explain;
+pub mod explore;
 #[cfg(test)]
 mod fact_query_tests;
 pub mod generation;
@@ -254,6 +255,7 @@ pub use documentation_operations_operation::*;
 pub use documentation_operations_profile::*;
 pub use documentation_operations_publication::*;
 pub use explain::*;
+pub use explore::*;
 pub use generation::*;
 pub use graph::*;
 pub use graph_cooperative::*;

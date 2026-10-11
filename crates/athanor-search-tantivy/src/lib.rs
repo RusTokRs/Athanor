@@ -3,9 +3,9 @@
 pub mod semantic;
 
 pub use semantic::{
-    HashingEmbeddingProvider, SEMANTIC_EMBEDDING_DIM, SEMANTIC_VECTOR_FILE,
-    SEMANTIC_VECTOR_STORE_VERSION, SemanticVectorStore, cosine_similarity, embed_text,
-    embed_with_dim,
+    HashingEmbeddingProvider, SEMANTIC_EMBEDDING_DIM, SEMANTIC_MIN_SIMILARITY,
+    SEMANTIC_VECTOR_FILE, SEMANTIC_VECTOR_STORE_VERSION, SemanticVectorStore, cosine_similarity,
+    embed_text, embed_with_dim,
 };
 
 use std::path::{Path, PathBuf};
@@ -365,7 +365,7 @@ impl SearchIndex for TantivySearchIndex {
             let term = tantivy::Term::from_field_text(self.id_field, &id);
             let term_query = TermQuery::new(term, IndexRecordOption::Basic);
             let top_docs = searcher
-                .search(&term_query, &TopDocs::with_limit(1))
+                .search(&term_query, &TopDocs::with_limit(1).order_by_score())
                 .map_err(|error| CoreError::Adapter(format!("Tantivy search error: {error}")))?;
             let Some((_, address)) = top_docs.into_iter().next() else {
                 continue;

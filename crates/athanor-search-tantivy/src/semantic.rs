@@ -20,6 +20,14 @@ use serde_json::Value;
 pub const SEMANTIC_EMBEDDING_DIM: usize = 384;
 /// Sidecar file name inside the search index directory.
 pub const SEMANTIC_VECTOR_FILE: &str = "semantic-vectors.json";
+/// Minimum cosine similarity for a semantic hit to count as related.
+///
+/// Hashing-trick embeddings give every text a small nonzero similarity to every
+/// other text, so an unfiltered top-`limit` returns unrelated documents as soon
+/// as the corpus grows. The floor is calibrated against this crate's fixtures:
+/// unrelated short texts stay below it (at most 0.16 in the pinned cases) while
+/// related texts stay above it (at least 0.28).
+pub const SEMANTIC_MIN_SIMILARITY: f32 = 0.2;
 /// Bump when the embedding features or the sidecar layout change; stale sidecars
 /// are ignored on load.
 pub const SEMANTIC_VECTOR_STORE_VERSION: u32 = 1;
@@ -96,6 +104,9 @@ struct VectorStoreSnapshot {
     vectors: Vec<StoredVector>,
 }
 
+/// One embedded vector and its optional payload, as held by the in-memory map.
+type StoredEntry = (Vec<f32>, Option<Value>);
+
 /// In-memory semantic vector store with JSON sidecar persistence.
 ///
 /// Vectors are keyed by document id; payloads are optional so the store can back
@@ -103,7 +114,7 @@ struct VectorStoreSnapshot {
 /// `VectorIndex` port (payloads travel with the sidecar).
 pub struct SemanticVectorStore {
     dim: usize,
-    vectors: Mutex<HashMap<String, (Vec<f32>, Option<Value>)>>,
+    vectors: Mutex<HashMap<String, StoredEntry>>,
 }
 
 impl SemanticVectorStore {
@@ -151,10 +162,12 @@ impl SemanticVectorStore {
             return None;
         }
         let store = Self::new(snapshot.dim);
-        let mut vectors = store.vectors.lock().ok()?;
-        for stored in snapshot.vectors {
-            if stored.vector.len() == snapshot.dim {
-                vectors.insert(stored.id, (stored.vector, stored.payload));
+        {
+            let mut vectors = store.vectors.lock().ok()?;
+            for stored in snapshot.vectors {
+                if stored.vector.len() == snapshot.dim {
+                    vectors.insert(stored.id, (stored.vector, stored.payload));
+                }
             }
         }
         Some(store)
@@ -207,8 +220,9 @@ impl SemanticVectorStore {
             .and_then(|(_, payload)| payload.clone())
     }
 
-    /// Top-`limit` cosine matches, best first; ties break by id for determinism.
-    /// Non-positive similarities are treated as unrelated and filtered out.
+    /// Top-`limit` cosine matches at or above [`SEMANTIC_MIN_SIMILARITY`], best
+    /// first; ties break by id for determinism. Weak similarities are hashing
+    /// noise rather than evidence of relatedness, so they are dropped.
     pub fn search(&self, query: &[f32], limit: usize) -> Vec<(String, f32)> {
         if limit == 0 {
             return Vec::new();
@@ -219,7 +233,7 @@ impl SemanticVectorStore {
         let mut scored: Vec<(String, f32)> = vectors
             .iter()
             .map(|(id, (vector, _))| (id.clone(), cosine_similarity(query, vector)))
-            .filter(|(_, score)| *score > 0.0)
+            .filter(|(_, score)| *score >= SEMANTIC_MIN_SIMILARITY)
             .collect();
         scored.sort_by(|a, b| {
             b.1.partial_cmp(&a.1)
@@ -389,6 +403,26 @@ mod tests {
         loaded.remove("a");
         assert!(loaded.search(&embed_text("login auth"), 5).is_empty());
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn unrelated_documents_stay_out_of_semantic_hits() {
+        let store = SemanticVectorStore::from_documents(
+            SEMANTIC_EMBEDDING_DIM,
+            vec![
+                ("auth".to_string(), "authentication login".to_string()),
+                ("billing".to_string(), "payment gateway".to_string()),
+            ],
+        );
+        let hits = store.search(&embed_text("login auth"), 5);
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].0, "auth");
+        assert!(hits[0].1 >= SEMANTIC_MIN_SIMILARITY);
+        assert!(
+            store
+                .search(&embed_text("rollback schema migration"), 5)
+                .is_empty()
+        );
     }
 
     #[test]

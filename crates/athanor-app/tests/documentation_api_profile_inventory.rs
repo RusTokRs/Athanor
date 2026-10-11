@@ -71,7 +71,12 @@ fn api_profile_is_exact_scoped_cited_and_checksum_bound() {
     assert!(profile.document.content.contains("## API Relationships"));
     assert!(profile.document.content.contains("## API Diagnostics"));
     assert!(profile.document.content.contains("```mermaid"));
-    assert!(profile.document.content.contains("Slice 3B scope"));
+    assert!(
+        profile
+            .document
+            .content
+            .contains("- Scope: evidence-backed API endpoint/schema/example entities")
+    );
     assert!(!profile.document.content.contains("graphql_uses_fragment"));
     assert_eq!(
         profile.document.sha256,

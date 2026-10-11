@@ -196,6 +196,7 @@ fn is_read_tool(tool_name: &str) -> bool {
         "explain"
             | "overview"
             | "search"
+            | "explore"
             | "context"
             | "impact"
             | "change_map"
@@ -208,7 +209,7 @@ fn is_read_tool(tool_name: &str) -> bool {
 fn is_drained_operation_tool(tool_name: &str) -> bool {
     matches!(
         tool_name,
-        "search" | "context" | "change_map" | "rustok_architecture_context"
+        "search" | "explore" | "context" | "change_map" | "rustok_architecture_context"
     )
 }
 

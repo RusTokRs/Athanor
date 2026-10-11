@@ -54,16 +54,18 @@ enum OperationsCategory {
     Data,
     Configuration,
     Runbooks,
+    Monitoring,
 }
 
 impl OperationsCategory {
-    const ALL: [Self; 6] = [
+    const ALL: [Self; 7] = [
         Self::Environment,
         Self::Automation,
         Self::Deployment,
         Self::Data,
         Self::Configuration,
         Self::Runbooks,
+        Self::Monitoring,
     ];
 
     fn id(self) -> &'static str {
@@ -74,6 +76,7 @@ impl OperationsCategory {
             Self::Data => "data",
             Self::Configuration => "configuration",
             Self::Runbooks => "runbooks",
+            Self::Monitoring => "monitoring",
         }
     }
 
@@ -85,9 +88,59 @@ impl OperationsCategory {
             Self::Data => "data",
             Self::Configuration => "configuration",
             Self::Runbooks => "runbook",
+            Self::Monitoring => "monitoring",
         }
     }
 }
+
+/// Endpoint paths that are monitoring signals by convention.
+///
+/// The comparison is exact and case-sensitive so the category never drifts into a general API
+/// listing: a path either is one of these liveness, readiness, status, or metrics endpoints or it
+/// is not monitoring evidence.
+const MONITORING_ENDPOINT_PATHS: [&str; 15] = [
+    "/health",
+    "/healthz",
+    "/health/live",
+    "/health/ready",
+    "/healthcheck",
+    "/live",
+    "/livez",
+    "/ready",
+    "/readyz",
+    "/ping",
+    "/status",
+    "/metrics",
+    "/debug/metrics",
+    "/actuator/health",
+    "/actuator/prometheus",
+];
+
+/// Environment-variable prefixes that name telemetry configuration.
+const TELEMETRY_ENV_VAR_PREFIXES: [&str; 15] = [
+    "OTEL_",
+    "OTLP_",
+    "PROMETHEUS_",
+    "SENTRY_",
+    "DATADOG_",
+    "DD_",
+    "NEW_RELIC_",
+    "GRAFANA_",
+    "LOKI_",
+    "TEMPO_",
+    "JAEGER_",
+    "ELASTIC_APM_",
+    "HONEYCOMB_",
+    "SIGNALFX_",
+    "STATSD_",
+];
+
+/// Environment-variable names that configure logging, metrics, or tracing.
+const TELEMETRY_ENV_VAR_NAMES: [&str; 4] =
+    ["LOG_LEVEL", "RUST_LOG", "METRICS_PORT", "TELEMETRY_ENABLED"];
+
+/// Adapter-scoped route entity kinds whose payload records the declared route path.
+const ROUTE_ENTITY_KINDS: [&str; 3] = ["axum_route", "express_route", "nextjs_route"];
 
 #[derive(Debug, Clone)]
 struct OperationsEntityCandidate {
@@ -172,7 +225,7 @@ fn build_outline(request: &DocumentationGenerationRequest) -> DocumentationOutli
                 "inventory",
                 "Operations Inventory",
                 DocumentationSectionKind::Components,
-                "evidence-backed environment, automation, deployment, data, configuration, and runbook entities in deterministic category round-robin order",
+                "evidence-backed environment, automation, deployment, data, configuration, runbook, and monitoring entities in deterministic category round-robin order",
             ),
             outline_section(
                 "facts",
@@ -225,23 +278,22 @@ fn build_context(
         .collect::<BTreeMap<_, Vec<OperationsEntityCandidate>>>();
 
     for entity in &snapshot.entities {
-        let Some(category) = operations_category(&entity.kind) else {
-            continue;
-        };
-        let evidence = entity_evidence_locations(entity);
-        if evidence.is_empty() {
-            continue;
+        for category in operations_categories(entity) {
+            let evidence = entity_evidence_locations(entity);
+            if evidence.is_empty() {
+                continue;
+            }
+            buckets
+                .entry(category)
+                .or_default()
+                .push(OperationsEntityCandidate {
+                    entity_id: entity.id.0.clone(),
+                    stable_key: entity.stable_key.0.clone(),
+                    category,
+                    summary: entity_summary(entity, category),
+                    evidence,
+                });
         }
-        buckets
-            .entry(category)
-            .or_default()
-            .push(OperationsEntityCandidate {
-                entity_id: entity.id.0.clone(),
-                stable_key: entity.stable_key.0.clone(),
-                category,
-                summary: entity_summary(entity, category),
-                evidence,
-            });
     }
 
     let eligible_entities = buckets.values().map(Vec::len).sum::<usize>();
@@ -404,6 +456,61 @@ fn operations_category(kind: &EntityKind) -> Option<OperationsCategory> {
         EntityKind::Runbook | EntityKind::OperationStep => Some(OperationsCategory::Runbooks),
         _ => None,
     }
+}
+
+/// Returns every operations category an entity is evidence for.
+///
+/// The kind mapping gives at most one category. Monitoring is an overlay on top of it, because a
+/// telemetry environment variable is both environment and monitoring evidence and a declared health
+/// endpoint is monitoring evidence even though its adapter-scoped route kind is not an operations
+/// kind of its own.
+fn operations_categories(entity: &Entity) -> Vec<OperationsCategory> {
+    let mut categories = Vec::new();
+    if let Some(category) = operations_category(&entity.kind) {
+        categories.push(category);
+    }
+    if is_monitoring_evidence(entity) {
+        categories.push(OperationsCategory::Monitoring);
+    }
+    categories
+}
+
+/// Reports whether an entity is a monitoring signal: a declared health, status, or metrics endpoint,
+/// or an environment variable that configures telemetry.
+fn is_monitoring_evidence(entity: &Entity) -> bool {
+    match &entity.kind {
+        EntityKind::EnvVar => is_telemetry_env_var(&entity.name),
+        EntityKind::ApiEndpoint => monitoring_endpoint_path(entity).is_some(),
+        EntityKind::Other(kind) => {
+            ROUTE_ENTITY_KINDS.contains(&kind.as_str())
+                && monitoring_endpoint_path(entity).is_some()
+        }
+        _ => false,
+    }
+}
+
+/// Reads the declared route path of an endpoint or route entity and keeps it only when it is one of
+/// the bounded monitoring endpoint paths.
+fn monitoring_endpoint_path(entity: &Entity) -> Option<String> {
+    let path = entity
+        .payload
+        .get("path")
+        .or_else(|| entity.payload.get("route"))
+        .and_then(serde_json::Value::as_str)?;
+    let path = path.trim().trim_end_matches('/');
+    if MONITORING_ENDPOINT_PATHS.contains(&path) {
+        Some(path.to_string())
+    } else {
+        None
+    }
+}
+
+/// Reports whether an environment-variable name configures telemetry. Values are never read.
+fn is_telemetry_env_var(name: &str) -> bool {
+    TELEMETRY_ENV_VAR_NAMES.contains(&name)
+        || TELEMETRY_ENV_VAR_PREFIXES
+            .iter()
+            .any(|prefix| name.starts_with(prefix))
 }
 
 fn entity_summary(entity: &Entity, category: OperationsCategory) -> String {
@@ -863,7 +970,7 @@ fn render_markdown(context: &DocumentationContext, draft: &DocumentationDraft) -
         context.omitted.relations
     ));
     output.push_str(
-        "- Slice 4B scope: evidence-backed operational entities plus operations-scoped facts, supported definition/containment/documentation/environment/table relations, and open diagnostics; publication, Store loading, CLI, daemon, MCP, provider/LLM, and coordinated `ath generate` integration are deferred.\n\n",
+        "- Scope: evidence-backed operational entities plus operations-scoped facts, supported definition/containment/documentation/environment/table relations, and open diagnostics; the limits and omissions reported above bound every claim below.\n\n",
     );
 
     for section in &draft.sections {

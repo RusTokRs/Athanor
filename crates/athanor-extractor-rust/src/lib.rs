@@ -166,6 +166,45 @@ impl Extractor for RustExtractor {
             });
         }
 
+        // Trait implementations are recorded as facts (not entities) so marker impls
+        // without methods survive; the Rust linker turns them into `Implements` bridges.
+        let mut trait_impls = Vec::new();
+        collect_trait_impls(&syntax.items, &mut trait_impls);
+        for trait_impl in trait_impls {
+            let (line_start, line_end) = span_lines(trait_impl.span);
+            facts.push(Fact {
+                id: FactId(format!(
+                    "fact_trait_impl_{:016x}",
+                    stable_hash(
+                        format!(
+                            "{}::{}->{}",
+                            input.source.path, trait_impl.self_type, trait_impl.trait_path
+                        )
+                        .as_bytes()
+                    )
+                )),
+                kind: FactKind::SymbolDefined,
+                subject: file_id.clone(),
+                object: None,
+                value: json!({
+                    "symbol_kind": "trait_impl",
+                    "self_type": trait_impl.self_type,
+                    "trait_name": trait_impl.trait_name,
+                    "trait_path": trait_impl.trait_path,
+                }),
+                evidence: vec![evidence_for_file(
+                    &input.source.path,
+                    self.name(),
+                    Some(line_start),
+                    Some(line_end),
+                )],
+                ownership: ownership_for_file(&input.source.path),
+                snapshot: input.snapshot.clone(),
+                extractor: self.name().to_string(),
+                confidence: 1.0,
+            });
+        }
+
         // Environment variables extraction
         let mut env_visitor = EnvVarVisitor {
             current_parent: file_module_path.clone(),
@@ -502,6 +541,46 @@ fn collect_impl_items(item: &syn::ItemImpl, parent: &str, symbols: &mut Vec<Rust
     }
 }
 
+#[derive(Debug)]
+struct TraitImplRecord {
+    self_type: String,
+    trait_name: String,
+    trait_path: String,
+    span: Span,
+}
+
+/// Collect `impl Trait for Type` blocks (including nested modules) so trait
+/// implementations become `Implements` bridges even when the impl has no methods.
+fn collect_trait_impls(items: &[Item], out: &mut Vec<TraitImplRecord>) {
+    for item in items {
+        match item {
+            Item::Impl(item) => {
+                let Some((_, path, _)) = &item.trait_ else {
+                    continue;
+                };
+                let Some(self_type) = type_name(&item.self_ty) else {
+                    continue;
+                };
+                let Some(trait_segment) = path.segments.last() else {
+                    continue;
+                };
+                out.push(TraitImplRecord {
+                    self_type,
+                    trait_name: trait_segment.ident.to_string(),
+                    trait_path: path_to_string(path),
+                    span: item.span(),
+                });
+            }
+            Item::Mod(item) => {
+                if let Some((_, items)) = &item.content {
+                    collect_trait_impls(items, out);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 fn type_symbol(
     parent: &str,
     name: &str,
@@ -813,6 +892,55 @@ pub mod auth {
         assert!(keys.contains(&"symbol://rust:crate::auth"));
         assert!(keys.contains(&"symbol://rust:crate::auth::Login"));
         assert!(keys.contains(&"symbol://rust:crate::auth::Service::Login::login"));
+    }
+
+    #[tokio::test]
+    async fn records_trait_impl_facts_for_types_and_nested_modules() {
+        let output = RustExtractor
+            .extract(input(
+                "src/auth.rs",
+                r#"
+pub trait Login { fn login(&self); }
+pub trait Marker {}
+pub struct Session;
+impl Login for Session {
+    fn login(&self) {}
+}
+impl Marker for Session {}
+pub mod nested {
+    pub struct Token;
+    impl super::Marker for Token {}
+}
+"#,
+            ))
+            .await
+            .unwrap();
+
+        let impls = output
+            .facts
+            .iter()
+            .filter(|fact| {
+                fact.value.get("symbol_kind").and_then(|value| value.as_str()) == Some("trait_impl")
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(impls.len(), 3);
+        assert!(impls.iter().any(|fact| {
+            fact.value["self_type"] == "Session"
+                && fact.value["trait_name"] == "Login"
+                && fact.value["trait_path"] == "Login"
+        }));
+        // Marker impls have no methods, so the fact is the only anchor.
+        assert!(impls.iter().any(|fact| {
+            fact.value["self_type"] == "Session" && fact.value["trait_name"] == "Marker"
+        }));
+        assert!(impls.iter().any(|fact| {
+            fact.value["self_type"] == "Token" && fact.value["trait_name"] == "Marker"
+        }));
+        assert!(impls.iter().all(|fact| {
+            !fact.evidence.is_empty()
+                && fact.evidence[0].source_file.as_deref() == Some("src/auth.rs")
+                && fact.extractor == "rust"
+        }));
     }
 
     #[tokio::test]

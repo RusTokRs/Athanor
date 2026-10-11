@@ -79,7 +79,12 @@ fn operations_profile_is_exact_scoped_cited_and_checksum_bound() {
             .contains("## Operations Diagnostics")
     );
     assert!(profile.document.content.contains("```mermaid"));
-    assert!(profile.document.content.contains("Slice 4B scope"));
+    assert!(
+        profile
+            .document
+            .content
+            .contains("- Scope: evidence-backed operational entities")
+    );
     assert!(!profile.document.content.contains("depends_on_runtime"));
     assert_eq!(
         profile.document.sha256,
@@ -374,6 +379,90 @@ fn operations_profile_fails_closed_for_wrong_identity_or_missing_surface() {
             .to_string()
             .contains("has no evidence-backed operational entity")
     );
+}
+
+#[test]
+fn monitoring_category_is_derived_from_declared_endpoints_and_telemetry_variables() {
+    let snapshot = CanonicalSnapshot {
+        snapshot: Some(SnapshotId("snap-operations-0001".to_string())),
+        entities: vec![
+            entity(
+                "LOG_LEVEL",
+                "env://LOG_LEVEL",
+                EntityKind::EnvVar,
+                "config/runtime.env",
+                json!({}),
+            ),
+            entity(
+                "OTEL_EXPORTER_OTLP_ENDPOINT",
+                "env://OTEL_EXPORTER_OTLP_ENDPOINT",
+                EntityKind::EnvVar,
+                "config/runtime.env",
+                json!({}),
+            ),
+            entity(
+                "DATABASE_URL",
+                "env://DATABASE_URL",
+                EntityKind::EnvVar,
+                "config/runtime.env",
+                json!({}),
+            ),
+            entity(
+                "route-health",
+                "axum-route://src/http/routes.rs#GET:/health:health",
+                EntityKind::Other("axum_route".to_string()),
+                "src/http/routes.rs",
+                json!({"path": "/health"}),
+            ),
+            entity(
+                "route-users",
+                "axum-route://src/http/routes.rs#GET:/users:list_users",
+                EntityKind::Other("axum_route".to_string()),
+                "src/http/routes.rs",
+                json!({"path": "/users"}),
+            ),
+            entity(
+                "endpoint-metrics",
+                "api://GET:/metrics",
+                EntityKind::ApiEndpoint,
+                "openapi.yaml",
+                json!({"path": "/metrics/"}),
+            ),
+            entity(
+                "endpoint-users",
+                "api://GET:/users",
+                EntityKind::ApiEndpoint,
+                "openapi.yaml",
+                json!({"path": "/users"}),
+            ),
+        ],
+        facts: Vec::new(),
+        relations: Vec::new(),
+        diagnostics: Vec::new(),
+    };
+
+    let profile = build_documentation_operations_profile(&request(16), &snapshot).unwrap();
+
+    assert_eq!(
+        count_kind(&profile, DocumentationContextItemKind::Entity),
+        7
+    );
+    assert_eq!(
+        stable_keys_for_prefix(&profile, "operations-monitoring-"),
+        vec![
+            "api://GET:/metrics".to_string(),
+            "axum-route://src/http/routes.rs#GET:/health:health".to_string(),
+            "env://LOG_LEVEL".to_string(),
+            "env://OTEL_EXPORTER_OTLP_ENDPOINT".to_string(),
+        ]
+    );
+    // A telemetry variable stays environment evidence, and an endpoint or variable without a
+    // monitoring signal never enters the category.
+    let environment = stable_keys_for_prefix(&profile, "operations-environment-");
+    assert!(environment.contains(&"env://LOG_LEVEL".to_string()));
+    assert!(environment.contains(&"env://DATABASE_URL".to_string()));
+    assert!(profile.document.content.contains("monitoring `"));
+    assert!(profile.document.content.contains("## Operations Inventory"));
 }
 
 fn operations_snapshot() -> CanonicalSnapshot {
@@ -749,6 +838,21 @@ fn count_kind(
         .iter()
         .filter(|item| item.kind == kind)
         .count()
+}
+
+fn stable_keys_for_prefix(
+    profile: &athanor_app::DocumentationOperationsProfile,
+    prefix: &str,
+) -> Vec<String> {
+    let mut keys = profile
+        .context
+        .items
+        .iter()
+        .filter(|item| item.id.starts_with(prefix))
+        .flat_map(|item| item.stable_keys.clone())
+        .collect::<Vec<_>>();
+    keys.sort();
+    keys
 }
 
 fn sha256_hex(content: &[u8]) -> String {

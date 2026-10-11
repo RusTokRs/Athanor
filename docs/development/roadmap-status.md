@@ -84,12 +84,10 @@ and PR CI `33723374660` confirmed formatting, workspace tests, and Clippy green 
 ### Slice 8F adds bounded first-party runtime artifact projections for the root `install.sh` and
 `scripts/verify_release_version.py`.
 
-### Slice 8G adds a bounded first-party projection for the repository-root `install.ps1`. It records only the
-Windows installer entry point, `ath.exe`/`athd.exe`, `SHA256SUMS`, and SHA-256 verification through
-`Get-FileHash`; runtime install paths, environment values, filesystem state, and generic PowerShell semantics
-remain out of scope. The operations extractor emits one `ScriptCommand` per artifact with exact local contract
-anchors, source evidence, ownership, and fail-closed drift behavior. It does not execute shell/Python or expose
-runtime values and paths.
+### Slice 8G adds a bounded first-party projection for the repository-root `install.ps1`: the Windows installer
+entry point, `ath.exe`/`athd.exe`, `SHA256SUMS`, and `Get-FileHash` verification as one `ScriptCommand` with
+contract anchors and source evidence. Runtime paths, environment values, filesystem state, and generic
+PowerShell semantics remain out of scope, and nothing is executed.
 
 ### Slice 8H adds a bounded first-party projection for single-level `.github/ISSUE_TEMPLATE/*.yml|yaml` files.
 It records form identity and bounded body-field metadata with evidence, rejects nested paths and empty form
@@ -162,6 +160,20 @@ gap, the typo-named `for agents. md` briefing, was fixed by renaming it to
 
 ## Active Work
 
+### `PARITY-001` — CodeGraph-Parity Code Intelligence
+
+- [x] Slice P1: JS/TS call graph — import bindings, static call sites, `builtin.linker.js_ts_calls`.
+- [x] Slice P2: `implements` bridges — Rust `trait_impl` facts plus JS/TS class heritage.
+- [x] Slice P3: `builtin.extractor.treesitter` plus `builtin.linker.treesitter` host and resolve
+  receiver-qualified Python and Go packs, with a per-language coverage measurement published.
+- [x] Slice P4: deterministic operations documentation — DOCGEN-001 4A–4C; the monitoring category
+  derives declared health/metrics endpoints and telemetry variable names, with probes/alerts still open.
+- [x] Slice P5: bounded `explore` MCP query — ranked entries, one-hop relations, citations, budgets.
+- Verified exact-commit evidence: run `38152033388` on `191c65e` (P1, P2, P5), run `38157055780` on
+  `e07547e` (P3 engine and packs), run `38160162759` on `69d8918` (P4b monitoring), and run `38165153178`
+  on `09ce6ab` (P3 cross-file linker) report every log PASSED with a `rustfmt` diff of 0 lines, and each
+  commit's check matrix is fully successful or intentionally skipped.
+
 ### `DOCGEN-001` — Evidence-Backed Documentation Generation
 
 - [x] Slices 0A–1C: contracts, architecture profile, immutable publication, exact Store, CLI/inspection;
@@ -201,9 +213,8 @@ The existing coordinated `ath generate` command remains unchanged.
 - [x] run exact cross-platform execution verification for Slices 7A–7C on one exact `main` source commit;
 - [x] select the next bounded semantic gap from the exact post-gate artifact: Slice 8I first-party agent-tool MCP configuration;
 - [x] rename the typo-named `for agents. md` audit briefing to `architecture_audit_briefing_ru.md` (`0b42c28…`);
-- [x] start the semantic retrieval slice: local hashing embeddings implement the `EmbeddingProvider`/`VectorIndex` ports, persist in a JSON sidecar beside the Tantivy index, and expose `lexical`/`semantic`/`hybrid` modes in `ath search --mode` and MCP `search`;
-- [ ] keep issue forms and OpenAPI fixtures out unless independently justified by product semantics;
-- [ ] do not add generic JSON/fixture parsing solely to raise coverage;
+- [x] start the semantic retrieval slice: local hashing embeddings implement the `EmbeddingProvider`/`VectorIndex` ports, persist in a JSON sidecar beside the Tantivy index, expose `lexical`/`semantic`/`hybrid` modes in `ath search --mode` and MCP `search`, and keep only hits at or above `SEMANTIC_MIN_SIMILARITY` (0.2 cosine) so unrelated documents are not returned as hashing noise;
+- [ ] keep issue forms, OpenAPI fixtures, and generic JSON parsing out unless justified by product semantics;
 - [ ] keep Next.js/Axum/Express schemas/auth/middleware and route-composition expansion evidence-driven;
 - Dart/Flutter remains blocked on a portable DartScope dependency boundary rather than a local-only path dependency;
 - optional i18n, provider, daemon, and MCP integration after quality gates; semantic/vector retrieval is in progress (local hashing embeddings + hybrid `ath search`/MCP `search` modes).

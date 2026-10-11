@@ -89,6 +89,8 @@ fn default_html_projector(
     Ok(())
 }
 
+/// The adapter subset the unit-test composition needs, not a mirror of the production registry:
+/// app tests pin exact outputs, so they register only the adapters they exercise.
 fn default_adapter_registry() -> AdapterRegistry {
     AdapterRegistry::empty()
         .register_source_id("builtin.source.local_filesystem", |root| {

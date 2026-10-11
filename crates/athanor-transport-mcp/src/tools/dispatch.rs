@@ -6,10 +6,14 @@ use athanor_app::{
     CapabilitiesOptions, ChangeMapOptions, ContextLimitOverrides, ContextOptions,
     DEFAULT_CAPABILITIES_LIMIT, DEFAULT_CONFIDENCE_THRESHOLD, DiagnosticCheckOptions,
     DiagnosticScope, ExplainOptions, ImpactOptions, IndexOptions, OverviewOptions,
-    RuntimeComposition, RustokArchitectureContextOptions, SearchMode, SearchOptions,
+    RuntimeComposition, RustokArchitectureContextOptions, SearchOptions,
 };
 use athanor_core::{CoreError, CoreErrorCode, OperationContext, OperationContextCancellation};
 use serde_json::{Value, json};
+
+use super::args::{
+    bool_arg, optional_string_arg, optional_usize_arg, search_mode_arg, string_arg, usize_arg,
+};
 
 pub(crate) fn call<'a>(
     root: &'a Path,
@@ -70,11 +74,28 @@ async fn call_inner(
             serde_json::to_string_pretty(&report)?
         }
         "search" => {
+            let mode = search_mode_arg(&args);
             let report = athanor_app::search_project_with_composition_and_operation_context(
                 SearchOptions {
                     root: root.to_path_buf(),
                     query: string_arg(&args, "query")?,
                     limit: usize_arg(&args, "limit", 10),
+                    mode,
+                },
+                composition,
+                operation,
+            )
+            .await?;
+            serde_json::to_string_pretty(&report)?
+        }
+        "explore" => {
+            let report = athanor_app::explore_project_with_composition_and_operation_context(
+                athanor_app::ExploreOptions {
+                    root: root.to_path_buf(),
+                    query: string_arg(&args, "query")?,
+                    entries: usize_arg(&args, "entries", athanor_app::DEFAULT_EXPLORE_ENTRIES),
+                    links: usize_arg(&args, "links", athanor_app::DEFAULT_EXPLORE_LINKS),
+                    mode: search_mode_arg(&args),
                 },
                 composition,
                 operation,
@@ -244,35 +265,6 @@ pub(crate) fn rpc_error(error: &anyhow::Error) -> Value {
             "retryable": retryable
         }
     })
-}
-
-fn string_arg(args: &Value, name: &str) -> Result<String> {
-    args.get(name)
-        .and_then(Value::as_str)
-        .filter(|value| !value.trim().is_empty())
-        .map(str::to_string)
-        .with_context(|| format!("missing {name}"))
-}
-
-fn optional_string_arg(args: &Value, name: &str) -> Option<String> {
-    args.get(name)
-        .and_then(Value::as_str)
-        .filter(|value| !value.trim().is_empty())
-        .map(str::to_string)
-}
-
-fn bool_arg(args: &Value, name: &str, default: bool) -> bool {
-    args.get(name).and_then(Value::as_bool).unwrap_or(default)
-}
-
-fn optional_usize_arg(args: &Value, name: &str) -> Option<usize> {
-    args.get(name)
-        .and_then(Value::as_u64)
-        .and_then(|value| usize::try_from(value).ok())
-}
-
-fn usize_arg(args: &Value, name: &str, default: usize) -> usize {
-    optional_usize_arg(args, name).unwrap_or(default)
 }
 
 fn core_error_code_name(code: CoreErrorCode) -> &'static str {

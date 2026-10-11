@@ -24,10 +24,12 @@ use athanor_extractor_markdown::MarkdownExtractor;
 use athanor_extractor_openapi::OpenApiExtractor;
 use athanor_extractor_operations::OperationsExtractor;
 use athanor_extractor_rust::{AxumExtractor, RustExtractor};
+use athanor_extractor_treesitter::TreeSitterExtractor;
 use athanor_linker_api::ApiKnowledgeLinker;
-use athanor_linker_js_ts::JsTsImportLinker;
+use athanor_linker_js_ts::{JsTsCallLinker, JsTsImplementsLinker, JsTsImportLinker};
 use athanor_linker_markdown::MarkdownContainmentLinker;
 use athanor_linker_rust::RustLinker;
+use athanor_linker_treesitter::TreeSitterLinker;
 use athanor_source_fs::LocalFileSystemSource;
 
 use crate::projector_operation::publish_projector_output_cancellable;
@@ -175,6 +177,9 @@ pub fn default_adapter_registry() -> AdapterRegistry {
         .register_extractor_id("builtin.extractor.express", || Box::new(ExpressExtractor))
         .register_extractor_id("builtin.extractor.rust", || Box::new(RustExtractor))
         .register_extractor_id("builtin.extractor.axum", || Box::new(AxumExtractor))
+        .register_extractor_id("builtin.extractor.treesitter", || {
+            Box::new(TreeSitterExtractor)
+        })
         .register_linker_id("builtin.linker.markdown_containment", || {
             Box::new(MarkdownContainmentLinker)
         })
@@ -184,7 +189,12 @@ pub fn default_adapter_registry() -> AdapterRegistry {
         .register_linker_id("builtin.linker.js_ts_imports", || {
             Box::new(JsTsImportLinker)
         })
+        .register_linker_id("builtin.linker.js_ts_calls", || Box::new(JsTsCallLinker))
+        .register_linker_id("builtin.linker.js_ts_implements", || {
+            Box::new(JsTsImplementsLinker)
+        })
         .register_linker_id("builtin.linker.rust", || Box::new(RustLinker))
+        .register_linker_id("builtin.linker.treesitter", || Box::new(TreeSitterLinker))
         .register_checker_id("builtin.checker.markdown_structure", || {
             Box::new(MarkdownStructureChecker)
         })
@@ -252,6 +262,14 @@ pub fn resolve_builtin_adapter(
         (AdapterPluginKind::Extractor, "builtin.extractor.axum") => Some(
             registry.register_extractor_id("builtin.extractor.axum", || Box::new(AxumExtractor)),
         ),
+        (AdapterPluginKind::Extractor, "builtin.extractor.treesitter") => Some(
+            registry.register_extractor_id("builtin.extractor.treesitter", || {
+                Box::new(TreeSitterExtractor)
+            }),
+        ),
+        (AdapterPluginKind::Linker, "builtin.linker.treesitter") => Some(
+            registry.register_linker_id("builtin.linker.treesitter", || Box::new(TreeSitterLinker)),
+        ),
         (AdapterPluginKind::Extractor, "builtin.extractor.rustok_ffa") => Some(
             registry.register_extractor_id("builtin.extractor.rustok_ffa", || {
                 Box::new(RustokFfaExtractor)
@@ -280,6 +298,14 @@ pub fn resolve_builtin_adapter(
         (AdapterPluginKind::Linker, "builtin.linker.js_ts_imports") => Some(
             registry.register_linker_id("builtin.linker.js_ts_imports", || {
                 Box::new(JsTsImportLinker)
+            }),
+        ),
+        (AdapterPluginKind::Linker, "builtin.linker.js_ts_calls") => Some(
+            registry.register_linker_id("builtin.linker.js_ts_calls", || Box::new(JsTsCallLinker)),
+        ),
+        (AdapterPluginKind::Linker, "builtin.linker.js_ts_implements") => Some(
+            registry.register_linker_id("builtin.linker.js_ts_implements", || {
+                Box::new(JsTsImplementsLinker)
             }),
         ),
         (AdapterPluginKind::Linker, "builtin.linker.rust") => {

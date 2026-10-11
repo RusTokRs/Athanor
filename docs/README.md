@@ -30,6 +30,7 @@ verification. Exact package evidence lives in `athanor_implementation_plan_ru.md
 - [Direct operation context](development/direct-operation-context.md)
 - [JSON contract inventory](development/json-contract-inventory.md)
 - [Evidence-backed documentation generation](development/evidence-backed-documentation-generation-plan.md)
+- [Code intelligence parity and operational documentation](development/code-intelligence-parity-plan.md)
 
 ## Development And Governance
 
@@ -52,10 +53,12 @@ Extraction: [basic](adapters/extractor-basic.md), [Markdown](adapters/extractor-
 [JavaScript/TypeScript](adapters/extractor-js-ts.md), [Next.js](adapters/extractor-nextjs.md),
 [Express](adapters/extractor-express.md), [OpenAPI](adapters/extractor-openapi.md),
 [GraphQL](adapters/extractor-graphql.md), [operations](adapters/extractor-operations.md),
-[install script](adapters/install-script.md), and [release version verifier](adapters/release-version-verifier.md).
+[Python/Go tree-sitter](adapters/extractor-treesitter.md), [install script](adapters/install-script.md),
+and [release version verifier](adapters/release-version-verifier.md).
 
 Linking/checking: [Markdown linker](adapters/linker-markdown.md),
 [Rust linker](adapters/linker-rust.md), [JS/TS linker](adapters/linker-js-ts.md),
+[Python/Go tree-sitter linker](adapters/linker-treesitter.md),
 [API linker](adapters/linker-api.md), [Markdown checker](adapters/checker-markdown.md), and
 [API/operations checker](adapters/checker-api.md).
 

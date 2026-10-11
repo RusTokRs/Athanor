@@ -54,6 +54,20 @@ pub(crate) fn list() -> Value {
                 }
             },
             {
+                "name": "explore",
+                "description": "Answer one code question in a single call: ranked entry entities with portable source anchors, citation evidence, and the one-hop relation neighbourhood in both directions.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "query": { "type": "string" },
+                        "entries": { "type": "integer", "minimum": 1, "description": "Entry entities, default 5, max 20." },
+                        "links": { "type": "integer", "minimum": 1, "description": "Relations per entry and direction, default 8, max 40." },
+                        "mode": { "type": "string", "enum": ["lexical", "semantic", "hybrid"], "description": "Retrieval mode, default lexical." }
+                    },
+                    "required": ["query"]
+                }
+            },
+            {
                 "name": "context",
                 "description": "Build a task-focused context pack from the latest canonical snapshot.",
                 "inputSchema": {
@@ -175,7 +189,7 @@ mod tests {
     #[test]
     fn tool_list_has_deadline_on_every_tool() {
         let tools = list()["tools"].as_array().unwrap().clone();
-        assert_eq!(tools.len(), 10);
+        assert_eq!(tools.len(), 11);
         assert!(tools.iter().all(|tool| {
             tool["inputSchema"]["properties"]
                 .get("deadline_unix_ms")

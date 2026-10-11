@@ -13,46 +13,57 @@ substantive release notes.
 
 ### Added
 
-- Add strict versioned request and manifest contracts for evidence-backed documentation generation,
-  binding output to an exact snapshot, supported profile, hard input limits, omitted counts, portable
-  relative paths, and SHA-256 checksums without adding a provider dependency.
-- Add versioned outline, bounded context, citation, structured draft, and validation-report contracts
-  with stable-key/evidence traceability, explicit inference, relation-backed diagram edges, data policy,
-  deterministic quality metrics, and provider-cost fields.
+- Add `Implements` bridges for Rust and JS/TS: Rust records every `impl Trait for Type` block as a
+  `trait_impl` fact and links unique type/trait names, and JS/TS records class heritage for the bridge.
+- Add the bounded `explore` MCP tool: one query returns ranked entries, citations, and one-hop relations.
+- Add `builtin.extractor.treesitter` over Python and Go: one data-driven engine records declarations,
+  receiver-qualified methods and other declarations, imports, exports, and statically named call sites.
+- Add `builtin.linker.treesitter`: Python and Go imports, cross-file calls through package units,
+  receiver variables, and import bindings, test bridges, and a per-language coverage measurement.
+- Add a monitoring operations category: the operations profile derives declared health, status, and
+  metrics endpoints and telemetry variable names from canonical evidence; probes, alerts, dashboards,
+  and SLOs stay absent until they have an evidence source.
+- Add the JavaScript/TypeScript call graph. The JS/TS extractor records each import statement's local
+  bindings (`default_name`, `namespace_name`, `named`) and a bounded `calls` array per function,
+  method, and variable-bound function declaration with the statically named callee, receiver, kind,
+  argument count, and line/column. `builtin.linker.js_ts_calls` resolves those call sites into
+  evidence-backed `Calls` relations (same-module, `this.` member, imported binding, and unique-name
+  fallbacks) and emits `TestedBy` when a test-location declaration calls production code.
+- Add strict versioned request, outline, context, citation, draft, manifest, and validation-report
+  contracts for evidence-backed documentation generation: exact snapshot binding, portable paths,
+  stable-key/evidence traceability, cited diagram edges, metrics, and checksums.
 - Add a minimal fixture repository and Rustok evaluation corpus with expected sections, citation paths,
   diagram edges, known gaps, repeatability, unsupported-relation disclosure, and review criteria.
 - Add a deterministic architecture profile that converts one explicit canonical snapshot into cited
-  Markdown, relation-backed Mermaid source, omission disclosure, evidence footnotes, quality metrics,
-  and checksum identity without store, network, or model access.
+  Markdown, relation-backed Mermaid, omission disclosure, footnotes, metrics, and checksums.
 - Add an application-layer immutable documentation publisher with staged generation directories,
-  checksum-bound Markdown and validation artifacts, an atomic `documentation/current.json` pointer,
-  exact `UpToDate` reuse, explicit `force`, and cancellation-safe pointer preservation.
+  checksum-bound artifacts, an atomic `documentation/current.json` pointer, and exact `UpToDate` reuse.
 - Add `ath docs generate-architecture` for one exact committed snapshot with hard-limit flags, `--force`,
   text/JSON reports, and Ctrl-C cancellation; the existing coordinated `ath generate` remains unchanged.
 - Add validated `ath docs architecture current`, `manifest`, and `validation` inspection commands that
   reject pointer escape, identity drift, unsupported artifact layouts, and checksum mismatch.
 - Add `overview` and `capabilities` MCP tools exposing the repository overview and the bounded
   analysis-completeness report to MCP clients.
-- Add a bounded first-party projection for agent-tool MCP configuration: the root `.codex.json` and
-  `antigravity.json` files project one `ScriptCommand` per configured MCP server with the agent
-  tool, server name, and literal command plus argument tokens, each with source evidence and
-  ownership, while malformed or partially supported files are rejected atomically.
-- Add local semantic retrieval with zero new dependencies: hashing-trick embeddings (character
-  trigrams plus word n-grams, FNV-1a signed buckets) implement the `EmbeddingProvider` and
-  `VectorIndex` ports, persist in a JSON sidecar next to the Tantivy index, and power new
-  `semantic` and `hybrid` search modes in `ath search --mode` and the MCP `search` tool; `lexical`
-  BM25 remains the default, and hybrid merges min-max-normalized lexical and cosine scores.
+- Add a bounded first-party projection for agent-tool MCP configuration: `.codex.json` and
+  `antigravity.json` project one `ScriptCommand` per server, with evidence and ownership.
+- Add local semantic retrieval with zero new dependencies: hashing-trick embeddings over character
+  trigrams and word n-grams (FNV-1a buckets) power `ath search --mode semantic|hybrid` and MCP `search`.
 
 ### Fixed
 
+- Stop generated module/API/operations/onboarding documents from claiming shipped publication, Store
+  loading, CLI, and transport integration; headers name the deferred scope and its limits.
 - Reject Windows drive paths, reserved device names, trailing-dot/space components, and
   case-insensitive output-path collisions before documentation artifacts can be published.
 - Reject raw-file/secret context access, out-of-context citations and diagram endpoints, uncited factual
-  claims, malformed evidence ranges, provider metrics without opt-in, and inconsistent valid reports.
-- Reject incomplete or self-consistent-but-tampered documentation manifests and generated artifacts as
-  up to date; rebuild into a new immutable generation while retaining publication history.
+  claims, malformed evidence ranges, provider metrics without opt-in, and inconsistent valid reports;
+  reject tampered manifests/artifacts as up to date and rebuild instead of reusing them.
 - Reject missing or uncommitted documentation snapshot IDs instead of falling back to the latest visible
   snapshot, and preserve the previous current pointer when CLI generation is cancelled.
+- Restore the bounded snapshot-search module and rebuild the workspace after the semantic-search slice:
+  mode dispatch and hybrid ranking move to `search/execution.rs`, `execute_search` is re-exported, and
+  `athanor-search-tantivy` compiles again with the declared `serde` dependency and score-ordered
+  `TopDocs`; semantic hits are floored at 0.2 cosine similarity.
 
 ## [0.2.1] - 2026-07-23
 

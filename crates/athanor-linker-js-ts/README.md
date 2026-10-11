@@ -1,32 +1,65 @@
 # athanor-linker-js-ts
 
-JavaScript and TypeScript import linker adapter.
+JavaScript and TypeScript linkers: module imports and the static call graph.
 
 Implements: `Linker`
 
+Adapter ids: `builtin.linker.js_ts_imports`, `builtin.linker.js_ts_calls`
+
 ## What It Emits
+
+`JsTsImportLinker` emits:
 
 - `RelationKind::Imports` from a JS/TS module to an existing local JS/TS module when a static
   relative import resolves exactly.
 
-Relations are verified, evidence-backed by the import source range and target module, and owned by
-both source files.
+`JsTsCallLinker` emits:
 
-## Resolution
+- `RelationKind::Calls` from a calling declaration to a resolved declaration, when the call site is
+  statically named and resolution has evidence.
+- `RelationKind::TestedBy` from a tested declaration to a declaration in a test location that calls
+  it.
 
-The linker resolves `./` and `../` imports against canonical JS/TS module paths. It supports exact
-paths, extensionless source paths, and directory `index` modules for `.js`, `.jsx`, `.mjs`, `.cjs`,
-`.ts`, `.tsx`, `.mts`, and `.cts`.
+Import relations are verified; call relations are inferred, because JavaScript dispatch is dynamic
+even when the call shape is static. Every relation is evidence-backed, owned by both source files,
+and carries the matched value plus the resolution reason.
+
+## Import Resolution
+
+The import linker resolves `./` and `../` imports against canonical JS/TS module paths. It supports
+exact paths, extensionless source paths, and directory `index` modules for `.js`, `.jsx`, `.mjs`,
+`.cjs`, `.ts`, `.tsx`, `.mts`, and `.cts`.
+
+## Call Resolution
+
+The call linker consumes the bounded `calls` arrays and the import bindings that
+`athanor-extractor-js-ts` records per declaration, and resolves each call site in this order:
+
+1. `same_module_this_method` — `this.method()` inside `Class.method`.
+2. `same_module_exact_name` — exact qualified name inside the calling module.
+3. `imported_exact_name` / `imported_symbol_name` — through a default, namespace, or named import
+   binding of the calling module.
+4. `same_module_member_name` — a unique member name inside the calling module.
+5. `unique_exported_name` — a unique exported declaration elsewhere in the snapshot.
+
+Steps 4 and 5 accept a candidate only when it is unique, so ambiguity stays unresolved. Confidence
+runs from `0.9` for an exact same-module match down to `0.5` for a unique name match, and the payload
+records the callee, call kind, resolution reason, line, and column. Output is sorted by relation id
+and capped at 10,000 relations per snapshot.
 
 ## Side Effects
 
-None. The adapter does not read files, run commands, use the network, or modify project files.
+None. Both linkers read canonical entities and write relations. They do not read files, run commands,
+use the network, or modify project files.
 
 ## Limitations
 
 - Package, workspace alias, TypeScript path alias, and Node built-in imports are not linked.
-- Dynamic `import()`, CommonJS `require()`, and symbol-level imported bindings are not linked.
-- Export and re-export relations are deferred.
+- Dynamic `import()`, CommonJS `require()`, and export/re-export relations are not linked.
+- Computed calls (`handlers[key]()`), calls through call results, reflective dispatch, and receiver
+  typing are not resolved.
+- Test detection is location-based because no test framework runs: `.test.`/`.spec.` file names and
+  `tests`/`test`/`__tests__`/`e2e` directories.
 
 ## Test
 

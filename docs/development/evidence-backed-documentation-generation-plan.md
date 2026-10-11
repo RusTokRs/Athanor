@@ -125,6 +125,9 @@ or layout drift, invalid validation status, and checksum drift.
 - Slices 4A–4B establish the pure exact-snapshot operations profile over evidence-backed `EnvVar`,
   script/CI, deployment, database, configuration, runbook, and operation-step entities; general
   `Package`/`Dependency` entities remain outside the bounded inventory.
+- The monitoring category is an overlay on that inventory: declared health, status, and metrics
+  endpoints plus telemetry environment-variable names, matched by exact path or by prefix. No variable
+  value is read, and probes, alerts, dashboards, and SLOs stay absent until they have an evidence source.
 - Facts are scoped by selected operations anchors. Supported relations are `Defines`, `Contains`,
   `Documents`, `DocumentsOperation`, `UsesEnv`, and `QueriesTable`; open diagnostics require an anchor.
 - Shared portable evidence normalization, per-kind limits, aggregate `DOCUMENTATION_REFERENCE_LIMIT = 256`,

@@ -23,11 +23,17 @@ previously verified framework-neutral Rust extractor surface.
 
 Stable keys use the `symbol://rust:` namespace and a collision-resistant crate/module prefix derived from the project-relative source path. Workspace member directory names become crate names with hyphens normalized to underscores. Parser spans provide line evidence; every entity and fact is owned by the source file for incremental replacement.
 
+Every `impl Trait for Type` block is recorded as a `symbol_defined` fact with
+`symbol_kind: "trait_impl"`, the implementing type name, the trait name, and the trait path as
+written. Marker implementations without methods are recorded too, because the fact — not a method
+symbol — is the anchor; the Rust linker turns these facts into `Implements` bridges.
+
 Environment variables are detected from common Rust calls such as `std::env::var`,
 `std::env::var_os`, and `option_env!`, then emitted as `EntityKind::EnvVar` with `env://<NAME>`
 stable keys. `EnvDocsChecker` can later report undocumented variables through `ath check env`.
 
-The base adapter runs in-process, has no network access, and has no side effects. Alternative `cfg` definitions with the same qualified name are coalesced with multiple evidence spans. `RustExtractor` does not expand macros, emit trait methods, link imports/calls, or infer framework routes.
+The base adapter runs in-process, has no network access, and has no side effects. Alternative `cfg` definitions with the same qualified name are coalesced with multiple evidence spans. `RustExtractor` does not expand macros, link imports/calls, or infer framework routes; trait
+implementations are recorded as facts rather than expanded methods.
 
 Test the framework-neutral owner with:
 
