@@ -1,0 +1,114 @@
+name: Agent diagnostics (temporary)
+
+on:
+  push:
+    branches: [arena/76b8e17f-athanor]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  diagnostics:
+    # Skip the commit this job pushes itself so the loop terminates.
+    if: ${{ !startsWith(github.event.head_commit.message, 'style(ci): apply rustfmt') }}
+    name: rustfmt + workspace diagnostics
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: arena/76b8e17f-athanor
+          persist-credentials: true
+
+      - name: Install repository Rust toolchain
+        uses: ./.github/actions/setup-rust
+        with:
+          components: clippy rustfmt
+
+      - name: Apply rustfmt
+        run: |
+          set -uo pipefail
+          cargo fmt --all
+          git diff > /tmp/rustfmt.diff || true
+          wc -l /tmp/rustfmt.diff
+
+      - name: Run workspace diagnostics
+        run: |
+          set -uo pipefail
+          run_step() {
+            name="$1"; shift
+            log="/tmp/$(echo "$name" | tr ' /:' '___').log"
+            if "$@" > "$log" 2>&1; then
+              echo "PASSED" > "$log.status"
+            else
+              echo "FAILED:$?" > "$log.status"
+            fi
+            echo "$name -> $(cat "$log.status")"
+          }
+          run_step "cargo check workspace all targets" cargo check --workspace --all-targets --locked
+          run_step "cargo check js-ts-precision" cargo check --workspace --features js-ts-precision --all-targets --locked
+          run_step "cargo test extractor-js-ts" cargo test -p athanor-extractor-js-ts --locked
+          run_step "cargo test linker-js-ts" cargo test -p athanor-linker-js-ts --locked
+          run_step "cargo test workspace" cargo test --workspace --quiet --locked
+          run_step "cargo clippy workspace" cargo clippy --workspace --all-targets --locked -- -D warnings
+          exit 0
+
+      - name: Push formatting
+        run: |
+          set -uo pipefail
+          git config user.name "athanor-agent-diagnostics"
+          git config user.email "athanor-agent-diagnostics@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "formatting already canonical"
+            exit 0
+          fi
+          git commit -m "style(ci): apply rustfmt"
+          git push
+
+      - name: Comment diagnostics on PR
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          pr="$(gh pr list --repo "$REPO" --head "$BRANCH" --json number --jq '.[0].number // empty' || true)"
+          if [ -z "$pr" ]; then
+            echo "no pull request for $BRANCH"
+            exit 0
+          fi
+          {
+            echo "### Agent diagnostics"
+            echo
+            echo "- rustfmt diff: \`$(wc -l < /tmp/rustfmt.diff 2>/dev/null || echo 0)\` lines (pushed when non-empty)"
+            for log in /tmp/*.log; do
+              [ -e "$log" ] || continue
+              status="$(cat "$log.status" 2>/dev/null || echo unknown)"
+              echo "- \`$(basename "$log")\`: $status"
+            done
+            echo
+          } > /tmp/summary.md
+          for log in /tmp/*.log; do
+            [ -e "$log" ] || continue
+            status="$(cat "$log.status" 2>/dev/null || echo unknown)"
+            case "$status" in
+              PASSED) continue ;;
+            esac
+            {
+              echo "<details><summary><code>$(basename "$log")</code> — $status</summary>"
+              echo
+              echo '```text'
+              head -n 80 "$log" || true
+              echo "... (truncated) ..."
+              tail -n 220 "$log" || true
+              echo '```'
+              echo
+              echo "</details>"
+            } >> /tmp/summary.md
+          done
+          jq -Rs '{body: .}' < /tmp/summary.md > /tmp/comment.json
+          gh api "repos/$REPO/issues/$pr/comments" -X POST --input /tmp/comment.json
