@@ -145,6 +145,8 @@ fn propagates_impact(kind: &RelationKind) -> (bool, bool) {
     match kind {
         RelationKind::Calls
         | RelationKind::Imports
+        | RelationKind::Implements
+        | RelationKind::Extends
         | RelationKind::ImplementedBy
         | RelationKind::Documents
         | RelationKind::DocumentsApi

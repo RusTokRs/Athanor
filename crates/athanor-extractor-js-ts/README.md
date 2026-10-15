@@ -18,6 +18,8 @@ route declarations and is registered independently as `builtin.extractor.express
 - `EntityKind::Function` for function, method, arrow-function, and variable-bound function declarations
 - `EntityKind::Class` for JavaScript and TypeScript classes
 - `EntityKind::Symbol` for TypeScript interfaces and type aliases
+- Class `extends`/`implements` and TypeScript interface `extends` names in normalized declaration
+  payloads for the heritage linker
 - `EntityKind::Package` and `EntityKind::Dependency` for `package.json` package and dependency declarations
 - `FactKind::SymbolDefined` for emitted source declarations and package dependency declarations
 - `DiagnosticKind::Other("js_ts_parse_error")` when tree-sitter reports parser errors, coalesced at the outer parser error node to avoid duplicate nested findings
@@ -94,8 +96,13 @@ None. The extractors do not run commands, use the network, or modify project fil
 
 ## Limitations
 
-- Import/export data is stored in module payloads and definition facts. The separate
-  `athanor-linker-js-ts` adapter materializes exact relative module imports.
+- Import/export data is stored in module payloads and definition facts. Payloads preserve named
+  import/export aliases, distinguish plain source-backed `export *` from `export * as name`, and mark
+  named default-function or local-identifier bindings; `athanor-linker-js-ts` follows bounded named,
+  default-function and multiple-source wildcard chains when they identify one target, plus direct
+  namespace mappings for single-member calls.
+- Multi-hop namespace aliases, anonymous/default-expression and class call targets, ambiguous or
+  unresolved wildcard branches, and package/workspace/path-alias targets remain unresolved.
 - JSX and TSX component semantics are not inferred. Components are emitted as normal functions or classes.
 - Framework-specific semantics remain outside `JsTsExtractor`; separate `NextJsExtractor` and
   `ExpressExtractor` owners cover only their bounded route projections.

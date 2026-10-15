@@ -107,6 +107,34 @@ skills поверх. То есть «уровень Terrain» — это не «
 **Итого CodeGraph-разрыв: 52–75 слайсов** (C1–C6 + C9, где C6/C9 — один bucket; C7–C8 вынесены
 в общий дистрибуционный workstream с Terrain).
 
+> **Обновление статуса на 2026-10-15.** Таблица выше фиксирует baseline исследования на 2026-10-11,
+> а не текущее состояние после PARITY-001. С тех пор исходный код получил JS/TS call graph (P1),
+> `Implements`-мосты Rust/JS/TS (P2), а текущий P2A-слайс разводит `Extends` и `Implements`:
+> Rust supertraits и JS/TS class/interface inheritance используют `Extends`, Rust `impl Trait for Type`
+> и JS/TS class `implements` остаются `Implements`. P2A также повышает схему index-state с v46 до
+> v47 для безопасной переиндексации. P2B реализовал явные named re-export chains JS/TS с
+> сохранением imported/exported aliases, module edges и миграцией index-state v47→v48; полный CI
+> прошёл в run `38742833180` на `5b5f8a1`. P2C добавил named resolution через source-backed
+> `export *` при единственном wildcard-источнике на модуль и поднял схему до v49; на этапе P2C
+> неоднозначные multiple-source модули оставались unresolved. Точный GitHub Actions run `38748788007`
+> на `49444d5` прошёл. P2D добавил default imports/re-exports для именованных функций и поднял схему до v50;
+> anonymous expressions и class-valued defaults не становятся call targets. Run `38757025492` на
+> `c105cad` прошёл на Ubuntu, macOS и Windows. P2E добавил прямые `export * as name` mappings для
+> single-member calls через aliased named imports, сохранив исключение `default` для bare `export *`,
+> и поднял схему до v51. Exact-commit run `38772624382` на `6aefc28` прошёл полный CI на Ubuntu, macOS
+> и Windows; feature matrix, coverage, AppSec, Store Conformance, Production Gate и DOCGEN checks тоже
+> прошли. P2F добавил bounded aggregation нескольких `export *`: отсутствующее имя в источнике можно
+> пропустить, одинаковая цель через разные пути разрешается, разные цели остаются ambiguous;
+> unresolved-source, cyclic и over-limit ветки блокируют весь результат. Есть лимит 1 024 resolver visits на call.
+> Экстракторная схема не менялась, но index-state поднята v51→v52, чтобы прежний snapshot с теми же
+> source hashes не оставил старые call relations после linker-only изменения. Exact-commit CI run
+> `38785145039` на `a67782f` прошёл; Rust 1.95 Linux/macOS/Windows, feature matrix, AppSec, Store,
+> Production Gate, документационные и DOCGEN checks успешны. Открытыми остаются receiver/type-aware
+> dispatch, callbacks/HOF, path aliases/workspace packages, multi-hop namespace aliases, deep member
+> paths и symbol-level incremental invalidation; обязательный scope — Rust и TypeScript/JS.
+> См. актуальный source-state план в `docs/development/code-intelligence-parity-plan.md` и ledger в
+> `docs/development/roadmap-status.md`; эта записка не заменяет verification matrix.
+
 ---
 
 ## 4. Разрыв с Terrain (продуктовый слой)

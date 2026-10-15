@@ -13,8 +13,7 @@ substantive release notes.
 
 ### Added
 
-- Add `Implements` bridges for Rust and JS/TS: Rust records every `impl Trait for Type` block as a
-  `trait_impl` fact and links unique type/trait names, and JS/TS records class heritage for the bridge.
+- Add Rust trait-supertrait and JS/TS class/interface `Extends`, preserving Rust/JS/TS `Implements`; bump index state v46→v47.
 - Add the bounded `explore` MCP tool: one query returns ranked entries, citations, and one-hop relations.
 - Add `builtin.extractor.treesitter` over Python and Go: one data-driven engine records declarations,
   receiver-qualified methods and other declarations, imports, exports, and statically named call sites.
@@ -29,6 +28,7 @@ substantive release notes.
   argument count, and line/column. `builtin.linker.js_ts_calls` resolves those call sites into
   evidence-backed `Calls` relations (same-module, `this.` member, imported binding, and unique-name
   fallbacks) and emits `TestedBy` when a test-location declaration calls production code.
+- Preserve JS/TS aliases; resolve bounded named/default and direct-namespace calls plus uniquely aggregated multi-source wildcards, exclude wildcard `default`, and bump index v47→v52.
 - Add strict versioned request, outline, context, citation, draft, manifest, and validation-report
   contracts for evidence-backed documentation generation: exact snapshot binding, portable paths,
   stable-key/evidence traceability, cited diagram edges, metrics, and checksums.

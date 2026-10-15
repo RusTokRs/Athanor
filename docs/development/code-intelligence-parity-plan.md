@@ -47,10 +47,223 @@ Two concrete targets:
 
 ### P2 — Resolution Depth For Both Languages
 
-- Rust: trait implementations and dyn-dispatch candidates (`Implements` edges).
-- JS/TS: class `implements`, callbacks and promise handlers, re-export chains, path aliases, and
-  workspace-package specifiers.
+- Rust: trait implementation (`Implements`) and supertrait (`Extends`) edges; dyn-dispatch candidates
+  remain a separate deferred capability.
+- JS/TS: class `extends`/`implements` and interface `extends` with distinct canonical relation kinds;
+  P2B covers explicit named re-export chains, P2C bounded single-source wildcard re-exports, P2D
+  named default function exports/re-exports, P2E direct namespace re-exports for single-member calls
+  through named imports, and P2F bounded multiple-source wildcard aggregation. Callbacks and promise
+  handlers, multi-hop namespace aliases, anonymous/default class exports, path aliases, and
+  workspace-package specifiers remain open.
 - Both: symbol-level incremental invalidation so a changed declaration re-resolves only its closure.
+
+#### P2A — Heritage Relation Semantics (bounded Rust/TypeScript slice)
+
+- Add canonical `RelationKind::Extends`; keep `Implements` for Rust `impl Trait for Type` and JS/TS
+  class `implements` bridges.
+- Extract TypeScript interface parent types and Rust trait supertraits; Rust trait method declaration
+  extraction remains a separate deferred slice.
+- Propagate changes from a base class/trait backward to derived types and implementations, rank
+  `Extends` with the other implementation edges, and include it in the architecture profile.
+- Bump both index-state schema families from v46 to v47, so old entity payloads are not incorrectly
+  reused after extractor semantics change (normal and `js-ts-precision` builds).
+
+Focused source regression matrix:
+
+| Language | Extractor | Linker | Application behavior |
+| --- | --- | --- | --- |
+| Rust | trait `supertraits` paths plus containing-module imports | unambiguous local/imported paths emit `Extends`; ambiguous glob targets stay unresolved; `trait_impl` remains `Implements` | base-trait changes reach implementing/derived declarations |
+| TypeScript | class `extends`/`implements` plus multiple interface `extends` names | class/interface inheritance emits `Extends`; ambiguous class/interface targets stay unresolved; class contracts emit `Implements` | base-class changes reach subclasses; `Extends` receives high change-map priority |
+| Shared persistence | — | — | v46 index state is discarded and forces a full rebuild; v47 fixtures/contracts agree |
+
+Focused verification matrix:
+
+```bash
+cargo test -p athanor-extractor-rust --locked
+cargo test -p athanor-linker-rust --locked
+cargo test -p athanor-extractor-js-ts --locked
+cargo test -p athanor-extractor-js-ts --features precision-parser --locked
+cargo test -p athanor-linker-js-ts --locked
+cargo test -p athanor-app --locked
+cargo test -p athanor-app --features js-ts-precision --locked
+```
+
+The full exact-commit verification matrix remains the workspace test, format, Clippy, and indexing
+smoke described below.
+
+#### P2B — Explicit Named Re-export Chains (bounded JS/TS slice)
+
+- Preserve both imported/local names for named imports and imported/exported names for explicit
+  named export clauses in the normalized module payload; retain the existing local-name `named` list.
+- Materialize exact relative source-backed re-exports as verified module `Imports` relations.
+- Resolve calls through local export aliases and chains of explicit relative named re-exports, up to
+  32 hops. Cycles, ambiguous mappings, unresolved sources, and deeper chains stay unresolved; an
+  unresolved explicit import must not fall through to a snapshot-wide name guess.
+- Keep `export *`, `export * as namespace`, default-export name resolution, package/workspace imports,
+  TypeScript path aliases, receiver typing, and callback/promise-handler resolution out of this slice.
+- Bump both index-state schema families from v47 to v48 so cached module payloads are rebuilt in
+  normal and `js-ts-precision` configurations.
+
+Focused source regression matrix:
+
+| Surface | Regression |
+| --- | --- |
+| JS/TS extractor | Named import aliases preserve imported/local names; local and source-backed export clauses preserve imported/exported names and source ranges |
+| Import linker | A relative source-backed re-export emits a verified `Imports` edge with re-export evidence |
+| Call linker | Multi-hop named re-exports plus an aliased import resolve to the original declaration; unresolved sources do not fall through to a global guess |
+| Persistence | v47 normal/precision state is rejected and forces a v48 rebuild |
+
+Focused verification:
+
+```bash
+cargo test -p athanor-extractor-js-ts --locked
+cargo test -p athanor-extractor-js-ts --features precision-parser --locked
+cargo test -p athanor-linker-js-ts --locked
+cargo test -p athanor-app --locked
+cargo test -p athanor-app --features js-ts-precision --locked
+```
+
+#### P2C — Single-source Wildcard Re-exports (bounded JS/TS slice)
+
+- Mark top-level `export * from "./module"` separately from `export * as namespace from "./module"`
+  in the normalized export payload, preserving source and line evidence.
+- Resolve a named import through a source-backed wildcard re-export when each module in the chain has
+  exactly one wildcard source. The existing 32-hop bound also applies to mixed named/star chains.
+- Explicit named mappings take precedence; an unresolved explicit mapping must not fall through to a
+  wildcard. Default exports, namespace exports, multiple wildcard clauses in one module, unresolved
+  sources, cycles, and ambiguous targets remain unresolved.
+- Reuse the verified module `Imports` edge for wildcard sources and bump normal/precision index-state
+  schema families from v48 to v49 because the normalized module payload changes.
+
+Focused source regression matrix:
+
+| Surface | Regression |
+| --- | --- |
+| JS/TS extractor | Plain `export *` is marked separately from namespace exports; source ranges and empty bindings remain explicit |
+| Import linker | A relative wildcard source emits a verified module `Imports` edge with re-export evidence |
+| Call linker | Named imports resolve through bounded single-source star chains; aliases are preserved; defaults, namespace exports, multiple-star modules, cycles, depth overflow, and unresolved explicit mappings stay unresolved |
+| Persistence | v48 normal/precision state is rejected and forces a v49 rebuild |
+
+Focused verification:
+
+```bash
+cargo test -p athanor-extractor-js-ts --locked
+cargo test -p athanor-extractor-js-ts --features precision-parser --locked
+cargo test -p athanor-linker-js-ts --locked
+cargo test -p athanor-app --locked
+cargo test -p athanor-app --features js-ts-precision --locked
+```
+
+#### P2D — Named Default Function Exports (bounded JS/TS slice)
+
+- Mark `export default` statements separately from named export clauses, and record the local binding
+  only for a named function or a statically named local identifier.
+- Resolve default imports to a unique function declaration in the same module; follow relative local
+  identifier bindings and explicit named re-exports such as `export { default as signIn } from` within
+  the existing 32-hop/cycle bounds.
+- Do not expose `default` through `export *`. Anonymous default expressions, class-valued default
+  exports as call targets, unresolved imports, cycles, and ambiguous local bindings stay unresolved.
+- Bump normal/precision index-state schemas from v49 to v50 because export payloads gain
+  `default_export` and `default_name` fields.
+
+Focused source regression matrix:
+
+| Surface | Regression |
+| --- | --- |
+| JS/TS extractor | Named default functions and local identifier defaults record their binding; `default` inside `{ default as name }` remains an ordinary named re-export |
+| Call linker | Default imports resolve to a named function; a relative named re-export chain can forward a default function; wildcard exports still do not expose `default` |
+| Persistence | v49 normal/precision state is rejected and forces a v50 rebuild |
+
+Focused verification:
+
+```bash
+cargo test -p athanor-extractor-js-ts --locked
+cargo test -p athanor-extractor-js-ts --features precision-parser --locked
+cargo test -p athanor-linker-js-ts --locked
+cargo test -p athanor-app --locked
+cargo test -p athanor-app --features js-ts-precision --locked
+```
+
+#### P2E — Direct Namespace Re-export Member Calls (bounded JS/TS slice)
+
+- Record `export * as name from './module'` as a direct namespace alias (`namespace_name`) separately
+  from bare `export *`; preserve the source-backed mapping in the normalized module payload.
+- Resolve namespace-object calls such as `import { name as local } from './barrel'; local.member()`
+  only through one unique, direct, source-backed namespace mapping, then use the existing bounded
+  export resolver for that one member. The namespace hop counts toward the existing 32-hop
+  named/star/default export bound; previously supported directly qualified imported-class methods
+  and namespace-import receiver calls retain their existing resolution paths.
+- Keep missing or duplicate namespace aliases, unresolved sources, cycles, over-limit chains, and
+  multi-segment member paths through named-import namespace aliases unresolved. P2E does not add
+  multi-hop namespace aliases or deep member-path resolution; multiple-source wildcard aggregation is
+  covered separately by P2F. Bare `export *` still does not expose `default`.
+- Bump normal/precision index-state schemas from v50 to v51 because normalized export payloads gain
+  the `namespace_name` field.
+
+Focused source regression matrix:
+
+| Surface | Regression |
+| --- | --- |
+| JS/TS extractor | `export * as ns` records `namespace_name: "ns"`; bare `export *` remains a separate star export |
+| Call linker | An aliased named import resolves one member through a unique direct namespace mapping; missing/duplicate mappings and its multi-segment paths stay unresolved |
+| Bounds | Namespace-source cycles and chains beyond 32 total export hops remain unresolved; source-backed resolution uses existing named/star rules |
+| Persistence | v50 normal/precision state is rejected and forces a v51 rebuild |
+
+Focused verification:
+
+```bash
+cargo test -p athanor-extractor-js-ts --locked
+cargo test -p athanor-extractor-js-ts --features precision-parser --locked
+cargo test -p athanor-linker-js-ts --locked
+cargo test -p athanor-app --locked
+cargo test -p athanor-app --features js-ts-precision --locked
+```
+
+#### P2F — Multiple-source Wildcard Aggregation (bounded JS/TS slice)
+
+- Resolve a requested named export across every relative, source-backed `export *` clause in a
+  module. Ignore a branch only when it definitively does not export that name; accept one canonical
+  declaration when every applicable branch agrees on its entity identity, including repeated paths
+  to that same declaration. Each call resolution is bounded to 1,024 resolver visits in addition to
+  the existing 32-hop path limit.
+- Keep distinct exported declarations ambiguous. A source that is missing or unresolved, an
+  ambiguous nested export, a cycle, a branch beyond the 32-hop bound, or exhausted visit budget blocks
+  the whole aggregate; a successful sibling must not hide an invalid branch. Explicit named mappings
+  retain precedence, and bare `export *` continues to exclude `default`.
+- The resolver uses the existing normalized export payload and module `Imports` evidence; no parser
+  schema field changes. Bump normal/precision index-state schemas from v51 to v52 anyway: the index
+  pipeline reuses the prior canonical snapshot when source hashes are unchanged, so this linker-only
+  semantic change requires a one-time rebuild to refresh persisted call relations.
+
+Focused source regression matrix:
+
+| Surface | Regression |
+| --- | --- |
+| Call linker | A unique exporting source plus an absent-name source resolves; multiple paths to the same declaration resolve; distinct declarations remain ambiguous |
+| Safety | An unresolved source, cyclic branch, over-limit path, or exhausted visit budget cannot be hidden by a successful sibling; explicit mappings win and wildcard `default` stays excluded |
+| Persistence | v51 normal/precision state is rejected and forces a v52 rebuild |
+
+Focused verification:
+
+```bash
+cargo test -p athanor-extractor-js-ts --locked
+cargo test -p athanor-extractor-js-ts --features precision-parser --locked
+cargo test -p athanor-linker-js-ts --locked
+cargo test -p athanor-app --locked
+cargo test -p athanor-app --features js-ts-precision --locked
+```
+
+Exact-commit CI run `38785145039` on `a67782f` passed the Rust 1.95 Ubuntu/macOS/Windows matrix,
+all feature matrices, workspace tests, Clippy, source coverage, smoke, editable docs, security and
+license checks. The companion AppSec, Store Conformance, Production Gate, focused documentation, and
+DOCGEN checks also passed for that exact commit.
+
+#### Remaining P2 Gaps
+
+- JavaScript/TypeScript callbacks and promise handlers; multi-hop namespace aliases, anonymous/default
+  class exports; package/workspace specifiers and TypeScript path aliases; receiver/type-aware dispatch
+  and deep member paths.
+- Rust dyn-dispatch candidates and symbol-level incremental invalidation for both Rust and JS/TS.
 
 ### P3 — Bounded Language Expansion
 
@@ -109,18 +322,36 @@ Two concrete targets:
 ## Current Status
 
 Slice P1 is source-implemented and carries focused unit tests in `athanor-extractor-js-ts` and
-`athanor-linker-js-ts`. Slice P2 is source-implemented in both halves: `trait_impl` facts plus
-`Implements` relations for Rust, and class heritage plus `builtin.linker.js_ts_implements` for
-JavaScript/TypeScript. Slice P4 is covered by the shipped `operations` documentation profile
+`athanor-linker-js-ts`. The original P2 `Implements` bridges are source-implemented in both halves.
+P2A adds a separate `Extends` relation for Rust trait supertraits and JS/TS class/interface
+inheritance, updates the impact/ranking/architecture consumers, and bumps index state to v47; focused
+Rust/TypeScript regressions are included; CI run `38722056518` on `4a23498` passed the full format,
+test, Clippy, smoke, docs, security, feature, and coverage matrix. P2B is verified by GitHub Actions
+run `38742833180` on `5b5f8a1`, including the complete Rust 1.95 matrix on Ubuntu, macOS, and Windows,
+source coverage, feature matrices, and the companion docs/security/store gates. P2C adds bounded
+source-backed wildcard re-export resolution with v49 index-state rebuilds; exact-commit GitHub
+Actions run `38748788007` on `49444d5` passed. P2D adds named default-function import/re-export
+resolution and the v50 index-state rebuild; exact-commit GitHub Actions run `38757025492` on
+`c105cad` passed on Ubuntu, macOS, and Windows, including workspace tests, Clippy, feature matrices,
+coverage, smoke, and editable-doc checks. P2E adds direct `export * as name` mappings for single-member
+calls through named imports, keeps missing/ambiguous/cyclic/over-limit namespace targets unresolved,
+and bumps index state to v51. Exact-commit CI run `38772624382` on `6aefc28` passed the Ubuntu,
+macOS, and Windows Rust 1.95 matrix, all feature matrices, source coverage, smoke, Clippy, editable docs,
+and companion AppSec, store, production, and documentation checks. The Windows process-test fixtures
+write byte-exact data to redirected standard streams, and CI panic summaries now preserve assertion
+context. Slice P4
+is covered by the shipped `operations`
+documentation profile
 (DOCGEN-001 Slices 4A–4C); its monitoring category derives declared health, status, and metrics endpoints
 and telemetry environment-variable names from canonical evidence, while container and Kubernetes probes,
 alert rules, dashboards, and SLOs still need their own evidence source before they may be documented. Slice P5 is source-implemented as the bounded `explore` MCP tool: one query
 returns search-ranked entries, their citations, and the one-hop relation neighbourhood with disclosed
 budgets; multi-hop call paths and full blast radius remain planned. Slice P3 is source-implemented as `builtin.extractor.treesitter`: one engine walks a
 per-language pack of node kinds and field names and records declaration, import, export, and call
-evidence for Python and Go, with the existing cross-file linkers still owning resolution. Exact-commit
-verification for P1, P2, and P5 is green on `191c65e` (sandbox diagnostics run `38152033388`), and the P3
-engine and packs are green on `e07547e` (run `38157055780`), and the monitoring category is green on
+evidence for Python and Go, with the existing cross-file linkers still owning resolution. Historical
+exact-commit verification for P1, the pre-P2A P2 slice, and P5 is green on `191c65e` (sandbox
+diagnostics run `38152033388`); it does not verify P2A or the current source state. The P3 engine and
+packs are green on `e07547e` (run `38157055780`), and the monitoring category is green on
 `69d8918` (run `38160162759`); each run reports every log PASSED with a
 `rustfmt` diff of 0 lines, and each commit's repository check matrix is fully successful or intentionally
 skipped. Cross-file resolution for Python and Go, and the published coverage measurement, stay open, so P3

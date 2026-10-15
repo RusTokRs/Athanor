@@ -14,6 +14,7 @@ The crate exposes two extractor types. `RustExtractor` owns framework-neutral Ru
 - `EntityKind::Function` for free functions and implementation methods
 - `EntityKind::Symbol` for structs, enums, traits, unions, type aliases, constants, and statics
 - `FactKind::SymbolDefined` from every emitted symbol to its canonical file entity
+- `supertraits` path arrays and containing-module imports on trait declaration payloads for linker resolution
 - `EntityKind::EnvVar` and `FactKind::EnvVarUsed` for supported Rust environment-variable access
 
 `AxumExtractor` emits one source-backed `EntityKind::Other("axum_route")` and one `FactKind::RouteDeclared` for each supported static `.route(...)` declaration. The adapter-scoped entity kind keeps framework routes out of generic API/operations/onboarding profile anchors while exact completeness reporting still sees the named `axum` adapter contribution.
@@ -64,7 +65,9 @@ None. The extractors do not run commands, use the network, or modify project fil
 
 - Macro-generated declarations are not expanded.
 - Out-of-line module declarations are emitted as modules but resolved by their own source files rather than linked in this adapter.
-- Functions declared inside traits are not emitted yet.
+- Trait method declarations are not emitted yet.
+- Trait supertraits are linked only when they resolve to an in-snapshot trait declaration; external
+  traits and ambiguous names remain unresolved.
 - Rust syntax errors fail extraction for the affected file.
 - Alternative definitions with the same qualified name, such as platform-specific `cfg` functions, are coalesced and retain evidence for every definition.
 

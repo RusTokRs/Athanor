@@ -10,4 +10,6 @@ pub use model::{
 pub use traversal::impact_snapshot;
 
 #[cfg(test)]
+mod heritage_tests;
+#[cfg(test)]
 mod tests;

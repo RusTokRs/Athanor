@@ -64,7 +64,7 @@ Multiple modes can be combined; seeds from all active modes are merged, keeping 
 
 | Weight | Relation Kinds |
 |---|---|
-| 90 | `Calls`, `ImplementedBy`, `Implements`, `SchemaForRequest`, `SchemaForResponse`, `RequiresAuth`, `RequiresPermission`, `QueriesTable` |
+| 90 | `Calls`, `ImplementedBy`, `Implements`, `Extends`, `SchemaForRequest`, `SchemaForResponse`, `RequiresAuth`, `RequiresPermission`, `QueriesTable` |
 | 80 | `Imports`, `TestedBy`, `CoveredByTest`, `DeclaredInOpenapi`, `ChangedWith` |
 | 75 | `Other(_)` (adapter-specific relations) |
 | 60 | `Documents`, `DocumentsApi`, `DocumentsOperation`, `UsesEnv`, `ExampleFor` |

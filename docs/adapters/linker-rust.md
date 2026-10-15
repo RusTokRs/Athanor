@@ -8,7 +8,8 @@ status: verified
 ---
 # Rust Linker Adapter
 
-The Rust relation linker maps module containment, static calls, imports, and test coverage dependencies within Rust codebases.
+The Rust relation linker maps module containment, static calls, imports, test coverage, trait
+implementation, and trait-supertype dependencies within Rust codebases.
 
 Implements: `Linker`
 
@@ -19,6 +20,7 @@ Implements: `Linker`
 - **`RelationKind::Calls`**: Resolves local/imported path calls or referenced variables to target functions/methods.
 - **`RelationKind::TestedBy`**: Links tested functions/methods to the `TestCase`s that invoke them during static analysis.
 - **`RelationKind::Implements`**: Resolves `trait_impl` facts from the Rust extractor into bridges from the implementing type to the trait. Both endpoints must resolve to exactly one `struct`, `enum`, `union`, `type_alias`, or `trait` symbol by name; ambiguous names stay unresolved and marker impls are included.
+- **`RelationKind::Extends`**: Resolves a trait declaration's extracted `supertraits` paths through local paths and unambiguous recorded imports to in-snapshot trait declarations, emitting an edge from the child trait to each parent trait. External, ambiguous, and renamed-import aliases remain unresolved.
 
 All relations merge evidence and ownership from both sides.
 

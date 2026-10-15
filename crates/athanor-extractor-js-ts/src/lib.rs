@@ -312,13 +312,13 @@ struct SourceDeclaration {
     source_node: String,
     line_range: (u32, u32),
     calls: Vec<Value>,
-    heritage: Option<ClassHeritage>,
+    heritage: Option<TypeHeritage>,
 }
 
-/// `extends`/`implements` heritage of a class declaration, reduced to bare type names.
+/// `extends`/`implements` heritage of a class or interface, reduced to bare type names.
 #[derive(Debug, Clone, Default)]
-struct ClassHeritage {
-    extends: Option<String>,
+struct TypeHeritage {
+    extends: Vec<String>,
     implements: Vec<String>,
 }
 
@@ -423,7 +423,7 @@ fn collect_statement(
                     source_node: node.kind().to_string(),
                     line_range: line_range(node),
                     calls: Vec::new(),
-                    heritage: None,
+                    heritage: interface_heritage(node, bytes),
                 });
             }
         }
@@ -527,8 +527,8 @@ fn collect_variable_functions(
 /// Both clauses are matched by node kind (`class_heritage` holds them in the JS and TS grammars)
 /// and reduced to bare type names, so generic arguments and qualified paths do not leak into the
 /// payload: `class Service extends api.Base implements Store<K> {}` records `Base` and `Store`.
-fn class_heritage(node: Node, bytes: &[u8]) -> Option<ClassHeritage> {
-    let mut heritage = ClassHeritage::default();
+fn class_heritage(node: Node, bytes: &[u8]) -> Option<TypeHeritage> {
+    let mut heritage = TypeHeritage::default();
     let mut cursor = node.walk();
     for child in node.named_children(&mut cursor) {
         if child.kind() != "class_heritage" {
@@ -542,7 +542,7 @@ fn class_heritage(node: Node, bytes: &[u8]) -> Option<ClassHeritage> {
                         .child_by_field_name("value")
                         .or_else(|| clause.named_child(0));
                     if let Some(name) = value.and_then(|value| heritage_name(value, bytes)) {
-                        heritage.extends = Some(name);
+                        push_heritage_name(&mut heritage.extends, name);
                     }
                 }
                 "implements_clause" => {
@@ -551,19 +551,61 @@ fn class_heritage(node: Node, bytes: &[u8]) -> Option<ClassHeritage> {
                         let Some(name) = heritage_name(item, bytes) else {
                             continue;
                         };
-                        if !heritage.implements.contains(&name) {
-                            heritage.implements.push(name);
-                        }
+                        push_heritage_name(&mut heritage.implements, name);
                     }
                 }
                 _ => {}
             }
         }
     }
-    if heritage.extends.is_none() && heritage.implements.is_empty() {
+    if heritage.extends.is_empty() && heritage.implements.is_empty() {
         return None;
     }
     Some(heritage)
+}
+
+/// Read the multiple `extends` entries allowed by a TypeScript interface declaration.
+fn interface_heritage(node: Node, bytes: &[u8]) -> Option<TypeHeritage> {
+    let mut heritage = TypeHeritage::default();
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        if child.kind() != "extends_type_clause" {
+            continue;
+        }
+        collect_interface_heritage_names(child, bytes, &mut heritage.extends);
+    }
+    if heritage.extends.is_empty() {
+        None
+    } else {
+        Some(heritage)
+    }
+}
+
+fn collect_interface_heritage_names(node: Node, bytes: &[u8], names: &mut Vec<String>) {
+    if is_type_reference_node(node.kind())
+        && let Some(name) = heritage_name(node, bytes)
+    {
+        push_heritage_name(names, name);
+        return;
+    }
+
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        collect_interface_heritage_names(child, bytes, names);
+    }
+}
+
+fn is_type_reference_node(kind: &str) -> bool {
+    matches!(
+        kind,
+        "type_identifier" | "nested_type_identifier" | "generic_type" | "identifier"
+    )
+}
+
+fn push_heritage_name(names: &mut Vec<String>, name: String) {
+    if !names.contains(&name) {
+        names.push(name);
+    }
 }
 
 /// Bare type name of one heritage entry: generic arguments dropped, last path segment kept.
@@ -592,7 +634,7 @@ fn has_child_kind(node: Node, kind: &str) -> bool {
 }
 
 fn import_payload(node: Node, bytes: &[u8]) -> Value {
-    let (default_name, namespace_name, named) = import_bindings(node, bytes);
+    let (default_name, namespace_name, named, named_bindings) = import_bindings(node, bytes);
     json!({
         "source": child_text(node, "source", bytes),
         "line_start": node.start_position().row as u32 + 1,
@@ -600,19 +642,24 @@ fn import_payload(node: Node, bytes: &[u8]) -> Value {
         "default_name": default_name,
         "namespace_name": namespace_name,
         "named": named,
+        "named_bindings": named_bindings,
     })
 }
 
-/// Collects the local names bound by one `import_statement`.
+/// Collects the local and imported names bound by one `import_statement`.
 ///
-/// Returns the default import name, the namespace import name, and the sorted,
-/// deduplicated local names of named import specifiers (`import { a as b }`
-/// records `b`). Callers resolve call sites through these bindings, so the
-/// payload stays a faithful record of the module surface without executing it.
-fn import_bindings(node: Node, bytes: &[u8]) -> (Option<String>, Option<String>, Vec<String>) {
+/// `named` retains the sorted local-name list for compatibility. `named_bindings`
+/// additionally preserves the source name for aliases such as
+/// `import { fetchUser as fetch }`, allowing linkers to resolve `fetch` back to
+/// the exported name `fetchUser` without guessing.
+fn import_bindings(
+    node: Node,
+    bytes: &[u8],
+) -> (Option<String>, Option<String>, Vec<String>, Vec<Value>) {
     let mut default_name = None;
     let mut namespace_name = None;
     let mut named = Vec::new();
+    let mut named_bindings = Vec::new();
 
     let mut cursor = node.walk();
     for child in node.named_children(&mut cursor) {
@@ -637,12 +684,18 @@ fn import_bindings(node: Node, bytes: &[u8]) -> (Option<String>, Option<String>,
                         if specifier.kind() != "import_specifier" {
                             continue;
                         }
+                        let imported = specifier
+                            .child_by_field_name("name")
+                            .and_then(|child| node_text(child, bytes));
                         let local = specifier
                             .child_by_field_name("alias")
                             .or_else(|| specifier.child_by_field_name("name"))
                             .and_then(|child| node_text(child, bytes));
                         if let Some(local) = local {
-                            named.push(local);
+                            named.push(local.clone());
+                            if let Some(imported) = imported {
+                                named_bindings.push((imported, local));
+                            }
                         }
                     }
                 }
@@ -653,7 +706,13 @@ fn import_bindings(node: Node, bytes: &[u8]) -> (Option<String>, Option<String>,
 
     named.sort();
     named.dedup();
-    (default_name, namespace_name, named)
+    named_bindings.sort();
+    named_bindings.dedup();
+    let named_bindings: Vec<Value> = named_bindings
+        .into_iter()
+        .map(|(imported, local)| json!({ "imported": imported, "local": local }))
+        .collect();
+    (default_name, namespace_name, named, named_bindings)
 }
 
 fn node_text(node: Node, bytes: &[u8]) -> Option<String> {
@@ -756,13 +815,121 @@ fn callee_path(node: Node, bytes: &[u8]) -> Option<String> {
     }
 }
 
-
 fn export_payload(node: Node, bytes: &[u8]) -> Value {
     json!({
         "source": child_text(node, "source", bytes),
+        "bindings": export_bindings(node, bytes),
+        "star": is_star_reexport(node),
+        "namespace_name": namespace_export_name(node, bytes),
+        "default_export": is_default_export(node),
+        "default_name": default_export_name(node, bytes),
         "line_start": node.start_position().row as u32 + 1,
         "line_end": node.end_position().row as u32 + 1,
     })
+}
+
+/// Returns the exported namespace alias for `export * as name from "…"`.
+fn namespace_export_name(node: Node, bytes: &[u8]) -> Option<String> {
+    let mut cursor = node.walk();
+    let namespace_export = node
+        .named_children(&mut cursor)
+        .find(|child| child.kind() == "namespace_export")?;
+
+    for index in 0..namespace_export.child_count() {
+        let Some(child) = namespace_export.child(index as u32) else {
+            continue;
+        };
+        match child.kind() {
+            "identifier" => return node_text(child, bytes),
+            "string" => {
+                return node_text(child, bytes)
+                    .map(|name| name.trim_matches(['"', '\'']).to_string());
+            }
+            "default" => return Some("default".to_string()),
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Identifies `export default` without confusing `default` names inside an
+/// explicit export clause.
+fn is_default_export(node: Node) -> bool {
+    has_child_kind(node, "default")
+}
+
+/// Returns the local binding for a named default function or identifier export.
+/// Other default expressions stay explicitly unbound and cannot be guessed.
+fn default_export_name(node: Node, bytes: &[u8]) -> Option<String> {
+    if !is_default_export(node) {
+        return None;
+    }
+
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        match child.kind() {
+            "function_declaration" | "generator_function_declaration" => {
+                return node_name(child, bytes);
+            }
+            "identifier" => return node_text(child, bytes),
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Identifies only `export * from "…"`; `export * as name from "…"` is a
+/// namespace export and must not be treated as forwarding named exports.
+fn is_star_reexport(node: Node) -> bool {
+    node.child_by_field_name("source").is_some()
+        && (0..node.child_count()).any(|index| {
+            node.child(index as u32)
+                .is_some_and(|child| child.kind() == "*")
+        })
+}
+
+/// Records explicit `{ imported as exported }` entries in an export clause.
+///
+/// The same representation covers local export aliases and source-backed
+/// named re-exports; callers distinguish them by whether the enclosing
+/// statement has a `source` specifier. Plain stars have no explicit `bindings`;
+/// namespace exports record their alias separately from both `bindings` and `star`.
+fn export_bindings(node: Node, bytes: &[u8]) -> Vec<Value> {
+    let mut bindings = Vec::new();
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        if child.kind() != "export_clause" {
+            continue;
+        }
+        let mut clause_cursor = child.walk();
+        for specifier in child.named_children(&mut clause_cursor) {
+            if specifier.kind() != "export_specifier" {
+                continue;
+            }
+            let imported = child_text(specifier, "name", bytes).or_else(|| {
+                specifier
+                    .named_child(0)
+                    .and_then(|name| node_text(name, bytes))
+                    .map(|name| name.trim_matches(['"', '\'']).to_string())
+            });
+            let Some(imported) = imported else {
+                continue;
+            };
+            let exported = child_text(specifier, "alias", bytes)
+                .or_else(|| {
+                    specifier
+                        .named_child(1)
+                        .and_then(|name| node_text(name, bytes))
+                        .map(|name| name.trim_matches(['"', '\'']).to_string())
+                })
+                .unwrap_or_else(|| imported.clone());
+            bindings.push(json!({
+                "imported": imported,
+                "exported": exported,
+            }));
+        }
+    }
+    bindings
 }
 
 fn child_text(node: Node, field: &str, bytes: &[u8]) -> Option<String> {
@@ -1499,6 +1666,14 @@ mod tests {
         assert_eq!(module.payload["imports"][0]["default_name"], "api");
         assert_eq!(module.payload["imports"][0]["named"][0], "fetch");
         assert_eq!(module.payload["imports"][0]["named"][1], "login");
+        assert_eq!(
+            module.payload["imports"][0]["named_bindings"][0],
+            json!({"imported": "fetchUser", "local": "fetch"})
+        );
+        assert_eq!(
+            module.payload["imports"][0]["named_bindings"][1],
+            json!({"imported": "login", "local": "login"})
+        );
         assert_eq!(module.payload["imports"][0]["namespace_name"], Value::Null);
         assert_eq!(module.payload["imports"][1]["namespace_name"], "utils");
         assert!(module.payload["imports"][1]["default_name"].is_null());
@@ -1512,11 +1687,113 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn records_class_extends_and_implements_heritage() {
+    async fn records_named_export_aliases_and_source_backed_reexports() {
+        for (path, language) in [
+            ("src/barrel.js", "javascript"),
+            ("src/barrel.ts", "typescript"),
+        ] {
+            let output = JsTsExtractor
+                .extract(input(
+                    path,
+                    "export { login as signIn, logout } from './auth';\nexport { local as publicLocal };\nexport * from './wild';\nexport * as ns from './namespace';\nexport { default as signIn } from './default-auth';\n",
+                    language,
+                ))
+                .await
+                .unwrap();
+            let module = output
+                .entities
+                .iter()
+                .find(|entity| entity.kind == EntityKind::Module)
+                .expect("module entity must exist");
+
+            assert_eq!(module.payload["exports"][0]["source"], "./auth");
+            assert_eq!(module.payload["exports"][0]["star"], false);
+            assert_eq!(module.payload["exports"][0]["default_export"], false);
+            assert!(module.payload["exports"][0]["default_name"].is_null());
+            assert_eq!(
+                module.payload["exports"][0]["bindings"][0],
+                json!({"imported": "login", "exported": "signIn"})
+            );
+            assert_eq!(
+                module.payload["exports"][0]["bindings"][1],
+                json!({"imported": "logout", "exported": "logout"})
+            );
+            assert!(module.payload["exports"][1]["source"].is_null());
+            assert_eq!(module.payload["exports"][1]["star"], false);
+            assert_eq!(
+                module.payload["exports"][1]["bindings"][0],
+                json!({"imported": "local", "exported": "publicLocal"})
+            );
+            assert_eq!(module.payload["exports"][2]["source"], "./wild");
+            assert_eq!(module.payload["exports"][2]["star"], true);
+            assert!(module.payload["exports"][2]["namespace_name"].is_null());
+            assert!(
+                module.payload["exports"][2]["bindings"]
+                    .as_array()
+                    .unwrap()
+                    .is_empty()
+            );
+            assert_eq!(module.payload["exports"][3]["source"], "./namespace");
+            assert_eq!(module.payload["exports"][3]["star"], false);
+            assert_eq!(module.payload["exports"][3]["namespace_name"], "ns");
+            assert!(
+                module.payload["exports"][3]["bindings"]
+                    .as_array()
+                    .unwrap()
+                    .is_empty()
+            );
+            assert_eq!(module.payload["exports"][4]["default_export"], false);
+            assert!(module.payload["exports"][4]["default_name"].is_null());
+            assert_eq!(
+                module.payload["exports"][4]["bindings"][0],
+                json!({"imported": "default", "exported": "signIn"})
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn records_named_default_export_bindings() {
+        for (path, language) in [
+            ("src/default.js", "javascript"),
+            ("src/default.ts", "typescript"),
+        ] {
+            for (source, expected_name) in [
+                (
+                    "export default function authenticate() {}\n",
+                    Some("authenticate"),
+                ),
+                (
+                    "function authenticate() {}\nexport default authenticate;\n",
+                    Some("authenticate"),
+                ),
+                ("export default () => {};\n", None),
+            ] {
+                let output = JsTsExtractor
+                    .extract(input(path, source, language))
+                    .await
+                    .unwrap();
+                let module = output
+                    .entities
+                    .iter()
+                    .find(|entity| entity.kind == EntityKind::Module)
+                    .expect("module entity must exist");
+
+                assert_eq!(module.payload["exports"][0]["default_export"], true);
+                if let Some(expected_name) = expected_name {
+                    assert_eq!(module.payload["exports"][0]["default_name"], expected_name);
+                } else {
+                    assert!(module.payload["exports"][0]["default_name"].is_null());
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn records_class_and_interface_heritage_separately() {
         let output = JsTsExtractor
             .extract(input(
                 "src/service.ts",
-                "export class Service extends api.Base implements Store<K>, Closeable {}\nclass Plain {}\ninterface Store<T> {}\n",
+                "export class Service extends api.Base implements Store<K>, Closeable {}\nclass Plain {}\ninterface Store<T> extends Parent<T>, api.Hierarchy {}\ninterface Parent<T> {}\ninterface Hierarchy {}\n",
                 "typescript",
             ))
             .await
@@ -1527,12 +1804,24 @@ mod tests {
             .iter()
             .find(|entity| entity.stable_key.0 == "symbol://js-ts:src/service.ts#Service")
             .expect("class entity must exist");
-        assert_eq!(service.payload["extends"], "Base");
+        assert_eq!(service.payload["extends"], json!(["Base"]));
         assert_eq!(
             service.payload["implements"],
             json!(["Store", "Closeable"]),
             "generic arguments are stripped and declaration order is preserved"
         );
+
+        let store = output
+            .entities
+            .iter()
+            .find(|entity| entity.stable_key.0 == "symbol://js-ts:src/service.ts#Store")
+            .expect("interface entity must exist");
+        assert_eq!(
+            store.payload["extends"],
+            json!(["Parent", "Hierarchy"]),
+            "interface extends clauses can name multiple generic or qualified parents"
+        );
+        assert_eq!(store.payload["implements"], json!([]));
 
         let plain = output
             .entities

@@ -497,6 +497,7 @@ fn relation_weight(kind: &RelationKind) -> i64 {
         RelationKind::Calls
         | RelationKind::ImplementedBy
         | RelationKind::Implements
+        | RelationKind::Extends
         | RelationKind::SchemaForRequest
         | RelationKind::SchemaForResponse
         | RelationKind::RequiresAuth
@@ -539,4 +540,17 @@ fn serialized_entity_kind(kind: &EntityKind) -> String {
         .ok()
         .and_then(|value| value.as_str().map(str::to_string))
         .unwrap_or_else(|| format!("{kind:?}"))
+}
+
+#[cfg(test)]
+mod relation_weight_tests {
+    use athanor_domain::RelationKind;
+
+    use super::relation_weight;
+
+    #[test]
+    fn inheritance_edges_receive_the_same_high_priority_as_implementation_edges() {
+        assert_eq!(relation_weight(&RelationKind::Extends), 90);
+        assert_eq!(relation_weight(&RelationKind::Implements), 90);
+    }
 }

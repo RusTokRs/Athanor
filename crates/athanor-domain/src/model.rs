@@ -82,6 +82,7 @@ pub enum RelationKind {
     Imports,
     Calls,
     Implements,
+    Extends,
     Documents,
     DocumentsApi,
     DocumentsOperation,

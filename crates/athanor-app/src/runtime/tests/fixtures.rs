@@ -107,7 +107,9 @@ pub(super) fn stdout_bytes_command(bytes: usize) -> ProcessCommand {
         args: vec![
             "-NoProfile".to_string(),
             "-Command".to_string(),
-            format!("[Console]::Out.Write(('x' * {bytes}))"),
+            format!(
+                "$stdout = [Console]::OpenStandardOutput(); $bytes = [byte[]]::new({bytes}); $stdout.Write($bytes, 0, $bytes.Length); $stdout.Flush()"
+            ),
         ],
         working_dir: test_working_dir(),
         expected_content_hash: None,
@@ -138,7 +140,7 @@ pub(super) fn failing_command() -> ProcessCommand {
         args: vec![
             "-NoProfile".to_string(),
             "-Command".to_string(),
-            "[Console]::Error.Write('intentional failure'); exit 7".to_string(),
+            "$stderr = [Console]::OpenStandardError(); $bytes = [System.Text.Encoding]::ASCII.GetBytes('intentional failure'); $stderr.Write($bytes, 0, $bytes.Length); $stderr.Flush(); exit 7".to_string(),
         ],
         working_dir: test_working_dir(),
         expected_content_hash: None,

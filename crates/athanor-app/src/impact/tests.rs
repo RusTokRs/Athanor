@@ -8,7 +8,7 @@ use serde_json::json;
 
 use super::traversal::impact_snapshot;
 
-fn entity(id: &str, stable_key: &str, kind: EntityKind) -> Entity {
+pub(super) fn entity(id: &str, stable_key: &str, kind: EntityKind) -> Entity {
     Entity {
         id: EntityId(id.to_string()),
         stable_key: StableKey(stable_key.to_string()),
@@ -23,7 +23,7 @@ fn entity(id: &str, stable_key: &str, kind: EntityKind) -> Entity {
     }
 }
 
-fn relation(id: &str, kind: RelationKind, from: &Entity, to: &Entity) -> Relation {
+pub(super) fn relation(id: &str, kind: RelationKind, from: &Entity, to: &Entity) -> Relation {
     Relation {
         id: RelationId(id.to_string()),
         kind,

@@ -52,9 +52,20 @@ Source files emit:
 
 Module payloads include normalized `imports` and `exports` arrays. Each import entry records the
 specifier, its source range, and the local bindings it introduces: `default_name`, `namespace_name`,
-and the sorted local names of `named` specifiers (`import { fetchUser as fetch }` records `fetch`).
-The built-in JS/TS import linker uses those payloads to materialize exact relative module imports
-without exposing parser AST nodes.
+the sorted local names in `named`, and `named_bindings` pairs (`imported`, `local`) so
+`import { fetchUser as fetch }` preserves both names. Each export entry records its optional source,
+source range, a `star` marker, optional `namespace_name`, `default_export`/`default_name` metadata,
+and explicit `bindings` pairs (`imported`, `exported`) for named export clauses. A source-backed
+clause such as `export { login as signIn } from './auth'` preserves the original/exported spelling; a
+source-less clause can represent a local alias. Plain `export * from './auth'` sets `star: true` and
+leaves `namespace_name` null; `export * as ns from './auth'` records `namespace_name: "ns"` and is
+not marked as a plain star. Named default functions and statically named local identifier defaults
+carry their local binding; unsupported default expressions remain unbound. The built-in JS/TS import
+linker uses relative source-backed imports and re-exports to materialize module dependencies without
+exposing parser AST nodes, while the call linker follows explicit named and default-function aliases,
+bounded wildcard chains that resolve uniquely across sources, and direct namespace exports for
+single-member calls. Absent names are skipped; ambiguous, unresolved, cyclic, and over-limit branches
+remain unresolved.
 
 ## Call Sites
 
@@ -71,15 +82,15 @@ them, nested class bodies are skipped because their members are separate declara
 is capped at 256 entries per declaration so payloads stay bounded. Call sites are raw syntax
 evidence: resolving them to declarations is the job of the JS/TS call linker.
 
-## Class Heritage
+## Type Heritage
 
-Class declarations additionally record their heritage as bare type names. `extends` holds the base
-class name and `implements` the interface names, in declaration order and deduplicated:
-`class Service extends api.Base implements Store<K>, Closeable {}` records `extends: "Base"` and
-`implements: ["Store", "Closeable"]`. Generic arguments and qualified paths are reduced to the final
-segment, because resolution to a canonical symbol is the linker's job; classes without heritage carry
-neither field, so payloads stay unchanged for the common case. Plain JavaScript has no `implements`
-clause, so only `extends` appears there.
+Class declarations record heritage names in declaration order: `extends` is a one-element array for
+the base class and `implements` is an array of interface names. For example,
+`class Service extends api.Base implements Store<K>, Closeable {}` records
+`extends: ["Base"]` and `implements: ["Store", "Closeable"]`. TypeScript interfaces also record
+all parent interfaces in an `extends` array; JavaScript has no `implements` clause. Generic arguments
+and qualified paths are reduced to the final type-name segment because resolution to canonical
+symbols belongs to the linker. Declarations without heritage omit both fields.
 
 ## Diagnostics
 
