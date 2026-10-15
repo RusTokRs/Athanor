@@ -1003,6 +1003,7 @@ fn architecture_relation_kind_is_primary(kind: &RelationKind) -> bool {
             | RelationKind::Imports
             | RelationKind::Calls
             | RelationKind::Implements
+            | RelationKind::Extends
             | RelationKind::ImplementedBy
             | RelationKind::DeclaredInOpenapi
             | RelationKind::SchemaForRequest
@@ -1055,4 +1056,17 @@ fn sha256_hex(content: &[u8]) -> String {
 
 fn error(message: impl Into<String>) -> DocumentationContractError {
     DocumentationContractError(message.into())
+}
+
+#[cfg(test)]
+mod architecture_relation_kind_tests {
+    use athanor_domain::RelationKind;
+
+    use super::architecture_relation_kind_is_primary;
+
+    #[test]
+    fn inheritance_relations_are_primary_architecture_edges() {
+        assert!(architecture_relation_kind_is_primary(&RelationKind::Extends));
+        assert!(architecture_relation_kind_is_primary(&RelationKind::Implements));
+    }
 }

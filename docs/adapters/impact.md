@@ -37,6 +37,7 @@ Since changes propagate upstream to dependants, relation traversal direction is 
 | --- | --- | --- |
 | `Calls` | `to` -> `from` | Callee changes impact its Caller. |
 | `Imports` | `to` -> `from` | Imported module changes impact the importer. |
+| `Extends` / `Implements` | `to` -> `from` | Base class/trait or implemented contract changes impact derived or implementing types. |
 | `ImplementedBy` | `to` -> `from` | Function changes impact the API endpoint implementing it. |
 | `Documents` / `DocumentsApi` / `DocumentsOperation` | `to` -> `from` | Referenced entity changes impact the documenting page. |
 | `SchemaForRequest` / `SchemaForResponse` | `to` -> `from` | Schema changes impact the API endpoint referencing them. |

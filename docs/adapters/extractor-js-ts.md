@@ -71,15 +71,15 @@ them, nested class bodies are skipped because their members are separate declara
 is capped at 256 entries per declaration so payloads stay bounded. Call sites are raw syntax
 evidence: resolving them to declarations is the job of the JS/TS call linker.
 
-## Class Heritage
+## Type Heritage
 
-Class declarations additionally record their heritage as bare type names. `extends` holds the base
-class name and `implements` the interface names, in declaration order and deduplicated:
-`class Service extends api.Base implements Store<K>, Closeable {}` records `extends: "Base"` and
-`implements: ["Store", "Closeable"]`. Generic arguments and qualified paths are reduced to the final
-segment, because resolution to a canonical symbol is the linker's job; classes without heritage carry
-neither field, so payloads stay unchanged for the common case. Plain JavaScript has no `implements`
-clause, so only `extends` appears there.
+Class declarations record heritage names in declaration order: `extends` is a one-element array for
+the base class and `implements` is an array of interface names. For example,
+`class Service extends api.Base implements Store<K>, Closeable {}` records
+`extends: ["Base"]` and `implements: ["Store", "Closeable"]`. TypeScript interfaces also record
+all parent interfaces in an `extends` array; JavaScript has no `implements` clause. Generic arguments
+and qualified paths are reduced to the final type-name segment because resolution to canonical
+symbols belongs to the linker. Declarations without heritage omit both fields.
 
 ## Diagnostics
 

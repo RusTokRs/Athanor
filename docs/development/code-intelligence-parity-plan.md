@@ -47,10 +47,46 @@ Two concrete targets:
 
 ### P2 — Resolution Depth For Both Languages
 
-- Rust: trait implementations and dyn-dispatch candidates (`Implements` edges).
-- JS/TS: class `implements`, callbacks and promise handlers, re-export chains, path aliases, and
-  workspace-package specifiers.
+- Rust: trait implementation (`Implements`) and supertrait (`Extends`) edges; dyn-dispatch candidates
+  remain a separate deferred capability.
+- JS/TS: class `extends`/`implements` and interface `extends` with distinct canonical relation kinds;
+  callbacks and promise handlers, re-export chains, path aliases, and workspace-package specifiers
+  remain open.
 - Both: symbol-level incremental invalidation so a changed declaration re-resolves only its closure.
+
+#### P2A — Heritage Relation Semantics (bounded Rust/TypeScript slice)
+
+- Add canonical `RelationKind::Extends`; keep `Implements` for Rust `impl Trait for Type` and JS/TS
+  class `implements` bridges.
+- Extract TypeScript interface parent types and Rust trait supertraits; Rust trait method declaration
+  extraction remains a separate deferred slice.
+- Propagate changes from a base class/trait backward to derived types and implementations, rank
+  `Extends` with the other implementation edges, and include it in the architecture profile.
+- Bump both index-state schema families from v46 to v47, so old entity payloads are not incorrectly
+  reused after extractor semantics change (normal and `js-ts-precision` builds).
+
+Focused source regression matrix:
+
+| Language | Extractor | Linker | Application behavior |
+| --- | --- | --- | --- |
+| Rust | trait `supertraits` paths plus containing-module imports | unambiguous local/imported paths emit `Extends`; ambiguous glob targets stay unresolved; `trait_impl` remains `Implements` | base-trait changes reach implementing/derived declarations |
+| TypeScript | class `extends`/`implements` plus multiple interface `extends` names | class/interface inheritance emits `Extends`; ambiguous class/interface targets stay unresolved; class contracts emit `Implements` | base-class changes reach subclasses; `Extends` receives high change-map priority |
+| Shared persistence | — | — | v46 index state is discarded and forces a full rebuild; v47 fixtures/contracts agree |
+
+Focused verification matrix:
+
+```bash
+cargo test -p athanor-extractor-rust --locked
+cargo test -p athanor-linker-rust --locked
+cargo test -p athanor-extractor-js-ts --locked
+cargo test -p athanor-extractor-js-ts --features precision-parser --locked
+cargo test -p athanor-linker-js-ts --locked
+cargo test -p athanor-app --locked
+cargo test -p athanor-app --features js-ts-precision --locked
+```
+
+The full exact-commit verification matrix remains the workspace test, format, Clippy, and indexing
+smoke described below.
 
 ### P3 — Bounded Language Expansion
 
@@ -109,18 +145,21 @@ Two concrete targets:
 ## Current Status
 
 Slice P1 is source-implemented and carries focused unit tests in `athanor-extractor-js-ts` and
-`athanor-linker-js-ts`. Slice P2 is source-implemented in both halves: `trait_impl` facts plus
-`Implements` relations for Rust, and class heritage plus `builtin.linker.js_ts_implements` for
-JavaScript/TypeScript. Slice P4 is covered by the shipped `operations` documentation profile
+`athanor-linker-js-ts`. The original P2 `Implements` bridges are source-implemented in both halves.
+P2A adds a separate `Extends` relation for Rust trait supertraits and JS/TS class/interface
+inheritance, updates the impact/ranking/architecture consumers, and bumps index state to v47; focused
+Rust/TypeScript regression cases are part of this slice. Exact execution verification for P2A is
+pending on the current source state. Slice P4 is covered by the shipped `operations` documentation profile
 (DOCGEN-001 Slices 4A–4C); its monitoring category derives declared health, status, and metrics endpoints
 and telemetry environment-variable names from canonical evidence, while container and Kubernetes probes,
 alert rules, dashboards, and SLOs still need their own evidence source before they may be documented. Slice P5 is source-implemented as the bounded `explore` MCP tool: one query
 returns search-ranked entries, their citations, and the one-hop relation neighbourhood with disclosed
 budgets; multi-hop call paths and full blast radius remain planned. Slice P3 is source-implemented as `builtin.extractor.treesitter`: one engine walks a
 per-language pack of node kinds and field names and records declaration, import, export, and call
-evidence for Python and Go, with the existing cross-file linkers still owning resolution. Exact-commit
-verification for P1, P2, and P5 is green on `191c65e` (sandbox diagnostics run `38152033388`), and the P3
-engine and packs are green on `e07547e` (run `38157055780`), and the monitoring category is green on
+evidence for Python and Go, with the existing cross-file linkers still owning resolution. Historical
+exact-commit verification for P1, the pre-P2A P2 slice, and P5 is green on `191c65e` (sandbox
+diagnostics run `38152033388`); it does not verify P2A or the current source state. The P3 engine and
+packs are green on `e07547e` (run `38157055780`), and the monitoring category is green on
 `69d8918` (run `38160162759`); each run reports every log PASSED with a
 `rustfmt` diff of 0 lines, and each commit's repository check matrix is fully successful or intentionally
 skipped. Cross-file resolution for Python and Go, and the published coverage measurement, stay open, so P3

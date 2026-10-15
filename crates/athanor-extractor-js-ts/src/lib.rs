@@ -312,13 +312,13 @@ struct SourceDeclaration {
     source_node: String,
     line_range: (u32, u32),
     calls: Vec<Value>,
-    heritage: Option<ClassHeritage>,
+    heritage: Option<TypeHeritage>,
 }
 
-/// `extends`/`implements` heritage of a class declaration, reduced to bare type names.
+/// `extends`/`implements` heritage of a class or interface, reduced to bare type names.
 #[derive(Debug, Clone, Default)]
-struct ClassHeritage {
-    extends: Option<String>,
+struct TypeHeritage {
+    extends: Vec<String>,
     implements: Vec<String>,
 }
 
@@ -423,7 +423,7 @@ fn collect_statement(
                     source_node: node.kind().to_string(),
                     line_range: line_range(node),
                     calls: Vec::new(),
-                    heritage: None,
+                    heritage: interface_heritage(node, bytes),
                 });
             }
         }
@@ -527,8 +527,8 @@ fn collect_variable_functions(
 /// Both clauses are matched by node kind (`class_heritage` holds them in the JS and TS grammars)
 /// and reduced to bare type names, so generic arguments and qualified paths do not leak into the
 /// payload: `class Service extends api.Base implements Store<K> {}` records `Base` and `Store`.
-fn class_heritage(node: Node, bytes: &[u8]) -> Option<ClassHeritage> {
-    let mut heritage = ClassHeritage::default();
+fn class_heritage(node: Node, bytes: &[u8]) -> Option<TypeHeritage> {
+    let mut heritage = TypeHeritage::default();
     let mut cursor = node.walk();
     for child in node.named_children(&mut cursor) {
         if child.kind() != "class_heritage" {
@@ -542,7 +542,7 @@ fn class_heritage(node: Node, bytes: &[u8]) -> Option<ClassHeritage> {
                         .child_by_field_name("value")
                         .or_else(|| clause.named_child(0));
                     if let Some(name) = value.and_then(|value| heritage_name(value, bytes)) {
-                        heritage.extends = Some(name);
+                        push_heritage_name(&mut heritage.extends, name);
                     }
                 }
                 "implements_clause" => {
@@ -551,19 +551,61 @@ fn class_heritage(node: Node, bytes: &[u8]) -> Option<ClassHeritage> {
                         let Some(name) = heritage_name(item, bytes) else {
                             continue;
                         };
-                        if !heritage.implements.contains(&name) {
-                            heritage.implements.push(name);
-                        }
+                        push_heritage_name(&mut heritage.implements, name);
                     }
                 }
                 _ => {}
             }
         }
     }
-    if heritage.extends.is_none() && heritage.implements.is_empty() {
+    if heritage.extends.is_empty() && heritage.implements.is_empty() {
         return None;
     }
     Some(heritage)
+}
+
+/// Read the multiple `extends` entries allowed by a TypeScript interface declaration.
+fn interface_heritage(node: Node, bytes: &[u8]) -> Option<TypeHeritage> {
+    let mut heritage = TypeHeritage::default();
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        if child.kind() != "extends_type_clause" {
+            continue;
+        }
+        collect_interface_heritage_names(child, bytes, &mut heritage.extends);
+    }
+    if heritage.extends.is_empty() {
+        None
+    } else {
+        Some(heritage)
+    }
+}
+
+fn collect_interface_heritage_names(node: Node, bytes: &[u8], names: &mut Vec<String>) {
+    if is_type_reference_node(node.kind())
+        && let Some(name) = heritage_name(node, bytes)
+    {
+        push_heritage_name(names, name);
+        return;
+    }
+
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        collect_interface_heritage_names(child, bytes, names);
+    }
+}
+
+fn is_type_reference_node(kind: &str) -> bool {
+    matches!(
+        kind,
+        "type_identifier" | "nested_type_identifier" | "generic_type" | "identifier"
+    )
+}
+
+fn push_heritage_name(names: &mut Vec<String>, name: String) {
+    if !names.contains(&name) {
+        names.push(name);
+    }
 }
 
 /// Bare type name of one heritage entry: generic arguments dropped, last path segment kept.
@@ -1512,11 +1554,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn records_class_extends_and_implements_heritage() {
+    async fn records_class_and_interface_heritage_separately() {
         let output = JsTsExtractor
             .extract(input(
                 "src/service.ts",
-                "export class Service extends api.Base implements Store<K>, Closeable {}\nclass Plain {}\ninterface Store<T> {}\n",
+                "export class Service extends api.Base implements Store<K>, Closeable {}\nclass Plain {}\ninterface Store<T> extends Parent<T>, api.Hierarchy {}\ninterface Parent<T> {}\ninterface Hierarchy {}\n",
                 "typescript",
             ))
             .await
@@ -1527,12 +1569,24 @@ mod tests {
             .iter()
             .find(|entity| entity.stable_key.0 == "symbol://js-ts:src/service.ts#Service")
             .expect("class entity must exist");
-        assert_eq!(service.payload["extends"], "Base");
+        assert_eq!(service.payload["extends"], json!(["Base"]));
         assert_eq!(
             service.payload["implements"],
             json!(["Store", "Closeable"]),
             "generic arguments are stripped and declaration order is preserved"
         );
+
+        let store = output
+            .entities
+            .iter()
+            .find(|entity| entity.stable_key.0 == "symbol://js-ts:src/service.ts#Store")
+            .expect("interface entity must exist");
+        assert_eq!(
+            store.payload["extends"],
+            json!(["Parent", "Hierarchy"]),
+            "interface extends clauses can name multiple generic or qualified parents"
+        );
+        assert_eq!(store.payload["implements"], json!([]));
 
         let plain = output
             .entities

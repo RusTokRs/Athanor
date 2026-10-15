@@ -7,8 +7,9 @@ status: active
 ---
 # Roadmap Status
 
-This compact ledger describes current `main`. Detailed evidence lives in
-`athanor_implementation_plan_ru.md`; long-range work lives in `start.md`.
+This compact ledger describes repository source state, including clearly labelled branch-local work;
+it is not execution evidence by itself. Detailed evidence lives in `athanor_implementation_plan_ru.md`;
+long-range work lives in `start.md`.
 
 ## Status Rules
 
@@ -163,16 +164,20 @@ gap, the typo-named `for agents. md` briefing, was fixed by renaming it to
 ### `PARITY-001` — CodeGraph-Parity Code Intelligence
 
 - [x] Slice P1: JS/TS call graph — import bindings, static call sites, `builtin.linker.js_ts_calls`.
-- [x] Slice P2: `implements` bridges — Rust `trait_impl` facts plus JS/TS class heritage.
+- [x] Slice P2: `implements` bridges — Rust `trait_impl` facts plus JS/TS class heritage (prior source slice).
+- [x] Slice P2A source implementation: distinct `Extends` edges for Rust trait supertraits and
+  JS/TS class/interface inheritance; impact/ranking/profile consumers; index-state schema v47.
+  Focused regression matrix added; exact verification of this worktree pending.
 - [x] Slice P3: `builtin.extractor.treesitter` plus `builtin.linker.treesitter` host and resolve
   receiver-qualified Python and Go packs, with a per-language coverage measurement published.
 - [x] Slice P4: deterministic operations documentation — DOCGEN-001 4A–4C; the monitoring category
   derives declared health/metrics endpoints and telemetry variable names, with probes/alerts still open.
 - [x] Slice P5: bounded `explore` MCP query — ranked entries, one-hop relations, citations, budgets.
-- Verified exact-commit evidence: run `38152033388` on `191c65e` (P1, P2, P5), run `38157055780` on
-  `e07547e` (P3 engine and packs), run `38160162759` on `69d8918` (P4b monitoring), and run `38165153178`
-  on `09ce6ab` (P3 cross-file linker) report every log PASSED with a `rustfmt` diff of 0 lines, and each
-  commit's check matrix is fully successful or intentionally skipped.
+- Historical exact-commit evidence for the pre-P2A source: run `38152033388` on `191c65e` (P1, P2,
+  P5); it does not verify P2A or this worktree. Other historical runs are `38157055780` on `e07547e`
+  (P3 engine/packs), `38160162759` on `69d8918` (P4b monitoring), and `38165153178` on `09ce6ab`
+  (P3 cross-file linker); their logs report PASSED with a zero-line `rustfmt` diff and successful or
+  intentionally skipped repository checks.
 
 ### `DOCGEN-001` — Evidence-Backed Documentation Generation
 

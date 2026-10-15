@@ -15,8 +15,8 @@ Port: `Linker`
 The crate owns three linkers over the same normalized extractor payloads: `JsTsImportLinker`
 (`builtin.linker.js_ts_imports`) for module imports, `JsTsCallLinker` (`builtin.linker.js_ts_calls`)
 for the static call graph, and `JsTsImplementsLinker` (`builtin.linker.js_ts_implements`) for class
-heritage. All three read canonical entities from the current snapshot and never touch the
-filesystem.
+and interface heritage. All three read canonical entities from the current snapshot and never touch
+the filesystem.
 
 ## Import Linker
 
@@ -78,26 +78,27 @@ for one snapshot.
 
 ## Heritage Linker
 
-`JsTsImplementsLinker` turns the `extends` and `implements` names recorded on class entities into
-`RelationKind::Implements` relations, so traversal can follow a subclass to its base class and a
-class to the interfaces it promises.
+`JsTsImplementsLinker` turns class `extends`/`implements` and interface `extends` names into
+canonical heritage relations. `extends` emits `RelationKind::Extends`; class `implements` emits
+`RelationKind::Implements`. This keeps subclass/interface inheritance distinct from a class's
+contract implementation.
 
 ### Resolution
 
-A heritage name resolves to exactly one class (`extends`) or interface (`implements`) symbol. A
-candidate declared in the same module wins; otherwise the name must be unique across the snapshot
-and the class never resolves to itself. Ambiguous names stay unresolved rather than being guessed,
-mirroring the Rust linker's trait-implementation bridges. Package and workspace-alias targets are
-outside this resolution, because the extractor records heritage names rather than imported bindings.
+A class `extends` name resolves to exactly one class, a class `implements` name to exactly one
+interface, and an interface `extends` name to exactly one interface. A candidate declared in the same
+module wins; otherwise the name must be unique across the snapshot, and the source never resolves to
+itself. Ambiguous names stay unresolved rather than being guessed, mirroring the Rust linker's
+trait-implementation bridges. Package, workspace-alias, and TypeScript path-alias targets remain
+outside this name-only resolution.
 
 ### Emitted Knowledge
 
-Each bridge is an inferred `RelationKind::Implements` relation from the class to the base
-class/interface, with evidence on both source ranges at 0.7 confidence: name-based resolution cannot
-prove that a rebuilt program links the same symbol. The payload records the `bridge`
-(`extends` or `implements`), the `matched_value`, and the reason. The relation vocabulary has no
-dedicated inheritance kind, so `extends` is expressed as `Implements` with an explicit `bridge`
-marker instead of a guessed trait relation.
+Each bridge is inferred with evidence on both source ranges at 0.7 confidence: name-based resolution
+cannot prove that a rebuilt program links the same symbol. The payload records the `bridge`
+(`extends` or `implements`), the `matched_value`, and a source-kind-specific reason. The same
+`Extends` kind is used for class and interface inheritance; `Implements` is reserved for the class
+contract relationship.
 
 ## Boundaries
 

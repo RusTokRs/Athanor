@@ -1,10 +1,10 @@
 # athanor-linker-js-ts
 
-JavaScript and TypeScript linkers: module imports and the static call graph.
+JavaScript and TypeScript linkers: module imports, the static call graph, and type heritage.
 
 Implements: `Linker`
 
-Adapter ids: `builtin.linker.js_ts_imports`, `builtin.linker.js_ts_calls`
+Adapter ids: `builtin.linker.js_ts_imports`, `builtin.linker.js_ts_calls`, `builtin.linker.js_ts_implements`
 
 ## What It Emits
 
@@ -20,9 +20,21 @@ Adapter ids: `builtin.linker.js_ts_imports`, `builtin.linker.js_ts_calls`
 - `RelationKind::TestedBy` from a tested declaration to a declaration in a test location that calls
   it.
 
+`JsTsImplementsLinker` emits:
+
+- `RelationKind::Extends` from a class to its resolved base class and from an interface to each
+  resolved parent interface.
+- `RelationKind::Implements` from a class to each resolved interface named by its `implements`
+  clause.
+
+Heritage names prefer a unique same-file declaration, then a unique snapshot-wide match; ambiguous
+or external names remain unresolved instead of being guessed. The extractor records `extends` and
+`implements` separately, and the linker preserves that distinction in the canonical relation kind.
+
 Import relations are verified; call relations are inferred, because JavaScript dispatch is dynamic
-even when the call shape is static. Every relation is evidence-backed, owned by both source files,
-and carries the matched value plus the resolution reason.
+even when the call shape is static. Heritage relations are inferred at 0.7 confidence because
+name-only resolution cannot prove a program-level binding. Every relation is evidence-backed, owned
+by both source files, and carries the matched value plus the resolution reason.
 
 ## Import Resolution
 
@@ -49,11 +61,13 @@ and capped at 10,000 relations per snapshot.
 
 ## Side Effects
 
-None. Both linkers read canonical entities and write relations. They do not read files, run commands,
-use the network, or modify project files.
+None. All three linkers read canonical entities and write relations. They do not read files, run
+commands, use the network, or modify project files.
 
 ## Limitations
 
+- Heritage resolution is name-based; imported bindings, package/workspace aliases, and TypeScript
+  path aliases are not used to resolve `extends` or `implements` names.
 - Package, workspace alias, TypeScript path alias, and Node built-in imports are not linked.
 - Dynamic `import()`, CommonJS `require()`, and export/re-export relations are not linked.
 - Computed calls (`handlers[key]()`), calls through call results, reflective dispatch, and receiver

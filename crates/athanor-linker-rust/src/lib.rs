@@ -13,6 +13,8 @@ use serde_json::json;
 
 /// Confidence of a trait-implementation bridge resolved by unique symbol name.
 const TRAIT_IMPL_CONFIDENCE: f32 = 0.7;
+/// Confidence of a trait supertrait bridge resolved by canonical path/name.
+const TRAIT_SUPERTYPE_CONFIDENCE: f32 = 0.7;
 
 #[derive(Debug, Clone, Default)]
 pub struct RustLinker;
@@ -215,6 +217,8 @@ impl Linker for RustLinker {
         // so ambiguous names stay unresolved rather than guessed.
         let mut types_by_name: HashMap<&str, Vec<&Entity>> = HashMap::new();
         let mut traits_by_name: HashMap<&str, Vec<&Entity>> = HashMap::new();
+        let mut trait_qualified_names = HashSet::new();
+        let mut trait_entities = Vec::new();
         for entity in rust_entities.iter().copied() {
             match entity
                 .payload
@@ -232,8 +236,84 @@ impl Linker for RustLinker {
                         .entry(entity.name.as_str())
                         .or_default()
                         .push(entity);
+                    if let Some(qn) = qualified_name(entity) {
+                        trait_qualified_names.insert(qn);
+                    }
+                    trait_entities.push(entity);
                 }
                 _ => {}
+            }
+        }
+
+        // Rust supertraits are inheritance edges from the child trait to each resolved parent.
+        // Resolve only against trait declarations, so same-named structs never become false bases.
+        for trait_entity in trait_entities {
+            let Some(trait_qn) = qualified_name(trait_entity) else {
+                continue;
+            };
+            let Some((current_module, _)) = trait_qn.rsplit_once("::") else {
+                continue;
+            };
+            let imports = trait_entity
+                .payload
+                .get("imports")
+                .and_then(|value| value.as_array())
+                .or_else(|| {
+                    rust_by_qualified_name.get(current_module).and_then(|module| {
+                        module
+                            .payload
+                            .get("imports")
+                            .and_then(|value| value.as_array())
+                    })
+                })
+                .map(|values| {
+                    values
+                        .iter()
+                        .filter_map(|value| value.as_str().map(str::to_string))
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            let Some(supertraits) = trait_entity
+                .payload
+                .get("supertraits")
+                .and_then(|value| value.as_array())
+            else {
+                continue;
+            };
+            for supertrait in supertraits.iter().filter_map(|value| value.as_str()) {
+                let Some(resolved) = resolve_supertrait_path(
+                    current_module,
+                    supertrait,
+                    &imports,
+                    &qualified_names,
+                    &trait_qualified_names,
+                ) else {
+                    continue;
+                };
+                let Some(supertrait_entity) = rust_by_qualified_name.get(resolved.as_str()).copied()
+                else {
+                    continue;
+                };
+                if trait_entity.id == supertrait_entity.id
+                    || !either_affected(trait_entity, supertrait_entity, &affected_ids)
+                {
+                    continue;
+                }
+                push_unique(
+                    &mut relations,
+                    &mut relation_ids,
+                    relation(
+                        &input.snapshot,
+                        trait_entity,
+                        supertrait_entity,
+                        RelationKind::Extends,
+                        self.name(),
+                        "rust_trait_supertrait",
+                        supertrait,
+                        TRAIT_SUPERTYPE_CONFIDENCE,
+                        RelationStatus::Inferred,
+                    ),
+                );
             }
         }
 
@@ -365,6 +445,86 @@ fn resolve_path(
     }
 
     None
+}
+
+/// Resolve a supertrait path only when its import bindings identify one in-snapshot trait.
+///
+/// Unlike ordinary call resolution, a glob import can make a bare trait name ambiguous. Do not
+/// let the first matching `use path::*` silently choose one of several possible supertraits.
+fn resolve_supertrait_path(
+    current_module: &str,
+    path: &str,
+    imports: &[String],
+    all_qualified_names: &HashSet<&str>,
+    trait_qualified_names: &HashSet<&str>,
+) -> Option<String> {
+    let local = qualify(current_module, path);
+    if trait_qualified_names.contains(local.as_str()) {
+        return Some(local);
+    }
+
+    // Explicit crate/self/super paths have one canonical interpretation, independent of imports.
+    if path.starts_with("crate::") || path.starts_with("self::") || path.starts_with("super::") {
+        return resolve_path(current_module, path, imports, trait_qualified_names);
+    }
+
+    let first_segment = path.split("::").next().unwrap_or(path);
+    let mut candidates = HashSet::new();
+    for import in imports {
+        let import_last_segment = import.split("::").last().unwrap_or(import);
+        if import_last_segment == first_segment {
+            let imported_path =
+                resolve_path(current_module, import, &[], all_qualified_names)
+                    .unwrap_or_else(|| import.to_string());
+            let suffix = if path.contains("::") {
+                path.strip_prefix(first_segment).unwrap_or("")
+            } else {
+                ""
+            };
+            let resolved = format!("{imported_path}{suffix}");
+            if all_qualified_names.contains(resolved.as_str()) {
+                candidates.insert(resolved);
+            }
+        } else if import_last_segment == "*" {
+            let Some(imported_module) = import.strip_suffix("::*") else {
+                continue;
+            };
+            let imported_module = match imported_module {
+                "self" => Some(current_module.to_string()),
+                "super" => current_module
+                    .rsplit_once("::")
+                    .map(|(parent, _)| parent.to_string()),
+                "crate" => current_module
+                    .split("::")
+                    .next()
+                    .map(str::to_string),
+                _ => Some(
+                    resolve_path(
+                        current_module,
+                        imported_module,
+                        &[],
+                        all_qualified_names,
+                    )
+                    .unwrap_or_else(|| imported_module.to_string()),
+                ),
+            };
+            let Some(imported_module) = imported_module else {
+                continue;
+            };
+            let resolved = qualify(&imported_module, path);
+            if all_qualified_names.contains(resolved.as_str()) {
+                candidates.insert(resolved);
+            }
+        }
+    }
+
+    match candidates.len() {
+        1 => candidates.into_iter().next().filter(|candidate| {
+            trait_qualified_names.contains(candidate.as_str())
+        }),
+        0 => resolve_path(current_module, path, imports, trait_qualified_names),
+        _ => None,
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -642,6 +802,135 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn links_trait_supertraits_as_extends_bridges() {
+        let base_trait = entity(
+            "ent_trait_base",
+            "symbol://rust:crate::auth::Base",
+            EntityKind::Symbol,
+            "Base",
+            json!({
+                "symbol_kind": "trait",
+                "qualified_name": "crate::auth::Base",
+                "supertraits": [],
+            }),
+        );
+        let child_trait = entity(
+            "ent_trait_child",
+            "symbol://rust:crate::auth::Child",
+            EntityKind::Symbol,
+            "Child",
+            json!({
+                "symbol_kind": "trait",
+                "qualified_name": "crate::auth::Child",
+                "supertraits": ["Base"],
+            }),
+        );
+        let module = entity(
+            "ent_module_auth",
+            "symbol://rust:crate::auth",
+            EntityKind::Module,
+            "auth",
+            json!({
+                "symbol_kind": "module",
+                "qualified_name": "crate::auth",
+                "imports": [],
+            }),
+        );
+        let entities = vec![module, base_trait.clone(), child_trait.clone()];
+
+        let relations = RustLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        assert!(relations.iter().any(|relation| {
+            relation.kind == RelationKind::Extends
+                && relation.from == child_trait.id
+                && relation.to == base_trait.id
+                && relation.payload["reason"] == "rust_trait_supertrait"
+                && relation.payload["matched_value"] == "Base"
+        }));
+        assert!(!relations.iter().any(|relation| relation.kind == RelationKind::Implements));
+    }
+
+    #[tokio::test]
+    async fn resolves_imported_supertraits_and_rejects_ambiguous_globs() {
+        let base = rust_trait_symbol(
+            "ent_trait_imported_base",
+            "crate::one::Base",
+            "Base",
+            &[],
+            &[],
+        );
+        let child = rust_trait_symbol(
+            "ent_trait_imported_child",
+            "crate::auth::Child",
+            "Child",
+            &["Base"],
+            &["crate::one::Base"],
+        );
+        let module = rust_module_symbol(
+            "ent_module_auth_imports",
+            "crate::auth",
+            &["crate::one::Base"],
+        );
+        let entities = vec![module, base.clone(), child.clone()];
+
+        let relations = RustLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+        assert!(relations.iter().any(|relation| {
+            relation.kind == RelationKind::Extends
+                && relation.from == child.id
+                && relation.to == base.id
+        }));
+
+        let other_base = rust_trait_symbol(
+            "ent_trait_other_base",
+            "crate::two::Base",
+            "Base",
+            &[],
+            &[],
+        );
+        let ambiguous_child = rust_trait_symbol(
+            "ent_trait_ambiguous_child",
+            "crate::auth::Child",
+            "Child",
+            &["Base"],
+            &["crate::one::*", "crate::two::*"],
+        );
+        let ambiguous_module = rust_module_symbol(
+            "ent_module_auth_ambiguous_imports",
+            "crate::auth",
+            &["crate::one::*", "crate::two::*"],
+        );
+        let ambiguous_entities = vec![ambiguous_module, base, other_base, ambiguous_child.clone()];
+        let relations = RustLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(ambiguous_entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(ambiguous_entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+        assert!(!relations.iter().any(|relation| {
+            relation.kind == RelationKind::Extends && relation.from == ambiguous_child.id
+        }));
+    }
+
+    #[tokio::test]
     async fn links_trait_impl_facts_to_implements_bridges() {
         let trait_entity = entity(
             "ent_trait_login",
@@ -716,6 +1005,41 @@ mod tests {
                 .iter()
                 .any(|relation| relation.kind == RelationKind::Implements)
         );
+    }
+
+    fn rust_trait_symbol(
+        id: &str,
+        qualified_name: &str,
+        name: &str,
+        supertraits: &[&str],
+        imports: &[&str],
+    ) -> Entity {
+        entity(
+            id,
+            &format!("symbol://rust:{qualified_name}"),
+            EntityKind::Symbol,
+            name,
+            json!({
+                "symbol_kind": "trait",
+                "qualified_name": qualified_name,
+                "supertraits": supertraits,
+                "imports": imports,
+            }),
+        )
+    }
+
+    fn rust_module_symbol(id: &str, qualified_name: &str, imports: &[&str]) -> Entity {
+        entity(
+            id,
+            &format!("symbol://rust:{qualified_name}"),
+            EntityKind::Module,
+            qualified_name.rsplit("::").next().unwrap_or(qualified_name),
+            json!({
+                "symbol_kind": "module",
+                "qualified_name": qualified_name,
+                "imports": imports,
+            }),
+        )
     }
 
     fn entity(

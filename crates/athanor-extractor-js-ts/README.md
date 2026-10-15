@@ -18,6 +18,8 @@ route declarations and is registered independently as `builtin.extractor.express
 - `EntityKind::Function` for function, method, arrow-function, and variable-bound function declarations
 - `EntityKind::Class` for JavaScript and TypeScript classes
 - `EntityKind::Symbol` for TypeScript interfaces and type aliases
+- Class `extends`/`implements` and TypeScript interface `extends` names in normalized declaration
+  payloads for the heritage linker
 - `EntityKind::Package` and `EntityKind::Dependency` for `package.json` package and dependency declarations
 - `FactKind::SymbolDefined` for emitted source declarations and package dependency declarations
 - `DiagnosticKind::Other("js_ts_parse_error")` when tree-sitter reports parser errors, coalesced at the outer parser error node to avoid duplicate nested findings

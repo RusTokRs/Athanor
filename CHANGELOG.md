@@ -13,8 +13,9 @@ substantive release notes.
 
 ### Added
 
-- Add `Implements` bridges for Rust and JS/TS: Rust records every `impl Trait for Type` block as a
-  `trait_impl` fact and links unique type/trait names, and JS/TS records class heritage for the bridge.
+- Add distinct `Extends` and `Implements` graph edges for Rust trait supertraits and JS/TS class or
+  interface inheritance, while retaining `Implements` for `impl Trait for Type` and class contracts.
+  Extract Rust trait-supertype paths and force a one-time index rebuild with index-state schema v47.
 - Add the bounded `explore` MCP tool: one query returns ranked entries, citations, and one-hop relations.
 - Add `builtin.extractor.treesitter` over Python and Go: one data-driven engine records declarations,
   receiver-qualified methods and other declarations, imports, exports, and statically named call sites.

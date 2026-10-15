@@ -61,6 +61,7 @@ impl Extractor for RustExtractor {
             imports: Vec::new(),
             calls: Vec::new(),
             is_test: false,
+            supertraits: Vec::new(),
         });
 
         collect_items(
@@ -70,11 +71,20 @@ impl Extractor for RustExtractor {
             &mut module_imports,
         );
 
+        // Keep module imports on traits too: canonical module entities can coalesce across files,
+        // so supertrait resolution should not depend on which module payload wins that merge.
         for symbol in &mut symbols {
-            if symbol.entity_kind != EntityKind::Module {
-                continue;
-            }
-            if let Some(imports) = module_imports.get(&symbol.qualified_name) {
+            let module_qn = if symbol.entity_kind == EntityKind::Module {
+                Some(symbol.qualified_name.as_str())
+            } else if symbol.symbol_kind == "trait" {
+                symbol
+                    .qualified_name
+                    .rsplit_once("::")
+                    .map(|(module, _)| module)
+            } else {
+                None
+            };
+            if let Some(imports) = module_qn.and_then(|module| module_imports.get(module)) {
                 symbol.imports = imports.clone();
             }
         }
@@ -107,6 +117,20 @@ impl Extractor for RustExtractor {
             let (line_start, line_end) = symbol_line_range(&symbol.spans);
             let ownership = ownership_for_file(&input.source.path);
 
+            let mut payload = json!({
+                "symbol_kind": symbol.symbol_kind,
+                "qualified_name": symbol.qualified_name,
+                "visibility": symbol.visibility,
+                "signature": symbol.signature,
+                "definitions": symbol.spans.len(),
+                "imports": symbol.imports,
+                "calls": symbol.calls,
+                "is_test": symbol.is_test,
+            });
+            if symbol.symbol_kind == "trait" {
+                payload["supertraits"] = json!(symbol.supertraits);
+            }
+
             entities.push(Entity {
                 id: entity_id.clone(),
                 stable_key: stable_key.clone(),
@@ -121,16 +145,7 @@ impl Extractor for RustExtractor {
                 language: Some(LanguageCode("rust".to_string())),
                 aliases: Vec::new(),
                 ownership: ownership.clone(),
-                payload: json!({
-                    "symbol_kind": symbol.symbol_kind,
-                    "qualified_name": symbol.qualified_name,
-                    "visibility": symbol.visibility,
-                    "signature": symbol.signature,
-                    "definitions": symbol.spans.len(),
-                    "imports": symbol.imports,
-                    "calls": symbol.calls,
-                    "is_test": symbol.is_test,
-                }),
+                payload,
             });
 
             facts.push(Fact {
@@ -306,6 +321,7 @@ struct RustSymbol {
     imports: Vec<String>,
     calls: Vec<String>,
     is_test: bool,
+    supertraits: Vec<String>,
 }
 
 struct CallVisitor {
@@ -417,6 +433,7 @@ fn collect_items(
                     imports: Vec::new(),
                     calls: visitor.calls,
                     is_test,
+                    supertraits: Vec::new(),
                 });
             }
             Item::Mod(item) => {
@@ -433,6 +450,7 @@ fn collect_items(
                     imports: Vec::new(),
                     calls: Vec::new(),
                     is_test: false,
+                    supertraits: Vec::new(),
                 });
                 if let Some((_, items)) = &item.content {
                     collect_items(items, &qualified_name, symbols, module_imports);
@@ -452,13 +470,17 @@ fn collect_items(
                 &item.vis,
                 item.span(),
             )),
-            Item::Trait(item) => symbols.push(type_symbol(
-                parent,
-                &item.ident.to_string(),
-                "trait",
-                &item.vis,
-                item.span(),
-            )),
+            Item::Trait(item) => {
+                let mut trait_symbol = type_symbol(
+                    parent,
+                    &item.ident.to_string(),
+                    "trait",
+                    &item.vis,
+                    item.span(),
+                );
+                trait_symbol.supertraits = trait_supertraits(item);
+                symbols.push(trait_symbol);
+            }
             Item::Union(item) => symbols.push(type_symbol(
                 parent,
                 &item.ident.to_string(),
@@ -536,9 +558,20 @@ fn collect_impl_items(item: &syn::ItemImpl, parent: &str, symbols: &mut Vec<Rust
                 imports: Vec::new(),
                 calls: visitor.calls,
                 is_test,
+                supertraits: Vec::new(),
             });
         }
     }
+}
+
+fn trait_supertraits(item: &syn::ItemTrait) -> Vec<String> {
+    item.supertraits
+        .iter()
+        .filter_map(|bound| match bound {
+            syn::TypeParamBound::Trait(bound) => Some(path_to_string(&bound.path)),
+            _ => None,
+        })
+        .collect()
 }
 
 #[derive(Debug)]
@@ -599,6 +632,7 @@ fn type_symbol(
         imports: Vec::new(),
         calls: Vec::new(),
         is_test: false,
+        supertraits: Vec::new(),
     }
 }
 
@@ -646,6 +680,11 @@ fn deduplicate_symbols(symbols: Vec<RustSymbol>) -> Vec<RustSymbol> {
             unique[index].spans.extend(symbol.spans);
             unique[index].calls.extend(symbol.calls);
             unique[index].imports.extend(symbol.imports);
+            for supertrait in symbol.supertraits {
+                if !unique[index].supertraits.contains(&supertrait) {
+                    unique[index].supertraits.push(supertrait);
+                }
+            }
         } else {
             indexes.insert(symbol.qualified_name.clone(), unique.len());
             unique.push(symbol);
@@ -866,7 +905,7 @@ pub async fn login() {}
     }
 
     #[tokio::test]
-    async fn extracts_inline_modules_and_qualified_trait_methods() {
+    async fn extracts_inline_modules_and_qualified_trait_impl_methods() {
         let output = RustExtractor
             .extract(input(
                 "src/lib.rs",
@@ -892,6 +931,31 @@ pub mod auth {
         assert!(keys.contains(&"symbol://rust:crate::auth"));
         assert!(keys.contains(&"symbol://rust:crate::auth::Login"));
         assert!(keys.contains(&"symbol://rust:crate::auth::Service::Login::login"));
+    }
+
+    #[tokio::test]
+    async fn extracts_rust_trait_supertraits() {
+        let output = RustExtractor
+            .extract(input(
+                "src/lib.rs",
+                r#"
+pub mod base {
+    pub trait Reader {}
+}
+use base::Reader;
+pub trait BufferedReader: Reader {}
+"#,
+            ))
+            .await
+            .unwrap();
+
+        let buffered = output
+            .entities
+            .iter()
+            .find(|entity| entity.stable_key.0 == "symbol://rust:crate::BufferedReader")
+            .expect("trait declaration must be emitted");
+        assert_eq!(buffered.payload["supertraits"], serde_json::json!(["Reader"]));
+        assert_eq!(buffered.payload["imports"], serde_json::json!(["base::Reader"]));
     }
 
     #[tokio::test]

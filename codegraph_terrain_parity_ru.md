@@ -107,6 +107,17 @@ skills поверх. То есть «уровень Terrain» — это не «
 **Итого CodeGraph-разрыв: 52–75 слайсов** (C1–C6 + C9, где C6/C9 — один bucket; C7–C8 вынесены
 в общий дистрибуционный workstream с Terrain).
 
+> **Обновление статуса на 2026-10-15.** Таблица выше фиксирует baseline исследования на 2026-10-11,
+> а не текущее состояние после PARITY-001. С тех пор исходный код получил JS/TS call graph (P1),
+> `Implements`-мосты Rust/JS/TS (P2), а текущий P2A-слайс разводит `Extends` и `Implements`:
+> Rust supertraits и JS/TS class/interface inheritance используют `Extends`, Rust `impl Trait for Type`
+> и JS/TS class `implements` остаются `Implements`. P2A также повышает схему index-state с v46 до
+> v47 для безопасной переиндексации. Оставшиеся C2-разрывы —
+> receiver/type-aware dispatch, callbacks/HOF, re-export chains, path aliases/workspace packages и
+> symbol-level incremental invalidation; обязательный scope по-прежнему Rust и TypeScript/JS.
+> См. актуальный source-state план в `docs/development/code-intelligence-parity-plan.md` и ledger в
+> `docs/development/roadmap-status.md`; эта записка не заменяет verification matrix.
+
 ---
 
 ## 4. Разрыв с Terrain (продуктовый слой)
