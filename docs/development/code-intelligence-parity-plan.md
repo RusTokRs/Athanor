@@ -148,8 +148,8 @@ Slice P1 is source-implemented and carries focused unit tests in `athanor-extrac
 `athanor-linker-js-ts`. The original P2 `Implements` bridges are source-implemented in both halves.
 P2A adds a separate `Extends` relation for Rust trait supertraits and JS/TS class/interface
 inheritance, updates the impact/ranking/architecture consumers, and bumps index state to v47; focused
-Rust/TypeScript regression cases are part of this slice. Exact execution verification for P2A is
-pending on the current source state. Slice P4 is covered by the shipped `operations` documentation profile
+Rust/TypeScript regressions are included; CI run `38722056518` on `4a23498` passed the full format,
+test, Clippy, smoke, docs, security, feature, and coverage matrix. Slice P4 is covered by the shipped `operations` documentation profile
 (DOCGEN-001 Slices 4A–4C); its monitoring category derives declared health, status, and metrics endpoints
 and telemetry environment-variable names from canonical evidence, while container and Kubernetes probes,
 alert rules, dashboards, and SLOs still need their own evidence source before they may be documented. Slice P5 is source-implemented as the bounded `explore` MCP tool: one query
