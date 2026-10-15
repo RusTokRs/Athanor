@@ -667,6 +667,7 @@ fn resolve_exported_name<'a>(
 /// re-export depth or visit bounds. The caller uses that distinction to preserve
 /// existing directly qualified imported-class member resolution without
 /// falling back from a broken namespace mapping.
+#[allow(clippy::too_many_arguments)]
 fn resolve_namespace_exported_member<'a>(
     module: &'a Entity,
     namespace: &str,
