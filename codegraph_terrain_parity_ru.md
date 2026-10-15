@@ -119,7 +119,7 @@ skills поверх. То есть «уровень Terrain» — это не «
 > namespace/default re-exports и модули с несколькими wildcard-источниками остаются unresolved.
 > Оставшиеся C2-разрывы — receiver/type-aware dispatch, callbacks/HOF, path aliases/workspace
 > packages и symbol-level incremental invalidation; обязательный scope по-прежнему Rust и
-> TypeScript/JS. Текущий P2C ожидает точную проверку GitHub Actions.
+> TypeScript/JS. P2C прошёл точный GitHub Actions run `38748788007` на `49444d5`.
 > См. актуальный source-state план в `docs/development/code-intelligence-parity-plan.md` и ledger в
 > `docs/development/roadmap-status.md`; эта записка не заменяет verification matrix.
 

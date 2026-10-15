@@ -223,9 +223,10 @@ Rust/TypeScript regressions are included; CI run `38722056518` on `4a23498` pass
 test, Clippy, smoke, docs, security, feature, and coverage matrix. P2B is verified by GitHub Actions
 run `38742833180` on `5b5f8a1`, including the complete Rust 1.95 matrix on Ubuntu, macOS, and Windows,
 source coverage, feature matrices, and the companion docs/security/store gates. P2C adds bounded
-source-backed wildcard re-export resolution with v49 index-state rebuilds; its exact-commit CI is
-pending. The Windows process-test fixtures write byte-exact data to redirected standard streams, and
-CI panic summaries now preserve assertion context. Slice P4 is covered by the shipped `operations`
+source-backed wildcard re-export resolution with v49 index-state rebuilds; exact-commit GitHub
+Actions run `38748788007` on `49444d5` passed. The Windows process-test fixtures write byte-exact
+data to redirected standard streams, and CI panic summaries now preserve assertion context. Slice P4
+is covered by the shipped `operations`
 documentation profile
 (DOCGEN-001 Slices 4A–4C); its monitoring category derives declared health, status, and metrics endpoints
 and telemetry environment-variable names from canonical evidence, while container and Kubernetes probes,
