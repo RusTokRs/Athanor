@@ -295,22 +295,21 @@ fn resolve_call<'a>(
         } else {
             None
         };
-        let (target, reexport_depth, wanted) = if let Some(namespace_resolution) =
-            namespace_resolution
-        {
-            namespace_resolution
-        } else {
-            let wanted = tail.or(binding.imported_name.as_deref()).unwrap_or(head);
-            let (target, depth) = resolve_exported_name(
-                target_module,
-                wanted,
-                modules,
-                declarations_by_path,
-                &mut visited,
-                0,
-            )?;
-            (target, depth, wanted)
-        };
+        let (target, reexport_depth, wanted) =
+            if let Some(namespace_resolution) = namespace_resolution {
+                namespace_resolution
+            } else {
+                let wanted = tail.or(binding.imported_name.as_deref()).unwrap_or(head);
+                let (target, depth) = resolve_exported_name(
+                    target_module,
+                    wanted,
+                    modules,
+                    declarations_by_path,
+                    &mut visited,
+                    0,
+                )?;
+                (target, depth, wanted)
+            };
         if reexport_depth > 0 {
             return Some((target, "imported_reexport_chain", IMPORTED_EXACT_CONFIDENCE));
         }
