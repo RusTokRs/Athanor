@@ -119,9 +119,13 @@ skills поверх. То есть «уровень Terrain» — это не «
 > wildcard-источниками остаются unresolved. Точный GitHub Actions run `38748788007` на `49444d5`
 > прошёл. P2D добавил default imports/re-exports для именованных функций и поднял схему до v50;
 > anonymous expressions и class-valued defaults не становятся call targets. Run `38757025492` на
-> `c105cad` прошёл на Ubuntu, macOS и Windows. Оставшиеся C2-разрывы — receiver/type-aware dispatch,
-> callbacks/HOF, path aliases/workspace packages, namespace re-exports и symbol-level incremental
-> invalidation; обязательный scope — Rust и TypeScript/JS.
+> `c105cad` прошёл на Ubuntu, macOS и Windows. P2E добавил прямые `export * as name` mappings для
+> single-member calls через aliased named imports, сохранив исключение `default` для bare `export *`,
+> и поднял схему до v51. Exact-commit run `38772624382` на `6aefc28` прошёл полный CI на Ubuntu, macOS
+> и Windows; feature matrix, coverage, AppSec, Store Conformance, Production Gate и DOCGEN checks тоже
+> прошли. Открытыми остаются receiver/type-aware dispatch, callbacks/HOF, path aliases/workspace
+> packages, multi-hop namespace aliases, deep member paths и symbol-level incremental invalidation;
+> обязательный scope — Rust и TypeScript/JS.
 > См. актуальный source-state план в `docs/development/code-intelligence-parity-plan.md` и ledger в
 > `docs/development/roadmap-status.md`; эта записка не заменяет verification matrix.
 

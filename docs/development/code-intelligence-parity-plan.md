@@ -293,8 +293,13 @@ source-backed wildcard re-export resolution with v49 index-state rebuilds; exact
 Actions run `38748788007` on `49444d5` passed. P2D adds named default-function import/re-export
 resolution and the v50 index-state rebuild; exact-commit GitHub Actions run `38757025492` on
 `c105cad` passed on Ubuntu, macOS, and Windows, including workspace tests, Clippy, feature matrices,
-coverage, smoke, and editable-doc checks. The Windows process-test fixtures write byte-exact data to
-redirected standard streams, and CI panic summaries now preserve assertion context. Slice P4
+coverage, smoke, and editable-doc checks. P2E adds direct `export * as name` mappings for single-member
+calls through named imports, keeps missing/ambiguous/cyclic/over-limit namespace targets unresolved,
+and bumps index state to v51. Exact-commit CI run `38772624382` on `6aefc28` passed the Ubuntu,
+macOS, and Windows Rust 1.95 matrix, all feature matrices, source coverage, smoke, Clippy, editable docs,
+and companion AppSec, store, production, and documentation checks. The Windows process-test fixtures
+write byte-exact data to redirected standard streams, and CI panic summaries now preserve assertion
+context. Slice P4
 is covered by the shipped `operations`
 documentation profile
 (DOCGEN-001 Slices 4A–4C); its monitoring category derives declared health, status, and metrics endpoints
