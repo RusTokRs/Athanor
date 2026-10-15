@@ -50,8 +50,9 @@ Two concrete targets:
 - Rust: trait implementation (`Implements`) and supertrait (`Extends`) edges; dyn-dispatch candidates
   remain a separate deferred capability.
 - JS/TS: class `extends`/`implements` and interface `extends` with distinct canonical relation kinds;
-  P2B covers explicit named re-export chains, P2C bounded single-source wildcard re-exports, and P2D
-  named default function exports/re-exports. Callbacks and promise handlers, namespace re-exports,
+  P2B covers explicit named re-export chains, P2C bounded single-source wildcard re-exports, P2D
+  named default function exports/re-exports, and P2E direct namespace re-exports for single-member
+  calls through named imports. Callbacks and promise handlers, multi-hop namespace aliases,
   anonymous/default class exports, path aliases, and workspace-package specifiers remain open.
 - Both: symbol-level incremental invalidation so a changed declaration re-resolves only its closure.
 
@@ -182,11 +183,45 @@ cargo test -p athanor-app --locked
 cargo test -p athanor-app --features js-ts-precision --locked
 ```
 
+#### P2E — Direct Namespace Re-export Member Calls (bounded JS/TS slice)
+
+- Record `export * as name from './module'` as a direct namespace alias (`namespace_name`) separately
+  from bare `export *`; preserve the source-backed mapping in the normalized module payload.
+- Resolve namespace-object calls such as `import { name as local } from './barrel'; local.member()`
+  only through one unique, direct, source-backed namespace mapping, then use the existing bounded
+  export resolver for that one member. The namespace hop counts toward the existing 32-hop
+  named/star/default export bound; previously supported directly qualified imported-class methods
+  retain their existing resolution path.
+- Keep missing or duplicate namespace aliases, unresolved sources, cycles, over-limit chains, and
+  multi-segment member paths unresolved. Do not add multi-hop namespace aliases, multiple-source
+  wildcard aggregation, or deep member-path resolution; bare `export *` still does not expose `default`.
+- Bump normal/precision index-state schemas from v50 to v51 because normalized export payloads gain
+  the `namespace_name` field.
+
+Focused source regression matrix:
+
+| Surface | Regression |
+| --- | --- |
+| JS/TS extractor | `export * as ns` records `namespace_name: "ns"`; bare `export *` remains a separate star export |
+| Call linker | An aliased named import resolves one member through a unique direct namespace mapping; missing/duplicate mappings and multi-segment paths stay unresolved |
+| Bounds | Namespace-source cycles and chains beyond 32 total export hops remain unresolved; source-backed resolution uses existing named/star rules |
+| Persistence | v50 normal/precision state is rejected and forces a v51 rebuild |
+
+Focused verification:
+
+```bash
+cargo test -p athanor-extractor-js-ts --locked
+cargo test -p athanor-extractor-js-ts --features precision-parser --locked
+cargo test -p athanor-linker-js-ts --locked
+cargo test -p athanor-app --locked
+cargo test -p athanor-app --features js-ts-precision --locked
+```
+
 #### Remaining P2 Gaps
 
 - JavaScript/TypeScript callbacks and promise handlers; multiple-source wildcard aggregation,
-  namespace re-exports, anonymous/default class exports; package/workspace specifiers and TypeScript
-  path aliases; receiver/type-aware dispatch.
+  multi-hop namespace aliases, anonymous/default class exports; package/workspace specifiers and
+  TypeScript path aliases; receiver/type-aware dispatch and deep member paths.
 - Rust dyn-dispatch candidates and symbol-level incremental invalidation for both Rust and JS/TS.
 
 ### P3 — Bounded Language Expansion

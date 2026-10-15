@@ -54,12 +54,14 @@ previous one is silent:
 2. `same_module_exact_name` — an exact qualified-name match inside the calling module.
 3. `imported_exact_name` / `imported_symbol_name` — a named or namespace import resolves its
    requested member to a declaration in the resolved relative target module. Named import aliases
-   retain both the local and imported spelling.
+   retain both the local and imported spelling; directly qualified imported-class methods keep their
+   existing import-member resolution behavior.
 4. `imported_default_export` — a default import resolves directly to the named function binding
    marked by `export default` in its relative target module.
 5. `imported_reexport_chain` — calls resolve through explicit local aliases, relative named
-   re-exports (including default aliases), or a single-source wildcard per module, following at most
-   32 export hops.
+   re-exports (including default aliases), a single-source wildcard per module, or one direct
+   `export * as name` mapping used by a named-import single-member call. The namespace hop counts
+   against the 32-export-hop bound; multi-segment member paths are not resolved.
 6. `same_module_member_name` — a member call with an unknown receiver resolves only when the calling
    module contains exactly one member with that name.
 7. `unique_exported_name` — a bare call with no local or imported target resolves only when exactly
@@ -111,12 +113,15 @@ contract relationship.
 ## Boundaries
 
 Package imports, Node built-ins, workspace aliases, TypeScript path aliases, dynamic imports,
-CommonJS `require` calls, `export * as namespace`, anonymous/default-expression exports, default
-class call targets, computed member calls, and receiver typing are not resolved. Named default
-functions and statically named local default bindings resolve through relative imports and explicit
-named re-export clauses; plain `export *` still does not expose `default`. Named and default re-export
-chains are limited to 32 hops; wildcard chains require one source per module. Multiple wildcard
-clauses, cycles, ambiguous mappings, unresolved sources, and deeper chains stay unresolved.
+CommonJS `require` calls, multi-hop namespace aliases, anonymous/default-expression exports, default
+class call targets, computed member calls, multi-segment imported member paths, and receiver typing
+are not resolved. A named import representing a namespace object can use one unique, direct,
+source-backed `export * as name` mapping for a single member call; missing or ambiguous namespace
+mappings stay unresolved. Named default functions and statically named local default bindings
+resolve through relative imports and explicit named re-export clauses; plain `export *` still does not
+expose `default`. Named, default, wildcard, and namespace hops share the 32-hop bound; wildcard
+chains require one source per module. Multiple wildcard clauses,
+cycles, ambiguous mappings, unresolved sources, and deeper chains stay unresolved.
 All linkers emit relations only when either endpoint is in the affected subset, which keeps incremental
 updates proportional to the change.
 

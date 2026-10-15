@@ -46,7 +46,7 @@ const IMPORTED_EXACT_CONFIDENCE: f32 = 0.85;
 const IMPORTED_NAME_CONFIDENCE: f32 = 0.7;
 /// Confidence assigned to a unique name-only match (member or exported symbol).
 const UNIQUE_NAME_CONFIDENCE: f32 = 0.5;
-/// Maximum number of named, default, or wildcard export hops followed in one call resolution.
+/// Maximum number of named, default, wildcard, or namespace export hops per call resolution.
 const MAX_REEXPORT_DEPTH: usize = 32;
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -256,15 +256,61 @@ fn resolve_call<'a>(
         && let Some(binding) = import_binding(caller_module, head)
     {
         let target_module = resolve_local_import(caller_module, &binding.specifier, modules)?;
-        let wanted = tail.or(binding.imported_name.as_deref()).unwrap_or(head);
-        let (target, reexport_depth) = resolve_exported_name(
-            target_module,
-            wanted,
-            modules,
-            declarations_by_path,
-            &mut HashSet::new(),
-            0,
-        )?;
+        let has_nested_member = callee
+            .strip_prefix(head)
+            .and_then(|remainder| remainder.strip_prefix('.'))
+            .is_some_and(|remainder| remainder.contains('.'));
+        if has_nested_member {
+            return None;
+        }
+
+        let mut visited = HashSet::new();
+        let namespace_resolution = if binding.named_import && tail.is_some() {
+            let (Some(namespace), Some(member)) = (binding.imported_name.as_deref(), tail) else {
+                return None;
+            };
+            match resolve_namespace_exported_member(
+                target_module,
+                namespace,
+                member,
+                modules,
+                declarations_by_path,
+                &mut visited,
+                0,
+            ) {
+                Some(Some((target, depth))) => Some((target, depth, member)),
+                Some(None) => return None,
+                None => {
+                    if !has_direct_imported_member(
+                        target_module,
+                        namespace,
+                        member,
+                        declarations_by_path,
+                    ) {
+                        return None;
+                    }
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        let (target, reexport_depth, wanted) = if let Some(namespace_resolution) =
+            namespace_resolution
+        {
+            namespace_resolution
+        } else {
+            let wanted = tail.or(binding.imported_name.as_deref()).unwrap_or(head);
+            let (target, depth) = resolve_exported_name(
+                target_module,
+                wanted,
+                modules,
+                declarations_by_path,
+                &mut visited,
+                0,
+            )?;
+            (target, depth, wanted)
+        };
         if reexport_depth > 0 {
             return Some((target, "imported_reexport_chain", IMPORTED_EXACT_CONFIDENCE));
         }
@@ -319,6 +365,7 @@ fn head_and_tail(callee: &str) -> Option<(&str, Option<&str>)> {
 struct CallImportBinding {
     specifier: String,
     imported_name: Option<String>,
+    named_import: bool,
 }
 
 /// Returns the source specifier and imported name for one local import binding.
@@ -332,12 +379,14 @@ fn import_binding(module: &Entity, local: &str) -> Option<CallImportBinding> {
             return Some(CallImportBinding {
                 specifier: specifier.to_string(),
                 imported_name: Some("default".to_string()),
+                named_import: false,
             });
         }
         if import.get("namespace_name").and_then(Value::as_str) == Some(local) {
             return Some(CallImportBinding {
                 specifier: specifier.to_string(),
                 imported_name: None,
+                named_import: false,
             });
         }
         if let Some(binding) = import
@@ -355,6 +404,7 @@ fn import_binding(module: &Entity, local: &str) -> Option<CallImportBinding> {
                     .get("imported")
                     .and_then(Value::as_str)
                     .map(ToString::to_string),
+                named_import: true,
             });
         }
         if import
@@ -367,6 +417,7 @@ fn import_binding(module: &Entity, local: &str) -> Option<CallImportBinding> {
             return Some(CallImportBinding {
                 specifier: specifier.to_string(),
                 imported_name: Some(local.to_string()),
+                named_import: true,
             });
         }
     }
@@ -537,6 +588,90 @@ fn resolve_exported_name<'a>(
     };
     visited.remove(&path);
     result
+}
+
+/// Resolves a member through one direct, source-backed namespace re-export.
+///
+/// `None` means there is no namespace alias for this import; `Some(None)` means
+/// a matching alias exists but is ambiguous, unresolved, cyclic, or over the
+/// `MAX_REEXPORT_DEPTH` bound. The caller uses that distinction to preserve
+/// existing directly qualified imported-class member resolution without
+/// falling back from a broken namespace mapping.
+fn resolve_namespace_exported_member<'a>(
+    module: &'a Entity,
+    namespace: &str,
+    member: &str,
+    modules: &HashMap<String, &'a Entity>,
+    declarations_by_path: &HashMap<String, Vec<&'a Entity>>,
+    visited: &mut HashSet<String>,
+    depth: usize,
+) -> Option<Option<(&'a Entity, usize)>> {
+    let exports = module.payload.get("exports").and_then(Value::as_array)?;
+    let namespace_exports = exports
+        .iter()
+        .filter(|export| export.get("namespace_name").and_then(Value::as_str) == Some(namespace))
+        .collect::<Vec<_>>();
+    if namespace_exports.is_empty() {
+        return None;
+    }
+    if namespace_exports.len() != 1 {
+        return Some(None);
+    }
+
+    let export = namespace_exports[0];
+    if export.get("star").and_then(Value::as_bool) != Some(false)
+        || !export
+            .get("bindings")
+            .and_then(Value::as_array)
+            .is_some_and(|bindings| bindings.is_empty())
+    {
+        return Some(None);
+    }
+    let Some(specifier) = export.get("source").and_then(Value::as_str) else {
+        return Some(None);
+    };
+    let Some(path) = entity_path(module) else {
+        return Some(None);
+    };
+    if !visited.insert(path.clone()) {
+        return Some(None);
+    }
+
+    let resolved = resolve_local_import(module, specifier, modules).and_then(|target_module| {
+        resolve_exported_name(
+            target_module,
+            member,
+            modules,
+            declarations_by_path,
+            visited,
+            depth + 1,
+        )
+    });
+    visited.remove(&path);
+    Some(resolved.map(|(target, nested_depth)| (target, nested_depth + 1)))
+}
+
+/// Retains direct `ImportedClass.method()` resolution without treating an
+/// unrelated exported `method` as evidence for a missing namespace alias.
+fn has_direct_imported_member(
+    module: &Entity,
+    imported: &str,
+    member: &str,
+    declarations_by_path: &HashMap<String, Vec<&Entity>>,
+) -> bool {
+    let Some(path) = entity_path(module) else {
+        return false;
+    };
+    let expected = format!("{imported}.{member}");
+    declarations_by_path
+        .get(&path)
+        .into_iter()
+        .flat_map(|candidates| candidates.iter().copied())
+        .any(|candidate| {
+            is_exported(candidate)
+                && candidate.name == member
+                && qualified_name(candidate) == Some(expected.as_str())
+        })
 }
 
 /// Resolves one explicit default export to a unique same-module or imported function binding.
@@ -1384,6 +1519,341 @@ mod tests {
             namespace_call,
             anonymous_call,
         ];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        assert!(
+            !relations
+                .iter()
+                .any(|relation| relation.kind == RelationKind::Calls)
+        );
+    }
+
+    #[tokio::test]
+    async fn resolves_named_import_members_through_direct_namespace_reexports() {
+        let app_module = module(
+            "ent_namespace_app",
+            "src/app.ts",
+            json!({
+                "imports": [{
+                    "source": "./index",
+                    "named": ["client", "Session"],
+                    "named_bindings": [
+                        {"imported": "api", "local": "client"},
+                        {"imported": "Session", "local": "Session"}
+                    ]
+                }]
+            }),
+        );
+        let index_module = module(
+            "ent_namespace_index",
+            "src/index.ts",
+            json!({
+                "imports": [],
+                "exports": [{
+                    "source": "./auth",
+                    "bindings": [],
+                    "star": false,
+                    "namespace_name": "api"
+                }]
+            }),
+        );
+        let auth_module = module(
+            "ent_namespace_auth",
+            "src/auth.ts",
+            json!({
+                "imports": [],
+                "exports": [{
+                    "source": "./functions",
+                    "bindings": [{"imported": "login", "exported": "login"}]
+                }]
+            }),
+        );
+        let functions_module = module(
+            "ent_namespace_functions",
+            "src/functions.ts",
+            json!({"imports": []}),
+        );
+        let login = declaration(
+            "ent_namespace_login",
+            "src/functions.ts",
+            "login",
+            "login",
+            true,
+            json!([]),
+        );
+        let refresh = declaration(
+            "ent_namespace_refresh",
+            "src/index.ts",
+            "Session.refresh",
+            "refresh",
+            true,
+            json!([]),
+        );
+        let run = declaration(
+            "ent_namespace_run",
+            "src/app.ts",
+            "run",
+            "run",
+            false,
+            json!([
+                call_site("client.login", "login", 5),
+                call_site("Session.refresh", "refresh", 6)
+            ]),
+        );
+        let entities = vec![
+            app_module,
+            index_module,
+            auth_module,
+            functions_module,
+            login.clone(),
+            refresh.clone(),
+            run.clone(),
+        ];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 2);
+        assert!(calls.iter().any(|relation| {
+            relation.from == run.id
+                && relation.to == login.id
+                && relation.payload["resolution"] == "imported_reexport_chain"
+        }));
+        assert!(calls.iter().any(|relation| {
+            relation.from == run.id
+                && relation.to == refresh.id
+                && relation.payload["resolution"] == "imported_symbol_name"
+        }));
+    }
+
+    #[tokio::test]
+    async fn namespace_import_members_require_unique_direct_mappings_and_one_segment() {
+        let app_module = module(
+            "ent_namespace_guard_app",
+            "src/guard-app.ts",
+            json!({
+                "imports": [{
+                    "source": "./index",
+                    "named": ["absent", "sourceMissing", "ambiguous", "nested"],
+                    "named_bindings": [
+                        {"imported": "missing", "local": "absent"},
+                        {"imported": "unresolved", "local": "sourceMissing"},
+                        {"imported": "duplicate", "local": "ambiguous"},
+                        {"imported": "api", "local": "nested"}
+                    ]
+                }]
+            }),
+        );
+        let index_module = module(
+            "ent_namespace_guard_index",
+            "src/index.ts",
+            json!({
+                "imports": [],
+                "exports": [
+                    {
+                        "source": "./missing-source",
+                        "bindings": [],
+                        "star": false,
+                        "namespace_name": "unresolved"
+                    },
+                    {
+                        "source": "./auth",
+                        "bindings": [],
+                        "star": false,
+                        "namespace_name": "duplicate"
+                    },
+                    {
+                        "source": "./other",
+                        "bindings": [],
+                        "star": false,
+                        "namespace_name": "duplicate"
+                    },
+                    {
+                        "source": "./auth",
+                        "bindings": [],
+                        "star": false,
+                        "namespace_name": "api"
+                    }
+                ]
+            }),
+        );
+        let auth_module = module(
+            "ent_namespace_guard_auth",
+            "src/auth.ts",
+            json!({"imports": []}),
+        );
+        let other_module = module(
+            "ent_namespace_guard_other",
+            "src/other.ts",
+            json!({"imports": []}),
+        );
+        let index_login = declaration(
+            "ent_namespace_guard_index_login",
+            "src/index.ts",
+            "login",
+            "login",
+            true,
+            json!([]),
+        );
+        let login = declaration(
+            "ent_namespace_guard_login",
+            "src/auth.ts",
+            "login",
+            "login",
+            true,
+            json!([]),
+        );
+        let run = declaration(
+            "ent_namespace_guard_run",
+            "src/guard-app.ts",
+            "run",
+            "run",
+            false,
+            json!([
+                call_site("absent.login", "login", 4),
+                call_site("sourceMissing.login", "login", 5),
+                call_site("ambiguous.login", "login", 6),
+                call_site("nested.auth.login", "login", 7)
+            ]),
+        );
+        let entities = vec![
+            app_module,
+            index_module,
+            auth_module,
+            other_module,
+            index_login,
+            login,
+            run,
+        ];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        assert!(
+            !relations
+                .iter()
+                .any(|relation| relation.kind == RelationKind::Calls)
+        );
+    }
+
+    #[tokio::test]
+    async fn namespace_import_member_cycles_and_over_limit_chains_stay_unresolved() {
+        let app_module = module(
+            "ent_namespace_depth_app",
+            "src/depth-app.ts",
+            json!({
+                "imports": [
+                    {
+                        "source": "./cycle-index",
+                        "named": ["cycle"],
+                        "named_bindings": [{"imported": "cycle", "local": "cycle"}]
+                    },
+                    {
+                        "source": "./deep-index",
+                        "named": ["deep"],
+                        "named_bindings": [{"imported": "deep", "local": "deep"}]
+                    }
+                ]
+            }),
+        );
+        let cycle_index = module(
+            "ent_namespace_cycle_index",
+            "src/cycle-index.ts",
+            json!({
+                "imports": [],
+                "exports": [{
+                    "source": "./cycle-a",
+                    "bindings": [],
+                    "star": false,
+                    "namespace_name": "cycle"
+                }]
+            }),
+        );
+        let cycle_a = module(
+            "ent_namespace_cycle_a",
+            "src/cycle-a.ts",
+            json!({
+                "imports": [],
+                "exports": [{"source": "./cycle-index", "bindings": [], "star": true}]
+            }),
+        );
+        let deep_index = module(
+            "ent_namespace_deep_index",
+            "src/deep-index.ts",
+            json!({
+                "imports": [],
+                "exports": [{
+                    "source": "./chain-0",
+                    "bindings": [],
+                    "star": false,
+                    "namespace_name": "deep"
+                }]
+            }),
+        );
+        let mut entities = vec![app_module, cycle_index, cycle_a, deep_index];
+        for index in 0..=33 {
+            let exports = if index < 33 {
+                json!([{
+                    "source": format!("./chain-{}", index + 1),
+                    "bindings": [],
+                    "star": true
+                }])
+            } else {
+                json!([])
+            };
+            entities.push(module(
+                &format!("ent_namespace_chain_{index}"),
+                &format!("src/chain-{index}.ts"),
+                json!({"imports": [], "exports": exports}),
+            ));
+        }
+        let login = declaration(
+            "ent_namespace_chain_login",
+            "src/chain-33.ts",
+            "login",
+            "login",
+            true,
+            json!([]),
+        );
+        let run = declaration(
+            "ent_namespace_depth_run",
+            "src/depth-app.ts",
+            "run",
+            "run",
+            false,
+            json!([
+                call_site("cycle.login", "login", 4),
+                call_site("deep.login", "login", 5)
+            ]),
+        );
+        entities.extend([login, run]);
 
         let relations = JsTsCallLinker
             .link(LinkInput {

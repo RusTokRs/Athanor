@@ -29,6 +29,8 @@ substantive release notes.
   evidence-backed `Calls` relations (same-module, `this.` member, imported binding, and unique-name
   fallbacks) and emits `TestedBy` when a test-location declaration calls production code.
 - Preserve JS/TS named aliases, resolve bounded named/default-function and wildcard re-export chains, and bump index state v47→v50.
+- Resolve JS/TS single-member calls through unique direct `export * as name` mappings, preserve bare
+  wildcard `default` exclusion, and bump index state v50→v51.
 - Add strict versioned request, outline, context, citation, draft, manifest, and validation-report
   contracts for evidence-backed documentation generation: exact snapshot binding, portable paths,
   stable-key/evidence traceability, cited diagram edges, metrics, and checksums.

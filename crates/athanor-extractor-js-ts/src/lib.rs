@@ -820,11 +820,36 @@ fn export_payload(node: Node, bytes: &[u8]) -> Value {
         "source": child_text(node, "source", bytes),
         "bindings": export_bindings(node, bytes),
         "star": is_star_reexport(node),
+        "namespace_name": namespace_export_name(node, bytes),
         "default_export": is_default_export(node),
         "default_name": default_export_name(node, bytes),
         "line_start": node.start_position().row as u32 + 1,
         "line_end": node.end_position().row as u32 + 1,
     })
+}
+
+/// Returns the exported namespace alias for `export * as name from "…"`.
+fn namespace_export_name(node: Node, bytes: &[u8]) -> Option<String> {
+    let mut cursor = node.walk();
+    let namespace_export = node
+        .named_children(&mut cursor)
+        .find(|child| child.kind() == "namespace_export")?;
+
+    for index in 0..namespace_export.child_count() {
+        let Some(child) = namespace_export.child(index as u32) else {
+            continue;
+        };
+        match child.kind() {
+            "identifier" => return node_text(child, bytes),
+            "string" => {
+                return node_text(child, bytes)
+                    .map(|name| name.trim_matches(['"', '\'']).to_string());
+            }
+            "default" => return Some("default".to_string()),
+            _ => {}
+        }
+    }
+    None
 }
 
 /// Identifies `export default` without confusing `default` names inside an
@@ -867,9 +892,8 @@ fn is_star_reexport(node: Node) -> bool {
 ///
 /// The same representation covers local export aliases and source-backed
 /// named re-exports; callers distinguish them by whether the enclosing
-/// statement has a `source` specifier. Star and namespace exports intentionally
-/// have no explicit name mapping; `export_payload` marks a plain star export
-/// separately from a namespace export.
+/// statement has a `source` specifier. Plain stars have no explicit `bindings`;
+/// namespace exports record their alias separately from both `bindings` and `star`.
 fn export_bindings(node: Node, bytes: &[u8]) -> Vec<Value> {
     let mut bindings = Vec::new();
     let mut cursor = node.walk();
@@ -1702,6 +1726,7 @@ mod tests {
             );
             assert_eq!(module.payload["exports"][2]["source"], "./wild");
             assert_eq!(module.payload["exports"][2]["star"], true);
+            assert!(module.payload["exports"][2]["namespace_name"].is_null());
             assert!(
                 module.payload["exports"][2]["bindings"]
                     .as_array()
@@ -1710,6 +1735,7 @@ mod tests {
             );
             assert_eq!(module.payload["exports"][3]["source"], "./namespace");
             assert_eq!(module.payload["exports"][3]["star"], false);
+            assert_eq!(module.payload["exports"][3]["namespace_name"], "ns");
             assert!(
                 module.payload["exports"][3]["bindings"]
                     .as_array()
