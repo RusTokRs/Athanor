@@ -165,8 +165,7 @@ gap, the typo-named `for agents. md` briefing, was fixed by renaming it to
 - [x] Slice P1: JS/TS call graph — import bindings, static call sites, `builtin.linker.js_ts_calls`.
 - [x] Slice P2: `implements` bridges — Rust `trait_impl` facts plus JS/TS class heritage (prior source slice).
 - [x] Slice P2A verified: Rust/JS/TS `Extends`, impact/ranking/profile, index v47; CI `38722056518` passed on `4a23498`.
-- [x] P2B/P2C/P2D verified: named/star/default functions, v48–v50; CI `38742833180`/`5b5f8a1`, `38748788007`/`49444d5`, `38757025492`/`c105cad` passed.
-- [x] P2E verified: direct namespace re-export member calls, index v51; exact-commit CI `38772624382` on `6aefc28` passed.
+- [x] P2B/P2C/P2D/P2E verified: named/star/default/direct-namespace calls, v48–v51; CI `38742833180`/`5b5f8a1`, `38748788007`/`49444d5`, `38757025492`/`c105cad`, and exact-commit `38772624382`/`6aefc28` passed.
 - [x] Slice P3: `builtin.extractor.treesitter` plus `builtin.linker.treesitter` host and resolve
   receiver-qualified Python and Go packs, with a per-language coverage measurement published.
 - [x] Slice P4: deterministic operations documentation — DOCGEN-001 4A–4C; the monitoring category
