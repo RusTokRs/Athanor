@@ -117,11 +117,11 @@ skills поверх. То есть «уровень Terrain» — это не «
 > прошёл в run `38742833180` на `5b5f8a1`. P2C добавил named resolution через source-backed
 > `export *` при единственном wildcard-источнике на модуль и поднял схему до v49; модули с несколькими
 > wildcard-источниками остаются unresolved. Точный GitHub Actions run `38748788007` на `49444d5`
-> прошёл. Следующий bounded P2D добавляет default imports/re-exports для именованных функций и
-> поднимает схему до v50; anonymous expressions и class-valued defaults не становятся call targets.
-> Оставшиеся C2-разрывы — receiver/type-aware dispatch, callbacks/HOF, path aliases/workspace
-> packages, namespace re-exports и symbol-level incremental invalidation; обязательный scope — Rust и
-> TypeScript/JS. Точный CI для P2D ожидает запуска.
+> прошёл. P2D добавил default imports/re-exports для именованных функций и поднял схему до v50;
+> anonymous expressions и class-valued defaults не становятся call targets. Run `38757025492` на
+> `c105cad` прошёл на Ubuntu, macOS и Windows. Оставшиеся C2-разрывы — receiver/type-aware dispatch,
+> callbacks/HOF, path aliases/workspace packages, namespace re-exports и symbol-level incremental
+> invalidation; обязательный scope — Rust и TypeScript/JS.
 > См. актуальный source-state план в `docs/development/code-intelligence-parity-plan.md` и ledger в
 > `docs/development/roadmap-status.md`; эта записка не заменяет verification matrix.
 

@@ -255,9 +255,10 @@ run `38742833180` on `5b5f8a1`, including the complete Rust 1.95 matrix on Ubunt
 source coverage, feature matrices, and the companion docs/security/store gates. P2C adds bounded
 source-backed wildcard re-export resolution with v49 index-state rebuilds; exact-commit GitHub
 Actions run `38748788007` on `49444d5` passed. P2D adds named default-function import/re-export
-resolution and the v50 index-state rebuild; exact-commit CI is pending. The Windows process-test
-fixtures write byte-exact data to redirected standard streams, and CI panic summaries now preserve
-assertion context. Slice P4
+resolution and the v50 index-state rebuild; exact-commit GitHub Actions run `38757025492` on
+`c105cad` passed on Ubuntu, macOS, and Windows, including workspace tests, Clippy, feature matrices,
+coverage, smoke, and editable-doc checks. The Windows process-test fixtures write byte-exact data to
+redirected standard streams, and CI panic summaries now preserve assertion context. Slice P4
 is covered by the shipped `operations`
 documentation profile
 (DOCGEN-001 Slices 4A–4C); its monitoring category derives declared health, status, and metrics endpoints
