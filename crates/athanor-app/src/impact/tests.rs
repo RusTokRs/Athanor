@@ -90,10 +90,12 @@ fn base_type_changes_propagate_to_subtypes_and_trait_implementers() {
     };
 
     let base_impact = impact_snapshot(&snapshot, vec![base.clone()], 2);
-    assert!(base_impact
-        .impacted_entities
-        .iter()
-        .any(|impact| impact.entity.id == derived.id));
+    assert!(
+        base_impact
+            .impacted_entities
+            .iter()
+            .any(|impact| impact.entity.id == derived.id)
+    );
     let extends_step = &base_impact
         .impacted_entities
         .iter()
@@ -101,17 +103,24 @@ fn base_type_changes_propagate_to_subtypes_and_trait_implementers() {
         .unwrap()
         .path_steps[0];
     assert_eq!(extends_step.relation_kind, "extends");
-    assert_eq!(extends_step.direction, super::model::FlowDirection::Backward);
+    assert_eq!(
+        extends_step.direction,
+        super::model::FlowDirection::Backward
+    );
 
     let contract_impact = impact_snapshot(&snapshot, vec![contract], 2);
-    assert!(contract_impact
-        .impacted_entities
-        .iter()
-        .any(|impact| impact.entity.id == derived_contract.id));
-    assert!(contract_impact
-        .impacted_entities
-        .iter()
-        .any(|impact| impact.entity.id == implementation.id));
+    assert!(
+        contract_impact
+            .impacted_entities
+            .iter()
+            .any(|impact| impact.entity.id == derived_contract.id)
+    );
+    assert!(
+        contract_impact
+            .impacted_entities
+            .iter()
+            .any(|impact| impact.entity.id == implementation.id)
+    );
 }
 
 #[test]

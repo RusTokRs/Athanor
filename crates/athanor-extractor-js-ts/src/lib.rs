@@ -798,7 +798,6 @@ fn callee_path(node: Node, bytes: &[u8]) -> Option<String> {
     }
 }
 
-
 fn export_payload(node: Node, bytes: &[u8]) -> Value {
     json!({
         "source": child_text(node, "source", bytes),

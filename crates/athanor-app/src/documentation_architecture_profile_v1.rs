@@ -1066,7 +1066,11 @@ mod architecture_relation_kind_tests {
 
     #[test]
     fn inheritance_relations_are_primary_architecture_edges() {
-        assert!(architecture_relation_kind_is_primary(&RelationKind::Extends));
-        assert!(architecture_relation_kind_is_primary(&RelationKind::Implements));
+        assert!(architecture_relation_kind_is_primary(
+            &RelationKind::Extends
+        ));
+        assert!(architecture_relation_kind_is_primary(
+            &RelationKind::Implements
+        ));
     }
 }

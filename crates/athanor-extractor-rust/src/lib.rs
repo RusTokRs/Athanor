@@ -954,8 +954,14 @@ pub trait BufferedReader: Reader {}
             .iter()
             .find(|entity| entity.stable_key.0 == "symbol://rust:crate::BufferedReader")
             .expect("trait declaration must be emitted");
-        assert_eq!(buffered.payload["supertraits"], serde_json::json!(["Reader"]));
-        assert_eq!(buffered.payload["imports"], serde_json::json!(["base::Reader"]));
+        assert_eq!(
+            buffered.payload["supertraits"],
+            serde_json::json!(["Reader"])
+        );
+        assert_eq!(
+            buffered.payload["imports"],
+            serde_json::json!(["base::Reader"])
+        );
     }
 
     #[tokio::test]
@@ -984,7 +990,10 @@ pub mod nested {
             .facts
             .iter()
             .filter(|fact| {
-                fact.value.get("symbol_kind").and_then(|value| value.as_str()) == Some("trait_impl")
+                fact.value
+                    .get("symbol_kind")
+                    .and_then(|value| value.as_str())
+                    == Some("trait_impl")
             })
             .collect::<Vec<_>>();
         assert_eq!(impls.len(), 3);

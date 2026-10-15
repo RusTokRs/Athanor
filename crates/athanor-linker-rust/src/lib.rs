@@ -259,12 +259,14 @@ impl Linker for RustLinker {
                 .get("imports")
                 .and_then(|value| value.as_array())
                 .or_else(|| {
-                    rust_by_qualified_name.get(current_module).and_then(|module| {
-                        module
-                            .payload
-                            .get("imports")
-                            .and_then(|value| value.as_array())
-                    })
+                    rust_by_qualified_name
+                        .get(current_module)
+                        .and_then(|module| {
+                            module
+                                .payload
+                                .get("imports")
+                                .and_then(|value| value.as_array())
+                        })
                 })
                 .map(|values| {
                     values
@@ -290,7 +292,8 @@ impl Linker for RustLinker {
                 ) else {
                     continue;
                 };
-                let Some(supertrait_entity) = rust_by_qualified_name.get(resolved.as_str()).copied()
+                let Some(supertrait_entity) =
+                    rust_by_qualified_name.get(resolved.as_str()).copied()
                 else {
                     continue;
                 };
@@ -473,9 +476,8 @@ fn resolve_supertrait_path(
     for import in imports {
         let import_last_segment = import.split("::").last().unwrap_or(import);
         if import_last_segment == first_segment {
-            let imported_path =
-                resolve_path(current_module, import, &[], all_qualified_names)
-                    .unwrap_or_else(|| import.to_string());
+            let imported_path = resolve_path(current_module, import, &[], all_qualified_names)
+                .unwrap_or_else(|| import.to_string());
             let suffix = if path.contains("::") {
                 path.strip_prefix(first_segment).unwrap_or("")
             } else {
@@ -494,18 +496,10 @@ fn resolve_supertrait_path(
                 "super" => current_module
                     .rsplit_once("::")
                     .map(|(parent, _)| parent.to_string()),
-                "crate" => current_module
-                    .split("::")
-                    .next()
-                    .map(str::to_string),
+                "crate" => current_module.split("::").next().map(str::to_string),
                 _ => Some(
-                    resolve_path(
-                        current_module,
-                        imported_module,
-                        &[],
-                        all_qualified_names,
-                    )
-                    .unwrap_or_else(|| imported_module.to_string()),
+                    resolve_path(current_module, imported_module, &[], all_qualified_names)
+                        .unwrap_or_else(|| imported_module.to_string()),
                 ),
             };
             let Some(imported_module) = imported_module else {
@@ -519,9 +513,10 @@ fn resolve_supertrait_path(
     }
 
     match candidates.len() {
-        1 => candidates.into_iter().next().filter(|candidate| {
-            trait_qualified_names.contains(candidate.as_str())
-        }),
+        1 => candidates
+            .into_iter()
+            .next()
+            .filter(|candidate| trait_qualified_names.contains(candidate.as_str())),
         0 => resolve_path(current_module, path, imports, trait_qualified_names),
         _ => None,
     }
@@ -855,7 +850,11 @@ mod tests {
                 && relation.payload["reason"] == "rust_trait_supertrait"
                 && relation.payload["matched_value"] == "Base"
         }));
-        assert!(!relations.iter().any(|relation| relation.kind == RelationKind::Implements));
+        assert!(
+            !relations
+                .iter()
+                .any(|relation| relation.kind == RelationKind::Implements)
+        );
     }
 
     #[tokio::test]
@@ -896,13 +895,8 @@ mod tests {
                 && relation.to == base.id
         }));
 
-        let other_base = rust_trait_symbol(
-            "ent_trait_other_base",
-            "crate::two::Base",
-            "Base",
-            &[],
-            &[],
-        );
+        let other_base =
+            rust_trait_symbol("ent_trait_other_base", "crate::two::Base", "Base", &[], &[]);
         let ambiguous_child = rust_trait_symbol(
             "ent_trait_ambiguous_child",
             "crate::auth::Child",
