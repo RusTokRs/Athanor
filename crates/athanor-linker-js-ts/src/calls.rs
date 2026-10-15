@@ -370,9 +370,11 @@ fn import_binding(module: &Entity, local: &str) -> Option<CallImportBinding> {
     None
 }
 
-/// Resolves a named export through explicit local aliases or relative
-/// source-backed re-export clauses. Ambiguous mappings, cycles, unresolved
-/// sources, and chains deeper than `MAX_REEXPORT_DEPTH` stay unresolved.
+/// Resolves a named export through explicit local aliases, relative named
+/// re-exports, or one source-backed `export *` per module. Multiple star
+/// clauses are left unresolved rather than merged speculatively. Ambiguous
+/// mappings, cycles, unresolved sources, and chains deeper than
+/// `MAX_REEXPORT_DEPTH` stay unresolved.
 fn resolve_exported_name<'a>(
     module: &'a Entity,
     requested: &str,
@@ -407,8 +409,13 @@ fn resolve_exported_name<'a>(
     let mut has_matching_mapping = false;
     let mut unresolved_mapping = false;
     let mut mapped_targets = Vec::new();
+    let mut star_exports = Vec::new();
     if let Some(exports) = module.payload.get("exports").and_then(Value::as_array) {
         for export in exports {
+            if export.get("star").and_then(Value::as_bool) == Some(true) {
+                star_exports.push(export);
+                continue;
+            }
             let source = export.get("source").and_then(Value::as_str);
             let Some(bindings) = export.get("bindings").and_then(Value::as_array) else {
                 continue;
@@ -487,8 +494,28 @@ fn resolve_exported_name<'a>(
         }
     }
 
-    let result = if has_matching_mapping && !unresolved_mapping {
-        unique_target(mapped_targets)
+    let result = if has_matching_mapping {
+        if unresolved_mapping {
+            None
+        } else {
+            unique_target(mapped_targets)
+        }
+    } else if requested != "default" && star_exports.len() == 1 {
+        star_exports[0]
+            .get("source")
+            .and_then(Value::as_str)
+            .and_then(|specifier| resolve_local_import(module, specifier, modules))
+            .and_then(|target_module| {
+                resolve_exported_name(
+                    target_module,
+                    requested,
+                    modules,
+                    declarations_by_path,
+                    visited,
+                    depth + 1,
+                )
+            })
+            .map(|(target, nested_depth)| (target, nested_depth + 1))
     } else {
         None
     };
@@ -890,16 +917,333 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn resolves_named_imports_through_single_source_wildcard_chains() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({
+                "imports": [{
+                    "source": "./index",
+                    "named": ["perform"],
+                    "named_bindings": [{"imported": "login", "local": "perform"}]
+                }]
+            }),
+        );
+        let index_module = module(
+            "ent_index_module",
+            "src/index.ts",
+            json!({
+                "imports": [],
+                "exports": [{
+                    "source": "./barrel",
+                    "bindings": [],
+                    "star": true
+                }]
+            }),
+        );
+        let barrel_module = module(
+            "ent_barrel_module",
+            "src/barrel.ts",
+            json!({
+                "imports": [],
+                "exports": [{"source": "./auth", "bindings": [], "star": true}]
+            }),
+        );
+        let auth_module = module("ent_auth_module", "src/auth.ts", json!({"imports": []}));
+        let login = declaration(
+            "ent_auth_login",
+            "src/auth.ts",
+            "login",
+            "login",
+            true,
+            json!([]),
+        );
+        let run = declaration(
+            "ent_app_run",
+            "src/app.ts",
+            "run",
+            "run",
+            false,
+            json!([call_site("perform", "perform", 5)]),
+        );
+        let entities = vec![
+            app_module,
+            index_module,
+            barrel_module,
+            auth_module,
+            login.clone(),
+            run.clone(),
+        ];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from, run.id);
+        assert_eq!(calls[0].to, login.id);
+        assert_eq!(calls[0].payload["resolution"], "imported_reexport_chain");
+    }
+
+    #[tokio::test]
+    async fn wildcard_reexports_do_not_expose_default_or_namespace_exports() {
+        let default_app = module(
+            "ent_default_app",
+            "src/default-app.ts",
+            json!({
+                "imports": [{"source": "./index", "default_name": "login"}]
+            }),
+        );
+        let namespace_app = module(
+            "ent_namespace_app",
+            "src/namespace-app.ts",
+            json!({
+                "imports": [{"source": "./namespace", "named": ["login"]}]
+            }),
+        );
+        let index_module = module(
+            "ent_index_module",
+            "src/index.ts",
+            json!({
+                "imports": [],
+                "exports": [{"source": "./auth", "bindings": [], "star": true}]
+            }),
+        );
+        let namespace_module = module(
+            "ent_namespace_module",
+            "src/namespace.ts",
+            json!({
+                "imports": [],
+                "exports": [{"source": "./auth", "bindings": [], "star": false}]
+            }),
+        );
+        let auth_module = module("ent_auth_module", "src/auth.ts", json!({"imports": []}));
+        let login = declaration(
+            "ent_auth_login",
+            "src/auth.ts",
+            "login",
+            "login",
+            true,
+            json!([]),
+        );
+        let default_call = declaration(
+            "ent_default_run",
+            "src/default-app.ts",
+            "run",
+            "run",
+            false,
+            json!([call_site("login", "login", 3)]),
+        );
+        let namespace_call = declaration(
+            "ent_namespace_run",
+            "src/namespace-app.ts",
+            "run",
+            "run",
+            false,
+            json!([call_site("login", "login", 3)]),
+        );
+        let entities = vec![
+            default_app,
+            namespace_app,
+            index_module,
+            namespace_module,
+            auth_module,
+            login,
+            default_call,
+            namespace_call,
+        ];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        assert!(
+            !relations
+                .iter()
+                .any(|relation| relation.kind == RelationKind::Calls)
+        );
+    }
+
+    #[tokio::test]
+    async fn ambiguous_multiple_wildcard_reexports_remain_unresolved() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({"imports": [{"source": "./index", "named": ["login"]}]}),
+        );
+        let index_module = module(
+            "ent_index_module",
+            "src/index.ts",
+            json!({
+                "imports": [],
+                "exports": [
+                    {"source": "./auth", "bindings": [], "star": true},
+                    {"source": "./other", "bindings": [], "star": true}
+                ]
+            }),
+        );
+        let auth_module = module("ent_auth_module", "src/auth.ts", json!({"imports": []}));
+        let other_module = module("ent_other_module", "src/other.ts", json!({"imports": []}));
+        let login = declaration(
+            "ent_auth_login",
+            "src/auth.ts",
+            "login",
+            "login",
+            true,
+            json!([]),
+        );
+        let run = declaration(
+            "ent_app_run",
+            "src/app.ts",
+            "run",
+            "run",
+            false,
+            json!([call_site("login", "login", 4)]),
+        );
+        let entities = vec![
+            app_module,
+            index_module,
+            auth_module,
+            other_module,
+            login,
+            run,
+        ];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        assert!(
+            !relations
+                .iter()
+                .any(|relation| relation.kind == RelationKind::Calls)
+        );
+    }
+
+    #[tokio::test]
+    async fn wildcard_cycles_and_chains_over_the_depth_bound_remain_unresolved() {
+        let cycle_app = module(
+            "ent_cycle_app",
+            "src/cycle-app.ts",
+            json!({"imports": [{"source": "./cycle-a", "named": ["login"]}]}),
+        );
+        let deep_app = module(
+            "ent_deep_app",
+            "src/deep-app.ts",
+            json!({"imports": [{"source": "./chain-0", "named": ["login"]}]}),
+        );
+        let cycle_a = module(
+            "ent_cycle_a",
+            "src/cycle-a.ts",
+            json!({
+                "imports": [],
+                "exports": [{"source": "./cycle-b", "bindings": [], "star": true}]
+            }),
+        );
+        let cycle_b = module(
+            "ent_cycle_b",
+            "src/cycle-b.ts",
+            json!({
+                "imports": [],
+                "exports": [{"source": "./cycle-a", "bindings": [], "star": true}]
+            }),
+        );
+        let mut entities = vec![cycle_app, deep_app, cycle_a, cycle_b];
+        for index in 0..=33 {
+            let exports = if index < 33 {
+                json!([{
+                    "source": format!("./chain-{}", index + 1),
+                    "bindings": [],
+                    "star": true
+                }])
+            } else {
+                json!([])
+            };
+            entities.push(module(
+                &format!("ent_chain_{index}"),
+                &format!("src/chain-{index}.ts"),
+                json!({"imports": [], "exports": exports}),
+            ));
+        }
+        let cycle_run = declaration(
+            "ent_cycle_run",
+            "src/cycle-app.ts",
+            "run",
+            "run",
+            false,
+            json!([call_site("login", "login", 3)]),
+        );
+        let deep_run = declaration(
+            "ent_deep_run",
+            "src/deep-app.ts",
+            "run",
+            "run",
+            false,
+            json!([call_site("login", "login", 3)]),
+        );
+        let login = declaration(
+            "ent_chain_login",
+            "src/chain-33.ts",
+            "login",
+            "login",
+            true,
+            json!([]),
+        );
+        entities.extend([cycle_run, deep_run, login]);
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        assert!(
+            !relations
+                .iter()
+                .any(|relation| relation.kind == RelationKind::Calls)
+        );
+    }
+
+    #[tokio::test]
     async fn unresolved_imported_exports_do_not_fall_through_to_a_global_guess() {
         let barrel_module = module(
             "ent_barrel_module",
             "src/barrel.ts",
             json!({
                 "imports": [],
-                "exports": [{
-                    "source": "./missing",
-                    "bindings": [{"imported": "dispatch", "exported": "dispatch"}]
-                }]
+                "exports": [
+                    {
+                        "source": "./missing",
+                        "bindings": [{"imported": "dispatch", "exported": "dispatch"}]
+                    },
+                    {"source": "./auth", "bindings": [], "star": true}
+                ]
             }),
         );
         let app_module = module(
@@ -908,6 +1252,30 @@ mod tests {
             json!({
                 "imports": [{"source": "./barrel", "named": ["dispatch"]}]
             }),
+        );
+        let missing_star_module = module(
+            "ent_missing_star_module",
+            "src/missing-star.ts",
+            json!({
+                "imports": [],
+                "exports": [{"source": "./not-found", "bindings": [], "star": true}]
+            }),
+        );
+        let missing_star_app = module(
+            "ent_missing_star_app",
+            "src/missing-star-app.ts",
+            json!({
+                "imports": [{"source": "./missing-star", "named": ["dispatch"]}]
+            }),
+        );
+        let auth_module = module("ent_auth_module", "src/auth.ts", json!({"imports": []}));
+        let auth_dispatch = declaration(
+            "ent_auth_dispatch",
+            "src/auth.ts",
+            "dispatch",
+            "dispatch",
+            true,
+            json!([]),
         );
         let decoy = declaration(
             "ent_decoy_dispatch",
@@ -925,7 +1293,25 @@ mod tests {
             false,
             json!([call_site("dispatch", "dispatch", 4)]),
         );
-        let entities = vec![barrel_module, app_module, decoy, run];
+        let missing_star_run = declaration(
+            "ent_missing_star_run",
+            "src/missing-star-app.ts",
+            "run",
+            "run",
+            false,
+            json!([call_site("dispatch", "dispatch", 4)]),
+        );
+        let entities = vec![
+            barrel_module,
+            app_module,
+            missing_star_module,
+            missing_star_app,
+            auth_module,
+            auth_dispatch,
+            decoy,
+            run,
+            missing_star_run,
+        ];
 
         let relations = JsTsCallLinker
             .link(LinkInput {

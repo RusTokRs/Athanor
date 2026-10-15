@@ -109,11 +109,12 @@ contract relationship.
 ## Boundaries
 
 Package imports, Node built-ins, workspace aliases, TypeScript path aliases, dynamic imports,
-CommonJS `require` calls, `export *`, `export * as namespace`, default-export name resolution,
-computed member calls, and receiver typing are not resolved in this slice. Explicit named export
-clauses and relative named re-export chains are followed up to 32 hops; cycles, ambiguous mappings,
-unresolved sources, and deeper chains remain unresolved. All linkers emit relations only when either
-endpoint is in the affected subset, which keeps incremental updates proportional to the change.
+CommonJS `require` calls, `export * as namespace`, default-export name resolution, computed member
+calls, and receiver typing are not resolved. Explicit named exports and source-backed `export *`
+chains are followed up to 32 hops, but each module may contribute only one wildcard source; multiple
+wildcard clauses, cycles, ambiguous mappings, unresolved sources, and deeper chains stay unresolved.
+All linkers emit relations only when either endpoint is in the affected subset, which keeps incremental
+updates proportional to the change.
 
 ## Verification
 

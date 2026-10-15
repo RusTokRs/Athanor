@@ -819,17 +819,29 @@ fn export_payload(node: Node, bytes: &[u8]) -> Value {
     json!({
         "source": child_text(node, "source", bytes),
         "bindings": export_bindings(node, bytes),
+        "star": is_star_reexport(node),
         "line_start": node.start_position().row as u32 + 1,
         "line_end": node.end_position().row as u32 + 1,
     })
 }
 
+/// Identifies only `export * from "…"`; `export * as name from "…"` is a
+/// namespace export and must not be treated as forwarding named exports.
+fn is_star_reexport(node: Node) -> bool {
+    node.child_by_field_name("source").is_some()
+        && (0..node.child_count()).any(|index| {
+            node.child(index as u32)
+                .is_some_and(|child| child.kind() == "*")
+        })
+}
+
 /// Records explicit `{ imported as exported }` entries in an export clause.
 ///
 /// The same representation covers local export aliases and source-backed
-/// re-exports; callers distinguish them by whether the enclosing statement has
-/// a `source` specifier. Star and namespace exports intentionally have no
-/// explicit name mapping here.
+/// named re-exports; callers distinguish them by whether the enclosing
+/// statement has a `source` specifier. Star and namespace exports intentionally
+/// have no explicit name mapping; `export_payload` marks a plain star export
+/// separately from a namespace export.
 fn export_bindings(node: Node, bytes: &[u8]) -> Vec<Value> {
     let mut bindings = Vec::new();
     let mut cursor = node.walk();
@@ -1631,7 +1643,7 @@ mod tests {
             let output = JsTsExtractor
                 .extract(input(
                     path,
-                    "export { login as signIn, logout } from './auth';\nexport { local as publicLocal };\n",
+                    "export { login as signIn, logout } from './auth';\nexport { local as publicLocal };\nexport * from './wild';\nexport * as ns from './namespace';\n",
                     language,
                 ))
                 .await
@@ -1643,6 +1655,7 @@ mod tests {
                 .expect("module entity must exist");
 
             assert_eq!(module.payload["exports"][0]["source"], "./auth");
+            assert_eq!(module.payload["exports"][0]["star"], false);
             assert_eq!(
                 module.payload["exports"][0]["bindings"][0],
                 json!({"imported": "login", "exported": "signIn"})
@@ -1652,9 +1665,26 @@ mod tests {
                 json!({"imported": "logout", "exported": "logout"})
             );
             assert!(module.payload["exports"][1]["source"].is_null());
+            assert_eq!(module.payload["exports"][1]["star"], false);
             assert_eq!(
                 module.payload["exports"][1]["bindings"][0],
                 json!({"imported": "local", "exported": "publicLocal"})
+            );
+            assert_eq!(module.payload["exports"][2]["source"], "./wild");
+            assert_eq!(module.payload["exports"][2]["star"], true);
+            assert!(
+                module.payload["exports"][2]["bindings"]
+                    .as_array()
+                    .unwrap()
+                    .is_empty()
+            );
+            assert_eq!(module.payload["exports"][3]["source"], "./namespace");
+            assert_eq!(module.payload["exports"][3]["star"], false);
+            assert!(
+                module.payload["exports"][3]["bindings"]
+                    .as_array()
+                    .unwrap()
+                    .is_empty()
             );
         }
     }

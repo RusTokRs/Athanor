@@ -50,8 +50,9 @@ Two concrete targets:
 - Rust: trait implementation (`Implements`) and supertrait (`Extends`) edges; dyn-dispatch candidates
   remain a separate deferred capability.
 - JS/TS: class `extends`/`implements` and interface `extends` with distinct canonical relation kinds;
-  P2B covers explicit named re-export chains, while callbacks and promise handlers, wildcard/default
-  re-exports, path aliases, and workspace-package specifiers remain open.
+  P2B covers explicit named re-export chains and P2C covers bounded single-source wildcard
+  re-exports, while callbacks and promise handlers, namespace/default re-exports, path aliases, and
+  workspace-package specifiers remain open.
 - Both: symbol-level incremental invalidation so a changed declaration re-resolves only its closure.
 
 #### P2A — Heritage Relation Semantics (bounded Rust/TypeScript slice)
@@ -120,10 +121,42 @@ cargo test -p athanor-app --locked
 cargo test -p athanor-app --features js-ts-precision --locked
 ```
 
+#### P2C — Single-source Wildcard Re-exports (bounded JS/TS slice)
+
+- Mark top-level `export * from "./module"` separately from `export * as namespace from "./module"`
+  in the normalized export payload, preserving source and line evidence.
+- Resolve a named import through a source-backed wildcard re-export when each module in the chain has
+  exactly one wildcard source. The existing 32-hop bound also applies to mixed named/star chains.
+- Explicit named mappings take precedence; an unresolved explicit mapping must not fall through to a
+  wildcard. Default exports, namespace exports, multiple wildcard clauses in one module, unresolved
+  sources, cycles, and ambiguous targets remain unresolved.
+- Reuse the verified module `Imports` edge for wildcard sources and bump normal/precision index-state
+  schema families from v48 to v49 because the normalized module payload changes.
+
+Focused source regression matrix:
+
+| Surface | Regression |
+| --- | --- |
+| JS/TS extractor | Plain `export *` is marked separately from namespace exports; source ranges and empty bindings remain explicit |
+| Import linker | A relative wildcard source emits a verified module `Imports` edge with re-export evidence |
+| Call linker | Named imports resolve through bounded single-source star chains; aliases are preserved; defaults, namespace exports, multiple-star modules, cycles, depth overflow, and unresolved explicit mappings stay unresolved |
+| Persistence | v48 normal/precision state is rejected and forces a v49 rebuild |
+
+Focused verification:
+
+```bash
+cargo test -p athanor-extractor-js-ts --locked
+cargo test -p athanor-extractor-js-ts --features precision-parser --locked
+cargo test -p athanor-linker-js-ts --locked
+cargo test -p athanor-app --locked
+cargo test -p athanor-app --features js-ts-precision --locked
+```
+
 #### Remaining P2 Gaps
 
-- JavaScript/TypeScript callbacks and promise handlers; wildcard/default re-exports; package/workspace
-  specifiers and TypeScript path aliases; receiver/type-aware dispatch.
+- JavaScript/TypeScript callbacks and promise handlers; multiple-source wildcard aggregation,
+  namespace/default re-exports; package/workspace specifiers and TypeScript path aliases;
+  receiver/type-aware dispatch.
 - Rust dyn-dispatch candidates and symbol-level incremental invalidation for both Rust and JS/TS.
 
 ### P3 — Bounded Language Expansion
@@ -187,12 +220,13 @@ Slice P1 is source-implemented and carries focused unit tests in `athanor-extrac
 P2A adds a separate `Extends` relation for Rust trait supertraits and JS/TS class/interface
 inheritance, updates the impact/ranking/architecture consumers, and bumps index state to v47; focused
 Rust/TypeScript regressions are included; CI run `38722056518` on `4a23498` passed the full format,
-test, Clippy, smoke, docs, security, feature, and coverage matrix. P2B now has source implementation
-for explicit JS/TS named re-export chains and the v48 index-state rebuild. The Windows process-test
-fixtures now write byte-exact data to redirected standard streams. GitHub Actions run `38732813195`
-on `4d0bfdc` passed the complete Rust 1.95 formatting, test, Clippy, and smoke-test matrix on
-Ubuntu, macOS, and Windows, plus source coverage, feature matrices, docs, security, AppSec, Production
-Gate, and Store Conformance. Slice P4 is covered by the shipped `operations` documentation profile
+test, Clippy, smoke, docs, security, feature, and coverage matrix. P2B is verified by GitHub Actions
+run `38742833180` on `5b5f8a1`, including the complete Rust 1.95 matrix on Ubuntu, macOS, and Windows,
+source coverage, feature matrices, and the companion docs/security/store gates. P2C adds bounded
+source-backed wildcard re-export resolution with v49 index-state rebuilds; its exact-commit CI is
+pending. The Windows process-test fixtures write byte-exact data to redirected standard streams, and
+CI panic summaries now preserve assertion context. Slice P4 is covered by the shipped `operations`
+documentation profile
 (DOCGEN-001 Slices 4A–4C); its monitoring category derives declared health, status, and metrics endpoints
 and telemetry environment-variable names from canonical evidence, while container and Kubernetes probes,
 alert rules, dashboards, and SLOs still need their own evidence source before they may be documented. Slice P5 is source-implemented as the bounded `explore` MCP tool: one query

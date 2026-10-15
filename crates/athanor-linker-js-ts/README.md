@@ -52,8 +52,8 @@ The call linker consumes the bounded `calls` arrays and the import bindings that
 2. `same_module_exact_name` — exact qualified name inside the calling module.
 3. `imported_exact_name` / `imported_symbol_name` — through a default, namespace, or named import
    binding of the calling module.
-4. `imported_reexport_chain` — through explicit named local exports or relative named re-exports,
-   following at most 32 export hops.
+4. `imported_reexport_chain` — through explicit named local exports, relative named re-exports, or
+   one source-backed wildcard export per module, following at most 32 export hops.
 5. `same_module_member_name` — a unique member name inside the calling module.
 6. `unique_exported_name` — a unique exported declaration elsewhere in the snapshot.
 
@@ -72,9 +72,10 @@ commands, use the network, or modify project files.
 - Heritage resolution is name-based; imported bindings, package/workspace aliases, and TypeScript
   path aliases are not used to resolve `extends` or `implements` names.
 - Package, workspace alias, TypeScript path alias, and Node built-in imports are not linked.
-- `export *`, `export * as namespace`, and default-export name resolution are not linked. Explicit
-  named aliases and relative named re-export chains are followed up to 32 hops; cycles, ambiguity,
-  unresolved sources, and deeper chains stay unresolved.
+- A plain source-backed `export *` participates in named call resolution when each module in the
+  chain has exactly one wildcard source. Multiple wildcard sources, `export * as namespace`, and
+  default-export name resolution are not linked; cycles, ambiguity, unresolved sources, and chains
+  deeper than 32 hops stay unresolved.
 - Dynamic `import()`, CommonJS `require()`, computed calls (`handlers[key]()`), calls through call
   results, reflective dispatch, and receiver typing are not resolved.
 - Test detection is location-based because no test framework runs: `.test.`/`.spec.` file names and

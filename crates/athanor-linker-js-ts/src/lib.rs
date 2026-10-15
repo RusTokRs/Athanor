@@ -281,6 +281,43 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn emits_import_relation_for_wildcard_reexports() {
+        let barrel = module(
+            "ent_barrel",
+            "src/index.ts",
+            json!({
+                "imports": [],
+                "exports": [{
+                    "source": "./auth",
+                    "bindings": [],
+                    "star": true,
+                    "line_start": 3,
+                    "line_end": 3
+                }]
+            }),
+        );
+        let auth = module("ent_auth", "src/auth.ts", json!({"imports": []}));
+        let entities = vec![barrel.clone(), auth.clone()];
+
+        let relations = JsTsImportLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(relations.len(), 1);
+        assert_eq!(relations[0].kind, RelationKind::Imports);
+        assert_eq!(relations[0].from, barrel.id);
+        assert_eq!(relations[0].to, auth.id);
+        assert_eq!(relations[0].payload["reason"], "relative_module_re_export");
+        assert_eq!(relations[0].evidence[0].line_start, Some(3));
+    }
+
+    #[tokio::test]
     async fn emits_relation_when_only_target_is_affected() {
         let app = module(
             "ent_app",
