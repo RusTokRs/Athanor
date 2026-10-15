@@ -203,7 +203,11 @@ async fn tokio_process_runner_implements_public_core_port() {
     )
     .await
     .expect("raw process should run");
-    assert!(output.success, "raw process exit code: {:?}", output.exit_code);
+    assert!(
+        output.success,
+        "raw process exit code: {:?}",
+        output.exit_code
+    );
     assert_eq!(
         output.stdout.len(),
         3,
