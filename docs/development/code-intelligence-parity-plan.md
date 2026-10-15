@@ -51,9 +51,10 @@ Two concrete targets:
   remain a separate deferred capability.
 - JS/TS: class `extends`/`implements` and interface `extends` with distinct canonical relation kinds;
   P2B covers explicit named re-export chains, P2C bounded single-source wildcard re-exports, P2D
-  named default function exports/re-exports, and P2E direct namespace re-exports for single-member
-  calls through named imports. Callbacks and promise handlers, multi-hop namespace aliases,
-  anonymous/default class exports, path aliases, and workspace-package specifiers remain open.
+  named default function exports/re-exports, P2E direct namespace re-exports for single-member calls
+  through named imports, and P2F bounded multiple-source wildcard aggregation. Callbacks and promise
+  handlers, multi-hop namespace aliases, anonymous/default class exports, path aliases, and
+  workspace-package specifiers remain open.
 - Both: symbol-level incremental invalidation so a changed declaration re-resolves only its closure.
 
 #### P2A — Heritage Relation Semantics (bounded Rust/TypeScript slice)
@@ -193,9 +194,9 @@ cargo test -p athanor-app --features js-ts-precision --locked
   named/star/default export bound; previously supported directly qualified imported-class methods
   and namespace-import receiver calls retain their existing resolution paths.
 - Keep missing or duplicate namespace aliases, unresolved sources, cycles, over-limit chains, and
-  multi-segment member paths through named-import namespace aliases unresolved. Do not add multi-hop
-  namespace aliases, multiple-source wildcard aggregation, or deep member-path resolution; bare
-  `export *` still does not expose `default`.
+  multi-segment member paths through named-import namespace aliases unresolved. P2E does not add
+  multi-hop namespace aliases or deep member-path resolution; multiple-source wildcard aggregation is
+  covered separately by P2F. Bare `export *` still does not expose `default`.
 - Bump normal/precision index-state schemas from v50 to v51 because normalized export payloads gain
   the `namespace_name` field.
 
@@ -218,11 +219,45 @@ cargo test -p athanor-app --locked
 cargo test -p athanor-app --features js-ts-precision --locked
 ```
 
+#### P2F — Multiple-source Wildcard Aggregation (bounded JS/TS slice)
+
+- Resolve a requested named export across every relative, source-backed `export *` clause in a
+  module. Ignore a branch only when it definitively does not export that name; accept one canonical
+  declaration when every applicable branch agrees on its entity identity, including repeated paths
+  to that same declaration. Each call resolution is bounded to 1,024 resolver visits in addition to
+  the existing 32-hop path limit.
+- Keep distinct exported declarations ambiguous. A source that is missing or unresolved, an
+  ambiguous nested export, a cycle, a branch beyond the 32-hop bound, or exhausted visit budget blocks
+  the whole aggregate; a successful sibling must not hide an invalid branch. Explicit named mappings
+  retain precedence, and bare `export *` continues to exclude `default`.
+- The resolver uses the existing normalized export payload and module `Imports` evidence; no parser
+  schema field changes. Bump normal/precision index-state schemas from v51 to v52 anyway: the index
+  pipeline reuses the prior canonical snapshot when source hashes are unchanged, so this linker-only
+  semantic change requires a one-time rebuild to refresh persisted call relations.
+
+Focused source regression matrix:
+
+| Surface | Regression |
+| --- | --- |
+| Call linker | A unique exporting source plus an absent-name source resolves; multiple paths to the same declaration resolve; distinct declarations remain ambiguous |
+| Safety | An unresolved source, cyclic branch, over-limit path, or exhausted visit budget cannot be hidden by a successful sibling; explicit mappings win and wildcard `default` stays excluded |
+| Persistence | v51 normal/precision state is rejected and forces a v52 rebuild |
+
+Focused verification:
+
+```bash
+cargo test -p athanor-extractor-js-ts --locked
+cargo test -p athanor-extractor-js-ts --features precision-parser --locked
+cargo test -p athanor-linker-js-ts --locked
+cargo test -p athanor-app --locked
+cargo test -p athanor-app --features js-ts-precision --locked
+```
+
 #### Remaining P2 Gaps
 
-- JavaScript/TypeScript callbacks and promise handlers; multiple-source wildcard aggregation,
-  multi-hop namespace aliases, anonymous/default class exports; package/workspace specifiers and
-  TypeScript path aliases; receiver/type-aware dispatch and deep member paths.
+- JavaScript/TypeScript callbacks and promise handlers; multi-hop namespace aliases, anonymous/default
+  class exports; package/workspace specifiers and TypeScript path aliases; receiver/type-aware dispatch
+  and deep member paths.
 - Rust dyn-dispatch candidates and symbol-level incremental invalidation for both Rust and JS/TS.
 
 ### P3 — Bounded Language Expansion

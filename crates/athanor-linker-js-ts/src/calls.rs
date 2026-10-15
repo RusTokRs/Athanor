@@ -48,6 +48,8 @@ const IMPORTED_NAME_CONFIDENCE: f32 = 0.7;
 const UNIQUE_NAME_CONFIDENCE: f32 = 0.5;
 /// Maximum number of named, default, wildcard, or namespace export hops per call resolution.
 const MAX_REEXPORT_DEPTH: usize = 32;
+/// Maximum resolver visits across all branches of one call's export resolution.
+const MAX_REEXPORT_RESOLUTION_STEPS: usize = 1_024;
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct JsTsCallLinker;
@@ -267,6 +269,7 @@ fn resolve_call<'a>(
         }
 
         let mut visited = HashSet::new();
+        let mut remaining_resolution_steps = MAX_REEXPORT_RESOLUTION_STEPS;
         let namespace_resolution = if binding.named_import && tail.is_some() {
             let (Some(namespace), Some(member)) = (binding.imported_name.as_deref(), tail) else {
                 return None;
@@ -278,6 +281,7 @@ fn resolve_call<'a>(
                 modules,
                 declarations_by_path,
                 &mut visited,
+                &mut remaining_resolution_steps,
                 0,
             ) {
                 Some(Some((target, depth))) => Some((target, depth, member)),
@@ -308,8 +312,10 @@ fn resolve_call<'a>(
                     modules,
                     declarations_by_path,
                     &mut visited,
+                    &mut remaining_resolution_steps,
                     0,
-                )?;
+                )
+                .into_resolved()?;
                 (target, depth, wanted)
             };
         if reexport_depth > 0 {
@@ -425,25 +431,45 @@ fn import_binding(module: &Entity, local: &str) -> Option<CallImportBinding> {
     None
 }
 
+enum ExportedNameResolution<'a> {
+    NotFound,
+    Resolved(&'a Entity, usize),
+    Ambiguous,
+    Blocked,
+}
+
+impl<'a> ExportedNameResolution<'a> {
+    fn into_resolved(self) -> Option<(&'a Entity, usize)> {
+        match self {
+            Self::Resolved(target, depth) => Some((target, depth)),
+            Self::NotFound | Self::Ambiguous | Self::Blocked => None,
+        }
+    }
+}
+
 /// Resolves a named export through explicit local aliases, relative named
-/// re-exports, one source-backed `export *` per module, or a named default
-/// export. Multiple star clauses are left unresolved rather than merged
-/// speculatively. Ambiguous mappings, cycles, unresolved sources, and chains
-/// deeper than `MAX_REEXPORT_DEPTH` stay unresolved.
+/// re-exports, source-backed `export *` clauses, or a named default export.
+/// Missing names are skipped while aggregating wildcard sources, but ambiguous
+/// mappings, unresolved sources, cycles, chains deeper than `MAX_REEXPORT_DEPTH`,
+/// or more than `MAX_REEXPORT_RESOLUTION_STEPS` resolver visits block resolution.
 fn resolve_exported_name<'a>(
     module: &'a Entity,
     requested: &str,
     modules: &HashMap<String, &'a Entity>,
     declarations_by_path: &HashMap<String, Vec<&'a Entity>>,
     visited: &mut HashSet<String>,
+    remaining_steps: &mut usize,
     depth: usize,
-) -> Option<(&'a Entity, usize)> {
-    if depth > MAX_REEXPORT_DEPTH {
-        return None;
+) -> ExportedNameResolution<'a> {
+    if depth > MAX_REEXPORT_DEPTH || *remaining_steps == 0 {
+        return ExportedNameResolution::Blocked;
     }
-    let path = entity_path(module)?;
+    *remaining_steps -= 1;
+    let Some(path) = entity_path(module) else {
+        return ExportedNameResolution::Blocked;
+    };
     if !visited.insert(path.clone()) {
-        return None;
+        return ExportedNameResolution::Blocked;
     }
 
     let direct_matches = declarations_by_path
@@ -456,7 +482,10 @@ fn resolve_exported_name<'a>(
         })
         .collect::<Vec<_>>();
     if !direct_matches.is_empty() {
-        let result = unique_target(direct_matches.into_iter().map(|candidate| (candidate, 0)));
+        let result = unique_target(direct_matches.into_iter().map(|candidate| (candidate, 0)))
+            .map_or(ExportedNameResolution::Ambiguous, |(target, depth)| {
+                ExportedNameResolution::Resolved(target, depth)
+            });
         visited.remove(&path);
         return result;
     }
@@ -494,17 +523,21 @@ fn resolve_exported_name<'a>(
                         unresolved_mapping = true;
                         continue;
                     };
-                    if let Some((target, nested_depth)) = resolve_exported_name(
+                    match resolve_exported_name(
                         target_module,
                         imported,
                         modules,
                         declarations_by_path,
                         visited,
+                        remaining_steps,
                         depth + 1,
                     ) {
-                        mapped_targets.push((target, nested_depth + 1));
-                    } else {
-                        unresolved_mapping = true;
+                        ExportedNameResolution::Resolved(target, nested_depth) => {
+                            mapped_targets.push((target, nested_depth + 1));
+                        }
+                        ExportedNameResolution::NotFound
+                        | ExportedNameResolution::Ambiguous
+                        | ExportedNameResolution::Blocked => unresolved_mapping = true,
                     }
                 } else {
                     let local_matches = declarations_by_path
@@ -530,17 +563,21 @@ fn resolve_exported_name<'a>(
                         {
                             let imported_name =
                                 import_binding.imported_name.as_deref().unwrap_or(imported);
-                            if let Some((target, nested_depth)) = resolve_exported_name(
+                            match resolve_exported_name(
                                 imported_module,
                                 imported_name,
                                 modules,
                                 declarations_by_path,
                                 visited,
+                                remaining_steps,
                                 depth + 1,
                             ) {
-                                mapped_targets.push((target, nested_depth + 1));
-                            } else {
-                                unresolved_mapping = true;
+                                ExportedNameResolution::Resolved(target, nested_depth) => {
+                                    mapped_targets.push((target, nested_depth + 1));
+                                }
+                                ExportedNameResolution::NotFound
+                                | ExportedNameResolution::Ambiguous
+                                | ExportedNameResolution::Blocked => unresolved_mapping = true,
                             }
                         } else {
                             unresolved_mapping = true;
@@ -554,10 +591,13 @@ fn resolve_exported_name<'a>(
     }
 
     let result = if has_matching_mapping {
-        if unresolved_mapping {
-            None
+        if unresolved_mapping || mapped_targets.is_empty() {
+            ExportedNameResolution::Blocked
         } else {
             unique_target(mapped_targets)
+                .map_or(ExportedNameResolution::Ambiguous, |(target, depth)| {
+                    ExportedNameResolution::Resolved(target, depth)
+                })
         }
     } else if requested == "default" && !default_exports.is_empty() {
         resolve_default_export(
@@ -566,26 +606,55 @@ fn resolve_exported_name<'a>(
             modules,
             declarations_by_path,
             visited,
+            remaining_steps,
             depth,
         )
-    } else if requested != "default" && star_exports.len() == 1 {
-        star_exports[0]
-            .get("source")
-            .and_then(Value::as_str)
-            .and_then(|specifier| resolve_local_import(module, specifier, modules))
-            .and_then(|target_module| {
-                resolve_exported_name(
-                    target_module,
-                    requested,
-                    modules,
-                    declarations_by_path,
-                    visited,
-                    depth + 1,
-                )
-            })
-            .map(|(target, nested_depth)| (target, nested_depth + 1))
+        .map_or(ExportedNameResolution::Blocked, |(target, depth)| {
+            ExportedNameResolution::Resolved(target, depth)
+        })
+    } else if requested != "default" && !star_exports.is_empty() {
+        let mut wildcard_targets = Vec::new();
+        let mut unresolved_source = false;
+        for star_export in star_exports {
+            let Some(specifier) = star_export.get("source").and_then(Value::as_str) else {
+                unresolved_source = true;
+                break;
+            };
+            let Some(target_module) = resolve_local_import(module, specifier, modules) else {
+                unresolved_source = true;
+                break;
+            };
+            match resolve_exported_name(
+                target_module,
+                requested,
+                modules,
+                declarations_by_path,
+                visited,
+                remaining_steps,
+                depth + 1,
+            ) {
+                ExportedNameResolution::Resolved(target, nested_depth) => {
+                    wildcard_targets.push((target, nested_depth + 1));
+                }
+                ExportedNameResolution::NotFound => {}
+                ExportedNameResolution::Ambiguous | ExportedNameResolution::Blocked => {
+                    unresolved_source = true;
+                    break;
+                }
+            }
+        }
+        if unresolved_source {
+            ExportedNameResolution::Blocked
+        } else if wildcard_targets.is_empty() {
+            ExportedNameResolution::NotFound
+        } else {
+            unique_target(wildcard_targets)
+                .map_or(ExportedNameResolution::Ambiguous, |(target, depth)| {
+                    ExportedNameResolution::Resolved(target, depth)
+                })
+        }
     } else {
-        None
+        ExportedNameResolution::NotFound
     };
     visited.remove(&path);
     result
@@ -595,7 +664,7 @@ fn resolve_exported_name<'a>(
 ///
 /// `None` means there is no namespace alias for this import; `Some(None)` means
 /// a matching alias exists but is ambiguous, unresolved, cyclic, or over the
-/// `MAX_REEXPORT_DEPTH` bound. The caller uses that distinction to preserve
+/// re-export depth or visit bounds. The caller uses that distinction to preserve
 /// existing directly qualified imported-class member resolution without
 /// falling back from a broken namespace mapping.
 fn resolve_namespace_exported_member<'a>(
@@ -605,6 +674,7 @@ fn resolve_namespace_exported_member<'a>(
     modules: &HashMap<String, &'a Entity>,
     declarations_by_path: &HashMap<String, Vec<&'a Entity>>,
     visited: &mut HashSet<String>,
+    remaining_steps: &mut usize,
     depth: usize,
 ) -> Option<Option<(&'a Entity, usize)>> {
     let exports = module.payload.get("exports").and_then(Value::as_array)?;
@@ -645,8 +715,10 @@ fn resolve_namespace_exported_member<'a>(
             modules,
             declarations_by_path,
             visited,
+            remaining_steps,
             depth + 1,
         )
+        .into_resolved()
     });
     visited.remove(&path);
     Some(resolved.map(|(target, nested_depth)| (target, nested_depth + 1)))
@@ -682,6 +754,7 @@ fn resolve_default_export<'a>(
     modules: &HashMap<String, &'a Entity>,
     declarations_by_path: &HashMap<String, Vec<&'a Entity>>,
     visited: &mut HashSet<String>,
+    remaining_steps: &mut usize,
     depth: usize,
 ) -> Option<(&'a Entity, usize)> {
     if default_exports.len() != 1 {
@@ -710,8 +783,10 @@ fn resolve_default_export<'a>(
         modules,
         declarations_by_path,
         visited,
+        remaining_steps,
         depth + 1,
     )
+    .into_resolved()
     .map(|(target, nested_depth)| (target, nested_depth + 1))
 }
 
@@ -1442,8 +1517,16 @@ mod tests {
             "src/index.ts",
             json!({
                 "imports": [],
-                "exports": [{"source": "./auth", "bindings": [], "star": true}]
+                "exports": [
+                    {"source": "./auth", "bindings": [], "star": true},
+                    {"source": "./other", "bindings": [], "star": true}
+                ]
             }),
+        );
+        let other_module = module(
+            "ent_wildcard_other_module",
+            "src/other.ts",
+            json!({"imports": []}),
         );
         let namespace_module = module(
             "ent_namespace_module",
@@ -1511,6 +1594,7 @@ mod tests {
             namespace_app,
             anonymous_app,
             index_module,
+            other_module,
             namespace_module,
             anonymous_module,
             auth_module,
@@ -1874,6 +1958,253 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn resolves_unique_targets_across_multiple_wildcard_sources() {
+        let unique_app = module(
+            "ent_multi_unique_app",
+            "src/unique-app.ts",
+            json!({
+                "imports": [{
+                    "source": "./unique-index",
+                    "named": ["uniqueLogin"],
+                    "named_bindings": [{"imported": "login", "local": "uniqueLogin"}]
+                }]
+            }),
+        );
+        let shared_app = module(
+            "ent_multi_shared_app",
+            "src/shared-app.ts",
+            json!({
+                "imports": [{
+                    "source": "./shared-index",
+                    "named": ["sharedLogin"],
+                    "named_bindings": [{"imported": "login", "local": "sharedLogin"}]
+                }]
+            }),
+        );
+        let unique_index = module(
+            "ent_multi_unique_index",
+            "src/unique-index.ts",
+            json!({
+                "imports": [],
+                "exports": [
+                    {"source": "./auth", "bindings": [], "star": true},
+                    {"source": "./other", "bindings": [], "star": true}
+                ]
+            }),
+        );
+        let shared_index = module(
+            "ent_multi_shared_index",
+            "src/shared-index.ts",
+            json!({
+                "imports": [],
+                "exports": [
+                    {"source": "./left", "bindings": [], "star": true},
+                    {"source": "./right", "bindings": [], "star": true}
+                ]
+            }),
+        );
+        let left = module(
+            "ent_multi_left",
+            "src/left.ts",
+            json!({
+                "imports": [],
+                "exports": [{"source": "./auth", "bindings": [], "star": true}]
+            }),
+        );
+        let right = module(
+            "ent_multi_right",
+            "src/right.ts",
+            json!({
+                "imports": [],
+                "exports": [{"source": "./auth", "bindings": [], "star": true}]
+            }),
+        );
+        let auth = module("ent_multi_auth", "src/auth.ts", json!({"imports": []}));
+        let other = module("ent_multi_other", "src/other.ts", json!({"imports": []}));
+        let login = declaration(
+            "ent_multi_auth_login",
+            "src/auth.ts",
+            "login",
+            "login",
+            true,
+            json!([]),
+        );
+        let unique_run = declaration(
+            "ent_multi_unique_run",
+            "src/unique-app.ts",
+            "run",
+            "run",
+            false,
+            json!([call_site("uniqueLogin", "uniqueLogin", 4)]),
+        );
+        let shared_run = declaration(
+            "ent_multi_shared_run",
+            "src/shared-app.ts",
+            "run",
+            "run",
+            false,
+            json!([call_site("sharedLogin", "sharedLogin", 4)]),
+        );
+        let entities = vec![
+            unique_app,
+            shared_app,
+            unique_index,
+            shared_index,
+            left,
+            right,
+            auth,
+            other,
+            login.clone(),
+            unique_run.clone(),
+            shared_run.clone(),
+        ];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 2);
+        assert!(
+            calls
+                .iter()
+                .any(|relation| relation.from == unique_run.id && relation.to == login.id)
+        );
+        assert!(
+            calls
+                .iter()
+                .any(|relation| relation.from == shared_run.id && relation.to == login.id)
+        );
+        assert!(
+            calls
+                .iter()
+                .all(|relation| relation.payload["resolution"] == "imported_reexport_chain")
+        );
+    }
+
+    #[tokio::test]
+    async fn unresolved_branch_blocks_multiple_wildcard_resolution() {
+        let app_module = module(
+            "ent_multi_unresolved_app",
+            "src/unresolved-app.ts",
+            json!({"imports": [{"source": "./index", "named": ["login"]}]}),
+        );
+        let index_module = module(
+            "ent_multi_unresolved_index",
+            "src/index.ts",
+            json!({
+                "imports": [],
+                "exports": [
+                    {"source": "./auth", "bindings": [], "star": true},
+                    {"source": "./missing", "bindings": [], "star": true}
+                ]
+            }),
+        );
+        let auth_module = module(
+            "ent_multi_unresolved_auth",
+            "src/auth.ts",
+            json!({"imports": []}),
+        );
+        let login = declaration(
+            "ent_multi_unresolved_login",
+            "src/auth.ts",
+            "login",
+            "login",
+            true,
+            json!([]),
+        );
+        let run = declaration(
+            "ent_multi_unresolved_run",
+            "src/unresolved-app.ts",
+            "run",
+            "run",
+            false,
+            json!([call_site("login", "login", 4)]),
+        );
+        let entities = vec![app_module, index_module, auth_module, login, run];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        assert!(
+            !relations
+                .iter()
+                .any(|relation| relation.kind == RelationKind::Calls)
+        );
+    }
+
+    #[tokio::test]
+    async fn multiple_wildcard_branches_respect_the_resolution_step_bound() {
+        let app_module = module(
+            "ent_multi_budget_app",
+            "src/budget-app.ts",
+            json!({"imports": [{"source": "./index", "named": ["login"]}]}),
+        );
+        let exports = (0..MAX_REEXPORT_RESOLUTION_STEPS)
+            .map(|_| json!({"source": "./auth", "bindings": [], "star": true}))
+            .collect::<Vec<_>>();
+        let index_module = module(
+            "ent_multi_budget_index",
+            "src/index.ts",
+            json!({"imports": [], "exports": exports}),
+        );
+        let auth_module = module(
+            "ent_multi_budget_auth",
+            "src/auth.ts",
+            json!({"imports": []}),
+        );
+        let login = declaration(
+            "ent_multi_budget_login",
+            "src/auth.ts",
+            "login",
+            "login",
+            true,
+            json!([]),
+        );
+        let run = declaration(
+            "ent_multi_budget_run",
+            "src/budget-app.ts",
+            "run",
+            "run",
+            false,
+            json!([call_site("login", "login", 4)]),
+        );
+        let entities = vec![app_module, index_module, auth_module, login, run];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        assert!(
+            !relations
+                .iter()
+                .any(|relation| relation.kind == RelationKind::Calls)
+        );
+    }
+
+    #[tokio::test]
     async fn ambiguous_multiple_wildcard_reexports_remain_unresolved() {
         let app_module = module(
             "ent_app_module",
@@ -1901,6 +2232,14 @@ mod tests {
             true,
             json!([]),
         );
+        let other_login = declaration(
+            "ent_other_login",
+            "src/other.ts",
+            "login",
+            "login",
+            true,
+            json!([]),
+        );
         let run = declaration(
             "ent_app_run",
             "src/app.ts",
@@ -1915,6 +2254,7 @@ mod tests {
             auth_module,
             other_module,
             login,
+            other_login,
             run,
         ];
 
@@ -1940,13 +2280,36 @@ mod tests {
         let cycle_app = module(
             "ent_cycle_app",
             "src/cycle-app.ts",
-            json!({"imports": [{"source": "./cycle-a", "named": ["login"]}]}),
+            json!({"imports": [{"source": "./cycle-index", "named": ["login"]}]}),
         );
         let deep_app = module(
             "ent_deep_app",
             "src/deep-app.ts",
-            json!({"imports": [{"source": "./chain-0", "named": ["login"]}]}),
+            json!({"imports": [{"source": "./deep-index", "named": ["login"]}]}),
         );
+        let cycle_index = module(
+            "ent_cycle_index",
+            "src/cycle-index.ts",
+            json!({
+                "imports": [],
+                "exports": [
+                    {"source": "./auth", "bindings": [], "star": true},
+                    {"source": "./cycle-a", "bindings": [], "star": true}
+                ]
+            }),
+        );
+        let deep_index = module(
+            "ent_deep_index",
+            "src/deep-index.ts",
+            json!({
+                "imports": [],
+                "exports": [
+                    {"source": "./auth", "bindings": [], "star": true},
+                    {"source": "./chain-0", "bindings": [], "star": true}
+                ]
+            }),
+        );
+        let auth_module = module("ent_cycle_auth", "src/auth.ts", json!({"imports": []}));
         let cycle_a = module(
             "ent_cycle_a",
             "src/cycle-a.ts",
@@ -1963,7 +2326,15 @@ mod tests {
                 "exports": [{"source": "./cycle-a", "bindings": [], "star": true}]
             }),
         );
-        let mut entities = vec![cycle_app, deep_app, cycle_a, cycle_b];
+        let mut entities = vec![
+            cycle_app,
+            deep_app,
+            cycle_index,
+            deep_index,
+            auth_module,
+            cycle_a,
+            cycle_b,
+        ];
         for index in 0..=33 {
             let exports = if index < 33 {
                 json!([{
@@ -1996,7 +2367,15 @@ mod tests {
             false,
             json!([call_site("login", "login", 3)]),
         );
-        let login = declaration(
+        let auth_login = declaration(
+            "ent_cycle_auth_login",
+            "src/auth.ts",
+            "login",
+            "login",
+            true,
+            json!([]),
+        );
+        let over_limit_login = declaration(
             "ent_chain_login",
             "src/chain-33.ts",
             "login",
@@ -2004,7 +2383,7 @@ mod tests {
             true,
             json!([]),
         );
-        entities.extend([cycle_run, deep_run, login]);
+        entities.extend([cycle_run, deep_run, auth_login, over_limit_login]);
 
         let relations = JsTsCallLinker
             .link(LinkInput {

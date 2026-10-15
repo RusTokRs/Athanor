@@ -115,9 +115,9 @@ skills поверх. То есть «уровень Terrain» — это не «
 > v47 для безопасной переиндексации. P2B реализовал явные named re-export chains JS/TS с
 > сохранением imported/exported aliases, module edges и миграцией index-state v47→v48; полный CI
 > прошёл в run `38742833180` на `5b5f8a1`. P2C добавил named resolution через source-backed
-> `export *` при единственном wildcard-источнике на модуль и поднял схему до v49; модули с несколькими
-> wildcard-источниками остаются unresolved. Точный GitHub Actions run `38748788007` на `49444d5`
-> прошёл. P2D добавил default imports/re-exports для именованных функций и поднял схему до v50;
+> `export *` при единственном wildcard-источнике на модуль и поднял схему до v49; на этапе P2C
+> неоднозначные multiple-source модули оставались unresolved. Точный GitHub Actions run `38748788007`
+> на `49444d5` прошёл. P2D добавил default imports/re-exports для именованных функций и поднял схему до v50;
 > anonymous expressions и class-valued defaults не становятся call targets. Run `38757025492` на
 > `c105cad` прошёл на Ubuntu, macOS и Windows. P2E добавил прямые `export * as name` mappings для
 > single-member calls через aliased named imports, сохранив исключение `default` для bare `export *`,

@@ -54,8 +54,11 @@ The call linker consumes the bounded `calls` arrays and the import bindings that
    the calling module.
 4. `imported_default_export` — a default import resolves directly to its named default function.
 5. `imported_reexport_chain` — through explicit named local exports, relative named/default
-   re-exports, one source-backed wildcard export per module, or a unique direct `export * as name`
-   mapping for a named-import single-member call. Namespace hops count toward the 32-hop bound.
+   re-exports, source-backed wildcard clauses, or a unique direct `export * as name` mapping for a
+   named-import single-member call. Multiple wildcard sources resolve only when applicable branches
+   agree on one declaration; absent names are skipped, while ambiguous, unresolved, cyclic, or
+   over-limit branches block the aggregate. Namespace hops count toward the 32-hop bound, and each
+   call's recursive export resolution is capped at 1,024 module visits.
 6. `same_module_member_name` — a unique member name inside the calling module.
 7. `unique_exported_name` — a unique exported declaration elsewhere in the snapshot.
 
@@ -74,15 +77,15 @@ commands, use the network, or modify project files.
 - Heritage resolution is name-based; imported bindings, package/workspace aliases, and TypeScript
   path aliases are not used to resolve `extends` or `implements` names.
 - Package, workspace alias, TypeScript path alias, and Node built-in imports are not linked.
-- A plain source-backed `export *` participates in named call resolution when each module in the
-  chain has exactly one wildcard source, but never forwards `default`. Named default functions and
-  statically named local identifier defaults can resolve through relative imports and explicit named
-  re-export chains. Named imports can resolve a single member through one unique, direct,
-  source-backed `export * as name` mapping; multi-hop namespace aliases and multi-segment paths
-  through named-import namespace aliases stay unresolved. Existing namespace-import receiver behavior
-  is unchanged. Multiple wildcard sources, anonymous/default expressions, and default class call
-  targets also stay unresolved; cycles, ambiguity, unresolved sources, and chains deeper than 32 hops
-  remain unresolved.
+- A plain source-backed `export *` participates in named call resolution across multiple sources,
+  but never forwards `default`. Missing names are ignored; distinct targets, ambiguous nested exports,
+  unresolved sources, cycles, and chains deeper than 32 hops keep the aggregate unresolved. Named
+  default functions and statically named local identifier defaults can resolve through relative
+  imports and explicit named re-export chains. Named imports can resolve a single member through one
+  unique, direct, source-backed `export * as name` mapping; multi-hop namespace aliases and
+  multi-segment paths through named-import namespace aliases stay unresolved. Existing
+  namespace-import receiver behavior is unchanged. Anonymous/default expressions and default class
+  call targets also stay unresolved.
 - Dynamic `import()`, CommonJS `require()`, computed calls (`handlers[key]()`), calls through call
   results, reflective dispatch, and receiver typing are not resolved.
 - Test detection is location-based because no test framework runs: `.test.`/`.spec.` file names and

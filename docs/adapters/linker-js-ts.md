@@ -59,10 +59,12 @@ previous one is silent:
 4. `imported_default_export` — a default import resolves directly to the named function binding
    marked by `export default` in its relative target module.
 5. `imported_reexport_chain` — calls resolve through explicit local aliases, relative named
-   re-exports (including default aliases), a single-source wildcard per module, or one direct
-   `export * as name` mapping used by a named-import single-member call. The namespace hop counts
-   against the 32-export-hop bound; multi-segment member paths through named-import namespace
-   aliases are not resolved.
+   re-exports (including default aliases), source-backed wildcard clauses, or one direct
+   `export * as name` mapping used by a named-import single-member call. Multiple wildcard sources
+   resolve only when applicable branches agree on one declaration; absent names are skipped, while
+   ambiguous, unresolved, cyclic, or over-limit branches block the aggregate. The namespace hop
+   counts against the 32-export-hop bound, and recursive export resolution is capped at 1,024 module
+   visits per call; multi-segment member paths through named-import namespace aliases are not resolved.
 6. `same_module_member_name` — a member call with an unknown receiver resolves only when the calling
    module contains exactly one member with that name.
 7. `unique_exported_name` — a bare call with no local or imported target resolves only when exactly
@@ -120,9 +122,10 @@ typing are not resolved. A named import representing a namespace object can use 
 source-backed `export * as name` mapping for a single member call; missing or ambiguous namespace
 mappings stay unresolved. Named default functions and statically named local default bindings
 resolve through relative imports and explicit named re-export clauses; plain `export *` still does not
-expose `default`. Named, default, wildcard, and namespace hops share the 32-hop bound; wildcard
-chains require one source per module. Multiple wildcard clauses,
-cycles, ambiguous mappings, unresolved sources, and deeper chains stay unresolved.
+expose `default`. Named, default, wildcard, and namespace hops share the 32-hop bound. Multiple
+wildcard sources combine only when applicable branches agree on one declaration; absent names are
+ignored, while cycles, ambiguous mappings, unresolved sources, and over-limit branches stay
+unresolved. Each call's recursive export resolution is capped at 1,024 module visits.
 All linkers emit relations only when either endpoint is in the affected subset, which keeps incremental
 updates proportional to the change.
 

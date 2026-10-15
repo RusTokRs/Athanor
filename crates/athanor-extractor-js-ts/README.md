@@ -99,9 +99,10 @@ None. The extractors do not run commands, use the network, or modify project fil
 - Import/export data is stored in module payloads and definition facts. Payloads preserve named
   import/export aliases, distinguish plain source-backed `export *` from `export * as name`, and mark
   named default-function or local-identifier bindings; `athanor-linker-js-ts` follows bounded named,
-  default-function, single-source wildcard, and direct namespace mappings for single-member calls.
-- Multi-hop namespace aliases, anonymous/default-expression and class call targets, modules with
-  multiple wildcard sources, and package/workspace/path-alias targets remain unresolved.
+  default-function and multiple-source wildcard chains when they identify one target, plus direct
+  namespace mappings for single-member calls.
+- Multi-hop namespace aliases, anonymous/default-expression and class call targets, ambiguous or
+  unresolved wildcard branches, and package/workspace/path-alias targets remain unresolved.
 - JSX and TSX component semantics are not inferred. Components are emitted as normal functions or classes.
 - Framework-specific semantics remain outside `JsTsExtractor`; separate `NextJsExtractor` and
   `ExpressExtractor` owners cover only their bounded route projections.

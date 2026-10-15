@@ -63,7 +63,9 @@ not marked as a plain star. Named default functions and statically named local i
 carry their local binding; unsupported default expressions remain unbound. The built-in JS/TS import
 linker uses relative source-backed imports and re-exports to materialize module dependencies without
 exposing parser AST nodes, while the call linker follows explicit named and default-function aliases,
-bounded single-source wildcard chains, and direct namespace exports for single-member calls.
+bounded wildcard chains that resolve uniquely across sources, and direct namespace exports for
+single-member calls. Absent names are skipped; ambiguous, unresolved, cyclic, and over-limit branches
+remain unresolved.
 
 ## Call Sites
 

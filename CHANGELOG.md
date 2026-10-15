@@ -28,7 +28,7 @@ substantive release notes.
   argument count, and line/column. `builtin.linker.js_ts_calls` resolves those call sites into
   evidence-backed `Calls` relations (same-module, `this.` member, imported binding, and unique-name
   fallbacks) and emits `TestedBy` when a test-location declaration calls production code.
-- Preserve JS/TS aliases; resolve bounded named/default/wildcard chains and direct `export * as` member calls, exclude wildcard `default`, and bump index v47→v51.
+- Preserve JS/TS aliases; resolve bounded named/default and direct-namespace calls plus uniquely aggregated multi-source wildcards, exclude wildcard `default`, and bump index v47→v52.
 - Add strict versioned request, outline, context, citation, draft, manifest, and validation-report
   contracts for evidence-backed documentation generation: exact snapshot binding, portable paths,
   stable-key/evidence traceability, cited diagram edges, metrics, and checksums.
