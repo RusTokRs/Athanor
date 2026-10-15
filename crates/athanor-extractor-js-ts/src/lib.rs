@@ -634,7 +634,7 @@ fn has_child_kind(node: Node, kind: &str) -> bool {
 }
 
 fn import_payload(node: Node, bytes: &[u8]) -> Value {
-    let (default_name, namespace_name, named) = import_bindings(node, bytes);
+    let (default_name, namespace_name, named, named_bindings) = import_bindings(node, bytes);
     json!({
         "source": child_text(node, "source", bytes),
         "line_start": node.start_position().row as u32 + 1,
@@ -642,19 +642,24 @@ fn import_payload(node: Node, bytes: &[u8]) -> Value {
         "default_name": default_name,
         "namespace_name": namespace_name,
         "named": named,
+        "named_bindings": named_bindings,
     })
 }
 
-/// Collects the local names bound by one `import_statement`.
+/// Collects the local and imported names bound by one `import_statement`.
 ///
-/// Returns the default import name, the namespace import name, and the sorted,
-/// deduplicated local names of named import specifiers (`import { a as b }`
-/// records `b`). Callers resolve call sites through these bindings, so the
-/// payload stays a faithful record of the module surface without executing it.
-fn import_bindings(node: Node, bytes: &[u8]) -> (Option<String>, Option<String>, Vec<String>) {
+/// `named` retains the sorted local-name list for compatibility. `named_bindings`
+/// additionally preserves the source name for aliases such as
+/// `import { fetchUser as fetch }`, allowing linkers to resolve `fetch` back to
+/// the exported name `fetchUser` without guessing.
+fn import_bindings(
+    node: Node,
+    bytes: &[u8],
+) -> (Option<String>, Option<String>, Vec<String>, Vec<Value>) {
     let mut default_name = None;
     let mut namespace_name = None;
     let mut named = Vec::new();
+    let mut named_bindings = Vec::new();
 
     let mut cursor = node.walk();
     for child in node.named_children(&mut cursor) {
@@ -679,12 +684,18 @@ fn import_bindings(node: Node, bytes: &[u8]) -> (Option<String>, Option<String>,
                         if specifier.kind() != "import_specifier" {
                             continue;
                         }
+                        let imported = specifier
+                            .child_by_field_name("name")
+                            .and_then(|child| node_text(child, bytes));
                         let local = specifier
                             .child_by_field_name("alias")
                             .or_else(|| specifier.child_by_field_name("name"))
                             .and_then(|child| node_text(child, bytes));
                         if let Some(local) = local {
-                            named.push(local);
+                            named.push(local.clone());
+                            if let Some(imported) = imported {
+                                named_bindings.push((imported, local));
+                            }
                         }
                     }
                 }
@@ -695,7 +706,13 @@ fn import_bindings(node: Node, bytes: &[u8]) -> (Option<String>, Option<String>,
 
     named.sort();
     named.dedup();
-    (default_name, namespace_name, named)
+    named_bindings.sort();
+    named_bindings.dedup();
+    let named_bindings: Vec<Value> = named_bindings
+        .into_iter()
+        .map(|(imported, local)| json!({ "imported": imported, "local": local }))
+        .collect();
+    (default_name, namespace_name, named, named_bindings)
 }
 
 fn node_text(node: Node, bytes: &[u8]) -> Option<String> {
@@ -801,9 +818,54 @@ fn callee_path(node: Node, bytes: &[u8]) -> Option<String> {
 fn export_payload(node: Node, bytes: &[u8]) -> Value {
     json!({
         "source": child_text(node, "source", bytes),
+        "bindings": export_bindings(node, bytes),
         "line_start": node.start_position().row as u32 + 1,
         "line_end": node.end_position().row as u32 + 1,
     })
+}
+
+/// Records explicit `{ imported as exported }` entries in an export clause.
+///
+/// The same representation covers local export aliases and source-backed
+/// re-exports; callers distinguish them by whether the enclosing statement has
+/// a `source` specifier. Star and namespace exports intentionally have no
+/// explicit name mapping here.
+fn export_bindings(node: Node, bytes: &[u8]) -> Vec<Value> {
+    let mut bindings = Vec::new();
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        if child.kind() != "export_clause" {
+            continue;
+        }
+        let mut clause_cursor = child.walk();
+        for specifier in child.named_children(&mut clause_cursor) {
+            if specifier.kind() != "export_specifier" {
+                continue;
+            }
+            let imported = child_text(specifier, "name", bytes).or_else(|| {
+                specifier
+                    .named_child(0)
+                    .and_then(|name| node_text(name, bytes))
+                    .map(|name| name.trim_matches(['"', '\'']).to_string())
+            });
+            let Some(imported) = imported else {
+                continue;
+            };
+            let exported = child_text(specifier, "alias", bytes)
+                .or_else(|| {
+                    specifier
+                        .named_child(1)
+                        .and_then(|name| node_text(name, bytes))
+                        .map(|name| name.trim_matches(['"', '\'']).to_string())
+                })
+                .unwrap_or_else(|| imported.clone());
+            bindings.push(json!({
+                "imported": imported,
+                "exported": exported,
+            }));
+        }
+    }
+    bindings
 }
 
 fn child_text(node: Node, field: &str, bytes: &[u8]) -> Option<String> {
@@ -1540,6 +1602,14 @@ mod tests {
         assert_eq!(module.payload["imports"][0]["default_name"], "api");
         assert_eq!(module.payload["imports"][0]["named"][0], "fetch");
         assert_eq!(module.payload["imports"][0]["named"][1], "login");
+        assert_eq!(
+            module.payload["imports"][0]["named_bindings"][0],
+            json!({"imported": "fetchUser", "local": "fetch"})
+        );
+        assert_eq!(
+            module.payload["imports"][0]["named_bindings"][1],
+            json!({"imported": "login", "local": "login"})
+        );
         assert_eq!(module.payload["imports"][0]["namespace_name"], Value::Null);
         assert_eq!(module.payload["imports"][1]["namespace_name"], "utils");
         assert!(module.payload["imports"][1]["default_name"].is_null());
@@ -1550,6 +1620,43 @@ mod tests {
                 .len(),
             0
         );
+    }
+
+    #[tokio::test]
+    async fn records_named_export_aliases_and_source_backed_reexports() {
+        for (path, language) in [
+            ("src/barrel.js", "javascript"),
+            ("src/barrel.ts", "typescript"),
+        ] {
+            let output = JsTsExtractor
+                .extract(input(
+                    path,
+                    "export { login as signIn, logout } from './auth';\nexport { local as publicLocal };\n",
+                    language,
+                ))
+                .await
+                .unwrap();
+            let module = output
+                .entities
+                .iter()
+                .find(|entity| entity.kind == EntityKind::Module)
+                .expect("module entity must exist");
+
+            assert_eq!(module.payload["exports"][0]["source"], "./auth");
+            assert_eq!(
+                module.payload["exports"][0]["bindings"][0],
+                json!({"imported": "login", "exported": "signIn"})
+            );
+            assert_eq!(
+                module.payload["exports"][0]["bindings"][1],
+                json!({"imported": "logout", "exported": "logout"})
+            );
+            assert!(module.payload["exports"][1]["source"].is_null());
+            assert_eq!(
+                module.payload["exports"][1]["bindings"][0],
+                json!({"imported": "local", "exported": "publicLocal"})
+            );
+        }
     }
 
     #[tokio::test]

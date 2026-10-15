@@ -50,8 +50,8 @@ Two concrete targets:
 - Rust: trait implementation (`Implements`) and supertrait (`Extends`) edges; dyn-dispatch candidates
   remain a separate deferred capability.
 - JS/TS: class `extends`/`implements` and interface `extends` with distinct canonical relation kinds;
-  callbacks and promise handlers, re-export chains, path aliases, and workspace-package specifiers
-  remain open.
+  P2B covers explicit named re-export chains, while callbacks and promise handlers, wildcard/default
+  re-exports, path aliases, and workspace-package specifiers remain open.
 - Both: symbol-level incremental invalidation so a changed declaration re-resolves only its closure.
 
 #### P2A — Heritage Relation Semantics (bounded Rust/TypeScript slice)
@@ -87,6 +87,44 @@ cargo test -p athanor-app --features js-ts-precision --locked
 
 The full exact-commit verification matrix remains the workspace test, format, Clippy, and indexing
 smoke described below.
+
+#### P2B — Explicit Named Re-export Chains (bounded JS/TS slice)
+
+- Preserve both imported/local names for named imports and imported/exported names for explicit
+  named export clauses in the normalized module payload; retain the existing local-name `named` list.
+- Materialize exact relative source-backed re-exports as verified module `Imports` relations.
+- Resolve calls through local export aliases and chains of explicit relative named re-exports, up to
+  32 hops. Cycles, ambiguous mappings, unresolved sources, and deeper chains stay unresolved; an
+  unresolved explicit import must not fall through to a snapshot-wide name guess.
+- Keep `export *`, `export * as namespace`, default-export name resolution, package/workspace imports,
+  TypeScript path aliases, receiver typing, and callback/promise-handler resolution out of this slice.
+- Bump both index-state schema families from v47 to v48 so cached module payloads are rebuilt in
+  normal and `js-ts-precision` configurations.
+
+Focused source regression matrix:
+
+| Surface | Regression |
+| --- | --- |
+| JS/TS extractor | Named import aliases preserve imported/local names; local and source-backed export clauses preserve imported/exported names and source ranges |
+| Import linker | A relative source-backed re-export emits a verified `Imports` edge with re-export evidence |
+| Call linker | Multi-hop named re-exports plus an aliased import resolve to the original declaration; unresolved sources do not fall through to a global guess |
+| Persistence | v47 normal/precision state is rejected and forces a v48 rebuild |
+
+Focused verification:
+
+```bash
+cargo test -p athanor-extractor-js-ts --locked
+cargo test -p athanor-extractor-js-ts --features precision-parser --locked
+cargo test -p athanor-linker-js-ts --locked
+cargo test -p athanor-app --locked
+cargo test -p athanor-app --features js-ts-precision --locked
+```
+
+#### Remaining P2 Gaps
+
+- JavaScript/TypeScript callbacks and promise handlers; wildcard/default re-exports; package/workspace
+  specifiers and TypeScript path aliases; receiver/type-aware dispatch.
+- Rust dyn-dispatch candidates and symbol-level incremental invalidation for both Rust and JS/TS.
 
 ### P3 — Bounded Language Expansion
 
@@ -149,7 +187,9 @@ Slice P1 is source-implemented and carries focused unit tests in `athanor-extrac
 P2A adds a separate `Extends` relation for Rust trait supertraits and JS/TS class/interface
 inheritance, updates the impact/ranking/architecture consumers, and bumps index state to v47; focused
 Rust/TypeScript regressions are included; CI run `38722056518` on `4a23498` passed the full format,
-test, Clippy, smoke, docs, security, feature, and coverage matrix. Slice P4 is covered by the shipped `operations` documentation profile
+test, Clippy, smoke, docs, security, feature, and coverage matrix. P2B now has source implementation
+for explicit JS/TS named re-export chains and the v48 index-state rebuild; its exact-commit GitHub
+Actions matrix is pending. Slice P4 is covered by the shipped `operations` documentation profile
 (DOCGEN-001 Slices 4A–4C); its monitoring category derives declared health, status, and metrics endpoints
 and telemetry environment-variable names from canonical evidence, while container and Kubernetes probes,
 alert rules, dashboards, and SLOs still need their own evidence source before they may be documented. Slice P5 is source-implemented as the bounded `explore` MCP tool: one query

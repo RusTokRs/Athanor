@@ -11,7 +11,8 @@ Adapter ids: `builtin.linker.js_ts_imports`, `builtin.linker.js_ts_calls`, `buil
 `JsTsImportLinker` emits:
 
 - `RelationKind::Imports` from a JS/TS module to an existing local JS/TS module when a static
-  relative import resolves exactly.
+  relative import or source-backed re-export resolves exactly. Re-export edges use reason
+  `relative_module_re_export`.
 
 `JsTsCallLinker` emits:
 
@@ -51,10 +52,12 @@ The call linker consumes the bounded `calls` arrays and the import bindings that
 2. `same_module_exact_name` — exact qualified name inside the calling module.
 3. `imported_exact_name` / `imported_symbol_name` — through a default, namespace, or named import
    binding of the calling module.
-4. `same_module_member_name` — a unique member name inside the calling module.
-5. `unique_exported_name` — a unique exported declaration elsewhere in the snapshot.
+4. `imported_reexport_chain` — through explicit named local exports or relative named re-exports,
+   following at most 32 export hops.
+5. `same_module_member_name` — a unique member name inside the calling module.
+6. `unique_exported_name` — a unique exported declaration elsewhere in the snapshot.
 
-Steps 4 and 5 accept a candidate only when it is unique, so ambiguity stays unresolved. Confidence
+Steps 5 and 6 accept a candidate only when it is unique, so ambiguity stays unresolved. Confidence
 runs from `0.9` for an exact same-module match down to `0.5` for a unique name match, and the payload
 records the callee, call kind, resolution reason, line, and column. Output is sorted by relation id
 and capped at 10,000 relations per snapshot.
@@ -69,9 +72,11 @@ commands, use the network, or modify project files.
 - Heritage resolution is name-based; imported bindings, package/workspace aliases, and TypeScript
   path aliases are not used to resolve `extends` or `implements` names.
 - Package, workspace alias, TypeScript path alias, and Node built-in imports are not linked.
-- Dynamic `import()`, CommonJS `require()`, and export/re-export relations are not linked.
-- Computed calls (`handlers[key]()`), calls through call results, reflective dispatch, and receiver
-  typing are not resolved.
+- `export *`, `export * as namespace`, and default-export name resolution are not linked. Explicit
+  named aliases and relative named re-export chains are followed up to 32 hops; cycles, ambiguity,
+  unresolved sources, and deeper chains stay unresolved.
+- Dynamic `import()`, CommonJS `require()`, computed calls (`handlers[key]()`), calls through call
+  results, reflective dispatch, and receiver typing are not resolved.
 - Test detection is location-based because no test framework runs: `.test.`/`.spec.` file names and
   `tests`/`test`/`__tests__`/`e2e` directories.
 

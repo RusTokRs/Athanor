@@ -166,6 +166,8 @@ gap, the typo-named `for agents. md` briefing, was fixed by renaming it to
 - [x] Slice P2: `implements` bridges — Rust `trait_impl` facts plus JS/TS class heritage (prior source slice).
 - [x] Slice P2A verified: Rust trait supertraits and JS/TS class/interface `Extends`, impact/ranking/profile
   consumers, index-state schema v47, and focused regressions; exact CI `38722056518` passed on `4a23498`.
+- [ ] Slice P2B implemented, verification pending: explicit JS/TS named re-export chains, module
+  dependency edges, imported/exported alias preservation, and index-state schema v48.
 - [x] Slice P3: `builtin.extractor.treesitter` plus `builtin.linker.treesitter` host and resolve
   receiver-qualified Python and Go packs, with a per-language coverage measurement published.
 - [x] Slice P4: deterministic operations documentation — DOCGEN-001 4A–4C; the monitoring category

@@ -96,8 +96,11 @@ None. The extractors do not run commands, use the network, or modify project fil
 
 ## Limitations
 
-- Import/export data is stored in module payloads and definition facts. The separate
-  `athanor-linker-js-ts` adapter materializes exact relative module imports.
+- Import/export data is stored in module payloads and definition facts. Payloads preserve named
+  import and export aliases; `athanor-linker-js-ts` materializes exact relative module imports and
+  source-backed re-export dependencies, then follows explicit named-export chains for calls.
+- Star and namespace re-exports, default-export name resolution, and package/workspace/path-alias
+  targets remain unresolved.
 - JSX and TSX component semantics are not inferred. Components are emitted as normal functions or classes.
 - Framework-specific semantics remain outside `JsTsExtractor`; separate `NextJsExtractor` and
   `ExpressExtractor` owners cover only their bounded route projections.

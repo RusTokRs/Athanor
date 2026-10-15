@@ -46,6 +46,8 @@ const IMPORTED_EXACT_CONFIDENCE: f32 = 0.85;
 const IMPORTED_NAME_CONFIDENCE: f32 = 0.7;
 /// Confidence assigned to a unique name-only match (member or exported symbol).
 const UNIQUE_NAME_CONFIDENCE: f32 = 0.5;
+/// Maximum number of explicit named-export hops followed in one call resolution.
+const MAX_REEXPORT_DEPTH: usize = 32;
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct JsTsCallLinker;
@@ -248,27 +250,34 @@ fn resolve_call<'a>(
     }
 
     // 3. Import bindings: `import { login }`, `import api from`, `import * as ns`.
+    // An unresolved explicit binding stays unresolved; it must not fall through
+    // to a weaker snapshot-wide name guess.
     if let Some((head, tail)) = head_and_tail(callee)
         && let Some(binding) = import_binding(caller_module, head)
-        && let Some(target_module) = resolve_local_import(caller_module, &binding, modules)
-        && let Some(target_path) = entity_path(target_module)
-        && let Some(candidates) = declarations_by_path.get(&target_path)
     {
-        let wanted = tail.unwrap_or(head);
-        if let Some(target) = candidates
-            .iter()
-            .copied()
-            .find(|candidate| qualified_name(candidate) == Some(wanted))
-        {
+        let target_module = resolve_local_import(caller_module, &binding.specifier, modules)?;
+        let wanted = tail
+            .or(binding.imported_name.as_deref())
+            .unwrap_or(head);
+        let (target, reexport_depth) = resolve_exported_name(
+            target_module,
+            wanted,
+            modules,
+            declarations_by_path,
+            &mut HashSet::new(),
+            0,
+        )?;
+        if reexport_depth > 0 {
+            return Some((
+                target,
+                "imported_reexport_chain",
+                IMPORTED_EXACT_CONFIDENCE,
+            ));
+        }
+        if qualified_name(target) == Some(wanted) {
             return Some((target, "imported_exact_name", IMPORTED_EXACT_CONFIDENCE));
         }
-        if let Some(target) = candidates
-            .iter()
-            .copied()
-            .find(|candidate| candidate.name == wanted)
-        {
-            return Some((target, "imported_symbol_name", IMPORTED_NAME_CONFIDENCE));
-        }
+        return Some((target, "imported_symbol_name", IMPORTED_NAME_CONFIDENCE));
     }
 
     let name = callee.rsplit('.').next().unwrap_or(callee);
@@ -310,24 +319,206 @@ fn head_and_tail(callee: &str) -> Option<(&str, Option<&str>)> {
     }
 }
 
-/// Returns the module specifier of the import statement binding `local`.
-fn import_binding(module: &Entity, local: &str) -> Option<String> {
+struct CallImportBinding {
+    specifier: String,
+    imported_name: Option<String>,
+}
+
+/// Returns the source specifier and imported name for one local import binding.
+fn import_binding(module: &Entity, local: &str) -> Option<CallImportBinding> {
     let imports = module.payload.get("imports").and_then(Value::as_array)?;
     for import in imports {
         let Some(specifier) = import.get("source").and_then(Value::as_str) else {
             continue;
         };
-        let default_matches = import.get("default_name").and_then(Value::as_str) == Some(local);
-        let namespace_matches = import.get("namespace_name").and_then(Value::as_str) == Some(local);
-        let named_matches = import
+        if import.get("default_name").and_then(Value::as_str) == Some(local) {
+            return Some(CallImportBinding {
+                specifier: specifier.to_string(),
+                imported_name: Some("default".to_string()),
+            });
+        }
+        if import.get("namespace_name").and_then(Value::as_str) == Some(local) {
+            return Some(CallImportBinding {
+                specifier: specifier.to_string(),
+                imported_name: None,
+            });
+        }
+        if let Some(binding) = import
+            .get("named_bindings")
+            .and_then(Value::as_array)
+            .and_then(|bindings| {
+                bindings.iter().find(|binding| {
+                    binding.get("local").and_then(Value::as_str) == Some(local)
+                })
+            })
+        {
+            return Some(CallImportBinding {
+                specifier: specifier.to_string(),
+                imported_name: binding
+                    .get("imported")
+                    .and_then(Value::as_str)
+                    .map(ToString::to_string),
+            });
+        }
+        if import
             .get("named")
             .and_then(Value::as_array)
-            .is_some_and(|named| named.iter().any(|entry| entry.as_str() == Some(local)));
-        if default_matches || namespace_matches || named_matches {
-            return Some(specifier.to_string());
+            .is_some_and(|named| named.iter().any(|entry| entry.as_str() == Some(local)))
+        {
+            // Retain compatibility with normalized payloads produced before
+            // named source/local pairs were recorded.
+            return Some(CallImportBinding {
+                specifier: specifier.to_string(),
+                imported_name: Some(local.to_string()),
+            });
         }
     }
     None
+}
+
+/// Resolves a named export through explicit local aliases or relative
+/// source-backed re-export clauses. Ambiguous mappings, cycles, unresolved
+/// sources, and chains deeper than `MAX_REEXPORT_DEPTH` stay unresolved.
+fn resolve_exported_name<'a>(
+    module: &'a Entity,
+    requested: &str,
+    modules: &HashMap<String, &'a Entity>,
+    declarations_by_path: &HashMap<String, Vec<&'a Entity>>,
+    visited: &mut HashSet<String>,
+    depth: usize,
+) -> Option<(&'a Entity, usize)> {
+    if depth > MAX_REEXPORT_DEPTH {
+        return None;
+    }
+    let path = entity_path(module)?;
+    if !visited.insert(path.clone()) {
+        return None;
+    }
+
+    let direct_matches = declarations_by_path
+        .get(&path)
+        .into_iter()
+        .flat_map(|candidates| candidates.iter().copied())
+        .filter(|candidate| {
+            is_exported(candidate)
+                && (qualified_name(candidate) == Some(requested) || candidate.name == requested)
+        })
+        .collect::<Vec<_>>();
+    if !direct_matches.is_empty() {
+        let result = unique_target(direct_matches.into_iter().map(|candidate| (candidate, 0)));
+        visited.remove(&path);
+        return result;
+    }
+
+    let mut has_matching_mapping = false;
+    let mut unresolved_mapping = false;
+    let mut mapped_targets = Vec::new();
+    if let Some(exports) = module.payload.get("exports").and_then(Value::as_array) {
+        for export in exports {
+            let source = export.get("source").and_then(Value::as_str);
+            let Some(bindings) = export.get("bindings").and_then(Value::as_array) else {
+                continue;
+            };
+            for binding in bindings {
+                if binding.get("exported").and_then(Value::as_str) != Some(requested) {
+                    continue;
+                }
+                has_matching_mapping = true;
+                let Some(imported) = binding.get("imported").and_then(Value::as_str) else {
+                    unresolved_mapping = true;
+                    continue;
+                };
+                if let Some(specifier) = source {
+                    let Some(target_module) = resolve_local_import(module, specifier, modules)
+                    else {
+                        unresolved_mapping = true;
+                        continue;
+                    };
+                    if let Some((target, nested_depth)) = resolve_exported_name(
+                        target_module,
+                        imported,
+                        modules,
+                        declarations_by_path,
+                        visited,
+                        depth + 1,
+                    ) {
+                        mapped_targets.push((target, nested_depth + 1));
+                    } else {
+                        unresolved_mapping = true;
+                    }
+                } else {
+                    let local_matches = declarations_by_path
+                        .get(&path)
+                        .into_iter()
+                        .flat_map(|candidates| candidates.iter().copied())
+                        .filter(|candidate| {
+                            qualified_name(candidate) == Some(imported)
+                                || candidate.name == imported
+                        })
+                        .collect::<Vec<_>>();
+                    if !local_matches.is_empty() {
+                        if let Some(target) = unique_target(
+                            local_matches.into_iter().map(|candidate| (candidate, 1)),
+                        ) {
+                            mapped_targets.push(target);
+                        } else {
+                            unresolved_mapping = true;
+                        }
+                    } else if let Some(import_binding) = import_binding(module, imported) {
+                        if let Some(imported_module) =
+                            resolve_local_import(module, &import_binding.specifier, modules)
+                        {
+                            let imported_name =
+                                import_binding.imported_name.as_deref().unwrap_or(imported);
+                            if let Some((target, nested_depth)) = resolve_exported_name(
+                                imported_module,
+                                imported_name,
+                                modules,
+                                declarations_by_path,
+                                visited,
+                                depth + 1,
+                            ) {
+                                mapped_targets.push((target, nested_depth + 1));
+                            } else {
+                                unresolved_mapping = true;
+                            }
+                        } else {
+                            unresolved_mapping = true;
+                        }
+                    } else {
+                        unresolved_mapping = true;
+                    }
+                }
+            }
+        }
+    }
+
+    let result = if has_matching_mapping && !unresolved_mapping {
+        unique_target(mapped_targets)
+    } else {
+        None
+    };
+    visited.remove(&path);
+    result
+}
+
+fn unique_target<'a>(
+    candidates: impl IntoIterator<Item = (&'a Entity, usize)>,
+) -> Option<(&'a Entity, usize)> {
+    let mut found: Option<(&'a Entity, usize)> = None;
+    for candidate in candidates {
+        if let Some((existing, existing_depth)) = found {
+            if existing.id != candidate.0.id {
+                return None;
+            }
+            if candidate.1 < existing_depth {
+                found = Some(candidate);
+            }
+        } else {
+            found = Some(candidate);
+        }
+    }
+    found
 }
 
 fn find_first<'a>(
@@ -605,6 +796,156 @@ mod tests {
                 && relation.evidence.len() == 2
                 && !relation.ownership.is_empty()
         }));
+    }
+
+    #[tokio::test]
+    async fn resolves_calls_through_named_reexport_chains_and_import_aliases() {
+        let leaf_module = module("ent_leaf_module", "src/leaf.ts", json!({"imports": []}));
+        let bridge_module = module(
+            "ent_bridge_module",
+            "src/bridge.ts",
+            json!({
+                "imports": [{
+                    "source": "./leaf",
+                    "named": ["auth"],
+                    "named_bindings": [{"imported": "login", "local": "auth"}]
+                }],
+                "exports": [{
+                    "source": null,
+                    "bindings": [{"imported": "auth", "exported": "authenticate"}]
+                }]
+            }),
+        );
+        let barrel_module = module(
+            "ent_barrel_module",
+            "src/barrel.ts",
+            json!({
+                "imports": [],
+                "exports": [{
+                    "source": "./bridge",
+                    "bindings": [{"imported": "authenticate", "exported": "signIn"}]
+                }]
+            }),
+        );
+        let index_module = module(
+            "ent_index_module",
+            "src/index.ts",
+            json!({
+                "imports": [],
+                "exports": [{
+                    "source": "./barrel",
+                    "bindings": [{"imported": "signIn", "exported": "publicSignIn"}]
+                }]
+            }),
+        );
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({
+                "imports": [{
+                    "source": "./index",
+                    "named": ["perform"],
+                    "named_bindings": [{"imported": "publicSignIn", "local": "perform"}]
+                }]
+            }),
+        );
+        let login = declaration(
+            "ent_leaf_login",
+            "src/leaf.ts",
+            "login",
+            "login",
+            true,
+            json!([]),
+        );
+        let run = declaration(
+            "ent_app_run",
+            "src/app.ts",
+            "run",
+            "run",
+            false,
+            json!([call_site("perform", "perform", 4)]),
+        );
+        let entities = vec![
+            leaf_module,
+            bridge_module,
+            barrel_module,
+            index_module,
+            app_module,
+            login.clone(),
+            run.clone(),
+        ];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from, run.id);
+        assert_eq!(calls[0].to, login.id);
+        assert_eq!(calls[0].payload["resolution"], "imported_reexport_chain");
+    }
+
+    #[tokio::test]
+    async fn unresolved_imported_exports_do_not_fall_through_to_a_global_guess() {
+        let barrel_module = module(
+            "ent_barrel_module",
+            "src/barrel.ts",
+            json!({
+                "imports": [],
+                "exports": [{
+                    "source": "./missing",
+                    "bindings": [{"imported": "dispatch", "exported": "dispatch"}]
+                }]
+            }),
+        );
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({
+                "imports": [{"source": "./barrel", "named": ["dispatch"]}]
+            }),
+        );
+        let decoy = declaration(
+            "ent_decoy_dispatch",
+            "src/decoy.ts",
+            "dispatch",
+            "dispatch",
+            true,
+            json!([]),
+        );
+        let run = declaration(
+            "ent_app_run",
+            "src/app.ts",
+            "run",
+            "run",
+            false,
+            json!([call_site("dispatch", "dispatch", 4)]),
+        );
+        let entities = vec![barrel_module, app_module, decoy, run];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        assert!(!relations
+            .iter()
+            .any(|relation| relation.kind == RelationKind::Calls));
     }
 
     #[tokio::test]

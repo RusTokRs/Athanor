@@ -20,8 +20,10 @@ the filesystem.
 
 ## Import Linker
 
-The linker converts normalized static import payloads from `athanor-extractor-js-ts` into canonical
-`imports` relations between existing JavaScript and TypeScript module entities.
+The linker converts normalized static import and source-backed export payloads from
+`athanor-extractor-js-ts` into canonical `imports` relations between existing JavaScript and
+TypeScript module entities. A relative `export { name as alias } from './module'` is also a module
+dependency, so it emits the same relation kind with reason `relative_module_re_export`.
 
 ### Resolution
 
@@ -32,9 +34,10 @@ does not read the filesystem.
 
 ### Emitted Knowledge
 
-Each exact match emits a verified `RelationKind::Imports` relation from the importing module to the
-target module. Evidence includes the source import range and target module source. Ownership is the
-union of both module source files so incremental removal prunes stale relations.
+Each exact match emits a verified `RelationKind::Imports` relation from the source module to the
+target module. Evidence includes the import or export source range and target module source; the
+payload reason distinguishes `relative_module_import` from `relative_module_re_export`. Ownership is
+the union of both module source files so incremental removal prunes stale relations.
 
 ## Call Linker
 
@@ -50,17 +53,20 @@ previous one is silent:
 1. `same_module_this_method` — `this.method()` inside `Class.method` resolves to the sibling member.
 2. `same_module_exact_name` — an exact qualified-name match inside the calling module.
 3. `imported_exact_name` / `imported_symbol_name` — the callee head matches an import binding
-   (default, namespace, or named) of the calling module, and the remainder matches a declaration of
-   the resolved relative target module.
-4. `same_module_member_name` — a member call with an unknown receiver resolves only when the calling
+   (default, namespace, or named) of the calling module, and the remainder matches an exported
+   declaration in the resolved relative target module. Named import aliases retain both the local and
+   imported spelling.
+4. `imported_reexport_chain` — a named import resolves through explicit local export aliases and/or
+   relative `export { name as alias } from './module'` clauses, following at most 32 export hops.
+5. `same_module_member_name` — a member call with an unknown receiver resolves only when the calling
    module contains exactly one member with that name.
-5. `unique_exported_name` — a bare call with no local or imported target resolves only when exactly
+6. `unique_exported_name` — a bare call with no local or imported target resolves only when exactly
    one exported declaration across the snapshot carries that name.
 
-Steps 4 and 5 require a unique candidate, so ambiguity stays unresolved rather than becoming a
-guessed fact. Confidence reflects the step (0.9 exact same-module down to 0.5 unique-name) and every
-relation is `RelationStatus::Inferred`, because JavaScript dispatch is dynamic even when the call
-shape is static.
+An unresolved explicit import does not fall through to a weaker snapshot-wide guess. Steps 5 and 6
+require a unique candidate, so ambiguity stays unresolved rather than becoming a guessed fact.
+Confidence reflects the step (0.9 exact same-module down to 0.5 unique-name), and every relation is
+`RelationStatus::Inferred`, because JavaScript dispatch is dynamic even when the call shape is static.
 
 ### Emitted Knowledge
 
@@ -103,9 +109,11 @@ contract relationship.
 ## Boundaries
 
 Package imports, Node built-ins, workspace aliases, TypeScript path aliases, dynamic imports,
-CommonJS `require` calls, computed member calls, and receiver typing are not resolved in this slice.
-All linkers emit relations only when either endpoint is in the affected subset, which keeps
-incremental updates proportional to the change.
+CommonJS `require` calls, `export *`, `export * as namespace`, default-export name resolution,
+computed member calls, and receiver typing are not resolved in this slice. Explicit named export
+clauses and relative named re-export chains are followed up to 32 hops; cycles, ambiguous mappings,
+unresolved sources, and deeper chains remain unresolved. All linkers emit relations only when either
+endpoint is in the affected subset, which keeps incremental updates proportional to the change.
 
 ## Verification
 

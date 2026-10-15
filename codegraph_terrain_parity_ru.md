@@ -112,9 +112,12 @@ skills поверх. То есть «уровень Terrain» — это не «
 > `Implements`-мосты Rust/JS/TS (P2), а текущий P2A-слайс разводит `Extends` и `Implements`:
 > Rust supertraits и JS/TS class/interface inheritance используют `Extends`, Rust `impl Trait for Type`
 > и JS/TS class `implements` остаются `Implements`. P2A также повышает схему index-state с v46 до
-> v47 для безопасной переиндексации. Оставшиеся C2-разрывы —
-> receiver/type-aware dispatch, callbacks/HOF, re-export chains, path aliases/workspace packages и
-> symbol-level incremental invalidation; обязательный scope по-прежнему Rust и TypeScript/JS.
+> v47 для безопасной переиндексации. Следующий узкий P2B реализует явные named re-export chains
+> JS/TS с сохранением imported/exported aliases, module edges и миграцией index-state v47→v48;
+> `export *`, namespace/default re-exports и остальной scope пока не закрыты. Оставшиеся C2-разрывы —
+> receiver/type-aware dispatch, callbacks/HOF, path aliases/workspace packages и symbol-level
+> incremental invalidation; обязательный scope по-прежнему Rust и TypeScript/JS. P2B ожидает
+> точную проверку GitHub Actions на текущем commit.
 > См. актуальный source-state план в `docs/development/code-intelligence-parity-plan.md` и ledger в
 > `docs/development/roadmap-status.md`; эта записка не заменяет verification matrix.
 

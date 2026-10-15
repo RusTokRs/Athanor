@@ -10,9 +10,9 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use tracing::warn;
 
 #[cfg(not(feature = "js-ts-precision"))]
-pub const INDEX_STATE_SCHEMA: &str = "athanor.index_state.v47";
+pub const INDEX_STATE_SCHEMA: &str = "athanor.index_state.v48";
 #[cfg(feature = "js-ts-precision")]
-pub const INDEX_STATE_SCHEMA: &str = "athanor.index_state.v47-js-ts-precision-v1";
+pub const INDEX_STATE_SCHEMA: &str = "athanor.index_state.v48-js-ts-precision-v1";
 
 /// Incremental index state.
 ///
@@ -411,17 +411,28 @@ mod tests {
                 .unwrap()
                 .as_nanos()
         ));
-        let path = root.join("index-state.json");
         fs::create_dir_all(&root).unwrap();
-        fs::write(
-            &path,
-            r#"{"schema":"athanor.index_state.v46","snapshot":"snap_old","generation":"gen_wrong","future_field":true,"files":{}}"#,
-        )
-        .unwrap();
+        for (index, schema) in [
+            "athanor.index_state.v46",
+            "athanor.index_state.v47",
+            "athanor.index_state.v47-js-ts-precision-v1",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let path = root.join(format!("index-state-{index}.json"));
+            fs::write(
+                &path,
+                format!(
+                    r#"{{"schema":"{schema}","snapshot":"snap_old","generation":"gen_wrong","future_field":true,"files":{{}}}}"#
+                ),
+            )
+            .unwrap();
 
-        let state = IndexStateStore::new(&path).load().unwrap();
+            let state = IndexStateStore::new(&path).load().unwrap();
 
-        assert_eq!(state, IndexState::empty());
+            assert_eq!(state, IndexState::empty(), "old schema {schema} must rebuild");
+        }
         fs::remove_dir_all(root).unwrap();
     }
 

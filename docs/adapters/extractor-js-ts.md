@@ -52,9 +52,14 @@ Source files emit:
 
 Module payloads include normalized `imports` and `exports` arrays. Each import entry records the
 specifier, its source range, and the local bindings it introduces: `default_name`, `namespace_name`,
-and the sorted local names of `named` specifiers (`import { fetchUser as fetch }` records `fetch`).
-The built-in JS/TS import linker uses those payloads to materialize exact relative module imports
-without exposing parser AST nodes.
+the sorted local names in `named`, and `named_bindings` pairs (`imported`, `local`) so
+`import { fetchUser as fetch }` preserves both names. Each export entry records its optional source,
+source range, and explicit `bindings` pairs (`imported`, `exported`) for named export clauses. A
+source-backed clause such as `export { login as signIn } from './auth'` therefore preserves the
+original/exported spelling; a source-less clause can represent a local alias. Wildcard and namespace
+exports have no explicit name bindings. The built-in JS/TS import linker uses relative source-backed
+imports and re-exports to materialize module dependencies without exposing parser AST nodes, while
+the call linker follows explicit named bindings to declarations.
 
 ## Call Sites
 

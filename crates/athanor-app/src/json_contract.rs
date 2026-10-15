@@ -73,7 +73,7 @@ pub use daemon_contract::{
 /// Most contracts use `athanor.<name>.v<major>`. Feature-qualified wire families may use the
 /// stricter `athanor.<name>.v<major>-<qualifier>-v<revision>` form. The latter preserves the base
 /// compatibility major while versioning the qualifier itself; for example,
-/// `athanor.index_state.v47-js-ts-precision-v1` has compatibility major `47`.
+/// `athanor.index_state.v48-js-ts-precision-v1` has compatibility major `48`.
 pub fn validate_schema_id(schema: &str) -> Result<u32, JsonContractError> {
     match base::validate_schema_id(schema) {
         Ok(major) => Ok(major),
@@ -313,13 +313,13 @@ mod tests {
     #[test]
     fn qualified_schema_ids_preserve_the_base_compatibility_major() {
         assert_eq!(
-            validate_schema_id("athanor.index_state.v47-js-ts-precision-v1"),
-            Ok(47)
+            validate_schema_id("athanor.index_state.v48-js-ts-precision-v1"),
+            Ok(48)
         );
         for schema in [
-            "athanor.index_state.v47-js-ts-precision",
-            "athanor.index_state.v47--v1",
-            "athanor.index_state.v47-js-ts-precision-v0",
+            "athanor.index_state.v48-js-ts-precision",
+            "athanor.index_state.v48--v1",
+            "athanor.index_state.v48-js-ts-precision-v0",
             "athanor.index_state.v0-js-ts-precision-v1",
         ] {
             assert!(validate_schema_id(schema).is_err(), "accepted `{schema}`");

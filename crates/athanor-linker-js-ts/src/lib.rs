@@ -56,31 +56,46 @@ impl Linker for JsTsImportLinker {
         let mut relations = Vec::new();
 
         for source in modules.values() {
-            let Some(imports) = source
-                .payload
-                .get("imports")
-                .and_then(|value| value.as_array())
-            else {
-                continue;
-            };
-            for import in imports {
-                let Some(specifier) = import.get("source").and_then(|value| value.as_str()) else {
+            for (references, reason) in [
+                (
+                    source
+                        .payload
+                        .get("imports")
+                        .and_then(|value| value.as_array()),
+                    "relative_module_import",
+                ),
+                (
+                    source
+                        .payload
+                        .get("exports")
+                        .and_then(|value| value.as_array()),
+                    "relative_module_re_export",
+                ),
+            ] {
+                let Some(references) = references else {
                     continue;
                 };
-                let Some(target) = resolve_local_import(source, specifier, &modules) else {
-                    continue;
-                };
-                if !affected_ids.contains(&source.id) && !affected_ids.contains(&target.id) {
-                    continue;
+                for reference in references {
+                    let Some(specifier) = reference.get("source").and_then(|value| value.as_str())
+                    else {
+                        continue;
+                    };
+                    let Some(target) = resolve_local_import(source, specifier, &modules) else {
+                        continue;
+                    };
+                    if !affected_ids.contains(&source.id) && !affected_ids.contains(&target.id) {
+                        continue;
+                    }
+                    relations.push(import_relation(
+                        &input.snapshot,
+                        source,
+                        target,
+                        specifier,
+                        reason,
+                        reference.get("line_start").and_then(|value| value.as_u64()),
+                        reference.get("line_end").and_then(|value| value.as_u64()),
+                    ));
                 }
-                relations.push(import_relation(
-                    &input.snapshot,
-                    source,
-                    target,
-                    specifier,
-                    import.get("line_start").and_then(|value| value.as_u64()),
-                    import.get("line_end").and_then(|value| value.as_u64()),
-                ));
             }
         }
 
@@ -99,6 +114,7 @@ fn import_relation(
     source: &Entity,
     target: &Entity,
     specifier: &str,
+    reason: &str,
     line_start: Option<u64>,
     line_end: Option<u64>,
 ) -> Relation {
@@ -123,7 +139,7 @@ fn import_relation(
             "from": source.stable_key.0,
             "to": target.stable_key.0,
             "specifier": specifier,
-            "reason": "relative_module_import",
+            "reason": reason,
         }),
     }
 }
@@ -222,6 +238,42 @@ mod tests {
                 && relation.evidence.len() == 2
                 && relation.ownership.len() == 2
         }));
+    }
+
+    #[tokio::test]
+    async fn emits_import_relation_for_source_backed_reexports() {
+        let barrel = module(
+            "ent_barrel",
+            "src/barrel.ts",
+            json!({
+                "imports": [],
+                "exports": [{
+                    "source": "./leaf",
+                    "bindings": [{"imported": "login", "exported": "signIn"}],
+                    "line_start": 2,
+                    "line_end": 2
+                }]
+            }),
+        );
+        let leaf = module("ent_leaf", "src/leaf.ts", json!({"imports": [], "exports": []}));
+        let entities = vec![barrel.clone(), leaf.clone()];
+
+        let relations = JsTsImportLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(relations.len(), 1);
+        assert_eq!(relations[0].kind, RelationKind::Imports);
+        assert_eq!(relations[0].from, barrel.id);
+        assert_eq!(relations[0].to, leaf.id);
+        assert_eq!(relations[0].payload["reason"], "relative_module_re_export");
+        assert_eq!(relations[0].evidence[0].line_start, Some(2));
     }
 
     #[tokio::test]
