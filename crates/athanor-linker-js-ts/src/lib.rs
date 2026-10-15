@@ -255,7 +255,11 @@ mod tests {
                 }]
             }),
         );
-        let leaf = module("ent_leaf", "src/leaf.ts", json!({"imports": [], "exports": []}));
+        let leaf = module(
+            "ent_leaf",
+            "src/leaf.ts",
+            json!({"imports": [], "exports": []}),
+        );
         let entities = vec![barrel.clone(), leaf.clone()];
 
         let relations = JsTsImportLinker

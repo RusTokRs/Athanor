@@ -431,7 +431,11 @@ mod tests {
 
             let state = IndexStateStore::new(&path).load().unwrap();
 
-            assert_eq!(state, IndexState::empty(), "old schema {schema} must rebuild");
+            assert_eq!(
+                state,
+                IndexState::empty(),
+                "old schema {schema} must rebuild"
+            );
         }
         fs::remove_dir_all(root).unwrap();
     }

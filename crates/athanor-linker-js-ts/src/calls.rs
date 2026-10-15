@@ -256,9 +256,7 @@ fn resolve_call<'a>(
         && let Some(binding) = import_binding(caller_module, head)
     {
         let target_module = resolve_local_import(caller_module, &binding.specifier, modules)?;
-        let wanted = tail
-            .or(binding.imported_name.as_deref())
-            .unwrap_or(head);
+        let wanted = tail.or(binding.imported_name.as_deref()).unwrap_or(head);
         let (target, reexport_depth) = resolve_exported_name(
             target_module,
             wanted,
@@ -268,11 +266,7 @@ fn resolve_call<'a>(
             0,
         )?;
         if reexport_depth > 0 {
-            return Some((
-                target,
-                "imported_reexport_chain",
-                IMPORTED_EXACT_CONFIDENCE,
-            ));
+            return Some((target, "imported_reexport_chain", IMPORTED_EXACT_CONFIDENCE));
         }
         if qualified_name(target) == Some(wanted) {
             return Some((target, "imported_exact_name", IMPORTED_EXACT_CONFIDENCE));
@@ -347,9 +341,9 @@ fn import_binding(module: &Entity, local: &str) -> Option<CallImportBinding> {
             .get("named_bindings")
             .and_then(Value::as_array)
             .and_then(|bindings| {
-                bindings.iter().find(|binding| {
-                    binding.get("local").and_then(Value::as_str) == Some(local)
-                })
+                bindings
+                    .iter()
+                    .find(|binding| binding.get("local").and_then(Value::as_str) == Some(local))
             })
         {
             return Some(CallImportBinding {
@@ -457,9 +451,9 @@ fn resolve_exported_name<'a>(
                         })
                         .collect::<Vec<_>>();
                     if !local_matches.is_empty() {
-                        if let Some(target) = unique_target(
-                            local_matches.into_iter().map(|candidate| (candidate, 1)),
-                        ) {
+                        if let Some(target) =
+                            unique_target(local_matches.into_iter().map(|candidate| (candidate, 1)))
+                        {
                             mapped_targets.push(target);
                         } else {
                             unresolved_mapping = true;
@@ -943,9 +937,11 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(!relations
-            .iter()
-            .any(|relation| relation.kind == RelationKind::Calls));
+        assert!(
+            !relations
+                .iter()
+                .any(|relation| relation.kind == RelationKind::Calls)
+        );
     }
 
     #[tokio::test]
