@@ -9,7 +9,15 @@ if [[ ! -f "$log_file" ]]; then
   exit 0
 fi
 
-message="$(tail -n 18 "$log_file" | tr '\r\n' ' ')"
+log_tail="$(tail -n 18 "$log_file")"
+failure_summary="$(grep -E -B 1 -A 1 'panicked at|assertion failed:|test result: FAILED|error: test failed|failures:' "$log_file" | tail -n 36 || true)"
+if [[ -n "$failure_summary" ]]; then
+  message="$log_tail"$'\n--- failure summary ---\n'"$failure_summary"
+else
+  message="$log_tail"
+fi
+message=${message//$'\r'/ }
+message=${message//$'\n'/ }
 message=${message//%/%25}
 if ((${#message} > 6000)); then
   message=${message: -6000}
