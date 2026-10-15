@@ -78,8 +78,9 @@ commands, use the network, or modify project files.
   chain has exactly one wildcard source, but never forwards `default`. Named default functions and
   statically named local identifier defaults can resolve through relative imports and explicit named
   re-export chains. Named imports can resolve a single member through one unique, direct,
-  source-backed `export * as name` mapping; multi-hop namespace aliases and multi-segment member paths
-  stay unresolved. Multiple wildcard sources, anonymous/default expressions, and default class call
+  source-backed `export * as name` mapping; multi-hop namespace aliases and multi-segment paths
+  through named-import namespace aliases stay unresolved. Existing namespace-import receiver behavior
+  is unchanged. Multiple wildcard sources, anonymous/default expressions, and default class call
   targets also stay unresolved; cycles, ambiguity, unresolved sources, and chains deeper than 32 hops
   remain unresolved.
 - Dynamic `import()`, CommonJS `require()`, computed calls (`handlers[key]()`), calls through call

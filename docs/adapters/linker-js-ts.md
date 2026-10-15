@@ -61,7 +61,8 @@ previous one is silent:
 5. `imported_reexport_chain` — calls resolve through explicit local aliases, relative named
    re-exports (including default aliases), a single-source wildcard per module, or one direct
    `export * as name` mapping used by a named-import single-member call. The namespace hop counts
-   against the 32-export-hop bound; multi-segment member paths are not resolved.
+   against the 32-export-hop bound; multi-segment member paths through named-import namespace
+   aliases are not resolved.
 6. `same_module_member_name` — a member call with an unknown receiver resolves only when the calling
    module contains exactly one member with that name.
 7. `unique_exported_name` — a bare call with no local or imported target resolves only when exactly
@@ -114,8 +115,8 @@ contract relationship.
 
 Package imports, Node built-ins, workspace aliases, TypeScript path aliases, dynamic imports,
 CommonJS `require` calls, multi-hop namespace aliases, anonymous/default-expression exports, default
-class call targets, computed member calls, multi-segment imported member paths, and receiver typing
-are not resolved. A named import representing a namespace object can use one unique, direct,
+class call targets, computed member calls, multi-segment named-import namespace paths, and receiver
+typing are not resolved. A named import representing a namespace object can use one unique, direct,
 source-backed `export * as name` mapping for a single member call; missing or ambiguous namespace
 mappings stay unresolved. Named default functions and statically named local default bindings
 resolve through relative imports and explicit named re-export clauses; plain `export *` still does not

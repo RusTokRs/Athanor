@@ -256,12 +256,14 @@ fn resolve_call<'a>(
         && let Some(binding) = import_binding(caller_module, head)
     {
         let target_module = resolve_local_import(caller_module, &binding.specifier, modules)?;
-        let has_nested_member = callee
-            .strip_prefix(head)
-            .and_then(|remainder| remainder.strip_prefix('.'))
-            .is_some_and(|remainder| remainder.contains('.'));
-        if has_nested_member {
-            return None;
+        if binding.named_import {
+            let has_nested_member = callee
+                .strip_prefix(head)
+                .and_then(|remainder| remainder.strip_prefix('.'))
+                .is_some_and(|remainder| remainder.contains('.'));
+            if has_nested_member {
+                return None;
+            }
         }
 
         let mut visited = HashSet::new();

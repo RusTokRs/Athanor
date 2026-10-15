@@ -191,10 +191,11 @@ cargo test -p athanor-app --features js-ts-precision --locked
   only through one unique, direct, source-backed namespace mapping, then use the existing bounded
   export resolver for that one member. The namespace hop counts toward the existing 32-hop
   named/star/default export bound; previously supported directly qualified imported-class methods
-  retain their existing resolution path.
+  and namespace-import receiver calls retain their existing resolution paths.
 - Keep missing or duplicate namespace aliases, unresolved sources, cycles, over-limit chains, and
-  multi-segment member paths unresolved. Do not add multi-hop namespace aliases, multiple-source
-  wildcard aggregation, or deep member-path resolution; bare `export *` still does not expose `default`.
+  multi-segment member paths through named-import namespace aliases unresolved. Do not add multi-hop
+  namespace aliases, multiple-source wildcard aggregation, or deep member-path resolution; bare
+  `export *` still does not expose `default`.
 - Bump normal/precision index-state schemas from v50 to v51 because normalized export payloads gain
   the `namespace_name` field.
 
@@ -203,7 +204,7 @@ Focused source regression matrix:
 | Surface | Regression |
 | --- | --- |
 | JS/TS extractor | `export * as ns` records `namespace_name: "ns"`; bare `export *` remains a separate star export |
-| Call linker | An aliased named import resolves one member through a unique direct namespace mapping; missing/duplicate mappings and multi-segment paths stay unresolved |
+| Call linker | An aliased named import resolves one member through a unique direct namespace mapping; missing/duplicate mappings and its multi-segment paths stay unresolved |
 | Bounds | Namespace-source cycles and chains beyond 32 total export hops remain unresolved; source-backed resolution uses existing named/star rules |
 | Persistence | v50 normal/precision state is rejected and forces a v51 rebuild |
 
