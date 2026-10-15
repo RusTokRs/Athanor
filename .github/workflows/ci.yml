@@ -67,8 +67,9 @@ jobs:
           set -euo pipefail
           {
             cargo update -p anyhow --precise 1.0.103
-            cargo update -p ammonia --precise 4.1.4
+            cargo update -p ammonia --precise 4.1.7
             cargo update -p crossbeam-epoch --precise 0.9.20
+            cargo update -p spin --precise 0.9.9
             cargo metadata --locked --format-version 1 --no-deps >/dev/null
           } 2>&1 | tee "$RUNNER_TEMP/advisory-lock-remediation.log"
           cp Cargo.lock "$RUNNER_TEMP/Cargo.lock.advisory-remediation"
