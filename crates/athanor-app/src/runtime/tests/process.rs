@@ -17,6 +17,28 @@ use super::fixtures::{failing_command, sleep_command, stdout_bytes_command};
 use super::fixtures::{sh_path, test_working_dir};
 use crate::CancellationToken;
 
+#[cfg(windows)]
+fn process_test_timeout() -> Duration {
+    // PowerShell startup can exceed the Unix budget on a busy Windows runner,
+    // even though the fixture command exits immediately once it starts.
+    Duration::from_secs(30)
+}
+
+#[cfg(not(windows))]
+fn process_test_timeout() -> Duration {
+    Duration::from_secs(5)
+}
+
+#[cfg(windows)]
+fn raw_process_test_timeout_ms() -> u64 {
+    30_000
+}
+
+#[cfg(not(windows))]
+fn raw_process_test_timeout_ms() -> u64 {
+    10_000
+}
+
 #[test]
 fn rejects_bare_and_parent_directory_process_commands() {
     for program in ["sh", "../adapter"] {
@@ -117,7 +139,7 @@ async fn cancellation_and_output_limits_are_enforced() {
         &sleep_command(),
         &serde_json::json!({}),
         ProcessLimits {
-            timeout: Duration::from_secs(5),
+            timeout: process_test_timeout(),
             max_stdin_bytes: 1024,
             max_stdout_bytes: 1024,
             max_stderr_bytes: 1024,
@@ -137,7 +159,7 @@ async fn cancellation_and_output_limits_are_enforced() {
         &stdout_bytes_command(2048),
         &serde_json::json!({}),
         ProcessLimits {
-            timeout: Duration::from_secs(5),
+            timeout: process_test_timeout(),
             max_stdin_bytes: 1024,
             max_stdout_bytes: 32,
             max_stderr_bytes: 1024,
@@ -161,7 +183,7 @@ async fn nonzero_exit_reports_bounded_stderr() {
         &failing_command(),
         &serde_json::json!({}),
         ProcessLimits {
-            timeout: Duration::from_secs(5),
+            timeout: process_test_timeout(),
             max_stdin_bytes: 1024,
             max_stdout_bytes: 1024,
             max_stderr_bytes: 1024,
@@ -194,7 +216,7 @@ async fn tokio_process_runner_implements_public_core_port() {
             clear_environment: false,
             stdin: Vec::new(),
             limits: CoreProcessLimits {
-                timeout_ms: 10_000,
+                timeout_ms: raw_process_test_timeout_ms(),
                 max_stdin_bytes: 64,
                 max_stdout_bytes: 64,
                 max_stderr_bytes: 64,
