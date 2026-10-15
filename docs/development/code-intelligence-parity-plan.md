@@ -253,6 +253,11 @@ cargo test -p athanor-app --locked
 cargo test -p athanor-app --features js-ts-precision --locked
 ```
 
+Exact-commit CI run `38785145039` on `a67782f` passed the Rust 1.95 Ubuntu/macOS/Windows matrix,
+all feature matrices, workspace tests, Clippy, source coverage, smoke, editable docs, security and
+license checks. The companion AppSec, Store Conformance, Production Gate, focused documentation, and
+DOCGEN checks also passed for that exact commit.
+
 #### Remaining P2 Gaps
 
 - JavaScript/TypeScript callbacks and promise handlers; multi-hop namespace aliases, anonymous/default

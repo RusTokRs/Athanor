@@ -123,9 +123,15 @@ skills поверх. То есть «уровень Terrain» — это не «
 > single-member calls через aliased named imports, сохранив исключение `default` для bare `export *`,
 > и поднял схему до v51. Exact-commit run `38772624382` на `6aefc28` прошёл полный CI на Ubuntu, macOS
 > и Windows; feature matrix, coverage, AppSec, Store Conformance, Production Gate и DOCGEN checks тоже
-> прошли. Открытыми остаются receiver/type-aware dispatch, callbacks/HOF, path aliases/workspace
-> packages, multi-hop namespace aliases, deep member paths и symbol-level incremental invalidation;
-> обязательный scope — Rust и TypeScript/JS.
+> прошли. P2F добавил bounded aggregation нескольких `export *`: отсутствующее имя в источнике можно
+> пропустить, одинаковая цель через разные пути разрешается, разные цели остаются ambiguous;
+> unresolved-source, cyclic и over-limit ветки блокируют весь результат. Есть лимит 1 024 resolver visits на call.
+> Экстракторная схема не менялась, но index-state поднята v51→v52, чтобы прежний snapshot с теми же
+> source hashes не оставил старые call relations после linker-only изменения. Exact-commit CI run
+> `38785145039` на `a67782f` прошёл; Rust 1.95 Linux/macOS/Windows, feature matrix, AppSec, Store,
+> Production Gate, документационные и DOCGEN checks успешны. Открытыми остаются receiver/type-aware
+> dispatch, callbacks/HOF, path aliases/workspace packages, multi-hop namespace aliases, deep member
+> paths и symbol-level incremental invalidation; обязательный scope — Rust и TypeScript/JS.
 > См. актуальный source-state план в `docs/development/code-intelligence-parity-plan.md` и ledger в
 > `docs/development/roadmap-status.md`; эта записка не заменяет verification matrix.
 
