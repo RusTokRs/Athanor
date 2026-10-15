@@ -820,9 +820,37 @@ fn export_payload(node: Node, bytes: &[u8]) -> Value {
         "source": child_text(node, "source", bytes),
         "bindings": export_bindings(node, bytes),
         "star": is_star_reexport(node),
+        "default_export": is_default_export(node),
+        "default_name": default_export_name(node, bytes),
         "line_start": node.start_position().row as u32 + 1,
         "line_end": node.end_position().row as u32 + 1,
     })
+}
+
+/// Identifies `export default` without confusing `default` names inside an
+/// explicit export clause.
+fn is_default_export(node: Node) -> bool {
+    has_child_kind(node, "default")
+}
+
+/// Returns the local binding for a named default function or identifier export.
+/// Other default expressions stay explicitly unbound and cannot be guessed.
+fn default_export_name(node: Node, bytes: &[u8]) -> Option<String> {
+    if !is_default_export(node) {
+        return None;
+    }
+
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        match child.kind() {
+            "function_declaration" | "generator_function_declaration" => {
+                return node_name(child, bytes);
+            }
+            "identifier" => return node_text(child, bytes),
+            _ => {}
+        }
+    }
+    None
 }
 
 /// Identifies only `export * from "…"`; `export * as name from "…"` is a
@@ -1643,7 +1671,7 @@ mod tests {
             let output = JsTsExtractor
                 .extract(input(
                     path,
-                    "export { login as signIn, logout } from './auth';\nexport { local as publicLocal };\nexport * from './wild';\nexport * as ns from './namespace';\n",
+                    "export { login as signIn, logout } from './auth';\nexport { local as publicLocal };\nexport * from './wild';\nexport * as ns from './namespace';\nexport { default as signIn } from './default-auth';\n",
                     language,
                 ))
                 .await
@@ -1656,6 +1684,8 @@ mod tests {
 
             assert_eq!(module.payload["exports"][0]["source"], "./auth");
             assert_eq!(module.payload["exports"][0]["star"], false);
+            assert_eq!(module.payload["exports"][0]["default_export"], false);
+            assert!(module.payload["exports"][0]["default_name"].is_null());
             assert_eq!(
                 module.payload["exports"][0]["bindings"][0],
                 json!({"imported": "login", "exported": "signIn"})
@@ -1686,6 +1716,49 @@ mod tests {
                     .unwrap()
                     .is_empty()
             );
+            assert_eq!(module.payload["exports"][4]["default_export"], false);
+            assert!(module.payload["exports"][4]["default_name"].is_null());
+            assert_eq!(
+                module.payload["exports"][4]["bindings"][0],
+                json!({"imported": "default", "exported": "signIn"})
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn records_named_default_export_bindings() {
+        for (path, language) in [
+            ("src/default.js", "javascript"),
+            ("src/default.ts", "typescript"),
+        ] {
+            for (source, expected_name) in [
+                (
+                    "export default function authenticate() {}\n",
+                    Some("authenticate"),
+                ),
+                (
+                    "function authenticate() {}\nexport default authenticate;\n",
+                    Some("authenticate"),
+                ),
+                ("export default () => {};\n", None),
+            ] {
+                let output = JsTsExtractor
+                    .extract(input(path, source, language))
+                    .await
+                    .unwrap();
+                let module = output
+                    .entities
+                    .iter()
+                    .find(|entity| entity.kind == EntityKind::Module)
+                    .expect("module entity must exist");
+
+                assert_eq!(module.payload["exports"][0]["default_export"], true);
+                if let Some(expected_name) = expected_name {
+                    assert_eq!(module.payload["exports"][0]["default_name"], expected_name);
+                } else {
+                    assert!(module.payload["exports"][0]["default_name"].is_null());
+                }
+            }
         }
     }
 

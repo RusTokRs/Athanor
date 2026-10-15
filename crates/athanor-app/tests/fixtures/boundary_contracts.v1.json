@@ -36,14 +36,14 @@
       "read_model_manifest_sha256": "sha256:manifest",
       "index_state_sha256": "sha256:state"
     },
-    "athanor.index_state.v49": {
-      "schema": "athanor.index_state.v49",
+    "athanor.index_state.v50": {
+      "schema": "athanor.index_state.v50",
       "snapshot": "snap-current",
       "generation": "gen_snap-current",
       "files": {}
     },
-    "athanor.index_state.v49-js-ts-precision-v1": {
-      "schema": "athanor.index_state.v49-js-ts-precision-v1",
+    "athanor.index_state.v50-js-ts-precision-v1": {
+      "schema": "athanor.index_state.v50-js-ts-precision-v1",
       "snapshot": "snap-current",
       "generation": "gen_snap-current",
       "files": {}

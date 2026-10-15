@@ -50,9 +50,9 @@ Two concrete targets:
 - Rust: trait implementation (`Implements`) and supertrait (`Extends`) edges; dyn-dispatch candidates
   remain a separate deferred capability.
 - JS/TS: class `extends`/`implements` and interface `extends` with distinct canonical relation kinds;
-  P2B covers explicit named re-export chains and P2C covers bounded single-source wildcard
-  re-exports, while callbacks and promise handlers, namespace/default re-exports, path aliases, and
-  workspace-package specifiers remain open.
+  P2B covers explicit named re-export chains, P2C bounded single-source wildcard re-exports, and P2D
+  named default function exports/re-exports. Callbacks and promise handlers, namespace re-exports,
+  anonymous/default class exports, path aliases, and workspace-package specifiers remain open.
 - Both: symbol-level incremental invalidation so a changed declaration re-resolves only its closure.
 
 #### P2A — Heritage Relation Semantics (bounded Rust/TypeScript slice)
@@ -152,11 +152,41 @@ cargo test -p athanor-app --locked
 cargo test -p athanor-app --features js-ts-precision --locked
 ```
 
+#### P2D — Named Default Function Exports (bounded JS/TS slice)
+
+- Mark `export default` statements separately from named export clauses, and record the local binding
+  only for a named function or a statically named local identifier.
+- Resolve default imports to a unique function declaration in the same module; follow relative local
+  identifier bindings and explicit named re-exports such as `export { default as signIn } from` within
+  the existing 32-hop/cycle bounds.
+- Do not expose `default` through `export *`. Anonymous default expressions, class-valued default
+  exports as call targets, unresolved imports, cycles, and ambiguous local bindings stay unresolved.
+- Bump normal/precision index-state schemas from v49 to v50 because export payloads gain
+  `default_export` and `default_name` fields.
+
+Focused source regression matrix:
+
+| Surface | Regression |
+| --- | --- |
+| JS/TS extractor | Named default functions and local identifier defaults record their binding; `default` inside `{ default as name }` remains an ordinary named re-export |
+| Call linker | Default imports resolve to a named function; a relative named re-export chain can forward a default function; wildcard exports still do not expose `default` |
+| Persistence | v49 normal/precision state is rejected and forces a v50 rebuild |
+
+Focused verification:
+
+```bash
+cargo test -p athanor-extractor-js-ts --locked
+cargo test -p athanor-extractor-js-ts --features precision-parser --locked
+cargo test -p athanor-linker-js-ts --locked
+cargo test -p athanor-app --locked
+cargo test -p athanor-app --features js-ts-precision --locked
+```
+
 #### Remaining P2 Gaps
 
 - JavaScript/TypeScript callbacks and promise handlers; multiple-source wildcard aggregation,
-  namespace/default re-exports; package/workspace specifiers and TypeScript path aliases;
-  receiver/type-aware dispatch.
+  namespace re-exports, anonymous/default class exports; package/workspace specifiers and TypeScript
+  path aliases; receiver/type-aware dispatch.
 - Rust dyn-dispatch candidates and symbol-level incremental invalidation for both Rust and JS/TS.
 
 ### P3 — Bounded Language Expansion
@@ -224,8 +254,10 @@ test, Clippy, smoke, docs, security, feature, and coverage matrix. P2B is verifi
 run `38742833180` on `5b5f8a1`, including the complete Rust 1.95 matrix on Ubuntu, macOS, and Windows,
 source coverage, feature matrices, and the companion docs/security/store gates. P2C adds bounded
 source-backed wildcard re-export resolution with v49 index-state rebuilds; exact-commit GitHub
-Actions run `38748788007` on `49444d5` passed. The Windows process-test fixtures write byte-exact
-data to redirected standard streams, and CI panic summaries now preserve assertion context. Slice P4
+Actions run `38748788007` on `49444d5` passed. P2D adds named default-function import/re-export
+resolution and the v50 index-state rebuild; exact-commit CI is pending. The Windows process-test
+fixtures write byte-exact data to redirected standard streams, and CI panic summaries now preserve
+assertion context. Slice P4
 is covered by the shipped `operations`
 documentation profile
 (DOCGEN-001 Slices 4A–4C); its monitoring category derives declared health, status, and metrics endpoints

@@ -114,12 +114,14 @@ skills поверх. То есть «уровень Terrain» — это не «
 > и JS/TS class `implements` остаются `Implements`. P2A также повышает схему index-state с v46 до
 > v47 для безопасной переиндексации. P2B реализовал явные named re-export chains JS/TS с
 > сохранением imported/exported aliases, module edges и миграцией index-state v47→v48; полный CI
-> прошёл в run `38742833180` на `5b5f8a1`. Следующий bounded P2C добавляет named resolution через
-> source-backed `export *` при единственном wildcard-источнике на модуль и поднимает схему до v49;
-> namespace/default re-exports и модули с несколькими wildcard-источниками остаются unresolved.
+> прошёл в run `38742833180` на `5b5f8a1`. P2C добавил named resolution через source-backed
+> `export *` при единственном wildcard-источнике на модуль и поднял схему до v49; модули с несколькими
+> wildcard-источниками остаются unresolved. Точный GitHub Actions run `38748788007` на `49444d5`
+> прошёл. Следующий bounded P2D добавляет default imports/re-exports для именованных функций и
+> поднимает схему до v50; anonymous expressions и class-valued defaults не становятся call targets.
 > Оставшиеся C2-разрывы — receiver/type-aware dispatch, callbacks/HOF, path aliases/workspace
-> packages и symbol-level incremental invalidation; обязательный scope по-прежнему Rust и
-> TypeScript/JS. P2C прошёл точный GitHub Actions run `38748788007` на `49444d5`.
+> packages, namespace re-exports и symbol-level incremental invalidation; обязательный scope — Rust и
+> TypeScript/JS. Точный CI для P2D ожидает запуска.
 > См. актуальный source-state план в `docs/development/code-intelligence-parity-plan.md` и ledger в
 > `docs/development/roadmap-status.md`; эта записка не заменяет verification matrix.
 

@@ -52,15 +52,17 @@ previous one is silent:
 
 1. `same_module_this_method` — `this.method()` inside `Class.method` resolves to the sibling member.
 2. `same_module_exact_name` — an exact qualified-name match inside the calling module.
-3. `imported_exact_name` / `imported_symbol_name` — the callee head matches an import binding
-   (default, namespace, or named) of the calling module, and the remainder matches an exported
-   declaration in the resolved relative target module. Named import aliases retain both the local and
-   imported spelling.
-4. `imported_reexport_chain` — a named import resolves through explicit local export aliases and/or
-   relative `export { name as alias } from './module'` clauses, following at most 32 export hops.
-5. `same_module_member_name` — a member call with an unknown receiver resolves only when the calling
+3. `imported_exact_name` / `imported_symbol_name` — a named or namespace import resolves its
+   requested member to a declaration in the resolved relative target module. Named import aliases
+   retain both the local and imported spelling.
+4. `imported_default_export` — a default import resolves directly to the named function binding
+   marked by `export default` in its relative target module.
+5. `imported_reexport_chain` — calls resolve through explicit local aliases, relative named
+   re-exports (including default aliases), or a single-source wildcard per module, following at most
+   32 export hops.
+6. `same_module_member_name` — a member call with an unknown receiver resolves only when the calling
    module contains exactly one member with that name.
-6. `unique_exported_name` — a bare call with no local or imported target resolves only when exactly
+7. `unique_exported_name` — a bare call with no local or imported target resolves only when exactly
    one exported declaration across the snapshot carries that name.
 
 An unresolved explicit import does not fall through to a weaker snapshot-wide guess. Steps 5 and 6
@@ -109,10 +111,12 @@ contract relationship.
 ## Boundaries
 
 Package imports, Node built-ins, workspace aliases, TypeScript path aliases, dynamic imports,
-CommonJS `require` calls, `export * as namespace`, default-export name resolution, computed member
-calls, and receiver typing are not resolved. Explicit named exports and source-backed `export *`
-chains are followed up to 32 hops, but each module may contribute only one wildcard source; multiple
-wildcard clauses, cycles, ambiguous mappings, unresolved sources, and deeper chains stay unresolved.
+CommonJS `require` calls, `export * as namespace`, anonymous/default-expression exports, default
+class call targets, computed member calls, and receiver typing are not resolved. Named default
+functions and statically named local default bindings resolve through relative imports and explicit
+named re-export clauses; plain `export *` still does not expose `default`. Named and default re-export
+chains are limited to 32 hops; wildcard chains require one source per module. Multiple wildcard
+clauses, cycles, ambiguous mappings, unresolved sources, and deeper chains stay unresolved.
 All linkers emit relations only when either endpoint is in the affected subset, which keeps incremental
 updates proportional to the change.
 

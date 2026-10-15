@@ -54,13 +54,15 @@ Module payloads include normalized `imports` and `exports` arrays. Each import e
 specifier, its source range, and the local bindings it introduces: `default_name`, `namespace_name`,
 the sorted local names in `named`, and `named_bindings` pairs (`imported`, `local`) so
 `import { fetchUser as fetch }` preserves both names. Each export entry records its optional source,
-source range, a `star` marker, and explicit `bindings` pairs (`imported`, `exported`) for named
-export clauses. A source-backed clause such as `export { login as signIn } from './auth'` therefore
-preserves the original/exported spelling; a source-less clause can represent a local alias. Plain
-`export * from './auth'` sets `star: true`; namespace exports are kept distinct and do not set it.
-The built-in JS/TS import linker uses relative source-backed imports and re-exports to materialize
-module dependencies without exposing parser AST nodes, while the call linker follows explicit named
-bindings and bounded single-source wildcard chains to declarations.
+source range, a `star` marker, `default_export`/`default_name` metadata, and explicit `bindings`
+pairs (`imported`, `exported`) for named export clauses. A source-backed clause such as
+`export { login as signIn } from './auth'` preserves the original/exported spelling; a source-less
+clause can represent a local alias. Plain `export * from './auth'` sets `star: true`; namespace
+exports are kept distinct and do not set it. Named default functions and statically named local
+identifier defaults carry their local binding; unsupported default expressions remain unbound. The
+built-in JS/TS import linker uses relative source-backed imports and re-exports to materialize module
+dependencies without exposing parser AST nodes, while the call linker follows explicit named and
+default-function aliases plus bounded single-source wildcard chains to declarations.
 
 ## Call Sites
 

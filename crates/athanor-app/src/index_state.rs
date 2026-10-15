@@ -10,9 +10,9 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use tracing::warn;
 
 #[cfg(not(feature = "js-ts-precision"))]
-pub const INDEX_STATE_SCHEMA: &str = "athanor.index_state.v49";
+pub const INDEX_STATE_SCHEMA: &str = "athanor.index_state.v50";
 #[cfg(feature = "js-ts-precision")]
-pub const INDEX_STATE_SCHEMA: &str = "athanor.index_state.v49-js-ts-precision-v1";
+pub const INDEX_STATE_SCHEMA: &str = "athanor.index_state.v50-js-ts-precision-v1";
 
 /// Incremental index state.
 ///
@@ -418,6 +418,8 @@ mod tests {
             "athanor.index_state.v47-js-ts-precision-v1",
             "athanor.index_state.v48",
             "athanor.index_state.v48-js-ts-precision-v1",
+            "athanor.index_state.v49",
+            "athanor.index_state.v49-js-ts-precision-v1",
         ]
         .into_iter()
         .enumerate()

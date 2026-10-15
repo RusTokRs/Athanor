@@ -46,7 +46,7 @@ const IMPORTED_EXACT_CONFIDENCE: f32 = 0.85;
 const IMPORTED_NAME_CONFIDENCE: f32 = 0.7;
 /// Confidence assigned to a unique name-only match (member or exported symbol).
 const UNIQUE_NAME_CONFIDENCE: f32 = 0.5;
-/// Maximum number of explicit named-export hops followed in one call resolution.
+/// Maximum number of named, default, or wildcard export hops followed in one call resolution.
 const MAX_REEXPORT_DEPTH: usize = 32;
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -268,6 +268,9 @@ fn resolve_call<'a>(
         if reexport_depth > 0 {
             return Some((target, "imported_reexport_chain", IMPORTED_EXACT_CONFIDENCE));
         }
+        if wanted == "default" {
+            return Some((target, "imported_default_export", IMPORTED_EXACT_CONFIDENCE));
+        }
         if qualified_name(target) == Some(wanted) {
             return Some((target, "imported_exact_name", IMPORTED_EXACT_CONFIDENCE));
         }
@@ -371,10 +374,10 @@ fn import_binding(module: &Entity, local: &str) -> Option<CallImportBinding> {
 }
 
 /// Resolves a named export through explicit local aliases, relative named
-/// re-exports, or one source-backed `export *` per module. Multiple star
-/// clauses are left unresolved rather than merged speculatively. Ambiguous
-/// mappings, cycles, unresolved sources, and chains deeper than
-/// `MAX_REEXPORT_DEPTH` stay unresolved.
+/// re-exports, one source-backed `export *` per module, or a named default
+/// export. Multiple star clauses are left unresolved rather than merged
+/// speculatively. Ambiguous mappings, cycles, unresolved sources, and chains
+/// deeper than `MAX_REEXPORT_DEPTH` stay unresolved.
 fn resolve_exported_name<'a>(
     module: &'a Entity,
     requested: &str,
@@ -410,8 +413,12 @@ fn resolve_exported_name<'a>(
     let mut unresolved_mapping = false;
     let mut mapped_targets = Vec::new();
     let mut star_exports = Vec::new();
+    let mut default_exports = Vec::new();
     if let Some(exports) = module.payload.get("exports").and_then(Value::as_array) {
         for export in exports {
+            if export.get("default_export").and_then(Value::as_bool) == Some(true) {
+                default_exports.push(export);
+            }
             if export.get("star").and_then(Value::as_bool) == Some(true) {
                 star_exports.push(export);
                 continue;
@@ -500,6 +507,15 @@ fn resolve_exported_name<'a>(
         } else {
             unique_target(mapped_targets)
         }
+    } else if requested == "default" && !default_exports.is_empty() {
+        resolve_default_export(
+            module,
+            &default_exports,
+            modules,
+            declarations_by_path,
+            visited,
+            depth,
+        )
     } else if requested != "default" && star_exports.len() == 1 {
         star_exports[0]
             .get("source")
@@ -521,6 +537,46 @@ fn resolve_exported_name<'a>(
     };
     visited.remove(&path);
     result
+}
+
+/// Resolves one explicit default export to a unique same-module or imported function binding.
+fn resolve_default_export<'a>(
+    module: &'a Entity,
+    default_exports: &[&Value],
+    modules: &HashMap<String, &'a Entity>,
+    declarations_by_path: &HashMap<String, Vec<&'a Entity>>,
+    visited: &mut HashSet<String>,
+    depth: usize,
+) -> Option<(&'a Entity, usize)> {
+    if default_exports.len() != 1 {
+        return None;
+    }
+    let local_name = default_exports[0]
+        .get("default_name")
+        .and_then(Value::as_str)?;
+    let path = entity_path(module)?;
+    let local_matches = declarations_by_path
+        .get(&path)
+        .into_iter()
+        .flat_map(|candidates| candidates.iter().copied())
+        .filter(|candidate| qualified_name(candidate) == Some(local_name))
+        .collect::<Vec<_>>();
+    if !local_matches.is_empty() {
+        return unique_target(local_matches.into_iter().map(|candidate| (candidate, 0)));
+    }
+
+    let binding = import_binding(module, local_name)?;
+    let imported_name = binding.imported_name.as_deref()?;
+    let target_module = resolve_local_import(module, &binding.specifier, modules)?;
+    resolve_exported_name(
+        target_module,
+        imported_name,
+        modules,
+        declarations_by_path,
+        visited,
+        depth + 1,
+    )
+    .map(|(target, nested_depth)| (target, nested_depth + 1))
 }
 
 fn unique_target<'a>(
@@ -996,6 +1052,222 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn resolves_default_imports_to_named_default_exports() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({
+                "imports": [{"source": "./auth", "default_name": "authenticate"}]
+            }),
+        );
+        let auth_module = module(
+            "ent_auth_module",
+            "src/auth.ts",
+            json!({
+                "imports": [],
+                "exports": [{
+                    "source": null,
+                    "bindings": [],
+                    "default_export": true,
+                    "default_name": "login"
+                }]
+            }),
+        );
+        let login = declaration(
+            "ent_auth_login",
+            "src/auth.ts",
+            "login",
+            "login",
+            true,
+            json!([]),
+        );
+        let run = declaration(
+            "ent_app_run",
+            "src/app.ts",
+            "run",
+            "run",
+            false,
+            json!([call_site("authenticate", "authenticate", 4)]),
+        );
+        let entities = vec![app_module, auth_module, login.clone(), run.clone()];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from, run.id);
+        assert_eq!(calls[0].to, login.id);
+        assert_eq!(calls[0].payload["resolution"], "imported_default_export");
+    }
+
+    #[tokio::test]
+    async fn resolves_default_reexports_through_named_export_aliases() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({
+                "imports": [{
+                    "source": "./barrel",
+                    "named": ["authenticate"],
+                    "named_bindings": [{"imported": "signIn", "local": "authenticate"}]
+                }]
+            }),
+        );
+        let barrel_module = module(
+            "ent_barrel_module",
+            "src/barrel.ts",
+            json!({
+                "imports": [],
+                "exports": [{
+                    "source": "./auth",
+                    "bindings": [{"imported": "default", "exported": "signIn"}]
+                }]
+            }),
+        );
+        let auth_module = module(
+            "ent_auth_module",
+            "src/auth.ts",
+            json!({
+                "imports": [],
+                "exports": [{
+                    "source": null,
+                    "bindings": [],
+                    "default_export": true,
+                    "default_name": "login"
+                }]
+            }),
+        );
+        let login = declaration(
+            "ent_auth_login",
+            "src/auth.ts",
+            "login",
+            "login",
+            false,
+            json!([]),
+        );
+        let run = declaration(
+            "ent_app_run",
+            "src/app.ts",
+            "run",
+            "run",
+            false,
+            json!([call_site("authenticate", "authenticate", 5)]),
+        );
+        let entities = vec![
+            app_module,
+            barrel_module,
+            auth_module,
+            login.clone(),
+            run.clone(),
+        ];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from, run.id);
+        assert_eq!(calls[0].to, login.id);
+        assert_eq!(calls[0].payload["resolution"], "imported_reexport_chain");
+    }
+
+    #[tokio::test]
+    async fn resolves_default_exports_forwarded_from_relative_imports() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({
+                "imports": [{"source": "./auth", "default_name": "authenticate"}]
+            }),
+        );
+        let auth_module = module(
+            "ent_auth_module",
+            "src/auth.ts",
+            json!({
+                "imports": [{
+                    "source": "./service",
+                    "named": ["login"],
+                    "named_bindings": [{"imported": "login", "local": "login"}]
+                }],
+                "exports": [{
+                    "source": null,
+                    "bindings": [],
+                    "default_export": true,
+                    "default_name": "login"
+                }]
+            }),
+        );
+        let service_module = module(
+            "ent_service_module",
+            "src/service.ts",
+            json!({"imports": []}),
+        );
+        let login = declaration(
+            "ent_service_login",
+            "src/service.ts",
+            "login",
+            "login",
+            true,
+            json!([]),
+        );
+        let run = declaration(
+            "ent_app_run",
+            "src/app.ts",
+            "run",
+            "run",
+            false,
+            json!([call_site("authenticate", "authenticate", 6)]),
+        );
+        let entities = vec![
+            app_module,
+            auth_module,
+            service_module,
+            login.clone(),
+            run.clone(),
+        ];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from, run.id);
+        assert_eq!(calls[0].to, login.id);
+        assert_eq!(calls[0].payload["resolution"], "imported_reexport_chain");
+    }
+
+    #[tokio::test]
     async fn wildcard_reexports_do_not_expose_default_or_namespace_exports() {
         let default_app = module(
             "ent_default_app",
@@ -1009,6 +1281,24 @@ mod tests {
             "src/namespace-app.ts",
             json!({
                 "imports": [{"source": "./namespace", "named": ["login"]}]
+            }),
+        );
+        let anonymous_app = module(
+            "ent_anonymous_app",
+            "src/anonymous-app.ts",
+            json!({"imports": [{"source": "./anonymous", "default_name": "anonymous"}]}),
+        );
+        let anonymous_module = module(
+            "ent_anonymous_module",
+            "src/anonymous.ts",
+            json!({
+                "imports": [],
+                "exports": [{
+                    "source": null,
+                    "bindings": [],
+                    "default_export": true,
+                    "default_name": null
+                }]
             }),
         );
         let index_module = module(
@@ -1027,12 +1317,32 @@ mod tests {
                 "exports": [{"source": "./auth", "bindings": [], "star": false}]
             }),
         );
-        let auth_module = module("ent_auth_module", "src/auth.ts", json!({"imports": []}));
+        let auth_module = module(
+            "ent_auth_module",
+            "src/auth.ts",
+            json!({
+                "imports": [],
+                "exports": [{
+                    "source": null,
+                    "bindings": [],
+                    "default_export": true,
+                    "default_name": "login"
+                }]
+            }),
+        );
         let login = declaration(
             "ent_auth_login",
             "src/auth.ts",
             "login",
             "login",
+            true,
+            json!([]),
+        );
+        let anonymous_decoy = declaration(
+            "ent_anonymous_decoy",
+            "src/decoy.ts",
+            "anonymous",
+            "anonymous",
             true,
             json!([]),
         );
@@ -1052,15 +1362,27 @@ mod tests {
             false,
             json!([call_site("login", "login", 3)]),
         );
+        let anonymous_call = declaration(
+            "ent_anonymous_run",
+            "src/anonymous-app.ts",
+            "run",
+            "run",
+            false,
+            json!([call_site("anonymous", "anonymous", 3)]),
+        );
         let entities = vec![
             default_app,
             namespace_app,
+            anonymous_app,
             index_module,
             namespace_module,
+            anonymous_module,
             auth_module,
             login,
+            anonymous_decoy,
             default_call,
             namespace_call,
+            anonymous_call,
         ];
 
         let relations = JsTsCallLinker
