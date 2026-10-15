@@ -40,14 +40,7 @@ jobs:
       - name: Run cargo-deny
         id: cargo-deny
         shell: bash
-        run: |
-          set -o pipefail
-          "$RUNNER_TEMP/cargo-deny-bin/cargo-deny" check 2>&1 \
-            | tee "$RUNNER_TEMP/cargo-deny.log"
-      - name: Publish cargo-deny failure diagnostics
-        if: ${{ failure() && steps.cargo-deny.outcome == 'failure' }}
-        shell: bash
-        run: bash .github/scripts/annotate-log-tail.sh "$RUNNER_TEMP/cargo-deny.log" "cargo-deny log tail"
+        run: bash .github/scripts/run-with-log.sh "$RUNNER_TEMP/cargo-deny.log" "cargo-deny log tail" "$RUNNER_TEMP/cargo-deny-bin/cargo-deny" check
       - name: Upload cargo-deny diagnostics
         if: ${{ failure() && steps.cargo-deny.outcome == 'failure' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -117,16 +110,8 @@ jobs:
           if-no-files-found: error
           retention-days: 14
       - name: Run workspace tests
-        id: workspace-tests
         shell: bash
-        run: |
-          set -o pipefail
-          cargo test --workspace --quiet --locked 2>&1 \
-            | tee "$RUNNER_TEMP/workspace-tests.log"
-      - name: Publish workspace test failure diagnostics
-        if: ${{ failure() && steps.workspace-tests.outcome == 'failure' }}
-        shell: bash
-        run: bash .github/scripts/annotate-log-tail.sh "$RUNNER_TEMP/workspace-tests.log" "workspace test log tail"
+        run: bash .github/scripts/run-with-log.sh "$RUNNER_TEMP/workspace-tests.log" "workspace test log tail" cargo test --workspace --quiet --locked
       - name: Run Clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Test Linux installer checksum verification
@@ -215,22 +200,7 @@ jobs:
       - name: Check feature graph
         id: feature-check
         shell: bash
-        run: |
-          set -o pipefail
-          case "${{ matrix.features }}" in
-            default) FEATURES="" ;;
-            all-features) FEATURES="--all-features" ;;
-            *) FEATURES="--features ${{ matrix.features }}" ;;
-          esac
-          {
-            cargo check --workspace ${FEATURES} --locked
-            cargo test --workspace --quiet ${FEATURES} --locked
-            cargo clippy --workspace --all-targets ${FEATURES} --locked -- -D warnings
-          } 2>&1 | tee "$RUNNER_TEMP/feature-check.log"
-      - name: Publish feature-matrix failure diagnostics
-        if: ${{ failure() && steps.feature-check.outcome == 'failure' }}
-        shell: bash
-        run: bash .github/scripts/annotate-log-tail.sh "$RUNNER_TEMP/feature-check.log" "feature-matrix log tail"
+        run: bash .github/scripts/run-with-log.sh "$RUNNER_TEMP/feature-check.log" "feature-matrix log tail" bash .github/scripts/feature-check.sh "${{ matrix.features }}"
       - name: Upload default feature diagnostics
         if: ${{ failure() && steps.feature-check.outcome == 'failure' && matrix.features == 'default' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -261,20 +231,8 @@ jobs:
       - name: Install cargo-llvm-cov
         run: cargo install cargo-llvm-cov --version 0.8.7 --locked
       - name: Generate coverage reports
-        id: coverage-reports
         shell: bash
-        run: |
-          set -o pipefail
-          mkdir -p coverage
-          {
-            cargo llvm-cov --workspace --locked --lcov --output-path coverage/lcov.info &&
-            cargo llvm-cov report --json --summary-only --output-path coverage/summary.json &&
-            cargo llvm-cov report --html --output-dir coverage/html
-          } 2>&1 | tee "$RUNNER_TEMP/coverage.log"
-      - name: Publish coverage failure diagnostics
-        if: ${{ failure() && steps.coverage-reports.outcome == 'failure' }}
-        shell: bash
-        run: bash .github/scripts/annotate-log-tail.sh "$RUNNER_TEMP/coverage.log" "coverage log tail"
+        run: bash .github/scripts/run-with-log.sh "$RUNNER_TEMP/coverage.log" "coverage log tail" bash .github/scripts/generate-coverage.sh
       - name: Upload coverage reports
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
