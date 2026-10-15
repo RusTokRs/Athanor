@@ -188,8 +188,10 @@ P2A adds a separate `Extends` relation for Rust trait supertraits and JS/TS clas
 inheritance, updates the impact/ranking/architecture consumers, and bumps index state to v47; focused
 Rust/TypeScript regressions are included; CI run `38722056518` on `4a23498` passed the full format,
 test, Clippy, smoke, docs, security, feature, and coverage matrix. P2B now has source implementation
-for explicit JS/TS named re-export chains and the v48 index-state rebuild; its exact-commit GitHub
-Actions matrix is pending. Slice P4 is covered by the shipped `operations` documentation profile
+for explicit JS/TS named re-export chains and the v48 index-state rebuild. CI run `38729768792` on
+`7b90b5e` passed formatting, Linux/macOS tests and Clippy, coverage, feature matrix, and cargo-deny;
+the Windows job failed in the unchanged process stderr test, so P2B remains unverified pending an
+exact green run. Slice P4 is covered by the shipped `operations` documentation profile
 (DOCGEN-001 Slices 4A–4C); its monitoring category derives declared health, status, and metrics endpoints
 and telemetry environment-variable names from canonical evidence, while container and Kubernetes probes,
 alert rules, dashboards, and SLOs still need their own evidence source before they may be documented. Slice P5 is source-implemented as the bounded `explore` MCP tool: one query
