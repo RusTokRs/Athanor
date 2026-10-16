@@ -479,7 +479,12 @@ coverage and C5 freshness gaps are untouched. Slice P2G adds callback and promis
 `callback_arguments` on allowlisted combinator call sites, and the call linker resolves each
 recorded argument through the existing ordered rules into an evidence-backed indirect `Calls`
 edge with reason `js_ts_callback_bridge`, bumping both index-state schema families from v52 to
-v53. Slice P3 is source-implemented as `builtin.extractor.treesitter`: one engine walks a
+v53. Slice P2H binds named default class exports and admits classes as resolvable call
+targets: `export default class Foo {}` records its default name, a default import of it
+resolves a `new Foo()` site with reason `imported_default_export`, and a same-module
+construction resolves with `same_module_exact_name`, bumping both index-state schema
+families from v53 to v54; anonymous default expressions and anonymous default classes stay
+unbound. Slice P3 is source-implemented as `builtin.extractor.treesitter`: one engine walks a
 per-language pack of node kinds and field names and records declaration, import, export, and call
 evidence for Python and Go, with the existing cross-file linkers still owning resolution. Historical
 exact-commit verification for P1, the pre-P2A P2 slice, and P5 is green on `191c65e` (sandbox
