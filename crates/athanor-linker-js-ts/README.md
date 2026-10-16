@@ -56,7 +56,8 @@ The call linker consumes the bounded `calls` arrays and the import bindings that
 2. `same_module_exact_name` — exact qualified name inside the calling module.
 3. `imported_exact_name` / `imported_symbol_name` — through a namespace or named import binding of
    the calling module.
-4. `imported_default_export` — a default import resolves directly to its named default function.
+4. `imported_default_export` — a default import resolves directly to its named default
+   function or class declaration.
 5. `imported_reexport_chain` — through explicit named local exports, relative named/default
    re-exports, source-backed wildcard clauses, or a unique direct `export * as name` mapping for a
    named-import single-member call. Multiple wildcard sources resolve only when applicable branches
@@ -90,8 +91,8 @@ commands, use the network, or modify project files.
   imports and explicit named re-export chains. Named imports can resolve a single member through one
   unique, direct, source-backed `export * as name` mapping; multi-hop namespace aliases and
   multi-segment paths through named-import namespace aliases stay unresolved. Existing
-  namespace-import receiver behavior is unchanged. Anonymous/default expressions and default class
-  call targets also stay unresolved.
+  namespace-import receiver behavior is unchanged. Anonymous default expressions and anonymous
+  default classes stay unresolved because they have no statically nameable local binding.
 - Dynamic `import()`, CommonJS `require()`, computed calls (`handlers[key]()`), calls through call
   results, reflective dispatch, and receiver typing are not resolved.
 - Test detection is location-based because no test framework runs: `.test.`/`.spec.` file names and

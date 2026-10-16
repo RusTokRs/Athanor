@@ -276,14 +276,14 @@ fn production_prefix_excludes_test_modules_for_lf_and_crlf_sources() {
 #[test]
 fn qualified_feature_schema_is_versioned_without_changing_its_wire_id() {
     assert_eq!(
-        validate_schema_id("athanor.index_state.v53-js-ts-precision-v1"),
-        Ok(53)
+        validate_schema_id("athanor.index_state.v54-js-ts-precision-v1"),
+        Ok(54)
     );
 
     for invalid in [
-        "athanor.index_state.v53-js-ts-precision",
-        "athanor.index_state.v53--v1",
-        "athanor.index_state.v53-js-ts-precision-v0",
+        "athanor.index_state.v54-js-ts-precision",
+        "athanor.index_state.v54--v1",
+        "athanor.index_state.v54-js-ts-precision-v0",
         "athanor.index_state.v0-js-ts-precision-v1",
     ] {
         assert!(

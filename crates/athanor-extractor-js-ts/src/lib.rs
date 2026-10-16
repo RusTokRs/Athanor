@@ -929,8 +929,9 @@ fn is_default_export(node: Node) -> bool {
     has_child_kind(node, "default")
 }
 
-/// Returns the local binding for a named default function or identifier export.
-/// Other default expressions stay explicitly unbound and cannot be guessed.
+/// Returns the local binding for a named default function, class, or
+/// identifier export. Other default expressions stay explicitly unbound
+/// and cannot be guessed.
 fn default_export_name(node: Node, bytes: &[u8]) -> Option<String> {
     if !is_default_export(node) {
         return None;
@@ -942,6 +943,7 @@ fn default_export_name(node: Node, bytes: &[u8]) -> Option<String> {
             "function_declaration" | "generator_function_declaration" => {
                 return node_name(child, bytes);
             }
+            "class_declaration" | "class" => return node_name(child, bytes),
             "identifier" => return node_text(child, bytes),
             _ => {}
         }
@@ -1838,6 +1840,15 @@ mod tests {
                     Some("authenticate"),
                 ),
                 ("export default () => {};\n", None),
+                (
+                    "export default class ApiController {}\n",
+                    Some("ApiController"),
+                ),
+                (
+                    "class Controller {}\nexport default Controller;\n",
+                    Some("Controller"),
+                ),
+                ("export default class {}\n", None),
             ] {
                 let output = JsTsExtractor
                     .extract(input(path, source, language))

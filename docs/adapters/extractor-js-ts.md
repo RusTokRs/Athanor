@@ -59,8 +59,9 @@ and explicit `bindings` pairs (`imported`, `exported`) for named export clauses.
 clause such as `export { login as signIn } from './auth'` preserves the original/exported spelling; a
 source-less clause can represent a local alias. Plain `export * from './auth'` sets `star: true` and
 leaves `namespace_name` null; `export * as ns from './auth'` records `namespace_name: "ns"` and is
-not marked as a plain star. Named default functions and statically named local identifier defaults
-carry their local binding; unsupported default expressions remain unbound. The built-in JS/TS import
+not marked as a plain star. Named default functions, named default classes, and statically named
+local identifier defaults carry their local binding; unsupported default expressions remain
+unbound. The built-in JS/TS import
 linker uses relative source-backed imports and re-exports to materialize module dependencies without
 exposing parser AST nodes, while the call linker follows explicit named and default-function aliases,
 bounded wildcard chains that resolve uniquely across sources, and direct namespace exports for

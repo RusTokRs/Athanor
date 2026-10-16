@@ -304,9 +304,44 @@ cargo test -p athanor-app --locked
 cargo test -p athanor-app --features js-ts-precision --locked
 ```
 
+#### P2H — Default Class Exports And Class Construction Targets (bounded JS/TS slice)
+
+- Extend the default-export binding to named `export default class Foo {}` declarations, so
+  the normalized export payload records `default_name` for a default class exactly as it
+  already does for a default function. Anonymous default classes (`export default class {}`)
+  and every other default expression stay explicitly unbound and cannot be guessed.
+- Admit `EntityKind::Class` declarations into the call linker's resolvable declaration set,
+  so a class is a valid `Calls` target for a same-module exact-name match and for a
+  default-imported construction (`new Foo()`), reusing the existing ordered resolution and
+  its fail-closed rules. A named class and a same-named function in different modules stay
+  ambiguous and unresolved at the unique-name steps.
+- Receiver typing is unchanged: a class member reached through an imported instance
+  (`instance.method()`) is not resolved by this slice, and deep member paths stay open.
+- Bump both index-state schema families from v53 to v54 because the normalized export
+  payload now carries a default-class binding, so cached module payloads are rebuilt in both
+  configurations.
+
+Focused source regression matrix:
+
+| Surface | Regression |
+| --- | --- |
+| JS/TS extractor | `export default class Foo {}` records `default_name: "Foo"`; anonymous `export default class {}` and non-class default expressions stay null |
+| Call linker | A default import of a named default class resolves a `new Foo()` site to the class with `imported_default_export`; a same-module `new Foo()` resolves with `same_module_exact_name` |
+| Persistence | v53 normal/precision state is rejected and forces a v54 rebuild |
+
+Focused verification:
+
+```bash
+cargo test -p athanor-extractor-js-ts --locked
+cargo test -p athanor-extractor-js-ts --features precision-parser --locked
+cargo test -p athanor-linker-js-ts --locked
+cargo test -p athanor-app --locked
+cargo test -p athanor-app --features js-ts-precision --locked
+```
+
 #### Remaining P2 Gaps
 
-- JavaScript/TypeScript multi-hop namespace aliases, anonymous/default class exports;
+- JavaScript/TypeScript multi-hop namespace aliases, anonymous default exports;
   package/workspace specifiers and TypeScript path aliases; receiver/type-aware dispatch
   and deep member paths.
 - Rust dyn-dispatch candidates and symbol-level incremental invalidation for both Rust and JS/TS.

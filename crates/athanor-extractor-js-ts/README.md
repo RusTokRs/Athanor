@@ -102,11 +102,12 @@ None. The extractors do not run commands, use the network, or modify project fil
 
 - Import/export data is stored in module payloads and definition facts. Payloads preserve named
   import/export aliases, distinguish plain source-backed `export *` from `export * as name`, and mark
-  named default-function or local-identifier bindings; `athanor-linker-js-ts` follows bounded named,
-  default-function and multiple-source wildcard chains when they identify one target, plus direct
-  namespace mappings for single-member calls.
-- Multi-hop namespace aliases, anonymous/default-expression and class call targets, ambiguous or
-  unresolved wildcard branches, and package/workspace/path-alias targets remain unresolved.
+  named default-function, default-class, or local-identifier bindings; `athanor-linker-js-ts`
+  follows bounded named, default-function and default-class, and multiple-source wildcard chains
+  when they identify one target, plus direct namespace mappings for single-member calls.
+- Multi-hop namespace aliases, anonymous/default-expression and anonymous default class targets,
+  ambiguous or unresolved wildcard branches, and package/workspace/path-alias targets remain
+  unresolved.
 - Callback evidence is recorded only for the combinator allowlist and only for statically
   nameable arguments (identifiers and identifier-rooted member chains); inline arrows, call
   results, literals, and computed arguments are never recorded, and at most four arguments are

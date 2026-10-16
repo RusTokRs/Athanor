@@ -250,8 +250,12 @@ fn is_js_ts_module(entity: &Entity) -> bool {
     entity.kind == EntityKind::Module && entity.stable_key.0.starts_with(MODULE_PREFIX)
 }
 
+/// Identifies a resolvable JS/TS declaration. Classes are included so
+/// `new Foo()` construction sites and default-imported classes resolve
+/// to their class declaration, alongside functions and methods.
 fn is_js_ts_declaration(entity: &Entity) -> bool {
-    entity.kind == EntityKind::Function && entity.stable_key.0.starts_with(SYMBOL_PREFIX)
+    matches!(entity.kind, EntityKind::Function | EntityKind::Class)
+        && entity.stable_key.0.starts_with(SYMBOL_PREFIX)
 }
 
 fn entity_path(entity: &Entity) -> Option<String> {
@@ -1436,6 +1440,110 @@ mod tests {
         assert_eq!(calls[0].from, run.id);
         assert_eq!(calls[0].to, login.id);
         assert_eq!(calls[0].payload["resolution"], "imported_default_export");
+    }
+
+    #[tokio::test]
+    async fn resolves_default_imports_to_named_default_class_exports() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({
+                "imports": [{"source": "./auth", "default_name": "Controller"}]
+            }),
+        );
+        let auth_module = module(
+            "ent_auth_module",
+            "src/auth.ts",
+            json!({
+                "imports": [],
+                "exports": [{
+                    "source": null,
+                    "bindings": [],
+                    "default_export": true,
+                    "default_name": "Controller"
+                }]
+            }),
+        );
+        let controller = class_declaration(
+            "ent_auth_controller",
+            "src/auth.ts",
+            "Controller",
+            "Controller",
+            true,
+        );
+        let run = declaration(
+            "ent_app_run",
+            "src/app.ts",
+            "run",
+            "run",
+            false,
+            json!([construction_site("Controller", "Controller", 4)]),
+        );
+        let entities = vec![app_module, auth_module, controller.clone(), run.clone()];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from, run.id);
+        assert_eq!(calls[0].to, controller.id);
+        assert_eq!(calls[0].payload["resolution"], "imported_default_export");
+        assert_eq!(calls[0].payload["callee_kind"], "new");
+    }
+
+    #[tokio::test]
+    async fn resolves_same_module_construction_of_local_class() {
+        let module_entity = module(
+            "ent_widget_module",
+            "src/widget.ts",
+            json!({"imports": [], "exports": []}),
+        );
+        let widget = class_declaration(
+            "ent_widget_class",
+            "src/widget.ts",
+            "Widget",
+            "Widget",
+            false,
+        );
+        let build = declaration(
+            "ent_widget_build",
+            "src/widget.ts",
+            "build",
+            "build",
+            false,
+            json!([construction_site("Widget", "Widget", 9)]),
+        );
+        let entities = vec![module_entity, widget.clone(), build.clone()];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from, build.id);
+        assert_eq!(calls[0].to, widget.id);
+        assert_eq!(calls[0].payload["resolution"], "same_module_exact_name");
     }
 
     #[tokio::test]
@@ -3077,5 +3185,47 @@ mod tests {
                 "calls": calls,
             }),
         }
+    }
+
+    fn class_declaration(
+        id: &str,
+        path: &str,
+        qualified: &str,
+        name: &str,
+        exported: bool,
+    ) -> Entity {
+        Entity {
+            id: EntityId(id.to_string()),
+            stable_key: StableKey(format!("{SYMBOL_PREFIX}{path}#{qualified}")),
+            kind: EntityKind::Class,
+            name: name.to_string(),
+            title: None,
+            source: Some(SourceLocation {
+                path: path.to_string(),
+                line_start: Some(1),
+                line_end: Some(2),
+            }),
+            language: Some(LanguageCode("typescript".to_string())),
+            aliases: Vec::new(),
+            ownership: vec![Ownership {
+                source_file: path.to_string(),
+            }],
+            payload: json!({
+                "symbol_kind": "class",
+                "qualified_name": qualified,
+                "exported": exported,
+                "calls": json!([]),
+            }),
+        }
+    }
+
+    fn construction_site(callee: &str, name: &str, line: u64) -> serde_json::Value {
+        json!({
+            "callee": callee,
+            "name": name,
+            "kind": "new",
+            "line": line,
+            "column": 3,
+        })
     }
 }

@@ -20,8 +20,7 @@ substantive release notes.
   receiver-qualified methods and other declarations, imports, exports, and statically named call sites.
 - Add `builtin.linker.treesitter`: Python and Go imports, cross-file calls through package units, receiver variables, and import bindings, test bridges, and a per-language coverage measurement.
 - Add a monitoring operations category: the operations profile derives declared health, status, and
-  metrics endpoints and telemetry variable names from canonical evidence; probes, alerts, dashboards,
-  and SLOs stay absent until they have an evidence source.
+  metrics endpoints plus telemetry variable names from canonical evidence; probes, alerts, dashboards, and SLOs stay absent without an evidence source.
 - Add the JavaScript/TypeScript call graph. The JS/TS extractor records each import statement's local
   bindings (`default_name`, `namespace_name`, `named`) and a bounded `calls` array per declaration
   with the statically named callee, receiver, kind, argument count, and line/column.
@@ -31,8 +30,7 @@ substantive release notes.
 - Add JS/TS callback and promise-handler bridges: combinator call sites record bounded
   `callback_arguments` that the call linker resolves into indirect evidence-backed `Calls` edges; index state bumps v52→v53.
 - Add strict versioned request, outline, context, citation, draft, manifest, and validation-report
-  contracts for evidence-backed documentation generation: exact snapshot binding, portable paths,
-  stable-key/evidence traceability, cited diagram edges, metrics, and checksums.
+  contracts for documentation generation: exact snapshot binding, portable paths, stable-key/evidence traceability, cited diagram edges, metrics, and checksums.
 - Add a minimal fixture repository and Rustok evaluation corpus with expected sections, citation paths,
   diagram edges, known gaps, repeatability, unsupported-relation disclosure, and review criteria.
 - Add a deterministic architecture profile that converts one explicit canonical snapshot into cited
@@ -47,6 +45,8 @@ substantive release notes.
   analysis-completeness report to MCP clients.
 - Add a bounded first-party projection for agent-tool MCP configuration: `.codex.json` and
   `antigravity.json` project one `ScriptCommand` per server, with evidence and ownership.
+- Add JS/TS default class export binding: `export default class Foo {}` records its default
+  name and a default-imported or same-module `new Foo()` resolves to the class; index state bumps v53→v54.
 - Add local semantic retrieval with zero new dependencies: hashing-trick embeddings over character
   trigrams and word n-grams (FNV-1a buckets) power `ath search --mode semantic|hybrid` and MCP `search`.
 
