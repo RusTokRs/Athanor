@@ -12,6 +12,7 @@ pub(crate) enum Command {
     Graph(crate::direct_graph_cli::Command),
     Context(crate::direct_context_cli::Command),
     Search(crate::direct_search_cli::Command),
+    Explore(crate::direct_explore_cli::Command),
     Read(crate::direct_read::Command),
     Index(crate::index_cli::Command),
     CompletenessDocgen(crate::completeness_docgen_cli::Command),
@@ -69,6 +70,9 @@ pub(crate) fn parse(args: &[String]) -> Result<Command> {
     }
     if let Some(command) = crate::direct_search_cli::parse(args)? {
         return Ok(Command::Search(command));
+    }
+    if let Some(command) = crate::direct_explore_cli::parse(args)? {
+        return Ok(Command::Explore(command));
     }
     if let Some(command) = crate::direct_read::parse(args)? {
         return Ok(Command::Read(command));
@@ -138,6 +142,7 @@ fn print_help() {
         ("plugins", "Inspect and manage adapter plugins"),
         ("repair", "Inspect and repair local artifacts"),
         ("search", "Search the project knowledge base"),
+        ("explore", "Answer one code question in one bounded call"),
         ("coverage", "Report bounded analysis coverage"),
         ("capabilities", "Report analysis completeness"),
         ("mcp", "Start the MCP stdio server"),

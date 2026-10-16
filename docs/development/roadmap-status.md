@@ -171,6 +171,9 @@ gap, the typo-named `for agents. md` briefing, was fixed by renaming it to
 - [x] Slice P4: deterministic operations documentation — DOCGEN-001 4A–4C; the monitoring category
   derives declared health/metrics endpoints and telemetry variable names, with probes/alerts still open.
 - [x] Slice P5: bounded `explore` MCP query — ranked entries, one-hop relations, citations, budgets.
+- [ ] Slice P5b source-implemented: `explore` multi-hop code-flow chains, aggregate blast radius, exact
+  `target` anchor, and the `ath explore` command over `athanor.explore.v1`; focused explore/CLI regressions
+  are present and exact-commit CI evidence is pending.
 - Historical: pre-P2A P1/P2/P5 run `38152033388` (`191c65e`, not this worktree); P3 `38157055780`
   (`e07547e`), P4b `38160162759` (`69d8918`), and P3 linker `38165153178` (`09ce6ab`) passed with zero-line rustfmt diffs and successful or skipped checks.
 

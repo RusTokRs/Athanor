@@ -16,6 +16,7 @@ fn read_help_exposes_optional_deadline() {
         "impact",
         "change-map",
         "search",
+        "explore",
     ] {
         let output = run(&[command, "--help"]);
         assert!(
@@ -28,6 +29,17 @@ fn read_help_exposes_optional_deadline() {
             "{command} help omitted deadline option"
         );
     }
+}
+
+#[test]
+fn explore_requires_a_query_or_a_target() {
+    let output = run(&["explore", "--path", "."]);
+    assert!(!output.status.success());
+    assert!(
+        stderr(&output).contains("explore requires a non-empty query or a target"),
+        "explore must reject an empty request before touching the store: {}",
+        stderr(&output)
+    );
 }
 
 #[test]

@@ -24,7 +24,7 @@ the relevant slice of implementation detail.
 | Source of truth | Graph or search index | Canonical snapshots with evidence and ownership |
 | Main purpose | Navigate code structure and dependencies | Verify, query, explain, and project repository knowledge |
 | Inputs | Usually source code and symbols | Code, Markdown docs, OpenAPI, runtime configuration, operations files, and adapters |
-| Agent context | Retrieval or graph lookup | Bounded `context`, `explain`, `impact`, and `check` queries |
+| Agent context | Retrieval or graph lookup | Bounded `explore`, `context`, `explain`, `impact`, and `check` queries |
 | Documentation | Optional generated docs or summaries | Docs drift checks, completeness gates, and reviewable patch proposals |
 | API contracts | Usually outside the core model | API registry, snapshots, diffs, breaking-change diagnostics, and strict checks |
 | Outputs | Graph UI or export | Rebuildable JSONL, wiki, HTML report, search index, and future graph views |
@@ -40,7 +40,7 @@ local files
   -> Markdown containment, document references, and cross-source API links
   -> Markdown structure, unresolved reference, duplicate ID, and API consistency checks
   -> JSONL canonical store
-  -> overview, context, explain, and scoped diagnostic queries
+  -> explore, overview, context, explain, and scoped diagnostic queries
   -> configurable editable-documentation completeness gate
   -> coordinated JSONL, Markdown wiki, and HTML read models
   -> immutable snapshot-consistent generation pointers
@@ -53,7 +53,8 @@ canonical types and ports, while format, storage, query presentation, and projec
 outside those boundaries.
 
 The current baseline is an offline CLI with local JSONL canonical storage, repository overview,
-lexical search, impact analysis, static projectors, MCP transport, an explicit user-level
+lexical search, bounded single-call code exploration with relation chains and blast radius, impact analysis,
+static projectors, MCP transport, an explicit user-level
 repository identity registry, and an initial local daemon lifecycle/read-only protocol slice.
 Production multi-process storage, daemon job orchestration, semantic vectors, and daemon-served
 multi-repository workflows remain roadmap work.
@@ -97,6 +98,14 @@ Summarize the latest canonical snapshot for repository orientation:
 ```bash
 cargo run -p ath --quiet -- overview .
 cargo run -p ath --quiet -- overview . --json
+```
+
+Answer one code question in a single bounded call — ranked entities, citations, the one-hop
+neighbourhood, multi-hop relation chains, and the aggregate blast radius:
+
+```bash
+cargo run -p ath --quiet -- explore "index publication rollback"
+cargo run -p ath --quiet -- explore --target "crates/athanor-app/src/explore.rs" --depth 2 --json
 ```
 
 Build a task-focused context pack from the latest canonical snapshot:

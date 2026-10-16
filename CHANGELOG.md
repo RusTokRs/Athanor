@@ -15,6 +15,10 @@ substantive release notes.
 
 - Add Rust trait-supertrait and JS/TS class/interface `Extends`, preserving Rust/JS/TS `Implements`; bump index state v46→v47.
 - Add the bounded `explore` MCP tool: one query returns ranked entries, citations, and one-hop relations.
+- Extend `explore` with bounded multi-hop relation chains and an aggregate blast radius (`--depth`/`--paths`,
+  default two hops and 16 chains, with every truncation disclosed), let it anchor on an exact stable key or
+  repository path through `target`, and expose the same answer as the `ath explore` command so agents and
+  people without MCP get one call instead of a query loop.
 - Add `builtin.extractor.treesitter` over Python and Go: one data-driven engine records declarations,
   receiver-qualified methods and other declarations, imports, exports, and statically named call sites.
 - Add `builtin.linker.treesitter`: Python and Go imports, cross-file calls through package units,

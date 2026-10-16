@@ -132,7 +132,7 @@ Every tool accepts an optional `deadline_unix_ms` field: a future Unix timestamp
 | `explain` | Explains one canonical entity, facts, relations, and diagnostics. | `stable_key: string` |
 | `overview` | Summarizes the latest canonical snapshot for repository orientation. | `top?: integer` |
 | `search` | Performs Tantivy BM25 search over workspace knowledge. | `query: string`, `limit?: integer` |
-| `explore` | Answers one code question in a single call: ranked entry entities with source anchors, citations, and the one-hop relation neighbourhood. | `query: string`, `entries?: integer`, `links?: integer`, `mode?: "lexical" | "semantic" | "hybrid"` |
+| `explore` | Answers one code question in a single call: ranked entry entities with source anchors, citations, the one-hop relation neighbourhood, bounded multi-hop relation chains, and the aggregate blast radius. | `query?: string`, `target?: string`, `entries?: integer`, `links?: integer`, `depth?: integer`, `paths?: integer`, `mode?: "lexical" | "semantic" | "hybrid"` |
 | `context` | Generates a task-focused context pack from the latest snapshot. | `task: string`, `level?: string`, limits... |
 | `impact` | Calculates the direct/transitive blast radius of changes. | `target?: string`, `diff?: boolean`, `max_depth?: integer` |
 | `change_map` | Returns bounded evidence-backed change locations and relation chains. | `task?: string`, `target?: string`, `diff?: boolean`, limits... |

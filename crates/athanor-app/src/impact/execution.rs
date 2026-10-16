@@ -96,7 +96,15 @@ pub async fn impact_project_with_composition(
     ))
 }
 
-fn resolve_target_entities(root: &Path, entities: &[Entity], target: &str) -> Result<Vec<Entity>> {
+/// Resolves one exact stable key or repository path into canonical entities.
+///
+/// It is shared by `impact`, `change map`, and `explore` so all three anchor on the same candidate
+/// set, and it stays read-only over the loaded snapshot.
+pub(crate) fn resolve_target_entities(
+    root: &Path,
+    entities: &[Entity],
+    target: &str,
+) -> Result<Vec<Entity>> {
     let mut resolved = entities
         .iter()
         .filter(|entity| entity.stable_key.0 == target)
