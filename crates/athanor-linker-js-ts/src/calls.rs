@@ -10,6 +10,13 @@
 //! call shapes (computed members, call results, reflective dispatch) stay
 //! unresolved instead of being guessed, and name-based fallbacks require a
 //! unique candidate so ambiguity never silently becomes a fact.
+//!
+//! Call sites recorded by known callback combinators (`map`, `then`,
+//! `setTimeout`, and similar) additionally bridge their statically named
+//! arguments: an indirect invocation through a recorded callback argument
+//! resolves with the same ordered rules and emits its own `Calls` relation
+//! with reason `js_ts_callback_bridge`, keeping direct and indirect paths
+//! distinct. Unresolvable or ambiguous callback arguments stay unresolved.
 
 use std::collections::{HashMap, HashSet};
 
@@ -126,49 +133,108 @@ impl Linker for JsTsCallLinker {
                 let Some(callee) = call.get("callee").and_then(Value::as_str) else {
                     continue;
                 };
-                let Some((target, resolution, confidence)) = resolve_call(
+                let line = call.get("line").and_then(Value::as_u64);
+                let column = call.get("column").and_then(Value::as_u64);
+                let call_kind = call.get("kind").and_then(Value::as_str).unwrap_or("call");
+
+                if let Some((target, resolution, confidence)) = resolve_call(
                     callee,
                     caller,
                     caller_module,
                     &modules,
                     &declarations_by_path,
                     &declarations_by_name,
-                ) else {
-                    continue;
-                };
-                if target.id == caller.id {
-                    continue;
+                ) {
+                    let affects_subset =
+                        affected_ids.contains(&caller.id) || affected_ids.contains(&target.id);
+                    if target.id != caller.id && affects_subset {
+                        push_unique(
+                            &mut relations,
+                            &mut relation_ids,
+                            call_relation(
+                                &input.snapshot,
+                                caller,
+                                target,
+                                callee,
+                                call_kind,
+                                resolution,
+                                confidence,
+                                line,
+                                column,
+                            ),
+                        );
+                        if is_test_file(&caller_path)
+                            && let Some(target_path) = entity_path(target)
+                            && !is_test_file(&target_path)
+                        {
+                            push_unique(
+                                &mut relations,
+                                &mut relation_ids,
+                                tested_by_relation(&input.snapshot, target, caller, callee, line),
+                            );
+                        }
+                    }
                 }
-                if !affected_ids.contains(&caller.id) && !affected_ids.contains(&target.id) {
-                    continue;
-                }
-                let line = call.get("line").and_then(Value::as_u64);
-                let column = call.get("column").and_then(Value::as_u64);
-                let call_kind = call.get("kind").and_then(Value::as_str).unwrap_or("call");
-                push_unique(
-                    &mut relations,
-                    &mut relation_ids,
-                    call_relation(
-                        &input.snapshot,
-                        caller,
-                        target,
-                        callee,
-                        call_kind,
-                        resolution,
-                        confidence,
-                        line,
-                        column,
-                    ),
-                );
-                if is_test_file(&caller_path)
-                    && let Some(target_path) = entity_path(target)
-                    && !is_test_file(&target_path)
-                {
-                    push_unique(
-                        &mut relations,
-                        &mut relation_ids,
-                        tested_by_relation(&input.snapshot, target, caller, callee, line),
-                    );
+
+                // Callback bridges: a combinator call such as `list.map(fn)`
+                // invokes its argument indirectly, so each statically named
+                // callback argument gets its own evidence-backed `Calls` edge.
+                // Resolution reuses the direct-call order and its fail-closed
+                // rules; an unresolvable callback stays unresolved.
+                if let Some(callbacks) = call.get("callback_arguments").and_then(Value::as_array) {
+                    for callback in callbacks {
+                        let Some(callback_name) = callback.as_str() else {
+                            continue;
+                        };
+                        let Some((target, resolution, confidence)) = resolve_call(
+                            callback_name,
+                            caller,
+                            caller_module,
+                            &modules,
+                            &declarations_by_path,
+                            &declarations_by_name,
+                        ) else {
+                            continue;
+                        };
+                        if target.id == caller.id {
+                            continue;
+                        }
+                        if !affected_ids.contains(&caller.id) && !affected_ids.contains(&target.id)
+                        {
+                            continue;
+                        }
+                        push_unique(
+                            &mut relations,
+                            &mut relation_ids,
+                            callback_relation(
+                                &input.snapshot,
+                                caller,
+                                target,
+                                callback_name,
+                                callee,
+                                resolution,
+                                confidence,
+                                line,
+                                column,
+                            ),
+                        );
+                        if is_test_file(&caller_path)
+                            && let Some(target_path) = entity_path(target)
+                            && !is_test_file(&target_path)
+                        {
+                            push_unique(
+                                &mut relations,
+                                &mut relation_ids,
+                                tested_by_relation(
+                                    &input.snapshot,
+                                    target,
+                                    caller,
+                                    callback_name,
+                                    line,
+                                ),
+                            );
+                        }
+                    }
                 }
             }
         }
@@ -890,6 +956,55 @@ fn call_relation(
             "line": line,
             "column": column,
             "reason": "js_ts_static_call",
+        }),
+    }
+}
+
+/// Builds the indirect call edge for one resolved callback argument.
+///
+/// The relation id uses its own material prefix so a declaration that is
+/// both called directly and passed as a callback keeps both edges: the
+/// evidence shapes differ, and blast-radius queries deserve the explicit
+/// indirect path.
+#[allow(clippy::too_many_arguments)]
+fn callback_relation(
+    snapshot: &SnapshotId,
+    caller: &Entity,
+    target: &Entity,
+    callback: &str,
+    host_callee: &str,
+    resolution: &str,
+    confidence: f32,
+    line: Option<u64>,
+    column: Option<u64>,
+) -> Relation {
+    let id_material = format!(
+        "js_ts_callback\0{}\0{}\0{}",
+        caller.stable_key.0, target.stable_key.0, callback
+    );
+    Relation {
+        id: RelationId(format!(
+            "rel_js_ts_callback_{:016x}",
+            stable_hash(id_material.as_bytes())
+        )),
+        kind: RelationKind::Calls,
+        from: caller.id.clone(),
+        to: target.id.clone(),
+        status: RelationStatus::Inferred,
+        confidence,
+        evidence: call_evidence(caller, target, line, confidence),
+        ownership: combined_ownership(caller, target),
+        snapshot: snapshot.clone(),
+        payload: json!({
+            "from": caller.stable_key.0,
+            "to": target.stable_key.0,
+            "callee": callback,
+            "host_callee": host_callee,
+            "callee_kind": "callback",
+            "resolution": resolution,
+            "line": line,
+            "column": column,
+            "reason": "js_ts_callback_bridge",
         }),
     }
 }
@@ -2643,6 +2758,262 @@ mod tests {
         assert_eq!(tested_by[0].from, login.id);
         assert_eq!(tested_by[0].to, test.id);
         assert_eq!(tested_by[0].payload["reason"], "js_ts_test_call");
+    }
+
+    #[tokio::test]
+    async fn bridges_callback_arguments_to_their_declarations() {
+        let filters = module("ent_filters", "src/filters.ts", json!({"imports": []}));
+        let pipeline = module(
+            "ent_pipeline",
+            "src/pipeline.ts",
+            json!({
+                "imports": [{
+                    "source": "./filters",
+                    "named_bindings": [{"imported": "filterActive", "local": "filterActive"}]
+                }]
+            }),
+        );
+        let filter_active = declaration(
+            "ent_filter_active",
+            "src/filters.ts",
+            "filterActive",
+            "filterActive",
+            true,
+            json!([]),
+        );
+        let handle_ok = declaration(
+            "ent_handle_ok",
+            "src/pipeline.ts",
+            "handleOk",
+            "handleOk",
+            false,
+            json!([]),
+        );
+        let on_change = declaration(
+            "ent_on_change",
+            "src/pipeline.ts",
+            "Pipeline.onChange",
+            "onChange",
+            true,
+            json!([]),
+        );
+        let run = declaration(
+            "ent_run",
+            "src/pipeline.ts",
+            "Pipeline.run",
+            "run",
+            true,
+            json!([
+                {
+                    "callee": "items.map",
+                    "name": "map",
+                    "kind": "call",
+                    "line": 3,
+                    "column": 3,
+                    "callback_arguments": ["filterActive"]
+                },
+                {
+                    "callee": "promise.then",
+                    "name": "then",
+                    "kind": "call",
+                    "line": 4,
+                    "column": 3,
+                    "callback_arguments": ["handleOk"]
+                },
+                {
+                    "callee": "emitter.addEventListener",
+                    "name": "addEventListener",
+                    "kind": "call",
+                    "line": 5,
+                    "column": 3,
+                    "callback_arguments": ["this.onChange"]
+                }
+            ]),
+        );
+
+        let entities = vec![
+            filters,
+            pipeline,
+            filter_active.clone(),
+            handle_ok.clone(),
+            on_change.clone(),
+            run.clone(),
+        ];
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 3);
+        assert!(calls.iter().all(|relation| {
+            relation.payload["reason"] == "js_ts_callback_bridge"
+                && relation.payload["callee_kind"] == "callback"
+                && relation.status == RelationStatus::Inferred
+        }));
+        assert!(calls.iter().any(|relation| {
+            relation.from == run.id
+                && relation.to == filter_active.id
+                && relation.payload["callee"] == "filterActive"
+                && relation.payload["host_callee"] == "items.map"
+                && relation.payload["resolution"] == "imported_exact_name"
+                && relation.payload["line"].as_u64() == Some(3)
+        }));
+        assert!(calls.iter().any(|relation| {
+            relation.from == run.id
+                && relation.to == handle_ok.id
+                && relation.payload["callee"] == "handleOk"
+                && relation.payload["host_callee"] == "promise.then"
+                && relation.payload["resolution"] == "same_module_exact_name"
+        }));
+        assert!(calls.iter().any(|relation| {
+            relation.from == run.id
+                && relation.to == on_change.id
+                && relation.payload["callee"] == "this.onChange"
+                && relation.payload["host_callee"] == "emitter.addEventListener"
+                && relation.payload["resolution"] == "same_module_this_method"
+        }));
+    }
+
+    #[tokio::test]
+    async fn bridges_test_callbacks_into_tested_by_edges() {
+        let session = module("ent_session", "src/session.ts", json!({"imports": []}));
+        let test_module = module(
+            "ent_test_module",
+            "src/auth.test.ts",
+            json!({
+                "imports": [{
+                    "source": "./session",
+                    "named_bindings": [{"imported": "checkSession", "local": "checkSession"}]
+                }]
+            }),
+        );
+        let check_session = declaration(
+            "ent_check_session",
+            "src/session.ts",
+            "checkSession",
+            "checkSession",
+            true,
+            json!([]),
+        );
+        let verify = declaration(
+            "ent_verify",
+            "src/auth.test.ts",
+            "verifySession",
+            "verifySession",
+            false,
+            json!([
+                {
+                    "callee": "promise.then",
+                    "name": "then",
+                    "kind": "call",
+                    "line": 2,
+                    "column": 3,
+                    "callback_arguments": ["checkSession"]
+                }
+            ]),
+        );
+
+        let entities = vec![session, test_module, check_session.clone(), verify.clone()];
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        let tested_by = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::TestedBy)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from, verify.id);
+        assert_eq!(calls[0].to, check_session.id);
+        assert_eq!(calls[0].payload["reason"], "js_ts_callback_bridge");
+        assert_eq!(tested_by.len(), 1);
+        assert_eq!(tested_by[0].from, check_session.id);
+        assert_eq!(tested_by[0].to, verify.id);
+        assert_eq!(tested_by[0].payload["reason"], "js_ts_test_call");
+    }
+
+    #[tokio::test]
+    async fn leaves_unresolvable_and_ambiguous_callbacks_unresolved() {
+        let first = module("ent_first", "src/first.ts", json!({"imports": []}));
+        let second = module("ent_second", "src/second.ts", json!({"imports": []}));
+        let caller_module = module("ent_caller_module", "src/caller.ts", json!({"imports": []}));
+        let duplicate_one = declaration(
+            "ent_duplicate_one",
+            "src/first.ts",
+            "duplicate",
+            "duplicate",
+            true,
+            json!([]),
+        );
+        let duplicate_two = declaration(
+            "ent_duplicate_two",
+            "src/second.ts",
+            "duplicate",
+            "duplicate",
+            true,
+            json!([]),
+        );
+        let caller = declaration(
+            "ent_caller",
+            "src/caller.ts",
+            "caller",
+            "caller",
+            true,
+            json!([
+                {
+                    "callee": "items.map",
+                    "name": "map",
+                    "kind": "call",
+                    "line": 2,
+                    "column": 3,
+                    "callback_arguments": ["missingHandler", "duplicate"]
+                }
+            ]),
+        );
+
+        let entities = vec![
+            first,
+            second,
+            caller_module,
+            duplicate_one,
+            duplicate_two,
+            caller,
+        ];
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        assert!(
+            relations
+                .iter()
+                .all(|relation| relation.payload["reason"] != "js_ts_callback_bridge"),
+            "unresolvable and ambiguous callbacks must stay unresolved"
+        );
     }
 
     fn call_site(callee: &str, name: &str, line: u64) -> serde_json::Value {

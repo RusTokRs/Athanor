@@ -23,12 +23,13 @@ substantive release notes.
   metrics endpoints and telemetry variable names from canonical evidence; probes, alerts, dashboards,
   and SLOs stay absent until they have an evidence source.
 - Add the JavaScript/TypeScript call graph. The JS/TS extractor records each import statement's local
-  bindings (`default_name`, `namespace_name`, `named`) and a bounded `calls` array per function,
-  method, and variable-bound function declaration with the statically named callee, receiver, kind,
-  argument count, and line/column. `builtin.linker.js_ts_calls` resolves those call sites into
-  evidence-backed `Calls` relations (same-module, `this.` member, imported binding, and unique-name
-  fallbacks) and emits `TestedBy` when a test-location declaration calls production code.
+  bindings (`default_name`, `namespace_name`, `named`) and a bounded `calls` array per declaration
+  with the statically named callee, receiver, kind, argument count, and line/column.
+  `builtin.linker.js_ts_calls` resolves those call sites into evidence-backed `Calls` relations
+  (same-module, `this.` member, imported binding, unique-name) and emits `TestedBy` from test locations.
 - Preserve JS/TS aliases; resolve bounded named/default and direct-namespace calls plus uniquely aggregated multi-source wildcards, exclude wildcard `default`, and bump index v47→v52.
+- Add JS/TS callback and promise-handler bridges: combinator call sites record bounded
+  `callback_arguments` that the call linker resolves into indirect evidence-backed `Calls` edges; index state bumps v52→v53.
 - Add strict versioned request, outline, context, citation, draft, manifest, and validation-report
   contracts for evidence-backed documentation generation: exact snapshot binding, portable paths,
   stable-key/evidence traceability, cited diagram edges, metrics, and checksums.
@@ -60,10 +61,9 @@ substantive release notes.
   reject tampered manifests/artifacts as up to date and rebuild instead of reusing them.
 - Reject missing or uncommitted documentation snapshot IDs instead of falling back to the latest visible
   snapshot, and preserve the previous current pointer when CLI generation is cancelled.
-- Restore the bounded snapshot-search module and rebuild the workspace after the semantic-search slice:
-  mode dispatch and hybrid ranking move to `search/execution.rs`, `execute_search` is re-exported, and
-  `athanor-search-tantivy` compiles again with the declared `serde` dependency and score-ordered
-  `TopDocs`; semantic hits are floored at 0.2 cosine similarity.
+- Restore the bounded snapshot-search module after the semantic-search slice: mode dispatch and
+  hybrid ranking move to `search/execution.rs`, and `athanor-search-tantivy` compiles again with
+  the declared `serde` dependency, score-ordered `TopDocs`, and a 0.2 cosine-similarity floor.
 
 ## [0.2.1] - 2026-07-23
 

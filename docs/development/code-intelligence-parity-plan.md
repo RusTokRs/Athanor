@@ -52,9 +52,9 @@ Two concrete targets:
 - JS/TS: class `extends`/`implements` and interface `extends` with distinct canonical relation kinds;
   P2B covers explicit named re-export chains, P2C bounded single-source wildcard re-exports, P2D
   named default function exports/re-exports, P2E direct namespace re-exports for single-member calls
-  through named imports, and P2F bounded multiple-source wildcard aggregation. Callbacks and promise
-  handlers, multi-hop namespace aliases, anonymous/default class exports, path aliases, and
-  workspace-package specifiers remain open.
+  through named imports, P2F bounded multiple-source wildcard aggregation, and P2G callback and
+  promise-handler bridges for allowlisted combinators. Multi-hop namespace aliases,
+  anonymous/default class exports, path aliases, and workspace-package specifiers remain open.
 - Both: symbol-level incremental invalidation so a changed declaration re-resolves only its closure.
 
 #### P2A — Heritage Relation Semantics (bounded Rust/TypeScript slice)
@@ -258,10 +258,56 @@ all feature matrices, workspace tests, Clippy, source coverage, smoke, editable 
 license checks. The companion AppSec, Store Conformance, Production Gate, focused documentation, and
 DOCGEN checks also passed for that exact commit.
 
+#### P2G — Callback And Promise-Handler Bridges (bounded JS/TS slice)
+
+- The extractor records a bounded `callback_arguments` array on call sites whose terminal callee
+  name is a known callback combinator: array iteration methods (`map`, `filter`, `forEach`, `find`,
+  `findIndex`, `findLast`, `findLastIndex`, `some`, `every`, `reduce`, `reduceRight`, `flatMap`,
+  `sort`), promise handlers (`then`, `catch`, `finally`), timers (`setTimeout`, `setInterval`),
+  and event/observable registration (`addEventListener`, `addListener`, `on`, `once`,
+  `subscribe`). Only plain identifiers and identifier-rooted member chains are recorded; inline
+  arrows, call results, literals, and computed expressions are skipped, and at most four
+  arguments are kept per call site.
+- The call linker resolves each recorded argument through the existing ordered rules
+  (same-module exact/`this.` member, import bindings, re-export chains, unique names) and emits
+  its own `Calls` relation with reason `js_ts_callback_bridge`, the hosting combinator in
+  `host_callee`, and `callee_kind: "callback"`. A dedicated relation-id material prefix keeps a
+  direct call and a callback bridge to the same target as two distinct edges.
+- Bridges inherit the fail-closed rules: an unresolvable, ambiguous, cyclic, or over-budget
+  argument stays unresolved, and the hosting call's own resolution (or its failure) never gates
+  the bridge, so `list.map(filterActive)` bridges even though `list.map` itself stays
+  unresolved. Bridges from a test location additionally emit `TestedBy`.
+- Non-allowlisted callees never record callback arguments, so an ordinary `queue.push(handler)`
+  call does not become a guessed edge. Callbacks passed as inline arrows, call results, or
+  computed expressions remain outside the model because they have no statically nameable
+  target. Receiver typing for callback arguments is unchanged: resolution is name-and-binding
+  based only.
+- Bump normal/precision index-state schemas from v52 to v53 because the normalized call-site
+  payload gains the `callback_arguments` field, so cached module payloads are rebuilt in both
+  configurations.
+
+Focused source regression matrix:
+
+| Surface | Regression |
+| --- | --- |
+| JS/TS extractor | Allowlisted combinator calls record bounded, statically nameable `callback_arguments`; non-allowlisted callees and literal/arrow/call-result arguments record none |
+| Call linker | Combinator arguments resolve through the existing ordered rules and emit `Calls` with reason `js_ts_callback_bridge` and `host_callee`; unresolvable and ambiguous arguments stay unresolved; test-location bridges emit `TestedBy` |
+| Persistence | v52 normal/precision state is rejected and forces a v53 rebuild |
+
+Focused verification:
+
+```bash
+cargo test -p athanor-extractor-js-ts --locked
+cargo test -p athanor-extractor-js-ts --features precision-parser --locked
+cargo test -p athanor-linker-js-ts --locked
+cargo test -p athanor-app --locked
+cargo test -p athanor-app --features js-ts-precision --locked
+```
+
 #### Remaining P2 Gaps
 
-- JavaScript/TypeScript callbacks and promise handlers; multi-hop namespace aliases, anonymous/default
-  class exports; package/workspace specifiers and TypeScript path aliases; receiver/type-aware dispatch
+- JavaScript/TypeScript multi-hop namespace aliases, anonymous/default class exports;
+  package/workspace specifiers and TypeScript path aliases; receiver/type-aware dispatch
   and deep member paths.
 - Rust dyn-dispatch candidates and symbol-level incremental invalidation for both Rust and JS/TS.
 
@@ -394,7 +440,11 @@ stable-key/path anchor, and the `ath explore` command over the same report; verb
 slice is exact-commit verified on `c48ca69` (CI run `38869503550`, AppSec `38869503667`, Store Conformance
 `38869503725`), covering the workspace suite, Clippy `-D warnings`, `cargo fmt --check`, the indexing smoke,
 and `ath docs check` across ubuntu, windows, and macos; the axis stays open because the remaining C1/C2
-coverage and C5 freshness gaps are untouched. Slice P3 is source-implemented as `builtin.extractor.treesitter`: one engine walks a
+coverage and C5 freshness gaps are untouched. Slice P2G adds callback and promise-handler bridges: the extractor records bounded
+`callback_arguments` on allowlisted combinator call sites, and the call linker resolves each
+recorded argument through the existing ordered rules into an evidence-backed indirect `Calls`
+edge with reason `js_ts_callback_bridge`, bumping both index-state schema families from v52 to
+v53. Slice P3 is source-implemented as `builtin.extractor.treesitter`: one engine walks a
 per-language pack of node kinds and field names and records declaration, import, export, and call
 evidence for Python and Go, with the existing cross-file linkers still owning resolution. Historical
 exact-commit verification for P1, the pre-P2A P2 slice, and P5 is green on `191c65e` (sandbox

@@ -82,6 +82,15 @@ them, nested class bodies are skipped because their members are separate declara
 is capped at 256 entries per declaration so payloads stay bounded. Call sites are raw syntax
 evidence: resolving them to declarations is the job of the JS/TS call linker.
 
+A call site whose terminal callee name is a known callback combinator (array iteration methods,
+promise handlers `then`/`catch`/`finally`, timers, and event/observable registration) additionally
+records a bounded `callback_arguments` array of its statically nameable arguments — plain
+identifiers and identifier-rooted member chains such as `this.onChange`. Inline arrows, call
+results, literals, and computed expressions are skipped, and at most four arguments are recorded.
+The allowlist keeps the evidence bounded to positions that really invoke a function; the call
+linker turns each recorded argument into an indirect `Calls` edge when it resolves to a unique
+declaration.
+
 ## Type Heritage
 
 Class declarations record heritage names in declaration order: `extends` is a one-element array for

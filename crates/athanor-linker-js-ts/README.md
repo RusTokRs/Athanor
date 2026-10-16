@@ -18,8 +18,12 @@ Adapter ids: `builtin.linker.js_ts_imports`, `builtin.linker.js_ts_calls`, `buil
 
 - `RelationKind::Calls` from a calling declaration to a resolved declaration, when the call site is
   statically named and resolution has evidence.
+- `RelationKind::Calls` for a callback bridge: a call site recorded by a known callback combinator
+  (`map`, `then`, `setTimeout`, …) also resolves each statically named argument, so
+  `list.map(filterActive)` links the caller to `filterActive` with reason
+  `js_ts_callback_bridge` and the hosting combinator in `host_callee`.
 - `RelationKind::TestedBy` from a tested declaration to a declaration in a test location that calls
-  it.
+  it, including callback bridges from test locations.
 
 `JsTsImplementsLinker` emits:
 
@@ -64,7 +68,9 @@ The call linker consumes the bounded `calls` arrays and the import bindings that
 
 Steps 5 and 6 accept a candidate only when it is unique, so ambiguity stays unresolved. Confidence
 runs from `0.9` for an exact same-module match down to `0.5` for a unique name match, and the payload
-records the callee, call kind, resolution reason, line, and column. Output is sorted by relation id
+records the callee, call kind, resolution reason, line, and column. Callback arguments run through
+the same ordered steps with the same fail-closed rules; the hosting call's own resolution never
+gates the bridge. Output is sorted by relation id
 and capped at 10,000 relations per snapshot.
 
 ## Side Effects

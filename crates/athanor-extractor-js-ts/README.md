@@ -20,6 +20,10 @@ route declarations and is registered independently as `builtin.extractor.express
 - `EntityKind::Symbol` for TypeScript interfaces and type aliases
 - Class `extends`/`implements` and TypeScript interface `extends` names in normalized declaration
   payloads for the heritage linker
+- Bounded `calls` arrays of statically named call sites per declaration, plus a bounded
+  `callback_arguments` array on call sites whose callee is a known callback combinator
+  (iteration methods, promise handlers, timers, event/observable registration) for the call
+  linker's callback bridges
 - `EntityKind::Package` and `EntityKind::Dependency` for `package.json` package and dependency declarations
 - `FactKind::SymbolDefined` for emitted source declarations and package dependency declarations
 - `DiagnosticKind::Other("js_ts_parse_error")` when tree-sitter reports parser errors, coalesced at the outer parser error node to avoid duplicate nested findings
@@ -103,6 +107,10 @@ None. The extractors do not run commands, use the network, or modify project fil
   namespace mappings for single-member calls.
 - Multi-hop namespace aliases, anonymous/default-expression and class call targets, ambiguous or
   unresolved wildcard branches, and package/workspace/path-alias targets remain unresolved.
+- Callback evidence is recorded only for the combinator allowlist and only for statically
+  nameable arguments (identifiers and identifier-rooted member chains); inline arrows, call
+  results, literals, and computed arguments are never recorded, and at most four arguments are
+  kept per call site.
 - JSX and TSX component semantics are not inferred. Components are emitted as normal functions or classes.
 - Framework-specific semantics remain outside `JsTsExtractor`; separate `NextJsExtractor` and
   `ExpressExtractor` owners cover only their bounded route projections.

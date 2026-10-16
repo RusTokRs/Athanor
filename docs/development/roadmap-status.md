@@ -166,6 +166,7 @@ gap, the typo-named `for agents. md` briefing, was fixed by renaming it to
 - [x] Slice P2: `implements` bridges — Rust `trait_impl` facts plus JS/TS class heritage (prior source slice).
 - [x] Slice P2A verified: Rust/JS/TS `Extends`, impact/ranking/profile, index v47; CI `38722056518` passed on `4a23498`.
 - [x] P2B/P2C/P2D/P2E/P2F verified: named/star/default/direct-namespace/multi-source calls, v48–v52; CI `38742833180`/`5b5f8a1`, `38748788007`/`49444d5`, `38757025492`/`c105cad`, exact-commit `38772624382`/`6aefc28`, and `38785145039`/`a67782f` passed.
+- [ ] Slice P2G source implementation: callback and promise-handler bridges — the JS/TS extractor records bounded `callback_arguments` on allowlisted combinator call sites, and the call linker resolves each recorded argument through the existing ordered rules into an indirect `Calls` edge (reason `js_ts_callback_bridge`, hosting combinator in `host_callee`), with `TestedBy` from test locations; index state v52→v53. Focused extractor/linker/app tests included; exact-commit verification pending.
 - [x] Slice P3: `builtin.extractor.treesitter` plus `builtin.linker.treesitter` host and resolve receiver-qualified Python and Go packs, with a per-language coverage measurement published.
 - [x] Slice P4: deterministic operations documentation — DOCGEN-001 4A–4C; the monitoring category derives declared health/metrics endpoints and telemetry variable names, with probes/alerts still open.
 - [x] Slice P5: bounded `explore` MCP query — ranked entries, one-hop relations, citations, budgets.
