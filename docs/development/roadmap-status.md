@@ -166,16 +166,11 @@ gap, the typo-named `for agents. md` briefing, was fixed by renaming it to
 - [x] Slice P2: `implements` bridges — Rust `trait_impl` facts plus JS/TS class heritage (prior source slice).
 - [x] Slice P2A verified: Rust/JS/TS `Extends`, impact/ranking/profile, index v47; CI `38722056518` passed on `4a23498`.
 - [x] P2B/P2C/P2D/P2E/P2F verified: named/star/default/direct-namespace/multi-source calls, v48–v52; CI `38742833180`/`5b5f8a1`, `38748788007`/`49444d5`, `38757025492`/`c105cad`, exact-commit `38772624382`/`6aefc28`, and `38785145039`/`a67782f` passed.
-- [x] Slice P3: `builtin.extractor.treesitter` plus `builtin.linker.treesitter` host and resolve
-  receiver-qualified Python and Go packs, with a per-language coverage measurement published.
-- [x] Slice P4: deterministic operations documentation — DOCGEN-001 4A–4C; the monitoring category
-  derives declared health/metrics endpoints and telemetry variable names, with probes/alerts still open.
+- [x] Slice P3: `builtin.extractor.treesitter` plus `builtin.linker.treesitter` host and resolve receiver-qualified Python and Go packs, with a per-language coverage measurement published.
+- [x] Slice P4: deterministic operations documentation — DOCGEN-001 4A–4C; the monitoring category derives declared health/metrics endpoints and telemetry variable names, with probes/alerts still open.
 - [x] Slice P5: bounded `explore` MCP query — ranked entries, one-hop relations, citations, budgets.
-- [ ] Slice P5b source-implemented: `explore` multi-hop code-flow chains, aggregate blast radius, exact
-  `target` anchor, and the `ath explore` command over `athanor.explore.v1`; focused explore/CLI regressions
-  are present and exact-commit CI evidence is pending.
-- Historical: pre-P2A P1/P2/P5 run `38152033388` (`191c65e`, not this worktree); P3 `38157055780`
-  (`e07547e`), P4b `38160162759` (`69d8918`), and P3 linker `38165153178` (`09ce6ab`) passed with zero-line rustfmt diffs and successful or skipped checks.
+- [ ] Slice P5b source-implemented: `explore` multi-hop code-flow chains, aggregate blast radius, exact `target` anchor, and the `ath explore` command over `athanor.explore.v1`; focused explore/CLI regressions are present and exact-commit CI evidence is pending.
+- Historical: pre-P2A P1/P2/P5 run `38152033388` (`191c65e`, not this worktree); P3 `38157055780` (`e07547e`), P4b `38160162759` (`69d8918`), and P3 linker `38165153178` (`09ce6ab`) passed with zero-line rustfmt diffs and successful or skipped checks.
 
 ### `DOCGEN-001` — Evidence-Backed Documentation Generation
 
