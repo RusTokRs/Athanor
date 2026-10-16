@@ -317,4 +317,4 @@ verification Slice 8I — зелёный workflow set на head pull request #13
 
 Post-8I naming defect устранён: `for agents. md` → `architecture_audit_briefing_ru.md` (`0b42c28…`);
 self-evaluation `37310134250`: `692/735` (`9414` bps), Markdown `151/151`; in-policy coverage завершена,
-следующие gaps — только через отдельный evidence-backed product scope, fixtures — не coverage target.
+следующие gaps — только через отдельный evidence-backed product scope, fixtures — не coverage target. Slice P5b (agent surface) source-implemented: `explore` отдаёт многошаговые code-flow цепочки (2–4 hop), агрегированный blast radius, якорь по точному `target` и доступен как `ath explore`; схема отчёта остаётся `athanor.explore.v1` (аддитивно), а source-state/details — в `docs/development/code-intelligence-parity-plan.md`.

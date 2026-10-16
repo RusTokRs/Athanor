@@ -1,25 +1,36 @@
 //! Bounded single-call code exploration over one exact canonical snapshot.
 //!
-//! `explore` answers one agent question with ranked entry entities, their portable source
-//! anchors, citation evidence, and the one-hop relation neighbourhood in both directions. It
-//! composes bounded retrieval (the same lexical/semantic/hybrid search the `search` tool uses)
-//! with the committed snapshot itself, and it never reads source files: every field is derived
-//! from canonical entities, relations, facts, and diagnostics.
+//! `explore` answers one agent question with ranked entry entities, their portable source anchors,
+//! citation evidence, the one-hop relation neighbourhood in both directions, bounded multi-hop
+//! code-flow chains, and an aggregate blast radius for the same hop budget. Entries are seeded
+//! either by bounded retrieval (the same lexical/semantic/hybrid search the `search` tool uses) or
+//! by an exact stable key or repository path, so an agent that already knows where to look does not
+//! pay a retrieval round-trip first. It never reads source files: every field is derived from
+//! canonical entities, relations, facts, and diagnostics.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use athanor_core::{CanonicalSnapshot, CanonicalSnapshotStore, OperationContext};
 use athanor_domain::{Entity, EntityId, Evidence, Relation, SourceLocation};
 use serde::{Deserialize, Serialize};
 
 use crate::RuntimeComposition;
 use crate::config::load_config;
+use crate::impact::resolve_target_entities;
 use crate::json_contract::{EXPLORE_SCHEMA_V1, VersionedJsonContract};
 use crate::project_path::normalize_canonical_path;
 use crate::search::{
     SearchMode, SearchReport, search_snapshot_with_composition_and_operation_context,
+};
+
+#[path = "explore/paths.rs"]
+mod paths;
+
+pub use paths::{
+    DEFAULT_EXPLORE_DEPTH, DEFAULT_EXPLORE_PATHS, ExploreBlast, ExploreBlastDepth, ExplorePath,
+    ExplorePathEndpoint, ExplorePathStep, MAX_EXPLORE_DEPTH, MAX_EXPLORE_PATHS,
 };
 
 /// Default number of entry entities returned for one explore request.
@@ -37,21 +48,29 @@ const MAX_CITATIONS: usize = 4;
 pub struct ExploreOptions {
     pub root: PathBuf,
     pub query: String,
+    /// Exact stable key or repository path used instead of retrieval when present.
+    pub target: Option<String>,
     pub entries: usize,
     pub links: usize,
+    pub depth: usize,
+    pub paths: usize,
     pub mode: SearchMode,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct ExploreLimits {
     pub entries: usize,
     pub links: usize,
+    pub depth: usize,
+    pub paths: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExploreOmissions {
     pub entries_unresolved: usize,
+    pub entries_over_budget: usize,
     pub links_truncated: usize,
+    pub paths_truncated: usize,
     pub notes: Vec<String>,
 }
 
@@ -95,6 +114,75 @@ pub struct ExploreEntry {
     pub open_diagnostics: usize,
 }
 
+/// One resolved starting point of an exploration, before canonical entity lookup.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExploreSeed {
+    pub stable_key: String,
+    pub kind: String,
+    pub score: f32,
+}
+
+/// One prepared explore request: the seeds to resolve plus the retrieval state that produced them.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ExploreRequest {
+    pub query: String,
+    pub mode: SearchMode,
+    pub snapshot: String,
+    pub anchor: Option<String>,
+    pub candidates: usize,
+    pub retrieval_truncated: bool,
+    pub seeds: Vec<ExploreSeed>,
+}
+
+impl ExploreRequest {
+    /// Derives the request from one already-resolved retrieval report.
+    pub fn from_search(search: &SearchReport) -> Self {
+        Self {
+            query: search.query.clone(),
+            mode: search.mode,
+            snapshot: search.snapshot.clone(),
+            anchor: None,
+            candidates: search.returned,
+            retrieval_truncated: search.truncated,
+            seeds: search
+                .results
+                .iter()
+                .map(|item| ExploreSeed {
+                    stable_key: item.stable_key.clone(),
+                    kind: item.kind.clone(),
+                    score: item.score,
+                })
+                .collect(),
+        }
+    }
+
+    /// Derives the request from entities resolved out of an exact stable key or repository path.
+    pub fn from_target(
+        snapshot_id: &str,
+        query: String,
+        mode: SearchMode,
+        target: &str,
+        entities: &[Entity],
+    ) -> Self {
+        Self {
+            query,
+            mode,
+            snapshot: snapshot_id.to_string(),
+            anchor: Some(target.to_string()),
+            candidates: entities.len(),
+            retrieval_truncated: false,
+            seeds: entities
+                .iter()
+                .map(|entity| ExploreSeed {
+                    stable_key: entity.stable_key.0.clone(),
+                    kind: label(&entity.kind),
+                    score: 1.0,
+                })
+                .collect(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExploreReport {
     pub schema: String,
@@ -102,8 +190,11 @@ pub struct ExploreReport {
     pub snapshot: String,
     pub query: String,
     pub mode: SearchMode,
+    pub anchor: Option<String>,
     pub limits: ExploreLimits,
     pub entries: Vec<ExploreEntry>,
+    pub paths: Vec<ExplorePath>,
+    pub blast: ExploreBlast,
     pub omitted: ExploreOmissions,
 }
 
@@ -121,8 +212,15 @@ pub async fn explore_project_with_composition_and_operation_context(
     composition: &RuntimeComposition,
     operation: &OperationContext,
 ) -> Result<ExploreReport> {
-    if options.query.trim().is_empty() {
-        bail!("explore query must not be empty");
+    let query = options.query.trim().to_string();
+    let target = options
+        .target
+        .as_deref()
+        .map(str::trim)
+        .filter(|target| !target.is_empty())
+        .map(str::to_string);
+    if query.is_empty() && target.is_none() {
+        bail!("explore requires a non-empty query or a target stable key or path");
     }
     let root = normalize_canonical_path(
         options
@@ -130,8 +228,12 @@ pub async fn explore_project_with_composition_and_operation_context(
             .canonicalize()
             .with_context(|| format!("failed to canonicalize {}", options.root.display()))?,
     );
-    let entries = options.entries.clamp(1, MAX_EXPLORE_ENTRIES);
-    let links = options.links.clamp(1, MAX_EXPLORE_LINKS);
+    let limits = ExploreLimits {
+        entries: options.entries.clamp(1, MAX_EXPLORE_ENTRIES),
+        links: options.links.clamp(1, MAX_EXPLORE_LINKS),
+        depth: options.depth.clamp(1, MAX_EXPLORE_DEPTH),
+        paths: options.paths.clamp(1, MAX_EXPLORE_PATHS),
+    };
     let config = load_config(&root)?;
     let store = composition.init_store(&root, &config).await?;
     let snapshot = store
@@ -139,61 +241,82 @@ pub async fn explore_project_with_composition_and_operation_context(
         .await
         .context("failed to load latest canonical snapshot")?
         .ok_or_else(|| {
-            anyhow::anyhow!(
+            anyhow!(
                 "no canonical snapshot found; run `ath index {}` first",
                 root.display()
             )
         })?;
+    let snapshot_id = snapshot
+        .snapshot
+        .as_ref()
+        .map(|snapshot| snapshot.0.clone())
+        .ok_or_else(|| anyhow!("latest canonical snapshot has no snapshot id"))?;
 
-    let search = search_snapshot_with_composition_and_operation_context(
-        &root,
-        &snapshot,
-        options.query.trim().to_string(),
-        entries,
-        options.mode,
-        composition,
-        operation,
-    )
-    .await?;
+    let request = match target {
+        Some(target) => {
+            let resolved = resolve_target_entities(&root, &snapshot.entities, &target)?;
+            ExploreRequest::from_target(&snapshot_id, query, options.mode, &target, &resolved)
+        }
+        None => {
+            let search = search_snapshot_with_composition_and_operation_context(
+                &root,
+                &snapshot,
+                query,
+                limits.entries,
+                options.mode,
+                composition,
+                operation,
+            )
+            .await?;
+            ExploreRequest::from_search(&search)
+        }
+    };
 
-    Ok(explore_snapshot(&root, &snapshot, &search, entries, links))
+    Ok(explore_snapshot(&root, &snapshot, &request, &limits))
 }
 
-/// Builds the bounded report from one snapshot and one already-resolved retrieval result.
+/// Builds the bounded report from one snapshot and one already-prepared request.
 pub fn explore_snapshot(
     root: &Path,
     snapshot: &CanonicalSnapshot,
-    search: &SearchReport,
-    entries: usize,
-    links: usize,
+    request: &ExploreRequest,
+    limits: &ExploreLimits,
 ) -> ExploreReport {
+    let ExploreLimits {
+        entries,
+        links,
+        depth,
+        paths: path_budget,
+    } = *limits;
     let mut built = Vec::new();
+    let mut explored = Vec::new();
     let mut unresolved = 0usize;
-    let mut truncated = 0usize;
+    let mut links_truncated = 0usize;
     let mut notes = Vec::new();
 
-    for item in &search.results {
+    for seed in &request.seeds {
         if built.len() >= entries {
             break;
         }
         let Some(entity) = snapshot
             .entities
             .iter()
-            .find(|entity| entity.stable_key.0 == item.stable_key)
+            .find(|entity| entity.stable_key.0 == seed.stable_key)
         else {
             unresolved += 1;
             continue;
         };
         let (outgoing, out_truncated) = links_for(snapshot, entity, Direction::Outgoing, links);
         let (incoming, in_truncated) = links_for(snapshot, entity, Direction::Incoming, links);
-        truncated += out_truncated + in_truncated;
+        links_truncated += out_truncated + in_truncated;
+        explored.push(entity);
         built.push(ExploreEntry {
             stable_key: entity.stable_key.0.clone(),
             entity_id: entity.id.clone(),
-            kind: item.kind.clone(),
+            kind: seed.kind.clone(),
             name: entity.name.clone(),
             source: entity.source.clone(),
-            score: item.score,
+            score: seed.score,
             citations: citations_for(snapshot, entity),
             outgoing,
             incoming,
@@ -205,31 +328,45 @@ pub fn explore_snapshot(
         });
     }
 
+    let traversal = paths::explore_flow(snapshot, &explored, depth, path_budget);
+    let entries_over_budget = request.candidates.saturating_sub(built.len());
+
     if unresolved > 0 {
         notes.push(format!(
             "{unresolved} ranked results are not canonical entities in this snapshot"
         ));
     }
-    if truncated > 0 {
+    if entries_over_budget > 0 {
         notes.push(format!(
-            "{truncated} relations fall outside the per-entry link budget"
+            "{entries_over_budget} resolved candidates fall outside the entry budget"
         ));
     }
-    if search.truncated {
+    if links_truncated > 0 {
+        notes.push(format!(
+            "{links_truncated} relations fall outside the per-entry link budget"
+        ));
+    }
+    if request.retrieval_truncated {
         notes.push("retrieval returned more candidates than the entry budget".to_string());
     }
+    notes.extend(traversal.notes);
 
     ExploreReport {
         schema: EXPLORE_SCHEMA_V1.to_string(),
         root: root.to_path_buf(),
-        snapshot: search.snapshot.clone(),
-        query: search.query.clone(),
-        mode: search.mode,
-        limits: ExploreLimits { entries, links },
+        snapshot: request.snapshot.clone(),
+        query: request.query.clone(),
+        mode: request.mode,
+        anchor: request.anchor.clone(),
+        limits: *limits,
         entries: built,
+        paths: traversal.paths,
+        blast: traversal.blast,
         omitted: ExploreOmissions {
             entries_unresolved: unresolved,
-            links_truncated: truncated,
+            entries_over_budget,
+            links_truncated,
+            paths_truncated: traversal.paths_truncated,
             notes,
         },
     }
@@ -372,26 +509,32 @@ fn label<T: Serialize>(value: &T) -> String {
 mod tests {
     use athanor_domain::{
         Diagnostic, DiagnosticId, DiagnosticKind, DiagnosticStatus, EntityKind, EvidenceStatus,
-        Fact, FactId, FactKind, RelationId, RelationKind, RelationStatus, Severity, SnapshotId,
-        StableKey,
+        Fact, FactId, FactKind, LanguageCode, RelationId, RelationKind, RelationStatus, Severity,
+        SnapshotId, StableKey,
     };
     use serde_json::json;
 
     use super::*;
 
+    const LOAD: &str = "symbol://rust:crate::store::Store::load";
+
     #[test]
     fn explore_returns_ranked_entries_with_one_hop_links_and_citations() {
         let snapshot = snapshot_fixture();
-        let report = explore_snapshot(
-            Path::new("repo"),
+        let report = explore(
             &snapshot,
-            &search_fixture(&["symbol://rust:crate::store::Store::load"]),
-            5,
-            8,
+            &[LOAD],
+            ExploreLimits {
+                entries: 5,
+                links: 8,
+                depth: 1,
+                paths: 16,
+            },
         );
 
         assert_eq!(report.schema, EXPLORE_SCHEMA_V1);
         assert_eq!(report.snapshot, "snap_fixture");
+        assert_eq!(report.anchor, None);
         assert_eq!(report.entries.len(), 1);
         let entry = &report.entries[0];
         assert_eq!(entry.name, "load");
@@ -411,26 +554,182 @@ mod tests {
         );
         assert_eq!(entry.outgoing[1].relation, "imports");
         assert_eq!(entry.outgoing[1].counterpart.name, "store");
-        assert_eq!(entry.incoming.len(), 1);
-        assert_eq!(entry.incoming[0].relation, "imports");
-        assert_eq!(entry.incoming[0].counterpart.name, "store");
+        assert_eq!(entry.incoming.len(), 2);
+        assert_eq!(entry.incoming[0].relation, "calls");
+        assert_eq!(entry.incoming[0].counterpart.name, "run");
+        assert_eq!(entry.incoming[1].relation, "imports");
+        assert_eq!(entry.incoming[1].counterpart.name, "store");
+        // A one-hop request still reports the blast radius it actually traversed.
+        assert_eq!(report.blast.depth, 1);
+        assert_eq!(report.blast.entries, 1);
+        assert_eq!(report.blast.reached, 3);
+        assert!(report.paths.is_empty());
+        assert!(
+            report
+                .omitted
+                .notes
+                .iter()
+                .any(|note| note.contains("depth below two hops")),
+            "shallow traversal must be disclosed: {:?}",
+            report.omitted.notes
+        );
+    }
+
+    #[test]
+    fn explore_reports_multi_hop_chains_and_the_blast_radius() {
+        let snapshot = snapshot_fixture();
+        let report = explore(
+            &snapshot,
+            &[LOAD],
+            ExploreLimits {
+                entries: 5,
+                links: 8,
+                depth: 2,
+                paths: 16,
+            },
+        );
+
+        assert_eq!(report.paths.len(), 2);
+        let first = &report.paths[0];
+        assert_eq!(first.origin, LOAD);
+        assert_eq!(first.depth, 2);
+        assert_eq!(first.target.name, "flush");
+        assert_eq!(first.steps.len(), 2);
+        assert_eq!(first.steps[0].relation, "calls");
+        assert_eq!(first.steps[0].direction, "forward");
+        assert_eq!(first.steps[0].from.stable_key, LOAD);
+        assert_eq!(first.steps[0].to.name, "refresh");
+        assert_eq!(first.steps[0].source_file.as_deref(), Some("src/store.rs"));
+        assert_eq!(first.steps[1].to.name, "flush");
+        let second = &report.paths[1];
+        assert_eq!(second.target.name, "writer");
+        assert_eq!(second.steps[1].relation, "imports");
+        assert_eq!(second.steps[1].status, "inferred");
+
+        assert_eq!(report.blast.reached, 5);
+        assert_eq!(report.blast.relations, 5);
+        assert_eq!(report.blast.by_depth[0].depth, 1);
+        assert_eq!(report.blast.by_depth[0].entities, 3);
+        assert_eq!(report.blast.by_depth[1].depth, 2);
+        assert_eq!(report.blast.by_depth[1].entities, 2);
+        assert_eq!(
+            report.blast.files,
+            vec!["src/store.rs".to_string(), "src/writer.rs".to_string()]
+        );
+        assert_eq!(report.blast.files_omitted, 0);
+        assert_eq!(report.blast.open_diagnostics, 1);
+        // `uses_env` is not code flow: the environment entity is never reached or chained.
+        assert_eq!(report.blast.edge_visits, 10);
+        assert!(
+            !report
+                .paths
+                .iter()
+                .any(|path| path.target.name == "LOG_LEVEL"),
+            "diagnostic-only relations must not carry the traversal"
+        );
         assert!(report.omitted.notes.is_empty());
+    }
+
+    #[test]
+    fn explore_bounds_multi_hop_chains_and_discloses_the_omission() {
+        let snapshot = snapshot_fixture();
+        let report = explore(
+            &snapshot,
+            &[LOAD],
+            ExploreLimits {
+                entries: 5,
+                links: 8,
+                depth: 2,
+                paths: 1,
+            },
+        );
+
+        assert_eq!(report.paths.len(), 1);
+        assert_eq!(report.paths[0].target.name, "flush");
+        assert_eq!(report.omitted.paths_truncated, 1);
+        assert_eq!(report.limits.paths, 1);
+        assert!(
+            report
+                .omitted
+                .notes
+                .iter()
+                .any(|note| note.contains("outside the per-request path budget")),
+            "path truncation must be disclosed: {:?}",
+            report.omitted.notes
+        );
+    }
+
+    #[test]
+    fn explore_anchored_on_a_target_reports_the_anchor_and_over_budget_candidates() {
+        let snapshot = snapshot_fixture();
+        let request = ExploreRequest {
+            query: String::new(),
+            mode: SearchMode::default(),
+            snapshot: "snap_fixture".to_string(),
+            anchor: Some("src/store.rs".to_string()),
+            candidates: 3,
+            retrieval_truncated: false,
+            seeds: vec![
+                ExploreSeed {
+                    stable_key: LOAD.to_string(),
+                    kind: "function".to_string(),
+                    score: 1.0,
+                },
+                ExploreSeed {
+                    stable_key: "symbol://rust:crate::store::Store::refresh".to_string(),
+                    kind: "function".to_string(),
+                    score: 1.0,
+                },
+                ExploreSeed {
+                    stable_key: "symbol://rust:crate::missing".to_string(),
+                    kind: "function".to_string(),
+                    score: 1.0,
+                },
+            ],
+        };
+        let limits = ExploreLimits {
+            entries: 2,
+            links: 8,
+            depth: 2,
+            paths: 16,
+        };
+
+        let report = explore_snapshot(Path::new("repo"), &snapshot, &request, &limits);
+
+        assert_eq!(report.anchor.as_deref(), Some("src/store.rs"));
+        assert!(report.query.is_empty());
+        assert_eq!(report.entries.len(), 2);
+        assert_eq!(report.omitted.entries_over_budget, 1);
+        assert_eq!(report.omitted.entries_unresolved, 0);
+        assert_eq!(report.blast.entries, 2);
+        assert!(
+            report
+                .omitted
+                .notes
+                .iter()
+                .any(|note| note.contains("outside the entry budget")),
+            "over-budget candidates must be disclosed: {:?}",
+            report.omitted.notes
+        );
     }
 
     #[test]
     fn explore_truncates_links_and_discloses_the_omission() {
         let snapshot = snapshot_fixture();
-        let report = explore_snapshot(
-            Path::new("repo"),
+        let report = explore(
             &snapshot,
-            &search_fixture(&["symbol://rust:crate::store::Store::load"]),
-            5,
-            1,
+            &[LOAD],
+            ExploreLimits {
+                entries: 5,
+                links: 1,
+                depth: 1,
+                paths: 16,
+            },
         );
 
         assert_eq!(report.entries[0].outgoing.len(), 1);
         assert_eq!(report.entries[0].incoming.len(), 1);
-        assert_eq!(report.omitted.links_truncated, 1);
+        assert_eq!(report.omitted.links_truncated, 2);
         assert_eq!(report.limits.links, 1);
         assert!(
             report
@@ -446,32 +745,70 @@ mod tests {
     #[test]
     fn explore_discloses_results_that_are_not_canonical_entities() {
         let snapshot = snapshot_fixture();
-        let report = explore_snapshot(
-            Path::new("repo"),
+        let report = explore(
             &snapshot,
-            &search_fixture(&["symbol://rust:crate::missing"]),
-            5,
-            8,
+            &["symbol://rust:crate::missing"],
+            ExploreLimits {
+                entries: 5,
+                links: 8,
+                depth: 2,
+                paths: 16,
+            },
         );
 
         assert!(report.entries.is_empty());
+        assert!(report.paths.is_empty());
+        assert_eq!(
+            report.blast,
+            ExploreBlast {
+                depth: 2,
+                ..ExploreBlast::default()
+            }
+        );
         assert_eq!(report.omitted.entries_unresolved, 1);
-        assert_eq!(report.omitted.notes.len(), 1);
         assert!(report.omitted.notes[0].contains("not canonical entities"));
     }
 
     #[test]
     fn explore_report_satisfies_its_json_contract() {
-        let report = explore_snapshot(
-            Path::new("repo"),
-            &snapshot_fixture(),
-            &search_fixture(&["symbol://rust:crate::store::Store::load"]),
-            5,
-            8,
+        let snapshot = snapshot_fixture();
+        let report = explore(
+            &snapshot,
+            &[LOAD],
+            ExploreLimits {
+                entries: 5,
+                links: 8,
+                depth: 2,
+                paths: 16,
+            },
         );
 
         report.validate_contract().unwrap();
         assert_eq!(ExploreReport::SCHEMA, EXPLORE_SCHEMA_V1);
+    }
+
+    fn explore(
+        snapshot: &CanonicalSnapshot,
+        stable_keys: &[&str],
+        limits: ExploreLimits,
+    ) -> ExploreReport {
+        let request = ExploreRequest {
+            query: "store load".to_string(),
+            mode: SearchMode::Lexical,
+            snapshot: "snap_fixture".to_string(),
+            anchor: None,
+            candidates: stable_keys.len(),
+            retrieval_truncated: false,
+            seeds: stable_keys
+                .iter()
+                .map(|stable_key| ExploreSeed {
+                    stable_key: (*stable_key).to_string(),
+                    kind: "function".to_string(),
+                    score: 1.5,
+                })
+                .collect(),
+        };
+        explore_snapshot(Path::new("repo"), snapshot, &request, &limits)
     }
 
     fn snapshot_fixture() -> CanonicalSnapshot {
@@ -480,22 +817,61 @@ mod tests {
             "module://rust:crate::store",
             EntityKind::Module,
             "store",
+            "src/store.rs",
         );
         let load = entity(
             "ent_load",
-            "symbol://rust:crate::store::Store::load",
+            LOAD,
             EntityKind::Function,
             "load",
+            "src/store.rs",
         );
         let refresh = entity(
             "ent_refresh",
             "symbol://rust:crate::store::Store::refresh",
             EntityKind::Function,
             "refresh",
+            "src/store.rs",
+        );
+        let flush = entity(
+            "ent_flush",
+            "symbol://rust:crate::store::Store::flush",
+            EntityKind::Function,
+            "flush",
+            "src/store.rs",
+        );
+        let run = entity(
+            "ent_run",
+            "symbol://rust:crate::run",
+            EntityKind::Function,
+            "run",
+            "src/store.rs",
+        );
+        let writer = entity(
+            "ent_writer",
+            "symbol://rust:crate::writer::Writer",
+            EntityKind::Symbol,
+            "writer",
+            "src/writer.rs",
+        );
+        let env = entity(
+            "ent_env",
+            "env://LOG_LEVEL",
+            EntityKind::EnvVar,
+            "LOG_LEVEL",
+            "src/store.rs",
         );
         CanonicalSnapshot {
             snapshot: Some(SnapshotId("snap_fixture".to_string())),
-            entities: vec![module.clone(), load.clone(), refresh.clone()],
+            entities: vec![
+                module.clone(),
+                load.clone(),
+                refresh.clone(),
+                flush.clone(),
+                run.clone(),
+                writer.clone(),
+                env.clone(),
+            ],
             facts: vec![Fact {
                 id: FactId("fact_load".to_string()),
                 kind: FactKind::SymbolDefined,
@@ -518,24 +894,52 @@ mod tests {
             }],
             relations: vec![
                 relation(
-                    "rel_calls",
+                    "rel_calls_load",
                     RelationKind::Calls,
                     &load,
                     &refresh,
                     RelationStatus::Verified,
                 ),
                 relation(
-                    "rel_imports",
+                    "rel_calls_refresh_flush",
+                    RelationKind::Calls,
+                    &refresh,
+                    &flush,
+                    RelationStatus::Verified,
+                ),
+                relation(
+                    "rel_imports_refresh_writer",
+                    RelationKind::Imports,
+                    &refresh,
+                    &writer,
+                    RelationStatus::Inferred,
+                ),
+                relation(
+                    "rel_calls_run_load",
+                    RelationKind::Calls,
+                    &run,
+                    &load,
+                    RelationStatus::Verified,
+                ),
+                relation(
+                    "rel_imports_module_load",
                     RelationKind::Imports,
                     &module,
                     &load,
                     RelationStatus::Verified,
                 ),
                 relation(
-                    "rel_module_import",
+                    "rel_imports_load_module",
                     RelationKind::Imports,
                     &load,
                     &module,
+                    RelationStatus::Verified,
+                ),
+                relation(
+                    "rel_uses_env",
+                    RelationKind::UsesEnv,
+                    &refresh,
+                    &env,
                     RelationStatus::Verified,
                 ),
             ],
@@ -556,37 +960,7 @@ mod tests {
         }
     }
 
-    fn search_fixture(stable_keys: &[&str]) -> SearchReport {
-        SearchReport {
-            schema: crate::json_contract::SEARCH_SCHEMA_V1.to_string(),
-            root: PathBuf::from("repo"),
-            snapshot: "snap_fixture".to_string(),
-            query: "store load".to_string(),
-            mode: SearchMode::Lexical,
-            limit: 5,
-            returned: stable_keys.len(),
-            truncated: false,
-            omitted: crate::search::SearchOmissions {
-                results_lower_bound: stable_keys.len(),
-                reason: None,
-            },
-            results: stable_keys
-                .iter()
-                .map(|stable_key| crate::search::SearchItem {
-                    entity_id: EntityId(format!("ent_{stable_key}")),
-                    stable_key: (*stable_key).to_string(),
-                    kind: "function".to_string(),
-                    name: "load".to_string(),
-                    title: None,
-                    source: None,
-                    ownership: Vec::new(),
-                    score: 1.5,
-                })
-                .collect(),
-        }
-    }
-
-    fn entity(id: &str, stable_key: &str, kind: EntityKind, name: &str) -> Entity {
+    fn entity(id: &str, stable_key: &str, kind: EntityKind, name: &str, path: &str) -> Entity {
         Entity {
             id: EntityId(id.to_string()),
             stable_key: StableKey(stable_key.to_string()),
@@ -594,11 +968,11 @@ mod tests {
             name: name.to_string(),
             title: None,
             source: Some(SourceLocation {
-                path: "src/store.rs".to_string(),
+                path: path.to_string(),
                 line_start: Some(1),
                 line_end: Some(9),
             }),
-            language: Some(athanor_domain::LanguageCode("rust".to_string())),
+            language: Some(LanguageCode("rust".to_string())),
             aliases: Vec::new(),
             ownership: Vec::new(),
             payload: json!({}),
@@ -620,7 +994,7 @@ mod tests {
             status,
             confidence: 1.0,
             evidence: vec![Evidence {
-                source_file: Some("src/store.rs".to_string()),
+                source_file: from.source.as_ref().map(|source| source.path.clone()),
                 line_start: Some(12),
                 line_end: Some(12),
                 extractor: Some("rust-linker".to_string()),

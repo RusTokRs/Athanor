@@ -92,9 +92,12 @@ async fn call_inner(
             let report = athanor_app::explore_project_with_composition_and_operation_context(
                 athanor_app::ExploreOptions {
                     root: root.to_path_buf(),
-                    query: string_arg(&args, "query")?,
+                    query: optional_string_arg(&args, "query").unwrap_or_default(),
+                    target: optional_string_arg(&args, "target"),
                     entries: usize_arg(&args, "entries", athanor_app::DEFAULT_EXPLORE_ENTRIES),
                     links: usize_arg(&args, "links", athanor_app::DEFAULT_EXPLORE_LINKS),
+                    depth: usize_arg(&args, "depth", athanor_app::DEFAULT_EXPLORE_DEPTH),
+                    paths: usize_arg(&args, "paths", athanor_app::DEFAULT_EXPLORE_PATHS),
                     mode: search_mode_arg(&args),
                 },
                 composition,

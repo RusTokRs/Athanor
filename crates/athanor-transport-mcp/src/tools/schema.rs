@@ -55,16 +55,18 @@ pub(crate) fn list() -> Value {
             },
             {
                 "name": "explore",
-                "description": "Answer one code question in a single call: ranked entry entities with portable source anchors, citation evidence, and the one-hop relation neighbourhood in both directions.",
+                "description": "Answer one code question in a single call: ranked entry entities with portable source anchors, citation evidence, the one-hop relation neighbourhood in both directions, bounded multi-hop call/relation chains, and the aggregate blast radius of the entries. Provide `query` to search for entries or `target` to anchor on an exact stable key or repository path.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "query": { "type": "string" },
+                        "target": { "type": "string", "description": "Exact canonical stable key or repository path; takes precedence over `query`." },
                         "entries": { "type": "integer", "minimum": 1, "description": "Entry entities, default 5, max 20." },
                         "links": { "type": "integer", "minimum": 1, "description": "Relations per entry and direction, default 8, max 40." },
+                        "depth": { "type": "integer", "minimum": 1, "description": "Code-flow hops explored per entry, default 2, max 4." },
+                        "paths": { "type": "integer", "minimum": 1, "description": "Multi-hop chains returned per request, default 16, max 64." },
                         "mode": { "type": "string", "enum": ["lexical", "semantic", "hybrid"], "description": "Retrieval mode, default lexical." }
-                    },
-                    "required": ["query"]
+                    }
                 }
             },
             {

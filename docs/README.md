@@ -65,7 +65,8 @@ Linking/checking: [Markdown linker](adapters/linker-markdown.md),
 Read models/services: [JSONL](adapters/store-jsonl.md), [SurrealDB](adapters/store-surrealdb.md),
 [Tantivy](adapters/search-tantivy.md), [Wiki](adapters/projector-wiki.md),
 [HTML](adapters/projector-html.md), [MCP](adapters/transport-mcp.md),
-[Impact](adapters/impact.md), and [Change Map](adapters/change-map.md).
+[Impact](adapters/impact.md), [Change Map](adapters/change-map.md), and
+[Explore](adapters/explore.md).
 
 RusTok opt-in adapters: [FFA](adapters/rustok-ffa.md), [FBA](adapters/rustok-fba.md),
 [Page Builder](adapters/rustok-page-builder.md), and

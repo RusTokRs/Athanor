@@ -311,6 +311,48 @@ DOCGEN checks also passed for that exact commit.
 - One bounded query that returns relevant declarations' source with the paths between them and the
   blast radius of a change, defaulting the MCP surface to that tool plus orientation.
 
+#### P5b — Multi-Hop Chains, Blast Radius, And An Anchored Entry (bounded agent-surface slice)
+
+- `explore` keeps one call per question and now also returns the shortest code-flow chain from each entry
+  to every entity it reaches two hops or deeper, plus an aggregate blast radius for the same hop budget:
+  distinct reached entities, the relations that carried the traversal, per-hop reach counts, open
+  diagnostics over the closure, and a bounded sorted file list.
+- Traversal is limited to the relation kinds that carry code influence (`Calls`, `Imports`, `Contains`,
+  `Extends`, `Implements`, `ImplementedBy`, `TestedBy`, `CoveredByTest`, `Documents`) and walks them in
+  both directions; contract-support, environment, and drift edges never carry a chain. `ath impact` stays
+  the authoritative deep blast-radius query and `ath change-map` stays the ranked edit-candidate surface.
+- Explicit budgets: `depth` (default 2, max 4 hops), `paths` (default 16, max 64 chains), the existing
+  `entries`/`links` budgets, a shared 4,096 relation-edge visit bound, and a 24-file blast list. Every
+  dropped candidate, truncated link list, truncated chain list, and omitted file is counted and narrated in
+  `omitted`, so a partial answer always says that it is partial.
+- An entry may be anchored on an exact stable key or repository path through `target`, which reuses the
+  `impact`/`change map` target resolver instead of a second one and skips retrieval entirely; a query that
+  resolves nothing stays an empty disclosure rather than a guess.
+- The same application service is exposed as `ath explore`, so the single-call answer no longer requires an
+  MCP client. Both surfaces print the identical versioned `athanor.explore.v1` report; the contract gains
+  fields additively and its schema id stays v1.
+- Verbatim source text and `node`-class per-symbol file dumps stay out of scope: `explore` cites paths and
+  line ranges, and the caller reads the slice it asked for.
+- `explore` is still MCP/CLI-only: daemon-served multi-repository explore and auto-synced freshness signals
+  remain open on axis C5.
+
+Focused source regression matrix:
+
+| Surface | Regression |
+| --- | --- |
+| Explore report | One-hop links, chains, blast aggregate, budgets, and disclosures agree for one snapshot; a shallow request reports blast without chains |
+| Traversal | Chains start at two hops, keep the shortest path per reached entity, order adjacency and output deterministically, respect the path and visit budgets, and never traverse a non-code-flow relation |
+| Anchored entry | `target` seeds entries without retrieval, over-budget candidates are counted, and an unresolvable target fails closed |
+| Surfaces | MCP `explore` and `ath explore` accept `depth`/`paths`/`target`; an empty request is rejected before the store is touched |
+
+Focused verification:
+
+```bash
+cargo test -p athanor-app explore --locked
+cargo test -p ath --test direct_read_cli --locked
+cargo test -p athanor-transport-mcp --locked
+```
+
 ## Verification Requirements
 
 - Every slice ships code, focused tests, adapter documentation, and a changelog entry.
@@ -346,7 +388,13 @@ documentation profile
 and telemetry environment-variable names from canonical evidence, while container and Kubernetes probes,
 alert rules, dashboards, and SLOs still need their own evidence source before they may be documented. Slice P5 is source-implemented as the bounded `explore` MCP tool: one query
 returns search-ranked entries, their citations, and the one-hop relation neighbourhood with disclosed
-budgets; multi-hop call paths and full blast radius remain planned. Slice P3 is source-implemented as `builtin.extractor.treesitter`: one engine walks a
+budgets. Slice P5b adds the multi-hop code-flow chains, the aggregate blast radius, an exact
+stable-key/path anchor, and the `ath explore` command over the same report; verbatim source bodies and
+`node`-class file dumps stay out of scope, and daemon-served freshness stays open on axis C5. That P5b
+slice is exact-commit verified on `c48ca69` (CI run `38869503550`, AppSec `38869503667`, Store Conformance
+`38869503725`), covering the workspace suite, Clippy `-D warnings`, `cargo fmt --check`, the indexing smoke,
+and `ath docs check` across ubuntu, windows, and macos; the axis stays open because the remaining C1/C2
+coverage and C5 freshness gaps are untouched. Slice P3 is source-implemented as `builtin.extractor.treesitter`: one engine walks a
 per-language pack of node kinds and field names and records declaration, import, export, and call
 evidence for Python and Go, with the existing cross-file linkers still owning resolution. Historical
 exact-commit verification for P1, the pre-P2A P2 slice, and P5 is green on `191c65e` (sandbox

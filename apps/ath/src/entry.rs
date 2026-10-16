@@ -7,6 +7,7 @@ mod completeness_docgen_cli;
 mod direct_check_cli;
 mod direct_config_cli;
 mod direct_context_cli;
+mod direct_explore_cli;
 mod direct_generation_cli;
 mod direct_graph_cli;
 mod direct_operation;
@@ -67,6 +68,9 @@ fn run() -> Result<()> {
         }
         root_command::Command::Search(command) => {
             runtime("Athanor search runtime")?.block_on(direct_search_cli::run(command))
+        }
+        root_command::Command::Explore(command) => {
+            runtime("Athanor explore runtime")?.block_on(direct_explore_cli::run(command))
         }
         root_command::Command::Read(command) => {
             runtime("Athanor read runtime")?.block_on(direct_read::run(command))
