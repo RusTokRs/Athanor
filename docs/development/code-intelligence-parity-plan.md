@@ -390,7 +390,11 @@ alert rules, dashboards, and SLOs still need their own evidence source before th
 returns search-ranked entries, their citations, and the one-hop relation neighbourhood with disclosed
 budgets. Slice P5b adds the multi-hop code-flow chains, the aggregate blast radius, an exact
 stable-key/path anchor, and the `ath explore` command over the same report; verbatim source bodies and
-`node`-class file dumps stay out of scope, and daemon-served freshness stays open on axis C5. Slice P3 is source-implemented as `builtin.extractor.treesitter`: one engine walks a
+`node`-class file dumps stay out of scope, and daemon-served freshness stays open on axis C5. That P5b
+slice is exact-commit verified on `c48ca69` (CI run `38869503550`, AppSec `38869503667`, Store Conformance
+`38869503725`), covering the workspace suite, Clippy `-D warnings`, `cargo fmt --check`, the indexing smoke,
+and `ath docs check` across ubuntu, windows, and macos; the axis stays open because the remaining C1/C2
+coverage and C5 freshness gaps are untouched. Slice P3 is source-implemented as `builtin.extractor.treesitter`: one engine walks a
 per-language pack of node kinds and field names and records declaration, import, export, and call
 evidence for Python and Go, with the existing cross-file linkers still owning resolution. Historical
 exact-commit verification for P1, the pre-P2A P2 slice, and P5 is green on `191c65e` (sandbox
