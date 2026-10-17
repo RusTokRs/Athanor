@@ -4042,7 +4042,7 @@ mod tests {
             .await
             .unwrap();
 
-        let mut recorded = BTreeMap::new();
+        let mut recorded = Vec::new();
         for entity in &output.entities {
             let Some(qualified) = entity
                 .payload
@@ -4052,21 +4052,28 @@ mod tests {
                 continue;
             };
             if let Some(return_type) = entity.payload.get("return_type").and_then(Value::as_str) {
-                recorded.insert(qualified.to_string(), return_type.to_string());
+                recorded.push((qualified.to_string(), return_type.to_string()));
             }
         }
-        assert_eq!(recorded.get("createRepo").map(String::as_str), Some("Repo"));
-        assert_eq!(recorded.get("App.build").map(String::as_str), Some("Builder"));
-        assert_eq!(recorded.get("makeStore").map(String::as_str), Some("Store"));
+        recorded.sort();
         assert!(
-            !recorded.contains_key("wrapped"),
-            "a generic instantiation is not a receiver type"
+            recorded.contains(&("createRepo".to_string(), "Repo".to_string())),
+            "an annotated function records its return type"
         );
-        assert!(!recorded.contains_key("maybe"), "a union is not a receiver type");
         assert!(
-            !recorded.contains_key("plain"),
-            "a function without an annotation records no return type"
+            recorded.contains(&("App.build".to_string(), "Builder".to_string())),
+            "an annotated method records its return type"
         );
+        assert!(
+            recorded.contains(&("makeStore".to_string(), "Store".to_string())),
+            "an annotated arrow function records its return type"
+        );
+        for unnamed in ["wrapped", "maybe", "plain"] {
+            assert!(
+                !recorded.iter().any(|(name, _)| name == unnamed),
+                "{unnamed} must not record a return type a receiver can use"
+            );
+        }
     }
 
     #[tokio::test]
