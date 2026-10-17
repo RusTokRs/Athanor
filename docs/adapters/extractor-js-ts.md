@@ -59,8 +59,9 @@ and explicit `bindings` pairs (`imported`, `exported`) for named export clauses.
 clause such as `export { login as signIn } from './auth'` preserves the original/exported spelling; a
 source-less clause can represent a local alias. Plain `export * from './auth'` sets `star: true` and
 leaves `namespace_name` null; `export * as ns from './auth'` records `namespace_name: "ns"` and is
-not marked as a plain star. Named default functions and statically named local identifier defaults
-carry their local binding; unsupported default expressions remain unbound. The built-in JS/TS import
+not marked as a plain star. Named default functions, named default classes, and statically named
+local identifier defaults carry their local binding; unsupported default expressions remain
+unbound. The built-in JS/TS import
 linker uses relative source-backed imports and re-exports to materialize module dependencies without
 exposing parser AST nodes, while the call linker follows explicit named and default-function aliases,
 bounded wildcard chains that resolve uniquely across sources, and direct namespace exports for
@@ -81,6 +82,15 @@ elements are omitted rather than guessed. Call sites are attributed to the decla
 them, nested class bodies are skipped because their members are separate declarations, and the array
 is capped at 256 entries per declaration so payloads stay bounded. Call sites are raw syntax
 evidence: resolving them to declarations is the job of the JS/TS call linker.
+
+A call site whose terminal callee name is a known callback combinator (array iteration methods,
+promise handlers `then`/`catch`/`finally`, timers, and event/observable registration) additionally
+records a bounded `callback_arguments` array of its statically nameable arguments — plain
+identifiers and identifier-rooted member chains such as `this.onChange`. Inline arrows, call
+results, literals, and computed expressions are skipped, and at most four arguments are recorded.
+The allowlist keeps the evidence bounded to positions that really invoke a function; the call
+linker turns each recorded argument into an indirect `Calls` edge when it resolves to a unique
+declaration.
 
 ## Type Heritage
 

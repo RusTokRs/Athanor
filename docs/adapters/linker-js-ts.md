@@ -56,11 +56,13 @@ previous one is silent:
    requested member to a declaration in the resolved relative target module. Named import aliases
    retain both the local and imported spelling; directly qualified imported-class methods keep their
    existing import-member resolution behavior.
-4. `imported_default_export` — a default import resolves directly to the named function binding
-   marked by `export default` in its relative target module.
+4. `imported_default_export` — a default import resolves directly to the named function
+   or class binding marked by `export default` in its relative target module.
 5. `imported_reexport_chain` — calls resolve through explicit local aliases, relative named
-   re-exports (including default aliases), source-backed wildcard clauses, or one direct
-   `export * as name` mapping used by a named-import single-member call. Multiple wildcard sources
+   re-exports (including default aliases), source-backed wildcard clauses, one direct
+   `export * as name` mapping used by a named-import single-member call, or a namespace
+   alias forwarded across modules by source-backed named re-exports of the namespace
+   name itself. Multiple wildcard sources
    resolve only when applicable branches agree on one declaration; absent names are skipped, while
    ambiguous, unresolved, cyclic, or over-limit branches block the aggregate. The namespace hop
    counts against the 32-export-hop bound, and recursive export resolution is capped at 1,024 module
@@ -70,6 +72,19 @@ previous one is silent:
 7. `unique_exported_name` — a bare call with no local or imported target resolves only when exactly
    one exported declaration across the snapshot carries that name.
 
+### Callback Bridges
+
+Call sites recorded with `callback_arguments` (see the extractor's callback-combinator allowlist)
+are resolved a second time: each statically named argument is treated as a callee and run through
+the same ordered rules above, because `list.map(filterActive)` invokes `filterActive` indirectly.
+A resolved argument emits its own `Calls` relation with reason `js_ts_callback_bridge`, the hosting
+combinator in `host_callee`, and `callee_kind: "callback"`; the relation id uses a dedicated
+material prefix, so a declaration that is both called directly and passed as a callback keeps both
+edges. Bridges inherit the fail-closed rules: an unresolvable or ambiguous argument stays
+unresolved, and the hosting call's own resolution (or its failure) never gates the bridge. Promise
+handlers (`then`/`catch`/`finally`), timers, and event/observable registrations bridge the same
+way. Callback bridges from a test location additionally emit `TestedBy`, mirroring direct calls.
+
 An unresolved explicit import does not fall through to a weaker snapshot-wide guess. Steps 5 and 6
 require a unique candidate, so ambiguity stays unresolved rather than becoming a guessed fact.
 Confidence reflects the step (0.9 exact same-module down to 0.5 unique-name), and every relation is
@@ -78,9 +93,10 @@ Confidence reflects the step (0.9 exact same-module down to 0.5 unique-name), an
 ### Emitted Knowledge
 
 Each resolved call emits a `RelationKind::Calls` relation from the calling declaration to the target
-declaration. The payload records the matched `callee`, `callee_kind` (`call` or `new`), `resolution`
-reason, and the call-site `line` and `column`; evidence covers the call-site file and line plus the
-target declaration range, and ownership is the union of both source files.
+declaration. The payload records the matched `callee`, `callee_kind` (`call`, `new`, or `callback`),
+`resolution` reason, and the call-site `line` and `column`; callback bridges additionally record the
+hosting `host_callee`. Evidence covers the call-site file and line plus the target declaration
+range, and ownership is the union of both source files.
 
 Calls from a test location (`.test.`/`.spec.` file names, or `tests`/`test`/`__tests__`/`e2e`
 directories) into non-test declarations additionally emit `RelationKind::TestedBy` from the tested
@@ -116,11 +132,14 @@ contract relationship.
 ## Boundaries
 
 Package imports, Node built-ins, workspace aliases, TypeScript path aliases, dynamic imports,
-CommonJS `require` calls, multi-hop namespace aliases, anonymous/default-expression exports, default
-class call targets, computed member calls, multi-segment named-import namespace paths, and receiver
-typing are not resolved. A named import representing a namespace object can use one unique, direct,
+CommonJS `require` calls, anonymous/default-expression exports,
+anonymous default classes, computed member calls, multi-segment named-import namespace paths,
+and receiver typing are not resolved. Callback bridging only fires for the extractor's combinator allowlist and
+only for statically nameable arguments; callbacks passed as inline arrows, call results, or
+computed expressions are never recorded, and a callback argument whose name does not resolve
+uniquely stays unresolved like any other callee. A named import representing a namespace object can use one unique, direct,
 source-backed `export * as name` mapping for a single member call; missing or ambiguous namespace
-mappings stay unresolved. Named default functions and statically named local default bindings
+mappings stay unresolved. Named default functions, named default classes, and statically named local default bindings
 resolve through relative imports and explicit named re-export clauses; plain `export *` still does not
 expose `default`. Named, default, wildcard, and namespace hops share the 32-hop bound. Multiple
 wildcard sources combine only when applicable branches agree on one declaration; absent names are

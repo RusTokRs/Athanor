@@ -64,8 +64,8 @@ fn non_public_json_boundaries_are_disjoint_and_fixture_protected() {
 #[test]
 fn empty_index_state_may_omit_derived_generation() {
     for schema in [
-        "athanor.index_state.v52",
-        "athanor.index_state.v52-js-ts-precision-v1",
+        "athanor.index_state.v55",
+        "athanor.index_state.v55-js-ts-precision-v1",
     ] {
         let descriptor = NON_PUBLIC_JSON_CONTRACTS
             .iter()

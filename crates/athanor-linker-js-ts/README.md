@@ -18,8 +18,12 @@ Adapter ids: `builtin.linker.js_ts_imports`, `builtin.linker.js_ts_calls`, `buil
 
 - `RelationKind::Calls` from a calling declaration to a resolved declaration, when the call site is
   statically named and resolution has evidence.
+- `RelationKind::Calls` for a callback bridge: a call site recorded by a known callback combinator
+  (`map`, `then`, `setTimeout`, …) also resolves each statically named argument, so
+  `list.map(filterActive)` links the caller to `filterActive` with reason
+  `js_ts_callback_bridge` and the hosting combinator in `host_callee`.
 - `RelationKind::TestedBy` from a tested declaration to a declaration in a test location that calls
-  it.
+  it, including callback bridges from test locations.
 
 `JsTsImplementsLinker` emits:
 
@@ -52,19 +56,24 @@ The call linker consumes the bounded `calls` arrays and the import bindings that
 2. `same_module_exact_name` — exact qualified name inside the calling module.
 3. `imported_exact_name` / `imported_symbol_name` — through a namespace or named import binding of
    the calling module.
-4. `imported_default_export` — a default import resolves directly to its named default function.
+4. `imported_default_export` — a default import resolves directly to its named default
+   function or class declaration.
 5. `imported_reexport_chain` — through explicit named local exports, relative named/default
-   re-exports, source-backed wildcard clauses, or a unique direct `export * as name` mapping for a
-   named-import single-member call. Multiple wildcard sources resolve only when applicable branches
-   agree on one declaration; absent names are skipped, while ambiguous, unresolved, cyclic, or
-   over-limit branches block the aggregate. Namespace hops count toward the 32-hop bound, and each
+   re-exports, source-backed wildcard clauses, a unique direct `export * as name` mapping for
+   a named-import single-member call, or a namespace alias forwarded across modules by
+   source-backed named re-exports of the namespace name itself. Multiple wildcard sources
+   resolve only when applicable branches agree on one declaration; absent names are skipped,
+   while ambiguous, unresolved, cyclic, or over-limit branches block the aggregate. Namespace
+   hops count toward the 32-hop bound, and each
    call's recursive export resolution is capped at 1,024 module visits.
 6. `same_module_member_name` — a unique member name inside the calling module.
 7. `unique_exported_name` — a unique exported declaration elsewhere in the snapshot.
 
 Steps 5 and 6 accept a candidate only when it is unique, so ambiguity stays unresolved. Confidence
 runs from `0.9` for an exact same-module match down to `0.5` for a unique name match, and the payload
-records the callee, call kind, resolution reason, line, and column. Output is sorted by relation id
+records the callee, call kind, resolution reason, line, and column. Callback arguments run through
+the same ordered steps with the same fail-closed rules; the hosting call's own resolution never
+gates the bridge. Output is sorted by relation id
 and capped at 10,000 relations per snapshot.
 
 ## Side Effects
@@ -84,8 +93,9 @@ commands, use the network, or modify project files.
   imports and explicit named re-export chains. Named imports can resolve a single member through one
   unique, direct, source-backed `export * as name` mapping; multi-hop namespace aliases and
   multi-segment paths through named-import namespace aliases stay unresolved. Existing
-  namespace-import receiver behavior is unchanged. Anonymous/default expressions and default class
-  call targets also stay unresolved.
+  namespace-import receiver behavior is unchanged. Anonymous default expressions and anonymous
+  default classes stay unresolved because they have no statically nameable local binding.
+  Multi-segment paths through named-import namespace aliases stay unresolved.
 - Dynamic `import()`, CommonJS `require()`, computed calls (`handlers[key]()`), calls through call
   results, reflective dispatch, and receiver typing are not resolved.
 - Test detection is location-based because no test framework runs: `.test.`/`.spec.` file names and

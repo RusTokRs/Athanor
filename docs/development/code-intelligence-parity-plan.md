@@ -52,9 +52,9 @@ Two concrete targets:
 - JS/TS: class `extends`/`implements` and interface `extends` with distinct canonical relation kinds;
   P2B covers explicit named re-export chains, P2C bounded single-source wildcard re-exports, P2D
   named default function exports/re-exports, P2E direct namespace re-exports for single-member calls
-  through named imports, and P2F bounded multiple-source wildcard aggregation. Callbacks and promise
-  handlers, multi-hop namespace aliases, anonymous/default class exports, path aliases, and
-  workspace-package specifiers remain open.
+  through named imports, P2F bounded multiple-source wildcard aggregation, and P2G callback and
+  promise-handler bridges for allowlisted combinators. Multi-hop namespace aliases,
+  anonymous/default class exports, path aliases, and workspace-package specifiers remain open.
 - Both: symbol-level incremental invalidation so a changed declaration re-resolves only its closure.
 
 #### P2A — Heritage Relation Semantics (bounded Rust/TypeScript slice)
@@ -258,11 +258,125 @@ all feature matrices, workspace tests, Clippy, source coverage, smoke, editable 
 license checks. The companion AppSec, Store Conformance, Production Gate, focused documentation, and
 DOCGEN checks also passed for that exact commit.
 
+#### P2G — Callback And Promise-Handler Bridges (bounded JS/TS slice)
+
+- The extractor records a bounded `callback_arguments` array on call sites whose terminal callee
+  name is a known callback combinator: array iteration methods (`map`, `filter`, `forEach`, `find`,
+  `findIndex`, `findLast`, `findLastIndex`, `some`, `every`, `reduce`, `reduceRight`, `flatMap`,
+  `sort`), promise handlers (`then`, `catch`, `finally`), timers (`setTimeout`, `setInterval`),
+  and event/observable registration (`addEventListener`, `addListener`, `on`, `once`,
+  `subscribe`). Only plain identifiers and identifier-rooted member chains are recorded; inline
+  arrows, call results, literals, and computed expressions are skipped, and at most four
+  arguments are kept per call site.
+- The call linker resolves each recorded argument through the existing ordered rules
+  (same-module exact/`this.` member, import bindings, re-export chains, unique names) and emits
+  its own `Calls` relation with reason `js_ts_callback_bridge`, the hosting combinator in
+  `host_callee`, and `callee_kind: "callback"`. A dedicated relation-id material prefix keeps a
+  direct call and a callback bridge to the same target as two distinct edges.
+- Bridges inherit the fail-closed rules: an unresolvable, ambiguous, cyclic, or over-budget
+  argument stays unresolved, and the hosting call's own resolution (or its failure) never gates
+  the bridge, so `list.map(filterActive)` bridges even though `list.map` itself stays
+  unresolved. Bridges from a test location additionally emit `TestedBy`.
+- Non-allowlisted callees never record callback arguments, so an ordinary `queue.push(handler)`
+  call does not become a guessed edge. Callbacks passed as inline arrows, call results, or
+  computed expressions remain outside the model because they have no statically nameable
+  target. Receiver typing for callback arguments is unchanged: resolution is name-and-binding
+  based only.
+- Bump normal/precision index-state schemas from v52 to v53 because the normalized call-site
+  payload gains the `callback_arguments` field, so cached module payloads are rebuilt in both
+  configurations.
+
+Focused source regression matrix:
+
+| Surface | Regression |
+| --- | --- |
+| JS/TS extractor | Allowlisted combinator calls record bounded, statically nameable `callback_arguments`; non-allowlisted callees and literal/arrow/call-result arguments record none |
+| Call linker | Combinator arguments resolve through the existing ordered rules and emit `Calls` with reason `js_ts_callback_bridge` and `host_callee`; unresolvable and ambiguous arguments stay unresolved; test-location bridges emit `TestedBy` |
+| Persistence | v52 normal/precision state is rejected and forces a v53 rebuild |
+
+Focused verification:
+
+```bash
+cargo test -p athanor-extractor-js-ts --locked
+cargo test -p athanor-extractor-js-ts --features precision-parser --locked
+cargo test -p athanor-linker-js-ts --locked
+cargo test -p athanor-app --locked
+cargo test -p athanor-app --features js-ts-precision --locked
+```
+
+#### P2H — Default Class Exports And Class Construction Targets (bounded JS/TS slice)
+
+- Extend the default-export binding to named `export default class Foo {}` declarations, so
+  the normalized export payload records `default_name` for a default class exactly as it
+  already does for a default function. Anonymous default classes (`export default class {}`)
+  and every other default expression stay explicitly unbound and cannot be guessed.
+- Admit `EntityKind::Class` declarations into the call linker's resolvable declaration set,
+  so a class is a valid `Calls` target for a same-module exact-name match and for a
+  default-imported construction (`new Foo()`), reusing the existing ordered resolution and
+  its fail-closed rules. A named class and a same-named function in different modules stay
+  ambiguous and unresolved at the unique-name steps.
+- Receiver typing is unchanged: a class member reached through an imported instance
+  (`instance.method()`) is not resolved by this slice, and deep member paths stay open.
+- Bump both index-state schema families from v53 to v54 because the normalized export
+  payload now carries a default-class binding, so cached module payloads are rebuilt in both
+  configurations.
+
+Focused source regression matrix:
+
+| Surface | Regression |
+| --- | --- |
+| JS/TS extractor | `export default class Foo {}` records `default_name: "Foo"`; anonymous `export default class {}` and non-class default expressions stay null |
+| Call linker | A default import of a named default class resolves a `new Foo()` site to the class with `imported_default_export`; a same-module `new Foo()` resolves with `same_module_exact_name` |
+| Persistence | v53 normal/precision state is rejected and forces a v54 rebuild |
+
+Focused verification:
+
+```bash
+cargo test -p athanor-extractor-js-ts --locked
+cargo test -p athanor-extractor-js-ts --features precision-parser --locked
+cargo test -p athanor-linker-js-ts --locked
+cargo test -p athanor-app --locked
+cargo test -p athanor-app --features js-ts-precision --locked
+```
+
+#### P2I — Multi-Hop Namespace Aliases (bounded JS/TS slice)
+
+- A namespace member call `alias.member()` resolves when the namespace name is
+  forwarded across modules by source-backed named re-exports, not only when the
+  importing module declares the `export * as alias` clause directly. The chain
+  follows each `export { alias as renamed } from "./source"` forwarding until it
+  reaches the module that declares the `export * as alias` namespace re-export,
+  then resolves `member` in that namespace's source with the existing ordered
+  rules. The namespace name may change at each hop through the re-export alias.
+- Fail-closed bounds: an absent forwarding keeps the existing non-namespace
+  fallbacks; multiple forwardings of one namespace name, an unresolved or cyclic
+  forwarding, and a chain over the 32-hop or 1,024-visit bound all stay
+  unresolved. A namespace member is never guessed from a snapshot-wide name match.
+- Extractor payloads are unchanged: named re-export bindings already record the
+  imported and exported spellings, so this is a linker-only resolution extension.
+- Bump both index-state schema families from v54 to v55 so cached relations are
+  recomputed with the extended namespace resolution in both configurations.
+
+Focused source regression matrix:
+
+| Surface | Regression |
+| --- | --- |
+| Call linker | A renamed forwarded namespace alias (`export { api as client }` then `export * as api`) resolves `client.member()`; a same-name forwarding resolves too |
+| Fail-closed | Two forwardings of one namespace name, a forwarding chain that ends without a namespace declaration, cycles, and over-bound chains stay unresolved |
+| Persistence | v54 normal/precision state is rejected and forces a v55 rebuild |
+
+Focused verification:
+
+```bash
+cargo test -p athanor-linker-js-ts --locked
+cargo test -p athanor-app --locked
+cargo test -p athanor-app --features js-ts-precision --locked
+```
+
 #### Remaining P2 Gaps
 
-- JavaScript/TypeScript callbacks and promise handlers; multi-hop namespace aliases, anonymous/default
-  class exports; package/workspace specifiers and TypeScript path aliases; receiver/type-aware dispatch
-  and deep member paths.
+- JavaScript/TypeScript anonymous default exports; package/workspace specifiers
+  and TypeScript path aliases; receiver/type-aware dispatch and deep member paths.
 - Rust dyn-dispatch candidates and symbol-level incremental invalidation for both Rust and JS/TS.
 
 ### P3 — Bounded Language Expansion
@@ -394,7 +508,20 @@ stable-key/path anchor, and the `ath explore` command over the same report; verb
 slice is exact-commit verified on `c48ca69` (CI run `38869503550`, AppSec `38869503667`, Store Conformance
 `38869503725`), covering the workspace suite, Clippy `-D warnings`, `cargo fmt --check`, the indexing smoke,
 and `ath docs check` across ubuntu, windows, and macos; the axis stays open because the remaining C1/C2
-coverage and C5 freshness gaps are untouched. Slice P3 is source-implemented as `builtin.extractor.treesitter`: one engine walks a
+coverage and C5 freshness gaps are untouched. Slice P2G adds callback and promise-handler bridges: the extractor records bounded
+`callback_arguments` on allowlisted combinator call sites, and the call linker resolves each
+recorded argument through the existing ordered rules into an evidence-backed indirect `Calls`
+edge with reason `js_ts_callback_bridge`, bumping both index-state schema families from v52 to
+v53. Slice P2H binds named default class exports and admits classes as resolvable call
+targets: `export default class Foo {}` records its default name, a default import of it
+resolves a `new Foo()` site with reason `imported_default_export`, and a same-module
+construction resolves with `same_module_exact_name`, bumping both index-state schema
+families from v53 to v54; anonymous default expressions and anonymous default classes stay
+unbound. Slice P2I resolves multi-hop namespace aliases: a namespace name forwarded across
+modules by source-backed named re-exports resolves a single member call through the declaring
+`export * as name` clause, renamed or same-name, within the existing 32-hop and 1,024-visit
+bounds, bumping both index-state schema families from v54 to v55; ambiguous, cyclic, and
+over-bound forwarded chains stay unresolved. Slice P3 is source-implemented as `builtin.extractor.treesitter`: one engine walks a
 per-language pack of node kinds and field names and records declaration, import, export, and call
 evidence for Python and Go, with the existing cross-file linkers still owning resolution. Historical
 exact-commit verification for P1, the pre-P2A P2 slice, and P5 is green on `191c65e` (sandbox

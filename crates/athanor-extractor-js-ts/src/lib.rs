@@ -301,6 +301,45 @@ fn is_package_json(source: &SourceFile) -> bool {
 /// order and anything beyond this limit is omitted.
 const MAX_CALL_SITES_PER_DECLARATION: usize = 256;
 
+/// Callee names known to invoke a function-valued argument.
+///
+/// The allowlist keeps recorded callback evidence bounded to combinators
+/// whose argument position is a real indirect call: array iteration, promise
+/// handlers, timers, and event/observable registration. Only these names
+/// carry `callback_arguments`, so a function passed to an ordinary call
+/// never becomes a guessed call edge.
+const CALLBACK_CALLEES: &[&str] = &[
+    "map",
+    "filter",
+    "forEach",
+    "find",
+    "findIndex",
+    "findLast",
+    "findLastIndex",
+    "some",
+    "every",
+    "reduce",
+    "reduceRight",
+    "flatMap",
+    "sort",
+    "then",
+    "catch",
+    "finally",
+    "setTimeout",
+    "setInterval",
+    "addEventListener",
+    "addListener",
+    "on",
+    "once",
+    "subscribe",
+];
+
+/// Upper bound on recorded callback arguments per call site.
+///
+/// Combinators take at most two callbacks in practice; the bound keeps the
+/// payload deterministic even for unusually long argument lists.
+const MAX_CALLBACK_ARGUMENTS: usize = 4;
+
 #[derive(Debug, Clone)]
 struct SourceDeclaration {
     name: String,
@@ -729,6 +768,10 @@ fn node_text(node: Node, bytes: &[u8]) -> Option<String> {
 /// rather than guessed. Call sites are attributed to the declaration that
 /// contains them; nested class bodies are skipped because their members are
 /// separate declarations.
+///
+/// A call whose callee name is a known callback combinator additionally
+/// records its statically nameable arguments in `callback_arguments`, so
+/// the call linker can bridge the indirect invocation to a declaration.
 fn collect_call_sites(node: Node, bytes: &[u8]) -> Vec<Value> {
     let mut calls = Vec::new();
     let mut seen = std::collections::HashSet::new();
@@ -778,11 +821,11 @@ fn call_site_payload(node: Node, bytes: &[u8]) -> Option<Value> {
         None => (callee.clone(), None),
     };
     let start = callee_node.start_position();
-    let arg_count = node
-        .child_by_field_name("arguments")
+    let arguments = node.child_by_field_name("arguments");
+    let arg_count = arguments
         .map_or(0, |arguments| arguments.named_child_count());
 
-    Some(json!({
+    let mut payload = json!({
         "callee": callee,
         "name": name,
         "receiver": receiver,
@@ -790,7 +833,35 @@ fn call_site_payload(node: Node, bytes: &[u8]) -> Option<Value> {
         "line": start.row as u32 + 1,
         "column": start.column as u32 + 1,
         "arg_count": arg_count,
-    }))
+    });
+    if CALLBACK_CALLEES.contains(&name.as_str())
+        && let Some(callbacks) = callback_arguments(arguments, bytes)
+    {
+        payload["callback_arguments"] = json!(callbacks);
+    }
+    Some(payload)
+}
+
+/// Records the statically nameable arguments of a callback-taking call.
+///
+/// Only plain identifiers and identifier-rooted member chains
+/// (`this.handler`, `api.helpers.log`) are recorded, because those are
+/// the argument shapes the call linker can resolve to a declaration.
+/// Inline arrows, call results, literals, and computed expressions are
+/// skipped rather than guessed at.
+fn callback_arguments(arguments: Option<Node>, bytes: &[u8]) -> Option<Vec<String>> {
+    let arguments = arguments?;
+    let mut cursor = arguments.walk();
+    let names = arguments
+        .named_children(&mut cursor)
+        .filter_map(|argument| callee_path(argument, bytes))
+        .take(MAX_CALLBACK_ARGUMENTS)
+        .collect::<Vec<_>>();
+    if names.is_empty() {
+        None
+    } else {
+        Some(names)
+    }
 }
 
 /// Normalizes a statically named callee into a dotted path.
@@ -858,8 +929,9 @@ fn is_default_export(node: Node) -> bool {
     has_child_kind(node, "default")
 }
 
-/// Returns the local binding for a named default function or identifier export.
-/// Other default expressions stay explicitly unbound and cannot be guessed.
+/// Returns the local binding for a named default function, class, or
+/// identifier export. Other default expressions stay explicitly unbound
+/// and cannot be guessed.
 fn default_export_name(node: Node, bytes: &[u8]) -> Option<String> {
     if !is_default_export(node) {
         return None;
@@ -871,6 +943,7 @@ fn default_export_name(node: Node, bytes: &[u8]) -> Option<String> {
             "function_declaration" | "generator_function_declaration" => {
                 return node_name(child, bytes);
             }
+            "class_declaration" | "class" => return node_name(child, bytes),
             "identifier" => return node_text(child, bytes),
             _ => {}
         }
@@ -1767,6 +1840,15 @@ mod tests {
                     Some("authenticate"),
                 ),
                 ("export default () => {};\n", None),
+                (
+                    "export default class ApiController {}\n",
+                    Some("ApiController"),
+                ),
+                (
+                    "class Controller {}\nexport default Controller;\n",
+                    Some("Controller"),
+                ),
+                ("export default class {}\n", None),
             ] {
                 let output = JsTsExtractor
                     .extract(input(path, source, language))
@@ -1876,6 +1958,82 @@ mod tests {
                 .iter()
                 .any(|call| call["callee"] == "login")
         );
+    }
+
+    #[tokio::test]
+    async fn records_callback_arguments_for_known_combinators() {
+        let output = JsTsExtractor
+            .extract(input(
+                "src/pipeline.ts",
+                "import { filterActive } from './filters';\nexport function run(items, promise, emitter) {\n  items.map(filterActive);\n  promise.then(handleOk);\n  emitter.addEventListener('change', this.onChange);\n  setTimeout(tick, 100);\n  items.reduce(combine, seed, one, two, three, four);\n  items.filter((item) => item.ok);\n  items.sort();\n  queue.push(skipMe);\n}\n",
+                "typescript",
+            ))
+            .await
+            .unwrap();
+
+        let run = output
+            .entities
+            .iter()
+            .find(|entity| entity.stable_key.0 == "symbol://js-ts:src/pipeline.ts#run")
+            .expect("run declaration must exist");
+        let calls = run.payload["calls"].as_array().expect("calls array");
+
+        let map_call = calls
+            .iter()
+            .find(|call| call["callee"] == "items.map")
+            .expect("map call site must exist");
+        assert_eq!(
+            map_call["callback_arguments"],
+            json!(["filterActive"]),
+            "identifier arguments of a known combinator are recorded"
+        );
+
+        let then_call = calls
+            .iter()
+            .find(|call| call["callee"] == "promise.then")
+            .expect("then call site must exist");
+        assert_eq!(
+            then_call["callback_arguments"],
+            json!(["handleOk"]),
+            "promise handler arguments are recorded"
+        );
+
+        let listener_call = calls
+            .iter()
+            .find(|call| call["callee"] == "emitter.addEventListener")
+            .expect("addEventListener call site must exist");
+        assert_eq!(
+            listener_call["callback_arguments"],
+            json!(["this.onChange"]),
+            "member-path callbacks keep their receiver and literals are skipped"
+        );
+
+        let timer_call = calls
+            .iter()
+            .find(|call| call["callee"] == "setTimeout")
+            .expect("setTimeout call site must exist");
+        assert_eq!(timer_call["callback_arguments"], json!(["tick"]));
+
+        let reduce_call = calls
+            .iter()
+            .find(|call| call["callee"] == "items.reduce")
+            .expect("reduce call site must exist");
+        assert_eq!(
+            reduce_call["callback_arguments"],
+            json!(["combine", "seed", "one", "two"]),
+            "callback arguments stay bounded per call site"
+        );
+
+        for callee in ["items.filter", "items.sort", "queue.push"] {
+            let call = calls
+                .iter()
+                .find(|call| call["callee"] == callee)
+                .unwrap_or_else(|| panic!("{callee} call site must exist"));
+            assert!(
+                call.get("callback_arguments").is_none(),
+                "{callee} must not record callback arguments"
+            );
+        }
     }
 
     #[tokio::test]
