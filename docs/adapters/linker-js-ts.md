@@ -28,7 +28,10 @@ dependency, so it emits the same relation kind with reason `relative_module_re_e
 ### Resolution
 
 Relative `./` and `../` specifiers resolve against the importing module: exact module paths,
-extensionless source paths, and directory `index` modules across the built-in JS/TS extensions.
+extensionless source paths, and directory `index` modules across the built-in JS/TS extensions. A
+relative specifier that misses is retried at the same path inside the other roots of the nearest
+configuration's `rootDirs`, because TypeScript presents those roots as one merged directory; two
+roots that both hold the path are ambiguous and stay unresolved.
 
 Non-relative specifiers resolve only through configuration evidence that the extractor recorded:
 
@@ -38,15 +41,20 @@ Non-relative specifiers resolve only through configuration evidence that the ext
    chain, up to 8 hops, because TypeScript does not merge mappings across `extends`. At most one `*`
    per pattern is substituted into each target, and the first target naming an existing module wins.
 2. **Workspace packages.** A bare specifier resolves when a `package.json` declaring that `name` is a
-   member of a workspace declared by another `package.json` in the snapshot. Membership needs a glob
-   covering the package directory, where `*` matches one path segment and `**` matches any number of
-   them. The entry point is the recorded `main` when it resolves, otherwise `index` in the package
-   root; `name/subpath` specifiers resolve inside the package directory.
+   member of a workspace declared by another `package.json` in the snapshot or by the `packages:`
+   list of a `pnpm-workspace.yaml`/`.yml` layout. Membership needs a glob covering the package
+   directory, where `*` matches one path segment and `**` matches any number of them. When the
+   package declares `exports`, the subpath resolves through that map: the longest declared prefix
+   wins, rows are tried in the package's own declaration order, a row guarded by an unevaluable
+   condition such as `production` is skipped, and a subpath the map does not declare is unreachable
+   even when the file exists. Without `exports`, the entry point is the recorded `main` when it
+   resolves, otherwise `index` in the package root, and `name/subpath` specifiers resolve inside the
+   package directory.
 
 A duplicated package name, a package that no workspace declaration covers, a configuration without a
-usable base directory, a package-valued `extends` specifier, and a specifier matching no mapping all
-stay unresolved. `node_modules` contents, `exports` and conditional-exports maps, TypeScript
-`rootDirs`, package-manager installs, and `pnpm-workspace.yaml` are never read.
+usable base directory, a package-valued `extends` specifier, an `exports` target that leaves the
+package directory, and a specifier matching no mapping all stay unresolved. `node_modules` contents,
+package-manager installs, and any resolution that needs an installed tree are never read.
 
 Resolution is deterministic and uses canonical entities already present in the current snapshot; it
 does not read the filesystem.
@@ -157,9 +165,12 @@ contract relationship.
 
 ## Boundaries
 
-Path aliases and workspace packages resolve only through the recorded configuration evidence
-described above; `exports` maps, conditional exports, `rootDirs`, package-manager installs, and
-`pnpm-workspace.yaml` are outside the model. Node built-ins, bare specifiers that no configuration
+Path aliases, workspace packages, `exports` subpaths, `rootDirs` roots, and pnpm workspace layouts
+resolve only through the recorded configuration evidence described above; resolution that needs an
+installed tree — package-manager installs, `node_modules` contents, and Yarn linker layouts — stays
+outside the model. An `exports` subpath the map does not declare is unreachable even when the file
+exists, a row guarded by an unevaluable condition is skipped, and two `rootDirs` roots holding the
+same path are ambiguous. Node built-ins, bare specifiers that no configuration
 proves, dynamic imports,
 CommonJS `require` calls, default expressions that declare nothing callable or
 constructible, computed member calls, multi-segment named-import namespace paths,

@@ -61,8 +61,9 @@ content = UTF-8 source text
 ```
 
 It supports `.js`, `.jsx`, `.mjs`, `.cjs`, `.ts`, `.tsx`, `.mts`, `.cts`, project `package.json`
-files, and the `tsconfig.json`/`jsconfig.json` configuration files plus their named `.json` variants
-such as `tsconfig.base.json`.
+files, the `tsconfig.json`/`jsconfig.json` configuration files plus their named `.json` variants
+such as `tsconfig.base.json`, and the `pnpm-workspace.yaml`/`pnpm-workspace.yml` workspace
+manifest.
 
 `NextJsExtractor` recognizes standard `.js`, `.jsx`, `.ts`, and `.tsx` route files under `app/`,
 `src/app/`, `pages/`, and `src/pages/`. Route inventory is path-derived and does not require source
@@ -82,6 +83,7 @@ symbol://js-ts:src/anon.ts#default
 package://npm:example-app
 dependency://npm:@scope/package
 config://tsconfig.json#js-ts-module-resolution
+config://pnpm-workspace.yaml#js-ts-workspace-layout
 nextjs-route://src/app/products/[id]/page.tsx#route
 express-route://src/http/server.ts#app:GET:/health:health
 ```
@@ -89,7 +91,7 @@ express-route://src/http/server.ts#app:GET:/health:health
 Source declarations are scoped to the project-relative file path. An anonymous `export default`
 function, class, or arrow function is a real declaration with no source name, so it is recorded as
 `default`: the one name a JavaScript or TypeScript binding cannot have, which keeps the synthesized
-key collision-free. Package dependency stable keys are scoped by npm package name. Module-resolution configuration keys are scoped by the configuration file path, so a monorepo keeps one entity per `tsconfig.json`. Next.js and Express route entities are source-backed so conflicting route declarations remain distinct.
+key collision-free. Package dependency stable keys are scoped by npm package name. Module-resolution configuration keys are scoped by the configuration file path, so a monorepo keeps one entity per `tsconfig.json`. Workspace-layout keys are scoped by the manifest path, so a `pnpm-workspace.yaml` beside another manifest stays distinct. Next.js and Express route entities are source-backed so conflicting route declarations remain distinct.
 
 ## Parser Backend
 
@@ -128,7 +130,7 @@ None. The extractors do not run commands, use the network, or modify project fil
   path-alias specifiers are now resolution evidence for `athanor-linker-js-ts`; the extractor only
   records the configuration that makes them resolvable.
 - Only the module-resolution options of a TypeScript/JavaScript configuration file are projected:
-  `compilerOptions.baseUrl`, `compilerOptions.paths`, and `extends`. Other compiler options,
+  `compilerOptions.baseUrl`, `compilerOptions.paths`, `compilerOptions.rootDirs`, and `extends`. Other compiler options,
   `references`, `include`/`exclude`, and solution-style configurations are not extracted. A
   configuration file without `compilerOptions` and without `extends` is not projected at all.
 - Path mappings are bounded to 64 entries and 8 substitution targets per file, with disclosed
@@ -138,6 +140,16 @@ None. The extractors do not run commands, use the network, or modify project fil
 - Configuration files are read as JSONC: line and block comments outside string literals and
   trailing commas are removed before parsing, preserving line structure so evidence lines stay
   correct. Nested comment markers, `//` and `/* */` inside string values, are preserved verbatim.
+- A `package.json` `exports` map is projected as ordered `(subpath, conditions, target)` rows,
+  bounded to 64 rows and 4 condition keys each with a disclosed omission count. String, array, and
+  condition-object sugar forms are normalized to the `.` subpath; wildcard subpaths and targets
+  keep their `*`, and a pattern with more than one `*` is skipped rather than guessed.
+- Only the flat block sequence of a pnpm workspace manifest is read: a top-level `packages:` key
+  followed by `- pattern` items, bounded to 64 patterns with a disclosed omission count. Flow
+  sequences, anchors, nested blocks, and a manifest without a readable package list produce no
+  layout entity, so an unreadable layout never makes every package a workspace member.
+- `rootDirs` entries are resolved like `baseUrl`: an absolute, drive-qualified, or
+  repository-escaping root is reported as omitted instead of being merged.
 - Callback evidence is recorded only for the combinator allowlist and only for statically
   nameable arguments (identifiers and identifier-rooted member chains); inline arrows, call
   results, literals, and computed arguments are never recorded, and at most four arguments are

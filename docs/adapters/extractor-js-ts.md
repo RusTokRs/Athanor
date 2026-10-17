@@ -32,9 +32,9 @@ typescriptreact
 json
 ```
 
-It handles `.js`, `.jsx`, `.mjs`, `.cjs`, `.ts`, `.tsx`, `.mts`, `.cts`, `package.json`, and the
+It handles `.js`, `.jsx`, `.mjs`, `.cjs`, `.ts`, `.tsx`, `.mts`, `.cts`, `package.json`, the
 `tsconfig.json`/`jsconfig.json` configuration files plus their named `.json` variants such as
-`tsconfig.base.json`.
+`tsconfig.base.json`, and the `pnpm-workspace.yaml`/`pnpm-workspace.yml` workspace manifest.
 
 ## Emitted Knowledge
 
@@ -57,6 +57,24 @@ patterns, in both the array form and the `{ "packages": [...] }` object form, wi
 `omitted_workspaces` count. Those two fields are the evidence a linker needs to treat a bare
 workspace-package specifier as a repository-internal import.
 
+The payload also carries `exports`: one ordered row per declared target with its `subpath`, the
+`conditions` guarding it, and its `target`, bounded to 64 rows and 4 condition keys each with an
+`omitted_exports` count. String, array, and condition-object sugar forms are normalized to the `.`
+subpath, wildcard subpaths and targets keep their `*`, and a pattern with more than one `*` is
+skipped. Row order is the declaration order Node falls back through, so the linker proves rows in
+the package's own preference order.
+
+`pnpm-workspace.yaml` and `pnpm-workspace.yml` emit:
+
+- one `feature` entity per manifest, stable key `config://<path>#js-ts-workspace-layout`
+- `symbol_defined` facts with source evidence and ownership
+
+The layout payload records `config_kind: "js_ts_workspace_layout"`, the `packages` glob patterns of
+the flat block sequence under the top-level `packages:` key, and an `omitted_packages` count.
+Flow sequences, anchors, and nested blocks are outside the projection, and a manifest without a
+readable package list is not projected at all, so an unreadable layout never makes every package in
+the snapshot a workspace member.
+
 `tsconfig.json`, `jsconfig.json`, and their named `.json` variants emit:
 
 - one `feature` entity per configuration file, stable key `config://<path>#js-ts-module-resolution`
@@ -73,6 +91,11 @@ without `compilerOptions` and without `extends` carries no resolution evidence a
 Configuration files are read as JSONC: comments outside string literals and trailing commas are
 removed before parsing, preserving line structure, while `//` and `/* */` inside string values are
 kept verbatim.
+
+The same entity records `root_dirs`: the `compilerOptions.rootDirs` entries TypeScript presents as
+one merged virtual directory, each resolved against the declaring file's directory and bounded to
+eight roots with an `omitted_root_dirs` count; an absolute, drive-qualified, or repository-escaping
+root is reported as omitted instead of being merged.
 
 Module payloads include normalized `imports` and `exports` arrays. Each import entry records the
 specifier, its source range, and the local bindings it introduces: `default_name`, `namespace_name`,

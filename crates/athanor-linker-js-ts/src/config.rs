@@ -19,9 +19,7 @@ use std::collections::{BTreeMap, HashMap};
 use athanor_domain::{Entity, EntityKind};
 use serde_json::Value;
 
-use crate::paths::{
-    import_candidates, normalize_path, normalize_relative, resolve_local_import,
-};
+use crate::paths::{import_candidates, normalize_path, normalize_relative, resolve_local_import};
 
 /// Upper bound on `extends` hops followed for one configuration file.
 const MAX_EXTENDS_DEPTH: usize = 8;
@@ -337,8 +335,7 @@ fn resolve_workspace_package<'a>(
             continue;
         };
         if !package.exports.is_empty() {
-            if let Some(found) =
-                resolve_exports_subpath(package, &format!("./{subpath}"), modules)
+            if let Some(found) = resolve_exports_subpath(package, &format!("./{subpath}"), modules)
             {
                 return Some(found);
             }
@@ -457,7 +454,7 @@ fn resolve_through_root_dirs<'a>(
 fn is_under_root(path: &str, root: &str) -> bool {
     !root.is_empty()
         && path
-            .strip_prefix(root.as_str())
+            .strip_prefix(root)
             .is_some_and(|remainder| remainder.starts_with('/'))
 }
 

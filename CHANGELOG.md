@@ -28,10 +28,8 @@ substantive release notes.
 - Add strict versioned request, outline, context, citation, draft, manifest, and validation-report
   contracts for documentation generation: exact snapshot binding, portable paths, stable-key/evidence traceability, cited diagram edges, metrics, and checksums.
 - Add a minimal fixture repository and Rustok evaluation corpus with expected sections, citation paths, diagram edges, known gaps, repeatability, unsupported-relation disclosure, and review criteria.
-- Add a deterministic architecture profile that converts one explicit canonical snapshot into cited
-  Markdown, relation-backed Mermaid, omission disclosure, footnotes, metrics, and checksums.
-- Add an application-layer immutable documentation publisher with staged generation directories,
-  checksum-bound artifacts, an atomic `documentation/current.json` pointer, and exact `UpToDate` reuse.
+- Add a deterministic architecture profile that converts one explicit canonical snapshot into cited Markdown, relation-backed Mermaid, omission disclosure, footnotes, metrics, and checksums.
+- Add an application-layer immutable documentation publisher with staged generation directories, checksum-bound artifacts, an atomic `documentation/current.json` pointer, and exact `UpToDate` reuse.
 - Add `ath docs generate-architecture` for one exact committed snapshot with hard-limit flags, `--force`,
   text/JSON reports, and Ctrl-C cancellation; the existing coordinated `ath generate` remains unchanged.
 - Add validated `ath docs architecture current`, `manifest`, and `validation` inspection commands that
@@ -50,6 +48,8 @@ substantive release notes.
 - Bump index state v55→v56 because JS/TS extractor payloads gained module-resolution configuration; earlier snapshots reindex.
 - Add JavaScript/TypeScript anonymous default export binding: `export default function () {}`, `export default class {}`, and `export default () => {}` are recorded under the canonical `default` name with `anonymous_default` disclosure, so a default import, a default-imported construction, and a forwarded `default` alias resolve to them.
 - Bump index state v56→v57 because JS/TS extractor payloads gained anonymous default declarations; earlier snapshots reindex.
+- Resolve JavaScript/TypeScript package `exports` subpaths and conditional exports (longest declared prefix first, unknown conditions skipped, undeclared subpaths unreachable), read workspace membership from `pnpm-workspace.yaml`, and retry relative imports in the other roots of `rootDirs`.
+- Bump index state v57→v58 because JS/TS package and configuration payloads gained exports, layout, and root evidence; earlier snapshots reindex.
 
 ### Fixed
 
