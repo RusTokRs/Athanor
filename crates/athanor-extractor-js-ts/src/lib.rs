@@ -1767,15 +1767,8 @@ fn extract_typescript_config(
         stable_hash(stable_key.0.as_bytes())
     ));
     let line = json_member_line(&normalized, "compilerOptions").unwrap_or(1);
-    let TypeScriptConfig {
-        extends,
-        base_dir,
-        paths,
-        omitted_paths,
-        omitted_targets,
-    } = config;
     let mut mappings = Vec::new();
-    for mapping in &paths {
+    for mapping in &config.paths {
         mappings.push(json!({
             "pattern": mapping.pattern,
             "targets": mapping.targets,
@@ -1799,11 +1792,11 @@ fn extract_typescript_config(
         ownership: ownership_for_file(&input.source.path),
         payload: json!({
             "config_kind": "js_ts_module_resolution",
-            "extends": extends,
-            "base_dir": base_dir,
+            "extends": config.extends,
+            "base_dir": config.base_dir,
             "paths": mappings,
-            "omitted_paths": omitted_paths,
-            "omitted_targets": omitted_targets,
+            "omitted_paths": config.omitted_paths,
+            "omitted_targets": config.omitted_targets,
         }),
     };
     let fact = symbol_fact(

@@ -29,7 +29,9 @@ use athanor_domain::{
 use athanor_extractor_basic::stable_hash;
 use serde_json::{Value, json};
 
-use crate::config::{ModuleResolutionConfig, build_module_resolution_config, resolve_module_specifier};
+use crate::config::{
+    ModuleResolutionConfig, build_module_resolution_config, resolve_module_specifier,
+};
 use crate::paths::normalize_path;
 
 const MODULE_PREFIX: &str = "module://js-ts:";
@@ -360,6 +362,7 @@ fn resolve_call<'a>(
                 &mut visited,
                 &mut remaining_resolution_steps,
                 0,
+                config,
             ) {
                 Some(Some((target, depth))) => Some((target, depth, member)),
                 Some(None) => return None,
@@ -391,6 +394,7 @@ fn resolve_call<'a>(
                     &mut visited,
                     &mut remaining_resolution_steps,
                     0,
+                    config,
                 )
                 .into_resolved()?;
                 (target, depth, wanted)
@@ -693,6 +697,7 @@ fn resolve_exported_name<'a>(
             visited,
             remaining_steps,
             depth,
+            config,
         )
         .map_or(ExportedNameResolution::Blocked, |(target, depth)| {
             ExportedNameResolution::Resolved(target, depth)
@@ -786,6 +791,7 @@ fn resolve_namespace_exported_member<'a>(
             visited,
             remaining_steps,
             depth,
+            config,
         );
     }
     if namespace_exports.len() != 1 {

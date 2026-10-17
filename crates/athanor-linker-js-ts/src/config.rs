@@ -426,7 +426,7 @@ fn parse_typescript_config(entity: &Entity) -> Option<TypeScriptConfig> {
         .payload
         .get("paths")
         .and_then(Value::as_array)
-        .map(read_path_mappings)
+        .map(|mappings| read_path_mappings(mappings))
         .unwrap_or_default();
     Some(TypeScriptConfig {
         path,
@@ -491,7 +491,7 @@ fn parse_workspace_package(entity: &Entity) -> Option<WorkspacePackage> {
             .payload
             .get("workspaces")
             .and_then(Value::as_array)
-            .map(read_patterns)
+            .map(|patterns| read_patterns(patterns))
             .unwrap_or_default(),
         workspace_member: false,
     })
@@ -605,7 +605,11 @@ mod tests {
 
     #[test]
     fn resolves_workspace_packages_and_their_subpaths() {
-        let root = package("package.json", "root", &json!({"workspaces": ["packages/*"]}));
+        let root = package(
+            "package.json",
+            "root",
+            &json!({"workspaces": ["packages/*"]}),
+        );
         let member = package(
             "packages/ui/package.json",
             "@scope/ui",
@@ -637,7 +641,11 @@ mod tests {
 
     #[test]
     fn duplicate_workspace_package_names_stay_unresolved() {
-        let root = package("package.json", "root", &json!({"workspaces": ["packages/*"]}));
+        let root = package(
+            "package.json",
+            "root",
+            &json!({"workspaces": ["packages/*"]}),
+        );
         let first = package("packages/a/package.json", "@scope/ui", &json!({}));
         let second = package("packages/b/package.json", "@scope/ui", &json!({}));
         let first_entry = module("packages/a/index.ts");
