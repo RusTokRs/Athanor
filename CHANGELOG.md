@@ -49,6 +49,13 @@ substantive release notes.
   named re-exports resolves `alias.member()`; index state bumps v54→v55.
 - Add local semantic retrieval with zero new dependencies: hashing-trick embeddings over character
   trigrams and word n-grams (FNV-1a buckets) power `ath search --mode semantic|hybrid` and MCP `search`.
+- Add first-party JavaScript/TypeScript module-resolution configuration: `tsconfig.json`,
+  `jsconfig.json`, and their named `.json` variants project their `baseUrl`, `paths` mappings, and
+  inherited `extends` with disclosed bounds and JSONC tolerance, and `package.json` records `main`
+  and `workspaces`. The JS/TS import and call linkers resolve non-relative specifiers through that
+  evidence, so a path alias such as `@/lib/api` and a workspace-package specifier such as
+  `@scope/ui/button` become real module and call edges while unprovable specifiers stay unresolved;
+  index state v55→v56.
 
 ### Fixed
 

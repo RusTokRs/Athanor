@@ -2,14 +2,15 @@ name: tmp-format-feedback
 
 # Temporary developer feedback loop for the P2J slice. Removed before merge.
 on:
-  workflow_dispatch:
+  pull_request:
 
 permissions:
   contents: read
+  pull-requests: write
 
 jobs:
   feedback:
-    name: Format and check feedback
+    name: Capture rustfmt and cargo check output
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -19,31 +20,48 @@ jobs:
           persist-credentials: false
       - name: Install Rust toolchain
         uses: ./.github/actions/setup-rust
-      - name: Produce the rustfmt diff
-        run: |
-          set -euo pipefail
-          cargo fmt --all
-          git diff -- . > "${RUNNER_TEMP}/rustfmt.patch"
-          wc -l "${RUNNER_TEMP}/rustfmt.patch"
-      - name: Upload rustfmt diff
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: rustfmt-patch
-          path: ${{ runner.temp }}/rustfmt.patch
-          if-no-files-found: error
-          retention-days: 1
-      - name: Restore sources
-        run: git checkout -- .
-      - name: Run cargo check
-        id: check
+          components: rustfmt
+      - name: Capture rustfmt diff
+        shell: bash
+        run: |
+          set +e
+          cargo fmt --all -- --check > "$RUNNER_TEMP/fmt.log" 2>&1
+          code=$?
+          {
+            echo "fmt exit code: ${code}"
+            cat "$RUNNER_TEMP/fmt.log"
+          } > "$RUNNER_TEMP/fmt-body.txt"
+          python3 - <<'PY' > "$RUNNER_TEMP/fmt-comment.json"
+          import json
+          text = open("/home/runner/work/_temp/fmt-body.txt").read()
+          print(json.dumps("rustfmt output:\n```\n" + text[:40000] + "\n```"))
+          PY
+          gh api "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+            --method POST \
+            -H "Accept: application/vnd.github+json" \
+            --input "$RUNNER_TEMP/fmt-comment.json"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Capture cargo check output
+        shell: bash
         continue-on-error: true
         run: |
-          set -euo pipefail
-          cargo check --workspace --all-targets 2>&1 | tee "${RUNNER_TEMP}/cargo-check.log"
-      - name: Upload cargo check output
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: cargo-check-log
-          path: ${{ runner.temp }}/cargo-check.log
-          if-no-files-found: error
-          retention-days: 1
+          set +e
+          cargo check --workspace --all-targets > "$RUNNER_TEMP/check.log" 2>&1
+          code=$?
+          {
+            echo "check exit code: ${code}"
+            tail -n 200 "$RUNNER_TEMP/check.log"
+          } > "$RUNNER_TEMP/check-body.txt"
+          python3 - <<'PY' > "$RUNNER_TEMP/check-comment.json"
+          import json
+          text = open("/home/runner/work/_temp/check-body.txt").read()
+          print(json.dumps("cargo check output:\n```\n" + text[:40000] + "\n```"))
+          PY
+          gh api "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+            --method POST \
+            -H "Accept: application/vnd.github+json" \
+            --input "$RUNNER_TEMP/check-comment.json"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -4,8 +4,8 @@ JavaScript and TypeScript source-code extractor adapter.
 
 Implements: `Extractor`
 
-The crate exposes three extractor types. `JsTsExtractor` owns framework-neutral JavaScript/TypeScript
-and `package.json` parsing. `NextJsExtractor` is a separate bounded framework projection for standard
+The crate exposes three extractor types. `JsTsExtractor` owns framework-neutral JavaScript/TypeScript,
+`package.json`, and `tsconfig.json`/`jsconfig.json` parsing. `NextJsExtractor` is a separate bounded framework projection for standard
 Next.js filesystem route conventions and is registered independently as `builtin.extractor.nextjs`.
 `ExpressExtractor` is a separate bounded framework projection for static Express application/router
 route declarations and is registered independently as `builtin.extractor.express`.
@@ -24,9 +24,15 @@ route declarations and is registered independently as `builtin.extractor.express
   `callback_arguments` array on call sites whose callee is a known callback combinator
   (iteration methods, promise handlers, timers, event/observable registration) for the call
   linker's callback bridges
-- `EntityKind::Package` and `EntityKind::Dependency` for `package.json` package and dependency declarations
+- `EntityKind::Package` and `EntityKind::Dependency` for `package.json` package and dependency declarations,
+  with bounded `main` and `workspaces` evidence on the package entity
+- `EntityKind::Feature` for the module-resolution options of `tsconfig.json`/`jsconfig.json`: the
+  `baseUrl`-resolved base directory, each `paths` pattern with its substitution targets, and an
+  inherited `extends` specifier
 - `FactKind::SymbolDefined` for emitted source declarations and package dependency declarations
 - `DiagnosticKind::Other("js_ts_parse_error")` when tree-sitter reports parser errors, coalesced at the outer parser error node to avoid duplicate nested findings
+- `DiagnosticKind::Other("js_ts_typescript_config_parse_error")` when a `tsconfig.json`/`jsconfig.json`
+  file cannot be read as JSONC after comments and trailing commas are removed
 - `DiagnosticKind::Other("js_ts_unsupported_syntax")` for unsupported top-level declaration shapes detected during extraction
 - feature-gated parser verification diagnostics for backend-only findings, source-range mismatches,
   and recovery differences between tree-sitter and Oxc
@@ -54,7 +60,9 @@ language_hint = javascript | javascriptreact | typescript | typescriptreact | js
 content = UTF-8 source text
 ```
 
-It supports `.js`, `.jsx`, `.mjs`, `.cjs`, `.ts`, `.tsx`, `.mts`, `.cts`, and project `package.json` files.
+It supports `.js`, `.jsx`, `.mjs`, `.cjs`, `.ts`, `.tsx`, `.mts`, `.cts`, project `package.json`
+files, and the `tsconfig.json`/`jsconfig.json` configuration files plus their named `.json` variants
+such as `tsconfig.base.json`.
 
 `NextJsExtractor` recognizes standard `.js`, `.jsx`, `.ts`, and `.tsx` route files under `app/`,
 `src/app/`, `pages/`, and `src/pages/`. Route inventory is path-derived and does not require source
@@ -72,11 +80,12 @@ symbol://js-ts:src/auth.ts#login
 symbol://js-ts:src/App.tsx#App
 package://npm:example-app
 dependency://npm:@scope/package
+config://tsconfig.json#js-ts-module-resolution
 nextjs-route://src/app/products/[id]/page.tsx#route
 express-route://src/http/server.ts#app:GET:/health:health
 ```
 
-Source declarations are scoped to the project-relative file path. Package dependency stable keys are scoped by npm package name. Next.js and Express route entities are source-backed so conflicting route declarations remain distinct.
+Source declarations are scoped to the project-relative file path. Package dependency stable keys are scoped by npm package name. Module-resolution configuration keys are scoped by the configuration file path, so a monorepo keeps one entity per `tsconfig.json`. Next.js and Express route entities are source-backed so conflicting route declarations remain distinct.
 
 ## Parser Backend
 
@@ -106,8 +115,20 @@ None. The extractors do not run commands, use the network, or modify project fil
   follows bounded named, default-function and default-class, and multiple-source wildcard chains
   when they identify one target, plus direct namespace mappings for single-member calls.
 - Multi-hop namespace aliases, anonymous/default-expression and anonymous default class targets,
-  ambiguous or unresolved wildcard branches, and package/workspace/path-alias targets remain
-  unresolved.
+  and ambiguous or unresolved wildcard branches remain unresolved. Package, workspace, and
+  path-alias specifiers are now resolution evidence for `athanor-linker-js-ts`; the extractor only
+  records the configuration that makes them resolvable.
+- Only the module-resolution options of a TypeScript/JavaScript configuration file are projected:
+  `compilerOptions.baseUrl`, `compilerOptions.paths`, and `extends`. Other compiler options,
+  `references`, `include`/`exclude`, and solution-style configurations are not extracted. A
+  configuration file without `compilerOptions` and without `extends` is not projected at all.
+- Path mappings are bounded to 64 entries and 8 substitution targets per file, with disclosed
+  omission counts. A pattern with more than one `*`, a non-string target, and an empty target list
+  are skipped rather than guessed. An absolute, drive-qualified, or repository-escaping `baseUrl`
+  is reported without a base directory, which keeps its mappings unresolvable.
+- Configuration files are read as JSONC: line and block comments outside string literals and
+  trailing commas are removed before parsing, preserving line structure so evidence lines stay
+  correct. Nested comment markers, `//` and `/* */` inside string values, are preserved verbatim.
 - Callback evidence is recorded only for the combinator allowlist and only for statically
   nameable arguments (identifiers and identifier-rooted member chains); inline arrows, call
   results, literals, and computed arguments are never recorded, and at most four arguments are

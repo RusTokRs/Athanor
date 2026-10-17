@@ -27,8 +27,27 @@ dependency, so it emits the same relation kind with reason `relative_module_re_e
 
 ### Resolution
 
-Only relative `./` and `../` specifiers are resolved. The linker supports exact module paths,
+Relative `./` and `../` specifiers resolve against the importing module: exact module paths,
 extensionless source paths, and directory `index` modules across the built-in JS/TS extensions.
+
+Non-relative specifiers resolve only through configuration evidence that the extractor recorded:
+
+1. **Path aliases.** The nearest `tsconfig.json`/`jsconfig.json` at or above the importing module
+   supplies the `paths` mappings, resolved against the base directory recorded for that file. A
+   configuration that declares no mappings inherits the first ancestor along its relative `extends`
+   chain, up to 8 hops, because TypeScript does not merge mappings across `extends`. At most one `*`
+   per pattern is substituted into each target, and the first target naming an existing module wins.
+2. **Workspace packages.** A bare specifier resolves when a `package.json` declaring that `name` is a
+   member of a workspace declared by another `package.json` in the snapshot. Membership needs a glob
+   covering the package directory, where `*` matches one path segment and `**` matches any number of
+   them. The entry point is the recorded `main` when it resolves, otherwise `index` in the package
+   root; `name/subpath` specifiers resolve inside the package directory.
+
+A duplicated package name, a package that no workspace declaration covers, a configuration without a
+usable base directory, a package-valued `extends` specifier, and a specifier matching no mapping all
+stay unresolved. `node_modules` contents, `exports` and conditional-exports maps, TypeScript
+`rootDirs`, package-manager installs, and `pnpm-workspace.yaml` are never read.
+
 Resolution is deterministic and uses canonical entities already present in the current snapshot; it
 does not read the filesystem.
 
@@ -36,8 +55,11 @@ does not read the filesystem.
 
 Each exact match emits a verified `RelationKind::Imports` relation from the source module to the
 target module. Evidence includes the import or export source range and target module source; the
-payload reason distinguishes `relative_module_import` from `relative_module_re_export`. Ownership is
-the union of both module source files so incremental removal prunes stale relations.
+payload reason names both the resolution origin and the syntax that carried it:
+`relative_module_import`, `relative_module_re_export`, `path_alias_module_import`,
+`path_alias_module_re_export`, `workspace_package_module_import`, or
+`workspace_package_module_re_export`. Ownership is the union of both module source files so
+incremental removal prunes stale relations.
 
 ## Call Linker
 
@@ -53,7 +75,9 @@ previous one is silent:
 1. `same_module_this_method` — `this.method()` inside `Class.method` resolves to the sibling member.
 2. `same_module_exact_name` — an exact qualified-name match inside the calling module.
 3. `imported_exact_name` / `imported_symbol_name` — a named or namespace import resolves its
-   requested member to a declaration in the resolved relative target module. Named import aliases
+   requested member to a declaration in the resolved target module, where the binding's specifier is
+   resolved relatively, through a path alias, or through a workspace package with the same rules as
+   the import linker. Named import aliases
    retain both the local and imported spelling; directly qualified imported-class methods keep their
    existing import-member resolution behavior.
 4. `imported_default_export` — a default import resolves directly to the named function
@@ -131,7 +155,10 @@ contract relationship.
 
 ## Boundaries
 
-Package imports, Node built-ins, workspace aliases, TypeScript path aliases, dynamic imports,
+Path aliases and workspace packages resolve only through the recorded configuration evidence
+described above; `exports` maps, conditional exports, `rootDirs`, package-manager installs, and
+`pnpm-workspace.yaml` are outside the model. Node built-ins, bare specifiers that no configuration
+proves, dynamic imports,
 CommonJS `require` calls, anonymous/default-expression exports,
 anonymous default classes, computed member calls, multi-segment named-import namespace paths,
 and receiver typing are not resolved. Callback bridging only fires for the extractor's combinator allowlist and

@@ -32,7 +32,9 @@ typescriptreact
 json
 ```
 
-It handles `.js`, `.jsx`, `.mjs`, `.cjs`, `.ts`, `.tsx`, `.mts`, `.cts`, and `package.json`.
+It handles `.js`, `.jsx`, `.mjs`, `.cjs`, `.ts`, `.tsx`, `.mts`, `.cts`, `package.json`, and the
+`tsconfig.json`/`jsconfig.json` configuration files plus their named `.json` variants such as
+`tsconfig.base.json`.
 
 ## Emitted Knowledge
 
@@ -49,6 +51,28 @@ Source files emit:
 - `package` entities for package names
 - `dependency` entities for dependency declarations
 - `symbol_defined` facts with dependency kind, version requirement, source evidence, and ownership
+
+The package entity payload also carries the bounded `main` entry point and the `workspaces` glob
+patterns, in both the array form and the `{ "packages": [...] }` object form, with an
+`omitted_workspaces` count. Those two fields are the evidence a linker needs to treat a bare
+workspace-package specifier as a repository-internal import.
+
+`tsconfig.json`, `jsconfig.json`, and their named `.json` variants emit:
+
+- one `feature` entity per configuration file, stable key `config://<path>#js-ts-module-resolution`
+- `symbol_defined` facts with source evidence and ownership
+
+The configuration payload records only module-resolution evidence: `base_dir` (the `baseUrl` value
+resolved against the directory of the declaring file, or that directory when `baseUrl` is absent),
+each `paths` pattern with its substitution targets and declaration line, an inherited `extends`
+specifier, and `omitted_paths`/`omitted_targets` counts. Bounds are 64 path mappings and 8 targets
+per mapping. A pattern with more than one `*`, a non-string target, and an empty target list are
+skipped and counted. An absolute, drive-qualified, or repository-escaping `baseUrl` is recorded
+without a base directory, so its mappings stay unresolvable in the linker. A configuration file
+without `compilerOptions` and without `extends` carries no resolution evidence and is not projected.
+Configuration files are read as JSONC: comments outside string literals and trailing commas are
+removed before parsing, preserving line structure, while `//` and `/* */` inside string values are
+kept verbatim.
 
 Module payloads include normalized `imports` and `exports` arrays. Each import entry records the
 specifier, its source range, and the local bindings it introduces: `default_name`, `namespace_name`,
@@ -104,7 +128,8 @@ symbols belongs to the linker. Declarations without heritage omit both fields.
 
 ## Diagnostics
 
-Recoverable parser errors produce `js_ts_parse_error` diagnostics coalesced at the outer parser error node, so one parser failure does not produce duplicate nested findings. Parser input strips a leading UTF-8 BOM and accepts Node-style shebangs before tree-sitter parsing. Unsupported top-level declaration shapes detected during extraction produce `js_ts_unsupported_syntax` diagnostics. Ordinary top-level runtime statements in scripts and ambient TypeScript `declare module` blocks are not treated as unsupported declaration diagnostics. Diagnostics include source evidence, ownership, and the originating parser/language metadata.
+A `tsconfig.json`/`jsconfig.json` file that cannot be parsed after JSONC normalization produces a
+`js_ts_typescript_config_parse_error` diagnostic. Recoverable parser errors produce `js_ts_parse_error` diagnostics coalesced at the outer parser error node, so one parser failure does not produce duplicate nested findings. Parser input strips a leading UTF-8 BOM and accepts Node-style shebangs before tree-sitter parsing. Unsupported top-level declaration shapes detected during extraction produce `js_ts_unsupported_syntax` diagnostics. Ordinary top-level runtime statements in scripts and ambient TypeScript `declare module` blocks are not treated as unsupported declaration diagnostics. Diagnostics include source evidence, ownership, and the originating parser/language metadata.
 
 ## Precision Verification
 
@@ -142,8 +167,9 @@ stable across runs of the same source.
 The separate built-in `NextJsExtractor` owns only the bounded Next.js filesystem-route projection;
 see [Next.js Route Extractor](extractor-nextjs.md). `ExpressExtractor` owns only static Express
 application/router route declarations with explicit framework bindings; see
-[Express Route Extractor](extractor-express.md). Package and alias import resolution remain outside
-the base language slice.
+[Express Route Extractor](extractor-express.md). Package and alias import resolution itself remains
+outside the base extractor: it records the `tsconfig.json`/`jsconfig.json` and `package.json` evidence,
+and `athanor-linker-js-ts` decides what it proves.
 
 ## Verification
 
