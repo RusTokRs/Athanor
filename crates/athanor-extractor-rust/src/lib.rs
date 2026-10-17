@@ -10,7 +10,7 @@ use athanor_domain::{
 use athanor_extractor_basic::{evidence_for_file, file_entity, ownership_for_file, stable_hash};
 use proc_macro2::Span;
 use quote::ToTokens;
-use serde_json::json;
+use serde_json::{Value, json};
 use syn::visit::Visit;
 use syn::{ImplItem, Item, Type, Visibility, spanned::Spanned};
 
@@ -60,6 +60,7 @@ impl Extractor for RustExtractor {
             spans: vec![syntax.span()],
             imports: Vec::new(),
             calls: Vec::new(),
+            typed_bindings: Vec::new(),
             is_test: false,
             supertraits: Vec::new(),
         });
@@ -127,6 +128,9 @@ impl Extractor for RustExtractor {
                 "calls": symbol.calls,
                 "is_test": symbol.is_test,
             });
+            if !symbol.typed_bindings.is_empty() {
+                payload["typed_bindings"] = json!(symbol.typed_bindings);
+            }
             if symbol.symbol_kind == "trait" {
                 payload["supertraits"] = json!(symbol.supertraits);
             }
@@ -319,32 +323,199 @@ struct RustSymbol {
     signature: Option<String>,
     spans: Vec<Span>,
     imports: Vec<String>,
-    calls: Vec<String>,
+    calls: Vec<Value>,
+    typed_bindings: Vec<Value>,
     is_test: bool,
     supertraits: Vec<String>,
 }
 
 struct CallVisitor {
-    calls: Vec<String>,
+    calls: Vec<Value>,
 }
 
 impl<'ast> Visit<'ast> for CallVisitor {
     fn visit_expr_call(&mut self, node: &'ast syn::ExprCall) {
         if let syn::Expr::Path(expr_path) = &*node.func {
-            self.calls.push(path_to_string(&expr_path.path));
+            let callee = path_to_string(&expr_path.path);
+            let name = expr_path
+                .path
+                .segments
+                .last()
+                .map(|segment| segment.ident.to_string())
+                .unwrap_or_default();
+            self.calls.push(call_site(
+                "call",
+                callee,
+                name,
+                None,
+                node.span().start().line as u32,
+            ));
         }
         syn::visit::visit_expr_call(self, node);
     }
 
     fn visit_expr_method_call(&mut self, node: &'ast syn::ExprMethodCall) {
-        self.calls.push(node.method.to_string());
+        let receiver = node.receiver.to_token_stream().to_string();
+        let name = node.method.to_string();
+        self.calls.push(call_site(
+            "method",
+            format!("{receiver}.{name}"),
+            name,
+            Some(receiver),
+            node.span().start().line as u32,
+        ));
         syn::visit::visit_expr_method_call(self, node);
     }
+}
 
-    fn visit_expr_path(&mut self, node: &'ast syn::ExprPath) {
-        self.calls.push(path_to_string(&node.path));
-        syn::visit::visit_expr_path(self, node);
+/// One statically named call site.
+///
+/// A method call keeps the receiver expression it was written with, because the
+/// receiver's declared type is the evidence for which type's method runs.
+fn call_site(
+    kind: &'static str,
+    callee: String,
+    name: String,
+    receiver: Option<String>,
+    line: u32,
+) -> Value {
+    json!({
+        "callee": callee,
+        "name": name,
+        "receiver": receiver,
+        "kind": kind,
+        "line": line,
+    })
+}
+
+/// The receiver types one function states.
+///
+/// A parameter or an annotated local is evidence only when its declared type
+/// names one type: a bare path, a `dyn Trait`, or an `impl Trait`, with
+/// references and the usual smart pointers unwrapped. A generic argument, a
+/// tuple, a `Self` receiver, a trait object with extra bounds, and an
+/// unannotated local name nothing the linker may dispatch on.
+fn typed_bindings(sig: Option<&syn::Signature>, block: Option<&syn::Block>) -> Vec<Value> {
+    let mut rows = Vec::new();
+    if let Some(sig) = sig {
+        for argument in &sig.inputs {
+            if let syn::FnArg::Typed(argument) = argument
+                && let syn::Pat::Ident(pattern) = &*argument.pat
+                && let Some((type_name, kind)) = receiver_type(&argument.ty)
+            {
+                rows.push(typed_binding(
+                    pattern.ident.to_string(),
+                    type_name,
+                    kind,
+                    argument.ty.span().start().line as u32,
+                ));
+            }
+        }
     }
+    if let Some(block) = block {
+        for statement in &block.stmts {
+            if let syn::Stmt::Local(local) = statement
+                && let syn::Pat::Ident(pattern) = &local.pat
+                && let Some((_, ty)) = &local.ty
+                && let Some((type_name, kind)) = receiver_type(ty)
+            {
+                rows.push(typed_binding(
+                    pattern.ident.to_string(),
+                    type_name,
+                    kind,
+                    ty.span().start().line as u32,
+                ));
+            }
+        }
+    }
+    rows
+}
+
+fn typed_binding(name: String, type_name: String, kind: &'static str, line: u32) -> Value {
+    json!({
+        "name": name,
+        "type": type_name,
+        "kind": kind,
+        "line": line,
+    })
+}
+
+/// Reduces one declared type to the single type a receiver can dispatch on.
+fn receiver_type(ty: &Type) -> Option<(String, &'static str)> {
+    match ty {
+        Type::Reference(reference) => receiver_type(&reference.elem),
+        Type::Paren(paren) => receiver_type(&paren.elem),
+        Type::TraitObject(trait_object) => {
+            single_trait_bound(trait_object.bounds.iter()).map(|name| (name, "trait_object"))
+        }
+        Type::ImplTrait(impl_trait) => {
+            single_trait_bound(impl_trait.bounds.iter()).map(|name| (name, "impl_trait"))
+        }
+        Type::Path(path) => {
+            let segment = path.path.segments.last()?;
+            // `Box<dyn Trait>`, `Arc<dyn Trait>`, and `Rc<dyn Trait>` hold the
+            // receiver behind one indirection, so the type inside decides.
+            if matches!(segment.ident.to_string().as_str(), "Box" | "Rc" | "Arc")
+                && let syn::PathArguments::AngleBracketed(arguments) = &segment.arguments
+                && arguments.args.len() == 1
+                && let Some(syn::GenericArgument::Type(inner)) = arguments.args.first()
+            {
+                return receiver_type(inner);
+            }
+            if !matches!(segment.arguments, syn::PathArguments::None) {
+                return None;
+            }
+            let name = segment.ident.to_string();
+            if is_primitive(&name) {
+                return None;
+            }
+            Some((name, "annotation"))
+        }
+        _ => None,
+    }
+}
+
+/// Reports a type that no crate declaration can own: a primitive or `Self`.
+fn is_primitive(name: &str) -> bool {
+    matches!(
+        name,
+        "Self"
+            | "bool"
+            | "char"
+            | "str"
+            | "u8"
+            | "u16"
+            | "u32"
+            | "u64"
+            | "u128"
+            | "usize"
+            | "i8"
+            | "i16"
+            | "i32"
+            | "i64"
+            | "i128"
+            | "isize"
+            | "f32"
+            | "f64"
+    )
+}
+
+/// Reads the one trait a `dyn`/`impl` bound names, or nothing when the bound
+/// carries more than a trait: `dyn Trait + Send` dispatches like no single type.
+fn single_trait_bound<'a>(
+    mut bounds: impl Iterator<Item = &'a syn::TypeParamBound>,
+) -> Option<String> {
+    let Some(syn::TypeParamBound::Trait(bound)) = bounds.next() else {
+        return None;
+    };
+    if bounds.next().is_some() {
+        return None;
+    }
+    let segment = bound.path.segments.last()?;
+    if !matches!(segment.arguments, syn::PathArguments::None) {
+        return None;
+    }
+    Some(segment.ident.to_string())
 }
 
 fn path_to_string(path: &syn::Path) -> String {
@@ -432,6 +603,7 @@ fn collect_items(
                     spans: vec![item.sig.span()],
                     imports: Vec::new(),
                     calls: visitor.calls,
+                    typed_bindings: typed_bindings(Some(&item.sig), Some(&item.block)),
                     is_test,
                     supertraits: Vec::new(),
                 });
@@ -449,6 +621,7 @@ fn collect_items(
                     spans: vec![item.span()],
                     imports: Vec::new(),
                     calls: Vec::new(),
+                    typed_bindings: Vec::new(),
                     is_test: false,
                     supertraits: Vec::new(),
                 });
@@ -480,6 +653,7 @@ fn collect_items(
                 );
                 trait_symbol.supertraits = trait_supertraits(item);
                 symbols.push(trait_symbol);
+                collect_trait_items(item, parent, symbols);
             }
             Item::Union(item) => symbols.push(type_symbol(
                 parent,
@@ -557,10 +731,44 @@ fn collect_impl_items(item: &syn::ItemImpl, parent: &str, symbols: &mut Vec<Rust
                 spans: vec![method.sig.span()],
                 imports: Vec::new(),
                 calls: visitor.calls,
+                typed_bindings: typed_bindings(Some(&method.sig), Some(&method.block)),
                 is_test,
                 supertraits: Vec::new(),
             });
         }
+    }
+}
+
+/// Records the methods a trait declares.
+///
+/// A `dyn Trait` receiver has nothing to dispatch to unless the trait's own
+/// method declarations exist as entities, so `fn login(&self);` inside a trait
+/// becomes a declaration qualified `Trait::login`, with the calls of a default
+/// body when it has one.
+fn collect_trait_items(item: &syn::ItemTrait, parent: &str, symbols: &mut Vec<RustSymbol>) {
+    let trait_qualified = qualify(parent, &item.ident.to_string());
+    for member in &item.items {
+        let syn::TraitItem::Fn(method) = member else {
+            continue;
+        };
+        let mut visitor = CallVisitor { calls: Vec::new() };
+        if let Some(block) = &method.default {
+            visitor.visit_block(block);
+        }
+        symbols.push(RustSymbol {
+            name: method.sig.ident.to_string(),
+            qualified_name: qualify(&trait_qualified, &method.sig.ident.to_string()),
+            entity_kind: EntityKind::Function,
+            symbol_kind: "trait_method",
+            visibility: visibility(&item.vis),
+            signature: Some(method.sig.to_token_stream().to_string()),
+            spans: vec![method.sig.span()],
+            imports: Vec::new(),
+            calls: visitor.calls,
+            typed_bindings: typed_bindings(Some(&method.sig), method.default.as_ref()),
+            is_test: false,
+            supertraits: Vec::new(),
+        });
     }
 }
 
@@ -631,6 +839,7 @@ fn type_symbol(
         spans: vec![span],
         imports: Vec::new(),
         calls: Vec::new(),
+        typed_bindings: Vec::new(),
         is_test: false,
         supertraits: Vec::new(),
     }
@@ -1125,6 +1334,137 @@ fn platform() {}
         assert_eq!(database_fact.value["mechanism"], "env");
         assert_eq!(port_fact.value["mechanism"], "std::env::var");
         assert_eq!(host_fact.value["mechanism"], "option_env");
+    }
+
+    #[tokio::test]
+    async fn records_method_call_sites_with_their_receiver() {
+        let output = RustExtractor
+            .extract(input(
+                "src/lib.rs",
+                r#"
+pub struct Store;
+impl Store {
+    pub fn write(&self) {
+        commit();
+    }
+}
+fn commit() {}
+fn run(store: Store) {
+    store.write();
+}
+"#,
+            ))
+            .await
+            .unwrap();
+
+        let run = output
+            .entities
+            .iter()
+            .find(|entity| entity.name == "run")
+            .expect("run must be extracted");
+        let calls = run.payload["calls"].as_array().expect("calls array");
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0]["kind"], "method");
+        assert_eq!(calls[0]["callee"], "store.write");
+        assert_eq!(calls[0]["name"], "write");
+        assert_eq!(calls[0]["receiver"], "store");
+
+        let write = output
+            .entities
+            .iter()
+            .find(|entity| entity.name == "write")
+            .expect("write must be extracted");
+        let inner = write.payload["calls"].as_array().expect("calls array");
+        assert_eq!(inner.len(), 1);
+        assert_eq!(inner[0]["kind"], "call");
+        assert_eq!(inner[0]["callee"], "commit");
+        assert!(inner[0]["receiver"].is_null());
+    }
+
+    #[tokio::test]
+    async fn records_typed_receiver_bindings() {
+        let output = RustExtractor
+            .extract(input(
+                "src/lib.rs",
+                r#"
+pub trait Reader {}
+pub struct Store;
+pub fn run(
+    reader: &dyn Reader,
+    boxed: Box<dyn Reader>,
+    bound: &impl Reader,
+    store: Store,
+    generic: Vec<Store>,
+    extra: &dyn Reader + Send,
+    plain: u32,
+) {
+    let local: Store = Store;
+    let inferred = Store;
+}
+"#,
+            ))
+            .await
+            .unwrap();
+
+        let run = output
+            .entities
+            .iter()
+            .find(|entity| entity.name == "run")
+            .expect("run must be extracted");
+        let bindings = run.payload["typed_bindings"]
+            .as_array()
+            .expect("typed bindings array");
+        let mut rows = Vec::new();
+        for binding in bindings {
+            rows.push(format!(
+                "{}:{}:{}",
+                binding["name"].as_str().unwrap_or_default(),
+                binding["type"].as_str().unwrap_or_default(),
+                binding["kind"].as_str().unwrap_or_default()
+            ));
+        }
+        rows.sort();
+        assert_eq!(
+            rows,
+            vec![
+                "bound:Reader:impl_trait".to_string(),
+                "boxed:Reader:trait_object".to_string(),
+                "local:Store:annotation".to_string(),
+                "reader:Reader:trait_object".to_string(),
+                "store:Store:annotation".to_string(),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn records_the_methods_a_trait_declares() {
+        let output = RustExtractor
+            .extract(input(
+                "src/lib.rs",
+                r#"
+pub trait Reader {
+    fn read(&self);
+    fn reset(&mut self) {}
+}
+"#,
+            ))
+            .await
+            .unwrap();
+
+        let keys = output
+            .entities
+            .iter()
+            .map(|entity| entity.stable_key.0.as_str())
+            .collect::<Vec<_>>();
+        assert!(keys.contains(&"symbol://rust:crate::Reader::read"));
+        assert!(keys.contains(&"symbol://rust:crate::Reader::reset"));
+        let reset = output
+            .entities
+            .iter()
+            .find(|entity| entity.stable_key.0 == "symbol://rust:crate::Reader::reset")
+            .expect("reset must be extracted");
+        assert_eq!(reset.payload["symbol_kind"], "trait_method");
+        assert_eq!(reset.kind, EntityKind::Function);
     }
 
     fn input(path: &str, content: &str) -> ExtractInput {
