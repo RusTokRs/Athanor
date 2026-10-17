@@ -21,7 +21,7 @@ jobs:
       - name: Install Rust toolchain
         uses: ./.github/actions/setup-rust
         with:
-          components: rustfmt, clippy
+          components: rustfmt clippy
       - name: Capture rustfmt diff
         shell: bash
         run: |
