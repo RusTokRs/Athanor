@@ -47,8 +47,10 @@ Two concrete targets:
 
 ### P2 — Resolution Depth For Both Languages
 
-- Rust: trait implementation (`Implements`) and supertrait (`Extends`) edges; dyn-dispatch candidates
-  remain a separate deferred capability.
+- Rust: trait implementation (`Implements`) and supertrait (`Extends`) edges; P2P resolves a method
+  call through the receiver's declared type, so a `dyn`/`impl Trait` receiver reaches the trait
+  declaration it states. The concrete implementations that can flow into such a receiver remain a
+  separate deferred capability.
 - JS/TS: class `extends`/`implements` and interface `extends` with distinct canonical relation kinds;
   P2B covers explicit named re-export chains, P2C bounded single-source wildcard re-exports, P2D
   named default function exports/re-exports, P2E direct namespace re-exports for single-member calls
@@ -57,9 +59,10 @@ Two concrete targets:
   TypeScript path aliases and workspace-package specifiers, P2K anonymous default exports bound
   to the canonical `default` name, and P2L package `exports` subpaths with conditional exports,
   pnpm workspace layouts, and merged `rootDirs` roots, P2M typed receivers and deep member paths,
-  P2N typed receiver paths that cross module boundaries, and P2O receivers typed by a factory's
-  declared return type. Type inference for a receiver whose type the source never states remains
-  open.
+  P2N typed receiver paths that cross module boundaries, P2O receivers typed by a factory's
+  declared return type, and P2P method calls resolved through the receiver's declared type,
+  including `dyn` and `impl Trait` receivers. Type inference for a receiver whose type the source
+  never states remains open.
 - Both: symbol-level incremental invalidation so a changed declaration re-resolves only its closure.
 
 #### P2A — Heritage Relation Semantics (bounded Rust/TypeScript slice)
@@ -668,12 +671,60 @@ cargo test -p athanor-app --locked
 cargo test -p athanor-app --features js-ts-precision --locked
 ```
 
+#### P2P — Method Calls Through Declared Receiver Types (bounded Rust slice)
+
+- A Rust method call is now resolved through the receiver's declared type instead of its name.
+  `store.write()` was recorded as the bare name `write`, so it linked only when a function of that
+  name happened to be in scope, and `reader.read()` on a `&dyn Reader` had nothing to link to at
+  all.
+- Call sites are objects, not strings: `{callee, name, receiver, kind, line}`. A bare path call
+  keeps `receiver: null` and `kind: "call"`; a method call records the receiver expression as
+  written and `kind: "method"`.
+- A function records the receiver types it states. Parameters and annotated locals — including the
+  ones nested in blocks and match arms — become `typed_bindings` rows of `{name, type, kind, line}`,
+  where `kind` is `annotation`, `trait_object`, or `impl_trait`. References and `Box`/`Rc`/`Arc` are
+  unwrapped to the type they name. A generic argument, a trait object with extra bounds, a
+  primitive, `Self`, and an unannotated local name nothing dispatchable, so they are not recorded.
+- Resolution is by declaration, not by name. `self.m()` dispatches inside its own impl at `0.8`;
+  `x.m()` where `x` is declared as `Store` resolves to `Store::m` at `0.8`; `x.m()` where `x` is a
+  `&dyn Trait` or an `impl Trait` resolves to `Trait::m` — the declaration dynamic dispatch calls —
+  at `0.7`. A bare path keeps the existing import-aware `resolve_path` at `0.8`. A method no longer
+  links to itself.
+- Doubt stays unresolved rather than guessed. A type name declared twice owns neither declaration, a
+  binding name typed twice types nothing, and a nested receiver such as `self.reader` and a receiver
+  the source never types stay unresolved. Finding the concrete impls behind a `dyn` receiver is
+  still out of scope: only a type the source states may type a receiver.
+- Trait method declarations become entities, because a `dyn` receiver has no target unless the
+  trait's own methods exist in the snapshot. This closes the trait-method extraction deferred since
+  P2A and does not expand trait implementations into synthetic methods.
+- Bump both index-state schema families from v60 to v61 because Rust declaration payloads gain
+  structured call sites and receiver types, so cached relations are recomputed in both
+  configurations.
+
+Focused source regression matrix:
+
+| Surface | Regression |
+| --- | --- |
+| Rust extractor | Call sites with receiver, kind, and line; receiver types from parameters, annotated locals, and nested blocks; `Box`/`Rc`/`Arc`, `&dyn`, `impl Trait`; rejection of generics, multi-bound trait objects, primitives, `Self`, and unannotated locals; trait method declarations |
+| Rust linker | `rust_self_method`, `rust_typed_receiver_method`, and `rust_dyn_dispatch_method` with their confidences; an untyped, nested, or ambiguously named receiver stays unresolved; a method never links to itself |
+| Persistence | v60 normal/precision state is rejected and forces a v61 rebuild |
+
+Focused verification:
+
+```bash
+cargo test -p athanor-extractor-rust --locked
+cargo test -p athanor-linker-rust --locked
+cargo test -p athanor-app --locked
+cargo test -p athanor-app --features js-ts-precision --locked
+```
+
 #### Remaining P2 Gaps
 
 - Type inference for a receiver whose type the source never states — an unannotated factory, an
   index access, or a structural type; package-manager-specific resolution that needs an installed
   tree, such as Yarn `nodeLinker` layouts and patched dependencies.
-- Rust dyn-dispatch candidates and symbol-level incremental invalidation for both Rust and JS/TS.
+- The concrete implementations behind a Rust `dyn` receiver, and symbol-level incremental
+  invalidation for both Rust and JS/TS.
 
 ### P3 — Bounded Language Expansion
 

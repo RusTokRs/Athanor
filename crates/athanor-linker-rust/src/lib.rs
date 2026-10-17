@@ -15,6 +15,15 @@ use serde_json::json;
 const TRAIT_IMPL_CONFIDENCE: f32 = 0.7;
 /// Confidence of a trait supertrait bridge resolved by canonical path/name.
 const TRAIT_SUPERTYPE_CONFIDENCE: f32 = 0.7;
+/// Confidence of a statically named call resolved by canonical path or import.
+const STATIC_CALL_CONFIDENCE: f32 = 0.8;
+/// Confidence of a method call on `self`, whose type is the enclosing impl.
+const SELF_METHOD_CONFIDENCE: f32 = 0.8;
+/// Confidence of a method call on a receiver whose concrete type is declared.
+const TYPED_RECEIVER_CONFIDENCE: f32 = 0.8;
+/// Confidence of a method call dispatched through a `dyn`/`impl` trait: the
+/// target is the trait's declaration, not the code that runs.
+const DYN_DISPATCH_CONFIDENCE: f32 = 0.7;
 
 #[derive(Debug, Clone, Default)]
 pub struct RustLinker;
@@ -55,6 +64,10 @@ impl Linker for RustLinker {
                 qualified_names.insert(qn);
             }
         }
+
+        // A receiver's declared type is a name; only a unique type of that name
+        // in the snapshot can own the method a call dispatches to.
+        let type_index = type_qualified_names(&rust_entities);
 
         let mut relations = Vec::new();
         let mut relation_ids = HashSet::new();
@@ -145,30 +158,46 @@ impl Linker for RustLinker {
 
                 if let Some(calls) = entity.payload.get("calls").and_then(|v| v.as_array()) {
                     for call_val in calls {
-                        if let Some(call_path) = call_val.as_str() {
-                            if let Some(resolved) = resolve_path(
-                                &parent_module_qn,
-                                call_path,
-                                &imports,
-                                &qualified_names,
-                            ) {
-                                if let Some(target) = rust_by_qualified_name
-                                    .get(resolved.as_str())
-                                    .filter(|target| either_affected(entity, target, &affected_ids))
-                                {
-                                    let rel = relation(
-                                        &input.snapshot,
+                        let Some(call) = call_val.as_object() else {
+                            continue;
+                        };
+                        let callee = call.get("callee").and_then(|v| v.as_str()).unwrap_or("");
+                        let name = call.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                        let kind = call.get("kind").and_then(|v| v.as_str()).unwrap_or("call");
+                        let resolved = if kind == "method" {
+                            call.get("receiver")
+                                .and_then(|v| v.as_str())
+                                .and_then(|receiver| {
+                                    resolve_typed_method(
                                         entity,
-                                        target,
-                                        RelationKind::Calls,
-                                        self.name(),
-                                        "rust_static_call",
-                                        call_path,
-                                        0.8,
-                                        RelationStatus::Inferred,
-                                    );
-                                    calls_relations.push(rel);
-                                }
+                                        receiver,
+                                        name,
+                                        &type_index,
+                                        &rust_by_qualified_name,
+                                    )
+                                })
+                        } else {
+                            resolve_path(&parent_module_qn, callee, &imports, &qualified_names)
+                                .and_then(|resolved| {
+                                    let target = rust_by_qualified_name.get(resolved.as_str())?;
+                                    Some((*target, "rust_static_call", STATIC_CALL_CONFIDENCE))
+                                })
+                        };
+                        if let Some((target, reason, confidence)) = resolved {
+                            if target.id != entity.id
+                                && either_affected(entity, target, &affected_ids)
+                            {
+                                calls_relations.push(relation(
+                                    &input.snapshot,
+                                    entity,
+                                    target,
+                                    RelationKind::Calls,
+                                    self.name(),
+                                    reason,
+                                    callee,
+                                    confidence,
+                                    RelationStatus::Inferred,
+                                ));
                             }
                         }
                     }
@@ -379,6 +408,138 @@ fn either_affected(left: &Entity, right: &Entity, affected: &HashSet<EntityId>) 
 
 fn qualify(parent: &str, name: &str) -> String {
     format!("{parent}::{name}")
+}
+
+/// Maps a type name to the unique qualified name that declares it.
+///
+/// Only a struct, enum, union, type alias, or trait can own a method, and a name
+/// declared twice names neither, so a receiver of that type stays unresolved
+/// instead of dispatching to whichever declaration the map kept.
+fn type_qualified_names<'a>(entities: &[&'a Entity]) -> HashMap<String, Option<&'a str>> {
+    let mut owners: HashMap<String, Option<&'a str>> = HashMap::new();
+    for entity in entities {
+        let kind = entity
+            .payload
+            .get("symbol_kind")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default();
+        if !matches!(kind, "struct" | "enum" | "union" | "type_alias" | "trait") {
+            continue;
+        }
+        let Some(qualified) = qualified_name(entity) else {
+            continue;
+        };
+        let prior = owners.get(&entity.name).copied();
+        match prior {
+            None => {
+                owners.insert(entity.name.clone(), Some(qualified));
+            }
+            Some(Some(existing)) => {
+                if existing != qualified {
+                    owners.insert(entity.name.clone(), None);
+                }
+            }
+            Some(None) => {}
+        }
+    }
+    owners
+}
+
+/// The type one receiver binding declares.
+#[derive(Clone)]
+struct ReceiverType {
+    type_name: String,
+    kind: &'static str,
+}
+
+/// Reads the receiver types one function states.
+///
+/// A name bound to two types is ambiguous and names nothing, so it is recorded
+/// as unresolved instead of letting one declaration win by accident.
+fn receiver_types(entity: &Entity) -> HashMap<String, Option<ReceiverType>> {
+    let mut receivers: HashMap<String, Option<ReceiverType>> = HashMap::new();
+    let Some(bindings) = entity
+        .payload
+        .get("typed_bindings")
+        .and_then(|v| v.as_array())
+    else {
+        return receivers;
+    };
+    for binding in bindings {
+        let (Some(name), Some(type_name)) = (
+            binding.get("name").and_then(|v| v.as_str()),
+            binding.get("type").and_then(|v| v.as_str()),
+        ) else {
+            continue;
+        };
+        let kind = match binding.get("kind").and_then(|v| v.as_str()) {
+            Some("trait_object") => "trait_object",
+            Some("impl_trait") => "impl_trait",
+            _ => "annotation",
+        };
+        let recorded = ReceiverType {
+            type_name: type_name.to_string(),
+            kind,
+        };
+        let prior = receivers.get(name).cloned();
+        match prior {
+            None => {
+                receivers.insert(name.to_string(), Some(recorded));
+            }
+            Some(Some(existing)) => {
+                if existing.type_name != type_name {
+                    receivers.insert(name.to_string(), None);
+                }
+            }
+            Some(None) => {}
+        }
+    }
+    receivers
+}
+
+/// Resolves a method call whose receiver the source typed.
+///
+/// `self` dispatches inside its own impl, and any other receiver dispatches to
+/// the method of its declared type. A `dyn`/`impl` trait receiver reaches the
+/// trait's declaration, which is what dynamic dispatch calls, while a receiver
+/// the function does not type stays unresolved rather than matching by name.
+fn resolve_typed_method<'a>(
+    caller: &Entity,
+    receiver: &str,
+    name: &str,
+    type_index: &HashMap<String, Option<&'a str>>,
+    by_qualified_name: &HashMap<&'a str, &'a Entity>,
+) -> Option<(&'a Entity, &'static str, f32)> {
+    let (qualified, reason, confidence) = if receiver == "self" {
+        let owner = qualified_name(caller)?.rsplit_once("::")?.0;
+        (
+            format!("{owner}::{name}"),
+            "rust_self_method",
+            SELF_METHOD_CONFIDENCE,
+        )
+    } else {
+        let receivers = receiver_types(caller);
+        let binding = receivers.get(receiver)?.as_ref()?;
+        let type_qualified = type_index.get(&binding.type_name)?.as_ref()?;
+        if matches!(binding.kind, "trait_object" | "impl_trait") {
+            (
+                format!("{type_qualified}::{name}"),
+                "rust_dyn_dispatch_method",
+                DYN_DISPATCH_CONFIDENCE,
+            )
+        } else {
+            (
+                format!("{type_qualified}::{name}"),
+                "rust_typed_receiver_method",
+                TYPED_RECEIVER_CONFIDENCE,
+            )
+        }
+    };
+    let target = by_qualified_name.get(qualified.as_str()).copied()?;
+    if !matches!(target.kind, EntityKind::Function) {
+        return None;
+    }
+    Some((target, reason, confidence))
 }
 
 fn resolve_path(
@@ -697,6 +858,213 @@ mod tests {
 
     use super::*;
 
+    fn call_site(kind: &str, callee: &str, name: &str) -> serde_json::Value {
+        json!({
+            "callee": callee,
+            "name": name,
+            "receiver": if kind == "method" {
+                Some(callee.rsplit_once('.').map(|(receiver, _)| receiver).unwrap_or("self"))
+            } else {
+                None
+            },
+            "kind": kind,
+            "line": 4,
+        })
+    }
+
+    fn typed_caller(
+        id: &str,
+        qualified_name: &str,
+        bindings: serde_json::Value,
+        calls: serde_json::Value,
+    ) -> Entity {
+        entity(
+            id,
+            &format!("symbol://rust:{qualified_name}"),
+            EntityKind::Function,
+            qualified_name
+                .rsplit_once("::")
+                .map(|(_, name)| name)
+                .unwrap_or(qualified_name),
+            json!({ "qualified_name": qualified_name, "typed_bindings": bindings, "calls": calls }),
+        )
+    }
+
+    fn trait_method(id: &str, qualified_name: &str) -> Entity {
+        entity(
+            id,
+            &format!("symbol://rust:{qualified_name}"),
+            EntityKind::Function,
+            qualified_name
+                .rsplit_once("::")
+                .map(|(_, name)| name)
+                .unwrap_or(qualified_name),
+            json!({ "qualified_name": qualified_name, "symbol_kind": "trait_method" }),
+        )
+    }
+
+    fn type_entity(id: &str, qualified_name: &str, symbol_kind: &str) -> Entity {
+        entity(
+            id,
+            &format!("symbol://rust:{qualified_name}"),
+            EntityKind::Symbol,
+            qualified_name
+                .rsplit_once("::")
+                .map(|(_, name)| name)
+                .unwrap_or(qualified_name),
+            json!({ "qualified_name": qualified_name, "symbol_kind": symbol_kind }),
+        )
+    }
+
+    #[tokio::test]
+    async fn resolves_method_calls_through_declared_receiver_types() {
+        let trait_type = type_entity("ent_trait_reader", "crate::app::Reader", "trait");
+        let struct_type = type_entity("ent_struct_store", "crate::app::Store", "struct");
+        let read = trait_method("ent_reader_read", "crate::app::Reader::read");
+        let write = trait_method("ent_store_write", "crate::app::Store::write");
+        let dyn_caller = typed_caller(
+            "ent_run_dyn",
+            "crate::app::run_dyn",
+            json!([{"name": "reader", "type": "Reader", "kind": "trait_object", "line": 3}]),
+            json!([call_site("method", "reader.read", "read")]),
+        );
+        let typed_caller_entity = typed_caller(
+            "ent_run_typed",
+            "crate::app::run_typed",
+            json!([{"name": "store", "type": "Store", "kind": "annotation", "line": 3}]),
+            json!([call_site("method", "store.write", "write")]),
+        );
+        let self_caller = typed_caller(
+            "ent_run_self",
+            "crate::app::Store::flush",
+            json!([]),
+            json!([call_site("method", "self.write", "write")]),
+        );
+
+        let entities = vec![
+            trait_type,
+            struct_type,
+            read.clone(),
+            write.clone(),
+            dyn_caller.clone(),
+            typed_caller_entity.clone(),
+            self_caller.clone(),
+        ];
+        let relations = RustLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: entities.clone().into(),
+                facts: Vec::new().into(),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = |from: &Entity| {
+            relations
+                .iter()
+                .filter(|relation| relation.kind == RelationKind::Calls && relation.from == from.id)
+                .collect::<Vec<_>>()
+        };
+
+        let dyn_calls = calls(&dyn_caller);
+        assert_eq!(dyn_calls.len(), 1);
+        assert_eq!(dyn_calls[0].to, read.id);
+        assert_eq!(dyn_calls[0].payload["reason"], "rust_dyn_dispatch_method");
+        assert_eq!(dyn_calls[0].confidence, 0.7);
+
+        let typed_calls = calls(&typed_caller_entity);
+        assert_eq!(typed_calls.len(), 1);
+        assert_eq!(typed_calls[0].to, write.id);
+        assert_eq!(
+            typed_calls[0].payload["reason"],
+            "rust_typed_receiver_method"
+        );
+        assert_eq!(typed_calls[0].confidence, 0.8);
+
+        let self_calls = calls(&self_caller);
+        assert_eq!(self_calls.len(), 1);
+        assert_eq!(self_calls[0].to, write.id);
+        assert_eq!(self_calls[0].payload["reason"], "rust_self_method");
+        assert_eq!(self_calls[0].confidence, 0.8);
+    }
+
+    #[tokio::test]
+    async fn unproven_receivers_stay_unresolved() {
+        let trait_type = type_entity("ent_trait_reader", "crate::app::Reader", "trait");
+        let read = trait_method("ent_reader_read", "crate::app::Reader::read");
+        let untyped = typed_caller(
+            "ent_run_untyped",
+            "crate::app::run_untyped",
+            json!([]),
+            json!([call_site("method", "reader.read", "read")]),
+        );
+        let ambiguous = typed_caller(
+            "ent_run_ambiguous",
+            "crate::app::run_ambiguous",
+            json!([
+                {"name": "reader", "type": "Reader", "kind": "trait_object", "line": 3},
+                {"name": "reader", "type": "Other", "kind": "annotation", "line": 4}
+            ]),
+            json!([call_site("method", "reader.read", "read")]),
+        );
+        let nested = typed_caller(
+            "ent_run_nested",
+            "crate::app::run_nested",
+            json!([{"name": "reader", "type": "Reader", "kind": "trait_object", "line": 3}]),
+            json!([call_site("method", "self.reader.read", "read")]),
+        );
+
+        let entities = vec![trait_type, read, untyped, ambiguous, nested];
+        let relations = RustLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: entities.clone().into(),
+                facts: Vec::new().into(),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        assert!(
+            relations
+                .iter()
+                .all(|relation| relation.kind != RelationKind::Calls),
+            "an untyped, ambiguous, or nested receiver must not resolve"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_ambiguous_type_name_owns_no_method() {
+        let first = type_entity("ent_reader_one", "crate::one::Reader", "trait");
+        let second = type_entity("ent_reader_two", "crate::two::Reader", "trait");
+        let read = trait_method("ent_reader_read", "crate::one::Reader::read");
+        let caller = typed_caller(
+            "ent_run",
+            "crate::app::run",
+            json!([{"name": "reader", "type": "Reader", "kind": "trait_object", "line": 3}]),
+            json!([call_site("method", "reader.read", "read")]),
+        );
+
+        let entities = vec![first, second, read, caller];
+        let relations = RustLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: entities.clone().into(),
+                facts: Vec::new().into(),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        assert!(
+            relations
+                .iter()
+                .all(|relation| relation.kind != RelationKind::Calls),
+            "a type name declared twice owns neither declaration"
+        );
+    }
+
     #[tokio::test]
     async fn links_rust_containment_imports_calls_and_testing() {
         let root = entity(
@@ -725,7 +1093,10 @@ mod tests {
             "symbol://rust:crate::auth::login",
             EntityKind::Function,
             "login",
-            json!({ "qualified_name": "crate::auth::login", "calls": ["Session::refresh"] }),
+            json!({
+                "qualified_name": "crate::auth::login",
+                "calls": [call_site("call", "Session::refresh", "refresh")]
+            }),
         );
         let method = entity(
             "ent_method_refresh",
@@ -739,7 +1110,10 @@ mod tests {
             "symbol://rust:crate::auth::test_login",
             EntityKind::TestCase,
             "test_login",
-            json!({ "qualified_name": "crate::auth::test_login", "calls": ["login"] }),
+            json!({
+                "qualified_name": "crate::auth::test_login",
+                "calls": [call_site("call", "login", "login")]
+            }),
         );
 
         let entities = vec![
