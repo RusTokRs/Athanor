@@ -90,14 +90,16 @@ pub(crate) fn build_module_resolution_config(entities: &[Entity]) -> ModuleResol
     let mut configs = Vec::new();
     let mut packages = Vec::new();
     for entity in entities {
-        if is_typescript_config(entity) {
-            if let Some(config) = parse_typescript_config(entity) {
-                configs.push(config);
-            }
-        } else if is_package_entity(entity) {
-            if let Some(package) = parse_workspace_package(entity) {
-                packages.push(package);
-            }
+        if is_typescript_config(entity)
+            && let Some(config) = parse_typescript_config(entity)
+        {
+            configs.push(config);
+            continue;
+        }
+        if is_package_entity(entity)
+            && let Some(package) = parse_workspace_package(entity)
+        {
+            packages.push(package);
         }
     }
     configs.sort_by(|left, right| left.path.cmp(&right.path));
@@ -171,9 +173,7 @@ impl ModuleResolutionConfig {
             if !config.mappings.is_empty() {
                 return Some(config);
             }
-            let Some(extends) = config.extends.as_deref() else {
-                return None;
-            };
+            let extends = config.extends.as_deref()?;
             if !extends.starts_with('.') || depth >= MAX_EXTENDS_DEPTH {
                 return None;
             }
@@ -284,10 +284,10 @@ fn is_workspace_member(declarations: &[(String, Vec<String>)], package_dir: &str
 
 fn package_entry_candidates(package: &WorkspacePackage) -> Vec<String> {
     let mut candidates = Vec::new();
-    if let Some(main) = package.main.as_deref() {
-        if let Some(joined) = join_relative(&package.dir, main) {
-            candidates.extend(import_candidates(&joined));
-        }
+    if let Some(main) = package.main.as_deref()
+        && let Some(joined) = join_relative(&package.dir, main)
+    {
+        candidates.extend(import_candidates(&joined));
     }
     let index = if package.dir.is_empty() {
         "index".to_string()

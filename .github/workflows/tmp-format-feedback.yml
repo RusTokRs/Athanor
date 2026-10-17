@@ -66,7 +66,14 @@ jobs:
           code=$?
           {
             echo "test exit code: ${code}"
-            grep -E "^(error|test result|failures:|---- )" -A 12 "$RUNNER_TEMP/test.log" | head -n 400
+            echo "--- failed tests ---"
+            grep -E "^test .* FAILED" "$RUNNER_TEMP/test.log" | head -n 60
+            echo "--- failures lists ---"
+            grep -E "^failures:" -A 40 "$RUNNER_TEMP/test.log" | head -n 250
+            echo "--- errors and panics ---"
+            grep -E "^(error|thread .* panicked)" -A 15 "$RUNNER_TEMP/test.log" | head -n 300
+            echo "--- trailing summary ---"
+            grep -E "^test result: FAILED" -B 3 "$RUNNER_TEMP/test.log" | head -n 60
           } > "$RUNNER_TEMP/test-body.txt"
           BODY=$(python3 -c 'import json,sys; print(json.dumps("test output:\n```\n" + open(sys.argv[1]).read()[:50000] + "\n```"))' "$RUNNER_TEMP/test-body.txt")
           gh api "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
