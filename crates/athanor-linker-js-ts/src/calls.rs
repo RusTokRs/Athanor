@@ -1752,6 +1752,207 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn resolves_default_imports_to_anonymous_default_functions() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({
+                "imports": [{"source": "./anon", "default_name": "request"}]
+            }),
+        );
+        let anon_module = module(
+            "ent_anon_module",
+            "src/anon.ts",
+            json!({
+                "imports": [],
+                "exports": [{
+                    "source": null,
+                    "bindings": [],
+                    "default_export": true,
+                    "default_name": "default"
+                }]
+            }),
+        );
+        let handler = declaration(
+            "ent_anon_default",
+            "src/anon.ts",
+            "default",
+            "default",
+            true,
+            json!([]),
+        );
+        let run = declaration(
+            "ent_app_run",
+            "src/app.ts",
+            "run",
+            "run",
+            false,
+            json!([call_site("request", "request", 4)]),
+        );
+        let entities = vec![app_module, anon_module, handler.clone(), run.clone()];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from, run.id);
+        assert_eq!(calls[0].to, handler.id);
+        assert_eq!(calls[0].payload["resolution"], "imported_default_export");
+    }
+
+    #[tokio::test]
+    async fn resolves_default_imported_construction_of_anonymous_default_classes() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({
+                "imports": [{"source": "./anon", "default_name": "Controller"}]
+            }),
+        );
+        let anon_module = module(
+            "ent_anon_module",
+            "src/anon.ts",
+            json!({
+                "imports": [],
+                "exports": [{
+                    "source": null,
+                    "bindings": [],
+                    "default_export": true,
+                    "default_name": "default"
+                }]
+            }),
+        );
+        let controller = class_declaration(
+            "ent_anon_default_class",
+            "src/anon.ts",
+            "default",
+            "default",
+            true,
+        );
+        let run = declaration(
+            "ent_app_run",
+            "src/app.ts",
+            "run",
+            "run",
+            false,
+            json!([construction_site("Controller", "Controller", 4)]),
+        );
+        let entities = vec![app_module, anon_module, controller.clone(), run.clone()];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from, run.id);
+        assert_eq!(calls[0].to, controller.id);
+        assert_eq!(calls[0].payload["resolution"], "imported_default_export");
+        assert_eq!(calls[0].payload["callee_kind"], "new");
+    }
+
+    #[tokio::test]
+    async fn resolves_anonymous_defaults_forwarded_through_reexport_aliases() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({
+                "imports": [{
+                    "source": "./barrel",
+                    "named": ["authenticate"],
+                    "named_bindings": [{"imported": "signIn", "local": "authenticate"}]
+                }]
+            }),
+        );
+        let barrel_module = module(
+            "ent_barrel_module",
+            "src/barrel.ts",
+            json!({
+                "imports": [],
+                "exports": [{
+                    "source": "./anon",
+                    "bindings": [{"imported": "default", "exported": "signIn"}]
+                }]
+            }),
+        );
+        let anon_module = module(
+            "ent_anon_module",
+            "src/anon.ts",
+            json!({
+                "imports": [],
+                "exports": [{
+                    "source": null,
+                    "bindings": [],
+                    "default_export": true,
+                    "default_name": "default"
+                }]
+            }),
+        );
+        let handler = declaration(
+            "ent_anon_default",
+            "src/anon.ts",
+            "default",
+            "default",
+            true,
+            json!([]),
+        );
+        let run = declaration(
+            "ent_app_run",
+            "src/app.ts",
+            "run",
+            "run",
+            false,
+            json!([call_site("authenticate", "authenticate", 5)]),
+        );
+        let entities = vec![
+            app_module,
+            barrel_module,
+            anon_module,
+            handler.clone(),
+            run.clone(),
+        ];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from, run.id);
+        assert_eq!(calls[0].to, handler.id);
+        assert_eq!(calls[0].payload["resolution"], "imported_reexport_chain");
+    }
+
+    #[tokio::test]
     async fn resolves_default_exports_forwarded_from_relative_imports() {
         let app_module = module(
             "ent_app_module",
