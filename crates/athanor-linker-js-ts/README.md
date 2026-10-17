@@ -88,9 +88,15 @@ The call linker consumes the bounded `calls` arrays and the import bindings that
 3. `imported_exact_name` / `imported_symbol_name` — through a namespace or named import binding of
    the calling module. The binding's specifier resolves relatively, through a path alias, or through
    a workspace package, using the same rules as the import linker.
-4. `imported_default_export` — a default import resolves directly to its named default
+4. `typed_receiver_member` / `typed_receiver_path` — a receiver whose declared type the calling
+   module records is walked as a typed path: `this` roots at the enclosing method owner, every
+   further segment resolves the type the previous segment declared, and the terminal member must
+   match `<Type>.<member>` exactly once. `this.repo.items.map()` resolves when `App.repo` is a
+   `Repo` and `Repo.items` is an `ItemStore`. A repeated type, a path longer than four segments, an
+   ambiguous binding, or a terminal that matches more than one declaration ends the walk.
+5. `imported_default_export` — a default import resolves directly to its named default
    function or class declaration.
-5. `imported_reexport_chain` — through explicit named local exports, relative named/default
+6. `imported_reexport_chain` — through explicit named local exports, relative named/default
    re-exports, source-backed wildcard clauses, a unique direct `export * as name` mapping for
    a named-import single-member call, or a namespace alias forwarded across modules by
    source-backed named re-exports of the namespace name itself. Multiple wildcard sources
@@ -98,11 +104,13 @@ The call linker consumes the bounded `calls` arrays and the import bindings that
    while ambiguous, unresolved, cyclic, or over-limit branches block the aggregate. Namespace
    hops count toward the 32-hop bound, and each
    call's recursive export resolution is capped at 1,024 module visits.
-6. `same_module_member_name` — a unique member name inside the calling module.
-7. `unique_exported_name` — a unique exported declaration elsewhere in the snapshot.
+7. `same_module_member_name` — a unique member name inside the calling module.
+8. `unique_exported_name` — a unique exported declaration elsewhere in the snapshot.
 
-Steps 5 and 6 accept a candidate only when it is unique, so ambiguity stays unresolved. Confidence
-runs from `0.9` for an exact same-module match down to `0.5` for a unique name match, and the payload
+Steps 6 and 7 accept a candidate only when it is unique, so ambiguity stays unresolved. Confidence
+runs from `0.9` for an exact same-module match down to `0.5` for a unique name match: a receiver
+proven by a construction resolves at `0.8` and one proven by an annotation at `0.7`, above the name
+guesses they replace and below import-proven calls. The payload
 records the callee, call kind, resolution reason, line, and column. Callback arguments run through
 the same ordered steps with the same fail-closed rules; the hosting call's own resolution never
 gates the bridge. Output is sorted by relation id
@@ -130,7 +138,10 @@ commands, use the network, or modify project files.
   namespace-import receiver behavior is unchanged. A default expression that declares nothing
   callable or constructible stays unresolved because it has no statically nameable local binding.
 - Dynamic `import()`, CommonJS `require()`, computed calls (`handlers[key]()`), calls through call
-  results, reflective dispatch, and receiver typing are not resolved.
+  results, and reflective dispatch are not resolved. Receiver typing covers only types the calling
+  module declares itself: an inferred type, a type imported from another module, a structural type,
+  and a member reached through a function call or an index stay unresolved, and an ambiguous,
+  cyclic, or over-bound path ends the walk instead of being guessed.
 - Test detection is location-based because no test framework runs: `.test.`/`.spec.` file names and
   `tests`/`test`/`__tests__`/`e2e` directories.
 

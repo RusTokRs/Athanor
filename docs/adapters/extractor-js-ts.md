@@ -120,6 +120,17 @@ bounded wildcard chains that resolve uniquely across sources, and direct namespa
 single-member calls. Absent names are skipped; ambiguous, unresolved, cyclic, and over-limit branches
 remain unresolved.
 
+Module payloads also carry bounded `typed_bindings`: one row per receiver whose declared type the
+module states, with the binding `name`, the `type`, the `kind` (`construction` for a `new Type()`
+initializer, `annotation` for a TypeScript annotation), and the declaration `line`. Rows come from
+variable declarators, class fields (recorded as `Class.field`, so two classes never collide), and
+TypeScript parameter properties, where `constructor(private repo: Repo)` also yields `Class.repo`.
+Only a type the source names is recorded: a call result, a union, an array type, a destructuring
+pattern, an aliased initializer, a function type, and a generic instantiation that is not a bare
+identifier are skipped, and a qualified or generic name is reduced to its terminal identifier, so
+`Promise<Repo>` and `ns.Repo` both record `Repo`. Rows are bounded to 64 per module with an
+`omitted_typed_bindings` count.
+
 ## Call Sites
 
 Function, method, and variable-bound function payloads include a bounded `calls` array of the

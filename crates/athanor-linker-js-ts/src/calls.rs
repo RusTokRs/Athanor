@@ -1062,18 +1062,22 @@ fn typed_receivers(module: &Entity) -> HashMap<String, Option<TypedReceiver>> {
             type_name: type_name.to_string(),
             kind,
         };
-        match receivers.get(name) {
-            Some(Some(existing)) if existing.type_name != type_name => {
-                receivers.insert(name.to_string(), None);
-            }
-            Some(Some(existing)) => {
-                if existing.kind == "annotation" && kind == "construction" {
-                    receivers.insert(name.to_string(), Some(recorded));
-                }
-            }
-            Some(None) => {}
+        let prior = receivers.get(name).map(|entry| {
+            entry
+                .as_ref()
+                .map(|receiver| (receiver.type_name.clone(), receiver.kind))
+        });
+        match prior {
             None => {
                 receivers.insert(name.to_string(), Some(recorded));
+            }
+            Some(None) => {}
+            Some(Some((existing_type, existing_kind))) => {
+                if existing_type != type_name {
+                    receivers.insert(name.to_string(), None);
+                } else if existing_kind == "annotation" && kind == "construction" {
+                    receivers.insert(name.to_string(), Some(recorded));
+                }
             }
         }
     }
@@ -2007,7 +2011,7 @@ mod tests {
             "src/service.ts",
             "Service.run",
             "run",
-            true,
+            false,
             json!([]),
         );
         let ambiguous_caller = declaration(
@@ -2044,12 +2048,12 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(
+        assert_eq!(
             relations
                 .iter()
                 .filter(|relation| relation.kind == RelationKind::Calls)
-                .count()
-                == 0,
+                .count(),
+            0,
             "an ambiguous or untyped receiver must not resolve"
         );
     }
@@ -2073,7 +2077,7 @@ mod tests {
             "src/target.ts",
             "Second.run",
             "run",
-            true,
+            false,
             json!([]),
         );
         let cyclic = declaration(
@@ -2084,7 +2088,15 @@ mod tests {
             true,
             json!([call_site("this.first.second.first.run", "run", 6)]),
         );
-        let entities = vec![module_entity, run, cyclic];
+        let over_bound = declaration(
+            "ent_app_over_bound",
+            "src/app.ts",
+            "App.deep",
+            "deep",
+            true,
+            json!([call_site("this.a.b.c.d.run", "run", 7)]),
+        );
+        let entities = vec![module_entity, run, cyclic, over_bound];
 
         let relations = JsTsCallLinker
             .link(LinkInput {
@@ -2096,12 +2108,12 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(
+        assert_eq!(
             relations
                 .iter()
                 .filter(|relation| relation.kind == RelationKind::Calls)
-                .count()
-                == 0,
+                .count(),
+            0,
             "a cyclic or over-bound receiver path must not resolve"
         );
     }
