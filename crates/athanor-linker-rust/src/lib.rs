@@ -516,7 +516,8 @@ fn resolve_typed_method<'a>(
             SELF_METHOD_CONFIDENCE,
         )
     } else {
-        let binding = receiver_types(caller).get(receiver)?.as_ref()?;
+        let receivers = receiver_types(caller);
+        let binding = receivers.get(receiver)?.as_ref()?;
         let type_qualified = type_index.get(&binding.type_name)?.as_ref()?;
         if matches!(binding.kind, "trait_object" | "impl_trait") {
             (
