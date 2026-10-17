@@ -28,9 +28,10 @@ Stable keys use the `symbol://rust:` namespace and a collision-resistant crate/m
 Declarations record the evidence a relation linker needs to resolve a call. Functions, methods, and
 trait methods carry a bounded `calls` array of `{callee, name, receiver, kind, line}`: a bare path
 call keeps `receiver: null` with `kind: "call"`, and a method call records the receiver expression
-as written with `kind: "method"`. They also carry `typed_bindings` rows of
+as written with `kind: "method"`. They also carry a bounded `typed_bindings` array of rows
 `{name, type, kind, line}` — `kind` is `annotation`, `trait_object`, or `impl_trait` — read from
-typed parameters and annotated locals, including those nested in blocks and match arms. References
+typed parameters and annotated locals, including those nested in blocks and match arms, bounded to 64
+rows with an `omitted_typed_bindings` count. References
 and `Box`/`Rc`/`Arc` unwrap to the type they name; a generic argument, a trait object with extra
 bounds, a primitive, `Self`, and an unannotated local name nothing dispatchable and are not
 recorded. A trait declaration's own methods are emitted as `symbol_kind: "trait_method"`
