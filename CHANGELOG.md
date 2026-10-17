@@ -19,10 +19,7 @@ substantive release notes.
 - Add `builtin.extractor.treesitter` over Python and Go: one data-driven engine records declarations, receiver-qualified methods and other declarations, imports, exports, and statically named call sites.
 - Add `builtin.linker.treesitter`: Python and Go imports, cross-file calls through package units, receiver variables, and import bindings, test bridges, and a per-language coverage measurement.
 - Add a monitoring operations category: the operations profile derives declared health, status, and metrics endpoints plus telemetry variable names from canonical evidence; probes, alerts, dashboards, and SLOs stay absent without an evidence source.
-- Add the JavaScript/TypeScript call graph. The JS/TS extractor records each import statement's local
-  bindings (`default_name`, `namespace_name`, `named`) and a bounded `calls` array per declaration
-  with the statically named callee, receiver, kind, argument count, and line/column.
-  `builtin.linker.js_ts_calls` resolves those into evidence-backed `Calls` relations and emits `TestedBy` from test locations.
+- Add the JavaScript/TypeScript call graph: the extractor records each import statement's local bindings (`default_name`, `namespace_name`, `named`) and a bounded `calls` array per declaration with the statically named callee, receiver, kind, argument count, and line/column, and `builtin.linker.js_ts_calls` resolves those into evidence-backed `Calls` relations and emits `TestedBy` from test locations.
 - Preserve JS/TS aliases; resolve bounded named/default and direct-namespace calls plus uniquely aggregated multi-source wildcards, exclude wildcard `default`, and bump index v47→v52.
 - Add JS/TS callback and promise-handler bridges: combinator call sites record bounded `callback_arguments` that the call linker resolves into indirect evidence-backed `Calls` edges; index state bumps v52→v53.
 - Add strict versioned request, outline, context, citation, draft, manifest, and validation-report
@@ -44,12 +41,13 @@ substantive release notes.
 - Add local semantic retrieval with zero new dependencies: hashing-trick embeddings over character
   trigrams and word n-grams (FNV-1a buckets) power `ath search --mode semantic|hybrid` and MCP `search`.
 - Add first-party JavaScript/TypeScript module-resolution configuration: `tsconfig.json`, `jsconfig.json`, and their named `.json` variants project their `baseUrl`, `paths` mappings, and inherited `extends` with disclosed bounds and JSONC tolerance, and `package.json` records `main` and `workspaces`.
-- Resolve JS/TS non-relative specifiers in the import and call linkers through that evidence, so a path alias such as `@/lib/api` and a workspace-package specifier such as `@scope/ui/button` become real module and call edges while unprovable specifiers stay unresolved.
-- Bump index state v55→v56 because JS/TS extractor payloads gained module-resolution configuration; earlier snapshots reindex.
+- Resolve JS/TS non-relative specifiers in the import and call linkers through that evidence, so a path alias such as `@/lib/api` and a workspace-package specifier such as `@scope/ui/button` become real module and call edges while unprovable specifiers stay unresolved; index state bumps v55→v56.
 - Add JavaScript/TypeScript anonymous default export binding: `export default function () {}`, `export default class {}`, and `export default () => {}` are recorded under the canonical `default` name with `anonymous_default` disclosure, so a default import, a default-imported construction, and a forwarded `default` alias resolve to them; index state bumps v56→v57.
 - Resolve JavaScript/TypeScript package `exports` subpaths and conditional exports (longest declared prefix first, unknown conditions skipped, undeclared subpaths unreachable), read workspace membership from `pnpm-workspace.yaml`, and retry relative imports in the other roots of `rootDirs`; index state bumps v57→v58.
 - Resolve JavaScript/TypeScript calls whose receiver is only identifiable through its declared type: `new Type()` initializers, annotated class fields, and TypeScript parameter properties become module-level receiver-type evidence, so `service.run()` and `this.repo.items.map()` resolve when the path types prove the member, while ambiguous, cyclic, or over-bound receivers stay unresolved.
 - Bump index state v58→v59 because JS/TS module payloads gained receiver-type rows; earlier snapshots reindex.
+- Extend JavaScript/TypeScript typed receivers across modules: a receiver path reads a field's type from the module that declares its owner, so `this.repo.items.map()` resolves when `Repo.items` is declared in another file, and interface property signatures join class fields as receiver-type evidence.
+- Keep unproven owners unresolved: only an exported top-level class, interface, or type alias owns field types, and a name declared in two modules owns neither.
 
 ### Fixed
 

@@ -56,8 +56,9 @@ Two concrete targets:
   promise-handler bridges for allowlisted combinators, P2J module-resolution configuration with
   TypeScript path aliases and workspace-package specifiers, P2K anonymous default exports bound
   to the canonical `default` name, and P2L package `exports` subpaths with conditional exports,
-  pnpm workspace layouts, and merged `rootDirs` roots, and P2M typed receivers and deep member
-  paths. Receiver/type-aware dispatch across module boundaries remains open.
+  pnpm workspace layouts, and merged `rootDirs` roots, P2M typed receivers and deep member paths,
+  and P2N typed receiver paths that cross module boundaries. Type inference for a receiver whose
+  type the source never states remains open.
 - Both: symbol-level incremental invalidation so a changed declaration re-resolves only its closure.
 
 #### P2A — Heritage Relation Semantics (bounded Rust/TypeScript slice)
@@ -575,11 +576,57 @@ cargo test -p athanor-app --locked
 cargo test -p athanor-app --features js-ts-precision --locked
 ```
 
+#### P2N — Typed Receiver Paths Across Modules (bounded JS/TS slice)
+
+- A typed path no longer stops at the calling file. P2M read every receiver segment from the rows
+  of the calling module, so `this.repo.items.map()` stayed unresolved when `Repo.items` is declared
+  in `repo.ts` even though that module records the field's type. The field lookup now falls through
+  to the module that owns the type.
+- Ownership is proven before it is used. A type-owner index maps a type name to the module declaring
+  it, and only an exported top-level class, interface, or type alias can own field types: a name
+  declared in two modules names neither, a shadowed or nested name is not an owner, and a type the
+  snapshot does not export leaves the walk unresolved instead of reading rows from whichever module
+  happens to declare a field of that name.
+- The path itself is unchanged otherwise: `this` still roots at the enclosing method owner, a field
+  is read from the calling module first and from the owning module second, a repeated type or a path
+  longer than four segments ends the walk, and the terminal member must match `<Type>.<member>`
+  exactly once. `App.repo` stays local evidence while `Repo.items` is read where `Repo` lives.
+- Interfaces carry the evidence classes already had. The extractor records `property_signature`
+  members as typed fields (`Interface.field`), required or optional, because an interface is where a
+  TypeScript type usually states what its fields are. Rejection rules are unchanged: a call result,
+  a union, an array type, an aliased initializer, a function type, and a generic instantiation that
+  is not a bare identifier still name nothing.
+- The extractor's module payload shape does not change, so no index-state bump is needed; only the
+  set of declarations that contribute rows grew.
+- Confidence and the fail-closed order do not move: a cross-module field row is an annotation at
+  `0.7`, a construction stays at `0.8`, and an unproven owner leaves the call to the weaker
+  `same_module_member_name` and `unique_exported_name` guesses. A receiver whose type is only
+  inferred — a function result, an index access, or an unannotated binding — stays unresolved.
+
+Focused source regression matrix:
+
+| Surface | Regression |
+| --- | --- |
+| JS/TS extractor | Interface property signatures, required and optional, recorded as `Interface.field` next to class fields |
+| Import/call linker | A path through a type declared in another module resolves as `typed_receiver_path`; an unexported owner and an owner declared in two modules stay unresolved |
+| Confidence | A cross-module field row resolves at `0.7` and a construction at `0.8`, both below import-proven calls |
+| Persistence | The extractor payload shape is unchanged, so v59 state stays valid |
+
+Focused verification:
+
+```bash
+cargo test -p athanor-extractor-js-ts --locked
+cargo test -p athanor-extractor-js-ts --features precision-parser --locked
+cargo test -p athanor-linker-js-ts --locked
+cargo test -p athanor-app --locked
+cargo test -p athanor-app --features js-ts-precision --locked
+```
+
 #### Remaining P2 Gaps
 
-- Receiver/type-aware dispatch across module boundaries, where the receiver's type is itself
-  imported; package-manager-specific resolution that needs an installed tree, such as Yarn
-  `nodeLinker` layouts and patched dependencies.
+- Type inference for a receiver whose type the source never states — a function result, an index
+  access, or an unannotated binding; package-manager-specific resolution that needs an installed
+  tree, such as Yarn `nodeLinker` layouts and patched dependencies.
 - Rust dyn-dispatch candidates and symbol-level incremental invalidation for both Rust and JS/TS.
 
 ### P3 — Bounded Language Expansion

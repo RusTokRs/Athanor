@@ -90,10 +90,13 @@ previous one is silent:
    existing import-member resolution behavior.
 4. `typed_receiver_member` / `typed_receiver_path` — a receiver whose declared type the calling
    module records is walked as a typed path: `this` roots at the enclosing method owner, every
-   further segment resolves the type the previous segment declared from the same module's
-   `typed_bindings`, and the terminal member must match `<Type>.<member>` exactly once.
-   `this.repo.items.map()` therefore resolves when `App.repo` is a `Repo` and `Repo.items` is an
-   `ItemStore`. A type repeated inside the walk, a path longer than four segments, an ambiguous
+   further segment resolves the type the previous segment declared, and the terminal member must
+   match `<Type>.<member>` exactly once. A segment is read from the calling module's
+   `typed_bindings` first and then from the rows of the module that owns the current type, so
+   `this.repo.items.map()` resolves when `App.repo` is a `Repo` declared in `repo.ts` and that
+   module records `Repo.items` as an `ItemStore`. Ownership is proven first: only an exported
+   top-level class, interface, or type alias owns field types, and a name declared in two modules
+   owns neither. A type repeated inside the walk, a path longer than four segments, an ambiguous
    binding, and a terminal that matches more than one declaration end the walk.
 5. `imported_default_export` — a default import resolves directly to the function or class
    binding marked by `export default` in its relative target module: a named declaration, a
@@ -183,10 +186,11 @@ same path are ambiguous. Node built-ins, bare specifiers that no configuration
 proves, dynamic imports,
 CommonJS `require` calls, default expressions that declare nothing callable or
 constructible, computed member calls, and multi-segment named-import namespace paths
-are not resolved. Receiver typing covers only a type the calling module declares itself: an
-inferred type, a type imported from another module, a structural type, and a member reached
-through a call result or an index stay unresolved, and an ambiguous, cyclic, or over-bound path
-ends the walk. Callback bridging only fires for the extractor's combinator allowlist and
+are not resolved. Receiver typing covers only a type the source states: an inferred type, a
+type imported by another module but never named in an annotation, a structural type, and a member
+reached through a call result or an index stay unresolved. A field is read from the module that
+declares its owner only when that owner is exported and unambiguous, and a cyclic or over-bound
+path ends the walk. Callback bridging only fires for the extractor's combinator allowlist and
 only for statically nameable arguments; callbacks passed as inline arrows, call results, or
 computed expressions are never recorded, and a callback argument whose name does not resolve
 uniquely stays unresolved like any other callee. A named import representing a namespace object can use one unique, direct,

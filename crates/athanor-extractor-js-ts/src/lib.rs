@@ -495,8 +495,8 @@ struct TypedBinding {
 /// unrecorded rather than being guessed.
 fn typed_bindings(root: Node, bytes: &[u8]) -> (Vec<Value>, usize) {
     let mut collected = Vec::new();
-    let mut class_names = Vec::new();
-    collect_typed_bindings(root, bytes, &mut class_names, &mut collected);
+    let mut owner_names = Vec::new();
+    collect_typed_bindings(root, bytes, &mut owner_names, &mut collected);
 
     let mut bindings = Vec::new();
     let mut omitted = 0usize;
@@ -518,21 +518,28 @@ fn typed_bindings(root: Node, bytes: &[u8]) -> (Vec<Value>, usize) {
     (bindings, omitted)
 }
 
+/// Walks one declaration subtree for the receiver types it states.
+///
+/// `owner_names` is the stack of enclosing class and interface names, because a
+/// field row is recorded as `Owner.field`: two classes in one file never
+/// collide, and the row names the owner a linker can walk to.
 fn collect_typed_bindings(
     node: Node,
     bytes: &[u8],
-    class_names: &mut Vec<String>,
+    owner_names: &mut Vec<String>,
     bindings: &mut Vec<TypedBinding>,
 ) {
-    if matches!(node.kind(), "class_declaration" | "class")
-        && let Some(name) = node_name(node, bytes)
+    if matches!(
+        node.kind(),
+        "class_declaration" | "class" | "interface_declaration"
+    ) && let Some(name) = node_name(node, bytes)
     {
-        class_names.push(name);
+        owner_names.push(name);
         let mut cursor = node.walk();
         for child in node.named_children(&mut cursor) {
-            collect_typed_bindings(child, bytes, class_names, bindings);
+            collect_typed_bindings(child, bytes, owner_names, bindings);
         }
-        class_names.pop();
+        owner_names.pop();
         return;
     }
 
@@ -542,11 +549,13 @@ fn collect_typed_bindings(
                 bindings.push(binding);
             }
         }
-        "public_field_definition" => {
-            if let (Some(class), Some(binding)) = (class_names.last(), member_binding(node, bytes))
+        // `public_field_definition` is a class field and `property_signature` an
+        // interface member; both state the type of `this.field`.
+        "public_field_definition" | "property_signature" => {
+            if let (Some(owner), Some(binding)) = (owner_names.last(), member_binding(node, bytes))
             {
                 bindings.push(TypedBinding {
-                    name: format!("{class}.{}", binding.name),
+                    name: format!("{owner}.{}", binding.name),
                     ..binding
                 });
             }
@@ -556,10 +565,10 @@ fn collect_typed_bindings(
                 // A TypeScript parameter property (`constructor(private repo: Repo)`)
                 // is also a field of the enclosing class, so `this.repo` can be typed.
                 if has_child_kind(node, "accessibility_modifier")
-                    && let Some(class) = class_names.last()
+                    && let Some(owner) = owner_names.last()
                 {
                     bindings.push(TypedBinding {
-                        name: format!("{class}.{}", binding.name),
+                        name: format!("{owner}.{}", binding.name),
                         type_name: binding.type_name.clone(),
                         kind: binding.kind,
                         line: binding.line,
@@ -573,7 +582,7 @@ fn collect_typed_bindings(
 
     let mut cursor = node.walk();
     for child in node.named_children(&mut cursor) {
-        collect_typed_bindings(child, bytes, class_names, bindings);
+        collect_typed_bindings(child, bytes, owner_names, bindings);
     }
 }
 
@@ -3903,6 +3912,34 @@ mod tests {
             "client:Client:annotation".to_string(),
             "App.store:Store:construction".to_string(),
             "App.cache:Cache:annotation".to_string(),
+        ];
+        expected.sort();
+        assert_eq!(
+            typed_binding_text(&module.payload["typed_bindings"]),
+            expected
+        );
+        assert_eq!(module.payload["omitted_typed_bindings"], 0);
+    }
+
+    #[tokio::test]
+    async fn records_interface_property_signatures_as_typed_fields() {
+        let output = JsTsExtractor
+            .extract(input(
+                "src/types.ts",
+                "interface Repo {\n  items: ItemStore;\n  client?: Client;\n}\ninterface Empty {\n}\n",
+                "typescript",
+            ))
+            .await
+            .unwrap();
+
+        let module = output
+            .entities
+            .iter()
+            .find(|entity| entity.kind == EntityKind::Module)
+            .expect("module entity must exist");
+        let mut expected = vec![
+            "Repo.items:ItemStore:annotation".to_string(),
+            "Repo.client:Client:annotation".to_string(),
         ];
         expected.sort();
         assert_eq!(

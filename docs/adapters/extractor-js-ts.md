@@ -123,7 +123,8 @@ remain unresolved.
 Module payloads also carry bounded `typed_bindings`: one row per receiver whose declared type the
 module states, with the binding `name`, the `type`, the `kind` (`construction` for a `new Type()`
 initializer, `annotation` for a TypeScript annotation), and the declaration `line`. Rows come from
-variable declarators, class fields (recorded as `Class.field`, so two classes never collide), and
+variable declarators, class fields and interface property signatures — recorded as `Owner.field`,
+where the owner is the enclosing class or interface, so two owners in one file never collide — and
 TypeScript parameter properties, where `constructor(private repo: Repo)` also yields `Class.repo`.
 Only a type the source names is recorded: a call result, a union, an array type, a destructuring
 pattern, an aliased initializer, a function type, and a generic instantiation that is not a bare

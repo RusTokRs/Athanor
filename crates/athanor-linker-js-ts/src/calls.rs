@@ -125,6 +125,7 @@ impl Linker for JsTsCallLinker {
             candidates.sort_by(|left, right| left.stable_key.0.cmp(&right.stable_key.0));
         }
 
+        let type_modules = build_type_module_index(input.entities.as_slice(), &modules);
         let config = build_module_resolution_config(input.entities.as_slice());
         let mut relations = Vec::new();
         let mut relation_ids = HashSet::new();
@@ -154,6 +155,7 @@ impl Linker for JsTsCallLinker {
                     &modules,
                     &declarations_by_path,
                     &declarations_by_name,
+                    &type_modules,
                     &config,
                 ) {
                     let affects_subset =
@@ -204,6 +206,7 @@ impl Linker for JsTsCallLinker {
                             &modules,
                             &declarations_by_path,
                             &declarations_by_name,
+                            &type_modules,
                             &config,
                         ) else {
                             continue;
@@ -303,6 +306,7 @@ fn resolve_call<'a>(
     modules: &HashMap<String, &'a Entity>,
     declarations_by_path: &HashMap<String, Vec<&'a Entity>>,
     declarations_by_name: &HashMap<String, Vec<&'a Entity>>,
+    type_modules: &HashMap<String, Option<&'a Entity>>,
     config: &ModuleResolutionConfig,
 ) -> Option<(&'a Entity, &'static str, f32)> {
     let caller_path = entity_path(caller)?;
@@ -422,8 +426,13 @@ fn resolve_call<'a>(
     //    extractor proved. A receiver that is only named, not typed, falls
     //    through to the weaker member-name guess below.
     if callee.contains('.')
-        && let Some((target, kind, segments)) =
-            resolve_typed_member(callee, caller, caller_module, declarations_by_name)
+        && let Some((target, kind, segments)) = resolve_typed_member(
+            callee,
+            caller,
+            caller_module,
+            declarations_by_name,
+            type_modules,
+        )
     {
         let resolution = if segments > 1 {
             "typed_receiver_path"
@@ -1032,6 +1041,7 @@ fn unique_target<'a>(
 }
 
 /// The recorded type of one receiver binding.
+#[derive(Clone)]
 struct TypedReceiver {
     type_name: String,
     kind: &'static str,
@@ -1088,18 +1098,90 @@ fn typed_receivers(module: &Entity) -> HashMap<String, Option<TypedReceiver>> {
     receivers
 }
 
+/// Maps a type name to the module that declares it.
+///
+/// Only an exported top-level class, interface, or type alias can own the field
+/// types a receiver path walks, and a name declared in two modules is ambiguous,
+/// so the value is `None` and no field is read from either module.
+fn build_type_module_index<'a>(
+    entities: &'a [Entity],
+    modules: &HashMap<String, &'a Entity>,
+) -> HashMap<String, Option<&'a Entity>> {
+    let mut owners: HashMap<String, Option<&'a Entity>> = HashMap::new();
+    for entity in entities {
+        if !matches!(entity.kind, EntityKind::Class | EntityKind::Symbol) {
+            continue;
+        }
+        let Some(name) = qualified_name(entity) else {
+            continue;
+        };
+        if name.contains('.') || !is_exported(entity) {
+            continue;
+        }
+        let kind = entity
+            .payload
+            .get("symbol_kind")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        if !matches!(kind, "class" | "interface" | "type_alias") {
+            continue;
+        }
+        let Some(path) = entity_path(entity) else {
+            continue;
+        };
+        let Some(module) = modules.get(&path).copied() else {
+            continue;
+        };
+        let prior = owners.get(name).copied();
+        match prior {
+            None => {
+                owners.insert(name.to_string(), Some(module));
+            }
+            Some(Some(existing)) => {
+                if existing.id != module.id {
+                    owners.insert(name.to_string(), None);
+                }
+            }
+            Some(None) => {}
+        }
+    }
+    owners
+}
+
+/// Reads the type one field of a typed owner declares.
+///
+/// A field row lives in the module that declares its owner, so a receiver that
+/// reaches into a type from another module is resolved there: `App.repo` is a
+/// local row, while `Repo.items` is read from the module declaring `Repo`.
+fn typed_field(
+    owner: &str,
+    segment: &str,
+    receivers: &HashMap<String, Option<TypedReceiver>>,
+    type_modules: &HashMap<String, Option<&Entity>>,
+) -> Option<TypedReceiver> {
+    let field = format!("{owner}.{segment}");
+    if let Some(found) = receivers.get(&field) {
+        return found.clone();
+    }
+    let module = type_modules.get(owner)?.as_ref()?;
+    typed_receivers(module).get(&field)?.clone()
+}
+
 /// Resolves a member call whose receiver the source typed.
 ///
 /// The receiver path is walked segment by segment: `this` starts at the calling
-/// declaration's class, and every other segment must name a binding or a field
-/// of the current type whose recorded type continues the path. The walk is
-/// bounded, a repeated type ends it, and an untyped or ambiguous segment leaves
-/// the call unresolved rather than falling back to a name match.
+/// declaration's class, and every other segment must name a binding of the
+/// calling module or a field of the current type whose recorded type continues
+/// the path. A field is read from the calling module first and then from the
+/// module that declares the owning type, so a path can leave the calling file.
+/// The walk is bounded, a repeated type ends it, and an untyped or ambiguous
+/// segment leaves the call unresolved rather than falling back to a name match.
 fn resolve_typed_member<'a>(
     callee: &str,
     caller: &Entity,
-    caller_module: &'a Entity,
+    caller_module: &Entity,
     declarations_by_name: &HashMap<String, Vec<&'a Entity>>,
+    type_modules: &HashMap<String, Option<&'a Entity>>,
 ) -> Option<(&'a Entity, &'static str, usize)> {
     let (receiver, member) = callee.rsplit_once('.')?;
     if receiver.is_empty() || member.is_empty() {
@@ -1125,8 +1207,7 @@ fn resolve_typed_member<'a>(
 
     let mut visited = vec![current.clone()];
     for segment in segments.iter().skip(1) {
-        let field = format!("{current}.{segment}");
-        let binding = receivers.get(&field)?.as_ref()?;
+        let binding = typed_field(&current, segment, &receivers, type_modules)?;
         current = binding.type_name.clone();
         kind = binding.kind;
         if visited.contains(&current) {
@@ -1989,6 +2070,203 @@ mod tests {
         assert_eq!(calls[0].to, items_map.id);
         assert_eq!(calls[0].payload["resolution"], "typed_receiver_path");
         assert_eq!(calls[0].confidence, 0.7);
+    }
+
+    #[tokio::test]
+    async fn resolves_member_paths_through_a_type_declared_in_another_module() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({
+                "imports": [],
+                "typed_bindings": [
+                    {"name": "App.repo", "type": "Repo", "kind": "annotation", "line": 3}
+                ]
+            }),
+        );
+        let repo_module = module(
+            "ent_repo_module",
+            "src/repo.ts",
+            json!({
+                "imports": [],
+                "typed_bindings": [
+                    {"name": "Repo.items", "type": "ItemStore", "kind": "annotation", "line": 5}
+                ]
+            }),
+        );
+        let repo_class = class_declaration("ent_repo_class", "src/repo.ts", "Repo", "Repo", true);
+        let items_map = declaration(
+            "ent_store_map",
+            "src/store.ts",
+            "ItemStore.map",
+            "map",
+            true,
+            json!([]),
+        );
+        let start = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "App.start",
+            "start",
+            true,
+            json!([call_site("this.repo.items.map", "map", 6)]),
+        );
+        let entities = vec![
+            app_module,
+            repo_module,
+            repo_class,
+            items_map.clone(),
+            start.clone(),
+        ];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from, start.id);
+        assert_eq!(calls[0].to, items_map.id);
+        assert_eq!(calls[0].payload["resolution"], "typed_receiver_path");
+        assert_eq!(calls[0].confidence, 0.7);
+    }
+
+    #[tokio::test]
+    async fn unexported_and_ambiguous_type_owners_stay_unresolved() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({
+                "imports": [],
+                "typed_bindings": [
+                    {"name": "App.repo", "type": "Repo", "kind": "annotation", "line": 3}
+                ]
+            }),
+        );
+        let repo_module = module(
+            "ent_repo_module",
+            "src/repo.ts",
+            json!({
+                "imports": [],
+                "typed_bindings": [
+                    {"name": "Repo.items", "type": "ItemStore", "kind": "annotation", "line": 5}
+                ]
+            }),
+        );
+        let other_module = module(
+            "ent_other_module",
+            "src/other.ts",
+            json!({
+                "imports": [],
+                "typed_bindings": [
+                    {"name": "Repo.items", "type": "Other", "kind": "annotation", "line": 5}
+                ]
+            }),
+        );
+        let items_map = declaration(
+            "ent_store_map",
+            "src/store.ts",
+            "ItemStore.map",
+            "map",
+            false,
+            json!([]),
+        );
+        let unexported_owner = class_declaration(
+            "ent_repo_class_unexported",
+            "src/repo.ts",
+            "Repo",
+            "Repo",
+            false,
+        );
+        let unexported_caller = declaration(
+            "ent_app_start_unexported",
+            "src/app.ts",
+            "App.start",
+            "start",
+            true,
+            json!([call_site("this.repo.items.map", "map", 6)]),
+        );
+
+        let entities = vec![
+            app_module.clone(),
+            repo_module.clone(),
+            unexported_owner,
+            items_map,
+            unexported_caller,
+        ];
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            relations
+                .iter()
+                .filter(|relation| relation.kind == RelationKind::Calls)
+                .count(),
+            0,
+            "a type the snapshot does not export cannot own the field types"
+        );
+
+        let first_owner =
+            class_declaration("ent_repo_class_a", "src/repo.ts", "Repo", "Repo", true);
+        let second_owner =
+            class_declaration("ent_repo_class_b", "src/other.ts", "Repo", "Repo", true);
+        let ambiguous_caller = declaration(
+            "ent_app_start_ambiguous",
+            "src/app.ts",
+            "App.start",
+            "start",
+            true,
+            json!([call_site("this.repo.items.map", "map", 6)]),
+        );
+        let items_map = declaration(
+            "ent_store_map",
+            "src/store.ts",
+            "ItemStore.map",
+            "map",
+            false,
+            json!([]),
+        );
+        let entities = vec![
+            app_module.clone(),
+            repo_module,
+            other_module,
+            first_owner,
+            second_owner,
+            items_map,
+            ambiguous_caller,
+        ];
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            relations
+                .iter()
+                .filter(|relation| relation.kind == RelationKind::Calls)
+                .count(),
+            0,
+            "a type declared in two modules has no proven owner"
+        );
     }
 
     #[tokio::test]
