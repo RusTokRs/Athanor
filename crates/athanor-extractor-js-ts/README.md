@@ -28,6 +28,11 @@ route declarations and is registered independently as `builtin.extractor.express
   walk — a `new Type()` initializer, an annotated class field or interface property signature, or a
   TypeScript parameter property, each recorded as `{name, type, kind, line}` with an
   `omitted_typed_bindings` count
+- Bounded `call_bindings` rows on module payloads: a binding the module initializes with a
+  statically named call, each recorded as `{name, callee, line}`, so the linker can read the type
+  from the return type the factory declares
+- A `return_type` on function, method, and arrow-function payloads: the bare named type the
+  declaration returns, so a factory's annotation can type a receiver
 - `EntityKind::Package` and `EntityKind::Dependency` for `package.json` package and dependency declarations,
   with bounded `main` and `workspaces` evidence on the package entity
 - `EntityKind::Feature` for the module-resolution options of `tsconfig.json`/`jsconfig.json`: the
@@ -148,6 +153,9 @@ None. The extractors do not run commands, use the network, or modify project fil
   bounded to 64 rows and 4 condition keys each with a disclosed omission count. String, array, and
   condition-object sugar forms are normalized to the `.` subpath; wildcard subpaths and targets
   keep their `*`, and a pattern with more than one `*` is skipped rather than guessed.
+- A return type is recorded only when it names a bare type: `Promise<Repo>` returns a promise and
+  not a `Repo`, so generic instantiations, unions, arrays, and function types are skipped. A
+  destructuring initializer is never a call binding, because it does not name one receiver.
 - Receiver-type rows record only a type the source actually names. A call result, a union, an array
   type, a destructuring pattern, an aliased initializer, a function type, and a generic
   instantiation that is not a bare identifier are skipped; a qualified or generic name is reduced

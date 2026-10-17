@@ -48,6 +48,8 @@ substantive release notes.
 - Bump index state v58→v59 because JS/TS module payloads gained receiver-type rows; earlier snapshots reindex.
 - Extend JavaScript/TypeScript typed receivers across modules: a receiver path reads a field's type from the module that declares its owner, so `this.repo.items.map()` resolves when `Repo.items` is declared in another file, and interface property signatures join class fields as receiver-type evidence.
 - Keep unproven owners unresolved: only an exported top-level class, interface, or type alias owns field types, and a name declared in two modules owns neither.
+- Resolve JavaScript/TypeScript calls on a receiver produced by a factory: a declaration records the return type it declares, a module records the bindings it initializes with a call, and `repo.items.map()` resolves through `createRepo(): Repo` while an unannotated factory, a name bound to two factories, and a name-unique factory in an unimported module stay unresolved.
+- Bump index state v59→v60 because JS/TS declaration payloads gained return types and module payloads gained call-initialized bindings; earlier snapshots reindex.
 
 ### Fixed
 

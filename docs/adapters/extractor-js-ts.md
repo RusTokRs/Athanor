@@ -132,6 +132,14 @@ identifier are skipped, and a qualified or generic name is reduced to its termin
 `Promise<Repo>` and `ns.Repo` both record `Repo`. Rows are bounded to 64 per module with an
 `omitted_typed_bindings` count.
 
+Module payloads also carry bounded `call_bindings`: one row per binding the module initializes with
+a statically named call, with the binding `name`, the `callee`, and the `line`. A destructuring
+initializer and a non-call initializer are not rows, because neither names one receiver. Rows are
+bounded to 64 per module with an `omitted_call_bindings` count. A declaration payload carries
+`return_type` when the function, method, or arrow function declares one: only a bare named type is
+recorded, so `Promise<Repo>`, a union, an array type, and a function type are left out because they
+do not name the type a receiver will hold.
+
 ## Call Sites
 
 Function, method, and variable-bound function payloads include a bounded `calls` array of the
