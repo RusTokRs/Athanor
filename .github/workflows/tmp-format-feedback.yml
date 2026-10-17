@@ -62,14 +62,20 @@ jobs:
         continue-on-error: true
         run: |
           set +e
-          cargo test --workspace > "$RUNNER_TEMP/test.log" 2>&1
+          {
+            cargo test --workspace --no-fail-fast
+            echo "=== precision-parser ==="
+            cargo test -p athanor-extractor-js-ts --features precision-parser --locked --no-fail-fast
+            echo "=== js-ts-precision ==="
+            cargo test -p ath --features js-ts-precision --locked --no-fail-fast
+          } > "$RUNNER_TEMP/test.log" 2>&1
           code=$?
           {
             echo "test exit code: ${code}"
             echo "--- failed tests ---"
-            grep -E "^test .* FAILED" "$RUNNER_TEMP/test.log" | head -n 60
+            grep -E "^test .* FAILED" "$RUNNER_TEMP/test.log" | head -n 80
             echo "--- failures lists ---"
-            grep -E "^failures:" -A 40 "$RUNNER_TEMP/test.log" | head -n 250
+            grep -E "^failures:" -A 12 "$RUNNER_TEMP/test.log" | head -n 300
             echo "--- errors and panics ---"
             grep -E "^(error|thread .* panicked)" -A 15 "$RUNNER_TEMP/test.log" | head -n 300
             echo "--- trailing summary ---"
