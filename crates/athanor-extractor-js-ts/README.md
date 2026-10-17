@@ -78,6 +78,7 @@ Tree-sitter parsing must succeed before framework findings are emitted.
 module://js-ts:src/auth.ts
 symbol://js-ts:src/auth.ts#login
 symbol://js-ts:src/App.tsx#App
+symbol://js-ts:src/anon.ts#default
 package://npm:example-app
 dependency://npm:@scope/package
 config://tsconfig.json#js-ts-module-resolution
@@ -85,7 +86,10 @@ nextjs-route://src/app/products/[id]/page.tsx#route
 express-route://src/http/server.ts#app:GET:/health:health
 ```
 
-Source declarations are scoped to the project-relative file path. Package dependency stable keys are scoped by npm package name. Module-resolution configuration keys are scoped by the configuration file path, so a monorepo keeps one entity per `tsconfig.json`. Next.js and Express route entities are source-backed so conflicting route declarations remain distinct.
+Source declarations are scoped to the project-relative file path. An anonymous `export default`
+function, class, or arrow function is a real declaration with no source name, so it is recorded as
+`default`: the one name a JavaScript or TypeScript binding cannot have, which keeps the synthesized
+key collision-free. Package dependency stable keys are scoped by npm package name. Module-resolution configuration keys are scoped by the configuration file path, so a monorepo keeps one entity per `tsconfig.json`. Next.js and Express route entities are source-backed so conflicting route declarations remain distinct.
 
 ## Parser Backend
 
@@ -114,8 +118,13 @@ None. The extractors do not run commands, use the network, or modify project fil
   named default-function, default-class, or local-identifier bindings; `athanor-linker-js-ts`
   follows bounded named, default-function and default-class, and multiple-source wildcard chains
   when they identify one target, plus direct namespace mappings for single-member calls.
-- Multi-hop namespace aliases, anonymous/default-expression and anonymous default class targets,
-  and ambiguous or unresolved wildcard branches remain unresolved. Package, workspace, and
+- An anonymous `export default` function, class, or arrow function is recorded as a declaration
+  named `default` with `anonymous_default: true`, so a default import or construction resolves to
+  it. Default expressions that declare nothing callable or constructible — an object literal, a
+  call result, or a primitive — stay unbound, and at most one anonymous default is recorded per
+  file. Precision verification excludes synthesized `default` rows because the second backend
+  names only declarations that carry a source identifier.
+- Ambiguous or unresolved wildcard branches remain unresolved. Package, workspace, and
   path-alias specifiers are now resolution evidence for `athanor-linker-js-ts`; the extractor only
   records the configuration that makes them resolvable.
 - Only the module-resolution options of a TypeScript/JavaScript configuration file are projected:

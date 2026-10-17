@@ -138,14 +138,14 @@ pub const NON_PUBLIC_JSON_CONTRACTS: &[NonPublicJsonContractDescriptor] = &[
         ]
     ),
     boundary!(
-        "athanor.index_state.v56",
+        "athanor.index_state.v57",
         "IndexState",
         Persisted,
         Current,
         ["schema", "snapshot", "files"]
     ),
     boundary!(
-        "athanor.index_state.v56-js-ts-precision-v1",
+        "athanor.index_state.v57-js-ts-precision-v1",
         "IndexState",
         Persisted,
         Current,

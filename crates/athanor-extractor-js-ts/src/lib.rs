@@ -200,6 +200,9 @@ impl Extractor for JsTsExtractor {
                 "source_node": declaration.source_node,
                 "calls": declaration.calls,
             });
+            if declaration.qualified_name == ANONYMOUS_DEFAULT_NAME {
+                payload["anonymous_default"] = json!(true);
+            }
             if let Some(heritage) = &declaration.heritage {
                 payload["extends"] = json!(heritage.extends);
                 payload["implements"] = json!(heritage.implements);
@@ -376,6 +379,26 @@ const MAX_PATH_TARGETS: usize = 8;
 /// Upper bound on recorded workspace glob patterns per `package.json`.
 const MAX_WORKSPACE_PATTERNS: usize = 64;
 
+/// Recorded name of an anonymous `export default` declaration.
+///
+/// `export default function () {}` declares a callable value that other
+/// modules import, but the source gives it no name. It is recorded as
+/// `default`, the one name a JavaScript or TypeScript binding cannot have,
+/// so the synthesized name can never collide with a declared binding and
+/// every consumer can see that the name is not evidence.
+const ANONYMOUS_DEFAULT_NAME: &str = "default";
+
+/// Node kinds that an `export default` clause may export anonymously.
+const ANONYMOUS_DEFAULT_KINDS: [&str; 7] = [
+    "function_declaration",
+    "generator_function_declaration",
+    "arrow_function",
+    "function",
+    "function_expression",
+    "class_declaration",
+    "class",
+];
+
 #[derive(Debug, Clone)]
 struct SourceDeclaration {
     name: String,
@@ -432,6 +455,7 @@ fn collect_statement(
         "import_statement" => imports.push(import_payload(node, bytes)),
         "export_statement" => {
             exports.push(export_payload(node, bytes));
+            collect_anonymous_default(node, bytes, declarations);
             let mut cursor = node.walk();
             for child in node.named_children(&mut cursor) {
                 collect_statement(child, bytes, true, declarations, imports, exports);
@@ -522,6 +546,60 @@ fn collect_statement(
             collect_variable_functions(node, bytes, exported, declarations);
         }
         _ => {}
+    }
+}
+
+/// Records an anonymous `export default` declaration under a canonical name.
+///
+/// `export default function () {}`, `export default class {}`, and
+/// `export default () => {}` export a real callable or constructible value that
+/// other modules import, but the source gives it no name. Such a declaration is
+/// recorded as `default`, so a default import resolves to it instead of staying
+/// unresolved. Default expressions that declare nothing callable or
+/// constructible — an object literal, a call result, or a primitive — are not
+/// declarations and stay unrecorded. At most one anonymous default is recorded
+/// per file, because a module has at most one default export.
+fn collect_anonymous_default(node: Node, bytes: &[u8], declarations: &mut Vec<SourceDeclaration>) {
+    if !is_default_export(node) {
+        return;
+    }
+    if declarations
+        .iter()
+        .any(|declaration| declaration.qualified_name == ANONYMOUS_DEFAULT_NAME)
+    {
+        return;
+    }
+
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        if !ANONYMOUS_DEFAULT_KINDS.contains(&child.kind()) || node_name(child, bytes).is_some() {
+            continue;
+        }
+        let is_class = matches!(child.kind(), "class_declaration" | "class");
+        declarations.push(SourceDeclaration {
+            name: ANONYMOUS_DEFAULT_NAME.to_string(),
+            qualified_name: ANONYMOUS_DEFAULT_NAME.to_string(),
+            entity_kind: if is_class {
+                EntityKind::Class
+            } else {
+                EntityKind::Function
+            },
+            symbol_kind: if is_class { "class" } else { "function" },
+            exported: true,
+            is_async: has_child_kind(child, "async"),
+            source_node: child.kind().to_string(),
+            line_range: line_range(child),
+            calls: collect_call_sites(child, bytes),
+            heritage: if is_class {
+                class_heritage(child, bytes)
+            } else {
+                None
+            },
+        });
+        if is_class {
+            collect_class_members(ANONYMOUS_DEFAULT_NAME, child, bytes, true, declarations);
+        }
+        return;
     }
 }
 
@@ -965,9 +1043,10 @@ fn is_default_export(node: Node) -> bool {
     has_child_kind(node, "default")
 }
 
-/// Returns the local binding for a named default function, class, or
-/// identifier export. Other default expressions stay explicitly unbound
-/// and cannot be guessed.
+/// Returns the local binding for a default function, class, or identifier
+/// export. An anonymous default function or class is bound to the canonical
+/// `default` name; other default expressions stay explicitly unbound and
+/// cannot be guessed.
 fn default_export_name(node: Node, bytes: &[u8]) -> Option<String> {
     if !is_default_export(node) {
         return None;
@@ -976,10 +1055,17 @@ fn default_export_name(node: Node, bytes: &[u8]) -> Option<String> {
     let mut cursor = node.walk();
     for child in node.named_children(&mut cursor) {
         match child.kind() {
-            "function_declaration" | "generator_function_declaration" => {
-                return node_name(child, bytes);
+            "function_declaration"
+            | "generator_function_declaration"
+            | "arrow_function"
+            | "function"
+            | "function_expression"
+            | "class_declaration"
+            | "class" => {
+                return Some(
+                    node_name(child, bytes).unwrap_or_else(|| ANONYMOUS_DEFAULT_NAME.to_string()),
+                );
             }
-            "class_declaration" | "class" => return node_name(child, bytes),
             "identifier" => return node_text(child, bytes),
             _ => {}
         }
@@ -1235,7 +1321,10 @@ fn primary_verification_rows(
     let mut rows = declarations
         .iter()
         .filter(|declaration| {
+            // A synthesized anonymous-default name has no counterpart in the
+            // second backend, so it is verified by neither row set.
             declaration.symbol_kind != "method"
+                && declaration.qualified_name != ANONYMOUS_DEFAULT_NAME
                 && !matches!(
                     declaration.source_node.as_str(),
                     "arrow_function" | "function" | "function_expression"
@@ -2296,7 +2385,7 @@ mod tests {
                     "function authenticate() {}\nexport default authenticate;\n",
                     Some("authenticate"),
                 ),
-                ("export default () => {};\n", None),
+                ("export default () => {};\n", Some("default")),
                 (
                     "export default class ApiController {}\n",
                     Some("ApiController"),
@@ -2305,7 +2394,7 @@ mod tests {
                     "class Controller {}\nexport default Controller;\n",
                     Some("Controller"),
                 ),
-                ("export default class {}\n", None),
+                ("export default class {}\n", Some("default")),
             ] {
                 let output = JsTsExtractor
                     .extract(input(path, source, language))
@@ -2325,6 +2414,151 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[tokio::test]
+    async fn records_anonymous_default_declarations_under_a_canonical_name() {
+        for (path, language, source, expected_kind, symbol_kind) in [
+            (
+                "src/anon.js",
+                "javascript",
+                "export default function (request) {\n  return send(request);\n}\n",
+                EntityKind::Function,
+                "function",
+            ),
+            (
+                "src/async_anon.ts",
+                "typescript",
+                "export default async function () {}\n",
+                EntityKind::Function,
+                "function",
+            ),
+            (
+                "src/arrow.js",
+                "javascript",
+                "export default () => {\n  return 1;\n};\n",
+                EntityKind::Function,
+                "function",
+            ),
+            (
+                "src/anon_class.ts",
+                "typescript",
+                "export default class {\n  run() {}\n}\n",
+                EntityKind::Class,
+                "class",
+            ),
+        ] {
+            let output = JsTsExtractor
+                .extract(input(path, source, language))
+                .await
+                .unwrap();
+            let default = output
+                .entities
+                .iter()
+                .find(|entity| entity.stable_key.0 == format!("symbol://js-ts:{path}#default"))
+                .expect("anonymous default declaration");
+
+            assert_eq!(default.kind, expected_kind);
+            assert_eq!(default.name, "default");
+            assert_eq!(default.payload["qualified_name"], "default");
+            assert_eq!(default.payload["symbol_kind"], symbol_kind);
+            assert_eq!(default.payload["exported"], true);
+            assert_eq!(default.payload["anonymous_default"], true);
+
+            let module = output
+                .entities
+                .iter()
+                .find(|entity| entity.kind == EntityKind::Module)
+                .expect("module entity must exist");
+            assert_eq!(module.payload["exports"][0]["default_export"], true);
+            assert_eq!(module.payload["exports"][0]["default_name"], "default");
+        }
+    }
+
+    #[tokio::test]
+    async fn records_class_members_of_an_anonymous_default_class() {
+        let output = JsTsExtractor
+            .extract(input(
+                "src/anon_class.ts",
+                "export default class {\n  run() {}\n}\n",
+                "typescript",
+            ))
+            .await
+            .unwrap();
+
+        let mut members = 0;
+        for entity in &output.entities {
+            if entity.stable_key.0 == "symbol://js-ts:src/anon_class.ts#default.run" {
+                members += 1;
+            }
+        }
+        assert_eq!(members, 1);
+    }
+
+    #[tokio::test]
+    async fn records_call_sites_inside_an_anonymous_default_function() {
+        let output = JsTsExtractor
+            .extract(input(
+                "src/anon.ts",
+                "export default function (request) {\n  return send(request);\n}\n",
+                "typescript",
+            ))
+            .await
+            .unwrap();
+
+        let default = output
+            .entities
+            .iter()
+            .find(|entity| entity.name == "default")
+            .expect("anonymous default declaration");
+        let calls = default.payload["calls"].as_array().expect("call sites");
+        assert!(calls.iter().any(|call| call["callee"] == "send"));
+    }
+
+    #[tokio::test]
+    async fn anonymous_default_expressions_without_a_declaration_stay_unbound() {
+        for source in [
+            "export default 42;\n",
+            "export default { run() {} };\n",
+            "export default helper();\n",
+            "export default new Service();\n",
+        ] {
+            let output = JsTsExtractor
+                .extract(input("src/value.ts", source, "typescript"))
+                .await
+                .unwrap();
+
+            for entity in &output.entities {
+                assert_ne!(entity.name, "default");
+            }
+            let module = output
+                .entities
+                .iter()
+                .find(|entity| entity.kind == EntityKind::Module)
+                .expect("module entity must exist");
+            assert_eq!(module.payload["exports"][0]["default_export"], true);
+            assert!(module.payload["exports"][0]["default_name"].is_null());
+        }
+    }
+
+    #[tokio::test]
+    async fn records_at_most_one_anonymous_default_per_file() {
+        let output = JsTsExtractor
+            .extract(input(
+                "src/duplicate.ts",
+                "export default function () {}\nexport default function () {}\n",
+                "typescript",
+            ))
+            .await
+            .unwrap();
+
+        let mut defaults = 0;
+        for entity in &output.entities {
+            if entity.name == "default" {
+                defaults += 1;
+            }
+        }
+        assert_eq!(defaults, 1);
     }
 
     #[tokio::test]
@@ -2694,6 +2928,26 @@ mod tests {
             module.stable_key.0, "module://js-ts:src/auth.ts",
             "precision mode must retain normal canonical ids"
         );
+        assert_eq!(module.payload["precision_verification"]["differences"], 0);
+    }
+
+    #[cfg(feature = "precision-parser")]
+    #[tokio::test]
+    async fn precision_mode_does_not_report_the_synthesized_anonymous_default_name() {
+        let output = JsTsExtractor
+            .extract(input(
+                "src/anon.ts",
+                "export default function () {}\n",
+                "typescript",
+            ))
+            .await
+            .unwrap();
+        let module = output
+            .entities
+            .iter()
+            .find(|entity| entity.kind == EntityKind::Module)
+            .unwrap();
+
         assert_eq!(module.payload["precision_verification"]["differences"], 0);
     }
 

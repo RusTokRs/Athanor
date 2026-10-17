@@ -53,9 +53,11 @@ Two concrete targets:
   P2B covers explicit named re-export chains, P2C bounded single-source wildcard re-exports, P2D
   named default function exports/re-exports, P2E direct namespace re-exports for single-member calls
   through named imports, P2F bounded multiple-source wildcard aggregation, P2G callback and
-  promise-handler bridges for allowlisted combinators, and P2J module-resolution configuration with
-  TypeScript path aliases and workspace-package specifiers. Multi-hop namespace aliases and
-  anonymous/default class exports remain open.
+  promise-handler bridges for allowlisted combinators, P2J module-resolution configuration with
+  TypeScript path aliases and workspace-package specifiers, and P2K anonymous default exports bound
+  to the canonical `default` name. `exports` and conditional-exports subpaths, TypeScript
+  `rootDirs`, package-manager-specific workspace layouts, and receiver/type-aware dispatch remain
+  open.
 - Both: symbol-level incremental invalidation so a changed declaration re-resolves only its closure.
 
 #### P2A — Heritage Relation Semantics (bounded Rust/TypeScript slice)
@@ -432,11 +434,53 @@ cargo test -p athanor-app --locked
 cargo test -p athanor-app --features js-ts-precision --locked
 ```
 
+#### P2K — Anonymous Default Exports (bounded JS/TS slice)
+
+- An anonymous default export is a real declaration with no source name: `export default function
+  () {}`, `export default class {}`, and `export default () => {}` are all callable or constructible
+  from other modules. The extractor records such a declaration under the canonical name `default`,
+  the one name a JavaScript or TypeScript binding cannot have, so the synthesized key cannot collide
+  with a declared binding and every consumer sees that the name is not evidence. The declaration
+  keeps its real evidence: source range, `exported`, call sites, class heritage, and class members
+  (`default.method`), plus an `anonymous_default` marker in the payload.
+- The module payload binds the default export to the same name. `default_name` is `default` for an
+  anonymous function, class, or arrow function default, so the existing default-export resolution
+  rules carry it without a new linker path: a default import, a default-imported `new`, and an
+  `export { default as api } from "./anon"` re-export alias all resolve to the recorded declaration.
+- Fail-closed bounds: a default expression that declares nothing callable or constructible — an
+  object literal, a call result, or a primitive — stays unbound, so `export default { run() {} }`
+  does not invent a symbol. At most one anonymous default is recorded per file, because a module has
+  at most one default export and a second one would be ambiguous. Precision verification excludes
+  synthesized `default` rows, because the second backend names only declarations that carry a source
+  identifier and comparing them would report a disagreement Athanor itself introduced.
+- Bump both index-state schema families from v56 to v57 because the JS/TS module payload and the set
+  of declarations change the linker input, so cached relations are recomputed in both
+  configurations.
+
+Focused source regression matrix:
+
+| Surface | Regression |
+| --- | --- |
+| JS/TS extractor | Anonymous default function, async function, arrow function, and class declarations recorded as `default` with `anonymous_default`, call sites, class members, and heritage; object, call, and primitive defaults stay unbound; at most one anonymous default per file |
+| Call linker | A default import of an anonymous default function, a default-imported `new` of an anonymous default class, and an anonymous default forwarded through `export { default as api }` all resolve |
+| Precision | The synthesized `default` row is not reported as a backend disagreement |
+| Persistence | v56 normal/precision state is rejected and forces a v57 rebuild |
+
+Focused verification:
+
+```bash
+cargo test -p athanor-extractor-js-ts --locked
+cargo test -p athanor-extractor-js-ts --features precision-parser --locked
+cargo test -p athanor-linker-js-ts --locked
+cargo test -p athanor-app --locked
+cargo test -p athanor-app --features js-ts-precision --locked
+```
+
 #### Remaining P2 Gaps
 
-- JavaScript/TypeScript anonymous default exports; `exports` and conditional-exports subpaths,
-  TypeScript `rootDirs`, and package-manager-specific workspace layouts such as
-  `pnpm-workspace.yaml`; receiver/type-aware dispatch and deep member paths.
+- `exports` and conditional-exports subpaths, TypeScript `rootDirs`, and package-manager-specific
+  workspace layouts such as `pnpm-workspace.yaml`; receiver/type-aware dispatch and deep member
+  paths.
 - Rust dyn-dispatch candidates and symbol-level incremental invalidation for both Rust and JS/TS.
 
 ### P3 — Bounded Language Expansion

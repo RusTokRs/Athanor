@@ -48,6 +48,8 @@ substantive release notes.
 - Add first-party JavaScript/TypeScript module-resolution configuration: `tsconfig.json`, `jsconfig.json`, and their named `.json` variants project their `baseUrl`, `paths` mappings, and inherited `extends` with disclosed bounds and JSONC tolerance, and `package.json` records `main` and `workspaces`.
 - Resolve JS/TS non-relative specifiers in the import and call linkers through that evidence, so a path alias such as `@/lib/api` and a workspace-package specifier such as `@scope/ui/button` become real module and call edges while unprovable specifiers stay unresolved.
 - Bump index state v55→v56 because JS/TS extractor payloads gained module-resolution configuration; earlier snapshots reindex.
+- Add JavaScript/TypeScript anonymous default export binding: `export default function () {}`, `export default class {}`, and `export default () => {}` are recorded under the canonical `default` name with `anonymous_default` disclosure, so a default import, a default-imported construction, and a forwarded `default` alias resolve to them.
+- Bump index state v56→v57 because JS/TS extractor payloads gained anonymous default declarations; earlier snapshots reindex.
 
 ### Fixed
 

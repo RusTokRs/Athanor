@@ -80,8 +80,10 @@ previous one is silent:
    the import linker. Named import aliases
    retain both the local and imported spelling; directly qualified imported-class methods keep their
    existing import-member resolution behavior.
-4. `imported_default_export` — a default import resolves directly to the named function
-   or class binding marked by `export default` in its relative target module.
+4. `imported_default_export` — a default import resolves directly to the function or class
+   binding marked by `export default` in its relative target module: a named declaration, a
+   statically named local identifier, or an anonymous default recorded under the canonical
+   `default` name.
 5. `imported_reexport_chain` — calls resolve through explicit local aliases, relative named
    re-exports (including default aliases), source-backed wildcard clauses, one direct
    `export * as name` mapping used by a named-import single-member call, or a namespace
@@ -159,15 +161,16 @@ Path aliases and workspace packages resolve only through the recorded configurat
 described above; `exports` maps, conditional exports, `rootDirs`, package-manager installs, and
 `pnpm-workspace.yaml` are outside the model. Node built-ins, bare specifiers that no configuration
 proves, dynamic imports,
-CommonJS `require` calls, anonymous/default-expression exports,
-anonymous default classes, computed member calls, multi-segment named-import namespace paths,
+CommonJS `require` calls, default expressions that declare nothing callable or
+constructible, computed member calls, multi-segment named-import namespace paths,
 and receiver typing are not resolved. Callback bridging only fires for the extractor's combinator allowlist and
 only for statically nameable arguments; callbacks passed as inline arrows, call results, or
 computed expressions are never recorded, and a callback argument whose name does not resolve
 uniquely stays unresolved like any other callee. A named import representing a namespace object can use one unique, direct,
 source-backed `export * as name` mapping for a single member call; missing or ambiguous namespace
-mappings stay unresolved. Named default functions, named default classes, and statically named local default bindings
-resolve through relative imports and explicit named re-export clauses; plain `export *` still does not
+mappings stay unresolved. Named default functions, named default classes, statically named local default bindings, and
+anonymous defaults recorded under the canonical `default` name resolve through relative imports, path
+aliases, workspace packages, and explicit named re-export clauses; plain `export *` still does not
 expose `default`. Named, default, wildcard, and namespace hops share the 32-hop bound. Multiple
 wildcard sources combine only when applicable branches agree on one declaration; absent names are
 ignored, while cycles, ambiguous mappings, unresolved sources, and over-limit branches stay
