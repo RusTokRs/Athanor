@@ -94,6 +94,8 @@ impl Extractor for JsTsExtractor {
             &mut exports,
         );
 
+        let (typed_bindings, omitted_typed_bindings) = typed_bindings(root, parse_bytes);
+
         if root.has_error() {
             collect_parse_errors(
                 self.name(),
@@ -152,6 +154,8 @@ impl Extractor for JsTsExtractor {
             "parser": language.parser_name,
             "imports": imports,
             "exports": exports,
+            "typed_bindings": typed_bindings,
+            "omitted_typed_bindings": omitted_typed_bindings,
             "declaration_count": declarations.len(),
         });
         #[cfg(feature = "precision-parser")]
@@ -403,6 +407,9 @@ const MAX_EXPORT_CONDITIONS: usize = 4;
 /// Upper bound on recorded `rootDirs` entries per configuration file.
 const MAX_ROOT_DIRS: usize = 8;
 
+/// Upper bound on recorded receiver type bindings per source file.
+const MAX_TYPED_BINDINGS: usize = 64;
+
 /// Recorded name of an anonymous `export default` declaration.
 ///
 /// `export default function () {}` declares a callable value that other
@@ -465,6 +472,208 @@ fn collect_source_items(
     for child in root.named_children(&mut cursor) {
         collect_statement(child, bytes, false, declarations, imports, exports);
     }
+}
+
+/// The statically proven type of one receiver binding.
+struct TypedBinding {
+    /// Binding name: `service` for a local or parameter, `Class.field` for a
+    /// class field, so the linker can match `this.field` inside its class.
+    name: String,
+    /// Bare type name, reduced to its terminal identifier like heritage names.
+    type_name: String,
+    /// `construction` when a `new Type()` initializer proves the type,
+    /// `annotation` when a TypeScript type annotation declares it.
+    kind: &'static str,
+    line: u32,
+}
+
+/// Records the receiver types a source file proves statically.
+///
+/// A receiver only helps the call linker when the source says what it holds: a
+/// `new Type()` initializer or a TypeScript type annotation. A call result, a
+/// destructured binding, and an inferred type are not evidence, so they stay
+/// unrecorded rather than being guessed.
+fn typed_bindings(root: Node, bytes: &[u8]) -> (Vec<Value>, usize) {
+    let mut collected = Vec::new();
+    let mut class_names = Vec::new();
+    collect_typed_bindings(root, bytes, &mut class_names, &mut collected);
+
+    let mut bindings = Vec::new();
+    let mut omitted = 0usize;
+    for binding in collected {
+        if binding.name.is_empty()
+            || binding.type_name.is_empty()
+            || bindings.len() == MAX_TYPED_BINDINGS
+        {
+            omitted += 1;
+            continue;
+        }
+        bindings.push(json!({
+            "name": binding.name,
+            "type": binding.type_name,
+            "kind": binding.kind,
+            "line": binding.line,
+        }));
+    }
+    (bindings, omitted)
+}
+
+fn collect_typed_bindings(
+    node: Node,
+    bytes: &[u8],
+    class_names: &mut Vec<String>,
+    bindings: &mut Vec<TypedBinding>,
+) {
+    if matches!(node.kind(), "class_declaration" | "class")
+        && let Some(name) = node_name(node, bytes)
+    {
+        class_names.push(name);
+        let mut cursor = node.walk();
+        for child in node.named_children(&mut cursor) {
+            collect_typed_bindings(child, bytes, class_names, bindings);
+        }
+        class_names.pop();
+        return;
+    }
+
+    match node.kind() {
+        "variable_declarator" => {
+            if let Some(binding) = declarator_binding(node, bytes) {
+                bindings.push(binding);
+            }
+        }
+        "public_field_definition" => {
+            if let (Some(class), Some(binding)) = (class_names.last(), member_binding(node, bytes))
+            {
+                bindings.push(TypedBinding {
+                    name: format!("{class}.{}", binding.name),
+                    ..binding
+                });
+            }
+        }
+        "required_parameter" | "optional_parameter" => {
+            if let Some(binding) = parameter_binding(node, bytes) {
+                // A TypeScript parameter property (`constructor(private repo: Repo)`)
+                // is also a field of the enclosing class, so `this.repo` can be typed.
+                if has_child_kind(node, "accessibility_modifier")
+                    && let Some(class) = class_names.last()
+                {
+                    bindings.push(TypedBinding {
+                        name: format!("{class}.{}", binding.name),
+                        type_name: binding.type_name.clone(),
+                        kind: binding.kind,
+                        line: binding.line,
+                    });
+                }
+                bindings.push(binding);
+            }
+        }
+        _ => {}
+    }
+
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        collect_typed_bindings(child, bytes, class_names, bindings);
+    }
+}
+
+/// Types one `name = new Type()` or `name: Type = …` variable declarator.
+fn declarator_binding(node: Node, bytes: &[u8]) -> Option<TypedBinding> {
+    let name = node_text(node.child_by_field_name("name")?, bytes)?;
+    let line = node.start_position().row as u32 + 1;
+    let value = node.child_by_field_name("value");
+    if let Some(value) = value
+        && value.kind() == "new_expression"
+    {
+        let constructor = value.child_by_field_name("constructor")?;
+        let type_name = terminal_name(&node_text(constructor, bytes)?)?;
+        return Some(TypedBinding {
+            name,
+            type_name,
+            kind: "construction",
+            line,
+        });
+    }
+    declared_type(node, bytes).map(|type_name| TypedBinding {
+        name,
+        type_name,
+        kind: "annotation",
+        line,
+    })
+}
+
+/// Types one class field: `repo = new Repo()` or `repo: Repo`.
+fn member_binding(node: Node, bytes: &[u8]) -> Option<TypedBinding> {
+    let name = node_text(node.child_by_field_name("name")?, bytes)?;
+    let line = node.start_position().row as u32 + 1;
+    if let Some(value) = node.child_by_field_name("value")
+        && value.kind() == "new_expression"
+    {
+        let constructor = value.child_by_field_name("constructor")?;
+        let type_name = terminal_name(&node_text(constructor, bytes)?)?;
+        return Some(TypedBinding {
+            name,
+            type_name,
+            kind: "construction",
+            line,
+        });
+    }
+    declared_type(node, bytes).map(|type_name| TypedBinding {
+        name,
+        type_name,
+        kind: "annotation",
+        line,
+    })
+}
+
+/// Types one annotated parameter: `service: Service`.
+fn parameter_binding(node: Node, bytes: &[u8]) -> Option<TypedBinding> {
+    let name = node_text(
+        node.child_by_field_name("pattern")
+            .or_else(|| node.child_by_field_name("name"))?,
+        bytes,
+    )?;
+    let type_name = declared_type(node, bytes)?;
+    Some(TypedBinding {
+        name,
+        type_name,
+        kind: "annotation",
+        line: node.start_position().row as u32 + 1,
+    })
+}
+
+/// Reads a declared type from a `type` field or a `type_annotation` child.
+///
+/// Only a bare named type is evidence: generics are reduced to their base name,
+/// and unions, arrays, function types, and literals name nothing the linker can
+/// dispatch on.
+fn declared_type(node: Node, bytes: &[u8]) -> Option<String> {
+    let annotation = node
+        .child_by_field_name("type")
+        .or_else(|| find_child_kind(node, "type_annotation"))?;
+    let inner = annotation.named_child(0)?;
+    terminal_name(&node_text(inner, bytes)?)
+}
+
+/// Reduces one type or constructor path to its terminal identifier.
+fn terminal_name(text: &str) -> Option<String> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() || trimmed.contains(['[', '(', '|', '&']) {
+        return None;
+    }
+    let base = trimmed.split('<').next()?.trim();
+    let last = base.rsplit('.').next()?;
+    let named = !last.is_empty()
+        && last
+            .chars()
+            .all(|character| character.is_alphanumeric() || character == '_' || character == '$');
+    named.then(|| last.to_string())
+}
+
+fn find_child_kind<'a>(node: Node<'a>, kind: &str) -> Option<Node<'a>> {
+    (0..node.child_count())
+        .filter_map(|index| node.child(index as u32))
+        .find(|child| child.kind() == kind)
 }
 
 fn collect_statement(
@@ -3308,6 +3517,25 @@ mod tests {
         format!("{subpath}|{}|{target}", conditions.join("+"))
     }
 
+    /// Renders the recorded receiver type bindings as sorted `name:type:kind`
+    /// rows so a test can compare the projection as text.
+    fn typed_binding_text(payload: &Value) -> Vec<String> {
+        let mut rows = Vec::new();
+        let Some(bindings) = payload.as_array() else {
+            return rows;
+        };
+        for binding in bindings {
+            rows.push(format!(
+                "{}:{}:{}",
+                binding["name"].as_str().unwrap_or_default(),
+                binding["type"].as_str().unwrap_or_default(),
+                binding["kind"].as_str().unwrap_or_default()
+            ));
+        }
+        rows.sort();
+        rows
+    }
+
     fn path_mapping<'a>(entity: &'a Entity, pattern: &str) -> &'a Value {
         let mappings = entity.payload["paths"].as_array().expect("paths array");
         for mapping in mappings {
@@ -3651,6 +3879,109 @@ mod tests {
             .expect("module resolution configuration");
         assert_eq!(config.payload["root_dirs"], json!(["src/en", "src/de"]));
         assert_eq!(config.payload["omitted_root_dirs"], 1);
+    }
+
+    #[tokio::test]
+    async fn records_typed_receiver_bindings_from_constructions_and_annotations() {
+        let output = JsTsExtractor
+            .extract(input(
+                "src/app.ts",
+                "const service = new Service();\nlet repo: Repo;\nfunction run(client: Client) {}\nclass App {\n  store = new Store();\n  cache: Cache;\n}\n",
+                "typescript",
+            ))
+            .await
+            .unwrap();
+
+        let module = output
+            .entities
+            .iter()
+            .find(|entity| entity.kind == EntityKind::Module)
+            .expect("module entity must exist");
+        let mut expected = vec![
+            "service:Service:construction".to_string(),
+            "repo:Repo:annotation".to_string(),
+            "client:Client:annotation".to_string(),
+            "App.store:Store:construction".to_string(),
+            "App.cache:Cache:annotation".to_string(),
+        ];
+        expected.sort();
+        assert_eq!(
+            typed_binding_text(&module.payload["typed_bindings"]),
+            expected
+        );
+        assert_eq!(module.payload["omitted_typed_bindings"], 0);
+    }
+
+    #[tokio::test]
+    async fn records_typescript_parameter_properties_as_typed_fields() {
+        let output = JsTsExtractor
+            .extract(input(
+                "src/app.ts",
+                "class App {\n  constructor(private repo: Repo) {}\n}\n",
+                "typescript",
+            ))
+            .await
+            .unwrap();
+
+        let module = output
+            .entities
+            .iter()
+            .find(|entity| entity.kind == EntityKind::Module)
+            .expect("module entity must exist");
+        let rows = typed_binding_text(&module.payload["typed_bindings"]);
+        assert!(
+            rows.contains(&"App.repo:Repo:annotation".to_string()),
+            "parameter property must type the field, got {rows:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn rejects_receiver_types_that_the_source_does_not_prove() {
+        for source in [
+            "const service = createService();\n",
+            "let pair: Service | Repo;\n",
+            "let items: Service[];\n",
+            "const { service } = context;\n",
+            "const alias = service;\n",
+            "let handler: () => void;\n",
+        ] {
+            let output = JsTsExtractor
+                .extract(input("src/app.ts", source, "typescript"))
+                .await
+                .unwrap();
+            let module = output
+                .entities
+                .iter()
+                .find(|entity| entity.kind == EntityKind::Module)
+                .expect("module entity must exist");
+            assert!(
+                typed_binding_text(&module.payload["typed_bindings"]).is_empty(),
+                "{source} must not record a receiver type"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn bounds_and_discloses_recorded_typed_bindings() {
+        let mut source = String::new();
+        for index in 0..70 {
+            source.push_str(&format!("const binding{index} = new Type{index}();\n"));
+        }
+        let output = JsTsExtractor
+            .extract(input("src/app.ts", &source, "typescript"))
+            .await
+            .unwrap();
+        let module = output
+            .entities
+            .iter()
+            .find(|entity| entity.kind == EntityKind::Module)
+            .expect("module entity must exist");
+
+        let rows = module.payload["typed_bindings"]
+            .as_array()
+            .expect("typed bindings");
+        assert_eq!(rows.len(), 64);
+        assert_eq!(module.payload["omitted_typed_bindings"], 6);
     }
 
     #[tokio::test]
