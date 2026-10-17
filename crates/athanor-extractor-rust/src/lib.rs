@@ -429,7 +429,8 @@ fn typed_bindings(sig: Option<&syn::Signature>, block: Option<&syn::Block>) -> (
         }
         .visit_block(block);
     }
-    (rows, matched.saturating_sub(rows.len()))
+    let omitted = matched.saturating_sub(rows.len());
+    (rows, omitted)
 }
 
 /// Collects the `let` bindings a body states, including the ones nested in
