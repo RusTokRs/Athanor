@@ -517,7 +517,11 @@ targets: `export default class Foo {}` records its default name, a default impor
 resolves a `new Foo()` site with reason `imported_default_export`, and a same-module
 construction resolves with `same_module_exact_name`, bumping both index-state schema
 families from v53 to v54; anonymous default expressions and anonymous default classes stay
-unbound. Slice P3 is source-implemented as `builtin.extractor.treesitter`: one engine walks a
+unbound. Slice P2I resolves multi-hop namespace aliases: a namespace name forwarded across
+modules by source-backed named re-exports resolves a single member call through the declaring
+`export * as name` clause, renamed or same-name, within the existing 32-hop and 1,024-visit
+bounds, bumping both index-state schema families from v54 to v55; ambiguous, cyclic, and
+over-bound forwarded chains stay unresolved. Slice P3 is source-implemented as `builtin.extractor.treesitter`: one engine walks a
 per-language pack of node kinds and field names and records declaration, import, export, and call
 evidence for Python and Go, with the existing cross-file linkers still owning resolution. Historical
 exact-commit verification for P1, the pre-P2A P2 slice, and P5 is green on `191c65e` (sandbox
