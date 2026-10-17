@@ -1,8 +1,9 @@
 name: Temporary format feedback
 
 # Temporary helper: reports rustfmt / clippy / test results as a PR comment and
-# applies rustfmt when the tree is unformatted. Always concludes success so the
-# branch is never blocked by this workflow. Delete before merge.
+# always concludes success so the branch is never blocked by this workflow.
+# It must never mutate git: a `pull_request` checkout is a merge commit, and
+# rebasing it filled the tree with conflict markers. Delete before merge.
 
 on:
   pull_request:
