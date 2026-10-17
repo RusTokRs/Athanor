@@ -28,7 +28,10 @@ impl Extractor for JsTsExtractor {
     }
 
     fn supports(&self, source: &SourceFile) -> bool {
-        js_ts_language(source).is_some() || is_package_json(source) || is_tsconfig_json(source)
+        js_ts_language(source).is_some()
+            || is_package_json(source)
+            || is_tsconfig_json(source)
+            || is_pnpm_workspace(source)
     }
 
     async fn extract(&self, input: ExtractInput) -> CoreResult<ExtractOutput> {
@@ -42,6 +45,10 @@ impl Extractor for JsTsExtractor {
 
         if is_tsconfig_json(&input.source) {
             return Ok(extract_typescript_config(self.name(), &input, content));
+        }
+
+        if is_pnpm_workspace(&input.source) {
+            return Ok(extract_pnpm_workspace(self.name(), &input, content));
         }
 
         let Some(language) = js_ts_language(&input.source) else {
@@ -302,6 +309,14 @@ fn is_package_json(source: &SourceFile) -> bool {
     source.path.ends_with("package.json")
 }
 
+/// Recognizes the pnpm workspace manifest, which declares workspace membership
+/// for layouts that have no npm `workspaces` field.
+fn is_pnpm_workspace(source: &SourceFile) -> bool {
+    let normalized = source.path.replace('\\', "/");
+    let file_name = normalized.rsplit('/').next().unwrap_or(normalized.as_str());
+    file_name == "pnpm-workspace.yaml" || file_name == "pnpm-workspace.yml"
+}
+
 /// Recognizes the first-party TypeScript and JavaScript project configuration
 /// files that carry module-resolution options: `tsconfig.json`, `jsconfig.json`,
 /// and their named `.json` variants such as `tsconfig.base.json`.
@@ -378,6 +393,15 @@ const MAX_PATH_TARGETS: usize = 8;
 
 /// Upper bound on recorded workspace glob patterns per `package.json`.
 const MAX_WORKSPACE_PATTERNS: usize = 64;
+
+/// Upper bound on recorded `exports` rows per `package.json`.
+const MAX_EXPORT_ROWS: usize = 64;
+
+/// Upper bound on condition keys recorded for one `exports` row.
+const MAX_EXPORT_CONDITIONS: usize = 4;
+
+/// Upper bound on recorded `rootDirs` entries per configuration file.
+const MAX_ROOT_DIRS: usize = 8;
 
 /// Recorded name of an anonymous `export default` declaration.
 ///
@@ -1696,6 +1720,10 @@ fn extract_package_json(extractor: &str, input: &ExtractInput, content: &str) ->
     // Workspace patterns and the package entry point are the evidence a linker
     // needs to resolve a bare workspace-package specifier inside the repository.
     let workspaces = workspace_patterns(root.get("workspaces"));
+    // The `exports` map is the evidence that decides whether a subpath of a
+    // workspace package is reachable at all, so it is projected as ordered
+    // rows rather than as a raw tree.
+    let export_map = parse_export_map(root.get("exports"));
     let main = root
         .get("main")
         .and_then(Value::as_str)
@@ -1706,6 +1734,15 @@ fn extract_package_json(extractor: &str, input: &ExtractInput, content: &str) ->
         "ent_js_ts_package_{:016x}",
         stable_hash(package_stable_key.0.as_bytes())
     ));
+    let mut export_rows = Vec::new();
+    for row in &export_map.rows {
+        export_rows.push(json!({
+            "subpath": row.subpath,
+            "conditions": row.conditions,
+            "target": row.target,
+        }));
+    }
+
     let mut entities = vec![Entity {
         id: package_id.clone(),
         stable_key: package_stable_key.clone(),
@@ -1727,6 +1764,8 @@ fn extract_package_json(extractor: &str, input: &ExtractInput, content: &str) ->
                 "main": main,
                 "workspaces": workspaces.patterns,
                 "omitted_workspaces": workspaces.omitted,
+                "exports": export_rows,
+                "omitted_exports": export_map.omitted,
             }),
         }];
     let context = ExtractionEvidenceContext {
@@ -1883,6 +1922,8 @@ fn extract_typescript_config(
             "paths": mappings,
             "omitted_paths": config.omitted_paths,
             "omitted_targets": config.omitted_targets,
+            "root_dirs": config.root_dirs,
+            "omitted_root_dirs": config.omitted_root_dirs,
         }),
     };
     let fact = symbol_fact(
@@ -1907,12 +1948,73 @@ fn extract_typescript_config(
     }
 }
 
+/// Projects the workspace layout of a pnpm workspace manifest.
+///
+/// A manifest without a readable `packages:` list carries no evidence, so it is
+/// not projected at all: a missing layout must not turn every package in the
+/// snapshot into a workspace member.
+fn extract_pnpm_workspace(extractor: &str, input: &ExtractInput, content: &str) -> ExtractOutput {
+    let (packages, omitted) = parse_workspace_manifest_packages(content);
+    if packages.is_empty() {
+        return ExtractOutput::default();
+    }
+
+    let config_path = input.source.path.as_str();
+    let stable_key = StableKey(format!("config://{config_path}#js-ts-workspace-layout"));
+    let entity_id = EntityId(format!(
+        "ent_js_ts_layout_{:016x}",
+        stable_hash(stable_key.0.as_bytes())
+    ));
+    let entity = Entity {
+        id: entity_id.clone(),
+        stable_key: stable_key.clone(),
+        kind: EntityKind::Feature,
+        name: config_file_name(&input.source.path),
+        title: Some("pnpm workspace layout".to_string()),
+        source: Some(SourceLocation {
+            path: input.source.path.clone(),
+            line_start: Some(1),
+            line_end: None,
+        }),
+        language: Some(LanguageCode("yaml".to_string())),
+        aliases: Vec::new(),
+        ownership: ownership_for_file(&input.source.path),
+        payload: json!({
+            "config_kind": "js_ts_workspace_layout",
+            "packages": packages,
+            "omitted_packages": omitted,
+        }),
+    };
+    let fact = symbol_fact(
+        ExtractionEvidenceContext {
+            extractor,
+            path: &input.source.path,
+            snapshot: &input.snapshot,
+        },
+        SymbolFactSpec {
+            subject: &entity_id,
+            object: None,
+            stable_key: &stable_key,
+            symbol_kind: "workspace_layout",
+            range: (1, 1),
+        },
+    );
+
+    ExtractOutput {
+        entities: vec![entity],
+        facts: vec![fact],
+        diagnostics: Vec::new(),
+    }
+}
+
 struct TypeScriptConfig {
     extends: Option<String>,
     base_dir: Option<String>,
     paths: Vec<PathMapping>,
     omitted_paths: usize,
     omitted_targets: usize,
+    root_dirs: Vec<String>,
+    omitted_root_dirs: usize,
 }
 
 struct PathMapping {
@@ -1949,6 +2051,12 @@ fn parse_typescript_config(path: &str, content: &str, root: &Value) -> Option<Ty
             Some(paths) => parse_path_mappings(content, paths),
             None => (Vec::new(), 0, 0),
         };
+    let (root_dirs, omitted_root_dirs) = match compiler_options
+        .and_then(|options| options.get("rootDirs"))
+    {
+        Some(root_dirs) => parse_root_dirs(path, root_dirs),
+        None => (Vec::new(), 0),
+    };
 
     Some(TypeScriptConfig {
         extends,
@@ -1956,7 +2064,39 @@ fn parse_typescript_config(path: &str, content: &str, root: &Value) -> Option<Ty
         paths,
         omitted_paths,
         omitted_targets,
+        root_dirs,
+        omitted_root_dirs,
     })
+}
+
+/// Reads `compilerOptions.rootDirs` as repository-relative directories.
+///
+/// TypeScript treats the recorded roots as one merged virtual directory, so a
+/// relative import that misses in one root may resolve in another. Roots that
+/// cannot be pinned to a repository directory — absolute, drive-qualified, or
+/// escaping — are reported as omitted instead of being guessed.
+fn parse_root_dirs(path: &str, value: &Value) -> (Vec<String>, usize) {
+    let mut roots = Vec::new();
+    let mut omitted = 0usize;
+    let Some(entries) = value.as_array() else {
+        return (roots, omitted);
+    };
+    for entry in entries {
+        let Some(entry) = entry.as_str().map(str::trim).filter(|value| !value.is_empty()) else {
+            omitted += 1;
+            continue;
+        };
+        let Some(root) = config_base_dir(path, entry) else {
+            omitted += 1;
+            continue;
+        };
+        if roots.len() == MAX_ROOT_DIRS || roots.iter().any(|existing| existing == &root) {
+            omitted += 1;
+            continue;
+        }
+        roots.push(root);
+    }
+    (roots, omitted)
 }
 
 fn parse_path_mappings(content: &str, paths: &Value) -> (Vec<PathMapping>, usize, usize) {
@@ -2185,6 +2325,138 @@ struct WorkspacePatterns {
 /// Both the array form and the `{ "packages": [...] }` object form are
 /// recognized; a non-string entry or an entry beyond the bound is counted as
 /// omitted instead of being silently dropped.
+struct ExportRow {
+    subpath: String,
+    conditions: Vec<String>,
+    target: String,
+}
+
+struct ExportMap {
+    rows: Vec<ExportRow>,
+    omitted: usize,
+}
+
+/// Projects the npm `exports` map as one ordered row per declared target.
+///
+/// The tree is flattened to `(subpath, conditions, target)` rows in declaration
+/// order, which is the order Node itself falls back through, so the linker can
+/// prove the first row it can resolve instead of reconstructing the tree.
+/// Wildcard subpaths and targets keep their `*`. Sugar forms are normalized: a
+/// bare string and a bare array describe the `.` subpath, and an object whose
+/// keys do not start with `.` is a condition map for `.`.
+fn parse_export_map(value: Option<&Value>) -> ExportMap {
+    let mut rows = Vec::new();
+    let mut omitted = 0usize;
+    if let Some(value) = value {
+        match value {
+            Value::String(_) | Value::Array(_) => {
+                collect_export_targets(".", &[], value, &mut rows, &mut omitted);
+            }
+            Value::Object(entries) => {
+                if entries.keys().any(|key| key.starts_with('.')) {
+                    for (subpath, target) in entries {
+                        collect_export_targets(subpath, &[], target, &mut rows, &mut omitted);
+                    }
+                } else {
+                    collect_export_targets(".", &[], value, &mut rows, &mut omitted);
+                }
+            }
+            _ => {}
+        }
+    }
+    ExportMap { rows, omitted }
+}
+
+/// Walks one `exports` value: a target string ends a row, an array holds
+/// ordered fallbacks, and an object holds ordered conditions.
+fn collect_export_targets(
+    subpath: &str,
+    conditions: &[String],
+    value: &Value,
+    rows: &mut Vec<ExportRow>,
+    omitted: &mut usize,
+) {
+    match value {
+        Value::String(target) => {
+            let subpath = subpath.trim();
+            let target = target.trim();
+            if subpath.is_empty()
+                || target.is_empty()
+                || subpath.matches('*').count() > 1
+                || rows.len() == MAX_EXPORT_ROWS
+            {
+                *omitted += 1;
+                return;
+            }
+            rows.push(ExportRow {
+                subpath: subpath.to_string(),
+                conditions: conditions.to_vec(),
+                target: target.to_string(),
+            });
+        }
+        Value::Array(alternatives) => {
+            for alternative in alternatives {
+                collect_export_targets(subpath, conditions, alternative, rows, omitted);
+            }
+        }
+        Value::Object(nested) => {
+            for (condition, target) in nested {
+                if conditions.len() == MAX_EXPORT_CONDITIONS {
+                    *omitted += 1;
+                    continue;
+                }
+                let mut guarded = conditions.to_vec();
+                guarded.push(condition.trim().to_string());
+                collect_export_targets(subpath, &guarded, target, rows, omitted);
+            }
+        }
+        _ => *omitted += 1,
+    }
+}
+
+/// Reads the top-level `packages:` list of a pnpm workspace manifest.
+///
+/// Only the flat block sequence is read: a top-level `packages:` key followed
+/// by `- pattern` items. Flow sequences, anchors, nested blocks, and every
+/// other YAML feature stay outside the projection, so a manifest Athanor cannot
+/// read produces no layout evidence rather than a guessed package set.
+fn parse_workspace_manifest_packages(content: &str) -> (Vec<String>, usize) {
+    let mut patterns = Vec::new();
+    let mut omitted = 0usize;
+    let mut in_packages = false;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let indent = line.len() - line.trim_start().len();
+        if indent == 0 {
+            let key = trimmed.trim_end_matches(':').trim();
+            in_packages = trimmed.ends_with(':') && key == "packages";
+            continue;
+        }
+        if !in_packages {
+            continue;
+        }
+        let Some(value) = trimmed.strip_prefix("- ") else {
+            continue;
+        };
+        let pattern = value.trim().trim_matches(['"', '\'']);
+        if pattern.is_empty() {
+            omitted += 1;
+            continue;
+        }
+        if patterns.len() == MAX_WORKSPACE_PATTERNS {
+            omitted += 1;
+            continue;
+        }
+        if !patterns.iter().any(|existing| existing == pattern) {
+            patterns.push(pattern.to_string());
+        }
+    }
+    (patterns, omitted)
+}
+
 fn workspace_patterns(value: Option<&Value>) -> WorkspacePatterns {
     let mut patterns = Vec::new();
     let mut omitted = 0usize;
@@ -3020,6 +3292,22 @@ mod tests {
         }
     }
 
+    /// Renders one projected `exports` row as `subpath|conditions|target` so a
+    /// test can compare the projection as text.
+    fn export_row(row: &Value) -> String {
+        let subpath = row["subpath"].as_str().unwrap_or_default();
+        let target = row["target"].as_str().unwrap_or_default();
+        let mut conditions = Vec::new();
+        if let Some(values) = row["conditions"].as_array() {
+            for value in values {
+                if let Some(condition) = value.as_str() {
+                    conditions.push(condition);
+                }
+            }
+        }
+        format!("{subpath}|{}|{target}", conditions.join("+"))
+    }
+
     fn path_mapping<'a>(entity: &'a Entity, pattern: &str) -> &'a Value {
         let mappings = entity.payload["paths"].as_array().expect("paths array");
         for mapping in mappings {
@@ -3230,6 +3518,139 @@ mod tests {
         assert_eq!(package.payload["main"], "src/index.ts");
         assert_eq!(package.payload["workspaces"], json!(["packages/*", "apps/*"]));
         assert_eq!(package.payload["omitted_workspaces"], 0);
+    }
+
+    #[tokio::test]
+    async fn projects_package_exports_rows_with_conditions_and_wildcards() {
+        let output = JsTsExtractor
+            .extract(input(
+                "packages/ui/package.json",
+                r#"{"name":"@scope/ui","exports":{".":{"import":"./dist/index.mjs","require":"./dist/index.cjs"},"./button":["./dist/button.js",{"default":"./src/button.ts"}],"./*":"./src/*.ts"}}"#,
+                "json",
+            ))
+            .await
+            .unwrap();
+
+        let package = output
+            .entities
+            .iter()
+            .find(|entity| entity.kind == EntityKind::Package)
+            .expect("package entity must exist");
+        let rows = package.payload["exports"]
+            .as_array()
+            .expect("exports rows")
+            .iter()
+            .map(export_row)
+            .collect::<Vec<_>>();
+        let mut expected = vec![
+            ".|import|./dist/index.mjs".to_string(),
+            ".|require|./dist/index.cjs".to_string(),
+            "./*||./src/*.ts".to_string(),
+            "./button||./dist/button.js".to_string(),
+            "./button|default|./src/button.ts".to_string(),
+        ];
+        expected.sort();
+        let mut rows = rows;
+        rows.sort();
+        assert_eq!(rows, expected);
+        assert_eq!(package.payload["omitted_exports"], 0);
+    }
+
+    #[tokio::test]
+    async fn projects_exports_sugar_forms_under_the_root_subpath() {
+        for (source, expected) in [
+            (
+                r#"{"name":"pkg","exports":"./index.js"}"#,
+                vec![".||./index.js"],
+            ),
+            (
+                r#"{"name":"pkg","exports":["./first.js","./second.js"]}"#,
+                vec![".||./first.js", ".||./second.js"],
+            ),
+            (
+                r#"{"name":"pkg","exports":{"import":"./m.mjs","require":"./c.cjs"}}"#,
+                vec![".|import|./m.mjs", ".|require|./c.cjs"],
+            ),
+        ] {
+            let output = JsTsExtractor
+                .extract(input("package.json", source, "json"))
+                .await
+                .unwrap();
+            let package = output
+                .entities
+                .iter()
+                .find(|entity| entity.kind == EntityKind::Package)
+                .expect("package entity must exist");
+            let rows = package.payload["exports"]
+                .as_array()
+                .expect("exports rows")
+                .iter()
+                .map(export_row)
+                .collect::<Vec<_>>();
+            assert_eq!(rows, expected);
+        }
+    }
+
+    #[tokio::test]
+    async fn projects_pnpm_workspace_layout() {
+        let output = JsTsExtractor
+            .extract(input(
+                "pnpm-workspace.yaml",
+                "packages:\n  # generated locales\n  - 'packages/*'\n  - \"apps/*\"\n",
+                "yaml",
+            ))
+            .await
+            .unwrap();
+
+        let layout = output
+            .entities
+            .iter()
+            .find(|entity| entity.kind == EntityKind::Feature)
+            .expect("workspace layout");
+        assert_eq!(
+            layout.stable_key.0,
+            "config://pnpm-workspace.yaml#js-ts-workspace-layout"
+        );
+        assert_eq!(
+            layout.payload["config_kind"],
+            json!("js_ts_workspace_layout")
+        );
+        assert_eq!(layout.payload["packages"], json!(["packages/*", "apps/*"]));
+        assert_eq!(layout.payload["omitted_packages"], 0);
+    }
+
+    #[tokio::test]
+    async fn pnpm_workspace_without_a_package_list_is_not_projected() {
+        let output = JsTsExtractor
+            .extract(input(
+                "pnpm-workspace.yaml",
+                "onlyBuiltDependencies:\n  - esbuild\npackages:\n",
+                "yaml",
+            ))
+            .await
+            .unwrap();
+
+        assert!(output.entities.is_empty());
+    }
+
+    #[tokio::test]
+    async fn records_typescript_root_directories_and_their_bounds() {
+        let output = JsTsExtractor
+            .extract(input(
+                "tsconfig.json",
+                r#"{"compilerOptions":{"rootDirs":["src/en","src/de","../outside"]}}"#,
+                "json",
+            ))
+            .await
+            .unwrap();
+
+        let config = output
+            .entities
+            .iter()
+            .find(|entity| entity.kind == EntityKind::Feature)
+            .expect("module resolution configuration");
+        assert_eq!(config.payload["root_dirs"], json!(["src/en", "src/de"]));
+        assert_eq!(config.payload["omitted_root_dirs"], 1);
     }
 
     #[tokio::test]

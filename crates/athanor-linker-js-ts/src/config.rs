@@ -19,13 +19,31 @@ use std::collections::{BTreeMap, HashMap};
 use athanor_domain::{Entity, EntityKind};
 use serde_json::Value;
 
-use crate::paths::{import_candidates, normalize_path, resolve_local_import};
+use crate::paths::{
+    import_candidates, normalize_path, normalize_relative, resolve_local_import,
+};
 
 /// Upper bound on `extends` hops followed for one configuration file.
 const MAX_EXTENDS_DEPTH: usize = 8;
 
 /// Upper bound on workspace glob patterns considered for one declaration owner.
 const MAX_WORKSPACE_GLOBS: usize = 64;
+
+/// Upper bound on `exports` rows considered for one package.
+const MAX_EXPORT_ROWS: usize = 64;
+
+/// Upper bound on condition keys honoured for one `exports` row.
+const MAX_EXPORT_CONDITIONS: usize = 4;
+
+/// Export conditions Athanor can evaluate without running the package manager.
+///
+/// A row guarded by any other condition — `production`, `deno`, `worker`, or a
+/// custom key — is skipped rather than guessed, because the snapshot cannot
+/// prove which branch a real resolution would take.
+const SUPPORTED_EXPORT_CONDITIONS: [&str; 5] = ["default", "import", "require", "node", "browser"];
+
+/// Upper bound on `rootDirs` entries considered for one configuration file.
+const MAX_ROOT_DIRS: usize = 8;
 
 /// Configuration file names that apply to a directory without being named by
 /// `extends`, matching TypeScript's own nearest-ancestor discovery.
@@ -40,6 +58,8 @@ pub(crate) enum SpecifierOrigin {
     PathAlias,
     /// A bare workspace-package specifier resolved through `package.json`.
     WorkspacePackage,
+    /// A relative specifier resolved through another `rootDirs` root.
+    RootDirectory,
 }
 
 impl SpecifierOrigin {
@@ -48,6 +68,7 @@ impl SpecifierOrigin {
             Self::Relative => "relative",
             Self::PathAlias => "path_alias",
             Self::WorkspacePackage => "workspace_package",
+            Self::RootDirectory => "root_directory",
         }
     }
 }
@@ -57,6 +78,7 @@ impl SpecifierOrigin {
 pub(crate) struct ModuleResolutionConfig {
     configs: Vec<TypeScriptConfig>,
     packages: Vec<WorkspacePackage>,
+    layouts: Vec<WorkspaceLayout>,
 }
 
 #[derive(Debug)]
@@ -65,6 +87,22 @@ struct TypeScriptConfig {
     base_dir: Option<String>,
     mappings: Vec<PathMapping>,
     extends: Option<String>,
+    root_dirs: Vec<String>,
+}
+
+/// One declared row of a package `exports` map.
+#[derive(Debug)]
+struct ExportRow {
+    subpath: String,
+    conditions: Vec<String>,
+    target: String,
+}
+
+/// Workspace membership declared by a package-manager manifest.
+#[derive(Debug)]
+struct WorkspaceLayout {
+    dir: String,
+    patterns: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -79,6 +117,7 @@ struct WorkspacePackage {
     name: String,
     main: Option<String>,
     workspaces: Vec<String>,
+    exports: Vec<ExportRow>,
     workspace_member: bool,
 }
 
@@ -89,6 +128,7 @@ struct WorkspacePackage {
 pub(crate) fn build_module_resolution_config(entities: &[Entity]) -> ModuleResolutionConfig {
     let mut configs = Vec::new();
     let mut packages = Vec::new();
+    let mut layouts = Vec::new();
     for entity in entities {
         if is_typescript_config(entity)
             && let Some(config) = parse_typescript_config(entity)
@@ -100,11 +140,22 @@ pub(crate) fn build_module_resolution_config(entities: &[Entity]) -> ModuleResol
             && let Some(package) = parse_workspace_package(entity)
         {
             packages.push(package);
+            continue;
+        }
+        if is_workspace_layout(entity)
+            && let Some(layout) = parse_workspace_layout(entity)
+        {
+            layouts.push(layout);
         }
     }
     configs.sort_by(|left, right| left.path.cmp(&right.path));
     packages.sort_by(|left, right| left.dir.cmp(&right.dir));
-    let mut config = ModuleResolutionConfig { configs, packages };
+    layouts.sort_by(|left, right| left.dir.cmp(&right.dir));
+    let mut config = ModuleResolutionConfig {
+        configs,
+        packages,
+        layouts,
+    };
     config.mark_workspace_members();
     config
 }
@@ -121,6 +172,11 @@ impl ModuleResolutionConfig {
             .packages
             .iter()
             .map(|package| (package.dir.clone(), package.workspaces.clone()))
+            .chain(
+                self.layouts
+                    .iter()
+                    .map(|layout| (layout.dir.clone(), layout.patterns.clone())),
+            )
             .collect::<Vec<_>>();
         for package in &mut self.packages {
             let named = !package.name.is_empty();
@@ -167,10 +223,26 @@ impl ModuleResolutionConfig {
     /// nearest configuration that declares mappings wins, and a configuration
     /// without mappings inherits the first ancestor that declares them.
     fn effective_config(&self, source_path: &str) -> Option<&TypeScriptConfig> {
+        self.effective_config_where(source_path, |config| !config.mappings.is_empty())
+    }
+
+    /// The nearest configuration that declares more than one `rootDirs` root,
+    /// because a single root merges nothing.
+    fn effective_root_config(&self, source_path: &str) -> Option<&TypeScriptConfig> {
+        self.effective_config_where(source_path, |config| config.root_dirs.len() > 1)
+    }
+
+    /// The nearest configuration that satisfies one predicate, following the
+    /// relative `extends` chain of every configuration that does not.
+    fn effective_config_where(
+        &self,
+        source_path: &str,
+        satisfied: impl Fn(&TypeScriptConfig) -> bool,
+    ) -> Option<&TypeScriptConfig> {
         let mut current = self.nearest_config(source_path);
         let mut depth = 0usize;
         while let Some(config) = current {
-            if !config.mappings.is_empty() {
+            if satisfied(config) {
                 return Some(config);
             }
             let extends = config.extends.as_deref()?;
@@ -197,8 +269,11 @@ pub(crate) fn resolve_module_specifier<'a>(
     config: &ModuleResolutionConfig,
 ) -> Option<(&'a Entity, SpecifierOrigin)> {
     if specifier.starts_with('.') {
-        return resolve_local_import(source, specifier, modules)
-            .map(|target| (target, SpecifierOrigin::Relative));
+        if let Some(target) = resolve_local_import(source, specifier, modules) {
+            return Some((target, SpecifierOrigin::Relative));
+        }
+        return resolve_through_root_dirs(source, specifier, modules, config)
+            .map(|target| (target, SpecifierOrigin::RootDirectory));
     }
     if let Some(target) = resolve_path_alias(source, specifier, modules, config) {
         return Some((target, SpecifierOrigin::PathAlias));
@@ -245,6 +320,12 @@ fn resolve_workspace_package<'a>(
         .collect::<Vec<_>>();
     for package in members {
         if specifier == package.name {
+            if !package.exports.is_empty() {
+                if let Some(found) = resolve_exports_subpath(package, ".", modules) {
+                    return Some(found);
+                }
+                continue;
+            }
             for candidate in package_entry_candidates(package) {
                 if let Some(found) = lookup_candidate(&candidate, modules) {
                     return Some(found);
@@ -255,6 +336,14 @@ fn resolve_workspace_package<'a>(
         let Some(subpath) = strip_package_prefix(specifier, &package.name) else {
             continue;
         };
+        if !package.exports.is_empty() {
+            if let Some(found) =
+                resolve_exports_subpath(package, &format!("./{subpath}"), modules)
+            {
+                return Some(found);
+            }
+            continue;
+        }
         let Some(joined) = join_relative(&package.dir, subpath) else {
             continue;
         };
@@ -263,6 +352,113 @@ fn resolve_workspace_package<'a>(
         }
     }
     None
+}
+
+/// Resolves one subpath through the `exports` map a package declares.
+///
+/// Node's encapsulation rule is kept: once `exports` is declared, a subpath it
+/// does not declare is unreachable even when the file exists. Among matching
+/// rows the longest static prefix wins; rows of one subpath are then tried in
+/// declaration order, which is the package's own fallback order, and a row
+/// guarded by a condition Athanor cannot evaluate is skipped rather than
+/// guessed. A target that leaves the package directory stays unresolved.
+fn resolve_exports_subpath<'a>(
+    package: &WorkspacePackage,
+    subpath: &str,
+    modules: &HashMap<String, &'a Entity>,
+) -> Option<&'a Entity> {
+    let mut rows: Vec<&ExportRow> = Vec::new();
+    let mut best_prefix = 0usize;
+    for row in package.exports.iter().take(MAX_EXPORT_ROWS) {
+        if match_alias(&row.subpath, subpath).is_none() {
+            continue;
+        }
+        if row.conditions.len() > MAX_EXPORT_CONDITIONS
+            || row
+                .conditions
+                .iter()
+                .any(|condition| !SUPPORTED_EXPORT_CONDITIONS.contains(&condition.as_str()))
+        {
+            continue;
+        }
+        let prefix = row
+            .subpath
+            .split_once('*')
+            .map_or(row.subpath.len(), |(prefix, _)| prefix.len());
+        if rows.is_empty() || prefix > best_prefix {
+            rows.clear();
+            best_prefix = prefix;
+        }
+        if prefix == best_prefix {
+            rows.push(row);
+        }
+    }
+
+    for row in rows {
+        let Some(captured) = match_alias(&row.subpath, subpath) else {
+            continue;
+        };
+        let target = substitute_star(&row.target, captured);
+        if !target.starts_with("./") {
+            continue;
+        }
+        let Some(joined) = join_relative(&package.dir, &target) else {
+            continue;
+        };
+        if let Some(found) = lookup_candidate(&joined, modules) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+/// Resolves a relative specifier through the merged roots of `rootDirs`.
+///
+/// TypeScript presents the recorded roots as one virtual directory, so an
+/// import that misses in the importing file's own root may resolve to the same
+/// relative path in another root. Two roots that both hold the path are
+/// ambiguous, and ambiguity stays unresolved.
+fn resolve_through_root_dirs<'a>(
+    source: &Entity,
+    specifier: &str,
+    modules: &HashMap<String, &'a Entity>,
+    config: &ModuleResolutionConfig,
+) -> Option<&'a Entity> {
+    let source_path = normalize_path(&source.source.as_ref()?.path);
+    let config = config.effective_root_config(&source_path)?;
+    let root = config
+        .root_dirs
+        .iter()
+        .take(MAX_ROOT_DIRS)
+        .find(|root| is_under_root(&source_path, root))?;
+    let remainder = source_path
+        .strip_prefix(root.as_str())?
+        .trim_start_matches('/');
+    let directory = remainder.rsplit_once('/').map_or("", |(parent, _)| parent);
+    let base = normalize_relative(directory, specifier)?;
+
+    let mut found: Option<&'a Entity> = None;
+    for candidate_root in config.root_dirs.iter().take(MAX_ROOT_DIRS) {
+        let Some(joined) = join_relative(candidate_root, &base) else {
+            continue;
+        };
+        let Some(target) = lookup_candidate(&joined, modules) else {
+            continue;
+        };
+        if found.is_some_and(|existing| existing.id != target.id) {
+            return None;
+        }
+        found = Some(target);
+    }
+    found
+}
+
+/// Whether one repository-relative path lies directly inside a root directory.
+fn is_under_root(path: &str, root: &str) -> bool {
+    !root.is_empty()
+        && path
+            .strip_prefix(root.as_str())
+            .is_some_and(|remainder| remainder.starts_with('/'))
 }
 
 fn is_workspace_member(declarations: &[(String, Vec<String>)], package_dir: &str) -> bool {
@@ -441,6 +637,34 @@ fn parse_typescript_config(entity: &Entity) -> Option<TypeScriptConfig> {
             .get("extends")
             .and_then(Value::as_str)
             .map(ToString::to_string),
+        root_dirs: entity
+            .payload
+            .get("root_dirs")
+            .and_then(Value::as_array)
+            .map(|roots| read_patterns(roots))
+            .unwrap_or_default(),
+    })
+}
+
+/// Workspace membership declared by a package-manager manifest is read exactly
+/// like the `workspaces` field of a `package.json`: a manifest without a
+/// readable package list declares nothing.
+fn is_workspace_layout(entity: &Entity) -> bool {
+    entity.kind == EntityKind::Feature
+        && entity.payload.get("config_kind").and_then(Value::as_str)
+            == Some("js_ts_workspace_layout")
+}
+
+fn parse_workspace_layout(entity: &Entity) -> Option<WorkspaceLayout> {
+    let path = normalize_path(&entity.source.as_ref()?.path);
+    Some(WorkspaceLayout {
+        dir: parent_directory(&path),
+        patterns: entity
+            .payload
+            .get("packages")
+            .and_then(Value::as_array)
+            .map(|patterns| read_patterns(patterns))
+            .unwrap_or_default(),
     })
 }
 
@@ -487,6 +711,12 @@ fn parse_workspace_package(entity: &Entity) -> Option<WorkspacePackage> {
             .get("main")
             .and_then(Value::as_str)
             .map(ToString::to_string),
+        exports: entity
+            .payload
+            .get("exports")
+            .and_then(Value::as_array)
+            .map(|rows| read_export_rows(rows))
+            .unwrap_or_default(),
         workspaces: entity
             .payload
             .get("workspaces")
@@ -495,6 +725,33 @@ fn parse_workspace_package(entity: &Entity) -> Option<WorkspacePackage> {
             .unwrap_or_default(),
         workspace_member: false,
     })
+}
+
+/// Reads the ordered `exports` rows one package declares.
+fn read_export_rows(rows: &[Value]) -> Vec<ExportRow> {
+    let mut recorded = Vec::new();
+    for row in rows {
+        let Some(subpath) = row.get("subpath").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(target) = row.get("target").and_then(Value::as_str) else {
+            continue;
+        };
+        let conditions = row
+            .get("conditions")
+            .and_then(Value::as_array)
+            .map(|conditions| read_patterns(conditions))
+            .unwrap_or_default();
+        if subpath.is_empty() || target.is_empty() || recorded.len() == MAX_EXPORT_ROWS {
+            continue;
+        }
+        recorded.push(ExportRow {
+            subpath: subpath.to_string(),
+            conditions,
+            target: target.to_string(),
+        });
+    }
+    recorded
 }
 
 fn read_patterns(patterns: &[Value]) -> Vec<String> {
@@ -676,6 +933,152 @@ mod tests {
         assert_eq!(substitute_star("v1/*.gen", "api"), "v1/api.gen");
     }
 
+    #[test]
+    fn resolves_declared_exports_subpaths_in_declaration_order() {
+        let root = package(
+            "package.json",
+            "root",
+            &json!({"workspaces": ["packages/*"]}),
+        );
+        let member = package(
+            "packages/ui/package.json",
+            "@scope/ui",
+            &json!({
+                "exports": [
+                    {"subpath": ".", "conditions": ["import"], "target": "./dist/index.mjs"},
+                    {"subpath": ".", "conditions": ["require"], "target": "./dist/index.cjs"},
+                    {"subpath": "./button", "conditions": [], "target": "./src/button.ts"}
+                ]
+            }),
+        );
+        let esm = module("packages/ui/dist/index.mjs");
+        let cjs = module("packages/ui/dist/index.cjs");
+        let button = module("packages/ui/src/button.ts");
+        let hidden = module("packages/ui/src/tools.ts");
+        let mut modules = HashMap::new();
+        modules.insert("packages/ui/dist/index.mjs".to_string(), &esm);
+        modules.insert("packages/ui/dist/index.cjs".to_string(), &cjs);
+        modules.insert("packages/ui/src/button.ts".to_string(), &button);
+        modules.insert("packages/ui/src/tools.ts".to_string(), &hidden);
+        let config = build_module_resolution_config(&[root, member]);
+        let source = module("apps/web/src/app.ts");
+
+        let (name, origin) = resolve_module_specifier(&source, "@scope/ui", &modules, &config)
+            .map(|(entity, origin)| (entity.name.clone(), origin))
+            .expect("declared package root");
+        assert_eq!(name, "packages/ui/dist/index.mjs");
+        assert_eq!(origin, SpecifierOrigin::WorkspacePackage);
+
+        let subpath = resolve_module_specifier(&source, "@scope/ui/button", &modules, &config)
+            .map(|(entity, _)| entity.name.clone());
+        assert_eq!(subpath, Some("packages/ui/src/button.ts".to_string()));
+
+        assert!(resolve_module_specifier(&source, "@scope/ui/tools", &modules, &config).is_none());
+    }
+
+    #[test]
+    fn export_rows_guarded_by_unknown_conditions_stay_unresolved() {
+        let root = package(
+            "package.json",
+            "root",
+            &json!({"workspaces": ["packages/*"]}),
+        );
+        let member = package(
+            "packages/ui/package.json",
+            "@scope/ui",
+            &json!({
+                "exports": [
+                    {"subpath": ".", "conditions": ["production"], "target": "./dist/prod.js"},
+                    {"subpath": ".", "conditions": [], "target": "./dist/base.js"}
+                ]
+            }),
+        );
+        let production = module("packages/ui/dist/prod.js");
+        let base = module("packages/ui/dist/base.js");
+        let mut modules = HashMap::new();
+        modules.insert("packages/ui/dist/prod.js".to_string(), &production);
+        modules.insert("packages/ui/dist/base.js".to_string(), &base);
+        let config = build_module_resolution_config(&[root, member]);
+        let source = module("apps/web/src/app.ts");
+
+        let resolved = resolve_module_specifier(&source, "@scope/ui", &modules, &config)
+            .map(|(entity, _)| entity.name.clone());
+        assert_eq!(resolved, Some("packages/ui/dist/base.js".to_string()));
+    }
+
+    #[test]
+    fn pnpm_workspace_layout_grants_workspace_membership() {
+        let layout_entity = layout(
+            "pnpm-workspace.yaml",
+            &json!({
+                "config_kind": "js_ts_workspace_layout",
+                "packages": ["packages/*"]
+            }),
+        );
+        let member = package(
+            "packages/ui/package.json",
+            "@scope/ui",
+            &json!({"main": "src/index.ts"}),
+        );
+        let entry = module("packages/ui/src/index.ts");
+        let mut modules = HashMap::new();
+        modules.insert("packages/ui/src/index.ts".to_string(), &entry);
+        let source = module("apps/web/src/app.ts");
+
+        let config = build_module_resolution_config(&[layout_entity, member.clone()]);
+        let resolved = resolve_module_specifier(&source, "@scope/ui", &modules, &config)
+            .map(|(entity, _)| entity.name.clone());
+        assert_eq!(resolved, Some("packages/ui/src/index.ts".to_string()));
+
+        let without_layout = build_module_resolution_config(&[member]);
+        assert!(
+            resolve_module_specifier(&source, "@scope/ui", &modules, &without_layout).is_none()
+        );
+    }
+
+    #[test]
+    fn relative_imports_resolve_through_merged_root_directories() {
+        let config_entity = tsconfig(
+            "tsconfig.json",
+            &json!({
+                "config_kind": "js_ts_module_resolution",
+                "base_dir": "src",
+                "root_dirs": ["src/en", "src/de"]
+            }),
+        );
+        let source = module("src/en/widget/index.ts");
+        let translated = module("src/de/widget/shared/api.ts");
+        let mut modules = HashMap::new();
+        modules.insert("src/de/widget/shared/api.ts".to_string(), &translated);
+        let config = build_module_resolution_config(&[config_entity]);
+
+        let (name, origin) = resolve_module_specifier(&source, "./shared/api", &modules, &config)
+            .map(|(entity, origin)| (entity.name.clone(), origin))
+            .expect("merged root directory");
+        assert_eq!(name, "src/de/widget/shared/api.ts");
+        assert_eq!(origin, SpecifierOrigin::RootDirectory);
+    }
+
+    #[test]
+    fn ambiguous_merged_root_directories_stay_unresolved() {
+        let config_entity = tsconfig(
+            "tsconfig.json",
+            &json!({
+                "config_kind": "js_ts_module_resolution",
+                "root_dirs": ["src/en", "src/de", "src/fr"]
+            }),
+        );
+        let source = module("src/en/widget/index.ts");
+        let german = module("src/de/widget/shared/api.ts");
+        let french = module("src/fr/widget/shared/api.ts");
+        let mut modules = HashMap::new();
+        modules.insert("src/de/widget/shared/api.ts".to_string(), &german);
+        modules.insert("src/fr/widget/shared/api.ts".to_string(), &french);
+        let config = build_module_resolution_config(&[config_entity]);
+
+        assert!(resolve_module_specifier(&source, "./shared/api", &modules, &config).is_none());
+    }
+
     fn tsconfig(path: &str, payload: &serde_json::Value) -> Entity {
         Entity {
             id: EntityId(format!("ent_config_{path}")),
@@ -689,6 +1092,25 @@ mod tests {
                 line_end: None,
             }),
             language: Some(LanguageCode("json".to_string())),
+            aliases: Vec::new(),
+            ownership: Vec::new(),
+            payload: payload.clone(),
+        }
+    }
+
+    fn layout(path: &str, payload: &serde_json::Value) -> Entity {
+        Entity {
+            id: EntityId(format!("ent_layout_{path}")),
+            stable_key: StableKey(format!("config://{path}#js-ts-workspace-layout")),
+            kind: EntityKind::Feature,
+            name: path.to_string(),
+            title: None,
+            source: Some(SourceLocation {
+                path: path.to_string(),
+                line_start: Some(1),
+                line_end: None,
+            }),
+            language: Some(LanguageCode("yaml".to_string())),
             aliases: Vec::new(),
             ownership: Vec::new(),
             payload: payload.clone(),
