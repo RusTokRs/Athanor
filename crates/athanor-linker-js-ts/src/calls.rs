@@ -2197,8 +2197,8 @@ mod tests {
         );
 
         let entities = vec![
-            app_module,
-            repo_module,
+            app_module.clone(),
+            repo_module.clone(),
             unexported_owner,
             items_map,
             unexported_caller,
