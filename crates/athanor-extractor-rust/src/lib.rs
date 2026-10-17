@@ -1405,7 +1405,7 @@ pub fn run(
     bound: &impl Reader,
     store: Store,
     generic: Vec<Store>,
-    extra: &dyn Reader + Send,
+    extra: &(dyn Reader + Send),
     plain: u32,
 ) {
     let local: Store = Store;

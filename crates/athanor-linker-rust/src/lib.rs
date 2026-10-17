@@ -165,15 +165,17 @@ impl Linker for RustLinker {
                         let name = call.get("name").and_then(|v| v.as_str()).unwrap_or("");
                         let kind = call.get("kind").and_then(|v| v.as_str()).unwrap_or("call");
                         let resolved = if kind == "method" {
-                            call.get("receiver").and_then(|v| v.as_str()).and_then(|receiver| {
-                                resolve_typed_method(
-                                    entity,
-                                    receiver,
-                                    name,
-                                    &type_index,
-                                    &rust_by_qualified_name,
-                                )
-                            })
+                            call.get("receiver")
+                                .and_then(|v| v.as_str())
+                                .and_then(|receiver| {
+                                    resolve_typed_method(
+                                        entity,
+                                        receiver,
+                                        name,
+                                        &type_index,
+                                        &rust_by_qualified_name,
+                                    )
+                                })
                         } else {
                             resolve_path(&parent_module_qn, callee, &imports, &qualified_names)
                                 .and_then(|resolved| {
