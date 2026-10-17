@@ -88,11 +88,18 @@ previous one is silent:
    the import linker. Named import aliases
    retain both the local and imported spelling; directly qualified imported-class methods keep their
    existing import-member resolution behavior.
-4. `imported_default_export` — a default import resolves directly to the function or class
+4. `typed_receiver_member` / `typed_receiver_path` — a receiver whose declared type the calling
+   module records is walked as a typed path: `this` roots at the enclosing method owner, every
+   further segment resolves the type the previous segment declared from the same module's
+   `typed_bindings`, and the terminal member must match `<Type>.<member>` exactly once.
+   `this.repo.items.map()` therefore resolves when `App.repo` is a `Repo` and `Repo.items` is an
+   `ItemStore`. A type repeated inside the walk, a path longer than four segments, an ambiguous
+   binding, and a terminal that matches more than one declaration end the walk.
+5. `imported_default_export` — a default import resolves directly to the function or class
    binding marked by `export default` in its relative target module: a named declaration, a
    statically named local identifier, or an anonymous default recorded under the canonical
    `default` name.
-5. `imported_reexport_chain` — calls resolve through explicit local aliases, relative named
+6. `imported_reexport_chain` — calls resolve through explicit local aliases, relative named
    re-exports (including default aliases), source-backed wildcard clauses, one direct
    `export * as name` mapping used by a named-import single-member call, or a namespace
    alias forwarded across modules by source-backed named re-exports of the namespace
@@ -101,9 +108,9 @@ previous one is silent:
    ambiguous, unresolved, cyclic, or over-limit branches block the aggregate. The namespace hop
    counts against the 32-export-hop bound, and recursive export resolution is capped at 1,024 module
    visits per call; multi-segment member paths through named-import namespace aliases are not resolved.
-6. `same_module_member_name` — a member call with an unknown receiver resolves only when the calling
+7. `same_module_member_name` — a member call with an unknown receiver resolves only when the calling
    module contains exactly one member with that name.
-7. `unique_exported_name` — a bare call with no local or imported target resolves only when exactly
+8. `unique_exported_name` — a bare call with no local or imported target resolves only when exactly
    one exported declaration across the snapshot carries that name.
 
 ### Callback Bridges
@@ -119,9 +126,11 @@ unresolved, and the hosting call's own resolution (or its failure) never gates t
 handlers (`then`/`catch`/`finally`), timers, and event/observable registrations bridge the same
 way. Callback bridges from a test location additionally emit `TestedBy`, mirroring direct calls.
 
-An unresolved explicit import does not fall through to a weaker snapshot-wide guess. Steps 5 and 6
+An unresolved explicit import does not fall through to a weaker snapshot-wide guess. Steps 6 and 7
 require a unique candidate, so ambiguity stays unresolved rather than becoming a guessed fact.
-Confidence reflects the step (0.9 exact same-module down to 0.5 unique-name), and every relation is
+Confidence reflects the step (0.9 exact same-module down to 0.5 unique-name): a receiver proven by
+a construction resolves at 0.8 and one proven by an annotation at 0.7, above the name guesses they
+replace and below import-proven calls. Every relation is
 `RelationStatus::Inferred`, because JavaScript dispatch is dynamic even when the call shape is static.
 
 ### Emitted Knowledge
@@ -173,8 +182,11 @@ exists, a row guarded by an unevaluable condition is skipped, and two `rootDirs`
 same path are ambiguous. Node built-ins, bare specifiers that no configuration
 proves, dynamic imports,
 CommonJS `require` calls, default expressions that declare nothing callable or
-constructible, computed member calls, multi-segment named-import namespace paths,
-and receiver typing are not resolved. Callback bridging only fires for the extractor's combinator allowlist and
+constructible, computed member calls, and multi-segment named-import namespace paths
+are not resolved. Receiver typing covers only a type the calling module declares itself: an
+inferred type, a type imported from another module, a structural type, and a member reached
+through a call result or an index stay unresolved, and an ambiguous, cyclic, or over-bound path
+ends the walk. Callback bridging only fires for the extractor's combinator allowlist and
 only for statically nameable arguments; callbacks passed as inline arrows, call results, or
 computed expressions are never recorded, and a callback argument whose name does not resolve
 uniquely stays unresolved like any other callee. A named import representing a namespace object can use one unique, direct,

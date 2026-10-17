@@ -56,8 +56,8 @@ Two concrete targets:
   promise-handler bridges for allowlisted combinators, P2J module-resolution configuration with
   TypeScript path aliases and workspace-package specifiers, P2K anonymous default exports bound
   to the canonical `default` name, and P2L package `exports` subpaths with conditional exports,
-  pnpm workspace layouts, and merged `rootDirs` roots. Receiver/type-aware dispatch and deep member
-  paths remain open.
+  pnpm workspace layouts, and merged `rootDirs` roots, and P2M typed receivers and deep member
+  paths. Receiver/type-aware dispatch across module boundaries remains open.
 - Both: symbol-level incremental invalidation so a changed declaration re-resolves only its closure.
 
 #### P2A — Heritage Relation Semantics (bounded Rust/TypeScript slice)
@@ -524,10 +524,62 @@ cargo test -p athanor-app --locked
 cargo test -p athanor-app --features js-ts-precision --locked
 ```
 
+#### P2M — Typed Receivers And Member Paths (bounded JS/TS slice)
+
+- A receiver that is only identifiable through its declared type is now resolvable. The extractor
+  records receiver types as module-level evidence in `typed_bindings`: one row per binding with the
+  binding name, the type name, the `kind` (`construction` for a `new Type()` initializer,
+  `annotation` for a TypeScript annotation), and the line. Rows come from variable declarators,
+  class fields — where the binding name is `Class.field`, so the rows of two classes never collide —
+  and TypeScript parameter properties, where `constructor(private repo: Repo)` also yields
+  `Class.repo`.
+- Only a type the row actually names is recorded. A call result, a union, an array type, a
+  destructuring pattern, an aliased initializer, a function type, and a generic instantiation that
+  is not a bare identifier stay out, and a qualified or generic name is reduced to its terminal
+  identifier, so `Promise<Repo>` and `ns.Repo` both record `Repo`. Collection is bounded at 64 rows
+  per module with an `omitted_typed_bindings` count, so one large module cannot dominate a payload.
+- The linker walks a receiver as a typed path instead of a bare name: `this` roots at the enclosing
+  method owner, every further segment resolves the type the previous segment declared, and the
+  terminal member must match `<Type>.<member>` exactly once. A type repeated inside the walk, an
+  unknown segment type, or a path longer than four segments ends the walk. `this.repo.items.map()`
+  therefore resolves when `App.repo` is a `Repo` and `Repo.items` is an `ItemStore`.
+- Ambiguity stays unresolved. Two rows for the same binding name, a receiver with no row, a member
+  the type does not declare, and a terminal that matches more than one entity all fail closed and
+  fall through to the existing `same_module_member_name` and `unique_exported_name` guesses, which
+  remain strictly weaker. No resolution is emitted for a receiver the type evidence does not prove.
+- Receiver rows are module-local: a type imported from another module still has to be resolved by
+  the import linker before its members can be walked, so cross-module typed dispatch stays a
+  remaining gap rather than being inferred here.
+- Confidence is stated per resolution: `0.8` for a receiver proven by a construction and `0.7` for
+  one proven by an annotation — above the name guesses they replace, below import-proven calls. The
+  reason distinguishes `typed_receiver_member` from `typed_receiver_path`.
+- Bump both index-state schema families from v58 to v59 because module payloads gain receiver type
+  rows, so cached relations are recomputed in both configurations.
+
+Focused source regression matrix:
+
+| Surface | Regression |
+| --- | --- |
+| JS/TS extractor | Rows from constructions, annotations, and TS parameter properties; rejection of call results, unions, arrays, destructuring, aliases, function types, and generics; the 64-row cap |
+| Import/call linker | A single-segment receiver and a deep `this.repo.items.map` path resolve; the same paths with an ambiguous, untyped, cyclic, or over-bound receiver stay unresolved |
+| Confidence | Constructions land at `0.8`, annotations at `0.7`, and both stay below import-proven calls |
+| Persistence | v58 normal/precision state is rejected and forces a v59 rebuild |
+
+Focused verification:
+
+```bash
+cargo test -p athanor-extractor-js-ts --locked
+cargo test -p athanor-extractor-js-ts --features precision-parser --locked
+cargo test -p athanor-linker-js-ts --locked
+cargo test -p athanor-app --locked
+cargo test -p athanor-app --features js-ts-precision --locked
+```
+
 #### Remaining P2 Gaps
 
-- Receiver/type-aware dispatch and deep member paths; package-manager-specific resolution that
-  needs an installed tree, such as Yarn `nodeLinker` layouts and patched dependencies.
+- Receiver/type-aware dispatch across module boundaries, where the receiver's type is itself
+  imported; package-manager-specific resolution that needs an installed tree, such as Yarn
+  `nodeLinker` layouts and patched dependencies.
 - Rust dyn-dispatch candidates and symbol-level incremental invalidation for both Rust and JS/TS.
 
 ### P3 — Bounded Language Expansion

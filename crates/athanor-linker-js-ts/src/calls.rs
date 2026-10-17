@@ -56,6 +56,12 @@ const IMPORTED_EXACT_CONFIDENCE: f32 = 0.85;
 const IMPORTED_NAME_CONFIDENCE: f32 = 0.7;
 /// Confidence assigned to a unique name-only match (member or exported symbol).
 const UNIQUE_NAME_CONFIDENCE: f32 = 0.5;
+/// Confidence assigned to a call resolved through a receiver a `new Type()` initializer typed.
+const TYPED_CONSTRUCTION_CONFIDENCE: f32 = 0.8;
+/// Confidence assigned to a call resolved through a receiver a type annotation typed.
+const TYPED_ANNOTATION_CONFIDENCE: f32 = 0.7;
+/// Upper bound on receiver segments walked for one type-aware dispatch.
+const MAX_TYPE_PATH_SEGMENTS: usize = 4;
 /// Maximum number of named, default, wildcard, or namespace export hops per call resolution.
 const MAX_REEXPORT_DEPTH: usize = 32;
 /// Maximum resolver visits across all branches of one call's export resolution.
@@ -411,9 +417,30 @@ fn resolve_call<'a>(
         return Some((target, "imported_symbol_name", IMPORTED_NAME_CONFIDENCE));
     }
 
+    // 4. Type-aware receiver dispatch: `service.run()` and `this.repo.items.map()`
+    //    resolve when every receiver segment names a binding whose type the
+    //    extractor proved. A receiver that is only named, not typed, falls
+    //    through to the weaker member-name guess below.
+    if callee.contains('.')
+        && let Some((target, kind, segments)) =
+            resolve_typed_member(callee, caller, caller_module, declarations_by_name)
+    {
+        let resolution = if segments > 1 {
+            "typed_receiver_path"
+        } else {
+            "typed_receiver_member"
+        };
+        let confidence = if kind == "construction" {
+            TYPED_CONSTRUCTION_CONFIDENCE
+        } else {
+            TYPED_ANNOTATION_CONFIDENCE
+        };
+        return Some((target, resolution, confidence));
+    }
+
     let name = callee.rsplit('.').next().unwrap_or(callee);
     if callee.contains('.') {
-        // 4. Member call with an unknown receiver: accept a unique member name
+        // 5. Member call with an unknown receiver: accept a unique member name
         //    inside the calling module (`session.refresh()` -> `Session.refresh`).
         let member_suffix = format!(".{name}");
         if let Some(target) = unique_match(same_module, |candidate| {
@@ -425,7 +452,7 @@ fn resolve_call<'a>(
             return Some((target, "same_module_member_name", UNIQUE_NAME_CONFIDENCE));
         }
     } else {
-        // 5. Bare call without a local or imported target: accept a unique
+        // 6. Bare call without a local or imported target: accept a unique
         //    exported declaration elsewhere in the snapshot.
         if let Some(target) = unique_match(declarations_by_name.get(name), |candidate| {
             candidate.id != caller.id && is_exported(candidate)
@@ -1002,6 +1029,117 @@ fn unique_target<'a>(
         }
     }
     found
+}
+
+/// The recorded type of one receiver binding.
+struct TypedReceiver {
+    type_name: String,
+    kind: &'static str,
+}
+
+/// Reads the receiver types one module proves.
+///
+/// A name bound to two different types is ambiguous and names nothing, so it is
+/// recorded as unresolved instead of letting one declaration win by accident.
+fn typed_receivers(module: &Entity) -> HashMap<String, Option<TypedReceiver>> {
+    let mut receivers: HashMap<String, Option<TypedReceiver>> = HashMap::new();
+    let Some(bindings) = module
+        .payload
+        .get("typed_bindings")
+        .and_then(Value::as_array)
+    else {
+        return receivers;
+    };
+    for binding in bindings {
+        let Some(name) = binding.get("name").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(type_name) = binding.get("type").and_then(Value::as_str) else {
+            continue;
+        };
+        let kind = if binding.get("kind").and_then(Value::as_str) == Some("construction") {
+            "construction"
+        } else {
+            "annotation"
+        };
+        let recorded = TypedReceiver {
+            type_name: type_name.to_string(),
+            kind,
+        };
+        let prior = receivers.get(name).map(|entry| {
+            entry
+                .as_ref()
+                .map(|receiver| (receiver.type_name.clone(), receiver.kind))
+        });
+        match prior {
+            None => {
+                receivers.insert(name.to_string(), Some(recorded));
+            }
+            Some(None) => {}
+            Some(Some((existing_type, existing_kind))) => {
+                if existing_type != type_name {
+                    receivers.insert(name.to_string(), None);
+                } else if existing_kind == "annotation" && kind == "construction" {
+                    receivers.insert(name.to_string(), Some(recorded));
+                }
+            }
+        }
+    }
+    receivers
+}
+
+/// Resolves a member call whose receiver the source typed.
+///
+/// The receiver path is walked segment by segment: `this` starts at the calling
+/// declaration's class, and every other segment must name a binding or a field
+/// of the current type whose recorded type continues the path. The walk is
+/// bounded, a repeated type ends it, and an untyped or ambiguous segment leaves
+/// the call unresolved rather than falling back to a name match.
+fn resolve_typed_member<'a>(
+    callee: &str,
+    caller: &Entity,
+    caller_module: &'a Entity,
+    declarations_by_name: &HashMap<String, Vec<&'a Entity>>,
+) -> Option<(&'a Entity, &'static str, usize)> {
+    let (receiver, member) = callee.rsplit_once('.')?;
+    if receiver.is_empty() || member.is_empty() {
+        return None;
+    }
+    let receivers = typed_receivers(caller_module);
+    let segments = receiver.split('.').collect::<Vec<_>>();
+    if segments.len() > MAX_TYPE_PATH_SEGMENTS || segments.iter().any(|segment| segment.is_empty())
+    {
+        return None;
+    }
+
+    let mut current = if segments[0] == "this" {
+        method_owner(caller)?.to_string()
+    } else {
+        receivers.get(segments[0])?.as_ref()?.type_name.clone()
+    };
+    let mut kind = if segments[0] == "this" {
+        "construction"
+    } else {
+        receivers.get(segments[0])?.as_ref()?.kind
+    };
+
+    let mut visited = vec![current.clone()];
+    for segment in segments.iter().skip(1) {
+        let field = format!("{current}.{segment}");
+        let binding = receivers.get(&field)?.as_ref()?;
+        current = binding.type_name.clone();
+        kind = binding.kind;
+        if visited.contains(&current) {
+            return None;
+        }
+        visited.push(current.clone());
+    }
+
+    let qualified = format!("{current}.{member}");
+    let target = unique_match(declarations_by_name.get(member), |candidate| {
+        qualified_name(candidate) == Some(qualified.as_str())
+    })?;
+    Some((target, kind, segments.len()))
 }
 
 fn find_first<'a>(
@@ -1749,6 +1887,238 @@ mod tests {
         assert_eq!(calls[0].from, run.id);
         assert_eq!(calls[0].to, login.id);
         assert_eq!(calls[0].payload["resolution"], "imported_reexport_chain");
+    }
+
+    #[tokio::test]
+    async fn resolves_member_calls_through_a_construction_typed_receiver() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({
+                "imports": [],
+                "typed_bindings": [
+                    {"name": "service", "type": "Service", "kind": "construction", "line": 2}
+                ]
+            }),
+        );
+        let service_run = declaration(
+            "ent_service_run",
+            "src/service.ts",
+            "Service.run",
+            "run",
+            true,
+            json!([]),
+        );
+        let start = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "start",
+            "start",
+            false,
+            json!([call_site("service.run", "run", 5)]),
+        );
+        let entities = vec![app_module, service_run.clone(), start.clone()];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from, start.id);
+        assert_eq!(calls[0].to, service_run.id);
+        assert_eq!(calls[0].payload["resolution"], "typed_receiver_member");
+        assert_eq!(calls[0].confidence, 0.8);
+    }
+
+    #[tokio::test]
+    async fn resolves_deep_member_paths_through_typed_fields() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({
+                "imports": [],
+                "typed_bindings": [
+                    {"name": "App.repo", "type": "Repo", "kind": "construction", "line": 3},
+                    {"name": "Repo.items", "type": "ItemStore", "kind": "annotation", "line": 9}
+                ]
+            }),
+        );
+        let items_map = declaration(
+            "ent_store_map",
+            "src/store.ts",
+            "ItemStore.map",
+            "map",
+            true,
+            json!([]),
+        );
+        let start = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "App.start",
+            "start",
+            true,
+            json!([call_site("this.repo.items.map", "map", 6)]),
+        );
+        let entities = vec![app_module, items_map.clone(), start.clone()];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].to, items_map.id);
+        assert_eq!(calls[0].payload["resolution"], "typed_receiver_path");
+        assert_eq!(calls[0].confidence, 0.7);
+    }
+
+    #[tokio::test]
+    async fn ambiguous_and_unprovable_receiver_paths_stay_unresolved() {
+        let ambiguous = module(
+            "ent_ambiguous_module",
+            "src/ambiguous.ts",
+            json!({
+                "imports": [],
+                "typed_bindings": [
+                    {"name": "service", "type": "Service", "kind": "construction", "line": 2},
+                    {"name": "service", "type": "Other", "kind": "annotation", "line": 3}
+                ]
+            }),
+        );
+        let untyped = module(
+            "ent_untyped_module",
+            "src/untyped.ts",
+            json!({"imports": [], "typed_bindings": []}),
+        );
+        let service_run = declaration(
+            "ent_service_run",
+            "src/service.ts",
+            "Service.run",
+            "run",
+            false,
+            json!([]),
+        );
+        let ambiguous_caller = declaration(
+            "ent_ambiguous_caller",
+            "src/ambiguous.ts",
+            "start",
+            "start",
+            false,
+            json!([call_site("service.run", "run", 5)]),
+        );
+        let untyped_caller = declaration(
+            "ent_untyped_caller",
+            "src/untyped.ts",
+            "start",
+            "start",
+            false,
+            json!([call_site("session.run", "run", 7)]),
+        );
+        let entities = vec![
+            ambiguous,
+            untyped,
+            service_run,
+            ambiguous_caller,
+            untyped_caller,
+        ];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(
+            relations
+                .iter()
+                .filter(|relation| relation.kind == RelationKind::Calls)
+                .count(),
+            0,
+            "an ambiguous or untyped receiver must not resolve"
+        );
+    }
+
+    #[tokio::test]
+    async fn cyclic_and_over_bound_receiver_paths_stay_unresolved() {
+        let module_entity = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({
+                "imports": [],
+                "typed_bindings": [
+                    {"name": "App.first", "type": "Second", "kind": "annotation", "line": 3},
+                    {"name": "Second.second", "type": "First", "kind": "annotation", "line": 4},
+                    {"name": "First.first", "type": "Second", "kind": "annotation", "line": 5}
+                ]
+            }),
+        );
+        let run = declaration(
+            "ent_target_run",
+            "src/target.ts",
+            "Second.run",
+            "run",
+            false,
+            json!([]),
+        );
+        let cyclic = declaration(
+            "ent_app_cyclic",
+            "src/app.ts",
+            "App.start",
+            "start",
+            true,
+            json!([call_site("this.first.second.first.run", "run", 6)]),
+        );
+        let over_bound = declaration(
+            "ent_app_over_bound",
+            "src/app.ts",
+            "App.deep",
+            "deep",
+            true,
+            json!([call_site("this.a.b.c.d.run", "run", 7)]),
+        );
+        let entities = vec![module_entity, run, cyclic, over_bound];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(
+            relations
+                .iter()
+                .filter(|relation| relation.kind == RelationKind::Calls)
+                .count(),
+            0,
+            "a cyclic or over-bound receiver path must not resolve"
+        );
     }
 
     #[tokio::test]

@@ -24,6 +24,9 @@ route declarations and is registered independently as `builtin.extractor.express
   `callback_arguments` array on call sites whose callee is a known callback combinator
   (iteration methods, promise handlers, timers, event/observable registration) for the call
   linker's callback bridges
+- Bounded `typed_bindings` rows on module payloads: the declared type of a receiver the linker can
+  walk — a `new Type()` initializer, an annotated class field, or a TypeScript parameter property,
+  each recorded as `{name, type, kind, line}` with an `omitted_typed_bindings` count
 - `EntityKind::Package` and `EntityKind::Dependency` for `package.json` package and dependency declarations,
   with bounded `main` and `workspaces` evidence on the package entity
 - `EntityKind::Feature` for the module-resolution options of `tsconfig.json`/`jsconfig.json`: the
@@ -144,6 +147,12 @@ None. The extractors do not run commands, use the network, or modify project fil
   bounded to 64 rows and 4 condition keys each with a disclosed omission count. String, array, and
   condition-object sugar forms are normalized to the `.` subpath; wildcard subpaths and targets
   keep their `*`, and a pattern with more than one `*` is skipped rather than guessed.
+- Receiver-type rows record only a type the source actually names. A call result, a union, an array
+  type, a destructuring pattern, an aliased initializer, a function type, and a generic
+  instantiation that is not a bare identifier are skipped; a qualified or generic name is reduced
+  to its terminal identifier, so `Promise<Repo>` and `ns.Repo` both record `Repo`. Rows are bounded
+  to 64 per module. A type imported from another module is not recorded as a local binding, so
+  cross-module receiver typing stays with the import linker.
 - Only the flat block sequence of a pnpm workspace manifest is read: a top-level `packages:` key
   followed by `- pattern` items, bounded to 64 patterns with a disclosed omission count. Flow
   sequences, anchors, nested blocks, and a manifest without a readable package list produce no
