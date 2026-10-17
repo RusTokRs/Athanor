@@ -7,16 +7,18 @@ use athanor_domain::{
     RelationStatus, SnapshotId,
 };
 use athanor_extractor_basic::stable_hash;
-use serde_json::json;
+use serde_json::{Value, json};
 
 mod calls;
+mod config;
 mod implements;
 mod paths;
 
 pub use calls::JsTsCallLinker;
 pub use implements::JsTsImplementsLinker;
 
-use paths::{normalize_path, resolve_local_import};
+use config::{build_module_resolution_config, resolve_module_specifier};
+use paths::normalize_path;
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct JsTsImportLinker;
@@ -53,25 +55,13 @@ impl Linker for JsTsImportLinker {
             .iter()
             .map(|entity| entity.id.clone())
             .collect::<HashSet<_>>();
+        let config = build_module_resolution_config(input.entities.as_slice());
         let mut relations = Vec::new();
 
         for source in modules.values() {
-            for (references, reason) in [
-                (
-                    source
-                        .payload
-                        .get("imports")
-                        .and_then(|value| value.as_array()),
-                    "relative_module_import",
-                ),
-                (
-                    source
-                        .payload
-                        .get("exports")
-                        .and_then(|value| value.as_array()),
-                    "relative_module_re_export",
-                ),
-            ] {
+            let imports = source.payload.get("imports").and_then(Value::as_array);
+            let exports = source.payload.get("exports").and_then(Value::as_array);
+            for (references, kind) in [(imports, "import"), (exports, "re_export")] {
                 let Some(references) = references else {
                     continue;
                 };
@@ -80,18 +70,21 @@ impl Linker for JsTsImportLinker {
                     else {
                         continue;
                     };
-                    let Some(target) = resolve_local_import(source, specifier, &modules) else {
+                    let Some((target, origin)) =
+                        resolve_module_specifier(source, specifier, &modules, &config)
+                    else {
                         continue;
                     };
                     if !affected_ids.contains(&source.id) && !affected_ids.contains(&target.id) {
                         continue;
                     }
+                    let reason = format!("{}_module_{kind}", origin.as_str());
                     relations.push(import_relation(
                         &input.snapshot,
                         source,
                         target,
                         specifier,
-                        reason,
+                        &reason,
                         reference.get("line_start").and_then(|value| value.as_u64()),
                         reference.get("line_end").and_then(|value| value.as_u64()),
                     ));
@@ -339,6 +332,169 @@ mod tests {
         assert_eq!(relations.len(), 1);
         assert_eq!(relations[0].from, app.id);
         assert_eq!(relations[0].to, api.id);
+    }
+
+    #[tokio::test]
+    async fn links_path_aliased_and_workspace_package_imports() {
+        let tsconfig = typescript_config(
+            "ent_tsconfig",
+            "tsconfig.json",
+            json!({
+                "config_kind": "js_ts_module_resolution",
+                "config_file": "tsconfig.json",
+                "base_dir": "src",
+                "extends": null,
+                "paths": [{"pattern": "@/*", "targets": ["app/*"], "line": 6}],
+                "omitted_paths": 0,
+                "omitted_targets": 0
+            }),
+        );
+        let root_package = package(
+            "ent_root_package",
+            "package.json",
+            "root",
+            json!({"workspaces": ["packages/*"]}),
+        );
+        let ui_package = package(
+            "ent_ui_package",
+            "packages/ui/package.json",
+            "@scope/ui",
+            json!({"main": "src/index.ts"}),
+        );
+        let app = module(
+            "ent_app",
+            "src/app.ts",
+            json!({
+                "imports": [
+                    {"source": "@/widget", "line_start": 1, "line_end": 1},
+                    {"source": "@scope/ui", "line_start": 2, "line_end": 2},
+                    {"source": "react", "line_start": 3, "line_end": 3}
+                ]
+            }),
+        );
+        let widget = module("ent_widget", "src/app/widget.ts", json!({"imports": []}));
+        let ui_entry = module(
+            "ent_ui_entry",
+            "packages/ui/src/index.ts",
+            json!({"imports": []}),
+        );
+        let entities = vec![
+            tsconfig,
+            root_package,
+            ui_package,
+            app.clone(),
+            widget.clone(),
+            ui_entry.clone(),
+        ];
+
+        let relations = JsTsImportLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(relations.len(), 2, "the bare specifier stays unresolved");
+        let alias = relations
+            .iter()
+            .find(|relation| relation.to == widget.id)
+            .expect("aliased import");
+        assert_eq!(alias.payload["specifier"], json!("@/widget"));
+        assert_eq!(alias.payload["reason"], json!("path_alias_module_import"));
+        let workspace = relations
+            .iter()
+            .find(|relation| relation.to == ui_entry.id)
+            .expect("workspace package import");
+        assert_eq!(workspace.payload["specifier"], json!("@scope/ui"));
+        assert_eq!(
+            workspace.payload["reason"],
+            json!("workspace_package_module_import")
+        );
+    }
+
+    #[tokio::test]
+    async fn links_aliased_reexports_with_a_reexport_reason() {
+        let tsconfig = typescript_config(
+            "ent_tsconfig",
+            "tsconfig.json",
+            json!({
+                "config_kind": "js_ts_module_resolution",
+                "base_dir": "src",
+                "paths": [{"pattern": "@/*", "targets": ["app/*"], "line": 6}]
+            }),
+        );
+        let barrel = module(
+            "ent_barrel",
+            "src/index.ts",
+            json!({
+                "imports": [],
+                "exports": [{"source": "@/widget", "line_start": 1, "line_end": 1}]
+            }),
+        );
+        let widget = module("ent_widget", "src/app/widget.ts", json!({"imports": []}));
+        let entities = vec![tsconfig, barrel.clone(), widget.clone()];
+
+        let relations = JsTsImportLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(relations.len(), 1);
+        assert_eq!(relations[0].to, widget.id);
+        assert_eq!(
+            relations[0].payload["reason"],
+            json!("path_alias_module_re_export")
+        );
+    }
+
+    fn typescript_config(id: &str, path: &str, payload: serde_json::Value) -> Entity {
+        Entity {
+            id: EntityId(id.to_string()),
+            stable_key: StableKey(format!("config://{path}#js-ts-module-resolution")),
+            kind: EntityKind::Feature,
+            name: path.to_string(),
+            title: None,
+            source: Some(SourceLocation {
+                path: path.to_string(),
+                line_start: Some(1),
+                line_end: Some(1),
+            }),
+            language: None,
+            aliases: Vec::new(),
+            ownership: vec![Ownership {
+                source_file: path.to_string(),
+            }],
+            payload,
+        }
+    }
+
+    fn package(id: &str, path: &str, name: &str, payload: serde_json::Value) -> Entity {
+        Entity {
+            id: EntityId(id.to_string()),
+            stable_key: StableKey(format!("package://npm:{name}")),
+            kind: EntityKind::Package,
+            name: name.to_string(),
+            title: None,
+            source: Some(SourceLocation {
+                path: path.to_string(),
+                line_start: Some(1),
+                line_end: Some(1),
+            }),
+            language: None,
+            aliases: Vec::new(),
+            ownership: vec![Ownership {
+                source_file: path.to_string(),
+            }],
+            payload,
+        }
     }
 
     fn module(id: &str, path: &str, payload: serde_json::Value) -> Entity {

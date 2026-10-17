@@ -52,9 +52,10 @@ Two concrete targets:
 - JS/TS: class `extends`/`implements` and interface `extends` with distinct canonical relation kinds;
   P2B covers explicit named re-export chains, P2C bounded single-source wildcard re-exports, P2D
   named default function exports/re-exports, P2E direct namespace re-exports for single-member calls
-  through named imports, P2F bounded multiple-source wildcard aggregation, and P2G callback and
-  promise-handler bridges for allowlisted combinators. Multi-hop namespace aliases,
-  anonymous/default class exports, path aliases, and workspace-package specifiers remain open.
+  through named imports, P2F bounded multiple-source wildcard aggregation, P2G callback and
+  promise-handler bridges for allowlisted combinators, and P2J module-resolution configuration with
+  TypeScript path aliases and workspace-package specifiers. Multi-hop namespace aliases and
+  anonymous/default class exports remain open.
 - Both: symbol-level incremental invalidation so a changed declaration re-resolves only its closure.
 
 #### P2A — Heritage Relation Semantics (bounded Rust/TypeScript slice)
@@ -373,10 +374,69 @@ cargo test -p athanor-app --locked
 cargo test -p athanor-app --features js-ts-precision --locked
 ```
 
+#### P2J — Module Resolution Configuration (bounded JS/TS slice)
+
+- The extractor projects the module-resolution evidence of first-party `tsconfig.json`,
+  `jsconfig.json`, and their named `.json` variants. One `EntityKind::Feature` per file
+  (`config://<path>#js-ts-module-resolution`) records the `baseUrl`-resolved base directory, each
+  `paths` pattern with its substitution targets and declaration line, an inherited `extends`
+  specifier, and disclosed `omitted_paths`/`omitted_targets` counts. Bounds are 64 mappings and 8
+  targets per file; a pattern with more than one `*`, a non-string target, and an empty target list
+  are skipped. An absolute, drive-qualified, or repository-escaping `baseUrl` is reported without a
+  base directory, which keeps its mappings unresolvable. A configuration file without
+  `compilerOptions` and without `extends` is not projected.
+- The same extractor records `main` and `workspaces` on the existing `package.json` package entity,
+  in both the array form and the `{ "packages": [...] }` object form, with an `omitted_workspaces`
+  count. A bounded JSONC normalization removes comments outside string literals and trailing commas
+  before parsing while preserving line structure, so evidence lines stay correct and `//` or `/* */`
+  inside a string value survives verbatim. An unreadable configuration file emits
+  `js_ts_typescript_config_parse_error` instead of being silently dropped.
+- The linkers share one snapshot-scoped resolution configuration built from those entities. A
+  non-relative specifier resolves as a path alias through the nearest configuration that applies to
+  the importing module — the nearest `tsconfig.json`/`jsconfig.json` at or above its directory, or
+  the first ancestor along its relative `extends` chain that declares mappings, up to 8 hops, because
+  TypeScript does not merge mappings across `extends` — and otherwise as a workspace package.
+- Workspace membership is the gate that keeps a bare specifier honest: a `package.json` resolves only
+  when another `package.json` in the snapshot declares a workspace glob, with `*` matching one path
+  segment and `**` matching any number of them, that covers its directory. The entry point is the
+  recorded `main` when it resolves, otherwise `index` in the package root, and a `name/subpath`
+  specifier resolves inside the package directory. A duplicated package name, a package no workspace
+  declaration covers, a package-valued `extends`, and a specifier matching no mapping stay
+  unresolved; `node_modules`, `exports` and conditional-exports maps, `rootDirs`, package-manager
+  installs, and `pnpm-workspace.yaml` are never read.
+- The import linker labels the origin in the relation reason (`relative_module_import`,
+  `path_alias_module_import`, `workspace_package_module_import`, and the matching `_re_export`
+  forms), and the call linker resolves import bindings, re-export sources, and namespace forwards
+  through the same rules, so a helper reached through an alias or a workspace package becomes a
+  real call edge.
+- Bump both index-state schema families from v55 to v56 because the normalized package payload and
+  the new configuration entity change the linker input, so cached relations are recomputed in both
+  configurations.
+
+Focused source regression matrix:
+
+| Surface | Regression |
+| --- | --- |
+| JS/TS extractor | `tsconfig.json`/`jsconfig.json` path mappings, base directory, `extends`, JSONC comments and trailing commas, disclosed bounds, and the parse-error diagnostic; `package.json` `main` and `workspaces` in both shapes |
+| Import linker | A path alias and a workspace package emit `Imports` with the matching origin-named reason; a non-member package, a duplicated name, and an unusable base directory emit none |
+| Call linker | A call through an aliased import and through a workspace-package import resolves; re-export sources and namespace forwards resolve through aliases |
+| Persistence | v55 normal/precision state is rejected and forces a v56 rebuild |
+
+Focused verification:
+
+```bash
+cargo test -p athanor-extractor-js-ts --locked
+cargo test -p athanor-extractor-js-ts --features precision-parser --locked
+cargo test -p athanor-linker-js-ts --locked
+cargo test -p athanor-app --locked
+cargo test -p athanor-app --features js-ts-precision --locked
+```
+
 #### Remaining P2 Gaps
 
-- JavaScript/TypeScript anonymous default exports; package/workspace specifiers
-  and TypeScript path aliases; receiver/type-aware dispatch and deep member paths.
+- JavaScript/TypeScript anonymous default exports; `exports` and conditional-exports subpaths,
+  TypeScript `rootDirs`, and package-manager-specific workspace layouts such as
+  `pnpm-workspace.yaml`; receiver/type-aware dispatch and deep member paths.
 - Rust dyn-dispatch candidates and symbol-level incremental invalidation for both Rust and JS/TS.
 
 ### P3 — Bounded Language Expansion
