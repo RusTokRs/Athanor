@@ -115,13 +115,13 @@ commands, use the network, or modify project files.
 - A plain source-backed `export *` participates in named call resolution across multiple sources,
   but never forwards `default`. Missing names are ignored; distinct targets, ambiguous nested exports,
   unresolved sources, cycles, and chains deeper than 32 hops keep the aggregate unresolved. Named
-  default functions and statically named local identifier defaults can resolve through relative
-  imports and explicit named re-export chains. Named imports can resolve a single member through one
-  unique, direct, source-backed `export * as name` mapping; multi-hop namespace aliases and
+  default functions, statically named local identifier defaults, and anonymous defaults bound to
+  the canonical `default` name can resolve through relative imports, path aliases, workspace
+  packages, and explicit named re-export chains. Named imports can resolve a single member through
+  one unique, direct, source-backed `export * as name` mapping; multi-hop namespace aliases and
   multi-segment paths through named-import namespace aliases stay unresolved. Existing
-  namespace-import receiver behavior is unchanged. Anonymous default expressions and anonymous
-  default classes stay unresolved because they have no statically nameable local binding.
-  Multi-segment paths through named-import namespace aliases stay unresolved.
+  namespace-import receiver behavior is unchanged. A default expression that declares nothing
+  callable or constructible stays unresolved because it has no statically nameable local binding.
 - Dynamic `import()`, CommonJS `require()`, computed calls (`handlers[key]()`), calls through call
   results, reflective dispatch, and receiver typing are not resolved.
 - Test detection is location-based because no test framework runs: `.test.`/`.spec.` file names and

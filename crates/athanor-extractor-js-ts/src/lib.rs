@@ -575,32 +575,28 @@ fn collect_anonymous_default(node: Node, bytes: &[u8], declarations: &mut Vec<So
         if !ANONYMOUS_DEFAULT_KINDS.contains(&child.kind()) || node_name(child, bytes).is_some() {
             continue;
         }
-        let entity_kind = if matches!(child.kind(), "class_declaration" | "class") {
-            EntityKind::Class
-        } else {
-            EntityKind::Function
-        };
+        let is_class = matches!(child.kind(), "class_declaration" | "class");
         declarations.push(SourceDeclaration {
             name: ANONYMOUS_DEFAULT_NAME.to_string(),
             qualified_name: ANONYMOUS_DEFAULT_NAME.to_string(),
-            entity_kind,
-            symbol_kind: if entity_kind == EntityKind::Class {
-                "class"
+            entity_kind: if is_class {
+                EntityKind::Class
             } else {
-                "function"
+                EntityKind::Function
             },
+            symbol_kind: if is_class { "class" } else { "function" },
             exported: true,
             is_async: has_child_kind(child, "async"),
             source_node: child.kind().to_string(),
             line_range: line_range(child),
             calls: collect_call_sites(child, bytes),
-            heritage: if entity_kind == EntityKind::Class {
+            heritage: if is_class {
                 class_heritage(child, bytes)
             } else {
                 None
             },
         });
-        if entity_kind == EntityKind::Class {
+        if is_class {
             collect_class_members(ANONYMOUS_DEFAULT_NAME, child, bytes, true, declarations);
         }
         return;

@@ -84,8 +84,13 @@ clause such as `export { login as signIn } from './auth'` preserves the original
 source-less clause can represent a local alias. Plain `export * from './auth'` sets `star: true` and
 leaves `namespace_name` null; `export * as ns from './auth'` records `namespace_name: "ns"` and is
 not marked as a plain star. Named default functions, named default classes, and statically named
-local identifier defaults carry their local binding; unsupported default expressions remain
-unbound. The built-in JS/TS import
+local identifier defaults carry their local binding. An anonymous default function, default class,
+or default arrow function has no source name, so it is bound to the canonical name `default` — the
+one name a JavaScript or TypeScript binding cannot have — and is recorded as a real declaration with
+stable key `symbol://js-ts:<path>#default` and payload `anonymous_default: true`, including its call
+sites and, for a class, its heritage and members. Default expressions that declare nothing callable
+or constructible (an object literal, a call result, or a primitive) remain unbound, and at most one
+anonymous default is recorded per file. The built-in JS/TS import
 linker uses relative source-backed imports and re-exports to materialize module dependencies without
 exposing parser AST nodes, while the call linker follows explicit named and default-function aliases,
 bounded wildcard chains that resolve uniquely across sources, and direct namespace exports for
