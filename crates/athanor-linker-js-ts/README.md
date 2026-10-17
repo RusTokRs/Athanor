@@ -92,7 +92,10 @@ The call linker consumes the bounded `calls` arrays and the import bindings that
    module records is walked as a typed path: `this` roots at the enclosing method owner, every
    further segment resolves the type the previous segment declared, and the terminal member must
    match `<Type>.<member>` exactly once. `this.repo.items.map()` resolves when `App.repo` is a
-   `Repo` and `Repo.items` is an `ItemStore`. A repeated type, a path longer than four segments, an
+   `Repo` and `Repo.items` is an `ItemStore`, even when `Repo` is declared in another module: a
+   segment is read from the calling module first and then from the module that owns the current
+   type, and only an exported top-level class, interface, or type alias owns those rows — a name
+   declared in two modules owns neither. A repeated type, a path longer than four segments, an
    ambiguous binding, or a terminal that matches more than one declaration ends the walk.
 5. `imported_default_export` — a default import resolves directly to its named default
    function or class declaration.
@@ -138,10 +141,12 @@ commands, use the network, or modify project files.
   namespace-import receiver behavior is unchanged. A default expression that declares nothing
   callable or constructible stays unresolved because it has no statically nameable local binding.
 - Dynamic `import()`, CommonJS `require()`, computed calls (`handlers[key]()`), calls through call
-  results, and reflective dispatch are not resolved. Receiver typing covers only types the calling
-  module declares itself: an inferred type, a type imported from another module, a structural type,
-  and a member reached through a function call or an index stay unresolved, and an ambiguous,
-  cyclic, or over-bound path ends the walk instead of being guessed.
+  results, and reflective dispatch are not resolved. Receiver typing covers only a type the source
+  states: an inferred type, a type imported by another module but never named in an annotation, a
+  structural type, and a member reached through a function call or an index stay unresolved. A
+  field is read from the module that declares its owner only when that owner is exported and
+  unambiguous, and an ambiguous, cyclic, or over-bound path ends the walk instead of being
+  guessed.
 - Test detection is location-based because no test framework runs: `.test.`/`.spec.` file names and
   `tests`/`test`/`__tests__`/`e2e` directories.
 

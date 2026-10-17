@@ -25,8 +25,9 @@ route declarations and is registered independently as `builtin.extractor.express
   (iteration methods, promise handlers, timers, event/observable registration) for the call
   linker's callback bridges
 - Bounded `typed_bindings` rows on module payloads: the declared type of a receiver the linker can
-  walk — a `new Type()` initializer, an annotated class field, or a TypeScript parameter property,
-  each recorded as `{name, type, kind, line}` with an `omitted_typed_bindings` count
+  walk — a `new Type()` initializer, an annotated class field or interface property signature, or a
+  TypeScript parameter property, each recorded as `{name, type, kind, line}` with an
+  `omitted_typed_bindings` count
 - `EntityKind::Package` and `EntityKind::Dependency` for `package.json` package and dependency declarations,
   with bounded `main` and `workspaces` evidence on the package entity
 - `EntityKind::Feature` for the module-resolution options of `tsconfig.json`/`jsconfig.json`: the
@@ -151,8 +152,8 @@ None. The extractors do not run commands, use the network, or modify project fil
   type, a destructuring pattern, an aliased initializer, a function type, and a generic
   instantiation that is not a bare identifier are skipped; a qualified or generic name is reduced
   to its terminal identifier, so `Promise<Repo>` and `ns.Repo` both record `Repo`. Rows are bounded
-  to 64 per module. A type imported from another module is not recorded as a local binding, so
-  cross-module receiver typing stays with the import linker.
+  to 64 per module. A field row is named `Owner.field`, where the owner is the enclosing class or
+  interface, so the linker can read it from the module that declares that owner.
 - Only the flat block sequence of a pnpm workspace manifest is read: a top-level `packages:` key
   followed by `- pattern` items, bounded to 64 patterns with a disclosed omission count. Flow
   sequences, anchors, nested blocks, and a manifest without a readable package list produce no
