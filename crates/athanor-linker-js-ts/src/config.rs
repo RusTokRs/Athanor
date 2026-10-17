@@ -617,11 +617,11 @@ mod tests {
         );
         let orphan = package("examples/demo/package.json", "@scope/demo", &json!({}));
         let entry = module("packages/ui/src/index.ts");
-        let button = module("packages/ui/src/button.ts");
+        let button = module("packages/ui/button.ts");
         let orphan_entry = module("examples/demo/index.ts");
         let mut modules = HashMap::new();
         modules.insert("packages/ui/src/index.ts".to_string(), &entry);
-        modules.insert("packages/ui/src/button.ts".to_string(), &button);
+        modules.insert("packages/ui/button.ts".to_string(), &button);
         modules.insert("examples/demo/index.ts".to_string(), &orphan_entry);
         let config = build_module_resolution_config(&[root, member, orphan]);
 
@@ -634,7 +634,7 @@ mod tests {
 
         let subpath = resolve_module_specifier(&source, "@scope/ui/button", &modules, &config)
             .map(|(entity, _)| entity.name.clone());
-        assert_eq!(subpath, Some("packages/ui/src/button.ts".to_string()));
+        assert_eq!(subpath, Some("packages/ui/button.ts".to_string()));
         assert!(resolve_module_specifier(&source, "@scope/demo", &modules, &config).is_none());
         assert!(resolve_module_specifier(&source, "react", &modules, &config).is_none());
     }

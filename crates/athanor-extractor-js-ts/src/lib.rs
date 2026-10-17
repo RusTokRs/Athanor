@@ -2915,7 +2915,7 @@ mod tests {
         let output = JsTsExtractor
             .extract(input(
                 "tsconfig.json",
-                "{\n  \"compilerOptions\": {\n    \"baseUrl\": \"./src/*not a comment*/\",\n    \"paths\": {\n      \"@/*\": [\"//keep//\"]\n    }\n  }\n}\n",
+                "{\n  \"compilerOptions\": {\n    \"baseUrl\": \"./src/*not a comment*/pkg\",\n    \"paths\": {\n      \"@/*\": [\"//keep//\"]\n    }\n  }\n}\n",
                 "json",
             ))
             .await
@@ -2926,7 +2926,7 @@ mod tests {
             .iter()
             .find(|entity| entity.kind == EntityKind::Feature)
             .expect("module resolution configuration");
-        assert_eq!(config.payload["base_dir"], "src/*not a comment*/");
+        assert_eq!(config.payload["base_dir"], "src/*not a comment*/pkg");
         assert_eq!(path_mapping(config, "@/*")["targets"], json!(["//keep//"]));
     }
 

@@ -16,18 +16,15 @@ substantive release notes.
 - Add Rust trait-supertrait and JS/TS class/interface `Extends`, preserving Rust/JS/TS `Implements`; bump index state v46→v47.
 - Add the bounded `explore` MCP tool: one query returns ranked entries, citations, and one-hop relations.
 - Extend `explore` with bounded multi-hop relation chains and an aggregate blast radius (`--depth`/`--paths`, default two hops and 16 chains, every truncation disclosed), let it anchor on an exact stable key or repository path through `target`, and expose the same answer as `ath explore` so one call replaces a query loop.
-- Add `builtin.extractor.treesitter` over Python and Go: one data-driven engine records declarations,
-  receiver-qualified methods and other declarations, imports, exports, and statically named call sites.
+- Add `builtin.extractor.treesitter` over Python and Go: one data-driven engine records declarations, receiver-qualified methods and other declarations, imports, exports, and statically named call sites.
 - Add `builtin.linker.treesitter`: Python and Go imports, cross-file calls through package units, receiver variables, and import bindings, test bridges, and a per-language coverage measurement.
-- Add a monitoring operations category: the operations profile derives declared health, status, and
-  metrics endpoints plus telemetry variable names from canonical evidence; probes, alerts, dashboards, and SLOs stay absent without an evidence source.
+- Add a monitoring operations category: the operations profile derives declared health, status, and metrics endpoints plus telemetry variable names from canonical evidence; probes, alerts, dashboards, and SLOs stay absent without an evidence source.
 - Add the JavaScript/TypeScript call graph. The JS/TS extractor records each import statement's local
   bindings (`default_name`, `namespace_name`, `named`) and a bounded `calls` array per declaration
   with the statically named callee, receiver, kind, argument count, and line/column.
   `builtin.linker.js_ts_calls` resolves those into evidence-backed `Calls` relations and emits `TestedBy` from test locations.
 - Preserve JS/TS aliases; resolve bounded named/default and direct-namespace calls plus uniquely aggregated multi-source wildcards, exclude wildcard `default`, and bump index v47→v52.
-- Add JS/TS callback and promise-handler bridges: combinator call sites record bounded
-  `callback_arguments` that the call linker resolves into indirect evidence-backed `Calls` edges; index state bumps v52→v53.
+- Add JS/TS callback and promise-handler bridges: combinator call sites record bounded `callback_arguments` that the call linker resolves into indirect evidence-backed `Calls` edges; index state bumps v52→v53.
 - Add strict versioned request, outline, context, citation, draft, manifest, and validation-report
   contracts for documentation generation: exact snapshot binding, portable paths, stable-key/evidence traceability, cited diagram edges, metrics, and checksums.
 - Add a minimal fixture repository and Rustok evaluation corpus with expected sections, citation paths, diagram edges, known gaps, repeatability, unsupported-relation disclosure, and review criteria.
@@ -41,26 +38,20 @@ substantive release notes.
   reject pointer escape, identity drift, unsupported artifact layouts, and checksum mismatch.
 - Add `overview` and `capabilities` MCP tools exposing the repository overview and the bounded
   analysis-completeness report to MCP clients.
-- Add a bounded first-party projection for agent-tool MCP configuration: `.codex.json` and
-  `antigravity.json` project one `ScriptCommand` per server, with evidence and ownership.
+- Add a bounded first-party projection for agent-tool MCP configuration: `.codex.json` and `antigravity.json` project one `ScriptCommand` per server, with evidence and ownership.
 - Add JS/TS default class export binding: `export default class Foo {}` records its default
   name and a default-imported or same-module `new Foo()` resolves to the class; index state bumps v53→v54.
 - Add JS/TS multi-hop namespace aliases: a namespace name forwarded across modules by
   named re-exports resolves `alias.member()`; index state bumps v54→v55.
 - Add local semantic retrieval with zero new dependencies: hashing-trick embeddings over character
   trigrams and word n-grams (FNV-1a buckets) power `ath search --mode semantic|hybrid` and MCP `search`.
-- Add first-party JavaScript/TypeScript module-resolution configuration: `tsconfig.json`,
-  `jsconfig.json`, and their named `.json` variants project their `baseUrl`, `paths` mappings, and
-  inherited `extends` with disclosed bounds and JSONC tolerance, and `package.json` records `main`
-  and `workspaces`. The JS/TS import and call linkers resolve non-relative specifiers through that
-  evidence, so a path alias such as `@/lib/api` and a workspace-package specifier such as
-  `@scope/ui/button` become real module and call edges while unprovable specifiers stay unresolved;
-  index state v55→v56.
+- Add first-party JavaScript/TypeScript module-resolution configuration: `tsconfig.json`, `jsconfig.json`, and their named `.json` variants project their `baseUrl`, `paths` mappings, and inherited `extends` with disclosed bounds and JSONC tolerance, and `package.json` records `main` and `workspaces`.
+- Resolve JS/TS non-relative specifiers in the import and call linkers through that evidence, so a path alias such as `@/lib/api` and a workspace-package specifier such as `@scope/ui/button` become real module and call edges while unprovable specifiers stay unresolved.
+- Bump index state v55→v56 because JS/TS extractor payloads gained module-resolution configuration; earlier snapshots reindex.
 
 ### Fixed
 
-- Stop generated module/API/operations/onboarding documents from claiming shipped publication, Store
-  loading, CLI, and transport integration; headers name the deferred scope and its limits.
+- Stop generated module/API/operations/onboarding documents from claiming shipped publication, Store loading, CLI, and transport integration; headers name the deferred scope and its limits.
 - Reject Windows drive paths, reserved device names, trailing-dot/space components, and
   case-insensitive output-path collisions before documentation artifacts can be published.
 - Reject raw-file/secret context access, out-of-context citations and diagram endpoints, uncited factual
