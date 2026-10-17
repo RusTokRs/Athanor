@@ -42,17 +42,18 @@ jobs:
           cargo fmt --all -- --check > fmt.log 2>&1
           code=$?
           echo "code=$code" >> "$GITHUB_OUTPUT"
-          if [ "$code" != "0" ]; then
-            cargo fmt --all
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add -A
-            git commit -q -m "style: apply rustfmt"
-            git -c http.extraheader="AUTHORIZATION: bearer ${{ secrets.GITHUB_TOKEN }}" \
-              pull --rebase origin "${{ github.head_ref }}"
-            git -c http.extraheader="AUTHORIZATION: bearer ${{ secrets.GITHUB_TOKEN }}" \
-              push origin HEAD:${{ github.head_ref }}
-          fi
+          exit 0
+
+      - name: Dump the recorded evidence file
+        run: |
+          {
+            echo "== git log =="
+            git log --oneline -3
+            echo "== git status =="
+            git status --porcelain
+            echo "== evidence bytes =="
+            head -c 400 docs/development/verification-evidence.json | od -c | head -30
+          } > evidence.log 2>&1
           exit 0
 
       - name: Run Clippy
@@ -119,8 +120,8 @@ jobs:
               '### cargo test errors',
               errors('tests.log'),
               '',
-              '### cargo test tail',
-              tail('tests.log', 40),
+              '### evidence file dump',
+              tail('evidence.log', 45),
             ].join('\n');
             await github.rest.issues.createComment({
               issue_number: context.issue.number,
