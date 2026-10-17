@@ -70,6 +70,8 @@ None. The extractors do not run commands, use the network, or modify project fil
 - Out-of-line module declarations are emitted as modules but resolved by their own source files rather than linked in this adapter.
 - A receiver type is recorded only when the source states one usable name: a generic argument, a
   trait object with extra bounds, a primitive, `Self`, and an unannotated local are skipped.
+- `typed_bindings` is bounded to 64 rows per declaration, with `omitted_typed_bindings` disclosing
+  how many further rows the source stated.
 - Trait supertraits are linked only when they resolve to an in-snapshot trait declaration; external
   traits and ambiguous names remain unresolved.
 - Rust syntax errors fail extraction for the affected file.

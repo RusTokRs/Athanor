@@ -49,8 +49,7 @@ Two concrete targets:
 
 - Rust: trait implementation (`Implements`) and supertrait (`Extends`) edges; P2P resolves a method
   call through the receiver's declared type, so a `dyn`/`impl Trait` receiver reaches the trait
-  declaration it states. The concrete implementations that can flow into such a receiver remain a
-  separate deferred capability.
+  declaration it states, and P2Q records the declared implementations that call can reach.
 - JS/TS: class `extends`/`implements` and interface `extends` with distinct canonical relation kinds;
   P2B covers explicit named re-export chains, P2C bounded single-source wildcard re-exports, P2D
   named default function exports/re-exports, P2E direct namespace re-exports for single-member calls
@@ -60,9 +59,9 @@ Two concrete targets:
   to the canonical `default` name, and P2L package `exports` subpaths with conditional exports,
   pnpm workspace layouts, and merged `rootDirs` roots, P2M typed receivers and deep member paths,
   P2N typed receiver paths that cross module boundaries, P2O receivers typed by a factory's
-  declared return type, and P2P method calls resolved through the receiver's declared type,
-  including `dyn` and `impl Trait` receivers. Type inference for a receiver whose type the source
-  never states remains open.
+  declared return type, and P2P/P2Q method calls resolved through the receiver's declared type: a
+  `dyn` or `impl Trait` receiver reaches the trait declaration and then every declared implementation
+  of it. Type inference for a receiver whose type the source never states remains open.
 - Both: symbol-level incremental invalidation so a changed declaration re-resolves only its closure.
 
 #### P2A — Heritage Relation Semantics (bounded Rust/TypeScript slice)
@@ -718,13 +717,52 @@ cargo test -p athanor-app --locked
 cargo test -p athanor-app --features js-ts-precision --locked
 ```
 
+#### P2Q — Rust Dyn-Dispatch Candidates (bounded Rust slice)
+
+- A `dyn` call now also names the code that can run. P2P resolved `reader.read()` on a `&dyn Reader`
+  to `Reader::read`, the declaration dynamic dispatch invokes, but nothing linked the call to the
+  body behind the receiver.
+- The types each trait is implemented for come from the `trait_impl` facts that already produce
+  `Implements` bridges, so candidates restate evidence the snapshot owns: a trait resolves by unique
+  name, a type resolves by unique name, and one type counts once per trait even when it has several
+  impl blocks. The order is stable — by qualified name — so the same snapshot yields the same edges.
+- A dynamic call site records one candidate edge per implementation's method at `0.5`
+  (`rust_dyn_dispatch_candidate`), below the `0.7` declaration edge: the trait proves the interface
+  and the impl proves the body exists, not that this call reaches it. A method that does not exist on
+  an implementing type contributes nothing.
+- A candidate is not a resolution. A concrete receiver claims no candidates, a candidate never
+  becomes `TestedBy` coverage — a test that may not run an implementation has not proven it — and a
+  candidate never replaces the declaration edge the call dispatches to.
+- The list is bounded to eight candidates per call site and the payload discloses the count it
+  recorded, so one trait with many implementations cannot flood the graph silently. The receiver rows
+  a declaration records are bounded the same way, at 64 with an `omitted_typed_bindings` count; that
+  array was the only unbounded payload in either extractor.
+- Bump both index-state schema families from v61 to v62 because Rust call relations change, so cached
+  relations are recomputed in both configurations.
+
+Focused source regression matrix:
+
+| Surface | Regression |
+| --- | --- |
+| Rust linker | Candidates for a `&dyn` and an `impl Trait` receiver with their confidence, count, and truncation disclosure; a concrete receiver claims none; a candidate never becomes test coverage; a method missing from an implementation contributes nothing |
+| Rust extractor | The receiver-row bound and its omission count |
+| Persistence | v61 normal/precision state is rejected and forces a v62 rebuild |
+
+Focused verification:
+
+```bash
+cargo test -p athanor-extractor-rust --locked
+cargo test -p athanor-linker-rust --locked
+cargo test -p athanor-app --locked
+cargo test -p athanor-app --features js-ts-precision --locked
+```
+
 #### Remaining P2 Gaps
 
 - Type inference for a receiver whose type the source never states — an unannotated factory, an
   index access, or a structural type; package-manager-specific resolution that needs an installed
   tree, such as Yarn `nodeLinker` layouts and patched dependencies.
-- The concrete implementations behind a Rust `dyn` receiver, and symbol-level incremental
-  invalidation for both Rust and JS/TS.
+- Symbol-level incremental invalidation, so a changed declaration re-resolves only its closure.
 
 ### P3 — Bounded Language Expansion
 
