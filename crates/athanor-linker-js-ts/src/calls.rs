@@ -1043,7 +1043,11 @@ struct TypedReceiver {
 /// recorded as unresolved instead of letting one declaration win by accident.
 fn typed_receivers(module: &Entity) -> HashMap<String, Option<TypedReceiver>> {
     let mut receivers: HashMap<String, Option<TypedReceiver>> = HashMap::new();
-    let Some(bindings) = module.payload.get("typed_bindings").and_then(Value::as_array) else {
+    let Some(bindings) = module
+        .payload
+        .get("typed_bindings")
+        .and_then(Value::as_array)
+    else {
         return receivers;
     };
     for binding in bindings {
@@ -1103,8 +1107,7 @@ fn resolve_typed_member<'a>(
     }
     let receivers = typed_receivers(caller_module);
     let segments = receiver.split('.').collect::<Vec<_>>();
-    if segments.len() > MAX_TYPE_PATH_SEGMENTS
-        || segments.iter().any(|segment| segment.is_empty())
+    if segments.len() > MAX_TYPE_PATH_SEGMENTS || segments.iter().any(|segment| segment.is_empty())
     {
         return None;
     }
