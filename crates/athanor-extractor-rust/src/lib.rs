@@ -61,6 +61,7 @@ impl Extractor for RustExtractor {
             imports: Vec::new(),
             calls: Vec::new(),
             typed_bindings: Vec::new(),
+            omitted_typed_bindings: 0,
             is_test: false,
             supertraits: Vec::new(),
         });
@@ -130,6 +131,7 @@ impl Extractor for RustExtractor {
             });
             if !symbol.typed_bindings.is_empty() {
                 payload["typed_bindings"] = json!(symbol.typed_bindings);
+                payload["omitted_typed_bindings"] = json!(symbol.omitted_typed_bindings);
             }
             if symbol.symbol_kind == "trait" {
                 payload["supertraits"] = json!(symbol.supertraits);
@@ -325,6 +327,7 @@ struct RustSymbol {
     imports: Vec<String>,
     calls: Vec<Value>,
     typed_bindings: Vec<Value>,
+    omitted_typed_bindings: usize,
     is_test: bool,
     supertraits: Vec<String>,
 }
@@ -388,6 +391,9 @@ fn call_site(
     })
 }
 
+/// The most receiver rows one declaration records.
+const MAX_TYPED_BINDINGS: usize = 64;
+
 /// The receiver types one function states.
 ///
 /// A parameter or an annotated local is evidence only when its declared type
@@ -395,7 +401,7 @@ fn call_site(
 /// references and the usual smart pointers unwrapped. A generic argument, a
 /// tuple, a `Self` receiver, a trait object with extra bounds, and an
 /// unannotated local name nothing the linker may dispatch on.
-fn typed_bindings(sig: Option<&syn::Signature>, block: Option<&syn::Block>) -> Vec<Value> {
+fn typed_bindings(sig: Option<&syn::Signature>, block: Option<&syn::Block>) -> (Vec<Value>, usize) {
     let mut rows = Vec::new();
     if let Some(sig) = sig {
         for argument in &sig.inputs {
@@ -412,10 +418,12 @@ fn typed_bindings(sig: Option<&syn::Signature>, block: Option<&syn::Block>) -> V
             }
         }
     }
-    if let Some(block) = block {
+    if let Some(block) = block && rows.len() < MAX_TYPED_BINDINGS {
         BindingVisitor { rows: &mut rows }.visit_block(block);
     }
-    rows
+    let omitted = rows.len().saturating_sub(MAX_TYPED_BINDINGS);
+    rows.truncate(MAX_TYPED_BINDINGS);
+    (rows, omitted)
 }
 
 /// Collects the `let` bindings a body states, including the ones nested in
@@ -426,6 +434,9 @@ struct BindingVisitor<'a> {
 
 impl<'ast> Visit<'ast> for BindingVisitor<'_> {
     fn visit_local(&mut self, local: &'ast syn::Local) {
+        if self.rows.len() >= MAX_TYPED_BINDINGS {
+            return;
+        }
         if let syn::Pat::Type(annotation) = &local.pat
             && let syn::Pat::Ident(pattern) = &*annotation.pat
             && let Some((type_name, kind)) = receiver_type(&annotation.ty)
@@ -603,6 +614,8 @@ fn collect_items(
                 } else {
                     (EntityKind::Function, "function")
                 };
+                let (typed_bindings, omitted_typed_bindings) =
+                    typed_bindings(Some(&item.sig), Some(&item.block));
                 symbols.push(RustSymbol {
                     name: item.sig.ident.to_string(),
                     qualified_name: qualify(parent, &item.sig.ident.to_string()),
@@ -613,7 +626,8 @@ fn collect_items(
                     spans: vec![item.sig.span()],
                     imports: Vec::new(),
                     calls: visitor.calls,
-                    typed_bindings: typed_bindings(Some(&item.sig), Some(&item.block)),
+                    typed_bindings,
+                    omitted_typed_bindings,
                     is_test,
                     supertraits: Vec::new(),
                 });
@@ -632,6 +646,7 @@ fn collect_items(
                     imports: Vec::new(),
                     calls: Vec::new(),
                     typed_bindings: Vec::new(),
+                    omitted_typed_bindings: 0,
                     is_test: false,
                     supertraits: Vec::new(),
                 });
@@ -731,6 +746,8 @@ fn collect_impl_items(item: &syn::ItemImpl, parent: &str, symbols: &mut Vec<Rust
             } else {
                 (EntityKind::Function, "method")
             };
+            let (typed_bindings, omitted_typed_bindings) =
+                typed_bindings(Some(&method.sig), Some(&method.block));
             symbols.push(RustSymbol {
                 name: method.sig.ident.to_string(),
                 qualified_name: qualify(&method_parent, &method.sig.ident.to_string()),
@@ -741,7 +758,8 @@ fn collect_impl_items(item: &syn::ItemImpl, parent: &str, symbols: &mut Vec<Rust
                 spans: vec![method.sig.span()],
                 imports: Vec::new(),
                 calls: visitor.calls,
-                typed_bindings: typed_bindings(Some(&method.sig), Some(&method.block)),
+                typed_bindings,
+                omitted_typed_bindings,
                 is_test,
                 supertraits: Vec::new(),
             });
@@ -765,6 +783,8 @@ fn collect_trait_items(item: &syn::ItemTrait, parent: &str, symbols: &mut Vec<Ru
         if let Some(block) = &method.default {
             visitor.visit_block(block);
         }
+        let (typed_bindings, omitted_typed_bindings) =
+            typed_bindings(Some(&method.sig), method.default.as_ref());
         symbols.push(RustSymbol {
             name: method.sig.ident.to_string(),
             qualified_name: qualify(&trait_qualified, &method.sig.ident.to_string()),
@@ -775,7 +795,8 @@ fn collect_trait_items(item: &syn::ItemTrait, parent: &str, symbols: &mut Vec<Ru
             spans: vec![method.sig.span()],
             imports: Vec::new(),
             calls: visitor.calls,
-            typed_bindings: typed_bindings(Some(&method.sig), method.default.as_ref()),
+            typed_bindings,
+            omitted_typed_bindings,
             is_test: false,
             supertraits: Vec::new(),
         });
@@ -850,6 +871,7 @@ fn type_symbol(
         imports: Vec::new(),
         calls: Vec::new(),
         typed_bindings: Vec::new(),
+        omitted_typed_bindings: 0,
         is_test: false,
         supertraits: Vec::new(),
     }
@@ -1479,6 +1501,28 @@ pub trait Reader {
             .expect("reset must be extracted");
         assert_eq!(reset.payload["symbol_kind"], "trait_method");
         assert_eq!(reset.kind, EntityKind::Function);
+    }
+
+    #[tokio::test]
+    async fn bounds_the_receiver_rows_a_declaration_records() {
+        let mut source = String::from("pub struct Store;\npub fn run() {\n");
+        for index in 0..70 {
+            source.push_str(&format!("    let binding{index}: Store = Store;\n"));
+        }
+        source.push_str("}\n");
+
+        let output = RustExtractor
+            .extract(input("src/lib.rs", &source))
+            .await
+            .unwrap();
+
+        let run = output
+            .entities
+            .iter()
+            .find(|entity| entity.name == "run")
+            .expect("run must be extracted");
+        assert_eq!(run.payload["typed_bindings"].as_array().unwrap().len(), 64);
+        assert_eq!(run.payload["omitted_typed_bindings"], 6);
     }
 
     fn input(path: &str, content: &str) -> ExtractInput {

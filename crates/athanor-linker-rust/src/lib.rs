@@ -24,6 +24,12 @@ const TYPED_RECEIVER_CONFIDENCE: f32 = 0.8;
 /// Confidence of a method call dispatched through a `dyn`/`impl` trait: the
 /// target is the trait's declaration, not the code that runs.
 const DYN_DISPATCH_CONFIDENCE: f32 = 0.7;
+/// Confidence of one implementation a `dyn`/`impl` call can dispatch into: the
+/// trait proves the interface and the impl proves the body exists, not that this
+/// call reaches it.
+const DYN_CANDIDATE_CONFIDENCE: f32 = 0.5;
+/// The most implementations one dynamic call site records as candidates.
+const MAX_DYN_CANDIDATES: usize = 8;
 
 #[derive(Debug, Clone, Default)]
 pub struct RustLinker;
@@ -68,6 +74,48 @@ impl Linker for RustLinker {
         // A receiver's declared type is a name; only a unique type of that name
         // in the snapshot can own the method a call dispatches to.
         let type_index = type_qualified_names(&rust_entities);
+
+        // Trait implementations recorded as facts become `Implements` bridges from the
+        // implementing type to the trait; both endpoints resolve by unique symbol name,
+        // so ambiguous names stay unresolved rather than guessed.
+        let mut types_by_name: HashMap<&str, Vec<&Entity>> = HashMap::new();
+        let mut traits_by_name: HashMap<&str, Vec<&Entity>> = HashMap::new();
+        let mut trait_qualified_names = HashSet::new();
+        let mut trait_entities = Vec::new();
+        for entity in rust_entities.iter().copied() {
+            match entity
+                .payload
+                .get("symbol_kind")
+                .and_then(|value| value.as_str())
+            {
+                Some("struct" | "enum" | "union" | "type_alias") => {
+                    types_by_name
+                        .entry(entity.name.as_str())
+                        .or_default()
+                        .push(entity);
+                }
+                Some("trait") => {
+                    traits_by_name
+                        .entry(entity.name.as_str())
+                        .or_default()
+                        .push(entity);
+                    if let Some(qn) = qualified_name(entity) {
+                        trait_qualified_names.insert(qn);
+                    }
+                    trait_entities.push(entity);
+                }
+                _ => {}
+            }
+        }
+
+        // The types each trait is implemented for, proven by the same facts that
+        // produce the `Implements` bridges. A dynamic call names the trait; the
+        // implementations are what the trait says can run.
+        let implementors_by_trait = trait_implementors(
+            input.facts.iter(),
+            &types_by_name,
+            &traits_by_name,
+        );
 
         let mut relations = Vec::new();
         let mut relation_ids = HashSet::new();
@@ -198,6 +246,20 @@ impl Linker for RustLinker {
                                     confidence,
                                     RelationStatus::Inferred,
                                 ));
+                                if reason == "rust_dyn_dispatch_method" {
+                                    dyn_candidates(
+                                        &input.snapshot,
+                                        entity,
+                                        target,
+                                        name,
+                                        &implementors_by_trait,
+                                        &rust_by_qualified_name,
+                                        &affected_ids,
+                                        self.name(),
+                                        &mut relations,
+                                        &mut relation_ids,
+                                    );
+                                }
                             }
                         }
                     }
@@ -238,39 +300,6 @@ impl Linker for RustLinker {
                         RelationStatus::Inferred,
                     ),
                 );
-            }
-        }
-
-        // Trait implementations recorded as facts become `Implements` bridges from the
-        // implementing type to the trait; both endpoints resolve by unique symbol name,
-        // so ambiguous names stay unresolved rather than guessed.
-        let mut types_by_name: HashMap<&str, Vec<&Entity>> = HashMap::new();
-        let mut traits_by_name: HashMap<&str, Vec<&Entity>> = HashMap::new();
-        let mut trait_qualified_names = HashSet::new();
-        let mut trait_entities = Vec::new();
-        for entity in rust_entities.iter().copied() {
-            match entity
-                .payload
-                .get("symbol_kind")
-                .and_then(|value| value.as_str())
-            {
-                Some("struct" | "enum" | "union" | "type_alias") => {
-                    types_by_name
-                        .entry(entity.name.as_str())
-                        .or_default()
-                        .push(entity);
-                }
-                Some("trait") => {
-                    traits_by_name
-                        .entry(entity.name.as_str())
-                        .or_default()
-                        .push(entity);
-                    if let Some(qn) = qualified_name(entity) {
-                        trait_qualified_names.insert(qn);
-                    }
-                    trait_entities.push(entity);
-                }
-                _ => {}
             }
         }
 
@@ -839,6 +868,119 @@ fn impl_evidence(
     evidence
 }
 
+/// Maps each trait declaration to the types that implement it, in a stable order.
+///
+/// Both endpoints resolve by unique symbol name, and a trait implemented twice by
+/// the same type counts once, so the same evidence that produces an `Implements`
+/// bridge produces exactly one candidate per type.
+fn trait_implementors<'a>(
+    facts: impl Iterator<Item = &'a Fact>,
+    types_by_name: &HashMap<&str, Vec<&'a Entity>>,
+    traits_by_name: &HashMap<&str, Vec<&'a Entity>>,
+) -> HashMap<&'a str, Vec<&'a Entity>> {
+    let mut implementors: HashMap<&str, Vec<&Entity>> = HashMap::new();
+    for fact in facts {
+        if fact.value.get("symbol_kind").and_then(|value| value.as_str())
+            != Some("trait_impl")
+        {
+            continue;
+        }
+        let Some(self_type) = fact.value.get("self_type").and_then(|value| value.as_str()) else {
+            continue;
+        };
+        let Some(trait_name) = fact.value.get("trait_name").and_then(|value| value.as_str()) else {
+            continue;
+        };
+        let (Some(type_entity), Some(trait_entity)) = (
+            unique_by_name(types_by_name, self_type),
+            unique_by_name(traits_by_name, trait_name),
+        ) else {
+            continue;
+        };
+        let Some(trait_qn) = qualified_name(trait_entity) else {
+            continue;
+        };
+        let types = implementors.entry(trait_qn).or_default();
+        if !types.iter().any(|existing| existing.id == type_entity.id) {
+            types.push(type_entity);
+        }
+    }
+    for types in implementors.values_mut() {
+        types.sort_by(|left, right| {
+            qualified_name(left)
+                .unwrap_or_default()
+                .cmp(qualified_name(right).unwrap_or_default())
+        });
+    }
+    implementors
+}
+
+/// Records the implementations a `dyn`/`impl` method call can dispatch into.
+///
+/// The trait declaration the call resolves to is what dynamic dispatch invokes;
+/// which body runs is decided by the value behind the receiver. Every declared
+/// implementation of that method is therefore a candidate, recorded below the
+/// confidence of the declaration edge and never as test coverage. The list is
+/// bounded and the payload discloses how many implementations were seen.
+fn dyn_candidates(
+    snapshot: &SnapshotId,
+    caller: &Entity,
+    trait_method: &Entity,
+    method: &str,
+    implementors_by_trait: &HashMap<&str, Vec<&Entity>>,
+    by_qualified_name: &HashMap<&str, &Entity>,
+    affected_ids: &HashSet<EntityId>,
+    linker: &str,
+    relations: &mut Vec<Relation>,
+    relation_ids: &mut HashSet<RelationId>,
+) {
+    let Some((trait_qn, _)) = qualified_name(trait_method).and_then(|qn| qn.rsplit_once("::"))
+    else {
+        return;
+    };
+    let Some(implementors) = implementors_by_trait.get(trait_qn) else {
+        return;
+    };
+    let mut candidates = Vec::new();
+    for implementor in implementors {
+        let Some(type_qn) = qualified_name(implementor) else {
+            continue;
+        };
+        let method_qn = format!("{type_qn}::{method}");
+        let Some(target) = by_qualified_name.get(method_qn.as_str()) else {
+            continue;
+        };
+        if target.kind != EntityKind::Function || target.id == caller.id {
+            continue;
+        }
+        if !either_affected(caller, target, affected_ids) {
+            continue;
+        }
+        candidates.push(*target);
+    }
+    let truncated = candidates.len() > MAX_DYN_CANDIDATES;
+    candidates.truncate(MAX_DYN_CANDIDATES);
+    let candidate_count = candidates.len();
+    for target in candidates {
+        let mut candidate = relation(
+            snapshot,
+            caller,
+            target,
+            RelationKind::Calls,
+            linker,
+            "rust_dyn_dispatch_candidate",
+            &format!("{trait_qn}::{method}"),
+            DYN_CANDIDATE_CONFIDENCE,
+            RelationStatus::Inferred,
+        );
+        if let Some(payload) = candidate.payload.as_object_mut() {
+            payload.insert("candidate_count".to_string(), json!(candidate_count));
+            payload.insert("truncated".to_string(), json!(truncated));
+        }
+        push_unique(relations, relation_ids, candidate);
+    }
+}
+
 fn push_unique(
     relations: &mut Vec<Relation>,
     relation_ids: &mut HashSet<RelationId>,
@@ -914,6 +1056,256 @@ mod tests {
                 .unwrap_or(qualified_name),
             json!({ "qualified_name": qualified_name, "symbol_kind": symbol_kind }),
         )
+    }
+
+    fn method(id: &str, qualified_name: &str) -> Entity {
+        entity(
+            id,
+            &format!("symbol://rust:{qualified_name}"),
+            EntityKind::Function,
+            qualified_name.rsplit_once("::").map(|(_, name)| name).unwrap_or(qualified_name),
+            json!({ "qualified_name": qualified_name, "symbol_kind": "method" }),
+        )
+    }
+
+    fn test_caller(
+        id: &str,
+        qualified_name: &str,
+        bindings: serde_json::Value,
+        calls: serde_json::Value,
+    ) -> Entity {
+        let mut test_case = typed_caller(id, qualified_name, bindings, calls);
+        test_case.kind = EntityKind::TestCase;
+        test_case
+    }
+
+    fn impl_fact(
+        id: &str,
+        subject: &str,
+        self_type: &str,
+        trait_name: &str,
+        trait_path: &str,
+    ) -> Fact {
+        Fact {
+            id: FactId(id.to_string()),
+            kind: FactKind::SymbolDefined,
+            subject: EntityId(subject.to_string()),
+            object: None,
+            value: json!({
+                "symbol_kind": "trait_impl",
+                "self_type": self_type,
+                "trait_name": trait_name,
+                "trait_path": trait_path,
+            }),
+            evidence: Vec::new(),
+            ownership: Vec::new(),
+            snapshot: SnapshotId("snap_test".to_string()),
+            extractor: "rust".to_string(),
+            confidence: 1.0,
+        }
+    }
+
+    async fn link_all(entities: Vec<Entity>, facts: Vec<Fact>) -> Vec<Relation> {
+        let snapshot = SnapshotId("snap_test".to_string());
+        let affected = AffectedSubset::from_extracted(entities.clone(), facts.clone());
+        RustLinker
+            .link(LinkInput {
+                snapshot,
+                entities: Arc::new(entities),
+                facts: Arc::new(facts),
+                affected,
+            })
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn records_the_implementations_a_dynamic_call_can_reach() {
+        let reader_trait = type_entity("ent_trait_reader", "crate::app::Reader", "trait");
+        let file_type = type_entity("ent_type_file", "crate::app::FileReader", "struct");
+        let net_type = type_entity("ent_type_net", "crate::app::NetReader", "struct");
+        let trait_read = trait_method("ent_reader_read", "crate::app::Reader::read");
+        let file_read = method("ent_file_read", "crate::app::FileReader::read");
+        let net_read = method("ent_net_read", "crate::app::NetReader::read");
+        let caller = typed_caller(
+            "ent_run",
+            "crate::app::run",
+            json!([{"name": "reader", "type": "Reader", "kind": "trait_object", "line": 3}]),
+            json!([call_site("method", "reader.read", "read")]),
+        );
+
+        let entities = vec![
+            reader_trait,
+            file_type,
+            net_type,
+            trait_read.clone(),
+            file_read.clone(),
+            net_read.clone(),
+            caller.clone(),
+        ];
+        let facts = vec![
+            impl_fact("fact_file", "ent_type_file", "FileReader", "Reader", "crate::app::Reader"),
+            impl_fact("fact_net", "ent_type_net", "NetReader", "Reader", "crate::app::Reader"),
+        ];
+        let relations = link_all(entities, facts).await;
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls && relation.from == caller.id)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 3);
+
+        let declaration = calls
+            .iter()
+            .find(|relation| relation.to == trait_read.id)
+            .expect("the trait declaration edge");
+        assert_eq!(declaration.payload["reason"], "rust_dyn_dispatch_method");
+        assert_eq!(declaration.confidence, 0.7);
+
+        let candidates = calls
+            .iter()
+            .filter(|relation| relation.payload["reason"] == "rust_dyn_dispatch_candidate")
+            .collect::<Vec<_>>();
+        assert_eq!(candidates.len(), 2);
+        assert!(candidates.iter().any(|relation| relation.to == file_read.id));
+        assert!(candidates.iter().any(|relation| relation.to == net_read.id));
+        assert!(
+            candidates
+                .iter()
+                .all(|relation| relation.confidence == 0.5
+                    && relation.payload["candidate_count"] == 2
+                    && relation.payload["truncated"] == false)
+        );
+        // Candidate edges are also `Implements` evidence, never a resolved call.
+        assert!(relations.iter().any(|relation| relation.kind == RelationKind::Implements));
+    }
+
+    #[tokio::test]
+    async fn a_concrete_receiver_claims_no_candidates() {
+        let reader_trait = type_entity("ent_trait_reader", "crate::app::Reader", "trait");
+        let file_type = type_entity("ent_type_file", "crate::app::FileReader", "struct");
+        let trait_read = trait_method("ent_reader_read", "crate::app::Reader::read");
+        let file_read = method("ent_file_read", "crate::app::FileReader::read");
+        let caller = typed_caller(
+            "ent_run",
+            "crate::app::run",
+            json!([{"name": "file", "type": "FileReader", "kind": "annotation", "line": 3}]),
+            json!([call_site("method", "file.read", "read")]),
+        );
+
+        let entities = vec![
+            reader_trait,
+            file_type,
+            trait_read,
+            file_read.clone(),
+            caller.clone(),
+        ];
+        let facts = vec![impl_fact(
+            "fact_file",
+            "ent_type_file",
+            "FileReader",
+            "Reader",
+            "crate::app::Reader",
+        )];
+        let relations = link_all(entities, facts).await;
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls && relation.from == caller.id)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].to, file_read.id);
+        assert_eq!(calls[0].payload["reason"], "rust_typed_receiver_method");
+        assert_eq!(calls[0].confidence, 0.8);
+    }
+
+    #[tokio::test]
+    async fn the_candidate_list_is_bounded_and_disclosed() {
+        let reader_trait = type_entity("ent_trait_reader", "crate::app::Reader", "trait");
+        let trait_read = trait_method("ent_reader_read", "crate::app::Reader::read");
+        let caller = typed_caller(
+            "ent_run",
+            "crate::app::run",
+            json!([{"name": "reader", "type": "Reader", "kind": "impl_trait", "line": 3}]),
+            json!([call_site("method", "reader.read", "read")]),
+        );
+
+        let mut entities = vec![reader_trait, trait_read, caller.clone()];
+        let mut facts = Vec::new();
+        for index in 0..10 {
+            let name = format!("Reader{index}");
+            entities.push(method(
+                &format!("ent_method_{index}"),
+                &format!("crate::app::{name}::read"),
+            ));
+            entities.push(type_entity(
+                &format!("ent_type_{index}"),
+                &format!("crate::app::{name}"),
+                "struct",
+            ));
+            facts.push(impl_fact(
+                &format!("fact_{index}"),
+                &format!("ent_type_{index}"),
+                &name,
+                "Reader",
+                "crate::app::Reader",
+            ));
+        }
+        let relations = link_all(entities, facts).await;
+
+        let candidates = relations
+            .iter()
+            .filter(|relation| {
+                relation.kind == RelationKind::Calls
+                    && relation.from == caller.id
+                    && relation.payload["reason"] == "rust_dyn_dispatch_candidate"
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(candidates.len(), 8);
+        assert!(
+            candidates
+                .iter()
+                .all(|relation| relation.payload["candidate_count"] == 8
+                    && relation.payload["truncated"] == true)
+        );
+    }
+
+    #[tokio::test]
+    async fn candidates_do_not_become_test_coverage() {
+        let reader_trait = type_entity("ent_trait_reader", "crate::app::Reader", "trait");
+        let file_type = type_entity("ent_type_file", "crate::app::FileReader", "struct");
+        let trait_read = trait_method("ent_reader_read", "crate::app::Reader::read");
+        let file_read = method("ent_file_read", "crate::app::FileReader::read");
+        let test_case = test_caller(
+            "ent_test",
+            "crate::app::reads",
+            json!([{"name": "reader", "type": "Reader", "kind": "trait_object", "line": 3}]),
+            json!([call_site("method", "reader.read", "read")]),
+        );
+
+        let entities = vec![
+            reader_trait,
+            file_type,
+            trait_read.clone(),
+            file_read.clone(),
+            test_case.clone(),
+        ];
+        let facts = vec![impl_fact(
+            "fact_file",
+            "ent_type_file",
+            "FileReader",
+            "Reader",
+            "crate::app::Reader",
+        )];
+        let relations = link_all(entities, facts).await;
+
+        let tested = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::TestedBy)
+            .collect::<Vec<_>>();
+        assert_eq!(tested.len(), 1);
+        assert_eq!(tested[0].to, test_case.id);
+        assert_eq!(tested[0].from, trait_read.id);
     }
 
     #[tokio::test]
