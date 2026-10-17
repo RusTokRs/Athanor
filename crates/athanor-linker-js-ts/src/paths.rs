@@ -59,7 +59,7 @@ pub(crate) fn import_candidates(base: &str) -> Vec<String> {
     candidates
 }
 
-fn normalize_relative(parent: &str, specifier: &str) -> Option<String> {
+pub(crate) fn normalize_relative(parent: &str, specifier: &str) -> Option<String> {
     let mut parts = parent
         .split('/')
         .filter(|part| !part.is_empty())

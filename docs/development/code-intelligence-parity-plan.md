@@ -54,10 +54,10 @@ Two concrete targets:
   named default function exports/re-exports, P2E direct namespace re-exports for single-member calls
   through named imports, P2F bounded multiple-source wildcard aggregation, P2G callback and
   promise-handler bridges for allowlisted combinators, P2J module-resolution configuration with
-  TypeScript path aliases and workspace-package specifiers, and P2K anonymous default exports bound
-  to the canonical `default` name. `exports` and conditional-exports subpaths, TypeScript
-  `rootDirs`, package-manager-specific workspace layouts, and receiver/type-aware dispatch remain
-  open.
+  TypeScript path aliases and workspace-package specifiers, P2K anonymous default exports bound
+  to the canonical `default` name, and P2L package `exports` subpaths with conditional exports,
+  pnpm workspace layouts, and merged `rootDirs` roots. Receiver/type-aware dispatch and deep member
+  paths remain open.
 - Both: symbol-level incremental invalidation so a changed declaration re-resolves only its closure.
 
 #### P2A — Heritage Relation Semantics (bounded Rust/TypeScript slice)
@@ -476,11 +476,58 @@ cargo test -p athanor-app --locked
 cargo test -p athanor-app --features js-ts-precision --locked
 ```
 
+#### P2L — Package Exports, Workspace Layouts And Merged Roots (bounded JS/TS slice)
+
+- A `package.json` `exports` map is projected as ordered rows: one row per declared target with its
+  subpath key, the condition keys guarding it, and the target path. Sugar forms are normalized — a
+  bare string, a bare array, and an object keyed by conditions all describe the `.` subpath — and
+  wildcard subpaths keep their `*`. Bounds are 64 rows and 4 condition keys per row, with an
+  `omitted_exports` count. A declaration-order walk is exactly the order Node falls back through,
+  so the linker proves rows in the package's own preference order instead of reconstructing the
+  tree.
+- The linker keeps Node's encapsulation rule: once a package declares `exports`, a subpath it does
+  not declare is unreachable even when the file exists, so `pkg/tools` stays unresolved unless the
+  map declares it. Among matching rows the longest static prefix wins; rows of one subpath are then
+  tried in declaration order until a target resolves to a real module. A row guarded by a condition
+  Athanor cannot evaluate — `production`, `deno`, `worker`, or any custom key — is skipped rather
+  than guessed, and a target that leaves the package directory stays unresolved.
+- `pnpm-workspace.yaml` declares workspace membership for layouts that have no npm `workspaces`
+  field. Its top-level `packages:` block sequence is projected as a workspace-layout entity, and
+  those patterns grant membership exactly like a `workspaces` glob. Flow sequences, anchors, and
+  nested blocks are outside the projection, and a manifest without a readable package list is not
+  projected at all, so an unreadable layout never turns every package into a workspace member.
+- `compilerOptions.rootDirs` records the roots TypeScript presents as one merged virtual directory.
+  A relative specifier that misses in the importing file's own root is retried at the same relative
+  path in the other roots of the nearest configuration that declares them; two roots that both hold
+  the path are ambiguous and stay unresolved. The origin is recorded in the relation reason as
+  `root_directory_module_import`, so a merged-root edge is never mistaken for a plain relative one.
+- Bump both index-state schema families from v57 to v58 because the package and configuration
+  payloads change the linker input, so cached relations are recomputed in both configurations.
+
+Focused source regression matrix:
+
+| Surface | Regression |
+| --- | --- |
+| JS/TS extractor | `exports` rows with conditions, arrays, wildcards, and sugar forms; disclosure bounds; the pnpm `packages:` list, comments, and the no-evidence case; `rootDirs` roots and their bounds |
+| Import linker | A declared subpath and the package root resolve through `exports`; an undeclared subpath, an unevaluable condition, and a target outside the package stay unresolved |
+| Membership | A package covered only by a pnpm layout resolves, and the same package without the layout does not |
+| Relative fallback | A relative import resolves in another merged root, and two roots holding the same path stay unresolved |
+| Persistence | v57 normal/precision state is rejected and forces a v58 rebuild |
+
+Focused verification:
+
+```bash
+cargo test -p athanor-extractor-js-ts --locked
+cargo test -p athanor-extractor-js-ts --features precision-parser --locked
+cargo test -p athanor-linker-js-ts --locked
+cargo test -p athanor-app --locked
+cargo test -p athanor-app --features js-ts-precision --locked
+```
+
 #### Remaining P2 Gaps
 
-- `exports` and conditional-exports subpaths, TypeScript `rootDirs`, and package-manager-specific
-  workspace layouts such as `pnpm-workspace.yaml`; receiver/type-aware dispatch and deep member
-  paths.
+- Receiver/type-aware dispatch and deep member paths; package-manager-specific resolution that
+  needs an installed tree, such as Yarn `nodeLinker` layouts and patched dependencies.
 - Rust dyn-dispatch candidates and symbol-level incremental invalidation for both Rust and JS/TS.
 
 ### P3 — Bounded Language Expansion

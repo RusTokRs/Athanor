@@ -47,7 +47,10 @@ by both source files, and carries the matched value plus the resolution reason.
 
 The import linker resolves `./` and `../` imports against canonical JS/TS module paths. It supports
 exact paths, extensionless source paths, and directory `index` modules for `.js`, `.jsx`, `.mjs`,
-`.cjs`, `.ts`, `.tsx`, `.mts`, and `.cts`.
+`.cjs`, `.ts`, `.tsx`, `.mts`, and `.cts`. A relative specifier that misses is retried at the same
+path inside the other roots of the nearest configuration's `rootDirs`, because TypeScript presents
+those roots as one merged directory; two roots that both hold the path are ambiguous and stay
+unresolved.
 
 Non-relative specifiers resolve only through configuration evidence recorded by
 `athanor-extractor-js-ts`:
@@ -59,17 +62,21 @@ Non-relative specifiers resolve only through configuration evidence recorded by
    with at most one `*`; the captured text is substituted into each target, and the first target that
    names an existing module wins.
 2. **Workspace packages.** A bare specifier resolves when a `package.json` whose `name` equals the
-   specifier is a member of a workspace declared by another `package.json` in the snapshot: a
-   `packages/*`-style glob, where `*` matches one path segment and `**` matches any number of them,
-   must cover the package directory. The package entry point is its recorded `main` when it resolves,
-   otherwise `index` in the package root. A `name/subpath` specifier resolves the subpath inside the
-   package directory with the standard extension and `index` candidates.
+   specifier is a member of a workspace declared by another `package.json` in the snapshot or by a
+   `pnpm-workspace.yaml`/`.yml` layout: a `packages/*`-style glob, where `*` matches one path
+   segment and `**` matches any number of them, must cover the package directory. When the package
+   declares `exports`, the subpath resolves through that map instead — the longest declared prefix
+   wins, rows are tried in the package's own declaration order, a row guarded by an unevaluable
+   condition such as `production` is skipped, and a subpath the map does not declare is unreachable
+   even when the file exists. Without `exports`, the package entry point is its recorded `main` when
+   it resolves, otherwise `index` in the package root, and a `name/subpath` specifier resolves the
+   subpath inside the package directory with the standard extension and `index` candidates.
 
-Every other bare specifier stays unresolved: `node_modules` contents, `exports` and conditional
-exports maps, TypeScript `rootDirs`, package-manager installs, and `pnpm-workspace.yaml` are never
-read. A package that no workspace declaration covers, a duplicated package name, a configuration
-without a usable base directory, and a specifier that matches no mapping all fail closed instead of
-falling back to a name guess.
+Every other bare specifier stays unresolved: `node_modules` contents, package-manager installs, and
+resolution that needs an installed tree are never read. A package that no workspace declaration
+covers, a duplicated package name, a configuration without a usable base directory, an `exports`
+target that leaves the package directory, and a specifier that matches no mapping all fail closed
+instead of falling back to a name guess.
 
 ## Call Resolution
 
