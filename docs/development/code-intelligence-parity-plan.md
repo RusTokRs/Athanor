@@ -339,11 +339,44 @@ cargo test -p athanor-app --locked
 cargo test -p athanor-app --features js-ts-precision --locked
 ```
 
+#### P2I — Multi-Hop Namespace Aliases (bounded JS/TS slice)
+
+- A namespace member call `alias.member()` resolves when the namespace name is
+  forwarded across modules by source-backed named re-exports, not only when the
+  importing module declares the `export * as alias` clause directly. The chain
+  follows each `export { alias as renamed } from "./source"` forwarding until it
+  reaches the module that declares the `export * as alias` namespace re-export,
+  then resolves `member` in that namespace's source with the existing ordered
+  rules. The namespace name may change at each hop through the re-export alias.
+- Fail-closed bounds: an absent forwarding keeps the existing non-namespace
+  fallbacks; multiple forwardings of one namespace name, an unresolved or cyclic
+  forwarding, and a chain over the 32-hop or 1,024-visit bound all stay
+  unresolved. A namespace member is never guessed from a snapshot-wide name match.
+- Extractor payloads are unchanged: named re-export bindings already record the
+  imported and exported spellings, so this is a linker-only resolution extension.
+- Bump both index-state schema families from v54 to v55 so cached relations are
+  recomputed with the extended namespace resolution in both configurations.
+
+Focused source regression matrix:
+
+| Surface | Regression |
+| --- | --- |
+| Call linker | A renamed forwarded namespace alias (`export { api as client }` then `export * as api`) resolves `client.member()`; a same-name forwarding resolves too |
+| Fail-closed | Two forwardings of one namespace name, a forwarding chain that ends without a namespace declaration, cycles, and over-bound chains stay unresolved |
+| Persistence | v54 normal/precision state is rejected and forces a v55 rebuild |
+
+Focused verification:
+
+```bash
+cargo test -p athanor-linker-js-ts --locked
+cargo test -p athanor-app --locked
+cargo test -p athanor-app --features js-ts-precision --locked
+```
+
 #### Remaining P2 Gaps
 
-- JavaScript/TypeScript multi-hop namespace aliases, anonymous default exports;
-  package/workspace specifiers and TypeScript path aliases; receiver/type-aware dispatch
-  and deep member paths.
+- JavaScript/TypeScript anonymous default exports; package/workspace specifiers
+  and TypeScript path aliases; receiver/type-aware dispatch and deep member paths.
 - Rust dyn-dispatch candidates and symbol-level incremental invalidation for both Rust and JS/TS.
 
 ### P3 — Bounded Language Expansion

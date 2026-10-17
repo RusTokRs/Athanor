@@ -59,8 +59,10 @@ previous one is silent:
 4. `imported_default_export` — a default import resolves directly to the named function
    or class binding marked by `export default` in its relative target module.
 5. `imported_reexport_chain` — calls resolve through explicit local aliases, relative named
-   re-exports (including default aliases), source-backed wildcard clauses, or one direct
-   `export * as name` mapping used by a named-import single-member call. Multiple wildcard sources
+   re-exports (including default aliases), source-backed wildcard clauses, one direct
+   `export * as name` mapping used by a named-import single-member call, or a namespace
+   alias forwarded across modules by source-backed named re-exports of the namespace
+   name itself. Multiple wildcard sources
    resolve only when applicable branches agree on one declaration; absent names are skipped, while
    ambiguous, unresolved, cyclic, or over-limit branches block the aggregate. The namespace hop
    counts against the 32-export-hop bound, and recursive export resolution is capped at 1,024 module
@@ -130,7 +132,7 @@ contract relationship.
 ## Boundaries
 
 Package imports, Node built-ins, workspace aliases, TypeScript path aliases, dynamic imports,
-CommonJS `require` calls, multi-hop namespace aliases, anonymous/default-expression exports,
+CommonJS `require` calls, anonymous/default-expression exports,
 anonymous default classes, computed member calls, multi-segment named-import namespace paths,
 and receiver typing are not resolved. Callback bridging only fires for the extractor's combinator allowlist and
 only for statically nameable arguments; callbacks passed as inline arrows, call results, or

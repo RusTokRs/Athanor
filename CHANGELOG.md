@@ -24,15 +24,13 @@ substantive release notes.
 - Add the JavaScript/TypeScript call graph. The JS/TS extractor records each import statement's local
   bindings (`default_name`, `namespace_name`, `named`) and a bounded `calls` array per declaration
   with the statically named callee, receiver, kind, argument count, and line/column.
-  `builtin.linker.js_ts_calls` resolves those call sites into evidence-backed `Calls` relations
-  (same-module, `this.` member, imported binding, unique-name) and emits `TestedBy` from test locations.
+  `builtin.linker.js_ts_calls` resolves those into evidence-backed `Calls` relations and emits `TestedBy` from test locations.
 - Preserve JS/TS aliases; resolve bounded named/default and direct-namespace calls plus uniquely aggregated multi-source wildcards, exclude wildcard `default`, and bump index v47→v52.
 - Add JS/TS callback and promise-handler bridges: combinator call sites record bounded
   `callback_arguments` that the call linker resolves into indirect evidence-backed `Calls` edges; index state bumps v52→v53.
 - Add strict versioned request, outline, context, citation, draft, manifest, and validation-report
   contracts for documentation generation: exact snapshot binding, portable paths, stable-key/evidence traceability, cited diagram edges, metrics, and checksums.
-- Add a minimal fixture repository and Rustok evaluation corpus with expected sections, citation paths,
-  diagram edges, known gaps, repeatability, unsupported-relation disclosure, and review criteria.
+- Add a minimal fixture repository and Rustok evaluation corpus with expected sections, citation paths, diagram edges, known gaps, repeatability, unsupported-relation disclosure, and review criteria.
 - Add a deterministic architecture profile that converts one explicit canonical snapshot into cited
   Markdown, relation-backed Mermaid, omission disclosure, footnotes, metrics, and checksums.
 - Add an application-layer immutable documentation publisher with staged generation directories,
@@ -47,6 +45,8 @@ substantive release notes.
   `antigravity.json` project one `ScriptCommand` per server, with evidence and ownership.
 - Add JS/TS default class export binding: `export default class Foo {}` records its default
   name and a default-imported or same-module `new Foo()` resolves to the class; index state bumps v53→v54.
+- Add JS/TS multi-hop namespace aliases: a namespace name forwarded across modules by
+  named re-exports resolves `alias.member()`; index state bumps v54→v55.
 - Add local semantic retrieval with zero new dependencies: hashing-trick embeddings over character
   trigrams and word n-grams (FNV-1a buckets) power `ath search --mode semantic|hybrid` and MCP `search`.
 

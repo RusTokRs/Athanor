@@ -730,13 +730,17 @@ fn resolve_exported_name<'a>(
     result
 }
 
-/// Resolves a member through one direct, source-backed namespace re-export.
+/// Resolves a member through a source-backed namespace re-export chain.
 ///
-/// `None` means there is no namespace alias for this import; `Some(None)` means
-/// a matching alias exists but is ambiguous, unresolved, cyclic, or over the
-/// re-export depth or visit bounds. The caller uses that distinction to preserve
-/// existing directly qualified imported-class member resolution without
-/// falling back from a broken namespace mapping.
+/// The first hop is a direct `export * as name from "…"` clause. When the
+/// module declares no such clause, the namespace name itself may be
+/// forwarded by a source-backed named re-export, so the chain follows that
+/// alias to the module that declares the namespace. `None` means there is
+/// no namespace alias for this import; `Some(None)` means a matching alias
+/// exists but is ambiguous, unresolved, cyclic, or over the re-export depth
+/// or visit bounds. The caller uses that distinction to preserve existing
+/// directly qualified imported-class member resolution without falling
+/// back from a broken namespace mapping.
 #[allow(clippy::too_many_arguments)]
 fn resolve_namespace_exported_member<'a>(
     module: &'a Entity,
@@ -754,7 +758,16 @@ fn resolve_namespace_exported_member<'a>(
         .filter(|export| export.get("namespace_name").and_then(Value::as_str) == Some(namespace))
         .collect::<Vec<_>>();
     if namespace_exports.is_empty() {
-        return None;
+        return resolve_forwarded_namespace_alias(
+            module,
+            namespace,
+            member,
+            modules,
+            declarations_by_path,
+            visited,
+            remaining_steps,
+            depth,
+        );
     }
     if namespace_exports.len() != 1 {
         return Some(None);
@@ -793,6 +806,85 @@ fn resolve_namespace_exported_member<'a>(
     });
     visited.remove(&path);
     Some(resolved.map(|(target, nested_depth)| (target, nested_depth + 1)))
+}
+
+/// Follows a namespace name that a module forwards through a
+/// source-backed named re-export, so one namespace alias can span
+/// several modules before its declaring `export * as name` clause.
+///
+/// Returns `None` when the module forwards no such namespace name, so
+/// the caller keeps its non-namespace fallbacks, and `Some(None)` when
+/// a forwarding exists but is ambiguous, unresolved, cyclic, or over the
+/// re-export depth or visit bounds.
+#[allow(clippy::too_many_arguments)]
+fn resolve_forwarded_namespace_alias<'a>(
+    module: &'a Entity,
+    namespace: &str,
+    member: &str,
+    modules: &HashMap<String, &'a Entity>,
+    declarations_by_path: &HashMap<String, Vec<&'a Entity>>,
+    visited: &mut HashSet<String>,
+    remaining_steps: &mut usize,
+    depth: usize,
+) -> Option<Option<(&'a Entity, usize)>> {
+    if depth > MAX_REEXPORT_DEPTH || *remaining_steps == 0 {
+        return Some(None);
+    }
+    *remaining_steps -= 1;
+    let Some(path) = entity_path(module) else {
+        return Some(None);
+    };
+    let exports = module.payload.get("exports").and_then(Value::as_array)?;
+    let mut forwardings = Vec::new();
+    for export in exports {
+        if export
+            .get("namespace_name")
+            .and_then(Value::as_str)
+            .is_some()
+            || export.get("star").and_then(Value::as_bool) == Some(true)
+        {
+            continue;
+        }
+        let Some(specifier) = export.get("source").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(bindings) = export.get("bindings").and_then(Value::as_array) else {
+            continue;
+        };
+        for binding in bindings {
+            if binding.get("exported").and_then(Value::as_str) != Some(namespace) {
+                continue;
+            }
+            if let Some(imported) = binding.get("imported").and_then(Value::as_str) {
+                forwardings.push((specifier.to_string(), imported.to_string()));
+            }
+        }
+    }
+    if forwardings.is_empty() {
+        return None;
+    }
+    if forwardings.len() != 1 {
+        return Some(None);
+    }
+    let (specifier, imported) = forwardings.into_iter().next()?;
+    if !visited.insert(path.clone()) {
+        return Some(None);
+    }
+    let resolved = match resolve_local_import(module, &specifier, modules) {
+        Some(target_module) => resolve_namespace_exported_member(
+            target_module,
+            &imported,
+            member,
+            modules,
+            declarations_by_path,
+            visited,
+            remaining_steps,
+            depth + 1,
+        ),
+        None => None,
+    };
+    visited.remove(&path);
+    Some(resolved.flatten())
 }
 
 /// Retains direct `ImportedClass.method()` resolution without treating an
@@ -1953,6 +2045,277 @@ mod tests {
                 && relation.to == refresh.id
                 && relation.payload["resolution"] == "imported_symbol_name"
         }));
+    }
+
+    #[tokio::test]
+    async fn resolves_namespace_members_through_forwarded_namespace_aliases() {
+        let app_module = module(
+            "ent_fwd_app",
+            "src/fwd-app.ts",
+            json!({
+                "imports": [{
+                    "source": "./index",
+                    "named": ["client"],
+                    "named_bindings": [{"imported": "client", "local": "client"}]
+                }]
+            }),
+        );
+        let index_module = module(
+            "ent_fwd_index",
+            "src/index.ts",
+            json!({
+                "imports": [],
+                "exports": [{
+                    "source": "./auth",
+                    "bindings": [{"imported": "api", "exported": "client"}],
+                    "star": false
+                }]
+            }),
+        );
+        let auth_module = module(
+            "ent_fwd_auth",
+            "src/auth.ts",
+            json!({
+                "imports": [],
+                "exports": [{
+                    "source": "./functions",
+                    "bindings": [],
+                    "star": false,
+                    "namespace_name": "api"
+                }]
+            }),
+        );
+        let functions_module = module(
+            "ent_fwd_functions",
+            "src/functions.ts",
+            json!({"imports": []}),
+        );
+        let login = declaration(
+            "ent_fwd_login",
+            "src/functions.ts",
+            "login",
+            "login",
+            true,
+            json!([]),
+        );
+        let run = declaration(
+            "ent_fwd_run",
+            "src/fwd-app.ts",
+            "run",
+            "run",
+            false,
+            json!([call_site("client.login", "login", 5)]),
+        );
+        let entities = vec![
+            app_module,
+            index_module,
+            auth_module,
+            functions_module,
+            login.clone(),
+            run.clone(),
+        ];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from, run.id);
+        assert_eq!(calls[0].to, login.id);
+        assert_eq!(calls[0].payload["resolution"], "imported_reexport_chain");
+    }
+
+    #[tokio::test]
+    async fn resolves_namespace_members_through_same_name_forwarded_aliases() {
+        let app_module = module(
+            "ent_same_app",
+            "src/same-app.ts",
+            json!({
+                "imports": [{
+                    "source": "./index",
+                    "named": ["api"],
+                    "named_bindings": [{"imported": "api", "local": "api"}]
+                }]
+            }),
+        );
+        let index_module = module(
+            "ent_same_index",
+            "src/index.ts",
+            json!({
+                "imports": [],
+                "exports": [{
+                    "source": "./auth",
+                    "bindings": [{"imported": "api", "exported": "api"}],
+                    "star": false
+                }]
+            }),
+        );
+        let auth_module = module(
+            "ent_same_auth",
+            "src/auth.ts",
+            json!({
+                "imports": [],
+                "exports": [{
+                    "source": "./functions",
+                    "bindings": [],
+                    "star": false,
+                    "namespace_name": "api"
+                }]
+            }),
+        );
+        let functions_module = module(
+            "ent_same_functions",
+            "src/functions.ts",
+            json!({"imports": []}),
+        );
+        let login = declaration(
+            "ent_same_login",
+            "src/functions.ts",
+            "login",
+            "login",
+            true,
+            json!([]),
+        );
+        let run = declaration(
+            "ent_same_run",
+            "src/same-app.ts",
+            "run",
+            "run",
+            false,
+            json!([call_site("api.login", "login", 5)]),
+        );
+        let entities = vec![
+            app_module,
+            index_module,
+            auth_module,
+            functions_module,
+            login.clone(),
+            run.clone(),
+        ];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from, run.id);
+        assert_eq!(calls[0].to, login.id);
+        assert_eq!(calls[0].payload["resolution"], "imported_reexport_chain");
+    }
+
+    #[tokio::test]
+    async fn ambiguous_forwarded_namespace_aliases_stay_unresolved() {
+        let app_module = module(
+            "ent_amb_app",
+            "src/amb-app.ts",
+            json!({
+                "imports": [{
+                    "source": "./index",
+                    "named": ["client"],
+                    "named_bindings": [{"imported": "client", "local": "client"}]
+                }]
+            }),
+        );
+        let index_module = module(
+            "ent_amb_index",
+            "src/index.ts",
+            json!({
+                "imports": [],
+                "exports": [
+                    {
+                        "source": "./auth",
+                        "bindings": [{"imported": "api", "exported": "client"}],
+                        "star": false
+                    },
+                    {
+                        "source": "./other",
+                        "bindings": [{"imported": "other", "exported": "client"}],
+                        "star": false
+                    }
+                ]
+            }),
+        );
+        let auth_module = module(
+            "ent_amb_auth",
+            "src/auth.ts",
+            json!({
+                "imports": [],
+                "exports": [{
+                    "source": "./functions",
+                    "bindings": [],
+                    "star": false,
+                    "namespace_name": "api"
+                }]
+            }),
+        );
+        let other_module = module("ent_amb_other", "src/other.ts", json!({"imports": []}));
+        let functions_module = module(
+            "ent_amb_functions",
+            "src/functions.ts",
+            json!({"imports": []}),
+        );
+        let login = declaration(
+            "ent_amb_login",
+            "src/functions.ts",
+            "login",
+            "login",
+            true,
+            json!([]),
+        );
+        let run = declaration(
+            "ent_amb_run",
+            "src/amb-app.ts",
+            "run",
+            "run",
+            false,
+            json!([call_site("client.login", "login", 5)]),
+        );
+        let entities = vec![
+            app_module,
+            index_module,
+            auth_module,
+            other_module,
+            functions_module,
+            login.clone(),
+            run.clone(),
+        ];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        assert!(
+            !relations
+                .iter()
+                .any(|relation| relation.kind == RelationKind::Calls),
+            "an ambiguous forwarded namespace alias must stay unresolved"
+        );
     }
 
     #[tokio::test]

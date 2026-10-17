@@ -59,10 +59,12 @@ The call linker consumes the bounded `calls` arrays and the import bindings that
 4. `imported_default_export` — a default import resolves directly to its named default
    function or class declaration.
 5. `imported_reexport_chain` — through explicit named local exports, relative named/default
-   re-exports, source-backed wildcard clauses, or a unique direct `export * as name` mapping for a
-   named-import single-member call. Multiple wildcard sources resolve only when applicable branches
-   agree on one declaration; absent names are skipped, while ambiguous, unresolved, cyclic, or
-   over-limit branches block the aggregate. Namespace hops count toward the 32-hop bound, and each
+   re-exports, source-backed wildcard clauses, a unique direct `export * as name` mapping for
+   a named-import single-member call, or a namespace alias forwarded across modules by
+   source-backed named re-exports of the namespace name itself. Multiple wildcard sources
+   resolve only when applicable branches agree on one declaration; absent names are skipped,
+   while ambiguous, unresolved, cyclic, or over-limit branches block the aggregate. Namespace
+   hops count toward the 32-hop bound, and each
    call's recursive export resolution is capped at 1,024 module visits.
 6. `same_module_member_name` — a unique member name inside the calling module.
 7. `unique_exported_name` — a unique exported declaration elsewhere in the snapshot.
@@ -93,6 +95,7 @@ commands, use the network, or modify project files.
   multi-segment paths through named-import namespace aliases stay unresolved. Existing
   namespace-import receiver behavior is unchanged. Anonymous default expressions and anonymous
   default classes stay unresolved because they have no statically nameable local binding.
+  Multi-segment paths through named-import namespace aliases stay unresolved.
 - Dynamic `import()`, CommonJS `require()`, computed calls (`handlers[key]()`), calls through call
   results, reflective dispatch, and receiver typing are not resolved.
 - Test detection is location-based because no test framework runs: `.test.`/`.spec.` file names and
