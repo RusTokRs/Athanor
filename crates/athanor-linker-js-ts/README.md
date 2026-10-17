@@ -95,8 +95,13 @@ The call linker consumes the bounded `calls` arrays and the import bindings that
    `Repo` and `Repo.items` is an `ItemStore`, even when `Repo` is declared in another module: a
    segment is read from the calling module first and then from the module that owns the current
    type, and only an exported top-level class, interface, or type alias owns those rows — a name
-   declared in two modules owns neither. A repeated type, a path longer than four segments, an
-   ambiguous binding, or a terminal that matches more than one declaration ends the walk.
+   declared in two modules owns neither. The root may instead be a binding the module initializes
+   with a call: `const repo = createRepo(); repo.items` takes the return type `createRepo`
+   declares, resolved through the steps below, and a factory reached only by a name-unique
+   declaration types nothing. The typed step is disabled while a factory is resolved, so one
+   receiver's type is never derived from another's. A repeated type, a path longer than four
+   segments, an ambiguous binding, or a terminal that matches more than one declaration ends the
+   walk.
 5. `imported_default_export` — a default import resolves directly to its named default
    function or class declaration.
 6. `imported_reexport_chain` — through explicit named local exports, relative named/default
@@ -143,7 +148,8 @@ commands, use the network, or modify project files.
 - Dynamic `import()`, CommonJS `require()`, computed calls (`handlers[key]()`), calls through call
   results, and reflective dispatch are not resolved. Receiver typing covers only a type the source
   states: an inferred type, a type imported by another module but never named in an annotation, a
-  structural type, and a member reached through a function call or an index stay unresolved. A
+  structural type, and a member reached through an unannotated factory or an index stay
+  unresolved. A
   field is read from the module that declares its owner only when that owner is exported and
   unambiguous, and an ambiguous, cyclic, or over-bound path ends the walk instead of being
   guessed.

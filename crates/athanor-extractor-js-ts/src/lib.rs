@@ -95,6 +95,7 @@ impl Extractor for JsTsExtractor {
         );
 
         let (typed_bindings, omitted_typed_bindings) = typed_bindings(root, parse_bytes);
+        let (call_bindings, omitted_call_bindings) = call_bindings(root, parse_bytes);
 
         if root.has_error() {
             collect_parse_errors(
@@ -156,6 +157,8 @@ impl Extractor for JsTsExtractor {
             "exports": exports,
             "typed_bindings": typed_bindings,
             "omitted_typed_bindings": omitted_typed_bindings,
+            "call_bindings": call_bindings,
+            "omitted_call_bindings": omitted_call_bindings,
             "declaration_count": declarations.len(),
         });
         #[cfg(feature = "precision-parser")]
@@ -217,6 +220,9 @@ impl Extractor for JsTsExtractor {
             if let Some(heritage) = &declaration.heritage {
                 payload["extends"] = json!(heritage.extends);
                 payload["implements"] = json!(heritage.implements);
+            }
+            if let Some(return_type) = &declaration.return_type {
+                payload["return_type"] = json!(return_type);
             }
 
             entities.push(Entity {
@@ -442,6 +448,7 @@ struct SourceDeclaration {
     line_range: (u32, u32),
     calls: Vec<Value>,
     heritage: Option<TypeHeritage>,
+    return_type: Option<String>,
 }
 
 /// `extends`/`implements` heritage of a class or interface, reduced to bare type names.
@@ -664,6 +671,21 @@ fn declared_type(node: Node, bytes: &[u8]) -> Option<String> {
     terminal_name(&node_text(inner, bytes)?)
 }
 
+/// Reads the declared return type of a function, method, or arrow function.
+///
+/// Only a bare named type is usable: `Promise<Repo>` returns a promise and not a
+/// `Repo`, so a generic instantiation, a union, an array type, and a function
+/// type name nothing the linker may take as a receiver type.
+fn function_return_type(node: Node, bytes: &[u8]) -> Option<String> {
+    let annotation = node.child_by_field_name("return_type")?;
+    let inner = annotation.named_child(0)?;
+    let text = node_text(inner, bytes)?;
+    if text.contains(['<', '[', '(', '|', '&']) {
+        return None;
+    }
+    terminal_name(&text)
+}
+
 /// Reduces one type or constructor path to its terminal identifier.
 fn terminal_name(text: &str) -> Option<String> {
     let trimmed = text.trim();
@@ -683,6 +705,54 @@ fn find_child_kind<'a>(node: Node<'a>, kind: &str) -> Option<Node<'a>> {
     (0..node.child_count())
         .filter_map(|index| node.child(index as u32))
         .find(|child| child.kind() == kind)
+}
+
+/// Records a binding initialized by a call: `const repo = createRepo()`.
+///
+/// The initializer names the factory but not the type, so the row keeps the
+/// callee and leaves the type to the linker, which reads the factory's declared
+/// return type. Nothing is inferred from a name alone.
+fn call_bindings(root: Node, bytes: &[u8]) -> (Vec<Value>, usize) {
+    let mut collected = Vec::new();
+    collect_call_bindings(root, bytes, &mut collected);
+
+    let mut bindings = Vec::new();
+    let mut omitted = 0usize;
+    for (name, callee, line) in collected {
+        if name.is_empty() || callee.is_empty() || bindings.len() == MAX_TYPED_BINDINGS {
+            omitted += 1;
+            continue;
+        }
+        bindings.push(json!({
+            "name": name,
+            "callee": callee,
+            "line": line,
+        }));
+    }
+    (bindings, omitted)
+}
+
+fn collect_call_bindings(
+    node: Node,
+    bytes: &[u8],
+    bindings: &mut Vec<(String, String, u32)>,
+) {
+    if node.kind() == "variable_declarator"
+        && let Some(name_node) = node.child_by_field_name("name")
+        && name_node.kind() == "identifier"
+        && let Some(name) = node_text(name_node, bytes)
+        && let Some(value) = node.child_by_field_name("value")
+        && value.kind() == "call_expression"
+        && let Some(callee_node) = value.child_by_field_name("function")
+        && let Some(callee) = callee_path(callee_node, bytes)
+    {
+        bindings.push((name, callee, node.start_position().row as u32 + 1));
+    }
+
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        collect_call_bindings(child, bytes, bindings);
+    }
 }
 
 fn collect_statement(
@@ -716,6 +786,7 @@ fn collect_statement(
                     line_range: line_range(node),
                     calls: collect_call_sites(node, bytes),
                     heritage: None,
+                    return_type: function_return_type(node, bytes),
                 });
             }
         }
@@ -732,6 +803,7 @@ fn collect_statement(
                     line_range: line_range(node),
                     calls: collect_call_sites(node, bytes),
                     heritage: None,
+                    return_type: function_return_type(node, bytes),
                 });
             }
         }
@@ -748,6 +820,7 @@ fn collect_statement(
                     line_range: line_range(node),
                     calls: Vec::new(),
                     heritage: class_heritage(node, bytes),
+                    return_type: None,
                 });
                 collect_class_members(&name, node, bytes, exported, declarations);
             }
@@ -765,6 +838,7 @@ fn collect_statement(
                     line_range: line_range(node),
                     calls: Vec::new(),
                     heritage: interface_heritage(node, bytes),
+                    return_type: None,
                 });
             }
         }
@@ -781,6 +855,7 @@ fn collect_statement(
                     line_range: line_range(node),
                     calls: Vec::new(),
                     heritage: None,
+                    return_type: None,
                 });
             }
         }
@@ -837,6 +912,11 @@ fn collect_anonymous_default(node: Node, bytes: &[u8], declarations: &mut Vec<So
             } else {
                 None
             },
+            return_type: if is_class {
+                None
+            } else {
+                function_return_type(child, bytes)
+            },
         });
         if is_class {
             collect_class_members(ANONYMOUS_DEFAULT_NAME, child, bytes, true, declarations);
@@ -873,6 +953,7 @@ fn collect_class_members(
                     line_range: line_range(member),
                     calls: collect_call_sites(member, bytes),
                     heritage: None,
+                    return_type: function_return_type(member, bytes),
                 });
             }
         }
@@ -912,6 +993,7 @@ fn collect_variable_functions(
                 line_range: line_range(child),
                 calls: collect_call_sites(value_node, bytes),
                 heritage: None,
+                return_type: function_return_type(value_node, bytes),
             });
         }
     }
@@ -3947,6 +4029,83 @@ mod tests {
             expected
         );
         assert_eq!(module.payload["omitted_typed_bindings"], 0);
+    }
+
+    #[tokio::test]
+    async fn records_declared_return_types_of_functions_and_methods() {
+        let output = JsTsExtractor
+            .extract(input(
+                "src/app.ts",
+                "function createRepo(): Repo {}\nclass App {\n  build(): Builder {}\n}\nconst makeStore = (): Store => {};\nfunction wrapped(): Promise<Repo> {}\nfunction maybe(): Repo | null {}\nfunction plain() {}\n",
+                "typescript",
+            ))
+            .await
+            .unwrap();
+
+        let mut recorded = Vec::new();
+        for entity in &output.entities {
+            let Some(qualified) = entity
+                .payload
+                .get("qualified_name")
+                .and_then(Value::as_str)
+            else {
+                continue;
+            };
+            if let Some(return_type) = entity.payload.get("return_type").and_then(Value::as_str) {
+                recorded.push((qualified.to_string(), return_type.to_string()));
+            }
+        }
+        recorded.sort();
+        assert!(
+            recorded.contains(&("createRepo".to_string(), "Repo".to_string())),
+            "an annotated function records its return type"
+        );
+        assert!(
+            recorded.contains(&("App.build".to_string(), "Builder".to_string())),
+            "an annotated method records its return type"
+        );
+        assert!(
+            recorded.contains(&("makeStore".to_string(), "Store".to_string())),
+            "an annotated arrow function records its return type"
+        );
+        for unnamed in ["wrapped", "maybe", "plain"] {
+            assert!(
+                !recorded.iter().any(|(name, _)| name == unnamed),
+                "{unnamed} must not record a return type a receiver can use"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn records_bindings_initialized_by_a_call() {
+        let output = JsTsExtractor
+            .extract(input(
+                "src/app.ts",
+                "const repo = createRepo();\nconst named = svc.build();\nconst [first] = makePair();\nconst literal = 4;\n",
+                "typescript",
+            ))
+            .await
+            .unwrap();
+
+        let module = output
+            .entities
+            .iter()
+            .find(|entity| entity.kind == EntityKind::Module)
+            .expect("module entity must exist");
+        let bindings = module.payload["call_bindings"]
+            .as_array()
+            .expect("call bindings array");
+        let mut rows = Vec::new();
+        for binding in bindings {
+            rows.push(format!(
+                "{}:{}",
+                binding["name"].as_str().unwrap_or_default(),
+                binding["callee"].as_str().unwrap_or_default()
+            ));
+        }
+        rows.sort();
+        assert_eq!(rows, vec!["named:svc.build".to_string(), "repo:createRepo".to_string()]);
+        assert_eq!(module.payload["omitted_call_bindings"], 0);
     }
 
     #[tokio::test]

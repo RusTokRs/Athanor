@@ -57,8 +57,9 @@ Two concrete targets:
   TypeScript path aliases and workspace-package specifiers, P2K anonymous default exports bound
   to the canonical `default` name, and P2L package `exports` subpaths with conditional exports,
   pnpm workspace layouts, and merged `rootDirs` roots, P2M typed receivers and deep member paths,
-  and P2N typed receiver paths that cross module boundaries. Type inference for a receiver whose
-  type the source never states remains open.
+  P2N typed receiver paths that cross module boundaries, and P2O receivers typed by a factory's
+  declared return type. Type inference for a receiver whose type the source never states remains
+  open.
 - Both: symbol-level incremental invalidation so a changed declaration re-resolves only its closure.
 
 #### P2A — Heritage Relation Semantics (bounded Rust/TypeScript slice)
@@ -622,10 +623,55 @@ cargo test -p athanor-app --locked
 cargo test -p athanor-app --features js-ts-precision --locked
 ```
 
+#### P2O — Factory Return Types As Receiver Evidence (bounded JS/TS slice)
+
+- A receiver produced by a call is now typed by the factory. `const repo = createRepo();
+  repo.items.map()` stayed unresolved because the type is stated by `createRepo`, not by the
+  binding; the extractor records both halves of that evidence and the linker joins them.
+- Declarations carry the return type they declare. Functions, methods, arrow functions, and
+  variable-bound functions record `return_type`, and only a bare named type is usable: `Promise<Repo>`
+  returns a promise rather than a `Repo`, so generic instantiations, unions, arrays, and function
+  types are not recorded. A function without an annotation records nothing.
+- Modules carry the bindings they initialize with a statically named call: `call_bindings` rows of
+  `{name, callee, line}`, bounded to 64 rows with an `omitted_call_bindings` count. A destructuring
+  initializer and a non-call initializer are not bindings, because neither names one receiver.
+- Provenance decides whether a factory's return type may be used. The factory is resolved through the
+  existing ordered resolution, so a local, imported, or re-exported factory counts; a factory reached
+  only by `same_module_member_name` or `unique_exported_name` does not, because a name-unique
+  function in an unimported module does not prove which function ran. The typed step is disabled for
+  that inner lookup, so a factory is never resolved through another receiver's type and the walk
+  cannot recurse.
+- A return-type annotation is annotation evidence at `0.7`, the same tier as a field annotation, and
+  an unproven factory leaves the call to the weaker name guesses. A receiver whose type the source
+  never states anywhere — an unannotated factory, an index access, a structural type — stays
+  unresolved.
+- Bump both index-state schema families from v59 to v60 because declaration payloads gain return
+  types and module payloads gain call-initialized bindings, so cached relations are recomputed in
+  both configurations.
+
+Focused source regression matrix:
+
+| Surface | Regression |
+| --- | --- |
+| JS/TS extractor | Return types of functions, methods, and arrow functions; rejection of `Promise<…>`, unions, arrays, function types, and unannotated functions; call-initialized bindings and the destructuring case |
+| Import/call linker | A receiver typed by a same-module factory resolves as `typed_receiver_path`; a factory without a return type, a name bound to two factories, and a name-unique factory in an unimported module stay unresolved |
+| Recursion | A factory lookup never re-enters the typed step, so cyclic call-initialized bindings cannot loop |
+| Persistence | v59 normal/precision state is rejected and forces a v60 rebuild |
+
+Focused verification:
+
+```bash
+cargo test -p athanor-extractor-js-ts --locked
+cargo test -p athanor-extractor-js-ts --features precision-parser --locked
+cargo test -p athanor-linker-js-ts --locked
+cargo test -p athanor-app --locked
+cargo test -p athanor-app --features js-ts-precision --locked
+```
+
 #### Remaining P2 Gaps
 
-- Type inference for a receiver whose type the source never states — a function result, an index
-  access, or an unannotated binding; package-manager-specific resolution that needs an installed
+- Type inference for a receiver whose type the source never states — an unannotated factory, an
+  index access, or a structural type; package-manager-specific resolution that needs an installed
   tree, such as Yarn `nodeLinker` layouts and patched dependencies.
 - Rust dyn-dispatch candidates and symbol-level incremental invalidation for both Rust and JS/TS.
 

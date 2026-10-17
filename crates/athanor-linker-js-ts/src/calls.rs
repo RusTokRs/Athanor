@@ -157,6 +157,7 @@ impl Linker for JsTsCallLinker {
                     &declarations_by_name,
                     &type_modules,
                     &config,
+                    true,
                 ) {
                     let affects_subset =
                         affected_ids.contains(&caller.id) || affected_ids.contains(&target.id);
@@ -208,6 +209,7 @@ impl Linker for JsTsCallLinker {
                             &declarations_by_name,
                             &type_modules,
                             &config,
+                            true,
                         ) else {
                             continue;
                         };
@@ -308,6 +310,7 @@ fn resolve_call<'a>(
     declarations_by_name: &HashMap<String, Vec<&'a Entity>>,
     type_modules: &HashMap<String, Option<&'a Entity>>,
     config: &ModuleResolutionConfig,
+    allow_typed: bool,
 ) -> Option<(&'a Entity, &'static str, f32)> {
     let caller_path = entity_path(caller)?;
     let same_module = declarations_by_path.get(&caller_path);
@@ -425,13 +428,17 @@ fn resolve_call<'a>(
     //    resolve when every receiver segment names a binding whose type the
     //    extractor proved. A receiver that is only named, not typed, falls
     //    through to the weaker member-name guess below.
-    if callee.contains('.')
+    if allow_typed
+        && callee.contains('.')
         && let Some((target, kind, segments)) = resolve_typed_member(
             callee,
             caller,
             caller_module,
             declarations_by_name,
             type_modules,
+            modules,
+            declarations_by_path,
+            config,
         )
     {
         let resolution = if segments > 1 {
@@ -1148,6 +1155,59 @@ fn build_type_module_index<'a>(
     owners
 }
 
+/// Resolutions strong enough to name a factory whose declared return type may
+/// type a receiver. A unique-name guess does not prove which function ran, so it
+/// cannot decide what a receiver is.
+const FACTORY_RESOLUTIONS: &[&str] = &[
+    "same_module_this_method",
+    "same_module_exact_name",
+    "imported_exact_name",
+    "imported_symbol_name",
+    "imported_default_export",
+    "imported_reexport_chain",
+];
+
+/// Reads the declared return type one declaration records.
+fn declared_return_type(entity: &Entity) -> Option<&str> {
+    entity.payload.get("return_type").and_then(Value::as_str)
+}
+
+/// Reads the bindings one module initializes with a call.
+///
+/// A name bound to two different factories is ambiguous and names nothing, so it
+/// is recorded as unresolved instead of letting one call win by accident.
+fn call_receivers(module: &Entity) -> HashMap<String, Option<String>> {
+    let mut receivers: HashMap<String, Option<String>> = HashMap::new();
+    let Some(bindings) = module
+        .payload
+        .get("call_bindings")
+        .and_then(Value::as_array)
+    else {
+        return receivers;
+    };
+    for binding in bindings {
+        let Some(name) = binding.get("name").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(callee) = binding.get("callee").and_then(Value::as_str) else {
+            continue;
+        };
+        let prior = receivers.get(name).cloned();
+        match prior {
+            None => {
+                receivers.insert(name.to_string(), Some(callee.to_string()));
+            }
+            Some(Some(existing)) => {
+                if existing != callee {
+                    receivers.insert(name.to_string(), None);
+                }
+            }
+            Some(None) => {}
+        }
+    }
+    receivers
+}
+
 /// Reads the type one field of a typed owner declares.
 ///
 /// A field row lives in the module that declares its owner, so a receiver that
@@ -1176,34 +1236,62 @@ fn typed_field(
 /// module that declares the owning type, so a path can leave the calling file.
 /// The walk is bounded, a repeated type ends it, and an untyped or ambiguous
 /// segment leaves the call unresolved rather than falling back to a name match.
+#[allow(clippy::too_many_arguments)]
 fn resolve_typed_member<'a>(
     callee: &str,
-    caller: &Entity,
-    caller_module: &Entity,
+    caller: &'a Entity,
+    caller_module: &'a Entity,
     declarations_by_name: &HashMap<String, Vec<&'a Entity>>,
     type_modules: &HashMap<String, Option<&'a Entity>>,
+    modules: &HashMap<String, &'a Entity>,
+    declarations_by_path: &HashMap<String, Vec<&'a Entity>>,
+    config: &ModuleResolutionConfig,
 ) -> Option<(&'a Entity, &'static str, usize)> {
     let (receiver, member) = callee.rsplit_once('.')?;
     if receiver.is_empty() || member.is_empty() {
         return None;
     }
     let receivers = typed_receivers(caller_module);
+    let call_receivers = call_receivers(caller_module);
     let segments = receiver.split('.').collect::<Vec<_>>();
     if segments.len() > MAX_TYPE_PATH_SEGMENTS || segments.iter().any(|segment| segment.is_empty())
     {
         return None;
     }
 
-    let mut current = if segments[0] == "this" {
-        method_owner(caller)?.to_string()
+    let root = if segments[0] == "this" {
+        TypedReceiver {
+            type_name: method_owner(caller)?.to_string(),
+            kind: "construction",
+        }
+    } else if let Some(Some(binding)) = receivers.get(segments[0]) {
+        binding.clone()
     } else {
-        receivers.get(segments[0])?.as_ref()?.type_name.clone()
+        // A binding initialized by a call takes the factory's declared return
+        // type: the type is stated by the factory's own annotation, not inferred
+        // from the call's name.
+        let callee = call_receivers.get(segments[0])?.as_ref()?;
+        let factory = resolve_call(
+            callee,
+            caller,
+            caller_module,
+            modules,
+            declarations_by_path,
+            declarations_by_name,
+            type_modules,
+            config,
+            false,
+        )?;
+        if !FACTORY_RESOLUTIONS.contains(&factory.1) {
+            return None;
+        }
+        TypedReceiver {
+            type_name: declared_return_type(factory.0)?.to_string(),
+            kind: "annotation",
+        }
     };
-    let mut kind = if segments[0] == "this" {
-        "construction"
-    } else {
-        receivers.get(segments[0])?.as_ref()?.kind
-    };
+    let mut current = root.type_name;
+    let mut kind = root.kind;
 
     let mut visited = vec![current.clone()];
     for segment in segments.iter().skip(1) {
@@ -2266,6 +2354,241 @@ mod tests {
                 .count(),
             0,
             "a type declared in two modules has no proven owner"
+        );
+    }
+
+    #[tokio::test]
+    async fn resolves_a_receiver_through_a_factory_return_type() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({
+                "imports": [],
+                "typed_bindings": [
+                    {"name": "Repo.items", "type": "ItemStore", "kind": "annotation", "line": 8}
+                ],
+                "call_bindings": [
+                    {"name": "repo", "callee": "createRepo", "line": 3}
+                ]
+            }),
+        );
+        let factory = factory_declaration(
+            "ent_create_repo",
+            "src/app.ts",
+            "createRepo",
+            "createRepo",
+            true,
+            Some("Repo"),
+        );
+        let items_map = declaration(
+            "ent_store_map",
+            "src/store.ts",
+            "ItemStore.map",
+            "map",
+            true,
+            json!([]),
+        );
+        let start = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "start",
+            "start",
+            false,
+            json!([call_site("repo.items.map", "map", 6)]),
+        );
+        let entities = vec![app_module, factory, items_map.clone(), start.clone()];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from, start.id);
+        assert_eq!(calls[0].to, items_map.id);
+        assert_eq!(calls[0].payload["resolution"], "typed_receiver_path");
+        assert_eq!(calls[0].confidence, 0.7);
+    }
+
+    #[tokio::test]
+    async fn unproven_factory_return_types_stay_unresolved() {
+        let items_map = declaration(
+            "ent_store_map",
+            "src/store.ts",
+            "ItemStore.map",
+            "map",
+            false,
+            json!([]),
+        );
+
+        // A factory without an annotated return type names nothing.
+        let module_without_annotation = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({
+                "imports": [],
+                "typed_bindings": [
+                    {"name": "Repo.items", "type": "ItemStore", "kind": "annotation", "line": 8}
+                ],
+                "call_bindings": [
+                    {"name": "repo", "callee": "createRepo", "line": 3}
+                ]
+            }),
+        );
+        let factory = factory_declaration(
+            "ent_create_repo",
+            "src/app.ts",
+            "createRepo",
+            "createRepo",
+            true,
+            None,
+        );
+        let caller = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "start",
+            "start",
+            false,
+            json!([call_site("repo.items.map", "map", 6)]),
+        );
+        let entities = vec![
+            module_without_annotation,
+            factory,
+            items_map.clone(),
+            caller,
+        ];
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            relations
+                .iter()
+                .filter(|relation| relation.kind == RelationKind::Calls)
+                .count(),
+            0,
+            "a factory without a declared return type types nothing"
+        );
+
+        // The same name bound to two factories is ambiguous.
+        let ambiguous_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({
+                "imports": [],
+                "typed_bindings": [
+                    {"name": "Repo.items", "type": "ItemStore", "kind": "annotation", "line": 8}
+                ],
+                "call_bindings": [
+                    {"name": "repo", "callee": "createRepo", "line": 3},
+                    {"name": "repo", "callee": "buildRepo", "line": 4}
+                ]
+            }),
+        );
+        let first = factory_declaration(
+            "ent_create_repo",
+            "src/app.ts",
+            "createRepo",
+            "createRepo",
+            true,
+            Some("Repo"),
+        );
+        let second = factory_declaration(
+            "ent_build_repo",
+            "src/app.ts",
+            "buildRepo",
+            "buildRepo",
+            true,
+            Some("Repo"),
+        );
+        let caller = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "start",
+            "start",
+            false,
+            json!([call_site("repo.items.map", "map", 6)]),
+        );
+        let entities = vec![ambiguous_module, first, second, items_map.clone(), caller];
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            relations
+                .iter()
+                .filter(|relation| relation.kind == RelationKind::Calls)
+                .count(),
+            0,
+            "a name bound to two factories types nothing"
+        );
+
+        // A factory reachable only by a unique name elsewhere proves no import.
+        let importing_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({
+                "imports": [],
+                "typed_bindings": [
+                    {"name": "Repo.items", "type": "ItemStore", "kind": "annotation", "line": 8}
+                ],
+                "call_bindings": [
+                    {"name": "repo", "callee": "createRepo", "line": 3}
+                ]
+            }),
+        );
+        let remote_factory = factory_declaration(
+            "ent_create_repo",
+            "src/factory.ts",
+            "createRepo",
+            "createRepo",
+            true,
+            Some("Repo"),
+        );
+        let caller = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "start",
+            "start",
+            false,
+            json!([call_site("repo.items.map", "map", 6)]),
+        );
+        let entities = vec![importing_module, remote_factory, items_map, caller];
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            relations
+                .iter()
+                .filter(|relation| relation.kind == RelationKind::Calls)
+                .count(),
+            0,
+            "a name-unique factory in an unimported module types nothing"
         );
     }
 
@@ -4459,6 +4782,39 @@ mod tests {
                 "qualified_name": qualified,
                 "exported": exported,
                 "calls": json!([]),
+            }),
+        }
+    }
+
+    fn factory_declaration(
+        id: &str,
+        path: &str,
+        qualified: &str,
+        name: &str,
+        exported: bool,
+        return_type: Option<&str>,
+    ) -> Entity {
+        Entity {
+            id: EntityId(id.to_string()),
+            stable_key: StableKey(format!("{SYMBOL_PREFIX}{path}#{qualified}")),
+            kind: EntityKind::Function,
+            name: name.to_string(),
+            title: None,
+            source: Some(SourceLocation {
+                path: path.to_string(),
+                line_start: Some(1),
+                line_end: Some(2),
+            }),
+            language: Some(LanguageCode("typescript".to_string())),
+            aliases: Vec::new(),
+            ownership: vec![Ownership {
+                source_file: path.to_string(),
+            }],
+            payload: json!({
+                "qualified_name": qualified,
+                "exported": exported,
+                "calls": json!([]),
+                "return_type": return_type,
             }),
         }
     }

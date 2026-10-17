@@ -94,10 +94,16 @@ previous one is silent:
    match `<Type>.<member>` exactly once. A segment is read from the calling module's
    `typed_bindings` first and then from the rows of the module that owns the current type, so
    `this.repo.items.map()` resolves when `App.repo` is a `Repo` declared in `repo.ts` and that
-   module records `Repo.items` as an `ItemStore`. Ownership is proven first: only an exported
+   module records `Repo.items` as an `ItemStore`. The root may instead be a binding the module
+   initializes with a call: `const repo = createRepo(); repo.items` takes the return type
+   `createRepo` declares, and only a factory the steps below prove — a local, imported, or
+   re-exported declaration, never a name-unique one — types that receiver. Ownership is proven
+   first: only an exported
    top-level class, interface, or type alias owns field types, and a name declared in two modules
-   owns neither. A type repeated inside the walk, a path longer than four segments, an ambiguous
-   binding, and a terminal that matches more than one declaration end the walk.
+   owns neither. The typed step is disabled while a factory is resolved, so one receiver's type is
+   never derived from another's. A type repeated inside the walk, a path longer than four
+   segments, an ambiguous binding, and a terminal that matches more than one declaration end the
+   walk.
 5. `imported_default_export` — a default import resolves directly to the function or class
    binding marked by `export default` in its relative target module: a named declaration, a
    statically named local identifier, or an anonymous default recorded under the canonical
@@ -188,7 +194,7 @@ CommonJS `require` calls, default expressions that declare nothing callable or
 constructible, computed member calls, and multi-segment named-import namespace paths
 are not resolved. Receiver typing covers only a type the source states: an inferred type, a
 type imported by another module but never named in an annotation, a structural type, and a member
-reached through a call result or an index stay unresolved. A field is read from the module that
+reached through an unannotated factory or an index stay unresolved. A field is read from the module that
 declares its owner only when that owner is exported and unambiguous, and a cyclic or over-bound
 path ends the walk. Callback bridging only fires for the extractor's combinator allowlist and
 only for statically nameable arguments; callbacks passed as inline arrows, call results, or
