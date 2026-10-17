@@ -413,22 +413,32 @@ fn typed_bindings(sig: Option<&syn::Signature>, block: Option<&syn::Block>) -> V
         }
     }
     if let Some(block) = block {
-        for statement in &block.stmts {
-            if let syn::Stmt::Local(local) = statement
-                && let syn::Pat::Ident(pattern) = &local.pat
-                && let Some((_, ty)) = &local.ty
-                && let Some((type_name, kind)) = receiver_type(ty)
-            {
-                rows.push(typed_binding(
-                    pattern.ident.to_string(),
-                    type_name,
-                    kind,
-                    ty.span().start().line as u32,
-                ));
-            }
-        }
+        BindingVisitor { rows: &mut rows }.visit_block(block);
     }
     rows
+}
+
+/// Collects the `let` bindings a body states, including the ones nested in
+/// blocks and `match` arms.
+struct BindingVisitor<'a> {
+    rows: &'a mut Vec<Value>,
+}
+
+impl<'ast> Visit<'ast> for BindingVisitor<'_> {
+    fn visit_local(&mut self, local: &'ast syn::Local) {
+        if let syn::Pat::Type(annotation) = &local.pat
+            && let syn::Pat::Ident(pattern) = &*annotation.pat
+            && let Some((type_name, kind)) = receiver_type(&annotation.ty)
+        {
+            self.rows.push(typed_binding(
+                pattern.ident.to_string(),
+                type_name,
+                kind,
+                annotation.ty.span().start().line as u32,
+            ));
+        }
+        syn::visit::visit_local(self, local);
+    }
 }
 
 fn typed_binding(name: String, type_name: String, kind: &'static str, line: u32) -> Value {
@@ -1400,6 +1410,9 @@ pub fn run(
 ) {
     let local: Store = Store;
     let inferred = Store;
+    if plain > 0 {
+        let nested: Store = Store;
+    }
 }
 "#,
             ))
@@ -1430,6 +1443,7 @@ pub fn run(
                 "bound:Reader:impl_trait".to_string(),
                 "boxed:Reader:trait_object".to_string(),
                 "local:Store:annotation".to_string(),
+                "nested:Store:annotation".to_string(),
                 "reader:Reader:trait_object".to_string(),
                 "store:Store:annotation".to_string(),
             ]
