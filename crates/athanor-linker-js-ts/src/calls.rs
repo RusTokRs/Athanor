@@ -426,14 +426,13 @@ fn resolve_call<'a>(
     //    extractor proved. A receiver that is only named, not typed, falls
     //    through to the weaker member-name guess below.
     if callee.contains('.')
-        && let Some((target, kind, segments)) =
-            resolve_typed_member(
-                callee,
-                caller,
-                caller_module,
-                declarations_by_name,
-                type_modules,
-            )
+        && let Some((target, kind, segments)) = resolve_typed_member(
+            callee,
+            caller,
+            caller_module,
+            declarations_by_name,
+            type_modules,
+        )
     {
         let resolution = if segments > 1 {
             "typed_receiver_path"
@@ -1154,11 +1153,11 @@ fn build_type_module_index<'a>(
 /// A field row lives in the module that declares its owner, so a receiver that
 /// reaches into a type from another module is resolved there: `App.repo` is a
 /// local row, while `Repo.items` is read from the module declaring `Repo`.
-fn typed_field<'a>(
+fn typed_field(
     owner: &str,
     segment: &str,
     receivers: &HashMap<String, Option<TypedReceiver>>,
-    type_modules: &HashMap<String, Option<&'a Entity>>,
+    type_modules: &HashMap<String, Option<&Entity>>,
 ) -> Option<TypedReceiver> {
     let field = format!("{owner}.{segment}");
     if let Some(found) = receivers.get(&field) {
