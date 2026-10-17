@@ -75,6 +75,27 @@ jobs:
           echo "code=$code" >> "$GITHUB_OUTPUT"
           exit 0
 
+      - name: Install cargo-deny
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/cargo-deny-bin"
+          curl --proto '=https' --tlsv1.2 --retry 5 --retry-all-errors \
+            --location --silent --show-error --fail \
+            https://github.com/EmbarkStudios/cargo-deny/releases/download/0.20.2/cargo-deny-0.20.2-x86_64-unknown-linux-musl.tar.gz \
+            | tar -xz -C "$RUNNER_TEMP/cargo-deny-bin" --strip-components=1
+          "$RUNNER_TEMP/cargo-deny-bin/cargo-deny" --version
+
+      - name: Run cargo-deny
+        id: deny
+        shell: bash
+        run: |
+          set +e
+          "$RUNNER_TEMP/cargo-deny-bin/cargo-deny" check > deny.log 2>&1
+          code=$?
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          exit 0
+
       - name: Report results
         if: ${{ github.event_name == 'pull_request' }}
         uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
@@ -91,21 +112,26 @@ jobs:
             const fmt = Number(process.env.FMT_CODE);
             const clippy = Number(process.env.CLIPPY_CODE);
             const tests = Number(process.env.TESTS_CODE);
+            const deny = Number(process.env.DENY_CODE);
             const body = [
               '## Temporary format feedback',
               '',
               `rustfmt exit code: **${fmt}**`,
               `clippy exit code: **${clippy}**`,
               `cargo test exit code: **${tests}**`,
+              `cargo-deny exit code: **${deny}**`,
               '',
               '### rustfmt tail',
               tail('fmt.log', 60),
               '',
+              '### cargo-deny tail',
+              tail('deny.log', 120),
+              '',
               '### clippy tail',
-              tail('clippy.log', 80),
+              tail('clippy.log', 40),
               '',
               '### cargo test tail',
-              tail('tests.log', 80),
+              tail('tests.log', 40),
             ].join('\n');
             await github.rest.issues.createComment({
               issue_number: context.issue.number,
@@ -117,3 +143,4 @@ jobs:
           FMT_CODE: ${{ steps.fmt.outputs.code }}
           CLIPPY_CODE: ${{ steps.clippy.outputs.code }}
           TESTS_CODE: ${{ steps.tests.outputs.code }}
+          DENY_CODE: ${{ steps.deny.outputs.code }}
