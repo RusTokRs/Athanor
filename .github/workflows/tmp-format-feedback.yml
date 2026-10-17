@@ -10,9 +10,9 @@ permissions:
 
 jobs:
   feedback:
-    name: Capture rustfmt and cargo check output
+    name: Capture rustfmt, clippy and test output
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - name: Check out repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -21,7 +21,7 @@ jobs:
       - name: Install Rust toolchain
         uses: ./.github/actions/setup-rust
         with:
-          components: rustfmt
+          components: rustfmt, clippy
       - name: Capture rustfmt diff
         shell: bash
         run: |
@@ -39,18 +39,36 @@ jobs:
             -f body="$BODY"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Capture cargo check output
+      - name: Capture clippy output
         shell: bash
         continue-on-error: true
         run: |
           set +e
-          cargo check --workspace --all-targets > "$RUNNER_TEMP/check.log" 2>&1
+          cargo clippy --workspace --all-targets -- -D warnings > "$RUNNER_TEMP/clippy.log" 2>&1
           code=$?
           {
-            echo "check exit code: ${code}"
-            tail -n 200 "$RUNNER_TEMP/check.log"
-          } > "$RUNNER_TEMP/check-body.txt"
-          BODY=$(python3 -c 'import json,sys; print(json.dumps("cargo check output:\n```\n" + open(sys.argv[1]).read()[:40000] + "\n```"))' "$RUNNER_TEMP/check-body.txt")
+            echo "clippy exit code: ${code}"
+            grep -E "^(error|warning: unused|warning: this)" -A 12 "$RUNNER_TEMP/clippy.log" | head -n 250
+          } > "$RUNNER_TEMP/clippy-body.txt"
+          BODY=$(python3 -c 'import json,sys; print(json.dumps("clippy output:\n```\n" + open(sys.argv[1]).read()[:40000] + "\n```"))' "$RUNNER_TEMP/clippy-body.txt")
+          gh api "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+            --method POST \
+            -H "Accept: application/vnd.github+json" \
+            -f body="$BODY"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Capture test output
+        shell: bash
+        continue-on-error: true
+        run: |
+          set +e
+          cargo test --workspace > "$RUNNER_TEMP/test.log" 2>&1
+          code=$?
+          {
+            echo "test exit code: ${code}"
+            grep -E "^(error|test result|failures:|---- )" -A 12 "$RUNNER_TEMP/test.log" | head -n 400
+          } > "$RUNNER_TEMP/test-body.txt"
+          BODY=$(python3 -c 'import json,sys; print(json.dumps("test output:\n```\n" + open(sys.argv[1]).read()[:50000] + "\n```"))' "$RUNNER_TEMP/test-body.txt")
           gh api "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
             --method POST \
             -H "Accept: application/vnd.github+json" \
