@@ -970,17 +970,14 @@ mod tests {
         let dyn_calls = calls(&dyn_caller);
         assert_eq!(dyn_calls.len(), 1);
         assert_eq!(dyn_calls[0].to, read.id);
-        assert_eq!(
-            dyn_calls[0].payload["resolution"],
-            "rust_dyn_dispatch_method"
-        );
+        assert_eq!(dyn_calls[0].payload["reason"], "rust_dyn_dispatch_method");
         assert_eq!(dyn_calls[0].confidence, 0.7);
 
         let typed_calls = calls(&typed_caller_entity);
         assert_eq!(typed_calls.len(), 1);
         assert_eq!(typed_calls[0].to, write.id);
         assert_eq!(
-            typed_calls[0].payload["resolution"],
+            typed_calls[0].payload["reason"],
             "rust_typed_receiver_method"
         );
         assert_eq!(typed_calls[0].confidence, 0.8);
@@ -988,7 +985,7 @@ mod tests {
         let self_calls = calls(&self_caller);
         assert_eq!(self_calls.len(), 1);
         assert_eq!(self_calls[0].to, write.id);
-        assert_eq!(self_calls[0].payload["resolution"], "rust_self_method");
+        assert_eq!(self_calls[0].payload["reason"], "rust_self_method");
         assert_eq!(self_calls[0].confidence, 0.8);
     }
 
