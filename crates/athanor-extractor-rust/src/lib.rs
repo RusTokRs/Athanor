@@ -403,50 +403,57 @@ const MAX_TYPED_BINDINGS: usize = 64;
 /// unannotated local name nothing the linker may dispatch on.
 fn typed_bindings(sig: Option<&syn::Signature>, block: Option<&syn::Block>) -> (Vec<Value>, usize) {
     let mut rows = Vec::new();
+    let mut matched = 0usize;
     if let Some(sig) = sig {
         for argument in &sig.inputs {
             if let syn::FnArg::Typed(argument) = argument
                 && let syn::Pat::Ident(pattern) = &*argument.pat
                 && let Some((type_name, kind)) = receiver_type(&argument.ty)
             {
-                rows.push(typed_binding(
-                    pattern.ident.to_string(),
-                    type_name,
-                    kind,
-                    argument.ty.span().start().line as u32,
-                ));
+                matched += 1;
+                if rows.len() < MAX_TYPED_BINDINGS {
+                    rows.push(typed_binding(
+                        pattern.ident.to_string(),
+                        type_name,
+                        kind,
+                        argument.ty.span().start().line as u32,
+                    ));
+                }
             }
         }
     }
-    if let Some(block) = block && rows.len() < MAX_TYPED_BINDINGS {
-        BindingVisitor { rows: &mut rows }.visit_block(block);
+    if let Some(block) = block {
+        BindingVisitor {
+            rows: &mut rows,
+            matched: &mut matched,
+        }
+        .visit_block(block);
     }
-    let omitted = rows.len().saturating_sub(MAX_TYPED_BINDINGS);
-    rows.truncate(MAX_TYPED_BINDINGS);
-    (rows, omitted)
+    (rows, matched.saturating_sub(rows.len()))
 }
 
 /// Collects the `let` bindings a body states, including the ones nested in
 /// blocks and `match` arms.
 struct BindingVisitor<'a> {
     rows: &'a mut Vec<Value>,
+    matched: &'a mut usize,
 }
 
 impl<'ast> Visit<'ast> for BindingVisitor<'_> {
     fn visit_local(&mut self, local: &'ast syn::Local) {
-        if self.rows.len() >= MAX_TYPED_BINDINGS {
-            return;
-        }
         if let syn::Pat::Type(annotation) = &local.pat
             && let syn::Pat::Ident(pattern) = &*annotation.pat
             && let Some((type_name, kind)) = receiver_type(&annotation.ty)
         {
-            self.rows.push(typed_binding(
-                pattern.ident.to_string(),
-                type_name,
-                kind,
-                annotation.ty.span().start().line as u32,
-            ));
+            *self.matched += 1;
+            if self.rows.len() < MAX_TYPED_BINDINGS {
+                self.rows.push(typed_binding(
+                    pattern.ident.to_string(),
+                    type_name,
+                    kind,
+                    annotation.ty.span().start().line as u32,
+                ));
+            }
         }
         syn::visit::visit_local(self, local);
     }

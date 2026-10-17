@@ -880,7 +880,10 @@ fn trait_implementors<'a>(
 ) -> HashMap<&'a str, Vec<&'a Entity>> {
     let mut implementors: HashMap<&str, Vec<&Entity>> = HashMap::new();
     for fact in facts {
-        if fact.value.get("symbol_kind").and_then(|value| value.as_str())
+        if fact
+            .value
+            .get("symbol_kind")
+            .and_then(|value| value.as_str())
             != Some("trait_impl")
         {
             continue;
@@ -888,7 +891,11 @@ fn trait_implementors<'a>(
         let Some(self_type) = fact.value.get("self_type").and_then(|value| value.as_str()) else {
             continue;
         };
-        let Some(trait_name) = fact.value.get("trait_name").and_then(|value| value.as_str()) else {
+        let Some(trait_name) = fact
+            .value
+            .get("trait_name")
+            .and_then(|value| value.as_str())
+        else {
             continue;
         };
         let (Some(type_entity), Some(trait_entity)) = (
@@ -1068,7 +1075,10 @@ mod tests {
             id,
             &format!("symbol://rust:{qualified_name}"),
             EntityKind::Function,
-            qualified_name.rsplit_once("::").map(|(_, name)| name).unwrap_or(qualified_name),
+            qualified_name
+                .rsplit_once("::")
+                .map(|(_, name)| name)
+                .unwrap_or(qualified_name),
             json!({ "qualified_name": qualified_name, "symbol_kind": "method" }),
         )
     }
@@ -1149,8 +1159,20 @@ mod tests {
             caller.clone(),
         ];
         let facts = vec![
-            impl_fact("fact_file", "ent_type_file", "FileReader", "Reader", "crate::app::Reader"),
-            impl_fact("fact_net", "ent_type_net", "NetReader", "Reader", "crate::app::Reader"),
+            impl_fact(
+                "fact_file",
+                "ent_type_file",
+                "FileReader",
+                "Reader",
+                "crate::app::Reader",
+            ),
+            impl_fact(
+                "fact_net",
+                "ent_type_net",
+                "NetReader",
+                "Reader",
+                "crate::app::Reader",
+            ),
         ];
         let relations = link_all(entities, facts).await;
 
@@ -1172,17 +1194,21 @@ mod tests {
             .filter(|relation| relation.payload["reason"] == "rust_dyn_dispatch_candidate")
             .collect::<Vec<_>>();
         assert_eq!(candidates.len(), 2);
-        assert!(candidates.iter().any(|relation| relation.to == file_read.id));
-        assert!(candidates.iter().any(|relation| relation.to == net_read.id));
         assert!(
             candidates
                 .iter()
-                .all(|relation| relation.confidence == 0.5
-                    && relation.payload["candidate_count"] == 2
-                    && relation.payload["truncated"] == false)
+                .any(|relation| relation.to == file_read.id)
         );
+        assert!(candidates.iter().any(|relation| relation.to == net_read.id));
+        assert!(candidates.iter().all(|relation| relation.confidence == 0.5
+            && relation.payload["candidate_count"] == 2
+            && relation.payload["truncated"] == false));
         // Candidate edges are also `Implements` evidence, never a resolved call.
-        assert!(relations.iter().any(|relation| relation.kind == RelationKind::Implements));
+        assert!(
+            relations
+                .iter()
+                .any(|relation| relation.kind == RelationKind::Implements)
+        );
     }
 
     #[tokio::test]
