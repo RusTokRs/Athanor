@@ -373,9 +373,6 @@ const MAX_PATH_MAPPINGS: usize = 64;
 /// Upper bound on recorded substitution targets per path mapping.
 const MAX_PATH_TARGETS: usize = 8;
 
-/// Upper bound on recorded `extends` hops per configuration file.
-const MAX_CONFIG_EXTENDS_DEPTH: usize = 8;
-
 /// Upper bound on recorded workspace glob patterns per `package.json`.
 const MAX_WORKSPACE_PATTERNS: usize = 64;
 
@@ -1946,7 +1943,7 @@ fn config_directory(path: &str) -> String {
 }
 
 fn config_file_name(path: &str) -> String {
-    path.rsplit(|character| character == '/' || character == '\\')
+    path.rsplit(['/', '\\'])
         .next()
         .unwrap_or(path)
         .to_string()
@@ -2019,7 +2016,7 @@ fn strip_json_comments(content: &str) -> String {
         match characters.peek().copied() {
             Some('/') => {
                 characters.next();
-                while let Some(skipped) = characters.next() {
+                for skipped in characters.by_ref() {
                     if skipped == '\n' {
                         output.push('\n');
                         break;
@@ -2028,14 +2025,15 @@ fn strip_json_comments(content: &str) -> String {
             }
             Some('*') => {
                 characters.next();
-                while let Some(skipped) = characters.next() {
-                    if skipped == '*' && characters.peek().copied() == Some('/') {
-                        characters.next();
+                let mut previous = '*';
+                for skipped in characters.by_ref() {
+                    if previous == '*' && skipped == '/' {
                         break;
                     }
                     if skipped == '\n' {
                         output.push('\n');
                     }
+                    previous = skipped;
                 }
             }
             _ => output.push(character),
