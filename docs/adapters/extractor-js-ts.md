@@ -92,6 +92,14 @@ The allowlist keeps the evidence bounded to positions that really invoke a funct
 linker turns each recorded argument into an indirect `Calls` edge when it resolves to a unique
 declaration.
 
+A declaration subtree also records a bounded `receivers` array of local variables bound
+to a statically named constructor call — `const session = new Service()` records
+`{name: "session", constructor: "Service"}`. Only identifier names and identifier-rooted
+constructor paths are kept; destructuring bindings, arrow or literal initializers, and
+computed constructors such as `new (resolve())()` are skipped. The call linker uses these
+bindings to type a single-segment member call on the local and dispatch it to the bound
+class's member.
+
 ## Type Heritage
 
 Class declarations record heritage names in declaration order: `extends` is a one-element array for

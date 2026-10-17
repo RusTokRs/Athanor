@@ -53,6 +53,9 @@ const IMPORTED_EXACT_CONFIDENCE: f32 = 0.85;
 const IMPORTED_NAME_CONFIDENCE: f32 = 0.7;
 /// Confidence assigned to a unique name-only match (member or exported symbol).
 const UNIQUE_NAME_CONFIDENCE: f32 = 0.5;
+/// Confidence assigned to a member call dispatched through a recorded
+/// constructor receiver binding.
+const RECEIVER_DISPATCH_CONFIDENCE: f32 = 0.8;
 /// Maximum number of named, default, wildcard, or namespace export hops per call resolution.
 const MAX_REEXPORT_DEPTH: usize = 32;
 /// Maximum resolver visits across all branches of one call's export resolution.
@@ -400,6 +403,35 @@ fn resolve_call<'a>(
         return Some((target, "imported_symbol_name", IMPORTED_NAME_CONFIDENCE));
     }
 
+    // Receiver dispatch: a single-segment member call on a local bound
+    // to a constructor call resolves through the bound class's own
+    // member, in the class's module. The constructor resolves through
+    // the ordered rules, so same-module and imported classes both work.
+    if let Some((receiver, member)) = receiver_and_member(callee)
+        && let Some(constructor) = receiver_binding(caller, receiver)
+    {
+        let resolved_class = resolve_call(
+            constructor,
+            caller,
+            caller_module,
+            modules,
+            declarations_by_path,
+            declarations_by_name,
+        );
+        if let Some((class_entity, _, _)) = resolved_class
+            && let Some(class_path) = entity_path(class_entity)
+            && let Some(class_qualified) = qualified_name(class_entity)
+        {
+            let member_qualified = format!("{class_qualified}.{member}");
+            if let Some(target) = unique_match(
+                declarations_by_path.get(&class_path),
+                |candidate| qualified_name(candidate) == Some(member_qualified.as_str()),
+            ) {
+                return Some((target, "receiver_dispatch", RECEIVER_DISPATCH_CONFIDENCE));
+            }
+        }
+    }
+
     let name = callee.rsplit('.').next().unwrap_or(callee);
     if callee.contains('.') {
         // 4. Member call with an unknown receiver: accept a unique member name
@@ -437,6 +469,30 @@ fn head_and_tail(callee: &str) -> Option<(&str, Option<&str>)> {
         Some((head, rest)) => Some((head, Some(rest.rsplit('.').next()?))),
         None => Some((callee, None)),
     }
+}
+
+/// Splits a two-segment member callee into its receiver and member.
+///
+/// Returns `None` for bare names and for deeper member paths, whose
+/// intermediate receivers carry no recorded type.
+fn receiver_and_member(callee: &str) -> Option<(&str, &str)> {
+    let (receiver, member) = callee.split_once('.')?;
+    if member.contains('.') {
+        return None;
+    }
+    Some((receiver, member))
+}
+
+/// Returns the constructor path bound to a local receiver variable.
+fn receiver_binding(caller: &Entity, receiver: &str) -> Option<String> {
+    caller
+        .payload
+        .get("receivers")
+        .and_then(Value::as_array)?
+        .iter()
+        .find(|binding| binding.get("name").and_then(Value::as_str) == Some(receiver))
+        .and_then(|binding| binding.get("constructor").and_then(Value::as_str))
+        .map(ToString::to_string)
 }
 
 struct CallImportBinding {
@@ -1636,6 +1692,207 @@ mod tests {
         assert_eq!(calls[0].from, build.id);
         assert_eq!(calls[0].to, widget.id);
         assert_eq!(calls[0].payload["resolution"], "same_module_exact_name");
+    }
+
+    #[tokio::test]
+    async fn resolves_member_calls_through_same_module_receiver_bindings() {
+        let module_entity = module(
+            "ent_recv_module",
+            "src/receiver.ts",
+            json!({"imports": [], "exports": []}),
+        );
+        let local = class_declaration(
+            "ent_recv_local",
+            "src/receiver.ts",
+            "Local",
+            "Local",
+            false,
+        );
+        let build = declaration(
+            "ent_recv_build",
+            "src/receiver.ts",
+            "Local.build",
+            "build",
+            false,
+            json!([]),
+        );
+        let run = Entity {
+            id: EntityId("ent_recv_run".to_string()),
+            stable_key: StableKey(format!("{SYMBOL_PREFIX}src/receiver.ts#run")),
+            kind: EntityKind::Function,
+            name: "run".to_string(),
+            title: None,
+            source: Some(SourceLocation {
+                path: "src/receiver.ts".to_string(),
+                line_start: Some(1),
+                line_end: Some(2),
+            }),
+            language: Some(LanguageCode("typescript".to_string())),
+            aliases: Vec::new(),
+            ownership: vec![Ownership {
+                source_file: "src/receiver.ts".to_string(),
+            }],
+            payload: json!({
+                "qualified_name": "run",
+                "exported": false,
+                "calls": json!([call_site("local.build", "build", 5)]),
+                "receivers": [{"name": "local", "constructor": "Local"}],
+            }),
+        };
+        let entities = vec![module_entity, local.clone(), build.clone(), run.clone()];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from, run.id);
+        assert_eq!(calls[0].to, build.id);
+        assert_eq!(calls[0].payload["resolution"], "receiver_dispatch");
+    }
+
+    #[tokio::test]
+    async fn resolves_member_calls_through_imported_receiver_bindings() {
+        let app_module = module(
+            "ent_recv_app",
+            "src/app.ts",
+            json!({
+                "imports": [{
+                    "source": "./service",
+                    "named": ["Service"],
+                    "named_bindings": [{"imported": "Service", "local": "Service"}]
+                }]
+            }),
+        );
+        let service_module = module(
+            "ent_recv_service",
+            "src/service.ts",
+            json!({"imports": [], "exports": []}),
+        );
+        let service = class_declaration(
+            "ent_recv_service_class",
+            "src/service.ts",
+            "Service",
+            "Service",
+            true,
+        );
+        let handle = declaration(
+            "ent_recv_handle",
+            "src/service.ts",
+            "Service.handle",
+            "handle",
+            true,
+            json!([]),
+        );
+        let run = Entity {
+            id: EntityId("ent_recv_run".to_string()),
+            stable_key: StableKey(format!("{SYMBOL_PREFIX}src/app.ts#run")),
+            kind: EntityKind::Function,
+            name: "run".to_string(),
+            title: None,
+            source: Some(SourceLocation {
+                path: "src/app.ts".to_string(),
+                line_start: Some(1),
+                line_end: Some(2),
+            }),
+            language: Some(LanguageCode("typescript".to_string())),
+            aliases: Vec::new(),
+            ownership: vec![Ownership {
+                source_file: "src/app.ts".to_string(),
+            }],
+            payload: json!({
+                "qualified_name": "run",
+                "exported": false,
+                "calls": json!([call_site("session.handle", "handle", 6)]),
+                "receivers": [{"name": "session", "constructor": "Service"}],
+            }),
+        };
+        let entities = vec![
+            app_module,
+            service_module,
+            service.clone(),
+            handle.clone(),
+            run.clone(),
+        ];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from, run.id);
+        assert_eq!(calls[0].to, handle.id);
+        assert_eq!(calls[0].payload["resolution"], "receiver_dispatch");
+    }
+
+    #[tokio::test]
+    async fn unresolvable_receiver_constructors_stay_unresolved() {
+        let module_entity = module(
+            "ent_recv_missing_module",
+            "src/missing.ts",
+            json!({"imports": [], "exports": []}),
+        );
+        let run = Entity {
+            id: EntityId("ent_recv_missing_run".to_string()),
+            stable_key: StableKey(format!("{SYMBOL_PREFIX}src/missing.ts#run")),
+            kind: EntityKind::Function,
+            name: "run".to_string(),
+            title: None,
+            source: Some(SourceLocation {
+                path: "src/missing.ts".to_string(),
+                line_start: Some(1),
+                line_end: Some(2),
+            }),
+            language: Some(LanguageCode("typescript".to_string())),
+            aliases: Vec::new(),
+            ownership: vec![Ownership {
+                source_file: "src/missing.ts".to_string(),
+            }],
+            payload: json!({
+                "qualified_name": "run",
+                "exported": false,
+                "calls": json!([call_site("session.handle", "handle", 6)]),
+                "receivers": [{"name": "session", "constructor": "Unknown"}],
+            }),
+        };
+        let entities = vec![module_entity, run.clone()];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        assert!(
+            !relations
+                .iter()
+                .any(|relation| relation.kind == RelationKind::Calls),
+            "a receiver bound to an unresolvable constructor must stay unresolved"
+        );
     }
 
     #[tokio::test]

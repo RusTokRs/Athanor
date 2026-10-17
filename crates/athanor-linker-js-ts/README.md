@@ -66,8 +66,12 @@ The call linker consumes the bounded `calls` arrays and the import bindings that
    while ambiguous, unresolved, cyclic, or over-limit branches block the aggregate. Namespace
    hops count toward the 32-hop bound, and each
    call's recursive export resolution is capped at 1,024 module visits.
-6. `same_module_member_name` — a unique member name inside the calling module.
-7. `unique_exported_name` — a unique exported declaration elsewhere in the snapshot.
+6. `receiver_dispatch` — a single-segment member call on a local bound to a
+   recorded `new ClassName()` constructor call resolves to the bound class's
+   member in the class's own module; the constructor itself resolves through
+   the ordered steps, so same-module and imported classes both work.
+7. `same_module_member_name` — a unique member name inside the calling module.
+8. `unique_exported_name` — a unique exported declaration elsewhere in the snapshot.
 
 Steps 5 and 6 accept a candidate only when it is unique, so ambiguity stays unresolved. Confidence
 runs from `0.9` for an exact same-module match down to `0.5` for a unique name match, and the payload
@@ -91,13 +95,19 @@ commands, use the network, or modify project files.
   unresolved sources, cycles, and chains deeper than 32 hops keep the aggregate unresolved. Named
   default functions and statically named local identifier defaults can resolve through relative
   imports and explicit named re-export chains. Named imports can resolve a single member through one
-  unique, direct, source-backed `export * as name` mapping; multi-hop namespace aliases and
-  multi-segment paths through named-import namespace aliases stay unresolved. Existing
+  unique, direct, source-backed `export * as name` mapping; multi-segment paths through
+  named-import namespace aliases stay unresolved. Existing
   namespace-import receiver behavior is unchanged. Anonymous default expressions and anonymous
   default classes stay unresolved because they have no statically nameable local binding.
   Multi-segment paths through named-import namespace aliases stay unresolved.
+- Receiver dispatch types a member call only through a recorded local
+  `new ClassName()` binding; the constructor resolves through the ordered
+  rules and the member must be a unique qualified `ClassName.member` in the
+  class's module. Computed constructors, destructuring bindings, deeper member
+  paths, and inherited members stay unresolved.
 - Dynamic `import()`, CommonJS `require()`, computed calls (`handlers[key]()`), calls through call
-  results, reflective dispatch, and receiver typing are not resolved.
+  results, reflective dispatch, and receiver typing beyond recorded constructor bindings are
+  not resolved.
 - Test detection is location-based because no test framework runs: `.test.`/`.spec.` file names and
   `tests`/`test`/`__tests__`/`e2e` directories.
 

@@ -23,7 +23,8 @@ route declarations and is registered independently as `builtin.extractor.express
 - Bounded `calls` arrays of statically named call sites per declaration, plus a bounded
   `callback_arguments` array on call sites whose callee is a known callback combinator
   (iteration methods, promise handlers, timers, event/observable registration) for the call
-  linker's callback bridges
+  linker's callback bridges, and a bounded `receivers` array of local variables bound to a
+  statically named `new ClassName()` constructor for the call linker's receiver dispatch
 - `EntityKind::Package` and `EntityKind::Dependency` for `package.json` package and dependency declarations
 - `FactKind::SymbolDefined` for emitted source declarations and package dependency declarations
 - `DiagnosticKind::Other("js_ts_parse_error")` when tree-sitter reports parser errors, coalesced at the outer parser error node to avoid duplicate nested findings

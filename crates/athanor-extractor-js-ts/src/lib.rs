@@ -196,6 +196,9 @@ impl Extractor for JsTsExtractor {
                 "source_node": declaration.source_node,
                 "calls": declaration.calls,
             });
+            if !declaration.receivers.is_empty() {
+                payload["receivers"] = json!(declaration.receivers);
+            }
             if let Some(heritage) = &declaration.heritage {
                 payload["extends"] = json!(heritage.extends);
                 payload["implements"] = json!(heritage.implements);
@@ -351,6 +354,7 @@ struct SourceDeclaration {
     source_node: String,
     line_range: (u32, u32),
     calls: Vec<Value>,
+    receivers: Vec<Value>,
     heritage: Option<TypeHeritage>,
 }
 
@@ -413,6 +417,7 @@ fn collect_statement(
                     source_node: node.kind().to_string(),
                     line_range: line_range(node),
                     calls: collect_call_sites(node, bytes),
+                    receivers: collect_receivers(node, bytes),
                     heritage: None,
                 });
             }
@@ -429,6 +434,7 @@ fn collect_statement(
                     source_node: node.kind().to_string(),
                     line_range: line_range(node),
                     calls: collect_call_sites(node, bytes),
+                    receivers: collect_receivers(node, bytes),
                     heritage: None,
                 });
             }
@@ -445,6 +451,7 @@ fn collect_statement(
                     source_node: node.kind().to_string(),
                     line_range: line_range(node),
                     calls: Vec::new(),
+                    receivers: Vec::new(),
                     heritage: class_heritage(node, bytes),
                 });
                 collect_class_members(&name, node, bytes, exported, declarations);
@@ -462,6 +469,7 @@ fn collect_statement(
                     source_node: node.kind().to_string(),
                     line_range: line_range(node),
                     calls: Vec::new(),
+                    receivers: Vec::new(),
                     heritage: interface_heritage(node, bytes),
                 });
             }
@@ -478,6 +486,7 @@ fn collect_statement(
                     source_node: node.kind().to_string(),
                     line_range: line_range(node),
                     calls: Vec::new(),
+                    receivers: Vec::new(),
                     heritage: None,
                 });
             }
@@ -516,6 +525,7 @@ fn collect_class_members(
                     source_node: member.kind().to_string(),
                     line_range: line_range(member),
                     calls: collect_call_sites(member, bytes),
+                    receivers: collect_receivers(member, bytes),
                     heritage: None,
                 });
             }
@@ -555,6 +565,7 @@ fn collect_variable_functions(
                 source_node: value_node.kind().to_string(),
                 line_range: line_range(child),
                 calls: collect_call_sites(value_node, bytes),
+                receivers: collect_receivers(value_node, bytes),
                 heritage: None,
             });
         }
@@ -806,6 +817,61 @@ fn collect_call_sites_inner(
     let mut cursor = node.walk();
     for child in node.named_children(&mut cursor) {
         collect_call_sites_inner(child, bytes, calls, seen);
+    }
+}
+
+/// Maximum number of constructor receiver bindings per declaration.
+const MAX_RECEIVERS_PER_DECLARATION: usize = 16;
+
+/// Records local variables bound to a constructor call.
+///
+/// Only `const name = new ClassName()` shapes are recorded,
+/// because those are the receiver bindings the call linker can
+/// type. Destructuring patterns, arrow, literal, call, and
+/// computed initializers are skipped rather than guessed at.
+fn collect_receivers(node: Node, bytes: &[u8]) -> Vec<Value> {
+    let mut receivers = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    collect_receivers_inner(node, bytes, &mut receivers, &mut seen);
+    receivers
+}
+
+fn collect_receivers_inner(
+    node: Node,
+    bytes: &[u8],
+    receivers: &mut Vec<Value>,
+    seen: &mut std::collections::HashSet<(String, u32, u32)>,
+) {
+    if receivers.len() >= MAX_RECEIVERS_PER_DECLARATION {
+        return;
+    }
+    if matches!(node.kind(), "class_declaration" | "class") {
+        return;
+    }
+    if node.kind() == "variable_declarator"
+        && let Some(name_node) = node.child_by_field_name("name")
+        && name_node.kind() == "identifier"
+        && let Some(value_node) = node.child_by_field_name("value")
+        && value_node.kind() == "new_expression"
+        && let Some(constructor_node) = value_node.child_by_field_name("constructor")
+        && let Some(name) = node_text(name_node, bytes)
+        && let Some(constructor) = callee_path(constructor_node, bytes)
+    {
+        let key = (
+            name.clone(),
+            node.start_position().row as u32,
+            node.start_position().column as u32,
+        );
+        if seen.insert(key) {
+            receivers.push(json!({
+                "name": name,
+                "constructor": constructor,
+            }));
+        }
+    }
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        collect_receivers_inner(child, bytes, receivers, seen);
     }
 }
 
@@ -1958,6 +2024,49 @@ mod tests {
                 .iter()
                 .any(|call| call["callee"] == "login")
         );
+    }
+
+    #[tokio::test]
+    async fn records_constructor_receiver_bindings() {
+        let output = JsTsExtractor
+            .extract(input(
+                "src/dispatch.ts",
+                "import { Service } from './service';\nexport function run() {\n  const local = new Local();\n  const service = new Service();\n  const arrow = () => new Local();\n  const computed = new (resolve())();\n  local.build();\n  service.handle();\n}\nclass Local { build() {} }\n",
+                "typescript",
+            ))
+            .await
+            .unwrap();
+
+        let run = output
+            .entities
+            .iter()
+            .find(|entity| entity.stable_key.0 == "symbol://js-ts:src/dispatch.ts#run")
+            .expect("run declaration must exist");
+        let receivers = run.payload["receivers"]
+            .as_array()
+            .expect("receivers array");
+
+        assert!(receivers
+            .iter()
+            .any(|binding| binding["name"] == "local" && binding["constructor"] == "Local"));
+        assert!(receivers
+            .iter()
+            .any(|binding| binding["name"] == "service" && binding["constructor"] == "Service"));
+        assert!(
+            !receivers.iter().any(|binding| binding["name"] == "arrow"),
+            "arrow initializers are not constructor bindings"
+        );
+        assert!(
+            !receivers.iter().any(|binding| binding["name"] == "computed"),
+            "computed constructors are not statically nameable"
+        );
+
+        let local = output
+            .entities
+            .iter()
+            .find(|entity| entity.stable_key.0 == "symbol://js-ts:src/dispatch.ts#Local")
+            .expect("class entity must exist");
+        assert!(local.payload.get("receivers").is_none());
     }
 
     #[tokio::test]

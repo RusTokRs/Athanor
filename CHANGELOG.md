@@ -19,12 +19,10 @@ substantive release notes.
 - Add `builtin.extractor.treesitter` over Python and Go: one data-driven engine records declarations,
   receiver-qualified methods and other declarations, imports, exports, and statically named call sites.
 - Add `builtin.linker.treesitter`: Python and Go imports, cross-file calls through package units, receiver variables, and import bindings, test bridges, and a per-language coverage measurement.
-- Add a monitoring operations category: the operations profile derives declared health, status, and
-  metrics endpoints plus telemetry variable names from canonical evidence; probes, alerts, dashboards, and SLOs stay absent without an evidence source.
+- Add a monitoring operations category: the operations profile derives declared health, status, and metrics endpoints plus telemetry variable names from canonical evidence; probes, alerts, dashboards, and SLOs stay absent without an evidence source.
 - Add the JavaScript/TypeScript call graph. The JS/TS extractor records each import statement's local
-  bindings (`default_name`, `namespace_name`, `named`) and a bounded `calls` array per declaration
-  with the statically named callee, receiver, kind, argument count, and line/column.
-  `builtin.linker.js_ts_calls` resolves those into evidence-backed `Calls` relations and emits `TestedBy` from test locations.
+  bindings (`default_name`, `namespace_name`, `named`) and a bounded `calls` array per declaration with the
+  statically named callee, receiver, kind, argument count, and line/column; `builtin.linker.js_ts_calls` resolves those into `Calls` relations and emits `TestedBy`.
 - Preserve JS/TS aliases; resolve bounded named/default and direct-namespace calls plus uniquely aggregated multi-source wildcards, exclude wildcard `default`, and bump index v47→v52.
 - Add JS/TS callback and promise-handler bridges: combinator call sites record bounded
   `callback_arguments` that the call linker resolves into indirect evidence-backed `Calls` edges; index state bumps v52→v53.
@@ -47,6 +45,8 @@ substantive release notes.
   name and a default-imported or same-module `new Foo()` resolves to the class; index state bumps v53→v54.
 - Add JS/TS multi-hop namespace aliases: a namespace name forwarded across modules by
   named re-exports resolves `alias.member()`; index state bumps v54→v55.
+- Add JS/TS receiver dispatch: a member call on a local bound to a recorded
+  `new Class()` constructor resolves to the class member; index state bumps v55→v56.
 - Add local semantic retrieval with zero new dependencies: hashing-trick embeddings over character
   trigrams and word n-grams (FNV-1a buckets) power `ath search --mode semantic|hybrid` and MCP `search`.
 

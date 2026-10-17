@@ -373,10 +373,52 @@ cargo test -p athanor-app --locked
 cargo test -p athanor-app --features js-ts-precision --locked
 ```
 
+#### P2J — Receiver Dispatch Through Constructor Bindings (bounded JS/TS slice)
+
+- The extractor records a bounded `receivers` array per declaration: each
+  local variable bound to a statically named constructor call
+  (`const session = new Service()` records `{name, constructor}`). Only
+  identifier variable names and identifier-rooted constructor paths are kept;
+  destructuring bindings, arrow, literal, and call initializers, and computed
+  constructors are skipped.
+- The call linker resolves a single-segment member call `var.member()` when
+  `var` matches a recorded receiver binding: the constructor name resolves
+  through the existing ordered rules (same-module, import, unique name), and
+  the member resolves to the unique qualified `ClassName.member` declaration
+  in the resolved class's own module with reason `receiver_dispatch`. The
+  constructor's own resolution failure, a missing or ambiguous member, and
+  deeper member paths all stay unresolved, and an inherited member is not
+  followed.
+- Receiver dispatch is placed before the unique-member-name guess because a
+  recorded constructor binding is stronger evidence than a name-only match;
+  it also disambiguates same-named members across classes.
+- Bump both index-state schema families from v55 to v56 because the
+  normalized declaration payload gains the `receivers` field, so cached
+  module payloads are rebuilt in both configurations.
+
+Focused source regression matrix:
+
+| Surface | Regression |
+| --- | --- |
+| JS/TS extractor | `const name = new Class()` records `{name, constructor}`; arrow, literal, computed, and destructuring initializers record nothing; class declarations record no receivers |
+| Call linker | A same-module `new Local()` receiver resolves `local.member()` to `Local.member`; an imported-class receiver resolves through the import; an unresolvable constructor stays unresolved |
+| Persistence | v55 normal/precision state is rejected and forces a v56 rebuild |
+
+Focused verification:
+
+```bash
+cargo test -p athanor-extractor-js-ts --locked
+cargo test -p athanor-extractor-js-ts --features precision-parser --locked
+cargo test -p athanor-linker-js-ts --locked
+cargo test -p athanor-app --locked
+cargo test -p athanor-app --features js-ts-precision --locked
+```
+
 #### Remaining P2 Gaps
 
 - JavaScript/TypeScript anonymous default exports; package/workspace specifiers
-  and TypeScript path aliases; receiver/type-aware dispatch and deep member paths.
+  and TypeScript path aliases; type-aware dispatch beyond recorded constructor
+  bindings, inherited members, and deep member paths.
 - Rust dyn-dispatch candidates and symbol-level incremental invalidation for both Rust and JS/TS.
 
 ### P3 — Bounded Language Expansion

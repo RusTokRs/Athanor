@@ -67,9 +67,14 @@ previous one is silent:
    ambiguous, unresolved, cyclic, or over-limit branches block the aggregate. The namespace hop
    counts against the 32-export-hop bound, and recursive export resolution is capped at 1,024 module
    visits per call; multi-segment member paths through named-import namespace aliases are not resolved.
-6. `same_module_member_name` — a member call with an unknown receiver resolves only when the calling
+6. `receiver_dispatch` — a single-segment member call on a local recorded as
+   `new ClassName()` resolves to the bound class's member in the class's own
+   module. The constructor name resolves through the ordered steps above, so
+   same-module and imported classes both work, and the member must be a unique
+   qualified `ClassName.member` in that module.
+7. `same_module_member_name` — a member call with an unknown receiver resolves only when the calling
    module contains exactly one member with that name.
-7. `unique_exported_name` — a bare call with no local or imported target resolves only when exactly
+8. `unique_exported_name` — a bare call with no local or imported target resolves only when exactly
    one exported declaration across the snapshot carries that name.
 
 ### Callback Bridges
@@ -134,7 +139,10 @@ contract relationship.
 Package imports, Node built-ins, workspace aliases, TypeScript path aliases, dynamic imports,
 CommonJS `require` calls, anonymous/default-expression exports,
 anonymous default classes, computed member calls, multi-segment named-import namespace paths,
-and receiver typing are not resolved. Callback bridging only fires for the extractor's combinator allowlist and
+and receiver typing beyond recorded constructor bindings are not resolved. Receiver dispatch
+fires only for a local bound to a statically named `new ClassName()` call; computed
+constructors, destructuring bindings, deeper member paths, and inherited members stay
+unresolved. Callback bridging only fires for the extractor's combinator allowlist and
 only for statically nameable arguments; callbacks passed as inline arrows, call results, or
 computed expressions are never recorded, and a callback argument whose name does not resolve
 uniquely stays unresolved like any other callee. A named import representing a namespace object can use one unique, direct,
