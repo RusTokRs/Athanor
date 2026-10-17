@@ -89,6 +89,12 @@ jobs:
               const all = text.split('\n');
               return '```\n' + all.slice(Math.max(0, all.length - lines)).join('\n') + '\n```';
             };
+            const head = (name, lines) => {
+              if (!fs.existsSync(name)) return '(no output)';
+              const text = fs.readFileSync(name, 'utf8').replace(/\u001b\[[0-9;]*m/g, '');
+              const all = text.split('\n');
+              return '```\n' + all.slice(0, lines).join('\n') + '\n```';
+            };
             const errors = (name) => {
               if (!fs.existsSync(name)) return '(no output)';
               const text = fs.readFileSync(name, 'utf8').replace(/\u001b\[[0-9;]*m/g, '');
@@ -112,8 +118,8 @@ jobs:
               `clippy exit code: **${clippy}**`,
               `cargo test exit code: **${tests}**`,
               '',
-              '### rustfmt tail',
-              tail('fmt.log', 80),
+              '### rustfmt diff',
+              head('fmt.log', 400),
               '',
               '### clippy errors',
               errors('clippy.log'),

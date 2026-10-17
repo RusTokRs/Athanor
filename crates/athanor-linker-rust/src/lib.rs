@@ -111,11 +111,15 @@ impl Linker for RustLinker {
         // The types each trait is implemented for, proven by the same facts that
         // produce the `Implements` bridges. A dynamic call names the trait; the
         // implementations are what the trait says can run.
-        let implementors_by_trait = trait_implementors(
-            input.facts.iter(),
-            &types_by_name,
-            &traits_by_name,
-        );
+        let implementors_by_trait =
+            trait_implementors(input.facts.iter(), &types_by_name, &traits_by_name);
+        let candidate_context = DynCandidateContext {
+            snapshot: &input.snapshot,
+            implementors: &implementors_by_trait,
+            by_qualified_name: &rust_by_qualified_name,
+            affected: &affected_ids,
+            linker: self.name(),
+        };
 
         let mut relations = Vec::new();
         let mut relation_ids = HashSet::new();
@@ -248,14 +252,10 @@ impl Linker for RustLinker {
                                 ));
                                 if reason == "rust_dyn_dispatch_method" {
                                     dyn_candidates(
-                                        &input.snapshot,
+                                        &candidate_context,
                                         entity,
                                         target,
                                         name,
-                                        &implementors_by_trait,
-                                        &rust_by_qualified_name,
-                                        &affected_ids,
-                                        self.name(),
                                         &mut relations,
                                         &mut relation_ids,
                                     );
@@ -915,6 +915,15 @@ fn trait_implementors<'a>(
     implementors
 }
 
+/// The snapshot-wide inputs a dynamic call site needs to name its candidates.
+struct DynCandidateContext<'a> {
+    snapshot: &'a SnapshotId,
+    implementors: &'a HashMap<&'a str, Vec<&'a Entity>>,
+    by_qualified_name: &'a HashMap<&'a str, &'a Entity>,
+    affected: &'a HashSet<EntityId>,
+    linker: &'a str,
+}
+
 /// Records the implementations a `dyn`/`impl` method call can dispatch into.
 ///
 /// The trait declaration the call resolves to is what dynamic dispatch invokes;
@@ -923,14 +932,10 @@ fn trait_implementors<'a>(
 /// confidence of the declaration edge and never as test coverage. The list is
 /// bounded and the payload discloses how many implementations were seen.
 fn dyn_candidates(
-    snapshot: &SnapshotId,
+    context: &DynCandidateContext<'_>,
     caller: &Entity,
     trait_method: &Entity,
     method: &str,
-    implementors_by_trait: &HashMap<&str, Vec<&Entity>>,
-    by_qualified_name: &HashMap<&str, &Entity>,
-    affected_ids: &HashSet<EntityId>,
-    linker: &str,
     relations: &mut Vec<Relation>,
     relation_ids: &mut HashSet<RelationId>,
 ) {
@@ -938,7 +943,7 @@ fn dyn_candidates(
     else {
         return;
     };
-    let Some(implementors) = implementors_by_trait.get(trait_qn) else {
+    let Some(implementors) = context.implementors.get(trait_qn) else {
         return;
     };
     let mut candidates = Vec::new();
@@ -947,13 +952,13 @@ fn dyn_candidates(
             continue;
         };
         let method_qn = format!("{type_qn}::{method}");
-        let Some(target) = by_qualified_name.get(method_qn.as_str()) else {
+        let Some(target) = context.by_qualified_name.get(method_qn.as_str()) else {
             continue;
         };
         if target.kind != EntityKind::Function || target.id == caller.id {
             continue;
         }
-        if !either_affected(caller, target, affected_ids) {
+        if !either_affected(caller, target, context.affected) {
             continue;
         }
         candidates.push(*target);
@@ -963,11 +968,11 @@ fn dyn_candidates(
     let candidate_count = candidates.len();
     for target in candidates {
         let mut candidate = relation(
-            snapshot,
+            context.snapshot,
             caller,
             target,
             RelationKind::Calls,
-            linker,
+            context.linker,
             "rust_dyn_dispatch_candidate",
             &format!("{trait_qn}::{method}"),
             DYN_CANDIDATE_CONFIDENCE,
