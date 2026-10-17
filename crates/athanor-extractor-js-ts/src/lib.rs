@@ -28,7 +28,7 @@ impl Extractor for JsTsExtractor {
     }
 
     fn supports(&self, source: &SourceFile) -> bool {
-        js_ts_language(source).is_some() || is_package_json(source)
+        js_ts_language(source).is_some() || is_package_json(source) || is_tsconfig_json(source)
     }
 
     async fn extract(&self, input: ExtractInput) -> CoreResult<ExtractOutput> {
@@ -38,6 +38,10 @@ impl Extractor for JsTsExtractor {
 
         if is_package_json(&input.source) {
             return Ok(extract_package_json(self.name(), &input, content));
+        }
+
+        if is_tsconfig_json(&input.source) {
+            return Ok(extract_typescript_config(self.name(), &input, content));
         }
 
         let Some(language) = js_ts_language(&input.source) else {
@@ -295,6 +299,25 @@ fn is_package_json(source: &SourceFile) -> bool {
     source.path.ends_with("package.json")
 }
 
+/// Recognizes the first-party TypeScript and JavaScript project configuration
+/// files that carry module-resolution options: `tsconfig.json`, `jsconfig.json`,
+/// and their named `.json` variants such as `tsconfig.base.json`.
+fn is_tsconfig_json(source: &SourceFile) -> bool {
+    let normalized = source.path.replace('\\', "/");
+    let file_name = normalized.rsplit('/').next().unwrap_or(normalized.as_str());
+    is_tsconfig_file_name(file_name)
+}
+
+fn is_tsconfig_file_name(file_name: &str) -> bool {
+    let Some(stem) = file_name.strip_suffix(".json") else {
+        return false;
+    };
+    stem == "tsconfig"
+        || stem == "jsconfig"
+        || stem.starts_with("tsconfig.")
+        || stem.starts_with("jsconfig.")
+}
+
 /// Upper bound on recorded call sites per declaration.
 ///
 /// Payloads stay bounded and deterministic: call sites are recorded in source
@@ -339,6 +362,22 @@ const CALLBACK_CALLEES: &[&str] = &[
 /// Combinators take at most two callbacks in practice; the bound keeps the
 /// payload deterministic even for unusually long argument lists.
 const MAX_CALLBACK_ARGUMENTS: usize = 4;
+
+/// Upper bound on recorded TypeScript path mappings per configuration file.
+///
+/// Path aliases are configuration evidence, not source structure: the bound
+/// keeps one configuration file from dominating the snapshot while the
+/// omitted count stays recorded.
+const MAX_PATH_MAPPINGS: usize = 64;
+
+/// Upper bound on recorded substitution targets per path mapping.
+const MAX_PATH_TARGETS: usize = 8;
+
+/// Upper bound on recorded `extends` hops per configuration file.
+const MAX_CONFIG_EXTENDS_DEPTH: usize = 8;
+
+/// Upper bound on recorded workspace glob patterns per `package.json`.
+const MAX_WORKSPACE_PATTERNS: usize = 64;
 
 #[derive(Debug, Clone)]
 struct SourceDeclaration {
@@ -1568,6 +1607,14 @@ fn extract_package_json(extractor: &str, input: &ExtractInput, content: &str) ->
         .get("name")
         .and_then(Value::as_str)
         .unwrap_or("(anonymous)");
+    // Workspace patterns and the package entry point are the evidence a linker
+    // needs to resolve a bare workspace-package specifier inside the repository.
+    let workspaces = workspace_patterns(root.get("workspaces"));
+    let main = root
+        .get("main")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
     let package_stable_key = StableKey(format!("package://npm:{package_name}"));
     let package_id = EntityId(format!(
         "ent_js_ts_package_{:016x}",
@@ -1587,12 +1634,15 @@ fn extract_package_json(extractor: &str, input: &ExtractInput, content: &str) ->
         language: Some(LanguageCode("json".to_string())),
         aliases: Vec::new(),
         ownership: ownership_for_file(&input.source.path),
-        payload: json!({
-            "package_manager": "npm",
-            "version": root.get("version").and_then(Value::as_str),
-            "private": root.get("private").and_then(Value::as_bool),
-        }),
-    }];
+            payload: json!({
+                "package_manager": "npm",
+                "version": root.get("version").and_then(Value::as_str),
+                "private": root.get("private").and_then(Value::as_bool),
+                "main": main,
+                "workspaces": workspaces.patterns,
+                "omitted_workspaces": workspaces.omitted,
+            }),
+        }];
     let context = ExtractionEvidenceContext {
         extractor,
         path: &input.source.path,
@@ -1665,6 +1715,422 @@ fn extract_package_json(extractor: &str, input: &ExtractInput, content: &str) ->
         facts,
         diagnostics: Vec::new(),
     }
+}
+
+/// Projects the bounded module-resolution options of one first-party
+/// TypeScript or JavaScript configuration file.
+///
+/// `tsconfig.json` and `jsconfig.json` map non-relative import specifiers onto
+/// repository paths, so they are the evidence that lets a linker resolve
+/// `@/lib/api` or a workspace package name without guessing. The projection
+/// records only that evidence: the `baseUrl`-resolved base directory, each
+/// `paths` pattern with its substitution targets and line, and an inherited
+/// `extends` specifier. Every other compiler option stays outside the model.
+fn extract_typescript_config(
+    extractor: &str,
+    input: &ExtractInput,
+    content: &str,
+) -> ExtractOutput {
+    let normalized = strip_trailing_commas(&strip_json_comments(content));
+    let Ok(root) = serde_json::from_str::<Value>(&normalized) else {
+        let diagnostic = diagnostic(DiagnosticSpec {
+            extractor,
+            path: &input.source.path,
+            snapshot: &input.snapshot,
+            kind: "js_ts_typescript_config_parse_error",
+            title: "TypeScript configuration parse error",
+            message: format!("failed to parse {}", input.source.path),
+            range: (1, 1),
+            payload: json!({}),
+        });
+        return ExtractOutput {
+            entities: Vec::new(),
+            facts: Vec::new(),
+            diagnostics: vec![diagnostic],
+        };
+    };
+
+    let Some(config) = parse_typescript_config(&input.source.path, &normalized, &root) else {
+        return ExtractOutput::default();
+    };
+
+    let file_name = config_file_name(&input.source.path);
+    let label = if file_name.starts_with("jsconfig") {
+        "JavaScript"
+    } else {
+        "TypeScript"
+    };
+    let config_path = input.source.path.as_str();
+    let stable_key = StableKey(format!("config://{config_path}#js-ts-module-resolution"));
+    let entity_id = EntityId(format!(
+        "ent_js_ts_config_{:016x}",
+        stable_hash(stable_key.0.as_bytes())
+    ));
+    let line = json_member_line(&normalized, "compilerOptions").unwrap_or(1);
+    let TypeScriptConfig {
+        extends,
+        base_dir,
+        paths,
+        omitted_paths,
+        omitted_targets,
+    } = config;
+    let mut mappings = Vec::new();
+    for mapping in &paths {
+        mappings.push(json!({
+            "pattern": mapping.pattern,
+            "targets": mapping.targets,
+            "line": mapping.line,
+        }));
+    }
+
+    let entity = Entity {
+        id: entity_id.clone(),
+        stable_key: stable_key.clone(),
+        kind: EntityKind::Feature,
+        name: file_name,
+        title: Some(format!("{label} module resolution configuration")),
+        source: Some(SourceLocation {
+            path: input.source.path.clone(),
+            line_start: Some(line),
+            line_end: None,
+        }),
+        language: Some(LanguageCode("json".to_string())),
+        aliases: Vec::new(),
+        ownership: ownership_for_file(&input.source.path),
+        payload: json!({
+            "config_kind": "js_ts_module_resolution",
+            "extends": extends,
+            "base_dir": base_dir,
+            "paths": mappings,
+            "omitted_paths": omitted_paths,
+            "omitted_targets": omitted_targets,
+        }),
+    };
+    let fact = symbol_fact(
+        ExtractionEvidenceContext {
+            extractor,
+            path: &input.source.path,
+            snapshot: &input.snapshot,
+        },
+        SymbolFactSpec {
+            subject: &entity_id,
+            object: None,
+            stable_key: &stable_key,
+            symbol_kind: "module_resolution_config",
+            range: (line, line),
+        },
+    );
+
+    ExtractOutput {
+        entities: vec![entity],
+        facts: vec![fact],
+        diagnostics: Vec::new(),
+    }
+}
+
+struct TypeScriptConfig {
+    extends: Option<String>,
+    base_dir: Option<String>,
+    paths: Vec<PathMapping>,
+    omitted_paths: usize,
+    omitted_targets: usize,
+}
+
+struct PathMapping {
+    pattern: String,
+    targets: Vec<String>,
+    line: Option<u32>,
+}
+
+/// Reads the module-resolution options of one configuration file.
+///
+/// A file without `compilerOptions` and without `extends` carries no
+/// resolution evidence, so it is not projected at all.
+fn parse_typescript_config(path: &str, content: &str, root: &Value) -> Option<TypeScriptConfig> {
+    let compiler_options = root.get("compilerOptions").and_then(Value::as_object);
+    let extends = root
+        .get("extends")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string);
+    if compiler_options.is_none() && extends.is_none() {
+        return None;
+    }
+
+    let base_dir = match compiler_options
+        .and_then(|options| options.get("baseUrl"))
+        .and_then(Value::as_str)
+    {
+        Some(base_url) => config_base_dir(path, base_url),
+        None => Some(config_directory(path)),
+    };
+    let (paths, omitted_paths, omitted_targets) =
+        match compiler_options.and_then(|options| options.get("paths")) {
+            Some(paths) => parse_path_mappings(content, paths),
+            None => (Vec::new(), 0, 0),
+        };
+
+    Some(TypeScriptConfig {
+        extends,
+        base_dir,
+        paths,
+        omitted_paths,
+        omitted_targets,
+    })
+}
+
+fn parse_path_mappings(content: &str, paths: &Value) -> (Vec<PathMapping>, usize, usize) {
+    let mut mappings = Vec::new();
+    let mut omitted_paths = 0usize;
+    let mut omitted_targets = 0usize;
+    let Some(entries) = paths.as_object() else {
+        return (mappings, omitted_paths, omitted_targets);
+    };
+
+    for (pattern, targets) in entries {
+        let recorded_targets = match targets.as_array() {
+            Some(targets) => bounded_path_targets(targets, &mut omitted_targets),
+            None => Vec::new(),
+        };
+        let supported_pattern = !pattern.trim().is_empty() && pattern.matches('*').count() <= 1;
+        if !supported_pattern
+            || recorded_targets.is_empty()
+            || mappings.len() == MAX_PATH_MAPPINGS
+        {
+            omitted_paths += 1;
+            continue;
+        }
+        mappings.push(PathMapping {
+            pattern: pattern.trim().to_string(),
+            targets: recorded_targets,
+            line: json_member_line(content, pattern),
+        });
+    }
+
+    (mappings, omitted_paths, omitted_targets)
+}
+
+fn bounded_path_targets(targets: &[Value], omitted_targets: &mut usize) -> Vec<String> {
+    let mut recorded = Vec::new();
+    for target in targets {
+        let Some(target) = target
+            .as_str()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
+            *omitted_targets += 1;
+            continue;
+        };
+        if recorded.len() == MAX_PATH_TARGETS {
+            *omitted_targets += 1;
+            continue;
+        }
+        recorded.push(target.to_string());
+    }
+    recorded
+}
+
+/// Resolves `compilerOptions.baseUrl` against the directory of the declaring
+/// configuration file.
+///
+/// An absolute, drive-qualified, empty, or repository-escaping `baseUrl` has no
+/// canonical repository directory, so it is reported as unsupported instead of
+/// being normalized into a path the model cannot prove.
+fn config_base_dir(path: &str, base_url: &str) -> Option<String> {
+    let trimmed = base_url.trim();
+    if trimmed.is_empty() || trimmed.starts_with('/') || trimmed.contains(':') {
+        return None;
+    }
+    join_config_dir(&config_directory(path), trimmed)
+}
+
+fn config_directory(path: &str) -> String {
+    let normalized = path.replace('\\', "/");
+    normalized
+        .rsplit_once('/')
+        .map_or(String::new(), |(parent, _)| parent.to_string())
+}
+
+fn config_file_name(path: &str) -> String {
+    path.rsplit(|character| character == '/' || character == '\\')
+        .next()
+        .unwrap_or(path)
+        .to_string()
+}
+
+/// Joins a repository-relative directory with a configuration-relative path.
+///
+/// A path that walks above the repository root has no canonical target, so the
+/// join fails closed instead of producing `../` segments.
+fn join_config_dir(base: &str, relative: &str) -> Option<String> {
+    let mut parts = base
+        .split('/')
+        .filter(|part| !part.is_empty())
+        .map(ToString::to_string)
+        .collect::<Vec<_>>();
+    for part in relative.replace('\\', "/").split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                parts.pop()?;
+            }
+            other => parts.push(other.to_string()),
+        }
+    }
+    Some(parts.join("/"))
+}
+
+/// Line of one object member, found by its quoted key.
+///
+/// TypeScript configuration files are JSONC, so formatting varies; the search
+/// keeps recorded evidence on the line that declares the member and reports
+/// `None` rather than a guessed line when the key is not at the start of a line.
+fn json_member_line(content: &str, key: &str) -> Option<u32> {
+    let needle = format!("\"{key}\":");
+    for (index, line) in content.lines().enumerate() {
+        if line.trim_start().starts_with(&needle) {
+            return Some((index + 1) as u32);
+        }
+    }
+    None
+}
+
+/// Removes JSONC line and block comments outside string literals.
+///
+/// Newlines inside block comments are preserved, so recorded line numbers keep
+/// pointing at the same text after normalization.
+fn strip_json_comments(content: &str) -> String {
+    let mut output = String::with_capacity(content.len());
+    let mut characters = content.chars().peekable();
+    let mut in_string = false;
+    let mut escaped = false;
+    while let Some(character) = characters.next() {
+        if in_string {
+            output.push(character);
+            match (escaped, character) {
+                (true, _) => escaped = false,
+                (false, '\\') => escaped = true,
+                (false, '"') => in_string = false,
+                _ => {}
+            }
+            continue;
+        }
+        if character != '/' {
+            if character == '"' {
+                in_string = true;
+            }
+            output.push(character);
+            continue;
+        }
+        match characters.peek().copied() {
+            Some('/') => {
+                characters.next();
+                while let Some(skipped) = characters.next() {
+                    if skipped == '\n' {
+                        output.push('\n');
+                        break;
+                    }
+                }
+            }
+            Some('*') => {
+                characters.next();
+                while let Some(skipped) = characters.next() {
+                    if skipped == '*' && characters.peek().copied() == Some('/') {
+                        characters.next();
+                        break;
+                    }
+                    if skipped == '\n' {
+                        output.push('\n');
+                    }
+                }
+            }
+            _ => output.push(character),
+        }
+    }
+    output
+}
+
+/// Removes trailing commas outside string literals.
+///
+/// TypeScript configuration files may end an object or array member list with a
+/// comma; strict JSON rejects it. The scan is string-aware so a comma inside a
+/// value is never removed.
+fn strip_trailing_commas(content: &str) -> String {
+    let mut output = String::with_capacity(content.len());
+    let mut characters = content.chars().peekable();
+    let mut in_string = false;
+    let mut escaped = false;
+    while let Some(character) = characters.next() {
+        if in_string {
+            output.push(character);
+            match (escaped, character) {
+                (true, _) => escaped = false,
+                (false, '\\') => escaped = true,
+                (false, '"') => in_string = false,
+                _ => {}
+            }
+            continue;
+        }
+        if character == ',' {
+            let mut next = None;
+            for candidate in characters.clone() {
+                if candidate.is_whitespace() {
+                    continue;
+                }
+                next = Some(candidate);
+                break;
+            }
+            if matches!(next, Some('}') | Some(']')) {
+                continue;
+            }
+            output.push(character);
+            continue;
+        }
+        if character == '"' {
+            in_string = true;
+        }
+        output.push(character);
+    }
+    output
+}
+
+struct WorkspacePatterns {
+    patterns: Vec<String>,
+    omitted: usize,
+}
+
+/// Reads the bounded workspace glob patterns of one `package.json`.
+///
+/// Both the array form and the `{ "packages": [...] }` object form are
+/// recognized; a non-string entry or an entry beyond the bound is counted as
+/// omitted instead of being silently dropped.
+fn workspace_patterns(value: Option<&Value>) -> WorkspacePatterns {
+    let mut patterns = Vec::new();
+    let mut omitted = 0usize;
+    let entries = match value {
+        Some(Value::Array(entries)) => entries,
+        Some(object) => match object.get("packages").and_then(Value::as_array) {
+            Some(entries) => entries,
+            None => return WorkspacePatterns { patterns, omitted },
+        },
+        None => return WorkspacePatterns { patterns, omitted },
+    };
+    for entry in entries {
+        let pattern = entry.as_str().map(str::trim).filter(|value| !value.is_empty());
+        let Some(pattern) = pattern else {
+            omitted += 1;
+            continue;
+        };
+        if patterns.len() == MAX_WORKSPACE_PATTERNS {
+            omitted += 1;
+            continue;
+        }
+        if !patterns.iter().any(|existing| existing == pattern) {
+            patterns.push(pattern.to_string());
+        }
+    }
+    WorkspacePatterns { patterns, omitted }
 }
 
 fn line_range(node: Node) -> (u32, u32) {
@@ -2307,5 +2773,237 @@ mod tests {
                 content: Some(content.to_string()),
             },
         }
+    }
+
+    fn path_mapping<'a>(entity: &'a Entity, pattern: &str) -> &'a Value {
+        let mappings = entity.payload["paths"].as_array().expect("paths array");
+        for mapping in mappings {
+            if mapping.get("pattern").and_then(Value::as_str) == Some(pattern) {
+                return mapping;
+            }
+        }
+        panic!("recorded path mapping for {pattern}")
+    }
+
+    #[test]
+    fn supports_typescript_configuration_variants() {
+        let extractor = JsTsExtractor;
+        for path in ["tsconfig.json", "jsconfig.json", "packages/app/tsconfig.base.json"] {
+            let source = input(path, "{}", "json").source;
+            assert!(extractor.supports(&source), "{path} must be supported");
+        }
+        for path in ["tsconfig.jsonx", "notes.json", "src/app.ts"] {
+            let source = input(path, "{}", "json").source;
+            assert!(!extractor.supports(&source), "{path} must not be supported");
+        }
+    }
+
+    #[tokio::test]
+    async fn extracts_typescript_path_aliases_and_base_directory() {
+        let output = JsTsExtractor
+            .extract(input(
+                "tsconfig.json",
+                "{\n  // project roots\n  \"compilerOptions\": {\n    \"baseUrl\": \"./src\",\n    \"paths\": {\n      \"@/*\": [\"app/*\"],\n      \"config\": [\"./config.ts\"],\n    }\n  }\n}\n",
+                "json",
+            ))
+            .await
+            .unwrap();
+
+        let config = output
+            .entities
+            .iter()
+            .find(|entity| entity.kind == EntityKind::Feature)
+            .expect("module resolution configuration");
+        assert_eq!(config.stable_key.0, "config://tsconfig.json#js-ts-module-resolution");
+        assert_eq!(config.payload["config_kind"], "js_ts_module_resolution");
+        assert_eq!(config.payload["base_dir"], "src");
+        assert!(config.payload["extends"].is_null());
+        assert_eq!(config.source.as_ref().unwrap().line_start, Some(3));
+        assert_eq!(config.payload["omitted_paths"], 0);
+        assert_eq!(config.payload["omitted_targets"], 0);
+
+        let alias = path_mapping(config, "@/*");
+        assert_eq!(alias["targets"], json!(["app/*"]));
+        assert_eq!(alias["line"], 6);
+        let exact = path_mapping(config, "config");
+        assert_eq!(exact["targets"], json!(["./config.ts"]));
+        assert_eq!(exact["line"], 7);
+        assert!(output.diagnostics.is_empty());
+    }
+
+    #[tokio::test]
+    async fn typescript_config_without_base_url_uses_its_own_directory() {
+        let output = JsTsExtractor
+            .extract(input(
+                "packages/app/tsconfig.json",
+                r#"{"compilerOptions":{"paths":{"~/*":["./src/*"]}}}"#,
+                "json",
+            ))
+            .await
+            .unwrap();
+
+        let config = output
+            .entities
+            .iter()
+            .find(|entity| entity.kind == EntityKind::Feature)
+            .expect("module resolution configuration");
+        assert_eq!(config.payload["base_dir"], "packages/app");
+        assert_eq!(path_mapping(config, "~/*")["targets"], json!(["./src/*"]));
+    }
+
+    #[tokio::test]
+    async fn unsupported_base_url_is_reported_without_a_base_directory() {
+        let output = JsTsExtractor
+            .extract(input(
+                "tsconfig.json",
+                r#"{"compilerOptions":{"baseUrl":"/absolute","paths":{"@/*":["src/*"]}}}"#,
+                "json",
+            ))
+            .await
+            .unwrap();
+
+        let config = output
+            .entities
+            .iter()
+            .find(|entity| entity.kind == EntityKind::Feature)
+            .expect("module resolution configuration");
+        assert!(config.payload["base_dir"].is_null());
+        assert_eq!(config.payload["paths"].as_array().map(Vec::len), Some(1));
+    }
+
+    #[tokio::test]
+    async fn inherited_extends_specifier_is_recorded() {
+        let output = JsTsExtractor
+            .extract(input(
+                "tsconfig.json",
+                r#"{"extends":"./tsconfig.base.json","compilerOptions":{"target":"es2022"}}"#,
+                "json",
+            ))
+            .await
+            .unwrap();
+
+        let config = output
+            .entities
+            .iter()
+            .find(|entity| entity.kind == EntityKind::Feature)
+            .expect("module resolution configuration");
+        assert_eq!(config.payload["extends"], "./tsconfig.base.json");
+        assert_eq!(config.payload["base_dir"], "");
+        assert_eq!(config.payload["paths"].as_array().map(Vec::len), Some(0));
+    }
+
+    #[tokio::test]
+    async fn configuration_without_module_resolution_evidence_is_not_projected() {
+        let output = JsTsExtractor
+            .extract(input("tsconfig.json", r#"{"files":["src/main.ts"]}"#, "json"))
+            .await
+            .unwrap();
+
+        assert!(output.entities.is_empty());
+        assert!(output.facts.is_empty());
+        assert!(output.diagnostics.is_empty());
+    }
+
+    #[tokio::test]
+    async fn malformed_typescript_config_reports_a_parse_error() {
+        let output = JsTsExtractor
+            .extract(input("tsconfig.json", "{\"compilerOptions\":", "json"))
+            .await
+            .unwrap();
+
+        assert!(output.entities.is_empty());
+        assert_eq!(output.diagnostics.len(), 1);
+        assert_eq!(
+            output.diagnostics[0].kind,
+            DiagnosticKind::Other("js_ts_typescript_config_parse_error".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn comment_markers_inside_string_values_are_preserved() {
+        let output = JsTsExtractor
+            .extract(input(
+                "tsconfig.json",
+                "{\n  \"compilerOptions\": {\n    \"baseUrl\": \"./src/*not a comment*/\",\n    \"paths\": {\n      \"@/*\": [\"//keep//\"]\n    }\n  }\n}\n",
+                "json",
+            ))
+            .await
+            .unwrap();
+
+        let config = output
+            .entities
+            .iter()
+            .find(|entity| entity.kind == EntityKind::Feature)
+            .expect("module resolution configuration");
+        assert_eq!(config.payload["base_dir"], "src/*not a comment*/");
+        assert_eq!(path_mapping(config, "@/*")["targets"], json!(["//keep//"]));
+    }
+
+    #[tokio::test]
+    async fn path_mapping_bounds_are_disclosed() {
+        let mut entries = Vec::new();
+        for index in 0..70 {
+            entries.push(format!(
+                "\"@alias{index}/*\": [\"src{index}/*\", \"a\", \"b\", \"c\", \"d\", \"e\", \"f\", \"g\", \"h\"]",
+            ));
+        }
+        let content = format!(
+            "{{\n  \"compilerOptions\": {{\n    \"paths\": {{\n      {}\n    }}\n  }}\n}}\n",
+            entries.join(",\n      ")
+        );
+        let output = JsTsExtractor
+            .extract(input("tsconfig.json", &content, "json"))
+            .await
+            .unwrap();
+
+        let config = output
+            .entities
+            .iter()
+            .find(|entity| entity.kind == EntityKind::Feature)
+            .expect("module resolution configuration");
+        assert_eq!(config.payload["paths"].as_array().map(Vec::len), Some(64));
+        assert_eq!(config.payload["omitted_paths"], 6);
+        assert_eq!(config.payload["omitted_targets"], 70);
+    }
+
+    #[tokio::test]
+    async fn records_package_workspaces_and_entry_point() {
+        let output = JsTsExtractor
+            .extract(input(
+                "package.json",
+                r#"{"name":"root","private":true,"main":"src/index.ts","workspaces":{"packages":["packages/*","apps/*"]}}"#,
+                "json",
+            ))
+            .await
+            .unwrap();
+
+        let package = output
+            .entities
+            .iter()
+            .find(|entity| entity.kind == EntityKind::Package)
+            .expect("package entity");
+        assert_eq!(package.payload["main"], "src/index.ts");
+        assert_eq!(package.payload["workspaces"], json!(["packages/*", "apps/*"]));
+        assert_eq!(package.payload["omitted_workspaces"], 0);
+    }
+
+    #[tokio::test]
+    async fn records_array_workspaces_and_rejects_non_string_patterns() {
+        let output = JsTsExtractor
+            .extract(input(
+                "package.json",
+                r#"{"name":"root","workspaces":["packages/*", 7]}"#,
+                "json",
+            ))
+            .await
+            .unwrap();
+
+        let package = output
+            .entities
+            .iter()
+            .find(|entity| entity.kind == EntityKind::Package)
+            .expect("package entity");
+        assert_eq!(package.payload["workspaces"], json!(["packages/*"]));
+        assert_eq!(package.payload["omitted_workspaces"], 1);
     }
 }

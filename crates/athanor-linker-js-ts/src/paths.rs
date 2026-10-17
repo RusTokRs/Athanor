@@ -36,7 +36,12 @@ pub(crate) fn resolve_local_import<'a>(
         .find_map(|candidate| modules.get(&candidate).copied())
 }
 
-fn import_candidates(base: &str) -> Vec<String> {
+/// Candidate repository paths for one extensionless module specifier.
+///
+/// The exact path is tried first, then the standard JavaScript/TypeScript
+/// extensions, then a directory `index` module, so a directory import and an
+/// extensionless source import resolve to the same canonical entity.
+pub(crate) fn import_candidates(base: &str) -> Vec<String> {
     let mut candidates = vec![base.to_string()];
     let file_name = base.rsplit('/').next().unwrap_or(base);
     if !file_name.contains('.') {

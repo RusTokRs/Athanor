@@ -29,7 +29,8 @@ use athanor_domain::{
 use athanor_extractor_basic::stable_hash;
 use serde_json::{Value, json};
 
-use crate::paths::{normalize_path, resolve_local_import};
+use crate::config::{ModuleResolutionConfig, build_module_resolution_config, resolve_module_specifier};
+use crate::paths::normalize_path;
 
 const MODULE_PREFIX: &str = "module://js-ts:";
 const SYMBOL_PREFIX: &str = "symbol://js-ts:";
@@ -116,6 +117,7 @@ impl Linker for JsTsCallLinker {
             candidates.sort_by(|left, right| left.stable_key.0.cmp(&right.stable_key.0));
         }
 
+        let config = build_module_resolution_config(input.entities.as_slice());
         let mut relations = Vec::new();
         let mut relation_ids = HashSet::new();
 
@@ -144,6 +146,7 @@ impl Linker for JsTsCallLinker {
                     &modules,
                     &declarations_by_path,
                     &declarations_by_name,
+                    &config,
                 ) {
                     let affects_subset =
                         affected_ids.contains(&caller.id) || affected_ids.contains(&target.id);
@@ -193,6 +196,7 @@ impl Linker for JsTsCallLinker {
                             &modules,
                             &declarations_by_path,
                             &declarations_by_name,
+                            &config,
                         ) else {
                             continue;
                         };
@@ -283,6 +287,7 @@ fn is_exported(entity: &Entity) -> bool {
 /// calling declaration itself, its module, its import bindings, and finally a
 /// unique name match. Later steps only fire when the earlier ones are silent,
 /// and every name-based step requires exactly one candidate.
+#[allow(clippy::too_many_arguments)]
 fn resolve_call<'a>(
     callee: &str,
     caller: &'a Entity,
@@ -290,6 +295,7 @@ fn resolve_call<'a>(
     modules: &HashMap<String, &'a Entity>,
     declarations_by_path: &HashMap<String, Vec<&'a Entity>>,
     declarations_by_name: &HashMap<String, Vec<&'a Entity>>,
+    config: &ModuleResolutionConfig,
 ) -> Option<(&'a Entity, &'static str, f32)> {
     let caller_path = entity_path(caller)?;
     let same_module = declarations_by_path.get(&caller_path);
@@ -327,7 +333,8 @@ fn resolve_call<'a>(
     if let Some((head, tail)) = head_and_tail(callee)
         && let Some(binding) = import_binding(caller_module, head)
     {
-        let target_module = resolve_local_import(caller_module, &binding.specifier, modules)?;
+        let (target_module, _) =
+            resolve_module_specifier(caller_module, &binding.specifier, modules, config)?;
         if binding.named_import {
             let has_nested_member = callee
                 .strip_prefix(head)
@@ -522,6 +529,7 @@ impl<'a> ExportedNameResolution<'a> {
 /// Missing names are skipped while aggregating wildcard sources, but ambiguous
 /// mappings, unresolved sources, cycles, chains deeper than `MAX_REEXPORT_DEPTH`,
 /// or more than `MAX_REEXPORT_RESOLUTION_STEPS` resolver visits block resolution.
+#[allow(clippy::too_many_arguments)]
 fn resolve_exported_name<'a>(
     module: &'a Entity,
     requested: &str,
@@ -530,6 +538,7 @@ fn resolve_exported_name<'a>(
     visited: &mut HashSet<String>,
     remaining_steps: &mut usize,
     depth: usize,
+    config: &ModuleResolutionConfig,
 ) -> ExportedNameResolution<'a> {
     if depth > MAX_REEXPORT_DEPTH || *remaining_steps == 0 {
         return ExportedNameResolution::Blocked;
@@ -588,7 +597,8 @@ fn resolve_exported_name<'a>(
                     continue;
                 };
                 if let Some(specifier) = source {
-                    let Some(target_module) = resolve_local_import(module, specifier, modules)
+                    let Some((target_module, _)) =
+                        resolve_module_specifier(module, specifier, modules, config)
                     else {
                         unresolved_mapping = true;
                         continue;
@@ -601,6 +611,7 @@ fn resolve_exported_name<'a>(
                         visited,
                         remaining_steps,
                         depth + 1,
+                        config,
                     ) {
                         ExportedNameResolution::Resolved(target, nested_depth) => {
                             mapped_targets.push((target, nested_depth + 1));
@@ -628,9 +639,12 @@ fn resolve_exported_name<'a>(
                             unresolved_mapping = true;
                         }
                     } else if let Some(import_binding) = import_binding(module, imported) {
-                        if let Some(imported_module) =
-                            resolve_local_import(module, &import_binding.specifier, modules)
-                        {
+                        if let Some((imported_module, _)) = resolve_module_specifier(
+                            module,
+                            &import_binding.specifier,
+                            modules,
+                            config,
+                        ) {
                             let imported_name =
                                 import_binding.imported_name.as_deref().unwrap_or(imported);
                             match resolve_exported_name(
@@ -641,6 +655,7 @@ fn resolve_exported_name<'a>(
                                 visited,
                                 remaining_steps,
                                 depth + 1,
+                                config,
                             ) {
                                 ExportedNameResolution::Resolved(target, nested_depth) => {
                                     mapped_targets.push((target, nested_depth + 1));
@@ -690,7 +705,9 @@ fn resolve_exported_name<'a>(
                 unresolved_source = true;
                 break;
             };
-            let Some(target_module) = resolve_local_import(module, specifier, modules) else {
+            let Some((target_module, _)) =
+                resolve_module_specifier(module, specifier, modules, config)
+            else {
                 unresolved_source = true;
                 break;
             };
@@ -702,6 +719,7 @@ fn resolve_exported_name<'a>(
                 visited,
                 remaining_steps,
                 depth + 1,
+                config,
             ) {
                 ExportedNameResolution::Resolved(target, nested_depth) => {
                     wildcard_targets.push((target, nested_depth + 1));
@@ -751,6 +769,7 @@ fn resolve_namespace_exported_member<'a>(
     visited: &mut HashSet<String>,
     remaining_steps: &mut usize,
     depth: usize,
+    config: &ModuleResolutionConfig,
 ) -> Option<Option<(&'a Entity, usize)>> {
     let exports = module.payload.get("exports").and_then(Value::as_array)?;
     let namespace_exports = exports
@@ -792,8 +811,8 @@ fn resolve_namespace_exported_member<'a>(
         return Some(None);
     }
 
-    let resolved = resolve_local_import(module, specifier, modules).and_then(|target_module| {
-        resolve_exported_name(
+    let resolved = match resolve_module_specifier(module, specifier, modules, config) {
+        Some((target_module, _)) => resolve_exported_name(
             target_module,
             member,
             modules,
@@ -801,9 +820,11 @@ fn resolve_namespace_exported_member<'a>(
             visited,
             remaining_steps,
             depth + 1,
+            config,
         )
-        .into_resolved()
-    });
+        .into_resolved(),
+        None => None,
+    };
     visited.remove(&path);
     Some(resolved.map(|(target, nested_depth)| (target, nested_depth + 1)))
 }
@@ -826,6 +847,7 @@ fn resolve_forwarded_namespace_alias<'a>(
     visited: &mut HashSet<String>,
     remaining_steps: &mut usize,
     depth: usize,
+    config: &ModuleResolutionConfig,
 ) -> Option<Option<(&'a Entity, usize)>> {
     if depth > MAX_REEXPORT_DEPTH || *remaining_steps == 0 {
         return Some(None);
@@ -870,8 +892,8 @@ fn resolve_forwarded_namespace_alias<'a>(
     if !visited.insert(path.clone()) {
         return Some(None);
     }
-    let resolved = match resolve_local_import(module, &specifier, modules) {
-        Some(target_module) => resolve_namespace_exported_member(
+    let resolved = match resolve_module_specifier(module, &specifier, modules, config) {
+        Some((target_module, _)) => resolve_namespace_exported_member(
             target_module,
             &imported,
             member,
@@ -880,6 +902,7 @@ fn resolve_forwarded_namespace_alias<'a>(
             visited,
             remaining_steps,
             depth + 1,
+            config,
         ),
         None => None,
     };
@@ -911,6 +934,7 @@ fn has_direct_imported_member(
 }
 
 /// Resolves one explicit default export to a unique same-module or imported function binding.
+#[allow(clippy::too_many_arguments)]
 fn resolve_default_export<'a>(
     module: &'a Entity,
     default_exports: &[&Value],
@@ -919,6 +943,7 @@ fn resolve_default_export<'a>(
     visited: &mut HashSet<String>,
     remaining_steps: &mut usize,
     depth: usize,
+    config: &ModuleResolutionConfig,
 ) -> Option<(&'a Entity, usize)> {
     if default_exports.len() != 1 {
         return None;
@@ -939,7 +964,7 @@ fn resolve_default_export<'a>(
 
     let binding = import_binding(module, local_name)?;
     let imported_name = binding.imported_name.as_deref()?;
-    let target_module = resolve_local_import(module, &binding.specifier, modules)?;
+    let (target_module, _) = resolve_module_specifier(module, &binding.specifier, modules, config)?;
     resolve_exported_name(
         target_module,
         imported_name,
@@ -948,6 +973,7 @@ fn resolve_default_export<'a>(
         visited,
         remaining_steps,
         depth + 1,
+        config,
     )
     .into_resolved()
     .map(|(target, nested_depth)| (target, nested_depth + 1))

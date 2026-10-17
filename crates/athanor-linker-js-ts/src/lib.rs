@@ -7,16 +7,18 @@ use athanor_domain::{
     RelationStatus, SnapshotId,
 };
 use athanor_extractor_basic::stable_hash;
-use serde_json::json;
+use serde_json::{Value, json};
 
 mod calls;
+mod config;
 mod implements;
 mod paths;
 
 pub use calls::JsTsCallLinker;
 pub use implements::JsTsImplementsLinker;
 
-use paths::{normalize_path, resolve_local_import};
+use config::{build_module_resolution_config, resolve_module_specifier};
+use paths::normalize_path;
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct JsTsImportLinker;
@@ -53,25 +55,13 @@ impl Linker for JsTsImportLinker {
             .iter()
             .map(|entity| entity.id.clone())
             .collect::<HashSet<_>>();
+        let config = build_module_resolution_config(input.entities.as_slice());
         let mut relations = Vec::new();
 
         for source in modules.values() {
-            for (references, reason) in [
-                (
-                    source
-                        .payload
-                        .get("imports")
-                        .and_then(|value| value.as_array()),
-                    "relative_module_import",
-                ),
-                (
-                    source
-                        .payload
-                        .get("exports")
-                        .and_then(|value| value.as_array()),
-                    "relative_module_re_export",
-                ),
-            ] {
+            let imports = source.payload.get("imports").and_then(Value::as_array);
+            let exports = source.payload.get("exports").and_then(Value::as_array);
+            for (references, kind) in [(imports, "import"), (exports, "re_export")] {
                 let Some(references) = references else {
                     continue;
                 };
@@ -80,18 +70,21 @@ impl Linker for JsTsImportLinker {
                     else {
                         continue;
                     };
-                    let Some(target) = resolve_local_import(source, specifier, &modules) else {
+                    let Some((target, origin)) =
+                        resolve_module_specifier(source, specifier, &modules, &config)
+                    else {
                         continue;
                     };
                     if !affected_ids.contains(&source.id) && !affected_ids.contains(&target.id) {
                         continue;
                     }
+                    let reason = format!("{}_module_{kind}", origin.as_str());
                     relations.push(import_relation(
                         &input.snapshot,
                         source,
                         target,
                         specifier,
-                        reason,
+                        &reason,
                         reference.get("line_start").and_then(|value| value.as_u64()),
                         reference.get("line_end").and_then(|value| value.as_u64()),
                     ));
