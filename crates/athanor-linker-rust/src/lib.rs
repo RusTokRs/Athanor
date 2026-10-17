@@ -456,7 +456,11 @@ struct ReceiverType {
 /// as unresolved instead of letting one declaration win by accident.
 fn receiver_types(entity: &Entity) -> HashMap<String, Option<ReceiverType>> {
     let mut receivers: HashMap<String, Option<ReceiverType>> = HashMap::new();
-    let Some(bindings) = entity.payload.get("typed_bindings").and_then(|v| v.as_array()) else {
+    let Some(bindings) = entity
+        .payload
+        .get("typed_bindings")
+        .and_then(|v| v.as_array())
+    else {
         return receivers;
     };
     for binding in bindings {
@@ -875,7 +879,10 @@ mod tests {
             id,
             &format!("symbol://rust:{qualified_name}"),
             EntityKind::Function,
-            qualified_name.rsplit_once("::").map(|(_, name)| name).unwrap_or(qualified_name),
+            qualified_name
+                .rsplit_once("::")
+                .map(|(_, name)| name)
+                .unwrap_or(qualified_name),
             json!({ "qualified_name": qualified_name, "typed_bindings": bindings, "calls": calls }),
         )
     }
@@ -885,7 +892,10 @@ mod tests {
             id,
             &format!("symbol://rust:{qualified_name}"),
             EntityKind::Function,
-            qualified_name.rsplit_once("::").map(|(_, name)| name).unwrap_or(qualified_name),
+            qualified_name
+                .rsplit_once("::")
+                .map(|(_, name)| name)
+                .unwrap_or(qualified_name),
             json!({ "qualified_name": qualified_name, "symbol_kind": "trait_method" }),
         )
     }
@@ -895,7 +905,10 @@ mod tests {
             id,
             &format!("symbol://rust:{qualified_name}"),
             EntityKind::Symbol,
-            qualified_name.rsplit_once("::").map(|(_, name)| name).unwrap_or(qualified_name),
+            qualified_name
+                .rsplit_once("::")
+                .map(|(_, name)| name)
+                .unwrap_or(qualified_name),
             json!({ "qualified_name": qualified_name, "symbol_kind": symbol_kind }),
         )
     }
@@ -947,16 +960,17 @@ mod tests {
         let calls = |from: &Entity| {
             relations
                 .iter()
-                .filter(|relation| {
-                    relation.kind == RelationKind::Calls && relation.from == from.id
-                })
+                .filter(|relation| relation.kind == RelationKind::Calls && relation.from == from.id)
                 .collect::<Vec<_>>()
         };
 
         let dyn_calls = calls(&dyn_caller);
         assert_eq!(dyn_calls.len(), 1);
         assert_eq!(dyn_calls[0].to, read.id);
-        assert_eq!(dyn_calls[0].payload["resolution"], "rust_dyn_dispatch_method");
+        assert_eq!(
+            dyn_calls[0].payload["resolution"],
+            "rust_dyn_dispatch_method"
+        );
         assert_eq!(dyn_calls[0].confidence, 0.7);
 
         let typed_calls = calls(&typed_caller_entity);

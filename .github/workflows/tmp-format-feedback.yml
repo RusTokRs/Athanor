@@ -27,8 +27,6 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
       - name: Install Rust toolchain
         uses: ./.github/actions/setup-rust
         with:
@@ -89,6 +87,19 @@ jobs:
               const all = text.split('\n');
               return '```\n' + all.slice(Math.max(0, all.length - lines)).join('\n') + '\n```';
             };
+            const errors = (name) => {
+              if (!fs.existsSync(name)) return '(no output)';
+              const text = fs.readFileSync(name, 'utf8').replace(/\u001b\[[0-9;]*m/g, '');
+              const lines = text.split('\n');
+              let out = [];
+              for (let i = 0; i < lines.length && out.length < 120; i++) {
+                if (/^(error|warning: unused|warning: unreachable|failures:|---- .* stdout ----|test .* FAILED|thread .* panicked)/.test(lines[i])) {
+                  out = out.concat(lines.slice(i, i + 14));
+                  out.push('...');
+                }
+              }
+              return out.length ? '```\n' + out.join('\n') + '\n```' : '(no error lines)';
+            };
             const fmt = Number(process.env.FMT_CODE);
             const clippy = Number(process.env.CLIPPY_CODE);
             const tests = Number(process.env.TESTS_CODE);
@@ -102,11 +113,14 @@ jobs:
               '### rustfmt tail',
               tail('fmt.log', 80),
               '',
-              '### clippy tail',
-              tail('clippy.log', 100),
+              '### clippy errors',
+              errors('clippy.log'),
+              '',
+              '### cargo test errors',
+              errors('tests.log'),
               '',
               '### cargo test tail',
-              tail('tests.log', 100),
+              tail('tests.log', 40),
             ].join('\n');
             await github.rest.issues.createComment({
               issue_number: context.issue.number,
