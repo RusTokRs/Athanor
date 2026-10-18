@@ -2425,8 +2425,6 @@ mod tests {
                 .iter()
                 .all(|relation| relation.kind != RelationKind::Calls)
         );
-    }
-
         // A base the snapshot never declares names nothing, even when a
         // declaration carries the qualified name it would own.
         let orphan_module = module(
