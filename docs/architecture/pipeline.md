@@ -79,9 +79,21 @@ files as changed, unchanged, or removed. When the previous exact canonical snaps
 
 1. only changed files are extracted;
 2. unchanged canonical objects are carried forward;
-3. objects owned by changed or removed paths are pruned;
+3. objects owned by changed or removed paths are pruned, except those of a declaration the changed
+   path restated identically — see below;
 4. adapter invalidation declarations determine local, dependency-closure, or global downstream work;
 5. entities, facts, relations, and diagnostics are canonicalized by ID before publication.
+
+Extraction is per file, so a file is not the smallest thing that can stay the same. After extraction
+each declaration is fingerprinted by everything a linker or checker can read from it — stable key,
+kind, name, title, source span, aliases, ownership, and payload. A declaration the previous snapshot
+stated from one of the affected paths with the same fingerprint is **reused**: it leaves the affected
+set, the dependency closure starts from fewer seeds, and the relations, facts, and diagnostics it
+already had are carried forward instead of being pruned with the file. A relation the changed path
+owns is carried when every endpoint still exists and one of them is a reused declaration, because
+relation evidence is anchored on the endpoints themselves. A relation that only passes through the
+changed file keeps the previous behaviour and is recomputed, and anything touching a declaration that
+moved is pruned as before.
 
 If no source changes exist and the previous snapshot is usable, the pipeline may reuse the current
 snapshot rather than create a new durable publication.

@@ -62,7 +62,9 @@ Two concrete targets:
   declared return type, and P2P/P2Q method calls resolved through the receiver's declared type: a
   `dyn` or `impl Trait` receiver reaches the trait declaration and then every declared implementation
   of it. Type inference for a receiver whose type the source never states remains open.
-- Both: symbol-level incremental invalidation so a changed declaration re-resolves only its closure.
+- Both: symbol-level incremental invalidation ships with P2R, so a changed declaration re-resolves
+  only its closure; what remains open is reusing a declaration's relations across a change that does
+  not touch it at all, without recomputing the closure it sits in.
 
 #### P2A — Heritage Relation Semantics (bounded Rust/TypeScript slice)
 
@@ -757,12 +759,53 @@ cargo test -p athanor-app --locked
 cargo test -p athanor-app --features js-ts-precision --locked
 ```
 
+#### P2R — Symbol-Level Incremental Invalidation (bounded core slice)
+
+- A changed file now invalidates the declarations that moved, not every declaration the file happens
+  to contain. Extraction is per file, so until now every entity of a changed file was treated as new:
+  the dependency closure started from all of them, and every relation the file owned was dropped and
+  re-derived, even when the file only gained a blank line.
+- A declaration is fingerprinted by everything a linker or checker can read from it — stable key,
+  kind, name, title, source span, aliases, ownership, and payload. `id` is left out because it is
+  derived from the stable key, and the snapshot is left out because it names the run rather than the
+  object. An extracted declaration whose fingerprint equals the one the previous snapshot stated from
+  one of the affected paths is reused: it leaves the affected set, so the closure starts smaller.
+- Reuse is only ever compared against a previous declaration from an affected path. A declaration
+  with no previous state in those paths — a new one, or one that was never extracted from them — is
+  new work, and a declaration that moved to another line is reconsidered, because the span is part
+  of the fingerprint.
+- The objects derived from a reused declaration are carried forward instead of being dropped with the
+  file. A relation the changed path owns is still true when every endpoint still exists and one of
+  them is a declaration restated identically, because relation evidence is anchored on the endpoints
+  themselves and a span that did not move still proves it. Facts follow their subject and diagnostics
+  their entities.
+- A relation that only passes through the changed file, with both endpoints elsewhere, keeps the
+  previous behaviour and is recomputed; anything touching a declaration that moved is dropped as
+  before. A relation recomputed later still wins, because canonicalisation keeps the last object per
+  id, so carrying an object never masks a newer one.
+- No index-state bump: the stored objects are the same canonical objects, and only fewer of them are
+  recomputed, so an index built by an earlier version stays valid.
+
+Focused source regression matrix:
+
+| Surface | Regression |
+| --- | --- |
+| Reuse | A restated declaration is reused; a moved payload, a moved line, an absent previous state, and a previous state from an untouched path are not |
+| Carry-forward | Relations, facts, and diagnostics of reused declarations survive a changed path; a relation touching a moved declaration is dropped; a relation through the changed file with both endpoints elsewhere keeps the previous behaviour |
+| Pipeline | A changed file invalidates only the declaration that moved, and the relation of the reused declaration is still in the stored snapshot |
+
+Focused verification:
+
+```bash
+cargo test -p athanor-app --locked
+cargo test -p athanor-app --features js-ts-precision --locked
+```
+
 #### Remaining P2 Gaps
 
 - Type inference for a receiver whose type the source never states — an unannotated factory, an
   index access, or a structural type; package-manager-specific resolution that needs an installed
   tree, such as Yarn `nodeLinker` layouts and patched dependencies.
-- Symbol-level incremental invalidation, so a changed declaration re-resolves only its closure.
 
 ### P3 — Bounded Language Expansion
 

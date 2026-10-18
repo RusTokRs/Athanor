@@ -1,10 +1,13 @@
 //! Conservative adapter invalidation planning for incremental indexing.
 
-use std::collections::{BTreeSet, HashMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 
-use athanor_core::{AffectedSubset, InvalidationPolicy, InvalidationScope};
-use athanor_domain::{Entity, Fact, Relation};
+use athanor_core::{AffectedSubset, CanonicalSnapshot, InvalidationPolicy, InvalidationScope};
+use athanor_domain::{Entity, EntityId, Fact, Relation};
 use serde::Serialize;
+
+use crate::hash::stable_hash;
+use crate::pipeline_ownership::entity_owned_by_any_path;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct AdapterInvalidationDeclaration {
@@ -60,6 +63,71 @@ pub fn plan_invalidation(
         added_files,
         removed_files,
         global_adapters,
+    }
+}
+
+/// Names the declarations a changed file still states identically.
+///
+/// A file is re-extracted as a whole, but the declarations inside it usually did
+/// not move: a fingerprint of everything a linker or checker can read — identity,
+/// source span, aliases, ownership, and payload — says which extracted objects are
+/// still the ones the previous snapshot already resolved. Only the rest need to be
+/// reconsidered, so a file that gained a blank line no longer invalidates every
+/// declaration in it.
+///
+/// A declaration is reused only when the previous snapshot states it from one of
+/// the affected paths: an object that was never extracted from a changed file has
+/// no previous state to compare against.
+pub(crate) fn unchanged_declarations(
+    previous: Option<&CanonicalSnapshot>,
+    affected_paths: &BTreeSet<String>,
+    extracted: &[Entity],
+) -> HashSet<EntityId> {
+    let Some(previous) = previous else {
+        return HashSet::new();
+    };
+    let mut previous_fingerprints = BTreeMap::<&str, u64>::new();
+    for entity in &previous.entities {
+        if !entity_owned_by_any_path(entity, affected_paths) {
+            continue;
+        }
+        previous_fingerprints.insert(
+            entity.stable_key.0.as_str(),
+            declaration_fingerprint(entity),
+        );
+    }
+    if previous_fingerprints.is_empty() {
+        return HashSet::new();
+    }
+    extracted
+        .iter()
+        .filter(|entity| {
+            previous_fingerprints.get(entity.stable_key.0.as_str())
+                == Some(&declaration_fingerprint(entity))
+        })
+        .map(|entity| entity.id.clone())
+        .collect()
+}
+
+/// Hashes everything a linker or checker can read from one declaration.
+///
+/// `id` is left out because it is derived from the stable key, and `snapshot` is
+/// left out because it names the run rather than the object.
+fn declaration_fingerprint(entity: &Entity) -> u64 {
+    let material = serde_json::to_vec(&(
+        &entity.stable_key,
+        &entity.kind,
+        &entity.name,
+        &entity.title,
+        &entity.source,
+        &entity.language,
+        &entity.aliases,
+        &entity.ownership,
+        &entity.payload,
+    ));
+    match material {
+        Ok(bytes) => stable_hash(&bytes),
+        Err(_) => stable_hash(entity.stable_key.0.as_bytes()),
     }
 }
 
@@ -146,7 +214,11 @@ mod tests {
         AdapterInvalidationDeclaration, PlannedInvalidationScope, dependency_closure,
         plan_invalidation,
     };
-    use athanor_core::{AffectedSubset, InvalidationPolicy, InvalidationScope};
+    use std::collections::{BTreeSet, HashSet};
+
+    use athanor_core::{AffectedSubset, CanonicalSnapshot, InvalidationPolicy, InvalidationScope};
+
+    use super::unchanged_declarations;
     use athanor_domain::{
         Entity, EntityId, EntityKind, Relation, RelationId, RelationKind, RelationStatus,
         SnapshotId, StableKey,
@@ -239,6 +311,138 @@ mod tests {
                 .all(|entity| entity.id != isolated.id)
         );
         assert_eq!(closure.relations.len(), 2);
+    }
+
+    fn symbol(
+        id: &str,
+        key: &str,
+        path: &str,
+        line: Option<u32>,
+        payload: serde_json::Value,
+    ) -> Entity {
+        Entity {
+            id: EntityId(id.to_string()),
+            stable_key: StableKey(key.to_string()),
+            kind: EntityKind::Function,
+            name: id.to_string(),
+            title: None,
+            source: Some(athanor_domain::SourceLocation {
+                path: path.to_string(),
+                line_start: line,
+                line_end: line,
+            }),
+            language: None,
+            aliases: Vec::new(),
+            ownership: vec![athanor_domain::Ownership {
+                source_file: path.to_string(),
+            }],
+            payload,
+        }
+    }
+
+    fn snapshot_with(entities: Vec<Entity>) -> CanonicalSnapshot {
+        CanonicalSnapshot {
+            snapshot: Some(SnapshotId("snap_previous".to_string())),
+            entities,
+            relations: Vec::new(),
+            ..CanonicalSnapshot::default()
+        }
+    }
+
+    #[test]
+    fn reuses_a_declaration_a_changed_file_states_identically() {
+        let previous = symbol(
+            "ent_same",
+            "symbol://rust:crate::same",
+            "src/lib.rs",
+            Some(4),
+            json!({ "qualified_name": "crate::same" }),
+        );
+        let extracted = previous.clone();
+        let reused = unchanged_declarations(
+            Some(&snapshot_with(vec![previous])),
+            &BTreeSet::from(["src/lib.rs".to_string()]),
+            std::slice::from_ref(&extracted),
+        );
+        assert_eq!(reused, HashSet::from([extracted.id.clone()]));
+    }
+
+    #[test]
+    fn reconsiders_a_declaration_whose_payload_moved() {
+        let previous = symbol(
+            "ent_moved",
+            "symbol://rust:crate::moved",
+            "src/lib.rs",
+            Some(4),
+            json!({ "qualified_name": "crate::moved" }),
+        );
+        let mut extracted = previous.clone();
+        extracted.payload = json!({ "qualified_name": "crate::moved", "calls": [] });
+        let reused = unchanged_declarations(
+            Some(&snapshot_with(vec![previous])),
+            &BTreeSet::from(["src/lib.rs".to_string()]),
+            &[extracted],
+        );
+        assert!(reused.is_empty());
+    }
+
+    #[test]
+    fn reconsiders_a_declaration_that_moved_to_another_line() {
+        let previous = symbol(
+            "ent_shifted",
+            "symbol://rust:crate::shifted",
+            "src/lib.rs",
+            Some(4),
+            json!({}),
+        );
+        let mut extracted = previous.clone();
+        extracted.source = Some(athanor_domain::SourceLocation {
+            path: "src/lib.rs".to_string(),
+            line_start: Some(9),
+            line_end: Some(9),
+        });
+        let reused = unchanged_declarations(
+            Some(&snapshot_with(vec![previous])),
+            &BTreeSet::from(["src/lib.rs".to_string()]),
+            &[extracted],
+        );
+        assert!(reused.is_empty());
+    }
+
+    #[test]
+    fn an_absent_or_untouched_previous_state_reuses_nothing() {
+        let extracted = symbol(
+            "ent_new",
+            "symbol://rust:crate::new",
+            "src/lib.rs",
+            Some(4),
+            json!({}),
+        );
+        assert!(
+            unchanged_declarations(
+                None,
+                &BTreeSet::from(["src/lib.rs".to_string()]),
+                std::slice::from_ref(&extracted)
+            )
+            .is_empty()
+        );
+        // A declaration the previous snapshot stated from another file has no
+        // changed-file state to compare against.
+        let previous = symbol(
+            "ent_new",
+            "symbol://rust:crate::new",
+            "src/other.rs",
+            Some(4),
+            json!({}),
+        );
+        assert!(
+            unchanged_declarations(
+                Some(&snapshot_with(vec![previous])),
+                &BTreeSet::from(["src/lib.rs".to_string()]),
+                &[extracted],
+            )
+            .is_empty()
+        );
     }
 
     fn entity(id: &str) -> Entity {
