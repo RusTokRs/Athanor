@@ -370,7 +370,7 @@ mod tests {
     #[test]
     fn reconsiders_a_declaration_whose_payload_moved() {
         let previous = symbol(
-            "ent_moved
+            "ent_moved",
             "symbol://rust:crate::moved",
             "src/lib.rs",
             Some(4),
@@ -389,7 +389,7 @@ mod tests {
     #[test]
     fn reconsiders_a_declaration_that_moved_to_another_line() {
         let previous = symbol(
-            "ent_shifted
+            "ent_shifted",
             "symbol://rust:crate::shifted",
             "src/lib.rs",
             Some(4),
@@ -429,7 +429,7 @@ mod tests {
         // A declaration the previous snapshot stated from another file has no
         // changed-file state to compare against.
         let previous = symbol(
-            "ent_new
+            "ent_new",
             "symbol://rust:crate::new",
             "src/other.rs",
             Some(4),
