@@ -31,10 +31,14 @@ route declarations and is registered independently as `builtin.extractor.express
   variable and the first parameter of an array combinator's callback record kind `element`, so
   `const items: Item[]` gives `item` the type `Item`
 - Bounded `call_bindings` rows on module payloads: a binding the module initializes with a
-  statically named call, each recorded as `{name, callee, line}`, so the linker can read the type
-  from the return type the factory declares
+  statically named call, each recorded as `{name, callee, line, awaited}`, so the linker can read
+  the type from the return type the factory declares — and from the awaited type when the binding
+  awaits the call
 - A `return_type` on function, method, and arrow-function payloads: the bare named type the
-  declaration returns, so a factory's annotation can type a receiver
+  declaration returns, so a synchronous factory's annotation can type a receiver
+- An `awaited_return_type` on the same payloads: the type an `await` on a call to the declaration
+  yields, so `Promise<Repo>` and an `async` declaration's bare annotation both type a receiver the
+  module awaits
 - `EntityKind::Package` and `EntityKind::Dependency` for `package.json` package and dependency declarations,
   with bounded `main` and `workspaces` evidence on the package entity
 - `EntityKind::Feature` for the module-resolution options of `tsconfig.json`/`jsconfig.json`: the

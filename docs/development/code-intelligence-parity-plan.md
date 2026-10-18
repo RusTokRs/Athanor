@@ -891,12 +891,51 @@ cargo test -p athanor-app --locked
 cargo test -p athanor-app --features js-ts-precision --locked
 ```
 
+#### P2U — The Awaited Type A Declared Promise States (bounded JS/TS slice)
+
+- A call on a receiver the module awaits now resolves. Until now the factory step read the type a
+  factory *returns*, and a factory that returns `Promise<Repo>` declares no bare named return type,
+  so `const repo = await createRepo(); repo.save()` stayed unresolved. Nearly every modern
+  TypeScript factory is `async`, so the factory slice covered only the synchronous half of the code.
+- Nothing is inferred. `Promise<Repo>` and `PromiseLike<Repo>` await to `Repo`, and so does the bare
+  annotation of an `async` declaration, because `async function load(): Repo` awaits to a `Repo`. A
+  promise of a union, an array, or a nested generic awaits to nothing, because the awaited value is
+  not the one the source states.
+- An `async` declaration no longer records its bare annotation as the type it returns. It returns a
+  promise, so `const pending = createRepo()` holds no `Repo`: the annotation names the awaited value
+  and nothing else. A synchronous factory is unchanged.
+- The two initializers are distinct receivers even when they call the same factory, because one
+  holds the promise and the other holds what it yields: the module records whether the binding
+  awaits the call that initializes it, and the linker asks for the awaited type only when it does.
+- An awaited receiver resolves at `0.65`, the tier shared with the element of a collection: `0.65` is
+  the tier for a type the source writes somewhere other than the receiver's own binding, whether
+  that is the collection it came out of or the promise it was awaited from.
+
+Focused source regression matrix:
+
+| Surface | Regression |
+| --- | --- |
+| Awaited return types | `Promise<Repo>`, `async function load(): Repo`, and an `async` function declaring `Promise<Repo>` all await to `Repo`; a promise of a union or an array awaits to nothing, and an `async` function records no declared return type |
+| Awaited bindings | `await f()` records `awaited`, and a bare `f()` does not |
+| Dispatch | A call on an awaited receiver resolves at 0.65, and a call on an unawaited promise factory resolves to nothing |
+
+Focused verification:
+
+```bash
+cargo test -p athanor-extractor-js-ts --locked
+cargo test -p athanor-extractor-js-ts --features precision-parser --locked
+cargo test -p athanor-linker-js-ts --locked
+cargo test -p athanor-app --locked
+cargo test -p athanor-app --features js-ts-precision --locked
+```
+
 #### Remaining P2 Gaps
 
-- Type inference for a receiver whose type the source never states — an unannotated factory, an
-  index access, or a structural type; package-manager-specific resolution that needs an installed
-  tree, such as Yarn `nodeLinker` layouts and patched dependencies. The element slice below closed
-  the part of this gap an annotation the file already writes can answer without inference.
+- Type inference for a receiver whose type the source never states — a factory that declares no
+  return type at all, a structural type, and an index access; package-manager-specific resolution
+  that needs an installed tree, such as Yarn `nodeLinker` layouts and patched dependencies. The
+  element and awaited slices below closed the parts of this gap an annotation the file already
+  writes can answer without inference.
 
 ### P3 — Bounded Language Expansion
 

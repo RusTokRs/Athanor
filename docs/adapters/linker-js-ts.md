@@ -109,7 +109,10 @@ previous one is silent:
    declares, end the walk. The root itself may be typed by the collection it came out of: the
    extractor records a `for...of` iteration variable and an array combinator's callback parameter
    with the element type of the annotated collection, so `for (const item of items)` dispatches
-   `item.save()` at confidence 0.65. A type repeated inside the walk, a path longer than four
+   `item.save()` at confidence 0.65. The root may also be a binding the module awaits: `const repo =
+   await createRepo()` takes the type the factory's declared promise yields, so `repo.save()`
+   dispatches at the same 0.65, while an unawaited `const pending = createRepo()` holds the promise
+   and names nothing. A type repeated inside the walk, a path longer than four
    segments, an ambiguous binding, and a terminal that matches more than one declaration end the
    walk.
 5. `imported_default_export` — a default import resolves directly to the function or class
@@ -146,10 +149,11 @@ way. Callback bridges from a test location additionally emit `TestedBy`, mirrori
 An unresolved explicit import does not fall through to a weaker snapshot-wide guess. Steps 6 and 7
 require a unique candidate, so ambiguity stays unresolved rather than becoming a guessed fact.
 Confidence reflects the step (0.9 exact same-module down to 0.5 unique-name): a receiver proven by
-a construction resolves at 0.8, one proven by an annotation at 0.7, one typed by the element type of
-a collection at 0.65, and a member the receiver's type inherits at 0.6 — the weaker tiers are one
-step further from the call site than the annotation that seeds them, and still above the name
-guesses they replace. Every relation is
+a construction resolves at 0.8, one proven by an annotation at 0.7, one typed by a type the source
+writes one derivation away — the element of a collection or the awaited value of a declared promise
+— at 0.65, and a member the receiver's type inherits at 0.6 — the weaker tiers are one step further
+from the call site than the annotation that seeds them, and still above the name guesses they
+replace. Every relation is
 `RelationStatus::Inferred`, because JavaScript dispatch is dynamic even when the call shape is static.
 
 ### Emitted Knowledge
@@ -206,7 +210,9 @@ are not resolved. Receiver typing covers only a type the source states: an infer
 type imported by another module but never named in an annotation, a structural type, and a member
 reached through an unannotated factory or an index stay unresolved. A member inherited through a
 declared `extends` chain does resolve, but only to a base the snapshot states unambiguously and only
-within four hops. A field is read from the module that
+within four hops. A receiver the module awaits is typed by the promise the factory declares, but
+only when the source awaits it: an unawaited promise holds no receiver type. A field is read from
+the module that
 declares its owner only when that owner is exported and unambiguous, and a cyclic or over-bound
 path ends the walk. Callback bridging only fires for the extractor's combinator allowlist and
 only for statically nameable arguments; callbacks passed as inline arrows, call results, or

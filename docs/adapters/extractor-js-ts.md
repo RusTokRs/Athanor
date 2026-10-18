@@ -144,12 +144,22 @@ element type. A collection annotation records no row for the collection itself: 
 receiver the source writes. The element rows share the 64-row bound and the omission count.
 
 Module payloads also carry bounded `call_bindings`: one row per binding the module initializes with
-a statically named call, with the binding `name`, the `callee`, and the `line`. A destructuring
-initializer and a non-call initializer are not rows, because neither names one receiver. Rows are
-bounded to 64 per module with an `omitted_call_bindings` count. A declaration payload carries
-`return_type` when the function, method, or arrow function declares one: only a bare named type is
-recorded, so `Promise<Repo>`, a union, an array type, and a function type are left out because they
-do not name the type a receiver will hold.
+a statically named call, with the binding `name`, the `callee`, the `line`, and whether the binding
+`awaited` the call. `const repo = await createRepo()` and `const pending = createRepo()` name
+different receivers even though they call the same factory, because one holds what the promise
+yields and the other holds the promise. A destructuring initializer and a non-call initializer are
+not rows, because neither names one receiver. Rows are bounded to 64 per module with an
+`omitted_call_bindings` count.
+
+A declaration payload carries `return_type` when the function, method, or arrow function declares
+one: only a bare named type is recorded, so `Promise<Repo>`, a union, an array type, and a function
+type are left out because they do not name the type a receiver will hold. An `async` declaration is
+left out for the same reason — it returns a promise whatever it declares. It instead carries
+`awaited_return_type`: the type an `await` on a call to it yields, which is `Repo` both for
+`Promise<Repo>` and `PromiseLike<Repo>` and for the bare annotation of an `async` declaration, since
+`async function load(): Repo` awaits to a `Repo`. A promise of a union, an array, or a nested
+generic awaits to nothing, and a declaration that names no promise and is not `async` carries no
+awaited type at all.
 
 ## Call Sites
 
