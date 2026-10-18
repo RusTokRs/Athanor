@@ -1332,7 +1332,7 @@ fn resolve_typed_member<'a>(
     let owner_hint = type_modules
         .get(&current)
         .and_then(|module| module.as_ref())
-        .and_then(entity_path)
+        .and_then(|module| entity_path(module))
         .or_else(|| entity_path(caller_module));
     let target = inherited_member(
         &current,
@@ -2256,13 +2256,7 @@ mod tests {
             false,
             json!([call_site("service.reset", "reset", 5)]),
         );
-        let entities = vec![
-            app_module,
-            service,
-            base,
-            reset.clone(),
-            start.clone(),
-        ];
+        let entities = vec![app_module, service, base, reset.clone(), start.clone()];
 
         let relations = JsTsCallLinker
             .link(LinkInput {
@@ -2386,9 +2380,11 @@ mod tests {
             })
             .await
             .unwrap();
-        assert!(relations
-            .iter()
-            .all(|relation| relation.kind != RelationKind::Calls));
+        assert!(
+            relations
+                .iter()
+                .all(|relation| relation.kind != RelationKind::Calls)
+        );
 
         // A cycle ends the walk instead of looping.
         let left = subclass("ent_left", "src/left.ts", "Left", true, &["Right"]);
@@ -2421,9 +2417,11 @@ mod tests {
             })
             .await
             .unwrap();
-        assert!(relations
-            .iter()
-            .all(|relation| relation.kind != RelationKind::Calls));
+        assert!(
+            relations
+                .iter()
+                .all(|relation| relation.kind != RelationKind::Calls)
+        );
     }
 
     #[tokio::test]
@@ -5071,13 +5069,7 @@ mod tests {
         }
     }
 
-    fn subclass(
-        id: &str,
-        path: &str,
-        name: &str,
-        exported: bool,
-        extends: &[&str],
-    ) -> Entity {
+    fn subclass(id: &str, path: &str, name: &str, exported: bool, extends: &[&str]) -> Entity {
         let mut entity = class_declaration(id, path, name, name, exported);
         entity.payload["extends"] = json!(extends);
         entity
