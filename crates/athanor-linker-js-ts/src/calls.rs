@@ -1243,7 +1243,10 @@ fn call_receivers(module: &Entity) -> HashMap<String, Option<CallReceiver>> {
         };
         let recorded = CallReceiver {
             callee: callee.to_string(),
-            awaited: binding.get("awaited").and_then(Value::as_bool).unwrap_or(false),
+            awaited: binding
+                .get("awaited")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
         };
         let prior = receivers.get(name).cloned();
         match prior {
@@ -1348,7 +1351,11 @@ fn resolve_typed_member<'a>(
         };
         TypedReceiver {
             type_name,
-            kind: if call.awaited { "awaited" } else { "annotation" },
+            kind: if call.awaited {
+                "awaited"
+            } else {
+                "annotation"
+            },
         }
     };
     let mut current = root.type_name;
@@ -2994,9 +3001,11 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(relations
-            .iter()
-            .all(|relation| relation.kind != RelationKind::Calls));
+        assert!(
+            relations
+                .iter()
+                .all(|relation| relation.kind != RelationKind::Calls)
+        );
     }
 
     #[tokio::test]

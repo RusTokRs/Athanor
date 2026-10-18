@@ -1145,6 +1145,7 @@ fn collect_statement(
                     calls: Vec::new(),
                     heritage: class_heritage(node, bytes),
                     return_type: None,
+                    awaited_return_type: None,
                 });
                 collect_class_members(&name, node, bytes, exported, declarations);
             }
@@ -1163,6 +1164,7 @@ fn collect_statement(
                     calls: Vec::new(),
                     heritage: interface_heritage(node, bytes),
                     return_type: None,
+                    awaited_return_type: None,
                 });
             }
         }
@@ -1180,6 +1182,7 @@ fn collect_statement(
                     calls: Vec::new(),
                     heritage: None,
                     return_type: None,
+                    awaited_return_type: None,
                 });
             }
         }
