@@ -225,6 +225,9 @@ impl Extractor for JsTsExtractor {
             if let Some(return_type) = &declaration.return_type {
                 payload["return_type"] = json!(return_type);
             }
+            if let Some(awaited_return_type) = &declaration.awaited_return_type {
+                payload["awaited_return_type"] = json!(awaited_return_type);
+            }
 
             entities.push(Entity {
                 id: entity_id.clone(),
@@ -468,6 +471,7 @@ struct SourceDeclaration {
     calls: Vec<Value>,
     heritage: Option<TypeHeritage>,
     return_type: Option<String>,
+    awaited_return_type: Option<String>,
 }
 
 /// `extends`/`implements` heritage of a class or interface, reduced to bare type names.
@@ -928,15 +932,56 @@ fn declared_type(node: Node, bytes: &[u8]) -> Option<String> {
 ///
 /// Only a bare named type is usable: `Promise<Repo>` returns a promise and not a
 /// `Repo`, so a generic instantiation, a union, an array type, and a function
-/// type name nothing the linker may take as a receiver type.
+/// type name nothing the linker may take as a receiver type. An `async` function
+/// returns a promise whatever it declares, so its annotation names the awaited
+/// value and not the value the call returns.
 fn function_return_type(node: Node, bytes: &[u8]) -> Option<String> {
     let annotation = node.child_by_field_name("return_type")?;
-    let inner = annotation.named_child(0)?;
-    let text = node_text(inner, bytes)?;
-    if text.contains(['<', '[', '(', '|', '&']) {
+    let text = node_text(annotation.named_child(0)?, bytes)?;
+    if is_async_function(node) || text.contains(['<', '[', '(', '|', '&']) {
         return None;
     }
     terminal_name(&text)
+}
+
+/// Reads the type an `await` on a call to this declaration yields.
+///
+/// `Promise<Repo>` names `Repo`, and so does the bare annotation of an `async`
+/// function, because `async function load(): Repo` awaits to a `Repo`. A
+/// non-async declaration that names no promise awaits to nothing, and a promise
+/// of anything but one bare named type — a union, an array, a nested generic —
+/// names nothing either, because the awaited value is not the one the source
+/// states.
+fn awaited_return_type(node: Node, bytes: &[u8]) -> Option<String> {
+    let annotation = node.child_by_field_name("return_type")?;
+    let text = node_text(annotation.named_child(0)?, bytes)?;
+    let promised = promised_type(&text);
+    if promised.is_none() && !is_async_function(node) {
+        return None;
+    }
+    let inner = promised.unwrap_or(text);
+    if inner.contains(['<', '[', '(', '|', '&']) {
+        return None;
+    }
+    terminal_name(&inner)
+}
+
+/// The type argument of a `Promise<T>` or `PromiseLike<T>` annotation.
+fn promised_type(text: &str) -> Option<String> {
+    let trimmed = text.trim();
+    let (head, rest) = trimmed.split_once('<')?;
+    if !matches!(head.trim(), "Promise" | "PromiseLike") {
+        return None;
+    }
+    let inner = rest.strip_suffix('>')?;
+    if inner.contains(['<', '>', '[', '(', '|', '&', ',', '?']) {
+        return None;
+    }
+    Some(inner.trim().to_string())
+}
+
+fn is_async_function(node: Node) -> bool {
+    has_child_kind(node, "async")
 }
 
 /// Reduces one type or constructor path to its terminal identifier.
@@ -971,7 +1016,7 @@ fn call_bindings(root: Node, bytes: &[u8]) -> (Vec<Value>, usize) {
 
     let mut bindings = Vec::new();
     let mut omitted = 0usize;
-    for (name, callee, line) in collected {
+    for (name, callee, line, awaited) in collected {
         if name.is_empty() || callee.is_empty() || bindings.len() == MAX_TYPED_BINDINGS {
             omitted += 1;
             continue;
@@ -980,26 +1025,50 @@ fn call_bindings(root: Node, bytes: &[u8]) -> (Vec<Value>, usize) {
             "name": name,
             "callee": callee,
             "line": line,
+            "awaited": awaited,
         }));
     }
     (bindings, omitted)
 }
 
+/// The statically named callee one initializer calls, and whether the binding
+/// takes what that call resolves to.
+///
+/// `const repo = await createRepo()` holds the value the promise yields, not the
+/// promise, so the two initializers name different receivers even though they
+/// call the same factory.
+fn called_callee(node: Node, bytes: &[u8]) -> Option<(String, bool)> {
+    match node.kind() {
+        "call_expression" => Some((
+            callee_path(node.child_by_field_name("function")?, bytes)?,
+            false,
+        )),
+        "await_expression" => {
+            let call = (0..node.named_child_count())
+                .filter_map(|index| node.named_child(index as u32))
+                .find(|child| child.kind() == "call_expression")?;
+            Some((
+                callee_path(call.child_by_field_name("function")?, bytes)?,
+                true,
+            ))
+        }
+        _ => None,
+    }
+}
+
 fn collect_call_bindings(
     node: Node,
     bytes: &[u8],
-    bindings: &mut Vec<(String, String, u32)>,
+    bindings: &mut Vec<(String, String, u32, bool)>,
 ) {
     if node.kind() == "variable_declarator"
         && let Some(name_node) = node.child_by_field_name("name")
         && name_node.kind() == "identifier"
         && let Some(name) = node_text(name_node, bytes)
         && let Some(value) = node.child_by_field_name("value")
-        && value.kind() == "call_expression"
-        && let Some(callee_node) = value.child_by_field_name("function")
-        && let Some(callee) = callee_path(callee_node, bytes)
+        && let Some((callee, awaited)) = called_callee(value, bytes)
     {
-        bindings.push((name, callee, node.start_position().row as u32 + 1));
+        bindings.push((name, callee, node.start_position().row as u32 + 1, awaited));
     }
 
     let mut cursor = node.walk();
@@ -1040,6 +1109,7 @@ fn collect_statement(
                     calls: collect_call_sites(node, bytes),
                     heritage: None,
                     return_type: function_return_type(node, bytes),
+                    awaited_return_type: awaited_return_type(node, bytes),
                 });
             }
         }
@@ -1057,6 +1127,7 @@ fn collect_statement(
                     calls: collect_call_sites(node, bytes),
                     heritage: None,
                     return_type: function_return_type(node, bytes),
+                    awaited_return_type: awaited_return_type(node, bytes),
                 });
             }
         }
@@ -1170,6 +1241,11 @@ fn collect_anonymous_default(node: Node, bytes: &[u8], declarations: &mut Vec<So
             } else {
                 function_return_type(child, bytes)
             },
+            awaited_return_type: if is_class {
+                None
+            } else {
+                awaited_return_type(child, bytes)
+            },
         });
         if is_class {
             collect_class_members(ANONYMOUS_DEFAULT_NAME, child, bytes, true, declarations);
@@ -1207,6 +1283,7 @@ fn collect_class_members(
                     calls: collect_call_sites(member, bytes),
                     heritage: None,
                     return_type: function_return_type(member, bytes),
+                    awaited_return_type: awaited_return_type(member, bytes),
                 });
             }
         }
@@ -1247,6 +1324,7 @@ fn collect_variable_functions(
                 calls: collect_call_sites(value_node, bytes),
                 heritage: None,
                 return_type: function_return_type(value_node, bytes),
+                awaited_return_type: awaited_return_type(value_node, bytes),
             });
         }
     }
@@ -4443,6 +4521,103 @@ mod tests {
         }
         rows.sort();
         assert_eq!(rows, vec!["named:svc.build".to_string(), "repo:createRepo".to_string()]);
+        assert_eq!(module.payload["omitted_call_bindings"], 0);
+    }
+
+    #[tokio::test]
+    async fn records_the_awaited_return_type_a_declaration_states() {
+        let output = JsTsExtractor
+            .extract(input(
+                "src/app.ts",
+                "async function load(): Repo {}\n\
+                 function fetchRepo(): Promise<Repo> {}\n\
+                 async function wrapped(): Promise<Repo> {}\n\
+                 function plain(): Repo {}\n\
+                 function maybe(): Promise<Repo | null> {}\n\
+                 function list(): Promise<Repo[]> {}\n",
+                "typescript",
+            ))
+            .await
+            .unwrap();
+
+        let mut declared = Vec::new();
+        let mut awaited = Vec::new();
+        for entity in &output.entities {
+            let Some(qualified) = entity
+                .payload
+                .get("qualified_name")
+                .and_then(Value::as_str)
+            else {
+                continue;
+            };
+            if let Some(return_type) = entity.payload.get("return_type").and_then(Value::as_str) {
+                declared.push((qualified.to_string(), return_type.to_string()));
+            }
+            if let Some(awaited_return_type) = entity
+                .payload
+                .get("awaited_return_type")
+                .and_then(Value::as_str)
+            {
+                awaited.push((qualified.to_string(), awaited_return_type.to_string()));
+            }
+        }
+        declared.sort();
+        awaited.sort();
+
+        // An `async` function returns a promise, so only the awaited type is
+        // evidence of what a receiver holds.
+        assert_eq!(declared, vec![("plain".to_string(), "Repo".to_string())]);
+        assert_eq!(
+            awaited,
+            vec![
+                ("fetchRepo".to_string(), "Repo".to_string()),
+                ("load".to_string(), "Repo".to_string()),
+                ("wrapped".to_string(), "Repo".to_string()),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn records_whether_a_binding_awaits_the_call_that_initializes_it() {
+        let output = JsTsExtractor
+            .extract(input(
+                "src/app.ts",
+                "async function run() {\n\
+                   const repo = await createRepo();\n\
+                   const pending = createRepo();\n\
+                   const plain = compute();\n\
+                 }\n",
+                "typescript",
+            ))
+            .await
+            .unwrap();
+
+        let module = output
+            .entities
+            .iter()
+            .find(|entity| entity.kind == EntityKind::Module)
+            .expect("module entity must exist");
+        let bindings = module.payload["call_bindings"]
+            .as_array()
+            .expect("call bindings array");
+        let mut rows = Vec::new();
+        for binding in bindings {
+            rows.push(format!(
+                "{}:{}:{}",
+                binding["name"].as_str().unwrap_or_default(),
+                binding["callee"].as_str().unwrap_or_default(),
+                binding["awaited"].as_bool().unwrap_or_default()
+            ));
+        }
+        rows.sort();
+        assert_eq!(
+            rows,
+            vec![
+                "pending:createRepo:false".to_string(),
+                "plain:compute:false".to_string(),
+                "repo:createRepo:true".to_string(),
+            ]
+        );
         assert_eq!(module.payload["omitted_call_bindings"], 0);
     }
 

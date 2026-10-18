@@ -64,11 +64,12 @@ const INHERITED_MEMBER_CONFIDENCE: f32 = 0.6;
 const TYPED_CONSTRUCTION_CONFIDENCE: f32 = 0.8;
 /// Confidence assigned to a call resolved through a receiver a type annotation typed.
 const TYPED_ANNOTATION_CONFIDENCE: f32 = 0.7;
-/// Confidence of a call resolved through a receiver typed by the element type of
-/// a collection: the annotation is written in the source, but on the collection
-/// rather than on the receiver, so it is one step weaker than an annotation the
-/// receiver's own binding carries.
-const ELEMENT_CONFIDENCE: f32 = 0.65;
+/// Confidence of a call resolved through a receiver whose type the source states
+/// one derivation away: the element of a collection whose annotation the file
+/// writes, or the value an `await` yields from a declared promise. The
+/// annotation is written in the source, but not on the receiver's own binding,
+/// so the tier is weaker than an annotation the binding carries.
+const DERIVED_TYPE_CONFIDENCE: f32 = 0.65;
 /// Upper bound on receiver segments walked for one type-aware dispatch.
 const MAX_TYPE_PATH_SEGMENTS: usize = 4;
 /// The most `extends` hops one inherited member lookup walks.
@@ -467,8 +468,8 @@ fn resolve_call<'a>(
             INHERITED_MEMBER_CONFIDENCE
         } else if kind == "construction" {
             TYPED_CONSTRUCTION_CONFIDENCE
-        } else if kind == "element" {
-            ELEMENT_CONFIDENCE
+        } else if matches!(kind, "element" | "awaited") {
+            DERIVED_TYPE_CONFIDENCE
         } else {
             TYPED_ANNOTATION_CONFIDENCE
         };
@@ -1204,12 +1205,28 @@ fn declared_return_type(entity: &Entity) -> Option<&str> {
     entity.payload.get("return_type").and_then(Value::as_str)
 }
 
+/// The type an `await` on a call to this declaration yields: `Promise<Repo>` and
+/// an `async` declaration's bare annotation both name `Repo`.
+fn awaited_return_type(entity: &Entity) -> Option<&str> {
+    entity
+        .payload
+        .get("awaited_return_type")
+        .and_then(Value::as_str)
+}
+
+/// One binding the module initializes with a call.
+#[derive(Clone)]
+struct CallReceiver {
+    callee: String,
+    awaited: bool,
+}
+
 /// Reads the bindings one module initializes with a call.
 ///
 /// A name bound to two different factories is ambiguous and names nothing, so it
 /// is recorded as unresolved instead of letting one call win by accident.
-fn call_receivers(module: &Entity) -> HashMap<String, Option<String>> {
-    let mut receivers: HashMap<String, Option<String>> = HashMap::new();
+fn call_receivers(module: &Entity) -> HashMap<String, Option<CallReceiver>> {
+    let mut receivers: HashMap<String, Option<CallReceiver>> = HashMap::new();
     let Some(bindings) = module
         .payload
         .get("call_bindings")
@@ -1224,13 +1241,17 @@ fn call_receivers(module: &Entity) -> HashMap<String, Option<String>> {
         let Some(callee) = binding.get("callee").and_then(Value::as_str) else {
             continue;
         };
+        let recorded = CallReceiver {
+            callee: callee.to_string(),
+            awaited: binding.get("awaited").and_then(Value::as_bool).unwrap_or(false),
+        };
         let prior = receivers.get(name).cloned();
         match prior {
             None => {
-                receivers.insert(name.to_string(), Some(callee.to_string()));
+                receivers.insert(name.to_string(), Some(recorded));
             }
             Some(Some(existing)) => {
-                if existing != callee {
+                if existing.callee != callee || existing.awaited != recorded.awaited {
                     receivers.insert(name.to_string(), None);
                 }
             }
@@ -1302,9 +1323,9 @@ fn resolve_typed_member<'a>(
         // A binding initialized by a call takes the factory's declared return
         // type: the type is stated by the factory's own annotation, not inferred
         // from the call's name.
-        let callee = call_receivers.get(segments[0])?.as_ref()?;
+        let call = call_receivers.get(segments[0])?.as_ref()?;
         let factory = resolve_call(
-            callee,
+            &call.callee,
             caller,
             caller_module,
             modules,
@@ -1317,9 +1338,17 @@ fn resolve_typed_member<'a>(
         if !FACTORY_RESOLUTIONS.contains(&factory.1) {
             return None;
         }
+        // `await f()` takes what the promise yields rather than what the call
+        // returns, so the binding asks for the awaited type when the source
+        // awaits it and for the declared return type when it does not.
+        let type_name = if call.awaited {
+            awaited_return_type(factory.0)?.to_string()
+        } else {
+            declared_return_type(factory.0)?.to_string()
+        };
         TypedReceiver {
-            type_name: declared_return_type(factory.0)?.to_string(),
-            kind: "annotation",
+            type_name,
+            kind: if call.awaited { "awaited" } else { "annotation" },
         }
     };
     let mut current = root.type_name;
@@ -2854,6 +2883,120 @@ mod tests {
         assert_eq!(calls[0].to, items_map.id);
         assert_eq!(calls[0].payload["resolution"], "typed_receiver_path");
         assert_eq!(calls[0].confidence, 0.7);
+    }
+
+    #[tokio::test]
+    async fn resolves_a_call_on_a_receiver_the_module_awaits() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({
+                "imports": [],
+                "typed_bindings": [],
+                "call_bindings": [
+                    {"name": "repo", "callee": "createRepo", "line": 3, "awaited": true}
+                ]
+            }),
+        );
+        let factory = promise_factory_declaration(
+            "ent_create_repo",
+            "src/app.ts",
+            "createRepo",
+            "createRepo",
+            true,
+            Some("Repo"),
+        );
+        let save = declaration(
+            "ent_repo_save",
+            "src/repo.ts",
+            "Repo.save",
+            "save",
+            true,
+            json!([]),
+        );
+        let start = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "start",
+            "start",
+            false,
+            json!([call_site("repo.save", "save", 6)]),
+        );
+        let entities = vec![app_module, factory, save.clone(), start.clone()];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from, start.id);
+        assert_eq!(calls[0].to, save.id);
+        assert_eq!(calls[0].payload["resolution"], "typed_receiver_member");
+        assert_eq!(calls[0].confidence, 0.65);
+    }
+
+    #[tokio::test]
+    async fn an_unawaited_promise_factory_types_nothing() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({
+                "imports": [],
+                "typed_bindings": [],
+                "call_bindings": [
+                    {"name": "pending", "callee": "createRepo", "line": 3, "awaited": false}
+                ]
+            }),
+        );
+        let factory = promise_factory_declaration(
+            "ent_create_repo",
+            "src/app.ts",
+            "createRepo",
+            "createRepo",
+            true,
+            Some("Repo"),
+        );
+        let save = declaration(
+            "ent_repo_save",
+            "src/repo.ts",
+            "Repo.save",
+            "save",
+            true,
+            json!([]),
+        );
+        let start = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "start",
+            "start",
+            false,
+            json!([call_site("pending.save", "save", 6)]),
+        );
+        let entities = vec![app_module, factory, save, start];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        assert!(relations
+            .iter()
+            .all(|relation| relation.kind != RelationKind::Calls));
     }
 
     #[tokio::test]
@@ -5260,6 +5403,21 @@ mod tests {
                 "return_type": return_type,
             }),
         }
+    }
+
+    /// A factory that returns a promise: the declared return type names nothing
+    /// a receiver can hold, and the awaited type names what `await` yields.
+    fn promise_factory_declaration(
+        id: &str,
+        path: &str,
+        qualified: &str,
+        name: &str,
+        exported: bool,
+        awaited_return_type: Option<&str>,
+    ) -> Entity {
+        let mut entity = factory_declaration(id, path, qualified, name, exported, None);
+        entity.payload["awaited_return_type"] = json!(awaited_return_type);
+        entity
     }
 
     fn construction_site(callee: &str, name: &str, line: u64) -> serde_json::Value {
