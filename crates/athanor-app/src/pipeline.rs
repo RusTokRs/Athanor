@@ -1529,9 +1529,13 @@ mod tests {
             &reused,
         );
 
-        // Both declarations are owned by the changed path, so both are restated by
-        // extraction rather than carried; only their derived objects are reused.
-        assert!(entities.is_empty());
+        // The two declarations of the changed path are restated by extraction
+        // rather than carried; only their derived objects are reused. The
+        // untouched file is carried as before.
+        assert_eq!(
+            entities.iter().map(|entity| entity.id.0.as_str()).collect::<Vec<_>>(),
+            vec!["ent_other"]
+        );
         assert_eq!(
             facts
                 .iter()
