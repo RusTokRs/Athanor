@@ -31,8 +31,7 @@ substantive release notes.
   text/JSON reports, and Ctrl-C cancellation; the existing coordinated `ath generate` remains unchanged.
 - Add validated `ath docs architecture current`, `manifest`, and `validation` inspection commands that
   reject pointer escape, identity drift, unsupported artifact layouts, and checksum mismatch.
-- Add `overview` and `capabilities` MCP tools exposing the repository overview and the bounded
-  analysis-completeness report to MCP clients.
+- Add `overview` and `capabilities` MCP tools exposing the repository overview and the bounded analysis-completeness report to MCP clients.
 - Add a bounded first-party projection for agent-tool MCP configuration: `.codex.json` and `antigravity.json` project one `ScriptCommand` per server, with evidence and ownership.
 - Add JS/TS default class export binding: `export default class Foo {}` records its default name and a default-imported or same-module `new Foo()` resolves to the class; index state bumps v53→v54.
 - Add JS/TS multi-hop namespace aliases: a namespace name forwarded across modules by named re-exports resolves `alias.member()`; index state bumps v54→v55.
@@ -50,6 +49,7 @@ substantive release notes.
 - Bump index state v61→v62 because Rust call relations gained dynamic-dispatch candidates; earlier snapshots reindex.
 - Resolve JavaScript/TypeScript calls to a member the receiver's type inherits: the `extends` chain the source states is walked up to four hops, so `service.reset()` resolves to `Base.reset` when `Service extends Base`, at confidence 0.6 below the 0.8/0.7 of a member the receiver's own type declares; a base two files declare, a base no file declares, and a cyclic chain end the walk.
 - Type a JavaScript/TypeScript receiver by the element type a collection annotation states: a `for...of` iteration variable and the first parameter of an array combinator's callback carry the element type of `Item[]` or `Array<Item>`, so `item.save()` resolves at confidence 0.65; `for...in`, `reduce`, a nested array, a tuple, and a collection the file never annotates name nothing, and a collection annotation no longer records the wrapper as the binding's own type.
+- Type a JavaScript/TypeScript receiver by the value an awaited promise yields: `const repo = await createRepo(); repo.save()` takes the type `Promise<Repo>` or `PromiseLike<Repo>` resolves to, and `async function load(): Repo` now records that type as its awaited return type rather than as a return type, since an `async` function returns a promise; an awaited receiver resolves at confidence 0.65 and an unawaited promise names nothing.
 
 ### Fixed
 
