@@ -801,6 +801,48 @@ cargo test -p athanor-app --locked
 cargo test -p athanor-app --features js-ts-precision --locked
 ```
 
+#### P2S — Inherited Members Through Declared Heritage (bounded JS/TS slice)
+
+- A call on a typed receiver now also resolves a member the type inherits. Until now the typed step
+  read only the members the receiver's own type declares, so `service.reset()` stayed unresolved when
+  `reset` lives on `Base` and `Service extends Base` — the single most common shape of polymorphic
+  dispatch, and the one a dependency graph misses most often.
+- The walk follows only the heritage the source states. A member is claimed when the `extends` chain
+  from the receiver's type to the declaring class is unbroken: `Service` names `Base`, so a member of
+  `Base` is a member of `Service`. Nothing is inferred about what a class might contain, and a base
+  the source never names is never consulted.
+- Inheritance is weaker evidence than a direct declaration, so an inherited member resolves at `0.6`,
+  below the `0.8`/`0.7` of a member the type declares itself and above the `0.5` name-unique guess it
+  replaces. The reason states the difference — `inherited_typed_member` and
+  `inherited_typed_receiver_path` instead of `typed_receiver_member` and `typed_receiver_path` — so a
+  consumer can read a polymorphic edge as polymorphic.
+- The walk is bounded because the chain is resolved by name. At most four hops are followed; a type
+  already visited ends the walk, so `Left extends Right extends Left` resolves nothing instead of
+  looping. The bound is a constant, not a heuristic that grows with the snapshot.
+- A base name resolves like the heritage linker resolves one: a unique class or interface declaration
+  in the file the current type's module points at, and otherwise a name unique across the snapshot.
+  Two `Base` declarations in different directories are ambiguous, so the member stays unresolved —
+  the standing rule that an ambiguous name resolves to nothing is not relaxed for inheritance.
+- Interfaces are followed the same way but declare no bodies to call, so in practice every resolved
+  edge comes from a class chain. The bound and the fail-closed rules are shared with the typed path
+  that already existed, so no new knob is introduced.
+
+Focused source regression matrix:
+
+| Surface | Regression |
+| --- | --- |
+| Direct inheritance | `service.reset()` resolves to `Base.reset` when `Service extends Base` |
+| Multi-hop | A member inherited through a chain of base classes resolves inside the four-hop bound |
+| Ambiguity and cycles | Two same-named bases in different directories, and a cyclic chain, resolve nothing |
+
+Focused verification:
+
+```bash
+cargo test -p athanor-extractor-js-ts --locked
+cargo test -p athanor-extractor-js-ts --features precision-parser --locked
+cargo test -p athanor-linker-js-ts --locked
+```
+
 #### Remaining P2 Gaps
 
 - Type inference for a receiver whose type the source never states — an unannotated factory, an

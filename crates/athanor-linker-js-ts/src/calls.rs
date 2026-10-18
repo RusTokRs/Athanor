@@ -1355,24 +1355,27 @@ fn inherited_member<'a>(
     owner_hint: Option<&str>,
     declarations_by_name: &HashMap<String, Vec<&'a Entity>>,
 ) -> Option<&'a Entity> {
-    let mut current = type_name.to_string();
-    let mut hint = owner_hint.map(str::to_string);
-    let mut visited = vec![current.clone()];
+    let mut current = heritage_base(type_name, owner_hint, declarations_by_name)?;
+    let mut hint = entity_path(current);
+    let mut visited = vec![type_name.to_string()];
     for _ in 0..MAX_HERITAGE_DEPTH {
-        let owner = heritage_base(&current, hint.as_deref(), declarations_by_name)?;
-        let base = extends_name(owner)?;
+        let base = extends_name(current)?;
+        if visited.iter().any(|seen| seen == &base) {
+            return None;
+        }
+        // The base itself has to be a declaration the snapshot states, for the
+        // same reason as the derived type: a name two files declare is not
+        // evidence of which one holds the member.
+        let owner = heritage_base(&base, hint.as_deref(), declarations_by_name)?;
         let qualified = format!("{base}.{member}");
         if let Some(target) = unique_match(declarations_by_name.get(member), |candidate| {
             qualified_name(candidate) == Some(qualified.as_str())
         }) {
             return Some(target);
         }
-        if visited.iter().any(|seen| seen == &base) {
-            return None;
-        }
-        visited.push(base.clone());
+        visited.push(base);
         hint = entity_path(owner);
-        current = base;
+        current = owner;
     }
     None
 }
@@ -2332,7 +2335,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn leaves_an_ambiguous_or_cyclic_base_class_unresolved() {
+    async fn leaves_an_ambiguous_cyclic_or_absent_base_class_unresolved() {
         let app_module = module(
             "ent_app_module",
             "src/app.ts",
@@ -2408,6 +2411,53 @@ mod tests {
             json!([call_site("left.missing", "missing", 5)]),
         );
         let entities = vec![cyclic_module, left, right, cyclic_start];
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+        assert!(
+            relations
+                .iter()
+                .all(|relation| relation.kind != RelationKind::Calls)
+        );
+    }
+
+        // A base the snapshot never declares names nothing, even when a
+        // declaration carries the qualified name it would own.
+        let orphan_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({
+                "imports": [],
+                "typed_bindings": [
+                    {"name": "service", "type": "Service", "kind": "construction", "line": 2}
+                ]
+            }),
+        );
+        let orphaned_service =
+            subclass("ent_service", "src/service.ts", "Service", true, &["External"]);
+        let orphaned = declaration(
+            "ent_external_reset",
+            "src/vendor.ts",
+            "External.reset",
+            "reset",
+            true,
+            json!([]),
+        );
+        let orphaned_start = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "start",
+            "start",
+            false,
+            json!([call_site("service.reset", "reset", 5)]),
+        );
+        let entities = vec![orphan_module, orphaned_service, orphaned, orphaned_start];
         let relations = JsTsCallLinker
             .link(LinkInput {
                 snapshot: SnapshotId("snap_test".to_string()),
