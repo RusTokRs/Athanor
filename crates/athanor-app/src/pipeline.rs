@@ -1153,10 +1153,7 @@ fn carried_forward_read_model(
         .filter(|fact| {
             let restated = reused.contains(&fact.subject);
             survives(&fact.subject)
-                && fact
-                    .object
-                    .as_ref()
-                    .is_none_or(|object| survives(object))
+                && fact.object.as_ref().is_none_or(&survives)
                 && (restated || !fact_owned_by_any_path(fact, &affected_paths))
         })
         .map(|mut fact| {
@@ -1535,7 +1532,10 @@ mod tests {
         // extraction rather than carried; only their derived objects are reused.
         assert!(entities.is_empty());
         assert_eq!(
-            facts.iter().map(|fact| fact.id.0.as_str()).collect::<Vec<_>>(),
+            facts
+                .iter()
+                .map(|fact| fact.id.0.as_str())
+                .collect::<Vec<_>>(),
             vec!["fact_same"]
         );
         assert_eq!(
@@ -1592,7 +1592,12 @@ mod tests {
                 declaration("ent_far", "docs/other.md", json!({})),
             ],
             relations: vec![
-                owned_relation("rel_changed", "ent_changed", "ent_neighbor", "docs/shared.md"),
+                owned_relation(
+                    "rel_changed",
+                    "ent_changed",
+                    "ent_neighbor",
+                    "docs/shared.md",
+                ),
                 owned_relation("rel_same", "ent_same", "ent_far", "docs/shared.md"),
             ],
             ..CanonicalSnapshot::default()

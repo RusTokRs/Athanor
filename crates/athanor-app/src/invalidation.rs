@@ -91,7 +91,10 @@ pub(crate) fn unchanged_declarations(
         if !entity_owned_by_any_path(entity, affected_paths) {
             continue;
         }
-        previous_fingerprints.insert(entity.stable_key.0.as_str(), declaration_fingerprint(entity));
+        previous_fingerprints.insert(
+            entity.stable_key.0.as_str(),
+            declaration_fingerprint(entity),
+        );
     }
     if previous_fingerprints.is_empty() {
         return HashSet::new();
@@ -211,7 +214,11 @@ mod tests {
         AdapterInvalidationDeclaration, PlannedInvalidationScope, dependency_closure,
         plan_invalidation,
     };
+    use std::collections::BTreeSet;
+
     use athanor_core::{AffectedSubset, CanonicalSnapshot, InvalidationPolicy, InvalidationScope};
+
+    use super::unchanged_declarations;
     use athanor_domain::{
         Entity, EntityId, EntityKind, Relation, RelationId, RelationKind, RelationStatus,
         SnapshotId, StableKey,
@@ -306,7 +313,7 @@ mod tests {
         assert_eq!(closure.relations.len(), 2);
     }
 
-    fn declaration(
+    fn symbol(
         id: &str,
         key: &str,
         path: &str,
@@ -344,7 +351,7 @@ mod tests {
 
     #[test]
     fn reuses_a_declaration_a_changed_file_states_identically() {
-        let previous = declaration(
+        let previous = symbol(
             "ent_same",
             "symbol://rust:crate::same",
             "src/lib.rs",
@@ -362,8 +369,8 @@ mod tests {
 
     #[test]
     fn reconsiders_a_declaration_whose_payload_moved() {
-        let previous = declaration(
-            "ent_moved",
+        let previous = symbol(
+            "ent_moved
             "symbol://rust:crate::moved",
             "src/lib.rs",
             Some(4),
@@ -381,8 +388,8 @@ mod tests {
 
     #[test]
     fn reconsiders_a_declaration_that_moved_to_another_line() {
-        let previous = declaration(
-            "ent_shifted",
+        let previous = symbol(
+            "ent_shifted
             "symbol://rust:crate::shifted",
             "src/lib.rs",
             Some(4),
@@ -404,7 +411,7 @@ mod tests {
 
     #[test]
     fn an_absent_or_untouched_previous_state_reuses_nothing() {
-        let extracted = declaration(
+        let extracted = symbol(
             "ent_new",
             "symbol://rust:crate::new",
             "src/lib.rs",
@@ -412,15 +419,17 @@ mod tests {
             json!({}),
         );
         assert!(
-            unchanged_declarations(None, &BTreeSet::from(["src/lib.rs".to_string()]), &[
-                extracted.clone()
-            ])
+            unchanged_declarations(
+                None,
+                &BTreeSet::from(["src/lib.rs".to_string()]),
+                &[extracted.clone()]
+            )
             .is_empty()
         );
         // A declaration the previous snapshot stated from another file has no
         // changed-file state to compare against.
-        let previous = declaration(
-            "ent_new",
+        let previous = symbol(
+            "ent_new
             "symbol://rust:crate::new",
             "src/other.rs",
             Some(4),
