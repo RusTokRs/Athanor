@@ -104,9 +104,11 @@ The call linker consumes the bounded `calls` arrays and the import bindings that
    hops, and a member of a base class resolves at reason `inherited_typed_member`
    (`inherited_typed_receiver_path` for a path) with confidence `0.6`. Both the type the walk leaves
    and the base it enters must be class or interface declarations the snapshot states, so a base name
-   two files declare and a base no file declares both end the walk. A repeated type, a path longer
-   than four segments, an ambiguous binding, or a terminal that matches more than one declaration
-   ends the walk.
+   two files declare and a base no file declares both end the walk. The root may instead be typed by
+   the collection it came out of: a `for...of` iteration variable and an array combinator's callback
+   parameter carry the element type of the annotated collection, so `for (const item of items)`
+   dispatches `item.save()`. A repeated type, a path longer than four segments, an ambiguous binding,
+   or a terminal that matches more than one declaration ends the walk.
 5. `imported_default_export` — a default import resolves directly to its named default
    function or class declaration.
 6. `imported_reexport_chain` — through explicit named local exports, relative named/default
@@ -122,9 +124,10 @@ The call linker consumes the bounded `calls` arrays and the import bindings that
 
 Steps 6 and 7 accept a candidate only when it is unique, so ambiguity stays unresolved. Confidence
 runs from `0.9` for an exact same-module match down to `0.5` for a unique name match: a receiver
-proven by a construction resolves at `0.8`, one proven by an annotation at `0.7`, and a member the
-receiver's type inherits at `0.6` — inheritance is one name-resolution further from the call site
-than a member the type declares itself, and still above the name guesses it replaces. The payload
+proven by a construction resolves at `0.8`, one proven by an annotation at `0.7`, one typed by the
+element type of a collection at `0.65`, and a member the receiver's type inherits at `0.6` — the
+weaker tiers are one step further from the call site than the annotation that seeds them, and still
+above the name guesses they replace. The payload
 records the callee, call kind, resolution reason, line, and column. Callback arguments run through
 the same ordered steps with the same fail-closed rules; the hosting call's own resolution never
 gates the bridge. Output is sorted by relation id

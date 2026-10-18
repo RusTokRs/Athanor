@@ -106,7 +106,10 @@ previous one is silent:
    base class resolves at reason `inherited_typed_member` (`inherited_typed_receiver_path` for a path)
    with confidence 0.6. Both the type the walk leaves and the base it enters must be class or
    interface declarations the snapshot states — a base name two files declare, and a base no file
-   declares, end the walk. A type repeated inside the walk, a path longer than four
+   declares, end the walk. The root itself may be typed by the collection it came out of: the
+   extractor records a `for...of` iteration variable and an array combinator's callback parameter
+   with the element type of the annotated collection, so `for (const item of items)` dispatches
+   `item.save()` at confidence 0.65. A type repeated inside the walk, a path longer than four
    segments, an ambiguous binding, and a terminal that matches more than one declaration end the
    walk.
 5. `imported_default_export` — a default import resolves directly to the function or class
@@ -143,9 +146,10 @@ way. Callback bridges from a test location additionally emit `TestedBy`, mirrori
 An unresolved explicit import does not fall through to a weaker snapshot-wide guess. Steps 6 and 7
 require a unique candidate, so ambiguity stays unresolved rather than becoming a guessed fact.
 Confidence reflects the step (0.9 exact same-module down to 0.5 unique-name): a receiver proven by
-a construction resolves at 0.8, one proven by an annotation at 0.7, and a member the receiver's type
-inherits at 0.6 — inheritance is one name-resolution further from the call site than a member the
-type declares itself, and still above the name guesses it replaces. Every relation is
+a construction resolves at 0.8, one proven by an annotation at 0.7, one typed by the element type of
+a collection at 0.65, and a member the receiver's type inherits at 0.6 — the weaker tiers are one
+step further from the call site than the annotation that seeds them, and still above the name
+guesses they replace. Every relation is
 `RelationStatus::Inferred`, because JavaScript dispatch is dynamic even when the call shape is static.
 
 ### Emitted Knowledge

@@ -34,8 +34,7 @@ substantive release notes.
 - Add `overview` and `capabilities` MCP tools exposing the repository overview and the bounded
   analysis-completeness report to MCP clients.
 - Add a bounded first-party projection for agent-tool MCP configuration: `.codex.json` and `antigravity.json` project one `ScriptCommand` per server, with evidence and ownership.
-- Add JS/TS default class export binding: `export default class Foo {}` records its default
-  name and a default-imported or same-module `new Foo()` resolves to the class; index state bumps v53→v54.
+- Add JS/TS default class export binding: `export default class Foo {}` records its default name and a default-imported or same-module `new Foo()` resolves to the class; index state bumps v53→v54.
 - Add JS/TS multi-hop namespace aliases: a namespace name forwarded across modules by named re-exports resolves `alias.member()`; index state bumps v54→v55.
 - Add local semantic retrieval with zero new dependencies: hashing-trick embeddings over character trigrams and word n-grams (FNV-1a buckets) power `ath search --mode semantic|hybrid` and MCP `search`.
 - Add first-party JavaScript/TypeScript module-resolution configuration: `tsconfig.json`, `jsconfig.json`, and their named `.json` variants project their `baseUrl`, `paths` mappings, and inherited `extends` with disclosed bounds and JSONC tolerance, and `package.json` records `main` and `workspaces`.
@@ -50,6 +49,7 @@ substantive release notes.
 - Record the implementations a Rust dynamic call can reach: a `&dyn Trait` or `impl Trait` call resolves to the trait declaration and then records one bounded candidate edge per declared implementation of the method, so `reader.read()` names both `Reader::read` and every `read` the snapshot implements; a concrete receiver claims no candidates, and a candidate never becomes test coverage.
 - Bump index state v61→v62 because Rust call relations gained dynamic-dispatch candidates; earlier snapshots reindex.
 - Resolve JavaScript/TypeScript calls to a member the receiver's type inherits: the `extends` chain the source states is walked up to four hops, so `service.reset()` resolves to `Base.reset` when `Service extends Base`, at confidence 0.6 below the 0.8/0.7 of a member the receiver's own type declares; a base two files declare, a base no file declares, and a cyclic chain end the walk.
+- Type a JavaScript/TypeScript receiver by the element type a collection annotation states: a `for...of` iteration variable and the first parameter of an array combinator's callback carry the element type of `Item[]` or `Array<Item>`, so `item.save()` resolves at confidence 0.65; `for...in`, `reduce`, a nested array, a tuple, and a collection the file never annotates name nothing, and a collection annotation no longer records the wrapper as the binding's own type.
 
 ### Fixed
 

@@ -1,6 +1,7 @@
 use std::borrow::Cow;
 #[cfg(feature = "precision-parser")]
 use std::collections::BTreeMap;
+use std::collections::HashMap;
 
 use async_trait::async_trait;
 use athanor_core::{
@@ -416,6 +417,24 @@ const MAX_ROOT_DIRS: usize = 8;
 /// Upper bound on recorded receiver type bindings per source file.
 const MAX_TYPED_BINDINGS: usize = 64;
 
+/// Array combinators whose callback receives one element of the receiver.
+///
+/// `reduce` is absent because its first parameter is the accumulator, not an
+/// element, and `sort` because its comparator takes two elements that the
+/// source names in one parameter list.
+const ARRAY_ELEMENT_CALLEES: &[&str] = &[
+    "forEach",
+    "map",
+    "filter",
+    "flatMap",
+    "find",
+    "findIndex",
+    "findLast",
+    "findLastIndex",
+    "some",
+    "every",
+];
+
 /// Recorded name of an anonymous `export default` declaration.
 ///
 /// `export default function () {}` declares a callable value that other
@@ -489,7 +508,9 @@ struct TypedBinding {
     /// Bare type name, reduced to its terminal identifier like heritage names.
     type_name: String,
     /// `construction` when a `new Type()` initializer proves the type,
-    /// `annotation` when a TypeScript type annotation declares it.
+    /// `annotation` when a TypeScript type annotation declares it, and
+    /// `element` when the type is the element type of a collection the source
+    /// annotates.
     kind: &'static str,
     line: u32,
 }
@@ -501,9 +522,14 @@ struct TypedBinding {
 /// destructured binding, and an inferred type are not evidence, so they stay
 /// unrecorded rather than being guessed.
 fn typed_bindings(root: Node, bytes: &[u8]) -> (Vec<Value>, usize) {
+    // The element of a collection is typed by the collection's own annotation,
+    // so the annotation text has to be read before the walk that uses it: the
+    // reduced type name a row records is not enough to name an element.
+    let mut names = Vec::new();
+    let annotations = declared_annotations(root, bytes, &mut names);
     let mut collected = Vec::new();
     let mut owner_names = Vec::new();
-    collect_typed_bindings(root, bytes, &mut owner_names, &mut collected);
+    collect_typed_bindings(root, bytes, &mut owner_names, &annotations, &mut collected);
 
     let mut bindings = Vec::new();
     let mut omitted = 0usize;
@@ -529,11 +555,14 @@ fn typed_bindings(root: Node, bytes: &[u8]) -> (Vec<Value>, usize) {
 ///
 /// `owner_names` is the stack of enclosing class and interface names, because a
 /// field row is recorded as `Owner.field`: two classes in one file never
-/// collide, and the row names the owner a linker can walk to.
+/// collide, and the row names the owner a linker can walk to. `annotations`
+/// carries the annotation text of every binding in the file, which is what
+/// names the element type of a collection.
 fn collect_typed_bindings(
     node: Node,
     bytes: &[u8],
     owner_names: &mut Vec<String>,
+    annotations: &HashMap<String, String>,
     bindings: &mut Vec<TypedBinding>,
 ) {
     if matches!(
@@ -544,7 +573,7 @@ fn collect_typed_bindings(
         owner_names.push(name);
         let mut cursor = node.walk();
         for child in node.named_children(&mut cursor) {
-            collect_typed_bindings(child, bytes, owner_names, bindings);
+            collect_typed_bindings(child, bytes, owner_names, annotations, bindings);
         }
         owner_names.pop();
         return;
@@ -584,13 +613,231 @@ fn collect_typed_bindings(
                 bindings.push(binding);
             }
         }
+        // A `for...of` variable and an array combinator's callback parameter
+        // hold one element of a collection the file annotates, so the
+        // annotation states their type even though they carry none.
+        "for_in_statement" => {
+            if let Some(binding) = loop_element_binding(node, bytes, annotations, owner_names) {
+                bindings.push(binding);
+            }
+        }
+        "call_expression" => {
+            if let Some(binding) = callback_element_binding(node, bytes, annotations, owner_names) {
+                bindings.push(binding);
+            }
+        }
         _ => {}
     }
 
     let mut cursor = node.walk();
     for child in node.named_children(&mut cursor) {
-        collect_typed_bindings(child, bytes, owner_names, bindings);
+        collect_typed_bindings(child, bytes, owner_names, annotations, bindings);
     }
+}
+
+/// Records the annotation text of every binding in one file, keyed by the name
+/// a receiver is written with: `items` for a local or parameter, `Class.items`
+/// for a field.
+fn declared_annotations(
+    root: Node,
+    bytes: &[u8],
+    owner_names: &mut Vec<String>,
+) -> HashMap<String, String> {
+    let mut annotations = HashMap::new();
+    collect_declared_annotations(root, bytes, owner_names, &mut annotations);
+    annotations
+}
+
+fn collect_declared_annotations(
+    node: Node,
+    bytes: &[u8],
+    owner_names: &mut Vec<String>,
+    annotations: &mut HashMap<String, String>,
+) {
+    if matches!(
+        node.kind(),
+        "class_declaration" | "class" | "interface_declaration"
+    ) && let Some(name) = node_name(node, bytes)
+    {
+        owner_names.push(name);
+        let mut cursor = node.walk();
+        for child in node.named_children(&mut cursor) {
+            collect_declared_annotations(child, bytes, owner_names, annotations);
+        }
+        owner_names.pop();
+        return;
+    }
+
+    if let (Some(name), Some(text)) = (
+        declarator_name(node, bytes),
+        annotation_text(node, bytes),
+    ) {
+        let key = match (owner_names.last(), node.kind()) {
+            (Some(owner), "public_field_definition") | (Some(owner), "property_signature") => {
+                format!("{owner}.{name}")
+            }
+            _ => name,
+        };
+        // The first statement of the type wins, so a shadowed binding keeps the
+        // annotation the receiver is written with rather than the last one.
+        annotations.entry(key).or_insert(text);
+    }
+
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        collect_declared_annotations(child, bytes, owner_names, annotations);
+    }
+}
+
+/// The binding name one annotatable node declares, when it declares one.
+fn declarator_name(node: Node, bytes: &[u8]) -> Option<String> {
+    match node.kind() {
+        "variable_declarator" | "public_field_definition" | "property_signature" => {
+            node_text(node.child_by_field_name("name")?, bytes)
+        }
+        "required_parameter" | "optional_parameter" => node_text(
+            node.child_by_field_name("pattern")
+                .or_else(|| node.child_by_field_name("name"))?,
+            bytes,
+        ),
+        _ => None,
+    }
+}
+
+/// The annotation text of one node, before it is reduced to a terminal name.
+fn annotation_text(node: Node, bytes: &[u8]) -> Option<String> {
+    let annotation = node
+        .child_by_field_name("type")
+        .or_else(|| find_child_kind(node, "type_annotation"))?;
+    node_text(annotation.named_child(0)?, bytes)
+}
+
+/// Types the variable of a `for (const item of items)` loop.
+///
+/// `for...in` iterates keys, which are strings and name no type, so only the
+/// `of` operator is evidence.
+fn loop_element_binding(
+    node: Node,
+    bytes: &[u8],
+    annotations: &HashMap<String, String>,
+    owner_names: &[String],
+) -> Option<TypedBinding> {
+    if node_text(node.child_by_field_name("operator")?, bytes)?.as_str() != "of" {
+        return None;
+    }
+    let left = node.child_by_field_name("left")?;
+    if left.kind() != "identifier" {
+        return None;
+    }
+    let name = node_text(left, bytes)?;
+    let collection = collection_name(node.child_by_field_name("right")?, bytes, owner_names)?;
+    let type_name = element_type(annotations.get(&collection)?)?;
+    Some(TypedBinding {
+        name,
+        type_name,
+        kind: "element",
+        line: node.start_position().row as u32 + 1,
+    })
+}
+
+/// Types the first parameter of an array combinator's callback.
+fn callback_element_binding(
+    node: Node,
+    bytes: &[u8],
+    annotations: &HashMap<String, String>,
+    owner_names: &[String],
+) -> Option<TypedBinding> {
+    let callee = node.child_by_field_name("function")?;
+    if callee.kind() != "member_expression" {
+        return None;
+    }
+    let method = node_text(callee.child_by_field_name("property")?, bytes)?;
+    if !ARRAY_ELEMENT_CALLEES.contains(&method.as_str()) {
+        return None;
+    }
+    let collection = collection_name(callee.child_by_field_name("object")?, bytes, owner_names)?;
+    let type_name = element_type(annotations.get(&collection)?)?;
+    let first = node.child_by_field_name("arguments")?.named_child(0)?;
+    let name = callback_parameter(first, bytes)?;
+    Some(TypedBinding {
+        name,
+        type_name,
+        kind: "element",
+        line: node.start_position().row as u32 + 1,
+    })
+}
+
+/// The binding name a collection is written with: `items` or, for a field of
+/// the enclosing class, `Class.items`.
+fn collection_name(node: Node, bytes: &[u8], owner_names: &[String]) -> Option<String> {
+    match node.kind() {
+        "identifier" => node_text(node, bytes),
+        "member_expression" => {
+            if node.child_by_field_name("object")?.kind() != "this" {
+                return None;
+            }
+            let property = node_text(node.child_by_field_name("property")?, bytes)?;
+            Some(format!("{}.{property}", owner_names.last()?))
+        }
+        _ => None,
+    }
+}
+
+/// The name of the first parameter of a callback, when it is a plain one.
+fn callback_parameter(node: Node, bytes: &[u8]) -> Option<String> {
+    if !matches!(
+        node.kind(),
+        "arrow_function" | "function_expression" | "function_declaration"
+    ) {
+        return None;
+    }
+    // A single parameter written without parentheses is the identifier itself,
+    // while a parameter list holds one binding per parameter.
+    if let Some(parameter) = node.child_by_field_name("parameter") {
+        return match parameter.kind() {
+            "identifier" => node_text(parameter, bytes),
+            _ => None,
+        };
+    }
+    let first = node.child_by_field_name("parameters")?.named_child(0)?;
+    match first.kind() {
+        "identifier" => node_text(first, bytes),
+        "required_parameter" | "optional_parameter" => {
+            let pattern = first
+                .child_by_field_name("pattern")
+                .or_else(|| first.child_by_field_name("name"))
+                .or_else(|| first.named_child(0))?;
+            if pattern.kind() == "identifier" {
+                node_text(pattern, bytes)
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+/// The element type a collection annotation states: `Item[]` and `Array<Item>`
+/// both name `Item`.
+///
+/// A tuple, a union, a nested array, a generic element, and a wrapper that is
+/// not an array name nothing, because the element type they would give is not
+/// the one the source states.
+fn element_type(declared: &str) -> Option<String> {
+    let trimmed = declared.trim();
+    let trimmed = trimmed.strip_prefix("readonly ").unwrap_or(trimmed).trim();
+    if let Some(inner) = trimmed.strip_suffix("[]") {
+        return terminal_name(inner);
+    }
+    let (head, rest) = trimmed.split_once('<')?;
+    if !matches!(head.trim(), "Array" | "ReadonlyArray") {
+        return None;
+    }
+    let inner = rest.strip_suffix('>')?;
+    if inner.contains(['<', '>', '[', '(', '|', '&', ',', '?']) {
+        return None;
+    }
+    terminal_name(inner)
 }
 
 /// Types one `name = new Type()` or `name: Type = …` variable declarator.
@@ -667,8 +914,14 @@ fn declared_type(node: Node, bytes: &[u8]) -> Option<String> {
     let annotation = node
         .child_by_field_name("type")
         .or_else(|| find_child_kind(node, "type_annotation"))?;
-    let inner = annotation.named_child(0)?;
-    terminal_name(&node_text(inner, bytes)?)
+    let text = node_text(annotation.named_child(0)?, bytes)?;
+    // A collection annotation types the elements of the collection, not the
+    // collection itself, so the binding is left to the element walk: recording
+    // the wrapper would name a receiver the source never writes.
+    if element_type(&text).is_some() {
+        return None;
+    }
+    terminal_name(&text)
 }
 
 /// Reads the declared return type of a function, method, or arrow function.
@@ -4029,6 +4282,91 @@ mod tests {
             expected
         );
         assert_eq!(module.payload["omitted_typed_bindings"], 0);
+    }
+
+    #[tokio::test]
+    async fn records_the_element_type_a_collection_annotation_states() {
+        let output = JsTsExtractor
+            .extract(input(
+                "src/app.ts",
+                "const items: Item[] = [];\n\
+                 const wrapped: Array<Item> = [];\n\
+                 for (const item of items) {\n\
+                   item.save();\n\
+                 }\n\
+                 items.forEach((each) => each.save());\n\
+                 items.filter(one => one.save());\n\
+                 wrapped.map((other) => other.save());\n\
+                 class App {\n\
+                   fields: Field[] = [];\n\
+                   run() {\n\
+                     for (const field of this.fields) {\n\
+                       field.save();\n\
+                     }\n\
+                   }\n\
+                 }\n",
+                "typescript",
+            ))
+            .await
+            .unwrap();
+
+        let module = output
+            .entities
+            .iter()
+            .find(|entity| entity.kind == EntityKind::Module)
+            .expect("module entity must exist");
+        let mut expected = vec![
+            "item:Item:element".to_string(),
+            "each:Item:element".to_string(),
+            "one:Item:element".to_string(),
+            "other:Item:element".to_string(),
+            "field:Field:element".to_string(),
+        ];
+        expected.sort();
+        assert_eq!(
+            typed_binding_text(&module.payload["typed_bindings"]),
+            expected
+        );
+        assert_eq!(module.payload["omitted_typed_bindings"], 0);
+    }
+
+    #[tokio::test]
+    async fn records_no_element_type_the_source_does_not_state() {
+        let output = JsTsExtractor
+            .extract(input(
+                "src/app.ts",
+                "const items: Item[] = [];\n\
+                 const nested: Item[][] = [];\n\
+                 const tuple: [Item, Other] = [];\n\
+                 const untyped = [];\n\
+                 for (const key in items) {\n\
+                   key.save();\n\
+                 }\n\
+                 for (const row of nested) {\n\
+                   row.save();\n\
+                 }\n\
+                 for (const first of tuple) {\n\
+                   first.save();\n\
+                 }\n\
+                 for (const ghost of untyped) {\n\
+                   ghost.save();\n\
+                 }\n\
+                 items.reduce((sum, item) => sum + item.count, 0);\n",
+                "typescript",
+            ))
+            .await
+            .unwrap();
+
+        let module = output
+            .entities
+            .iter()
+            .find(|entity| entity.kind == EntityKind::Module)
+            .expect("module entity must exist");
+        let rows = typed_binding_text(&module.payload["typed_bindings"]);
+        assert!(
+            rows.is_empty(),
+            "no element type may be recorded: {rows:?}"
+        );
     }
 
     #[tokio::test]

@@ -25,9 +25,11 @@ route declarations and is registered independently as `builtin.extractor.express
   (iteration methods, promise handlers, timers, event/observable registration) for the call
   linker's callback bridges
 - Bounded `typed_bindings` rows on module payloads: the declared type of a receiver the linker can
-  walk — a `new Type()` initializer, an annotated class field or interface property signature, or a
-  TypeScript parameter property, each recorded as `{name, type, kind, line}` with an
-  `omitted_typed_bindings` count
+  walk — a `new Type()` initializer, an annotated class field or interface property signature, a
+  TypeScript parameter property, or the element type a collection annotation states, each recorded
+  as `{name, type, kind, line}` with an `omitted_typed_bindings` count. A `for...of` iteration
+  variable and the first parameter of an array combinator's callback record kind `element`, so
+  `const items: Item[]` gives `item` the type `Item`
 - Bounded `call_bindings` rows on module payloads: a binding the module initializes with a
   statically named call, each recorded as `{name, callee, line}`, so the linker can read the type
   from the return type the factory declares
