@@ -214,7 +214,7 @@ mod tests {
         AdapterInvalidationDeclaration, PlannedInvalidationScope, dependency_closure,
         plan_invalidation,
     };
-    use std::collections::BTreeSet;
+    use std::collections::{BTreeSet, HashSet};
 
     use athanor_core::{AffectedSubset, CanonicalSnapshot, InvalidationPolicy, InvalidationScope};
 

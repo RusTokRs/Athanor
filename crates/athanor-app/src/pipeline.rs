@@ -1313,6 +1313,7 @@ mod tests {
             &snapshot,
             &BTreeSet::from(["docs/right.md".to_string()]),
             &BTreeSet::new(),
+            &HashSet::new(),
         );
 
         assert!(relations.is_empty());
@@ -1362,6 +1363,7 @@ mod tests {
             &snapshot,
             &BTreeSet::from(["crates/rustok-ai-content/docs/implementation-plan.md".to_string()]),
             &BTreeSet::new(),
+            &HashSet::new(),
         );
 
         assert!(diagnostics.is_empty());
@@ -1491,7 +1493,6 @@ mod tests {
         );
     }
 
-    #[test]
     #[test]
     fn carries_derived_objects_of_reused_declarations() {
         let previous = CanonicalSnapshot {
