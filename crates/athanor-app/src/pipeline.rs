@@ -1533,7 +1533,10 @@ mod tests {
         // rather than carried; only their derived objects are reused. The
         // untouched file is carried as before.
         assert_eq!(
-            entities.iter().map(|entity| entity.id.0.as_str()).collect::<Vec<_>>(),
+            entities
+                .iter()
+                .map(|entity| entity.id.0.as_str())
+                .collect::<Vec<_>>(),
             vec!["ent_other"]
         );
         assert_eq!(
