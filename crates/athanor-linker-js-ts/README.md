@@ -99,9 +99,14 @@ The call linker consumes the bounded `calls` arrays and the import bindings that
    with a call: `const repo = createRepo(); repo.items` takes the return type `createRepo`
    declares, resolved through the steps below, and a factory reached only by a name-unique
    declaration types nothing. The typed step is disabled while a factory is resolved, so one
-   receiver's type is never derived from another's. A repeated type, a path longer than four
-   segments, an ambiguous binding, or a terminal that matches more than one declaration ends the
-   walk.
+   receiver's type is never derived from another's. A terminal the type does not declare itself may
+   still be a member it inherits: the `extends` chain the source states is then walked, up to four
+   hops, and a member of a base class resolves at reason `inherited_typed_member`
+   (`inherited_typed_receiver_path` for a path) with confidence `0.6`. Both the type the walk leaves
+   and the base it enters must be class or interface declarations the snapshot states, so a base name
+   two files declare and a base no file declares both end the walk. A repeated type, a path longer
+   than four segments, an ambiguous binding, or a terminal that matches more than one declaration
+   ends the walk.
 5. `imported_default_export` — a default import resolves directly to its named default
    function or class declaration.
 6. `imported_reexport_chain` — through explicit named local exports, relative named/default
@@ -117,8 +122,9 @@ The call linker consumes the bounded `calls` arrays and the import bindings that
 
 Steps 6 and 7 accept a candidate only when it is unique, so ambiguity stays unresolved. Confidence
 runs from `0.9` for an exact same-module match down to `0.5` for a unique name match: a receiver
-proven by a construction resolves at `0.8` and one proven by an annotation at `0.7`, above the name
-guesses they replace and below import-proven calls. The payload
+proven by a construction resolves at `0.8`, one proven by an annotation at `0.7`, and a member the
+receiver's type inherits at `0.6` — inheritance is one name-resolution further from the call site
+than a member the type declares itself, and still above the name guesses it replaces. The payload
 records the callee, call kind, resolution reason, line, and column. Callback arguments run through
 the same ordered steps with the same fail-closed rules; the hosting call's own resolution never
 gates the bridge. Output is sorted by relation id
@@ -149,7 +155,8 @@ commands, use the network, or modify project files.
   results, and reflective dispatch are not resolved. Receiver typing covers only a type the source
   states: an inferred type, a type imported by another module but never named in an annotation, a
   structural type, and a member reached through an unannotated factory or an index stay
-  unresolved. A
+  unresolved. A member inherited through a declared `extends` chain does resolve, but only to a base
+  the snapshot states unambiguously and only within four hops. A
   field is read from the module that declares its owner only when that owner is exported and
   unambiguous, and an ambiguous, cyclic, or over-bound path ends the walk instead of being
   guessed.

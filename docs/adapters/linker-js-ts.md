@@ -101,7 +101,12 @@ previous one is silent:
    first: only an exported
    top-level class, interface, or type alias owns field types, and a name declared in two modules
    owns neither. The typed step is disabled while a factory is resolved, so one receiver's type is
-   never derived from another's. A type repeated inside the walk, a path longer than four
+   never derived from another's. A terminal the type does not declare itself may still be a member it
+   inherits: the `extends` chain the source states is then walked, up to four hops, and a member of a
+   base class resolves at reason `inherited_typed_member` (`inherited_typed_receiver_path` for a path)
+   with confidence 0.6. Both the type the walk leaves and the base it enters must be class or
+   interface declarations the snapshot states — a base name two files declare, and a base no file
+   declares, end the walk. A type repeated inside the walk, a path longer than four
    segments, an ambiguous binding, and a terminal that matches more than one declaration end the
    walk.
 5. `imported_default_export` — a default import resolves directly to the function or class
@@ -138,8 +143,9 @@ way. Callback bridges from a test location additionally emit `TestedBy`, mirrori
 An unresolved explicit import does not fall through to a weaker snapshot-wide guess. Steps 6 and 7
 require a unique candidate, so ambiguity stays unresolved rather than becoming a guessed fact.
 Confidence reflects the step (0.9 exact same-module down to 0.5 unique-name): a receiver proven by
-a construction resolves at 0.8 and one proven by an annotation at 0.7, above the name guesses they
-replace and below import-proven calls. Every relation is
+a construction resolves at 0.8, one proven by an annotation at 0.7, and a member the receiver's type
+inherits at 0.6 — inheritance is one name-resolution further from the call site than a member the
+type declares itself, and still above the name guesses it replaces. Every relation is
 `RelationStatus::Inferred`, because JavaScript dispatch is dynamic even when the call shape is static.
 
 ### Emitted Knowledge
@@ -194,7 +200,9 @@ CommonJS `require` calls, default expressions that declare nothing callable or
 constructible, computed member calls, and multi-segment named-import namespace paths
 are not resolved. Receiver typing covers only a type the source states: an inferred type, a
 type imported by another module but never named in an annotation, a structural type, and a member
-reached through an unannotated factory or an index stay unresolved. A field is read from the module that
+reached through an unannotated factory or an index stay unresolved. A member inherited through a
+declared `extends` chain does resolve, but only to a base the snapshot states unambiguously and only
+within four hops. A field is read from the module that
 declares its owner only when that owner is exported and unambiguous, and a cyclic or over-bound
 path ends the walk. Callback bridging only fires for the extractor's combinator allowlist and
 only for statically nameable arguments; callbacks passed as inline arrows, call results, or

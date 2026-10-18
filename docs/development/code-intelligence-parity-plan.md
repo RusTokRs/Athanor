@@ -819,10 +819,13 @@ cargo test -p athanor-app --features js-ts-precision --locked
 - The walk is bounded because the chain is resolved by name. At most four hops are followed; a type
   already visited ends the walk, so `Left extends Right extends Left` resolves nothing instead of
   looping. The bound is a constant, not a heuristic that grows with the snapshot.
-- A base name resolves like the heritage linker resolves one: a unique class or interface declaration
-  in the file the current type's module points at, and otherwise a name unique across the snapshot.
-  Two `Base` declarations in different directories are ambiguous, so the member stays unresolved —
-  the standing rule that an ambiguous name resolves to nothing is not relaxed for inheritance.
+- Both ends of every hop are resolved, not just the derived type. A base name resolves like the
+  heritage linker resolves one — a unique class or interface declaration in the file the current
+  type's module points at, and otherwise a name unique across the snapshot — and so does the type
+  the walk starts from. Two `Base` declarations in different directories are ambiguous, and a base
+  the snapshot never declares ends the walk, so a qualified member name that no declared class owns
+  is never claimed by spelling alone. The standing rule that an ambiguous name resolves to nothing
+  is not relaxed for inheritance.
 - Interfaces are followed the same way but declare no bodies to call, so in practice every resolved
   edge comes from a class chain. The bound and the fail-closed rules are shared with the typed path
   that already existed, so no new knob is introduced.
@@ -833,7 +836,7 @@ Focused source regression matrix:
 | --- | --- |
 | Direct inheritance | `service.reset()` resolves to `Base.reset` when `Service extends Base` |
 | Multi-hop | A member inherited through a chain of base classes resolves inside the four-hop bound |
-| Ambiguity and cycles | Two same-named bases in different directories, and a cyclic chain, resolve nothing |
+| Ambiguity, cycles, and absence | Two same-named bases in different directories, a cyclic chain, and a base the snapshot never declares all resolve nothing |
 
 Focused verification:
 

@@ -36,8 +36,7 @@ substantive release notes.
 - Add a bounded first-party projection for agent-tool MCP configuration: `.codex.json` and `antigravity.json` project one `ScriptCommand` per server, with evidence and ownership.
 - Add JS/TS default class export binding: `export default class Foo {}` records its default
   name and a default-imported or same-module `new Foo()` resolves to the class; index state bumps v53→v54.
-- Add JS/TS multi-hop namespace aliases: a namespace name forwarded across modules by
-  named re-exports resolves `alias.member()`; index state bumps v54→v55.
+- Add JS/TS multi-hop namespace aliases: a namespace name forwarded across modules by named re-exports resolves `alias.member()`; index state bumps v54→v55.
 - Add local semantic retrieval with zero new dependencies: hashing-trick embeddings over character trigrams and word n-grams (FNV-1a buckets) power `ath search --mode semantic|hybrid` and MCP `search`.
 - Add first-party JavaScript/TypeScript module-resolution configuration: `tsconfig.json`, `jsconfig.json`, and their named `.json` variants project their `baseUrl`, `paths` mappings, and inherited `extends` with disclosed bounds and JSONC tolerance, and `package.json` records `main` and `workspaces`.
 - Resolve JS/TS non-relative specifiers in the import and call linkers through that evidence, so a path alias such as `@/lib/api` and a workspace-package specifier such as `@scope/ui/button` become real module and call edges while unprovable specifiers stay unresolved; index state bumps v55→v56.
@@ -50,6 +49,7 @@ substantive release notes.
 - Resolve Rust method calls through the receiver's declared type: call sites record their callee, name, kind, line, and receiver expression, a function records the receiver types it states from parameters and annotated locals, and `store.write()`, `self.write()`, and `reader.read()` on a `&dyn Trait` or `impl Trait` receiver resolve to the declaring type's or trait's method while a nested, unannotated, or ambiguously named receiver stays unresolved; index state bumps v60→v61 and earlier snapshots reindex.
 - Record the implementations a Rust dynamic call can reach: a `&dyn Trait` or `impl Trait` call resolves to the trait declaration and then records one bounded candidate edge per declared implementation of the method, so `reader.read()` names both `Reader::read` and every `read` the snapshot implements; a concrete receiver claims no candidates, and a candidate never becomes test coverage.
 - Bump index state v61→v62 because Rust call relations gained dynamic-dispatch candidates; earlier snapshots reindex.
+- Resolve JavaScript/TypeScript calls to a member the receiver's type inherits: the `extends` chain the source states is walked up to four hops, so `service.reset()` resolves to `Base.reset` when `Service extends Base`, at confidence 0.6 below the 0.8/0.7 of a member the receiver's own type declares; a base two files declare, a base no file declares, and a cyclic chain end the walk.
 
 ### Fixed
 
