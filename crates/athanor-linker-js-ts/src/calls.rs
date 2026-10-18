@@ -64,6 +64,11 @@ const INHERITED_MEMBER_CONFIDENCE: f32 = 0.6;
 const TYPED_CONSTRUCTION_CONFIDENCE: f32 = 0.8;
 /// Confidence assigned to a call resolved through a receiver a type annotation typed.
 const TYPED_ANNOTATION_CONFIDENCE: f32 = 0.7;
+/// Confidence of a call resolved through a receiver typed by the element type of
+/// a collection: the annotation is written in the source, but on the collection
+/// rather than on the receiver, so it is one step weaker than an annotation the
+/// receiver's own binding carries.
+const ELEMENT_CONFIDENCE: f32 = 0.65;
 /// Upper bound on receiver segments walked for one type-aware dispatch.
 const MAX_TYPE_PATH_SEGMENTS: usize = 4;
 /// The most `extends` hops one inherited member lookup walks.
@@ -462,6 +467,8 @@ fn resolve_call<'a>(
             INHERITED_MEMBER_CONFIDENCE
         } else if kind == "construction" {
             TYPED_CONSTRUCTION_CONFIDENCE
+        } else if kind == "element" {
+            ELEMENT_CONFIDENCE
         } else {
             TYPED_ANNOTATION_CONFIDENCE
         };
@@ -2227,6 +2234,57 @@ mod tests {
         assert_eq!(calls[0].to, service_run.id);
         assert_eq!(calls[0].payload["resolution"], "typed_receiver_member");
         assert_eq!(calls[0].confidence, 0.8);
+    }
+
+    #[tokio::test]
+    async fn resolves_a_call_on_the_element_of_a_declared_collection() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({
+                "imports": [],
+                "typed_bindings": [
+                    {"name": "item", "type": "Item", "kind": "element", "line": 2}
+                ]
+            }),
+        );
+        let save = declaration(
+            "ent_item_save",
+            "src/item.ts",
+            "Item.save",
+            "save",
+            true,
+            json!([]),
+        );
+        let start = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "start",
+            "start",
+            false,
+            json!([call_site("item.save", "save", 5)]),
+        );
+        let entities = vec![app_module, save.clone(), start.clone()];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from, start.id);
+        assert_eq!(calls[0].to, save.id);
+        assert_eq!(calls[0].payload["resolution"], "typed_receiver_member");
+        assert_eq!(calls[0].confidence, 0.65);
     }
 
     #[tokio::test]
