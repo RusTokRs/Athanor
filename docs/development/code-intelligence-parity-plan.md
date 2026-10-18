@@ -846,11 +846,57 @@ cargo test -p athanor-extractor-js-ts --features precision-parser --locked
 cargo test -p athanor-linker-js-ts --locked
 ```
 
+#### P2T — The Element Type A Declared Collection States (bounded JS/TS slice)
+
+- A call on an element of a collection now resolves. Until now the source had to write the type on
+  the receiver's own binding, so `for (const item of items) { item.save(); }` and
+  `items.forEach((item) => item.save())` stayed unresolved: `item` carries no annotation of its own.
+  Iterating a collection is the ordinary way a JS/TS codebase reaches elements, so every method call
+  on an element was missing from the call graph.
+- Nothing is inferred. The element type is read from the annotation the file writes on the
+  collection — `Item[]` and `Array<Item>` both name `Item` — so the type is still one the source
+  states, just on the collection rather than on the receiver. A collection the file never annotates
+  names nothing.
+- Two receivers are typed this way: the iteration variable of a `for...of` loop, and the first
+  parameter of an array combinator's callback (`forEach`, `map`, `filter`, `flatMap`, `find`,
+  `findIndex`, `findLast`, `findLastIndex`, `some`, `every`). `reduce` takes the accumulator first
+  and `for...in` iterates string keys, so neither yields a type.
+- An element resolves at `0.65`: below the `0.7` of an annotation the receiver's own binding
+  carries, because the source writes it on the collection, and above the `0.6` of an inherited
+  member, because it is written in the file itself and needs no name resolution.
+- The shapes that name no single element type end the walk instead of being guessed: a nested array,
+  a tuple, a union, a generic element, and a wrapper that is not an array. A collection annotation
+  no longer records a row for the collection itself, because the wrapper is not a receiver the
+  source ever writes — that row previously reduced `Array<Item>` to `Array`, a type no call
+  dispatches on.
+- The rows join the module's existing `typed_bindings`, so the typed path, the deep member path, and
+  the inherited-member walk all apply to an element receiver unchanged. A class field is scoped by
+  its owner, so `for (const field of this.fields)` uses `Class.fields`.
+
+Focused source regression matrix:
+
+| Surface | Regression |
+| --- | --- |
+| Element rows | A `for...of` variable, a `forEach`/`map`/`filter` callback parameter, and a loop over a class field record the element type |
+| Rejected forms | `for...in`, `reduce`, a nested array, a tuple, an unannotated collection, and the collection binding itself record nothing |
+| Dispatch | A call on an element receiver resolves at confidence 0.65 |
+
+Focused verification:
+
+```bash
+cargo test -p athanor-extractor-js-ts --locked
+cargo test -p athanor-extractor-js-ts --features precision-parser --locked
+cargo test -p athanor-linker-js-ts --locked
+cargo test -p athanor-app --locked
+cargo test -p athanor-app --features js-ts-precision --locked
+```
+
 #### Remaining P2 Gaps
 
 - Type inference for a receiver whose type the source never states — an unannotated factory, an
   index access, or a structural type; package-manager-specific resolution that needs an installed
-  tree, such as Yarn `nodeLinker` layouts and patched dependencies.
+  tree, such as Yarn `nodeLinker` layouts and patched dependencies. The element slice below closed
+  the part of this gap an annotation the file already writes can answer without inference.
 
 ### P3 — Bounded Language Expansion
 

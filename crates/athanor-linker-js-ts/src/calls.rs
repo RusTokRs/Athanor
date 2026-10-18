@@ -1095,10 +1095,10 @@ fn typed_receivers(module: &Entity) -> HashMap<String, Option<TypedReceiver>> {
         let Some(type_name) = binding.get("type").and_then(Value::as_str) else {
             continue;
         };
-        let kind = if binding.get("kind").and_then(Value::as_str) == Some("construction") {
-            "construction"
-        } else {
-            "annotation"
+        let kind = match binding.get("kind").and_then(Value::as_str) {
+            Some("construction") => "construction",
+            Some("element") => "element",
+            _ => "annotation",
         };
         let recorded = TypedReceiver {
             type_name: type_name.to_string(),
@@ -1117,13 +1117,24 @@ fn typed_receivers(module: &Entity) -> HashMap<String, Option<TypedReceiver>> {
             Some(Some((existing_type, existing_kind))) => {
                 if existing_type != type_name {
                     receivers.insert(name.to_string(), None);
-                } else if existing_kind == "annotation" && kind == "construction" {
+                } else if receiver_strength(kind) > receiver_strength(existing_kind) {
                     receivers.insert(name.to_string(), Some(recorded));
                 }
             }
         }
     }
     receivers
+}
+
+/// How strong one recorded receiver type is: a construction the module performs
+/// beats an annotation, and an annotation on the binding itself beats the
+/// element type read from the collection the binding came out of.
+fn receiver_strength(kind: &str) -> u8 {
+    match kind {
+        "construction" => 2,
+        "annotation" => 1,
+        _ => 0,
+    }
 }
 
 /// Maps a type name to the module that declares it.

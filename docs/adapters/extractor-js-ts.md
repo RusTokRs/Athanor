@@ -132,6 +132,17 @@ identifier are skipped, and a qualified or generic name is reduced to its termin
 `Promise<Repo>` and `ns.Repo` both record `Repo`. Rows are bounded to 64 per module with an
 `omitted_typed_bindings` count.
 
+A collection annotation also types the elements it holds, because the element is what a call
+dispatches on: the iteration variable of a `for...of` loop and the first parameter of an array
+combinator's callback (`forEach`, `map`, `filter`, `flatMap`, `find`, `findIndex`, `findLast`,
+`findLastIndex`, `some`, `every`) record a row with kind `element` when the collection's own
+annotation names one element type, so `Item[]` and `Array<Item>` both record `Item` and a `readonly`
+prefix is ignored. `reduce` is excluded because its first parameter is the accumulator, `for...in`
+because it iterates string keys, and a nested array, a tuple, a union, a generic element, a wrapper
+that is not an array, and a collection the file never annotates because none of them names one
+element type. A collection annotation records no row for the collection itself: the wrapper is not a
+receiver the source writes. The element rows share the 64-row bound and the omission count.
+
 Module payloads also carry bounded `call_bindings`: one row per binding the module initializes with
 a statically named call, with the binding `name`, the `callee`, and the `line`. A destructuring
 initializer and a non-call initializer are not rows, because neither names one receiver. Rows are
