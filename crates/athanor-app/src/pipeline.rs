@@ -1637,12 +1637,12 @@ mod tests {
             .await
             .expect("incremental pipeline should run");
 
-        // The declaration the file still states identically is not reconsidered;
-        // only the changed one and the neighbour the closure reaches through its
-        // relation are.
+        // Only the declaration that moved is reconsidered. Before this slice the
+        // whole file was: every declaration in it, plus the neighbours the
+        // closure reached through their relations.
         assert_eq!(
             *affected_entities.lock().unwrap(),
-            vec!["ent_changed".to_string(), "ent_neighbor".to_string()]
+            vec!["ent_changed".to_string()]
         );
         // Its relation is carried forward instead of being dropped with the file.
         let stored = reader
@@ -1668,6 +1668,14 @@ mod tests {
 
         fn supports(&self, _source: &SourceFile) -> bool {
             true
+        }
+
+        fn invalidation_policy(&self) -> athanor_core::InvalidationPolicy {
+            athanor_core::InvalidationPolicy {
+                on_change: athanor_core::InvalidationScope::DependencyClosure,
+                on_add: athanor_core::InvalidationScope::DependencyClosure,
+                on_remove: athanor_core::InvalidationScope::DependencyClosure,
+            }
         }
 
         async fn extract(&self, _input: ExtractInput) -> CoreResult<ExtractOutput> {
@@ -1701,6 +1709,7 @@ mod tests {
         }
     }
 
+    #[test]
     fn rejects_fact_without_ownership() {
         let mut fact = fact("fact_without_ownership");
         fact.ownership.clear();

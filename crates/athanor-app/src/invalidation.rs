@@ -362,7 +362,7 @@ mod tests {
         let reused = unchanged_declarations(
             Some(&snapshot_with(vec![previous])),
             &BTreeSet::from(["src/lib.rs".to_string()]),
-            &[extracted.clone()],
+            std::slice::from_ref(&extracted),
         );
         assert_eq!(reused, HashSet::from([extracted.id.clone()]));
     }
@@ -422,7 +422,7 @@ mod tests {
             unchanged_declarations(
                 None,
                 &BTreeSet::from(["src/lib.rs".to_string()]),
-                &[extracted.clone()]
+                std::slice::from_ref(&extracted)
             )
             .is_empty()
         );
