@@ -2437,8 +2437,13 @@ mod tests {
                 ]
             }),
         );
-        let orphaned_service =
-            subclass("ent_service", "src/service.ts", "Service", true, &["External"]);
+        let orphaned_service = subclass(
+            "ent_service",
+            "src/service.ts",
+            "Service",
+            true,
+            &["External"],
+        );
         let orphaned = declaration(
             "ent_external_reset",
             "src/vendor.ts",
