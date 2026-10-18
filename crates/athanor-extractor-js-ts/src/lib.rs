@@ -791,10 +791,15 @@ fn callback_parameter(node: Node, bytes: &[u8]) -> Option<String> {
     ) {
         return None;
     }
-    let parameters = node
-        .child_by_field_name("parameter")
-        .or_else(|| node.child_by_field_name("parameters"))?;
-    let first = parameters.named_child(0)?;
+    // A single parameter written without parentheses is the identifier itself,
+    // while a parameter list holds one binding per parameter.
+    if let Some(parameter) = node.child_by_field_name("parameter") {
+        return match parameter.kind() {
+            "identifier" => node_text(parameter, bytes),
+            _ => None,
+        };
+    }
+    let first = node.child_by_field_name("parameters")?.named_child(0)?;
     match first.kind() {
         "identifier" => node_text(first, bytes),
         "required_parameter" | "optional_parameter" => {
