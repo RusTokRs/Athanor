@@ -56,12 +56,18 @@ const IMPORTED_EXACT_CONFIDENCE: f32 = 0.85;
 const IMPORTED_NAME_CONFIDENCE: f32 = 0.7;
 /// Confidence assigned to a unique name-only match (member or exported symbol).
 const UNIQUE_NAME_CONFIDENCE: f32 = 0.5;
+/// Confidence of a member the receiver's declared type inherits: the type
+/// states the base and the base states the member, but the call site does not
+/// name the class that owns the body.
+const INHERITED_MEMBER_CONFIDENCE: f32 = 0.6;
 /// Confidence assigned to a call resolved through a receiver a `new Type()` initializer typed.
 const TYPED_CONSTRUCTION_CONFIDENCE: f32 = 0.8;
 /// Confidence assigned to a call resolved through a receiver a type annotation typed.
 const TYPED_ANNOTATION_CONFIDENCE: f32 = 0.7;
 /// Upper bound on receiver segments walked for one type-aware dispatch.
 const MAX_TYPE_PATH_SEGMENTS: usize = 4;
+/// The most `extends` hops one inherited member lookup walks.
+const MAX_HERITAGE_DEPTH: usize = 4;
 /// Maximum number of named, default, wildcard, or namespace export hops per call resolution.
 const MAX_REEXPORT_DEPTH: usize = 32;
 /// Maximum resolver visits across all branches of one call's export resolution.
@@ -430,7 +436,7 @@ fn resolve_call<'a>(
     //    through to the weaker member-name guess below.
     if allow_typed
         && callee.contains('.')
-        && let Some((target, kind, segments)) = resolve_typed_member(
+        && let Some((target, kind, segments, inherited)) = resolve_typed_member(
             callee,
             caller,
             caller_module,
@@ -441,12 +447,20 @@ fn resolve_call<'a>(
             config,
         )
     {
-        let resolution = if segments > 1 {
+        let resolution = if inherited {
+            if segments > 1 {
+                "inherited_typed_receiver_path"
+            } else {
+                "inherited_typed_member"
+            }
+        } else if segments > 1 {
             "typed_receiver_path"
         } else {
             "typed_receiver_member"
         };
-        let confidence = if kind == "construction" {
+        let confidence = if inherited {
+            INHERITED_MEMBER_CONFIDENCE
+        } else if kind == "construction" {
             TYPED_CONSTRUCTION_CONFIDENCE
         } else {
             TYPED_ANNOTATION_CONFIDENCE
@@ -1246,7 +1260,7 @@ fn resolve_typed_member<'a>(
     modules: &HashMap<String, &'a Entity>,
     declarations_by_path: &HashMap<String, Vec<&'a Entity>>,
     config: &ModuleResolutionConfig,
-) -> Option<(&'a Entity, &'static str, usize)> {
+) -> Option<(&'a Entity, &'static str, usize, bool)> {
     let (receiver, member) = callee.rsplit_once('.')?;
     if receiver.is_empty() || member.is_empty() {
         return None;
@@ -1305,10 +1319,113 @@ fn resolve_typed_member<'a>(
     }
 
     let qualified = format!("{current}.{member}");
-    let target = unique_match(declarations_by_name.get(member), |candidate| {
+    if let Some(target) = unique_match(declarations_by_name.get(member), |candidate| {
         qualified_name(candidate) == Some(qualified.as_str())
-    })?;
-    Some((target, kind, segments.len()))
+    }) {
+        return Some((target, kind, segments.len(), false));
+    }
+
+    // A class need not declare the member it is called with: it inherits the
+    // members of the class it extends. The heritage clause is written in the
+    // source, so the base is named evidence — but it is one step further from
+    // the call site than a member the receiver's own type declares.
+    let owner_hint = type_modules
+        .get(&current)
+        .and_then(|module| module.as_ref())
+        .and_then(entity_path)
+        .or_else(|| entity_path(caller_module));
+    let target = inherited_member(
+        &current,
+        member,
+        owner_hint.as_deref(),
+        declarations_by_name,
+    )?;
+    Some((target, kind, segments.len(), true))
+}
+
+/// Resolves a member a type inherits from the class it extends.
+///
+/// The walk is bounded, a type already seen ends it, and a base that is
+/// ambiguous or absent ends it: an inherited member is only named when the
+/// chain from the receiver's type to the declaring class is unbroken. Interfaces
+/// declare no bodies to call, so only `extends` is followed.
+fn inherited_member<'a>(
+    type_name: &str,
+    member: &str,
+    owner_hint: Option<&str>,
+    declarations_by_name: &HashMap<String, Vec<&'a Entity>>,
+) -> Option<&'a Entity> {
+    let mut current = type_name.to_string();
+    let mut hint = owner_hint.map(str::to_string);
+    let mut visited = vec![current.clone()];
+    for _ in 0..MAX_HERITAGE_DEPTH {
+        let owner = heritage_base(&current, hint.as_deref(), declarations_by_name)?;
+        let base = extends_name(owner)?;
+        let qualified = format!("{base}.{member}");
+        if let Some(target) = unique_match(declarations_by_name.get(member), |candidate| {
+            qualified_name(candidate) == Some(qualified.as_str())
+        }) {
+            return Some(target);
+        }
+        if visited.iter().any(|seen| seen == &base) {
+            return None;
+        }
+        visited.push(base.clone());
+        hint = entity_path(owner);
+        current = base;
+    }
+    None
+}
+
+/// Finds the one class or interface entity a type name states, preferring a
+/// unique declaration in the file the hint names.
+fn heritage_base<'a>(
+    type_name: &str,
+    hint: Option<&str>,
+    declarations_by_name: &HashMap<String, Vec<&'a Entity>>,
+) -> Option<&'a Entity> {
+    let candidates = declarations_by_name
+        .get(type_name)?
+        .iter()
+        .copied()
+        .filter(|candidate| {
+            matches!(
+                candidate
+                    .payload
+                    .get("symbol_kind")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default(),
+                "class" | "interface"
+            )
+        })
+        .collect::<Vec<_>>();
+    if let Some(hint) = hint {
+        let same_module = candidates
+            .iter()
+            .copied()
+            .filter(|candidate| entity_path(candidate).as_deref() == Some(hint))
+            .collect::<Vec<_>>();
+        match same_module.as_slice() {
+            [only] => return Some(*only),
+            [] => {}
+            _ => return None,
+        }
+    }
+    match candidates.as_slice() {
+        [only] => Some(*only),
+        _ => None,
+    }
+}
+
+/// The one class a type's `extends` clause names, when it names any.
+fn extends_name(entity: &Entity) -> Option<String> {
+    entity
+        .payload
+        .get("extends")?
+        .as_array()?
+        .iter()
+        .find_map(Value::as_str)
+        .map(str::to_string)
 }
 
 fn find_first<'a>(
@@ -2107,6 +2224,206 @@ mod tests {
         assert_eq!(calls[0].to, service_run.id);
         assert_eq!(calls[0].payload["resolution"], "typed_receiver_member");
         assert_eq!(calls[0].confidence, 0.8);
+    }
+
+    #[tokio::test]
+    async fn resolves_a_member_inherited_from_a_base_class() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({
+                "imports": [],
+                "typed_bindings": [
+                    {"name": "service", "type": "Service", "kind": "construction", "line": 2}
+                ]
+            }),
+        );
+        let service = subclass("ent_service", "src/service.ts", "Service", true, &["Base"]);
+        let base = subclass("ent_base", "src/base.ts", "Base", true, &[]);
+        let reset = declaration(
+            "ent_base_reset",
+            "src/base.ts",
+            "Base.reset",
+            "reset",
+            true,
+            json!([]),
+        );
+        let start = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "start",
+            "start",
+            false,
+            json!([call_site("service.reset", "reset", 5)]),
+        );
+        let entities = vec![
+            app_module,
+            service,
+            base,
+            reset.clone(),
+            start.clone(),
+        ];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from, start.id);
+        assert_eq!(calls[0].to, reset.id);
+        assert_eq!(calls[0].payload["resolution"], "inherited_typed_member");
+        assert_eq!(calls[0].confidence, 0.6);
+    }
+
+    #[tokio::test]
+    async fn walks_a_chain_of_base_classes_within_its_bound() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({
+                "imports": [],
+                "typed_bindings": [
+                    {"name": "leaf", "type": "Leaf", "kind": "construction", "line": 2}
+                ]
+            }),
+        );
+        let leaf = subclass("ent_leaf", "src/leaf.ts", "Leaf", true, &["Middle"]);
+        let middle = subclass("ent_middle", "src/middle.ts", "Middle", true, &["Base"]);
+        let base = subclass("ent_base", "src/base.ts", "Base", true, &[]);
+        let reset = declaration(
+            "ent_base_reset",
+            "src/base.ts",
+            "Base.reset",
+            "reset",
+            true,
+            json!([]),
+        );
+        let start = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "start",
+            "start",
+            false,
+            json!([call_site("leaf.reset", "reset", 5)]),
+        );
+        let entities = vec![app_module, leaf, middle, base, reset.clone(), start.clone()];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].to, reset.id);
+        assert_eq!(calls[0].payload["resolution"], "inherited_typed_member");
+    }
+
+    #[tokio::test]
+    async fn leaves_an_ambiguous_or_cyclic_base_class_unresolved() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({
+                "imports": [],
+                "typed_bindings": [
+                    {"name": "service", "type": "Service", "kind": "construction", "line": 2}
+                ]
+            }),
+        );
+        let service = subclass("ent_service", "src/service.ts", "Service", true, &["Base"]);
+        let first_base = subclass("ent_base_one", "src/one/base.ts", "Base", true, &[]);
+        let second_base = subclass("ent_base_two", "src/two/base.ts", "Base", true, &[]);
+        let reset = declaration(
+            "ent_base_reset",
+            "src/one/base.ts",
+            "Base.reset",
+            "reset",
+            true,
+            json!([]),
+        );
+        let start = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "start",
+            "start",
+            false,
+            json!([call_site("service.reset", "reset", 5)]),
+        );
+        let entities = vec![
+            app_module,
+            service,
+            first_base,
+            second_base,
+            reset,
+            start.clone(),
+        ];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+        assert!(relations
+            .iter()
+            .all(|relation| relation.kind != RelationKind::Calls));
+
+        // A cycle ends the walk instead of looping.
+        let left = subclass("ent_left", "src/left.ts", "Left", true, &["Right"]);
+        let right = subclass("ent_right", "src/right.ts", "Right", true, &["Left"]);
+        let cyclic_module = module(
+            "ent_cyclic_module",
+            "src/app.ts",
+            json!({
+                "imports": [],
+                "typed_bindings": [
+                    {"name": "left", "type": "Left", "kind": "construction", "line": 2}
+                ]
+            }),
+        );
+        let cyclic_start = declaration(
+            "ent_cyclic_start",
+            "src/app.ts",
+            "start",
+            "start",
+            false,
+            json!([call_site("left.missing", "missing", 5)]),
+        );
+        let entities = vec![cyclic_module, left, right, cyclic_start];
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+        assert!(relations
+            .iter()
+            .all(|relation| relation.kind != RelationKind::Calls));
     }
 
     #[tokio::test]
@@ -4752,6 +5069,18 @@ mod tests {
                 "calls": calls,
             }),
         }
+    }
+
+    fn subclass(
+        id: &str,
+        path: &str,
+        name: &str,
+        exported: bool,
+        extends: &[&str],
+    ) -> Entity {
+        let mut entity = class_declaration(id, path, name, name, exported);
+        entity.payload["extends"] = json!(extends);
+        entity
     }
 
     fn class_declaration(
