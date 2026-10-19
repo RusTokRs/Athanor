@@ -132,6 +132,15 @@ identifier are skipped, and a qualified or generic name is reduced to its termin
 `Promise<Repo>` and `ns.Repo` both record `Repo`. Rows are bounded to 64 per module with an
 `omitted_typed_bindings` count.
 
+An object literal types the members it constructs, because the literal states each one: `const
+config = { logger: new Logger() }` records `config.logger` as a `Logger`, and a class field records
+`App.deps.repo` the same way. The literal declares no type of its own, so its members are recorded
+under a structural type named for the binding — `config$object`, `App.deps$object` — and the binding
+itself is recorded with that type; the `$` is what keeps a structural type from colliding with a
+declared one, since no declaration can contain it. Only a construction is evidence: a property whose
+value is a literal, a call, a shorthand, or another object names nothing, and a literal that
+constructs nothing records no rows at all.
+
 A collection annotation also types the elements it holds, because the element is what a call
 dispatches on: the iteration variable of a `for...of` loop and the first parameter of an array
 combinator's callback (`forEach`, `map`, `filter`, `flatMap`, `find`, `findIndex`, `findLast`,

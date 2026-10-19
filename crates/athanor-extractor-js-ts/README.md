@@ -41,6 +41,9 @@ route declarations and is registered independently as `builtin.extractor.express
   module awaits
 - A `returned_type` on the same payloads: the one type every `return` of the body constructs, so
   `function createRepo() { return new Repo(); }` declares a `Repo` without an annotation
+- Structural rows for an object literal: `const config = { logger: new Logger() }` records
+  `config.logger` as a `Logger` under a structural type named `config$object`, so a receiver path can
+  walk into the literal
 - `EntityKind::Package` and `EntityKind::Dependency` for `package.json` package and dependency declarations,
   with bounded `main` and `workspaces` evidence on the package entity
 - `EntityKind::Feature` for the module-resolution options of `tsconfig.json`/`jsconfig.json`: the

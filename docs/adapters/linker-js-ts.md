@@ -115,7 +115,9 @@ previous one is silent:
    and names nothing. The root may also be a binding a factory produced: the factory's declared
    return type types it at 0.7, and a factory that declares none is typed by the one type every
    `return` of its body constructs at 0.8, because a body cannot lie about what it builds while an
-   annotation can — and an annotation still wins when the declaration has one. A type repeated inside
+   annotation can — and an annotation still wins when the declaration has one. A segment may also be
+   a member of an object literal: the literal states the type of each member it constructs, so
+   `config.logger.flush()` walks through `config$object` and dispatches at 0.8. A type repeated inside
    the walk, a path longer than four
    segments, an ambiguous binding, and a terminal that matches more than one declaration end the
    walk.
@@ -215,7 +217,9 @@ are not resolved. Receiver typing covers only a type the source states: an infer
 type imported by another module but never named in an annotation, a structural type, and a member
 reached through an unannotated factory or an index stay unresolved. A member inherited through a
 declared `extends` chain does resolve, but only to a base the snapshot states unambiguously and only
-within four hops. A receiver a factory produced is typed by the return type the factory declares or,
+within four hops. A receiver path may walk through an object literal, but only into a member the
+literal constructs; a property whose value is a literal, a call, or a shorthand names nothing. A
+receiver a factory produced is typed by the return type the factory declares or,
 when it declares none, by the one type every `return` of its body constructs — two returns that
 disagree, a `return` of a call, and a `return` of a nested function name nothing. A receiver the
 module awaits is typed by the promise the factory declares, but only when the source awaits it: an

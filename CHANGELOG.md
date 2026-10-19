@@ -28,8 +28,7 @@ substantive release notes.
 - Add a deterministic architecture profile that converts one explicit canonical snapshot into cited Markdown, relation-backed Mermaid, omission disclosure, footnotes, metrics, and checksums.
 - Add an application-layer immutable documentation publisher with staged generation directories, checksum-bound artifacts, an atomic `documentation/current.json` pointer, and exact `UpToDate` reuse.
 - Add `ath docs generate-architecture` for one exact committed snapshot with hard-limit flags, `--force`, text/JSON reports, and Ctrl-C cancellation; the existing coordinated `ath generate` remains unchanged.
-- Add validated `ath docs architecture current`, `manifest`, and `validation` inspection commands that
-  reject pointer escape, identity drift, unsupported artifact layouts, and checksum mismatch.
+- Add validated `ath docs architecture current`, `manifest`, and `validation` inspection commands that reject pointer escape, identity drift, unsupported artifact layouts, and checksum mismatch.
 - Add `overview` and `capabilities` MCP tools exposing the repository overview and the bounded analysis-completeness report to MCP clients.
 - Add a bounded first-party projection for agent-tool MCP configuration: `.codex.json` and `antigravity.json` project one `ScriptCommand` per server, with evidence and ownership.
 - Add JS/TS default class export binding: `export default class Foo {}` records its default name and a default-imported or same-module `new Foo()` resolves to the class; index state bumps v53→v54.
@@ -50,6 +49,7 @@ substantive release notes.
 - Type a JavaScript/TypeScript receiver by the element type a collection annotation states: a `for...of` iteration variable and the first parameter of an array combinator's callback carry the element type of `Item[]` or `Array<Item>`, so `item.save()` resolves at confidence 0.65; `for...in`, `reduce`, a nested array, a tuple, and a collection the file never annotates name nothing, and a collection annotation no longer records the wrapper as the binding's own type.
 - Type a JavaScript/TypeScript receiver by the value an awaited promise yields: `const repo = await createRepo(); repo.save()` takes the type `Promise<Repo>` or `PromiseLike<Repo>` resolves to, and `async function load(): Repo` now records that type as its awaited return type rather than as a return type, since an `async` function returns a promise; an awaited receiver resolves at confidence 0.65 and an unawaited promise names nothing.
 - Type a JavaScript/TypeScript receiver by the type a factory constructs and returns: a declaration records the one type every `return` of its body builds, so `function createRepo() { return new Repo(); }` types `const repo = createRepo()` at confidence 0.8 without an annotation, while a return of a call, a bare return, two disagreeing returns, and a nested function's return name nothing.
+- Type a JavaScript/TypeScript receiver by the members an object literal constructs: `const config = { logger: new Logger() }` records `config.logger` as a `Logger` under a structural type named for the binding, so `config.logger.flush()` and a class field's `this.deps.repo.read()` resolve at confidence 0.8; a property whose value is a literal, a call, or a shorthand names nothing.
 
 ### Fixed
 
