@@ -969,12 +969,52 @@ cargo test -p athanor-app --locked
 cargo test -p athanor-app --features js-ts-precision --locked
 ```
 
+#### P2W — The Members An Object Literal States (bounded JS/TS slice)
+
+- A member of an object literal now types its receiver. `const config = { logger: new Logger() }`
+  states the type of `config.logger` exactly as an annotation would, and nothing recorded it, so
+  `config.logger.flush()` stayed unresolved. Object literals are how a JS/TS codebase wires its
+  dependencies, so a whole class of dispatch was missing from the call graph.
+- Only a construction is evidence. A property whose value is a literal, a call, a shorthand, or
+  another object names nothing, and a literal that constructs nothing records no rows at all, because
+  a binding whose members are all unknown cannot be walked into.
+- A literal declares no type of its own, so its members are recorded under a **structural type named
+  for the binding** — `config$object` for `const config = { … }`, `App.deps$object` for a class field
+  — and the binding is recorded with that type. That is what lets the existing typed path walk into
+  the literal with no linker change: `config.logger.flush()` resolves to `Logger.flush` with reason
+  `typed_receiver_path`.
+- The `$` in the name is what keeps a structural type from colliding with a declared one: no
+  declaration can contain it, so a structural type can never be mistaken for a class the snapshot
+  declares, and `heritage_base` never resolves it.
+- A member the literal constructs resolves at `0.8`, the construction tier, because the literal
+  performs the construction — the same reason a `return new Type()` outranks an annotated return in
+  the slice above. A class field is scoped by its owner, so `this.deps.repo.read()` walks through
+  `App.deps` into the literal.
+
+Focused source regression matrix:
+
+| Surface | Regression |
+| --- | --- |
+| Structural rows | A local literal and a class field record the type of each member they construct, under a structural type named for the binding |
+| Rejected forms | A literal that constructs nothing records no rows |
+| Dispatch | A member call through a literal resolves at 0.8, and a literal with unknown members resolves to nothing |
+
+Focused verification:
+
+```bash
+cargo test -p athanor-extractor-js-ts --locked
+cargo test -p athanor-extractor-js-ts --features precision-parser --locked
+cargo test -p athanor-linker-js-ts --locked
+cargo test -p athanor-app --locked
+cargo test -p athanor-app --features js-ts-precision --locked
+```
+
 #### Remaining P2 Gaps
 
-- Type inference for a receiver whose type the source never states — a structural type, an index
-  access, and a factory whose body names no construction; package-manager-specific resolution that
-  needs an installed tree, such as Yarn `nodeLinker` layouts and patched dependencies. The element,
-  awaited, and returned slices below closed the parts of this gap that a construction or an
+- Type inference for a receiver whose type the source never states — an index access and a literal or
+  factory whose body names no construction; package-manager-specific resolution that needs an
+  installed tree, such as Yarn `nodeLinker` layouts and patched dependencies. The element, awaited,
+  returned, and structural slices below closed the parts of this gap that a construction or an
   annotation the file already writes can answer without inference.
 
 ### P3 — Bounded Language Expansion

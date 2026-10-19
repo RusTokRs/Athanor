@@ -592,6 +592,13 @@ fn collect_typed_bindings(
             if let Some(binding) = declarator_binding(node, bytes) {
                 bindings.push(binding);
             }
+            if let Some(name) = node
+                .child_by_field_name("name")
+                .and_then(|name| node_text(name, bytes))
+                && let Some(value) = node.child_by_field_name("value")
+            {
+                object_bindings(&name, value, node, bytes, bindings);
+            }
         }
         // `public_field_definition` is a class field and `property_signature` an
         // interface member; both state the type of `this.field`.
@@ -602,6 +609,14 @@ fn collect_typed_bindings(
                     name: format!("{owner}.{}", binding.name),
                     ..binding
                 });
+            }
+            if let Some(owner) = owner_names.last()
+                && let Some(name) = node
+                    .child_by_field_name("name")
+                    .and_then(|name| node_text(name, bytes))
+                && let Some(value) = node.child_by_field_name("value")
+            {
+                object_bindings(&format!("{owner}.{name}"), value, node, bytes, bindings);
             }
         }
         "required_parameter" | "optional_parameter" => {
@@ -846,6 +861,72 @@ fn element_type(declared: &str) -> Option<String> {
         return None;
     }
     terminal_name(inner)
+}
+
+/// Records the members an object literal states.
+///
+/// A literal that constructs a member states that member's type, so
+/// `const config = { logger: new Logger() }` makes `config.logger` a `Logger`.
+/// The literal declares no type of its own, so the members are recorded under a
+/// structural type named for the binding — `config$object` — and the binding is
+/// recorded with that type, which is what lets a receiver path walk into it.
+/// The name cannot collide with a declared type, because a declaration cannot
+/// contain `$`.
+fn object_bindings(
+    name: &str,
+    value: Node,
+    node: Node,
+    bytes: &[u8],
+    bindings: &mut Vec<TypedBinding>,
+) {
+    if value.kind() != "object" {
+        return;
+    }
+    let structural = format!("{name}$object");
+    let line = node.start_position().row as u32 + 1;
+    let mut members = Vec::new();
+    let mut cursor = value.walk();
+    for child in value.named_children(&mut cursor) {
+        if child.kind() != "pair" {
+            continue;
+        }
+        let (Some(key), Some(member)) = (
+            child
+                .child_by_field_name("key")
+                .and_then(|key| node_text(key, bytes)),
+            child.child_by_field_name("value"),
+        ) else {
+            continue;
+        };
+        if member.kind() != "new_expression" {
+            continue;
+        }
+        let Some(type_name) = member
+            .child_by_field_name("constructor")
+            .and_then(|constructor| node_text(constructor, bytes))
+            .and_then(|text| terminal_name(&text))
+        else {
+            continue;
+        };
+        members.push(TypedBinding {
+            name: format!("{structural}.{key}"),
+            type_name,
+            kind: "construction",
+            line,
+        });
+    }
+    // A literal that constructs nothing states no member, and a binding whose
+    // members are all unknown cannot be walked into.
+    if members.is_empty() {
+        return;
+    }
+    bindings.push(TypedBinding {
+        name: name.to_string(),
+        type_name: structural,
+        kind: "structural",
+        line,
+    });
+    bindings.extend(members);
 }
 
 /// Types one `name = new Type()` or `name: Type = …` variable declarator.
@@ -4763,6 +4844,38 @@ mod tests {
             ]
         );
         assert_eq!(module.payload["omitted_call_bindings"], 0);
+    }
+
+    #[tokio::test]
+    async fn records_the_members_an_object_literal_states() {
+        let output = JsTsExtractor
+            .extract(input(
+                "src/app.ts",
+                "const config = { logger: new Logger(), count: 4 };\n\
+                 const plain = { count: 4, name: 'x' };\n\
+                 class App { deps = { repo: new Repo() }; }\n",
+                "typescript",
+            ))
+            .await
+            .unwrap();
+
+        let module = output
+            .entities
+            .iter()
+            .find(|entity| entity.kind == EntityKind::Module)
+            .expect("module entity must exist");
+        let mut expected = vec![
+            "config:config$object:structural".to_string(),
+            "config$object.logger:Logger:construction".to_string(),
+            "App.deps:App.deps$object:structural".to_string(),
+            "App.deps$object.repo:Repo:construction".to_string(),
+        ];
+        expected.sort();
+        assert_eq!(
+            typed_binding_text(&module.payload["typed_bindings"]),
+            expected
+        );
+        assert_eq!(module.payload["omitted_typed_bindings"], 0);
     }
 
     #[tokio::test]
