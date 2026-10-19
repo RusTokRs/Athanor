@@ -1,11 +1,11 @@
 {
   "schema": "athanor.verification_evidence.v1",
   "workflow": "CI",
-  "head_sha": "d6c808d2fcd6c06e08ea6c7c2e138d9276a39ac3",
-  "run_id": 39137201018,
-  "run_url": "https://github.com/RusTokRs/Athanor/actions/runs/39137201018",
+  "head_sha": "27aa4eb3684569837e9cb962b46c20be0f426e80",
+  "run_id": 39230576061,
+  "run_url": "https://github.com/RusTokRs/Athanor/actions/runs/39230576061",
   "conclusion": "success",
-  "completed_at": "2026-10-18T14:54:28Z",
+  "completed_at": "2026-10-19T09:43:42Z",
   "matrix": [
     "cargo-deny check",
     "cargo fmt --all -- --check",
