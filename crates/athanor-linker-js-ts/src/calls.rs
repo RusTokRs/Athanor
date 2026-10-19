@@ -1355,7 +1355,7 @@ fn resolve_typed_member<'a>(
         // its body constructs.
         let declared = declared_return_type(factory.0);
         let (type_name, kind) = if call.awaited {
-            (awaited_return_type(factory.0)?, "awaited")
+            (awaited_return_type(factory.0)?.to_string(), "awaited")
         } else if let Some(declared) = declared {
             (declared.to_string(), "annotation")
         } else {
