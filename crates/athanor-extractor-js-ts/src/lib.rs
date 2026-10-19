@@ -1018,7 +1018,7 @@ fn collect_returned(node: Node, bytes: &[u8], constructed: &mut Option<String>) 
             let constructor = value.child_by_field_name("constructor")?;
             let type_name = terminal_name(&node_text(constructor, bytes)?)?;
             match constructed {
-                Some(existing) if existing == type_name => {}
+                Some(existing) if *existing == type_name => {}
                 None => *constructed = Some(type_name),
                 _ => return None,
             }
