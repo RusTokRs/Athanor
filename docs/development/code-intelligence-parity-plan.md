@@ -929,13 +929,53 @@ cargo test -p athanor-app --locked
 cargo test -p athanor-app --features js-ts-precision --locked
 ```
 
+#### P2V — The Type A Return Statement States (bounded JS/TS slice)
+
+- A factory that constructs what it returns now types its receiver. Until now the factory step read
+  only the declared return type, so `function createRepo() { return new Repo(); }` — the ordinary way
+  to write a factory — declared no type at all and `const repo = createRepo(); repo.save()` stayed
+  unresolved. The factory slice had therefore covered only the factories that annotate.
+- A declaration records the one type every `return` of its body constructs. A body cannot lie about
+  what it builds, so this is the same class of evidence as a `new Type()` initializer, just performed
+  in the declaration rather than at the binding. An arrow function with an expression body counts:
+  `const makeStore = () => new Store()` returns a `Store`.
+- A construction the source performs already outranks an annotation in `typed_bindings` — `const s =
+  new Service()` resolves at 0.8 and `let r: Repo` at 0.7 — and the same ordering is kept here, so a
+  receiver typed by a constructed return resolves at `0.8` rather than the `0.7` of an annotated
+  factory. An annotation still wins when the declaration has one, so this only fills in the
+  factories that have none.
+- Nothing is inferred from a name or from a call. A `return` that is not a construction, two returns
+  that construct different types, a declaration that returns nothing, and a `return` of a nested
+  function all name nothing. The nested guard is what keeps a nested arrow's own value out of the
+  enclosing declaration's type.
+- An `async` declaration that constructs what it returns awaits to that type and returns nothing: it
+  returns a promise, so the constructed type is what `await` yields, never what the call returns.
+
+Focused source regression matrix:
+
+| Surface | Regression |
+| --- | --- |
+| Constructed return types | A function, an arrow with an expression body, a method, and an `async` function record the type they construct; a nested arrow's return does not leak into its enclosing declaration |
+| Rejected forms | Two different constructed types, a `return` of a call, a bare `return`, and a declaration with no return record nothing |
+| Dispatch | A call on a receiver a factory constructs resolves at 0.8, and a declared annotation beats the constructed type |
+
+Focused verification:
+
+```bash
+cargo test -p athanor-extractor-js-ts --locked
+cargo test -p athanor-extractor-js-ts --features precision-parser --locked
+cargo test -p athanor-linker-js-ts --locked
+cargo test -p athanor-app --locked
+cargo test -p athanor-app --features js-ts-precision --locked
+```
+
 #### Remaining P2 Gaps
 
-- Type inference for a receiver whose type the source never states — a factory that declares no
-  return type at all, a structural type, and an index access; package-manager-specific resolution
-  that needs an installed tree, such as Yarn `nodeLinker` layouts and patched dependencies. The
-  element and awaited slices below closed the parts of this gap an annotation the file already
-  writes can answer without inference.
+- Type inference for a receiver whose type the source never states — a structural type, an index
+  access, and a factory whose body names no construction; package-manager-specific resolution that
+  needs an installed tree, such as Yarn `nodeLinker` layouts and patched dependencies. The element,
+  awaited, and returned slices below closed the parts of this gap that a construction or an
+  annotation the file already writes can answer without inference.
 
 ### P3 — Bounded Language Expansion
 

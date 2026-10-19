@@ -109,7 +109,11 @@ The call linker consumes the bounded `calls` arrays and the import bindings that
    parameter carry the element type of the annotated collection, so `for (const item of items)`
    dispatches `item.save()`. The root may also be a binding the module awaits: `const repo =
    await createRepo()` takes the type the factory's declared promise yields, so `repo.save()`
-   dispatches at the same `0.65`, while an unawaited `const pending = createRepo()` names nothing. A repeated type, a path longer than four segments, an ambiguous binding,
+   dispatches at the same `0.65`, while an unawaited `const pending = createRepo()` names nothing. The root may also be a binding a factory produced: the factory's declared
+   return type types it at `0.7`, and a factory that declares none is typed by the one type every
+   `return` of its body constructs at `0.8`, because a body cannot lie about what it builds while an
+   annotation can — and an annotation still wins when the declaration has one. A repeated type, a
+   path longer than four segments, an ambiguous binding,
    or a terminal that matches more than one declaration ends the walk.
 5. `imported_default_export` — a default import resolves directly to its named default
    function or class declaration.
@@ -126,10 +130,11 @@ The call linker consumes the bounded `calls` arrays and the import bindings that
 
 Steps 6 and 7 accept a candidate only when it is unique, so ambiguity stays unresolved. Confidence
 runs from `0.9` for an exact same-module match down to `0.5` for a unique name match: a receiver
-proven by a construction resolves at `0.8`, one proven by an annotation at `0.7`, one typed by the
-element type of a collection or the awaited value of a declared promise at `0.65`, and a member the
-receiver's type inherits at `0.6` — the weaker tiers are one step further from the call site than
-the annotation that seeds them, and still above the name guesses they replace. The payload
+proven by a construction resolves at `0.8` — a `new Type()` initializer at the binding, or the one
+type every `return` of a factory's body constructs — one proven by an annotation at `0.7`, one typed
+by the element type of a collection or the awaited value of a declared promise at `0.65`, and a
+member the receiver's type inherits at `0.6` — the weaker tiers are one step further from the call
+site than the evidence that seeds them, and still above the name guesses they replace. The payload
 records the callee, call kind, resolution reason, line, and column. Callback arguments run through
 the same ordered steps with the same fail-closed rules; the hosting call's own resolution never
 gates the bridge. Output is sorted by relation id
@@ -162,7 +167,10 @@ commands, use the network, or modify project files.
   structural type, and a member reached through an unannotated factory or an index stay
   unresolved. A member inherited through a declared `extends` chain does resolve, but only to a base
   the snapshot states unambiguously and only within four hops. A receiver the module awaits is typed
-  by the promise the factory declares, but an unawaited promise names nothing. A
+  by the promise the factory declares, but an unawaited promise names nothing. A receiver a factory
+  produced is typed by the return type the factory declares or, when it declares none, by the one
+  type every `return` of its body constructs — two returns that disagree, a `return` of a call, and a
+  `return` of a nested function name nothing. A
   field is read from the module that declares its owner only when that owner is exported and
   unambiguous, and an ambiguous, cyclic, or over-bound path ends the walk instead of being
   guessed.

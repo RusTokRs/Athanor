@@ -161,6 +161,15 @@ left out for the same reason — it returns a promise whatever it declares. It i
 generic awaits to nothing, and a declaration that names no promise and is not `async` carries no
 awaited type at all.
 
+A declaration payload also carries `returned_type`: the one type every `return` of its body
+constructs, so `function createRepo() { return new Repo(); }` records `Repo`, and so does an arrow
+function with an expression body, `const makeStore = () => new Store()`. A `return` that is not a
+construction, two returns that construct different types, and a declaration that returns nothing
+record nothing, because the value the declaration returns is then not the one the source states. A
+`return` of a nested function is not the declaration's own value and is skipped. An `async`
+declaration that constructs what it returns awaits to that type and returns nothing, since it returns
+a promise.
+
 ## Call Sites
 
 Function, method, and variable-bound function payloads include a bounded `calls` array of the
