@@ -1359,7 +1359,7 @@ fn resolve_typed_member<'a>(
         } else if let Some(declared) = declared {
             (declared.to_string(), "annotation")
         } else {
-            (returned_type(factory.0)?, "returned")
+            (returned_type(factory.0)?.to_string(), "returned")
         };
         TypedReceiver { type_name, kind }
     };
