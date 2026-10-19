@@ -3016,6 +3016,104 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn resolves_a_member_of_a_structural_object_literal() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({
+                "imports": [],
+                "typed_bindings": [
+                    {"name": "config", "type": "config$object", "kind": "structural", "line": 2},
+                    {"name": "config$object.logger", "type": "Logger", "kind": "construction", "line": 3}
+                ]
+            }),
+        );
+        let flush = declaration(
+            "ent_logger_flush",
+            "src/logger.ts",
+            "Logger.flush",
+            "flush",
+            true,
+            json!([]),
+        );
+        let start = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "start",
+            "start",
+            false,
+            json!([call_site("config.logger.flush", "flush", 6)]),
+        );
+        let entities = vec![app_module, flush.clone(), start.clone()];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from, start.id);
+        assert_eq!(calls[0].to, flush.id);
+        assert_eq!(calls[0].payload["resolution"], "typed_receiver_path");
+        assert_eq!(calls[0].confidence, 0.8);
+    }
+
+    #[tokio::test]
+    async fn an_object_literal_that_constructs_nothing_types_nothing() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({
+                "imports": [],
+                "typed_bindings": [
+                    {"name": "plain", "type": "plain$object", "kind": "structural", "line": 2}
+                ]
+            }),
+        );
+        let flush = declaration(
+            "ent_logger_flush",
+            "src/logger.ts",
+            "Logger.flush",
+            "flush",
+            true,
+            json!([]),
+        );
+        let start = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "start",
+            "start",
+            false,
+            json!([call_site("plain.logger.flush", "flush", 6)]),
+        );
+        let entities = vec![app_module, flush, start];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+        assert!(
+            relations
+                .iter()
+                .all(|relation| relation.kind != RelationKind::Calls)
+        );
+    }
+
+    #[tokio::test]
     async fn resolves_a_call_on_a_receiver_the_module_awaits() {
         let app_module = module(
             "ent_app_module",
