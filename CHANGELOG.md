@@ -27,8 +27,7 @@ substantive release notes.
 - Add a minimal fixture repository and Rustok evaluation corpus with expected sections, citation paths, diagram edges, known gaps, repeatability, unsupported-relation disclosure, and review criteria.
 - Add a deterministic architecture profile that converts one explicit canonical snapshot into cited Markdown, relation-backed Mermaid, omission disclosure, footnotes, metrics, and checksums.
 - Add an application-layer immutable documentation publisher with staged generation directories, checksum-bound artifacts, an atomic `documentation/current.json` pointer, and exact `UpToDate` reuse.
-- Add `ath docs generate-architecture` for one exact committed snapshot with hard-limit flags, `--force`,
-  text/JSON reports, and Ctrl-C cancellation; the existing coordinated `ath generate` remains unchanged.
+- Add `ath docs generate-architecture` for one exact committed snapshot with hard-limit flags, `--force`, text/JSON reports, and Ctrl-C cancellation; the existing coordinated `ath generate` remains unchanged.
 - Add validated `ath docs architecture current`, `manifest`, and `validation` inspection commands that
   reject pointer escape, identity drift, unsupported artifact layouts, and checksum mismatch.
 - Add `overview` and `capabilities` MCP tools exposing the repository overview and the bounded analysis-completeness report to MCP clients.
@@ -50,6 +49,7 @@ substantive release notes.
 - Resolve JavaScript/TypeScript calls to a member the receiver's type inherits: the `extends` chain the source states is walked up to four hops, so `service.reset()` resolves to `Base.reset` when `Service extends Base`, at confidence 0.6 below the 0.8/0.7 of a member the receiver's own type declares; a base two files declare, a base no file declares, and a cyclic chain end the walk.
 - Type a JavaScript/TypeScript receiver by the element type a collection annotation states: a `for...of` iteration variable and the first parameter of an array combinator's callback carry the element type of `Item[]` or `Array<Item>`, so `item.save()` resolves at confidence 0.65; `for...in`, `reduce`, a nested array, a tuple, and a collection the file never annotates name nothing, and a collection annotation no longer records the wrapper as the binding's own type.
 - Type a JavaScript/TypeScript receiver by the value an awaited promise yields: `const repo = await createRepo(); repo.save()` takes the type `Promise<Repo>` or `PromiseLike<Repo>` resolves to, and `async function load(): Repo` now records that type as its awaited return type rather than as a return type, since an `async` function returns a promise; an awaited receiver resolves at confidence 0.65 and an unawaited promise names nothing.
+- Type a JavaScript/TypeScript receiver by the type a factory constructs and returns: a declaration records the one type every `return` of its body builds, so `function createRepo() { return new Repo(); }` types `const repo = createRepo()` at confidence 0.8 without an annotation, while a return of a call, a bare return, two disagreeing returns, and a nested function's return name nothing.
 
 ### Fixed
 

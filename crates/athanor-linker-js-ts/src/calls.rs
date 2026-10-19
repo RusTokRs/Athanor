@@ -466,7 +466,7 @@ fn resolve_call<'a>(
         };
         let confidence = if inherited {
             INHERITED_MEMBER_CONFIDENCE
-        } else if kind == "construction" {
+        } else if matches!(kind, "construction" | "returned") {
             TYPED_CONSTRUCTION_CONFIDENCE
         } else if matches!(kind, "element" | "awaited") {
             DERIVED_TYPE_CONFIDENCE
@@ -1214,6 +1214,13 @@ fn awaited_return_type(entity: &Entity) -> Option<&str> {
         .and_then(Value::as_str)
 }
 
+/// The type a declaration constructs and returns: a body that builds the value
+/// it hands back states the type even when the declaration carries no
+/// annotation.
+fn returned_type(entity: &Entity) -> Option<&str> {
+    entity.payload.get("returned_type").and_then(Value::as_str)
+}
+
 /// One binding the module initializes with a call.
 #[derive(Clone)]
 struct CallReceiver {
@@ -1343,20 +1350,18 @@ fn resolve_typed_member<'a>(
         }
         // `await f()` takes what the promise yields rather than what the call
         // returns, so the binding asks for the awaited type when the source
-        // awaits it and for the declared return type when it does not.
-        let type_name = if call.awaited {
-            awaited_return_type(factory.0)?.to_string()
+        // awaits it. Otherwise the annotation the factory declares wins, and a
+        // factory that declares none is typed by the one type every `return` of
+        // its body constructs.
+        let declared = declared_return_type(factory.0);
+        let (type_name, kind) = if call.awaited {
+            (awaited_return_type(factory.0)?.to_string(), "awaited")
+        } else if let Some(declared) = declared {
+            (declared.to_string(), "annotation")
         } else {
-            declared_return_type(factory.0)?.to_string()
+            (returned_type(factory.0)?.to_string(), "returned")
         };
-        TypedReceiver {
-            type_name,
-            kind: if call.awaited {
-                "awaited"
-            } else {
-                "annotation"
-            },
-        }
+        TypedReceiver { type_name, kind }
     };
     let mut current = root.type_name;
     let mut kind = root.kind;
@@ -2890,6 +2895,124 @@ mod tests {
         assert_eq!(calls[0].to, items_map.id);
         assert_eq!(calls[0].payload["resolution"], "typed_receiver_path");
         assert_eq!(calls[0].confidence, 0.7);
+    }
+
+    #[tokio::test]
+    async fn resolves_a_call_on_a_receiver_a_factory_constructs_and_returns() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({
+                "imports": [],
+                "typed_bindings": [],
+                "call_bindings": [
+                    {"name": "repo", "callee": "createRepo", "line": 3, "awaited": false}
+                ]
+            }),
+        );
+        let factory = returned_factory_declaration(
+            "ent_create_repo",
+            "src/app.ts",
+            "createRepo",
+            "createRepo",
+            true,
+            Some("Repo"),
+        );
+        let save = declaration(
+            "ent_repo_save",
+            "src/repo.ts",
+            "Repo.save",
+            "save",
+            true,
+            json!([]),
+        );
+        let start = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "start",
+            "start",
+            false,
+            json!([call_site("repo.save", "save", 6)]),
+        );
+        let entities = vec![app_module, factory, save.clone(), start.clone()];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from, start.id);
+        assert_eq!(calls[0].to, save.id);
+        assert_eq!(calls[0].payload["resolution"], "typed_receiver_member");
+        assert_eq!(calls[0].confidence, 0.8);
+    }
+
+    #[tokio::test]
+    async fn a_declared_annotation_beats_the_type_a_factory_constructs() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({
+                "imports": [],
+                "typed_bindings": [],
+                "call_bindings": [
+                    {"name": "repo", "callee": "createRepo", "line": 3, "awaited": false}
+                ]
+            }),
+        );
+        // The annotation says the factory returns an `Other`, so the `Repo` its
+        // body constructs is not what the receiver holds.
+        let mut factory = returned_factory_declaration(
+            "ent_create_repo",
+            "src/app.ts",
+            "createRepo",
+            "createRepo",
+            true,
+            Some("Repo"),
+        );
+        factory.payload["return_type"] = json!("Other");
+        let save = declaration(
+            "ent_repo_save",
+            "src/repo.ts",
+            "Repo.save",
+            "save",
+            true,
+            json!([]),
+        );
+        let start = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "start",
+            "start",
+            false,
+            json!([call_site("repo.save", "save", 6)]),
+        );
+        let entities = vec![app_module, factory, save, start];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+        assert!(
+            relations
+                .iter()
+                .all(|relation| relation.kind != RelationKind::Calls)
+        );
     }
 
     #[tokio::test]
@@ -5426,6 +5549,21 @@ mod tests {
     ) -> Entity {
         let mut entity = factory_declaration(id, path, qualified, name, exported, None);
         entity.payload["awaited_return_type"] = json!(awaited_return_type);
+        entity
+    }
+
+    /// A factory that declares no return type but constructs the value it
+    /// returns.
+    fn returned_factory_declaration(
+        id: &str,
+        path: &str,
+        qualified: &str,
+        name: &str,
+        exported: bool,
+        returned_type: Option<&str>,
+    ) -> Entity {
+        let mut entity = factory_declaration(id, path, qualified, name, exported, None);
+        entity.payload["returned_type"] = json!(returned_type);
         entity
     }
 

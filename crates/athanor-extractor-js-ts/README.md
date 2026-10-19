@@ -39,6 +39,8 @@ route declarations and is registered independently as `builtin.extractor.express
 - An `awaited_return_type` on the same payloads: the type an `await` on a call to the declaration
   yields, so `Promise<Repo>` and an `async` declaration's bare annotation both type a receiver the
   module awaits
+- A `returned_type` on the same payloads: the one type every `return` of the body constructs, so
+  `function createRepo() { return new Repo(); }` declares a `Repo` without an annotation
 - `EntityKind::Package` and `EntityKind::Dependency` for `package.json` package and dependency declarations,
   with bounded `main` and `workspaces` evidence on the package entity
 - `EntityKind::Feature` for the module-resolution options of `tsconfig.json`/`jsconfig.json`: the
