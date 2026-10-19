@@ -228,6 +228,9 @@ impl Extractor for JsTsExtractor {
             if let Some(awaited_return_type) = &declaration.awaited_return_type {
                 payload["awaited_return_type"] = json!(awaited_return_type);
             }
+            if let Some(returned_type) = &declaration.returned_type {
+                payload["returned_type"] = json!(returned_type);
+            }
 
             entities.push(Entity {
                 id: entity_id.clone(),
@@ -472,6 +475,7 @@ struct SourceDeclaration {
     heritage: Option<TypeHeritage>,
     return_type: Option<String>,
     awaited_return_type: Option<String>,
+    returned_type: Option<String>,
 }
 
 /// `extends`/`implements` heritage of a class or interface, reduced to bare type names.
@@ -953,17 +957,79 @@ fn function_return_type(node: Node, bytes: &[u8]) -> Option<String> {
 /// names nothing either, because the awaited value is not the one the source
 /// states.
 fn awaited_return_type(node: Node, bytes: &[u8]) -> Option<String> {
-    let annotation = node.child_by_field_name("return_type")?;
-    let text = node_text(annotation.named_child(0)?, bytes)?;
-    let promised = promised_type(&text);
-    if promised.is_none() && !is_async_function(node) {
-        return None;
+    if let Some(annotation) = node.child_by_field_name("return_type") {
+        let text = node_text(annotation.named_child(0)?, bytes)?;
+        let promised = promised_type(&text);
+        if promised.is_none() && !is_async_function(node) {
+            return None;
+        }
+        let inner = promised.unwrap_or(text);
+        if inner.contains(['<', '[', '(', '|', '&']) {
+            return None;
+        }
+        return terminal_name(&inner);
     }
-    let inner = promised.unwrap_or(text);
-    if inner.contains(['<', '[', '(', '|', '&']) {
-        return None;
+    // An `async` declaration without an annotation awaits to whatever it
+    // constructs and returns, since that is the value the promise yields.
+    if is_async_function(node) {
+        return returned_type(node, bytes);
     }
-    terminal_name(&inner)
+    None
+}
+
+/// Reads the one type every `return` of this declaration constructs.
+///
+/// A body that constructs the value it returns states the type as plainly as an
+/// annotation does, so the declaration records it. A `return` that is not a
+/// construction, two returns that construct different types, and a declaration
+/// that returns nothing name nothing, because the value the declaration returns
+/// is then not the one the source states.
+fn returned_type(node: Node, bytes: &[u8]) -> Option<String> {
+    let body = node.child_by_field_name("body")?;
+    let mut constructed = None;
+    collect_returned(body, bytes, &mut constructed)?;
+    if constructed.is_some() {
+        return constructed;
+    }
+    // An arrow function with an expression body returns that expression.
+    if body.kind() == "new_expression" {
+        let constructor = body.child_by_field_name("constructor")?;
+        return terminal_name(&node_text(constructor, bytes)?);
+    }
+    None
+}
+
+/// Walks one declaration body for the constructions its `return` statements make.
+fn collect_returned(node: Node, bytes: &[u8], constructed: &mut Option<String>) -> Option<()> {
+    match node.kind() {
+        // A nested function returns its own value, not this declaration's.
+        "function_declaration"
+        | "generator_function_declaration"
+        | "arrow_function"
+        | "function_expression"
+        | "method_definition"
+        | "class_declaration"
+        | "class" => return Some(()),
+        "return_statement" => {
+            let value = node.named_child(0)?;
+            if value.kind() != "new_expression" {
+                return None;
+            }
+            let constructor = value.child_by_field_name("constructor")?;
+            let type_name = terminal_name(&node_text(constructor, bytes)?)?;
+            match constructed {
+                Some(existing) if existing == type_name => {}
+                None => *constructed = Some(type_name),
+                _ => return None,
+            }
+        }
+        _ => {}
+    }
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        collect_returned(child, bytes, constructed)?;
+    }
+    Some(())
 }
 
 /// The type argument of a `Promise<T>` or `PromiseLike<T>` annotation.
@@ -1110,6 +1176,7 @@ fn collect_statement(
                     heritage: None,
                     return_type: function_return_type(node, bytes),
                     awaited_return_type: awaited_return_type(node, bytes),
+                    returned_type: returned_type(node, bytes),
                 });
             }
         }
@@ -1128,6 +1195,7 @@ fn collect_statement(
                     heritage: None,
                     return_type: function_return_type(node, bytes),
                     awaited_return_type: awaited_return_type(node, bytes),
+                    returned_type: returned_type(node, bytes),
                 });
             }
         }
@@ -1146,6 +1214,7 @@ fn collect_statement(
                     heritage: class_heritage(node, bytes),
                     return_type: None,
                     awaited_return_type: None,
+                    returned_type: None,
                 });
                 collect_class_members(&name, node, bytes, exported, declarations);
             }
@@ -1165,6 +1234,7 @@ fn collect_statement(
                     heritage: interface_heritage(node, bytes),
                     return_type: None,
                     awaited_return_type: None,
+                    returned_type: None,
                 });
             }
         }
@@ -1183,6 +1253,7 @@ fn collect_statement(
                     heritage: None,
                     return_type: None,
                     awaited_return_type: None,
+                    returned_type: None,
                 });
             }
         }
@@ -1249,6 +1320,11 @@ fn collect_anonymous_default(node: Node, bytes: &[u8], declarations: &mut Vec<So
             } else {
                 awaited_return_type(child, bytes)
             },
+            returned_type: if is_class {
+                None
+            } else {
+                returned_type(child, bytes)
+            },
         });
         if is_class {
             collect_class_members(ANONYMOUS_DEFAULT_NAME, child, bytes, true, declarations);
@@ -1287,6 +1363,7 @@ fn collect_class_members(
                     heritage: None,
                     return_type: function_return_type(member, bytes),
                     awaited_return_type: awaited_return_type(member, bytes),
+                    returned_type: returned_type(member, bytes),
                 });
             }
         }
@@ -1328,6 +1405,7 @@ fn collect_variable_functions(
                 heritage: None,
                 return_type: function_return_type(value_node, bytes),
                 awaited_return_type: awaited_return_type(value_node, bytes),
+                returned_type: returned_type(value_node, bytes),
             });
         }
     }
@@ -4578,6 +4656,69 @@ mod tests {
                 ("wrapped".to_string(), "Repo".to_string()),
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn records_the_type_a_declaration_constructs_and_returns() {
+        let output = JsTsExtractor
+            .extract(input(
+                "src/app.ts",
+                "function createRepo() { return new Repo(); }\n\
+                 const makeStore = () => new Store();\n\
+                 class App { build() { return new Builder(); } }\n\
+                 function guarded() {\n\
+                   const f = () => { return new Inner(); };\n\
+                   return new Repo();\n\
+                 }\n\
+                 function mixed() {\n\
+                   if (true) { return new Repo(); }\n\
+                   return new Other();\n\
+                 }\n\
+                 function late() { return compute(); }\n\
+                 function bare() { return; }\n\
+                 async function load() { return new Repo(); }\n",
+                "typescript",
+            ))
+            .await
+            .unwrap();
+
+        let mut recorded = Vec::new();
+        for entity in &output.entities {
+            let Some(qualified) = entity
+                .payload
+                .get("qualified_name")
+                .and_then(Value::as_str)
+            else {
+                continue;
+            };
+            if let Some(returned_type) = entity.payload.get("returned_type").and_then(Value::as_str)
+            {
+                recorded.push((qualified.to_string(), returned_type.to_string()));
+            }
+        }
+        recorded.sort();
+        assert_eq!(
+            recorded,
+            vec![
+                ("App.build".to_string(), "Builder".to_string()),
+                ("createRepo".to_string(), "Repo".to_string()),
+                ("guarded".to_string(), "Repo".to_string()),
+                ("load".to_string(), "Repo".to_string()),
+                ("makeStore".to_string(), "Store".to_string()),
+            ]
+        );
+
+        // An `async` declaration returns a promise, so the type it constructs is
+        // what an `await` yields rather than what the call returns.
+        let load = output
+            .entities
+            .iter()
+            .find(|entity| {
+                entity.payload.get("qualified_name").and_then(Value::as_str) == Some("load")
+            })
+            .expect("the async declaration must exist");
+        assert_eq!(load.payload.get("return_type"), None);
+        assert_eq!(load.payload["awaited_return_type"], "Repo");
     }
 
     #[tokio::test]
