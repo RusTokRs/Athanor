@@ -2,6 +2,7 @@
 
 mod builder;
 mod model;
+mod plugin_admission;
 mod plugin_discovery;
 mod plugin_hash;
 mod plugin_trust_path;

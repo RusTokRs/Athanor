@@ -1719,10 +1719,10 @@ fn method_call_receiver<'a>(
 ///
 /// A union, a function type, and an alias that names itself stay the original
 /// name, so the walk does not invent a type. A second hop is not taken.
-fn unfold_alias_type<'a>(
+fn unfold_alias_type(
     type_name: &str,
     hint: Option<&str>,
-    declarations_by_name: &HashMap<String, Vec<&'a Entity>>,
+    declarations_by_name: &HashMap<String, Vec<&Entity>>,
 ) -> String {
     let Some(alias) = type_alias_declaration(type_name, hint, declarations_by_name) else {
         return type_name.to_string();

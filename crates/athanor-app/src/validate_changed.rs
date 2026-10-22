@@ -11,7 +11,7 @@ use crate::config::load_config;
 use crate::index::repo_id_for_root;
 use crate::index_state::{AffectedFileSet, IndexStateStore};
 use crate::local_source::read_source_file_at;
-use crate::project_path::normalize_canonical_path;
+use crate::project_path::{normalize_canonical_path, normalize_requested_file};
 use crate::transient_store::TransientKnowledgeStore;
 use crate::{IndexPipelineMetrics, RuntimeBuilder, RuntimeComposition};
 
@@ -189,52 +189,6 @@ fn changed_paths_from_requested_files(root: &Path, files: &[PathBuf]) -> Result<
     Ok(ChangedPaths { changed, removed })
 }
 
-fn normalize_requested_file(root: &Path, file: &Path) -> Result<String> {
-    let absolute = if file.is_absolute() {
-        file.to_path_buf()
-    } else {
-        root.join(file)
-    };
-    let relative = absolute
-        .strip_prefix(root)
-        .with_context(|| format!("{} is outside {}", absolute.display(), root.display()))?;
-    if relative.as_os_str().is_empty()
-        || relative.components().any(|component| {
-            matches!(
-                component,
-                std::path::Component::ParentDir
-                    | std::path::Component::RootDir
-                    | std::path::Component::Prefix(_)
-            )
-        })
-    {
-        anyhow::bail!("{} is outside {}", absolute.display(), root.display());
-    }
-    let candidate = root.join(relative);
-    if candidate.exists() {
-        let canonical = candidate.canonicalize().with_context(|| {
-            format!(
-                "failed to canonicalize requested file {}",
-                candidate.display()
-            )
-        })?;
-        if !canonical.starts_with(root) {
-            anyhow::bail!("{} is outside {}", candidate.display(), root.display());
-        }
-    }
-
-    Ok(relative
-        .components()
-        .filter_map(|component| match component {
-            std::path::Component::Normal(part) => Some(part.to_string_lossy()),
-            std::path::Component::CurDir => None,
-            _ => None,
-        })
-        .collect::<Vec<_>>()
-        .join("/")
-        .replace('\\', "/"))
-}
-
 fn parse_git_status_z(output: &[u8]) -> ChangedPaths {
     let mut changed = BTreeSet::new();
     let mut removed = BTreeSet::new();
@@ -293,54 +247,5 @@ mod tests {
         assert!(!report.changed.contains("docs/old-name.md"));
         assert!(!report.changed.contains("docs/source.md"));
         assert!(!report.removed.contains("docs/source.md"));
-    }
-
-    #[test]
-    fn normalizes_requested_relative_and_absolute_files() {
-        let root = std::env::current_dir().unwrap();
-        let relative = PathBuf::from("docs/README.md");
-        let absolute = root.join("docs/development/agent-workflow.md");
-
-        assert_eq!(
-            normalize_requested_file(&root, &relative).unwrap(),
-            "docs/README.md"
-        );
-        assert_eq!(
-            normalize_requested_file(&root, &absolute).unwrap(),
-            "docs/development/agent-workflow.md"
-        );
-    }
-
-    #[test]
-    fn rejects_requested_files_that_escape_the_project() {
-        let root = std::env::current_dir().unwrap();
-        let error = normalize_requested_file(&root, Path::new("../outside.rs"))
-            .expect_err("parent-directory input must be rejected");
-
-        assert!(error.to_string().contains("is outside"));
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn rejects_requested_symlinks_that_escape_the_project() {
-        let root = std::env::temp_dir().join(format!(
-            "athanor-validate-changed-root-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        let outside = root.with_extension("outside.rs");
-        std::fs::create_dir_all(&root).unwrap();
-        std::fs::write(&outside, "fn outside() {}\n").unwrap();
-        let link = root.join("linked.rs");
-        std::os::unix::fs::symlink(&outside, &link).unwrap();
-
-        let error = normalize_requested_file(&root, &link)
-            .expect_err("a symlink outside the project must be rejected");
-
-        assert!(error.to_string().contains("is outside"));
-        std::fs::remove_dir_all(root).unwrap();
-        std::fs::remove_file(outside).unwrap();
     }
 }
