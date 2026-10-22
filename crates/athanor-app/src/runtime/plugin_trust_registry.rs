@@ -172,7 +172,7 @@ fn trust_lock_path(path: &Path) -> Result<PathBuf> {
     Ok(parent.join(format!(".{file_name}.lock")))
 }
 
-fn sync_published(path: &Path, parent: &Path) {
+fn sync_published(path: &Path, _parent: &Path) {
     if let Ok(published) = File::open(path)
         && let Err(error) = published.sync_all()
     {
@@ -183,11 +183,11 @@ fn sync_published(path: &Path, parent: &Path) {
         );
     }
     #[cfg(unix)]
-    if let Ok(directory) = File::open(parent)
+    if let Ok(directory) = File::open(_parent)
         && let Err(error) = directory.sync_all()
     {
         warn!(
-            path = %parent.display(),
+            path = %_parent.display(),
             error = %error,
             "adapter trust registry was published but directory sync failed"
         );
