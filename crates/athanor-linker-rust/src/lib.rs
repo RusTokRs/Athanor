@@ -1411,9 +1411,9 @@ fn resolve_path(
     }
 
     // 3. Absolute / relative prefix path resolution (crate::, self::, super::)
-    if path.starts_with("crate::") {
+    if let Some(suffix) = path.strip_prefix("crate::") {
         let crate_prefix = current_module.split("::").next().unwrap_or("crate");
-        let resolved = path.replace("crate", crate_prefix);
+        let resolved = qualify(crate_prefix, suffix);
         if all_keys.contains(resolved.as_str()) {
             return Some(resolved);
         }
@@ -4697,6 +4697,22 @@ mod tests {
             !relations
                 .iter()
                 .any(|relation| relation.kind == RelationKind::Implements)
+        );
+    }
+
+    #[test]
+    fn crate_paths_only_replace_the_root_segment() {
+        let keys = HashSet::from(["auth_service::crate_tools::create_repo"]);
+        let resolved = resolve_path(
+            "auth_service::app",
+            "crate::crate_tools::create_repo",
+            &[],
+            &keys,
+        );
+
+        assert_eq!(
+            resolved.as_deref(),
+            Some("auth_service::crate_tools::create_repo")
         );
     }
 
