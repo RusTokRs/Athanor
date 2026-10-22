@@ -173,27 +173,41 @@ const DEFAULT_BUILTIN_ADAPTERS: &[(AdapterPluginKind, &str)] = &[
     (AdapterPluginKind::Extractor, "builtin.extractor.rust"),
     (AdapterPluginKind::Extractor, "builtin.extractor.axum"),
     (AdapterPluginKind::Extractor, "builtin.extractor.treesitter"),
-    (AdapterPluginKind::Linker, "builtin.linker.markdown_containment"),
+    (
+        AdapterPluginKind::Linker,
+        "builtin.linker.markdown_containment",
+    ),
     (AdapterPluginKind::Linker, "builtin.linker.api_knowledge"),
     (AdapterPluginKind::Linker, "builtin.linker.js_ts_imports"),
     (AdapterPluginKind::Linker, "builtin.linker.js_ts_calls"),
     (AdapterPluginKind::Linker, "builtin.linker.js_ts_implements"),
     (AdapterPluginKind::Linker, "builtin.linker.rust"),
     (AdapterPluginKind::Linker, "builtin.linker.treesitter"),
-    (AdapterPluginKind::Checker, "builtin.checker.markdown_structure"),
-    (AdapterPluginKind::Checker, "builtin.checker.api_consistency"),
+    (
+        AdapterPluginKind::Checker,
+        "builtin.checker.markdown_structure",
+    ),
+    (
+        AdapterPluginKind::Checker,
+        "builtin.checker.api_consistency",
+    ),
     (AdapterPluginKind::Checker, "builtin.checker.env_docs"),
     (AdapterPluginKind::Checker, "builtin.checker.script_docs"),
-    (AdapterPluginKind::Checker, "builtin.checker.deployment_docs"),
-    (AdapterPluginKind::Checker, "builtin.checker.runbook_consistency"),
+    (
+        AdapterPluginKind::Checker,
+        "builtin.checker.deployment_docs",
+    ),
+    (
+        AdapterPluginKind::Checker,
+        "builtin.checker.runbook_consistency",
+    ),
 ];
 
 pub fn default_adapter_registry() -> AdapterRegistry {
     let mut registry = AdapterRegistry::empty();
     for (kind, id) in DEFAULT_BUILTIN_ADAPTERS {
-        registry = resolve_builtin_adapter(registry, *kind, id).expect(
-            "default adapter catalog only contains ids handled by resolve_builtin_adapter",
-        );
+        registry = resolve_builtin_adapter(registry, *kind, id)
+            .expect("default adapter catalog only contains ids handled by resolve_builtin_adapter");
     }
     registry
 }

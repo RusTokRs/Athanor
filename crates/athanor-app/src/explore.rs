@@ -858,14 +858,11 @@ mod tests {
         assert!(excerpt.text.contains("pub fn load() {"));
         assert_eq!(report.omitted.source_unread, 0);
         assert!(
-            report
-                .paths
-                .iter()
-                .any(|path| path.target.name == "writer"
-                    && path
-                        .excerpt
-                        .as_ref()
-                        .is_some_and(|excerpt| excerpt.source_file == "src/writer.rs")),
+            report.paths.iter().any(|path| path.target.name == "writer"
+                && path
+                    .excerpt
+                    .as_ref()
+                    .is_some_and(|excerpt| excerpt.source_file == "src/writer.rs")),
             "a path target must carry its own excerpt"
         );
 

@@ -58,9 +58,7 @@ pub fn trust_adapter_plugin(options: AdapterTrustOptions) -> Result<VersionedAda
         schema: ADAPTER_TRUST_REPORT_SCHEMA_V1.to_string(),
         trust_path: options.trust_path,
         plugins: vec![super::plugin_trust_status::status_from_record(
-            &registry,
-            &plugin,
-            trusted,
+            &registry, &plugin, trusted,
         )?],
     })
 }

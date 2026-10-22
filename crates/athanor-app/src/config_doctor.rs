@@ -105,8 +105,6 @@ fn doctor_external_process_adapters(root: &Path, config: &ProjectConfig) -> (Str
     }
     (
         "enabled".to_string(),
-        format!(
-            "{external} external process plugin(s) present; execution still requires trust"
-        ),
+        format!("{external} external process plugin(s) present; execution still requires trust"),
     )
 }

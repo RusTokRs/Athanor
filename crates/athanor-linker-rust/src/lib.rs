@@ -1178,8 +1178,7 @@ fn factory_callee_return<'a>(
         )?;
         return type_method_return(&inner, method, type_index, by_qualified_name, allow_try);
     }
-    if let Some((owner, factory_method, method, factory_tried)) =
-        nested_member_factory_name(callee)
+    if let Some((owner, factory_method, method, factory_tried)) = nested_member_factory_name(callee)
     {
         let inner = member_factory_return(
             caller,
@@ -2397,7 +2396,10 @@ mod tests {
         let paren_calls = calls(&paren_caller);
         assert_eq!(paren_calls.len(), 1);
         assert_eq!(paren_calls[0].to, write.id);
-        assert_eq!(paren_calls[0].payload["reason"], "rust_typed_receiver_method");
+        assert_eq!(
+            paren_calls[0].payload["reason"],
+            "rust_typed_receiver_method"
+        );
         assert_eq!(paren_calls[0].confidence, 0.8);
     }
 
@@ -2546,12 +2548,7 @@ mod tests {
             json!([]),
             json!([call_site("method", "wrap().read", "read")]),
         );
-        let entities = vec![
-            reader_trait,
-            trait_read.clone(),
-            factory,
-            caller.clone(),
-        ];
+        let entities = vec![reader_trait, trait_read.clone(), factory, caller.clone()];
         let relations = link_all(entities, Vec::new()).await;
 
         let calls = relations
@@ -2691,7 +2688,12 @@ mod tests {
             Some("Store"),
             None,
         );
-        let get = factory_fn("ent_store_get", "crate::app::Store::get", Some("Inner"), None);
+        let get = factory_fn(
+            "ent_store_get",
+            "crate::app::Store::get",
+            Some("Inner"),
+            None,
+        );
         let caller = typed_caller(
             "ent_run",
             "crate::app::run",
@@ -2723,7 +2725,12 @@ mod tests {
             Some("Store"),
             None,
         );
-        let get = factory_fn("ent_store_get", "crate::app::Store::get", Some("Inner"), None);
+        let get = factory_fn(
+            "ent_store_get",
+            "crate::app::Store::get",
+            Some("Inner"),
+            None,
+        );
         let member = typed_caller(
             "ent_run",
             "crate::app::run",
@@ -2779,7 +2786,12 @@ mod tests {
             Some("Store"),
             None,
         );
-        let get = factory_fn("ent_store_get", "crate::app::Store::get", Some("Inner"), None);
+        let get = factory_fn(
+            "ent_store_get",
+            "crate::app::Store::get",
+            Some("Inner"),
+            None,
+        );
         let untyped_get = factory_fn("ent_store_extra", "crate::app::Store::extra", None, None);
         let three = typed_caller(
             "ent_three",
@@ -2795,7 +2807,11 @@ mod tests {
             "ent_field",
             "crate::app::field",
             json!([]),
-            json!([call_site("method", "create_repo().get().inner.write", "write")]),
+            json!([call_site(
+                "method",
+                "create_repo().get().inner.write",
+                "write"
+            )]),
         );
         let missing = typed_caller(
             "ent_missing",
@@ -2905,7 +2921,12 @@ mod tests {
             Some("Store"),
             None,
         );
-        let get = factory_fn("ent_store_get", "crate::app::Store::get", Some("Inner"), None);
+        let get = factory_fn(
+            "ent_store_get",
+            "crate::app::Store::get",
+            Some("Inner"),
+            None,
+        );
         let caller = typed_caller(
             "ent_run",
             "crate::app::run",
@@ -2936,7 +2957,12 @@ mod tests {
             Some("Store"),
             None,
         );
-        let get = factory_fn("ent_store_get", "crate::app::Store::get", Some("Inner"), None);
+        let get = factory_fn(
+            "ent_store_get",
+            "crate::app::Store::get",
+            Some("Inner"),
+            None,
+        );
         let untyped_get = factory_fn("ent_store_extra", "crate::app::Store::extra", None, None);
         let missing = typed_caller(
             "ent_missing",
@@ -2985,12 +3011,7 @@ mod tests {
     async fn resolves_a_method_on_a_crate_path_factory_result() {
         let store = type_entity("ent_struct_store", "crate::app::Store", "struct");
         let write = method("ent_store_write", "crate::app::Store::write");
-        let factory = factory_fn(
-            "ent_create_repo",
-            "crate::create_repo",
-            Some("Store"),
-            None,
-        );
+        let factory = factory_fn("ent_create_repo", "crate::create_repo", Some("Store"), None);
         let new = factory_fn(
             "ent_store_new",
             "crate::app::Store::new",
@@ -3007,7 +3028,11 @@ mod tests {
             "ent_start",
             "crate::app::start",
             json!([]),
-            json!([call_site("method", "crate::app::Store::new().write", "write")]),
+            json!([call_site(
+                "method",
+                "crate::app::Store::new().write",
+                "write"
+            )]),
         );
         let entities = vec![
             store,
@@ -3043,12 +3068,7 @@ mod tests {
     async fn resolves_a_method_on_a_crate_path_factory_initialized_binding() {
         let store = type_entity("ent_struct_store", "crate::app::Store", "struct");
         let write = method("ent_store_write", "crate::app::Store::write");
-        let factory = factory_fn(
-            "ent_create_repo",
-            "crate::create_repo",
-            Some("Store"),
-            None,
-        );
+        let factory = factory_fn("ent_create_repo", "crate::create_repo", Some("Store"), None);
         let mut caller = typed_caller(
             "ent_run",
             "crate::app::run",
@@ -3072,12 +3092,7 @@ mod tests {
     async fn a_missing_crate_path_factory_stays_unresolved() {
         let store = type_entity("ent_struct_store", "crate::app::Store", "struct");
         let write = method("ent_store_write", "crate::app::Store::write");
-        let factory = factory_fn(
-            "ent_create_repo",
-            "crate::create_repo",
-            Some("Store"),
-            None,
-        );
+        let factory = factory_fn("ent_create_repo", "crate::create_repo", Some("Store"), None);
         let untyped = factory_fn("ent_build", "crate::build", None, None);
         let missing = typed_caller(
             "ent_missing",
@@ -3107,24 +3122,28 @@ mod tests {
         let store = type_entity("ent_struct_store", "crate::app::Store", "struct");
         let inner = type_entity("ent_struct_inner", "crate::app::Inner", "struct");
         let write = method("ent_inner_write", "crate::app::Inner::write");
-        let factory = factory_fn(
-            "ent_create_repo",
-            "crate::create_repo",
-            Some("Store"),
-            None,
-        );
+        let factory = factory_fn("ent_create_repo", "crate::create_repo", Some("Store"), None);
         let new = factory_fn(
             "ent_store_new",
             "crate::app::Store::new",
             Some("Store"),
             None,
         );
-        let get = factory_fn("ent_store_get", "crate::app::Store::get", Some("Inner"), None);
+        let get = factory_fn(
+            "ent_store_get",
+            "crate::app::Store::get",
+            Some("Inner"),
+            None,
+        );
         let ident = typed_caller(
             "ent_run",
             "crate::app::run",
             json!([]),
-            json!([call_site("method", "crate::create_repo().get().write", "write")]),
+            json!([call_site(
+                "method",
+                "crate::create_repo().get().write",
+                "write"
+            )]),
         );
         let associated = typed_caller(
             "ent_start",
@@ -3173,13 +3192,13 @@ mod tests {
         let store = type_entity("ent_struct_store", "crate::app::Store", "struct");
         let inner = type_entity("ent_struct_inner", "crate::app::Inner", "struct");
         let write = method("ent_inner_write", "crate::app::Inner::write");
-        let factory = factory_fn(
-            "ent_create_repo",
-            "crate::create_repo",
-            Some("Store"),
+        let factory = factory_fn("ent_create_repo", "crate::create_repo", Some("Store"), None);
+        let get = factory_fn(
+            "ent_store_get",
+            "crate::app::Store::get",
+            Some("Inner"),
             None,
         );
-        let get = factory_fn("ent_store_get", "crate::app::Store::get", Some("Inner"), None);
         let mut caller = typed_caller(
             "ent_run",
             "crate::app::run",
@@ -3204,25 +3223,33 @@ mod tests {
         let store = type_entity("ent_struct_store", "crate::app::Store", "struct");
         let inner = type_entity("ent_struct_inner", "crate::app::Inner", "struct");
         let write = method("ent_inner_write", "crate::app::Inner::write");
-        let factory = factory_fn(
-            "ent_create_repo",
-            "crate::create_repo",
-            Some("Store"),
+        let factory = factory_fn("ent_create_repo", "crate::create_repo", Some("Store"), None);
+        let get = factory_fn(
+            "ent_store_get",
+            "crate::app::Store::get",
+            Some("Inner"),
             None,
         );
-        let get = factory_fn("ent_store_get", "crate::app::Store::get", Some("Inner"), None);
         let untyped_get = factory_fn("ent_store_extra", "crate::app::Store::extra", None, None);
         let missing = typed_caller(
             "ent_missing",
             "crate::app::missing",
             json!([]),
-            json!([call_site("method", "crate::create_repo().other().write", "write")]),
+            json!([call_site(
+                "method",
+                "crate::create_repo().other().write",
+                "write"
+            )]),
         );
         let untyped = typed_caller(
             "ent_untyped",
             "crate::app::untyped",
             json!([]),
-            json!([call_site("method", "crate::create_repo().extra().write", "write")]),
+            json!([call_site(
+                "method",
+                "crate::create_repo().extra().write",
+                "write"
+            )]),
         );
         let three = typed_caller(
             "ent_three",
@@ -3238,7 +3265,11 @@ mod tests {
             "ent_relative",
             "crate::app::relative",
             json!([]),
-            json!([call_site("method", "app::create_repo().get().write", "write")]),
+            json!([call_site(
+                "method",
+                "app::create_repo().get().write",
+                "write"
+            )]),
         );
         let entities = vec![
             store,
@@ -3278,7 +3309,8 @@ mod tests {
             json!([]),
             json!([call_site("method", "store.write", "write")]),
         );
-        caller.payload["call_bindings"] = json!([{"name": "store", "callee": "create_repo", "line": 4}]);
+        caller.payload["call_bindings"] =
+            json!([{"name": "store", "callee": "create_repo", "line": 4}]);
         let entities = vec![store, write.clone(), factory, caller.clone()];
         let relations = link_all(entities, Vec::new()).await;
 
@@ -3308,7 +3340,8 @@ mod tests {
             json!([]),
             json!([call_site("method", "store.write", "write")]),
         );
-        caller.payload["call_bindings"] = json!([{"name": "store", "callee": "Store::new", "line": 4}]);
+        caller.payload["call_bindings"] =
+            json!([{"name": "store", "callee": "Store::new", "line": 4}]);
         let entities = vec![store, write.clone(), new, caller.clone()];
         let relations = link_all(entities, Vec::new()).await;
 
@@ -3462,7 +3495,12 @@ mod tests {
             Some("Store"),
             None,
         );
-        let get = factory_fn("ent_store_get", "crate::app::Store::get", Some("Inner"), None);
+        let get = factory_fn(
+            "ent_store_get",
+            "crate::app::Store::get",
+            Some("Inner"),
+            None,
+        );
         let mut caller = typed_caller(
             "ent_run",
             "crate::app::run",
@@ -3495,7 +3533,12 @@ mod tests {
             Some("Store"),
             None,
         );
-        let get = factory_fn("ent_store_get", "crate::app::Store::get", Some("Inner"), None);
+        let get = factory_fn(
+            "ent_store_get",
+            "crate::app::Store::get",
+            Some("Inner"),
+            None,
+        );
         let mut caller = typed_caller(
             "ent_run",
             "crate::app::run",
@@ -3527,7 +3570,12 @@ mod tests {
             Some("Store"),
             None,
         );
-        let get = factory_fn("ent_store_get", "crate::app::Store::get", Some("Inner"), None);
+        let get = factory_fn(
+            "ent_store_get",
+            "crate::app::Store::get",
+            Some("Inner"),
+            None,
+        );
         let mut member = typed_caller(
             "ent_run",
             "crate::app::run",
@@ -3583,7 +3631,12 @@ mod tests {
             Some("Store"),
             None,
         );
-        let get = factory_fn("ent_store_get", "crate::app::Store::get", Some("Inner"), None);
+        let get = factory_fn(
+            "ent_store_get",
+            "crate::app::Store::get",
+            Some("Inner"),
+            None,
+        );
         let untyped_get = factory_fn("ent_store_extra", "crate::app::Store::extra", None, None);
         let mut missing = typed_caller(
             "ent_missing",
@@ -3701,7 +3754,12 @@ mod tests {
             Some("Store"),
             None,
         );
-        let mut get = factory_fn("ent_store_get", "crate::app::Store::get", Some("Inner"), None);
+        let mut get = factory_fn(
+            "ent_store_get",
+            "crate::app::Store::get",
+            Some("Inner"),
+            None,
+        );
         get.payload["try_yield"] = json!(true);
         let caller = typed_caller(
             "ent_run",
@@ -3754,7 +3812,12 @@ mod tests {
             None,
         );
         new.payload["try_yield"] = json!(true);
-        let get = factory_fn("ent_store_get", "crate::app::Store::get", Some("Inner"), None);
+        let get = factory_fn(
+            "ent_store_get",
+            "crate::app::Store::get",
+            Some("Inner"),
+            None,
+        );
         let ident = typed_caller(
             "ent_run",
             "crate::app::run",
@@ -3810,7 +3873,9 @@ mod tests {
         for caller in [&ident, &member, &self_caller, &associated, &path] {
             let calls = relations
                 .iter()
-                .filter(|relation| relation.kind == RelationKind::Calls && relation.from == caller.id)
+                .filter(|relation| {
+                    relation.kind == RelationKind::Calls && relation.from == caller.id
+                })
                 .collect::<Vec<_>>();
             assert_eq!(
                 calls.len(),
@@ -3836,7 +3901,12 @@ mod tests {
             None,
         );
         factory.payload["try_yield"] = json!(true);
-        let get = factory_fn("ent_store_get", "crate::app::Store::get", Some("Inner"), None);
+        let get = factory_fn(
+            "ent_store_get",
+            "crate::app::Store::get",
+            Some("Inner"),
+            None,
+        );
         let mut caller = typed_caller(
             "ent_run",
             "crate::app::run",
@@ -3948,7 +4018,9 @@ mod tests {
         for caller in [&ident, &expect, &member, &associated, &path] {
             let calls = relations
                 .iter()
-                .filter(|relation| relation.kind == RelationKind::Calls && relation.from == caller.id)
+                .filter(|relation| {
+                    relation.kind == RelationKind::Calls && relation.from == caller.id
+                })
                 .collect::<Vec<_>>();
             assert_eq!(
                 calls.len(),
@@ -4003,7 +4075,12 @@ mod tests {
             Some("Store"),
             None,
         );
-        let mut get = factory_fn("ent_store_get", "crate::app::Store::get", Some("Inner"), None);
+        let mut get = factory_fn(
+            "ent_store_get",
+            "crate::app::Store::get",
+            Some("Inner"),
+            None,
+        );
         get.payload["try_yield"] = json!(true);
         let caller = typed_caller(
             "ent_run",
@@ -4060,7 +4137,12 @@ mod tests {
             None,
         );
         new.payload["try_yield"] = json!(true);
-        let get = factory_fn("ent_store_get", "crate::app::Store::get", Some("Inner"), None);
+        let get = factory_fn(
+            "ent_store_get",
+            "crate::app::Store::get",
+            Some("Inner"),
+            None,
+        );
         let ident = typed_caller(
             "ent_run",
             "crate::app::run",
@@ -4160,7 +4242,12 @@ mod tests {
             None,
         );
         factory.payload["try_yield"] = json!(true);
-        let get = factory_fn("ent_store_get", "crate::app::Store::get", Some("Inner"), None);
+        let get = factory_fn(
+            "ent_store_get",
+            "crate::app::Store::get",
+            Some("Inner"),
+            None,
+        );
         let mut caller = typed_caller(
             "ent_run",
             "crate::app::run",
@@ -4196,7 +4283,12 @@ mod tests {
             None,
         );
         factory.payload["try_yield"] = json!(true);
-        let get = factory_fn("ent_store_get", "crate::app::Store::get", Some("Inner"), None);
+        let get = factory_fn(
+            "ent_store_get",
+            "crate::app::Store::get",
+            Some("Inner"),
+            None,
+        );
         let on_plain = typed_caller(
             "ent_on_plain",
             "crate::app::on_plain",
@@ -4217,11 +4309,7 @@ mod tests {
             "ent_inner_plain",
             "crate::app::inner_plain",
             json!([]),
-            json!([call_site(
-                "method",
-                "build().unwrap().get().write",
-                "write"
-            )]),
+            json!([call_site("method", "build().unwrap().get().write", "write")]),
         );
         let inner_third = typed_caller(
             "ent_inner_third",
@@ -4276,7 +4364,12 @@ mod tests {
             None,
         );
         factory.payload["try_yield"] = json!(true);
-        let get = factory_fn("ent_store_get", "crate::app::Store::get", Some("Inner"), None);
+        let get = factory_fn(
+            "ent_store_get",
+            "crate::app::Store::get",
+            Some("Inner"),
+            None,
+        );
         let no_try = typed_caller(
             "ent_no_try",
             "crate::app::no_try",

@@ -235,7 +235,11 @@ fn launch_digests_must_match_the_trust_record() {
         Some(&trusted.executable_hashes),
     )
     .expect_err("replaced payload must not bind to the previous trust record");
-    assert!(error.to_string().contains("does not match the trusted digest"));
+    assert!(
+        error
+            .to_string()
+            .contains("does not match the trusted digest")
+    );
     fs::remove_dir_all(root).unwrap();
 }
 

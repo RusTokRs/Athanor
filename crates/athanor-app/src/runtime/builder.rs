@@ -135,16 +135,16 @@ impl RuntimeBuilder {
         for plugin in super::discover_adapter_plugins(&self.root)? {
             let trusted_payload = self.bind_external_plugin(&plugin, &mut trust_registry)?;
             let manifest_dir = plugin.manifest_path.parent().unwrap_or(&self.root);
-            self.registry = self.registry.with_plugin_manifest_at_using(
-                PluginRegistrationRequest {
-                    manifest: &plugin.manifest,
-                    manifest_dir,
-                    builtin_resolver: self.builtin_adapter_resolver,
-                    clear_external_process_environment: self.clear_external_process_environment,
-                    trusted_payload: trusted_payload.as_deref(),
-                    limits: self.process_limits,
-                },
-            )?;
+            self.registry =
+                self.registry
+                    .with_plugin_manifest_at_using(PluginRegistrationRequest {
+                        manifest: &plugin.manifest,
+                        manifest_dir,
+                        builtin_resolver: self.builtin_adapter_resolver,
+                        clear_external_process_environment: self.clear_external_process_environment,
+                        trusted_payload: trusted_payload.as_deref(),
+                        limits: self.process_limits,
+                    })?;
         }
         Ok(self)
     }
@@ -175,9 +175,10 @@ impl RuntimeBuilder {
         )?;
         let manifest_dir = plugin.manifest_path.parent().unwrap_or(&self.root);
         for adapter in &external {
-            let command = adapter.command.as_ref().expect(
-                "external adapters were already filtered to entries that declare command",
-            );
+            let command = adapter
+                .command
+                .as_ref()
+                .expect("external adapters were already filtered to entries that declare command");
             let resolved = resolve_manifest_program(manifest_dir, &command.program)?;
             if !allowlist.contains(&resolved) {
                 bail!(

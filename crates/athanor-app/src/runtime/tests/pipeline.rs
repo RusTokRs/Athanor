@@ -311,22 +311,17 @@ fn discovers_adapter_plugin_manifests() {
 
     let plugins = discover_adapter_plugins(&root).unwrap();
     assert_eq!(plugins.len(), 3);
-    assert!(
-        plugins
-            .iter()
-            .any(|plugin| plugin.manifest_path == bundle)
-    );
+    assert!(plugins.iter().any(|plugin| plugin.manifest_path == bundle));
     let files = plugins
         .iter()
         .find(|plugin| plugin.manifest_path == manifest_path)
         .expect("json manifest should be discovered");
     assert!(files.manifest.adapters[0].enabled);
-    assert!(
-        plugins
-            .iter()
-            .any(|plugin| plugin.manifest_path.extension().is_some_and(|extension| {
-                extension.eq_ignore_ascii_case("json")
-            }))
-    );
+    assert!(plugins.iter().any(|plugin| {
+        plugin
+            .manifest_path
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("json"))
+    }));
     fs::remove_dir_all(root).unwrap();
 }

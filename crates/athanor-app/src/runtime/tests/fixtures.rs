@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 use std::sync::{Arc, atomic::AtomicBool};
 
-use super::super::process_adapter_support::{ProcessCommand, ProcessLimits};
 use super::super::AdapterProcessCommand;
+use super::super::process_adapter_support::{ProcessCommand, ProcessLimits};
 
 #[cfg(windows)]
 pub(super) fn empty_output_command() -> AdapterProcessCommand {

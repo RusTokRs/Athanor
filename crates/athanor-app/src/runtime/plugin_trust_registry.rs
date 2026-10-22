@@ -126,9 +126,9 @@ fn write_unlocked(path: &Path, registry: &AdapterTrustRegistry) -> Result<()> {
 }
 
 fn lock_trust_store(path: &Path, exclusive: bool) -> Result<File> {
-    let parent = path.parent().ok_or_else(|| {
-        anyhow::anyhow!("adapter trust path has no parent: {}", path.display())
-    })?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("adapter trust path has no parent: {}", path.display()))?;
     fs::create_dir_all(parent).with_context(|| {
         format!(
             "failed to create adapter trust directory {}",
