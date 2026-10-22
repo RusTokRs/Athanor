@@ -681,6 +681,16 @@ mod tests {
         assert_eq!(report.blast.entries, 2);
         assert_eq!(report.blast.reached, 4);
         assert_eq!(report.blast.by_depth[0].entities, 4);
+        assert_eq!(
+            report
+                .blast
+                .by_depth
+                .iter()
+                .map(|depth| depth.entities)
+                .sum::<usize>(),
+            report.blast.reached,
+            "an entity reached from two entries must count only at its shortest depth"
+        );
     }
 
     #[test]

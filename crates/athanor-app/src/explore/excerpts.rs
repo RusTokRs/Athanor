@@ -64,9 +64,7 @@ impl ExcerptReader {
         if source.path.is_empty() {
             return None;
         }
-        let Some(line_start) = source.line_start.filter(|line| *line > 0) else {
-            return None;
-        };
+        let line_start = source.line_start.filter(|line| *line > 0)?;
         let line_end = source.line_end.unwrap_or(line_start).max(line_start);
         if self.failed.contains(&source.path) {
             self.unread += 1;

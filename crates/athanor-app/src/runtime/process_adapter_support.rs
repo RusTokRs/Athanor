@@ -23,6 +23,7 @@ pub(super) struct ProcessCommand {
 }
 
 impl ProcessCommand {
+    #[cfg(test)]
     pub(super) fn from_manifest(
         manifest_dir: &Path,
         command: &AdapterProcessCommand,

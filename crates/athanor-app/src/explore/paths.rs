@@ -323,7 +323,7 @@ pub(super) fn explore_flow<'a>(
     let mut notes = Vec::new();
     let mut found: Vec<FoundPath<'a>> = Vec::new();
     let mut reached: HashSet<&str> = HashSet::new();
-    let mut by_depth: BTreeMap<usize, HashSet<&str>> = BTreeMap::new();
+    let mut shortest_depths: HashMap<&str, usize> = HashMap::new();
     let mut traversed: HashSet<&str> = HashSet::new();
     let mut visits = 0usize;
     let mut budget_hit = false;
@@ -361,7 +361,10 @@ pub(super) fn explore_flow<'a>(
                 visited.insert(edge.next);
                 traversed.insert(edge.relation.id.0.as_str());
                 reached.insert(edge.next);
-                by_depth.entry(state.hop).or_default().insert(edge.next);
+                shortest_depths
+                    .entry(edge.next)
+                    .and_modify(|shortest| *shortest = (*shortest).min(state.hop))
+                    .or_insert(state.hop);
 
                 let mut steps = state.steps.clone();
                 steps.push(graph.step(edge));
@@ -391,11 +394,12 @@ pub(super) fn explore_flow<'a>(
 
     for entry in entries {
         reached.remove(entry.id.0.as_str());
-        for entities in by_depth.values_mut() {
-            entities.remove(entry.id.0.as_str());
-        }
+        shortest_depths.remove(entry.id.0.as_str());
     }
-    by_depth.retain(|_, entities| !entities.is_empty());
+    let mut by_depth: BTreeMap<usize, usize> = BTreeMap::new();
+    for depth in shortest_depths.into_values() {
+        *by_depth.entry(depth).or_default() += 1;
+    }
 
     found.sort_by_key(|path| (path.origin.clone(), path.depth, path.target_key.clone()));
     let paths_truncated = found.len().saturating_sub(budget);
@@ -466,10 +470,7 @@ pub(super) fn explore_flow<'a>(
             open_diagnostics,
             by_depth: by_depth
                 .into_iter()
-                .map(|(depth, entities)| ExploreBlastDepth {
-                    depth,
-                    entities: entities.len(),
-                })
+                .map(|(depth, entities)| ExploreBlastDepth { depth, entities })
                 .collect(),
             files: all_files
                 .into_iter()

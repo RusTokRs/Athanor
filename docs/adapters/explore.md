@@ -66,8 +66,10 @@ blast-radius files; both limits are reported, never hidden.
   and `incoming` links.
 - `blast` — aggregate blast radius for the same hop budget: entries, distinct reached entities beyond
   the entry set, distinct
-  relations that carried the traversal, expanded edge count, per-hop reach counts, open diagnostics over
-  the entry set plus everything it reaches, and the sorted file list.
+  relations that carried the traversal, expanded edge count, per-hop reach counts at each entity's
+  shortest depth across the entry set, open diagnostics over the entry set plus everything it reaches,
+  and the sorted file list. An entity reached from several entries counts once in `reached` and once in
+  `by_depth`.
 - `omitted` — unresolved seeds, candidates dropped by the entry budget, link and path truncation counts,
   unread source excerpts, and human-readable notes for each disclosure.
 - `limits` and `anchor` — the effective budgets and the `--target` value, so a response can be replayed.
