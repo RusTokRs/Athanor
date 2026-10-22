@@ -10,7 +10,7 @@ if [[ ! -f "$log_file" ]]; then
 fi
 
 log_tail="$(tail -n 18 "$log_file")"
-failure_summary="$(grep -E -B 1 -A 1 'panicked at|assertion failed:|test result: FAILED|error: test failed|failures:' "$log_file" | tail -n 36 || true)"
+failure_summary="$(grep -E -B 1 -A 1 'panicked at|assertion failed:|test result: FAILED|error: test failed|failures:|error(\[|:)' "$log_file" | tail -n 48 || true)"
 if [[ -n "$failure_summary" ]]; then
   message="$log_tail"$'\n--- failure summary ---\n'"$failure_summary"
 else

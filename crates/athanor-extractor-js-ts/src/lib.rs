@@ -5618,14 +5618,14 @@ mod tests {
         let output = JsTsExtractor
             .extract(input(
                 "src/app.ts",
-                "export function run(value, other) {\\n\\\
-                   (value as Repo).save();\\n\\\
-                   (<Store>value).load();\\n\\\
-                   (value satisfies Item).flush();\\n\\\
-                   (value as Repo).items.save();\\n\\\
-                   (value as const).reset();\\n\\\
-                   (value as Repo | Other).close();\\n\\\
-                 }\\n",
+                "export function run(value, other) {\n\
+                   (value as Repo).save();\n\
+                   (<Store>value).load();\n\
+                   (value satisfies Item).flush();\n\
+                   (value as Repo).items.save();\n\
+                   (value as const).reset();\n\
+                   (value as Repo | Other).close();\n\
+                 }\n",
                 "typescript",
             ))
             .await

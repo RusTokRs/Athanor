@@ -138,6 +138,7 @@ fn lock_trust_store(path: &Path, exclusive: bool) -> Result<File> {
     let lock_path = trust_lock_path(path)?;
     let file = OpenOptions::new()
         .create(true)
+        .truncate(false)
         .read(true)
         .write(true)
         .open(&lock_path)
