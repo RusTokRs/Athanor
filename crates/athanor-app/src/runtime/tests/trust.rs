@@ -134,6 +134,112 @@ fn trust_report_is_versioned_and_manifest_changes_invalidate_trust() {
 }
 
 #[test]
+fn sidecar_file_args_are_part_of_the_trust_record() {
+    let root = temp_root("runtime-trust-sidecar");
+    let manifest_dir = root.join(".athanor/adapters");
+    fs::create_dir_all(&manifest_dir).unwrap();
+    let payload = manifest_dir.join("payload.py");
+    fs::write(&payload, b"print('one')\n").unwrap();
+    let manifest_path = manifest_dir.join("external.json");
+    let mut command = empty_output_command();
+    command.args.push(payload.display().to_string());
+    let manifest = AdapterPluginManifest {
+        schema: ADAPTER_MANIFEST_SCHEMA_V1.to_string(),
+        name: "sidecar-trust".to_string(),
+        version: None,
+        adapters: vec![AdapterPluginEntry {
+            id: "external.extractor.empty".to_string(),
+            kind: AdapterPluginKind::Extractor,
+            enabled: true,
+            command: Some(command),
+            supports_extensions: vec!["rs".to_string()],
+        }],
+    };
+    fs::write(
+        &manifest_path,
+        serde_json::to_string_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+    let trust_path = root.join("state/adapter-trust.json");
+    trust_adapter_plugin(AdapterTrustOptions {
+        trust_path: trust_path.clone(),
+        manifest_path: manifest_path.clone(),
+    })
+    .unwrap();
+    let trusted = list_adapter_plugin_trust(AdapterTrustListOptions {
+        root: root.clone(),
+        trust_path: trust_path.clone(),
+    })
+    .unwrap();
+    assert!(trusted.plugins[0].trusted);
+    assert!(
+        trusted.plugins[0]
+            .executable_hashes
+            .iter()
+            .any(|executable| executable.program.ends_with("payload.py"))
+    );
+
+    fs::write(&payload, b"print('two')\n").unwrap();
+    let changed = list_adapter_plugin_trust(AdapterTrustListOptions {
+        root: root.clone(),
+        trust_path: trust_path.clone(),
+    })
+    .unwrap();
+    assert!(!changed.plugins[0].trusted);
+
+    fs::remove_file(&manifest_path).unwrap();
+    untrust_adapter_plugin(AdapterTrustOptions {
+        trust_path,
+        manifest_path,
+    })
+    .expect("untrust must work after the manifest file is removed");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn launch_digests_must_match_the_trust_record() {
+    let root = temp_root("runtime-trust-bind");
+    let manifest_dir = root.join(".athanor/adapters");
+    fs::create_dir_all(&manifest_dir).unwrap();
+    let program = manifest_dir.join("adapter.bin");
+    fs::copy(empty_output_program(), &program).unwrap();
+    let manifest_path = manifest_dir.join("external.json");
+    let manifest = AdapterPluginManifest {
+        schema: ADAPTER_MANIFEST_SCHEMA_V1.to_string(),
+        name: "bind-trust".to_string(),
+        version: None,
+        adapters: vec![AdapterPluginEntry {
+            id: "external.extractor.empty".to_string(),
+            kind: AdapterPluginKind::Extractor,
+            enabled: true,
+            command: Some(AdapterProcessCommand {
+                program: "./adapter.bin".to_string(),
+                args: Vec::new(),
+            }),
+            supports_extensions: vec!["rs".to_string()],
+        }],
+    };
+    fs::write(
+        &manifest_path,
+        serde_json::to_string_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+    let plugin = super::super::plugin_discovery::read_manifest(manifest_path).unwrap();
+    let trusted = super::super::trust::trusted_plugin_record(&plugin).unwrap();
+    fs::write(&program, b"replaced-adapter-bytes").unwrap();
+    let error = super::super::process_adapter_support::ProcessCommand::from_manifest_with_options(
+        &manifest_dir,
+        plugin.manifest.adapters[0].command.as_ref().unwrap(),
+        false,
+        super::super::process_adapter_support::ProcessLimits::default(),
+        Some(&trusted.executable_hashes),
+    )
+    .expect_err("replaced payload must not bind to the previous trust record");
+    assert!(error.to_string().contains("does not match the trusted digest"));
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn rejects_unknown_manifest_fields() {
     let content = serde_json::json!({
         "schema": ADAPTER_MANIFEST_SCHEMA_V1,

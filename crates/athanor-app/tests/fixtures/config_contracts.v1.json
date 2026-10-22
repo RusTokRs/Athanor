@@ -43,7 +43,12 @@
     "adapters": {
       "allow_external_process": false,
       "external_process_allowlist": [],
-      "external_process_sandbox": "disabled"
+      "external_process_sandbox": "disabled",
+      "disabled": [],
+      "external_process_timeout_ms": 30000,
+      "external_process_max_stdin_bytes": 8388608,
+      "external_process_max_stdout_bytes": 8388608,
+      "external_process_max_stderr_bytes": 1048576
     },
     "pipeline": {
       "extraction_concurrency": 16,
@@ -98,7 +103,12 @@
       "adapters": {
         "allow_external_process": false,
         "external_process_allowlist": [],
-        "external_process_sandbox": "disabled"
+        "external_process_sandbox": "disabled",
+        "disabled": [],
+        "external_process_timeout_ms": 30000,
+        "external_process_max_stdin_bytes": 8388608,
+        "external_process_max_stdout_bytes": 8388608,
+        "external_process_max_stderr_bytes": 1048576
       },
       "pipeline": {
         "extraction_concurrency": 16,
@@ -112,12 +122,12 @@
       {
         "name": "storage_backend",
         "status": "available",
-        "detail": "the configured storage mode is compiled into this build"
+        "detail": "JSONL storage is compiled into this build"
       },
       {
         "name": "external_process_adapters",
-        "status": "configured",
-        "detail": "external process adapters require explicit enablement, trust, and allowlisting"
+        "status": "disabled",
+        "detail": "0 external process plugins discovered; disabled built-in adapters: none"
       },
       {
         "name": "external_process_sandbox",

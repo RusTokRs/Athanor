@@ -1,6 +1,8 @@
 use std::path::PathBuf;
+use std::sync::{Arc, atomic::AtomicBool};
 
-use super::super::{AdapterProcessCommand, process_adapter_support::ProcessCommand};
+use super::super::process_adapter_support::{ProcessCommand, ProcessLimits};
+use super::super::AdapterProcessCommand;
 
 #[cfg(windows)]
 pub(super) fn empty_output_command() -> AdapterProcessCommand {
@@ -72,8 +74,21 @@ pub(super) fn empty_output_program() -> PathBuf {
     sh_path()
 }
 
+fn unverified_fields() -> (
+    Vec<super::super::TrustedAdapterExecutable>,
+    Arc<AtomicBool>,
+    ProcessLimits,
+) {
+    (
+        Vec::new(),
+        Arc::new(AtomicBool::new(false)),
+        ProcessLimits::default(),
+    )
+}
+
 #[cfg(windows)]
 pub(super) fn sleep_command() -> ProcessCommand {
+    let (expected, fully_verified, limits) = unverified_fields();
     ProcessCommand {
         program: powershell_path(),
         args: vec![
@@ -82,26 +97,30 @@ pub(super) fn sleep_command() -> ProcessCommand {
             "Start-Sleep -Seconds 5".to_string(),
         ],
         working_dir: test_working_dir(),
-        expected_content_hash: None,
-        expected_content_size_bytes: None,
+        expected,
+        fully_verified,
+        limits,
         clear_environment: false,
     }
 }
 
 #[cfg(not(windows))]
 pub(super) fn sleep_command() -> ProcessCommand {
+    let (expected, fully_verified, limits) = unverified_fields();
     ProcessCommand {
         program: sh_path(),
         args: vec!["-c".to_string(), "cat >/dev/null; sleep 5".to_string()],
         working_dir: test_working_dir(),
-        expected_content_hash: None,
-        expected_content_size_bytes: None,
+        expected,
+        fully_verified,
+        limits,
         clear_environment: false,
     }
 }
 
 #[cfg(windows)]
 pub(super) fn stdout_bytes_command(bytes: usize) -> ProcessCommand {
+    let (expected, fully_verified, limits) = unverified_fields();
     ProcessCommand {
         program: powershell_path(),
         args: vec![
@@ -112,14 +131,16 @@ pub(super) fn stdout_bytes_command(bytes: usize) -> ProcessCommand {
             ),
         ],
         working_dir: test_working_dir(),
-        expected_content_hash: None,
-        expected_content_size_bytes: None,
+        expected,
+        fully_verified,
+        limits,
         clear_environment: false,
     }
 }
 
 #[cfg(not(windows))]
 pub(super) fn stdout_bytes_command(bytes: usize) -> ProcessCommand {
+    let (expected, fully_verified, limits) = unverified_fields();
     ProcessCommand {
         program: sh_path(),
         args: vec![
@@ -127,14 +148,16 @@ pub(super) fn stdout_bytes_command(bytes: usize) -> ProcessCommand {
             format!("cat >/dev/null; yes x | tr -d '\\n' | head -c {bytes}"),
         ],
         working_dir: test_working_dir(),
-        expected_content_hash: None,
-        expected_content_size_bytes: None,
+        expected,
+        fully_verified,
+        limits,
         clear_environment: false,
     }
 }
 
 #[cfg(windows)]
 pub(super) fn failing_command() -> ProcessCommand {
+    let (expected, fully_verified, limits) = unverified_fields();
     ProcessCommand {
         program: powershell_path(),
         args: vec![
@@ -143,14 +166,16 @@ pub(super) fn failing_command() -> ProcessCommand {
             "$stderr = [Console]::OpenStandardError(); $bytes = [System.Text.Encoding]::ASCII.GetBytes('intentional failure'); $stderr.Write($bytes, 0, $bytes.Length); $stderr.Flush(); exit 7".to_string(),
         ],
         working_dir: test_working_dir(),
-        expected_content_hash: None,
-        expected_content_size_bytes: None,
+        expected,
+        fully_verified,
+        limits,
         clear_environment: false,
     }
 }
 
 #[cfg(not(windows))]
 pub(super) fn failing_command() -> ProcessCommand {
+    let (expected, fully_verified, limits) = unverified_fields();
     ProcessCommand {
         program: sh_path(),
         args: vec![
@@ -158,8 +183,9 @@ pub(super) fn failing_command() -> ProcessCommand {
             "cat >/dev/null; printf '%s' 'intentional failure' >&2; exit 7".to_string(),
         ],
         working_dir: test_working_dir(),
-        expected_content_hash: None,
-        expected_content_size_bytes: None,
+        expected,
+        fully_verified,
+        limits,
         clear_environment: false,
     }
 }

@@ -8,6 +8,10 @@ use serde::{Deserialize, Serialize};
 
 pub const CONFIG_VALIDATE_SCHEMA: &str = "athanor.config_validate.v1";
 pub const CONFIG_DOCTOR_SCHEMA: &str = "athanor.config_doctor.v1";
+pub const DEFAULT_EXTERNAL_PROCESS_TIMEOUT_MS: u64 = 30_000;
+pub const DEFAULT_EXTERNAL_PROCESS_MAX_STDIN_BYTES: usize = 8 * 1024 * 1024;
+pub const DEFAULT_EXTERNAL_PROCESS_MAX_STDOUT_BYTES: usize = 8 * 1024 * 1024;
+pub const DEFAULT_EXTERNAL_PROCESS_MAX_STDERR_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
@@ -35,8 +39,8 @@ pub struct ConfigValidateReport {
 #[derive(Debug, Clone, Serialize)]
 pub struct ConfigDoctorCheck {
     pub name: &'static str,
-    pub status: &'static str,
-    pub detail: &'static str,
+    pub status: String,
+    pub detail: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -47,12 +51,32 @@ pub struct ConfigDoctorReport {
     pub checks: Vec<ConfigDoctorCheck>,
 }
 
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AdaptersConfig {
     pub allow_external_process: bool,
     pub external_process_allowlist: Vec<String>,
     pub external_process_sandbox: ExternalProcessSandboxProfile,
+    pub disabled: Vec<String>,
+    pub external_process_timeout_ms: u64,
+    pub external_process_max_stdin_bytes: usize,
+    pub external_process_max_stdout_bytes: usize,
+    pub external_process_max_stderr_bytes: usize,
+}
+
+impl Default for AdaptersConfig {
+    fn default() -> Self {
+        Self {
+            allow_external_process: false,
+            external_process_allowlist: Vec::new(),
+            external_process_sandbox: ExternalProcessSandboxProfile::Disabled,
+            disabled: Vec::new(),
+            external_process_timeout_ms: DEFAULT_EXTERNAL_PROCESS_TIMEOUT_MS,
+            external_process_max_stdin_bytes: DEFAULT_EXTERNAL_PROCESS_MAX_STDIN_BYTES,
+            external_process_max_stdout_bytes: DEFAULT_EXTERNAL_PROCESS_MAX_STDOUT_BYTES,
+            external_process_max_stderr_bytes: DEFAULT_EXTERNAL_PROCESS_MAX_STDERR_BYTES,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -108,6 +132,15 @@ impl ProjectConfig {
             anyhow::bail!(
                 "[pipeline].extraction_concurrency_by_adapter.{adapter} must be at least 1"
             );
+        }
+        if self.adapters.external_process_timeout_ms == 0 {
+            anyhow::bail!("[adapters].external_process_timeout_ms must be at least 1");
+        }
+        if self.adapters.external_process_max_stdin_bytes == 0
+            || self.adapters.external_process_max_stdout_bytes == 0
+            || self.adapters.external_process_max_stderr_bytes == 0
+        {
+            anyhow::bail!("[adapters] external process byte limits must be at least 1");
         }
         Ok(())
     }
@@ -256,46 +289,15 @@ pub fn validate_project_config(options: ConfigReportOptions) -> Result<ConfigVal
     })
 }
 
-pub fn doctor_project_config(options: ConfigReportOptions) -> Result<ConfigDoctorReport> {
-    let config = load_config(&options.root)?;
-    let external_process_sandbox = match config.adapters.external_process_sandbox {
-        ExternalProcessSandboxProfile::Disabled => "disabled",
-        ExternalProcessSandboxProfile::CleanEnvironment => "clean_environment",
-    };
-
-    Ok(ConfigDoctorReport {
-        schema: CONFIG_DOCTOR_SCHEMA,
-        root: options.root,
-        config,
-        checks: vec![
-            ConfigDoctorCheck {
-                name: "storage_backend",
-                status: "available",
-                detail: "the configured storage mode is compiled into this build",
-            },
-            ConfigDoctorCheck {
-                name: "external_process_adapters",
-                status: "configured",
-                detail: "external process adapters require explicit enablement, trust, and allowlisting",
-            },
-            ConfigDoctorCheck {
-                name: "external_process_sandbox",
-                status: external_process_sandbox,
-                detail: "clean_environment clears inherited environment variables only; it is not OS-level filesystem, network, or CPU isolation",
-            },
-        ],
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
 
     use super::{
         CONFIG_DOCTOR_SCHEMA, CONFIG_VALIDATE_SCHEMA, ConfigReportOptions,
-        ExternalProcessSandboxProfile, ProjectConfig, doctor_project_config,
-        validate_project_config,
+        ExternalProcessSandboxProfile, ProjectConfig, validate_project_config,
     };
+    use crate::doctor_project_config;
 
     #[test]
     fn rejects_unknown_top_level_field() {

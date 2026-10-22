@@ -23,24 +23,55 @@ route declarations and is registered independently as `builtin.extractor.express
 - Bounded `calls` arrays of statically named call sites per declaration, plus a bounded
   `callback_arguments` array on call sites whose callee is a known callback combinator
   (iteration methods, promise handlers, timers, event/observable registration) for the call
-  linker's callback bridges
+  linker's callback bridges. A member of an identifier factory or construction is recorded
+  without a binding: `createRepo().save()` as `createRepo().save`, `(await createRepo()).save()`
+  as `createRepo()@.save`, and `new Repo().save()` / `new ns.Repo().save()` as `Repo{}.save`. `super.save()`
+  records as `super.save`. A member factory
+  (`svc.build().save()`) and a nested identifier-rooted call
+  (`createRepo().getStore().save()`) record the same way. One extra call of an identifier
+  factory records `create()().save`. An inline `as Type`, `<Type>expr`,
+  or `satisfies Type` records as `Type#.save`. A third call hop, `as const`, and a mixed
+  assertion stay omitted.
 - Bounded `typed_bindings` rows on module payloads: the declared type of a receiver the linker can
   walk — a `new Type()` initializer, an annotated class field or interface property signature, a
   TypeScript parameter property, or the element type a collection annotation states, each recorded
-  as `{name, type, kind, line}` with an `omitted_typed_bindings` count. A `for...of` iteration
+  as `{name, type, kind, line}` with an `omitted_typed_bindings` count. A type parameter that
+  `extends` one named type records that bound, so `function run<T extends Repo>(repo: T)` types
+  `repo` as `Repo`. A `for...of` iteration
   variable and the first parameter of an array combinator's callback record kind `element`, so
-  `const items: Item[]` gives `item` the type `Item`
+  `const items: Item[]` gives `item` the type `Item`; the collection annotation also records
+  `items[]`, so `items[0].save()` walks the same element type. An array literal that constructs
+  one type records `items[]` as a construction, so `const items = [new Item()]` types `items[0]`
+  without an annotation.
 - Bounded `call_bindings` rows on module payloads: a binding the module initializes with a
-  statically named call, each recorded as `{name, callee, line, awaited}`, so the linker can read
-  the type from the return type the factory declares — and from the awaited type when the binding
-  awaits the call
+  statically named call, each recorded as `{name, callee, line, awaited}` and `invoked` when the
+  initializer calls the result once more (`const repo = create()()`), so the linker can read
+  the type from the return type the factory declares — from the awaited type when the binding
+  awaits the call, and from `returned_function_type` when the binding is invoked
 - A `return_type` on function, method, and arrow-function payloads: the bare named type the
-  declaration returns, so a synchronous factory's annotation can type a receiver
+  declaration returns, so a synchronous factory's annotation can type a receiver. A type parameter
+  that `extends` one named type is that bound: `function create<T extends Repo>(): T` records `Repo`.
 - An `awaited_return_type` on the same payloads: the type an `await` on a call to the declaration
   yields, so `Promise<Repo>` and an `async` declaration's bare annotation both type a receiver the
-  module awaits
+  module awaits. `async function wrap<T extends Repo>(): T` and `(): Promise<T>` await to `Repo`.
 - A `returned_type` on the same payloads: the one type every `return` of the body constructs, so
-  `function createRepo() { return new Repo(); }` declares a `Repo` without an annotation
+  `function createRepo() { return new Repo(); }` declares a `Repo` without an annotation.
+  Parentheses, `await`, `as`, and a non-null assertion wrap the same construction.
+- A `returned_callee` on the same payloads: the one factory every `return` of the body calls, so
+  `function createRepo() { return makeRepo(); }` names `makeRepo` for the linker to read that
+  factory's type one hop. An `async` wrapper records the callee too, so an `await` of it can hop;
+  two callees, a member callee, and a mix of construction and call record nothing; a nested
+  function's return is skipped. The same wrappers peel off a returned call.
+- An `asserted_type` on the same payloads: `return load() as Repo` records `Repo` when the body
+  constructs nothing. `as const` and two disagreeing assertions record nothing. An initializer
+  `const repo = load() as Repo` records a typed-binding row of kind `annotation`.
+- A `returned_function_type` on the same payloads: `function create(): () => Repo` records `Repo`,
+  so `create()()` can dispatch. The annotation is not `return_type`, because `create()` itself is
+  a function. A second function hop, a generic function type, a constructor type, and an `async`
+  factory record nothing.
+- An `aliased_type` on type-alias payloads: `type Client = Repo` records `Repo`, including a
+  qualified or generic right-hand side reduced to its terminal name. A union, an array, and a
+  function type record nothing.
 - Structural rows for an object literal: `const config = { logger: new Logger() }` records
   `config.logger` as a `Logger` under a structural type named `config$object`, so a receiver path can
   walk into the literal
@@ -167,12 +198,14 @@ None. The extractors do not run commands, use the network, or modify project fil
 - A return type is recorded only when it names a bare type: `Promise<Repo>` returns a promise and
   not a `Repo`, so generic instantiations, unions, arrays, and function types are skipped. A
   destructuring initializer is never a call binding, because it does not name one receiver.
-- Receiver-type rows record only a type the source actually names. A call result, a union, an array
-  type, a destructuring pattern, an aliased initializer, a function type, and a generic
-  instantiation that is not a bare identifier are skipped; a qualified or generic name is reduced
-  to its terminal identifier, so `Promise<Repo>` and `ns.Repo` both record `Repo`. Rows are bounded
-  to 64 per module. A field row is named `Owner.field`, where the owner is the enclosing class or
-  interface, so the linker can read it from the module that declares that owner.
+- Receiver-type rows record only a type the source actually names. A call result, a union, a
+  destructuring pattern, an aliased initializer, a function type, and a generic instantiation that
+  is not a bare identifier are skipped; a qualified or generic name is reduced to its terminal
+  identifier, so `Promise<Repo>` and `ns.Repo` both record `Repo`. An array annotation records the
+  element as `name[]` rather than the wrapper, so `Item[]` types `items[0]` and not `items`. An
+  array literal that constructs one type records the same `name[]` row as a construction. Rows
+  are bounded to 64 per module. A field row is named `Owner.field`, where the owner is the enclosing
+  class or interface, so the linker can read it from the module that declares that owner.
 - Only the flat block sequence of a pnpm workspace manifest is read: a top-level `packages:` key
   followed by `- pattern` items, bounded to 64 patterns with a disclosed omission count. Flow
   sequences, anchors, nested blocks, and a manifest without a readable package list produce no

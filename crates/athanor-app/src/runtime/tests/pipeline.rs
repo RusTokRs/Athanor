@@ -161,6 +161,116 @@ async fn external_process_adapters_cover_all_four_ports() {
 }
 
 #[test]
+fn duplicate_adapter_ids_in_one_manifest_are_rejected() {
+    let manifest = AdapterPluginManifest {
+        schema: ADAPTER_MANIFEST_SCHEMA_V1.to_string(),
+        name: "duplicates".to_string(),
+        version: None,
+        adapters: vec![
+            AdapterPluginEntry {
+                id: "external.extractor.empty".to_string(),
+                kind: AdapterPluginKind::Extractor,
+                enabled: true,
+                command: Some(empty_output_command()),
+                supports_extensions: vec!["rs".to_string()],
+            },
+            AdapterPluginEntry {
+                id: "external.extractor.empty".to_string(),
+                kind: AdapterPluginKind::Extractor,
+                enabled: true,
+                command: Some(empty_output_command()),
+                supports_extensions: vec!["md".to_string()],
+            },
+        ],
+    };
+    let error = AdapterRegistry::empty()
+        .with_plugin_manifest(&manifest)
+        .expect_err("duplicate adapter ids must fail");
+    assert!(error.to_string().contains("duplicate adapter id"));
+}
+
+#[test]
+fn supports_extensions_are_rejected_on_non_extractors() {
+    let manifest = AdapterPluginManifest {
+        schema: ADAPTER_MANIFEST_SCHEMA_V1.to_string(),
+        name: "linker-extensions".to_string(),
+        version: None,
+        adapters: vec![AdapterPluginEntry {
+            id: "external.linker.empty".to_string(),
+            kind: AdapterPluginKind::Linker,
+            enabled: true,
+            command: Some(empty_array_command()),
+            supports_extensions: vec!["rs".to_string()],
+        }],
+    };
+    let error = AdapterRegistry::empty()
+        .with_plugin_manifest(&manifest)
+        .expect_err("supports_extensions is extractor-only");
+    assert!(error.to_string().contains("supports_extensions"));
+}
+
+#[test]
+fn external_extractor_requires_supports_extensions() {
+    let manifest = AdapterPluginManifest {
+        schema: ADAPTER_MANIFEST_SCHEMA_V1.to_string(),
+        name: "missing-extensions".to_string(),
+        version: None,
+        adapters: vec![AdapterPluginEntry {
+            id: "external.extractor.empty".to_string(),
+            kind: AdapterPluginKind::Extractor,
+            enabled: true,
+            command: Some(empty_output_command()),
+            supports_extensions: Vec::new(),
+        }],
+    };
+    let error = AdapterRegistry::empty()
+        .with_plugin_manifest(&manifest)
+        .expect_err("external extractors must declare extensions");
+    assert!(error.to_string().contains("supports_extensions"));
+}
+
+#[test]
+fn disabled_builtin_adapters_are_removed_from_the_registry() {
+    let composition = crate::test_runtime::composition();
+    let registry = composition
+        .adapter_registry()
+        .without_adapters(["builtin.extractor.file"]);
+    assert!(!registry.contains_adapter("builtin.extractor.file"));
+    assert!(registry.contains_adapter("builtin.extractor.markdown"));
+}
+
+#[tokio::test]
+async fn disabled_adapters_are_applied_when_building_without_plugin_discovery() {
+    let root = temp_root("runtime-disabled-build");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(root.join("src/lib.rs"), "pub fn hello() {}\n").unwrap();
+    let composition = crate::test_runtime::composition();
+    let output = RuntimeBuilder::from_composition(&root, &composition)
+        .disabled_adapters(["builtin.extractor.file"])
+        .build_index_pipeline(TransientKnowledgeStore::new())
+        .run(
+            RepoId("repo_runtime_disabled_build".to_string()),
+            SnapshotBase {
+                branch: None,
+                commit: None,
+                parent_snapshot: None,
+                working_tree: true,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        output
+            .facts
+            .iter()
+            .filter(|fact| fact.extractor == "file")
+            .count(),
+        0
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn discovers_adapter_plugin_manifests() {
     let root = temp_root("runtime-plugin-discovery");
     let manifest_path = root.join(".athanor/adapters/files.json");
@@ -175,10 +285,48 @@ fn discovers_adapter_plugin_manifests() {
         .to_string(),
     )
     .unwrap();
+    let uppercase = root.join(".athanor/adapters/other.JSON");
+    fs::write(
+        &uppercase,
+        serde_json::json!({
+            "schema": ADAPTER_MANIFEST_SCHEMA_V1,
+            "name": "other",
+            "adapters": []
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let bundle = root.join(".athanor/plugins/example/ATHANOR-ADAPTER.JSON");
+    fs::create_dir_all(bundle.parent().unwrap()).unwrap();
+    fs::write(
+        &bundle,
+        serde_json::json!({
+            "schema": ADAPTER_MANIFEST_SCHEMA_V1,
+            "name": "bundle",
+            "adapters": []
+        })
+        .to_string(),
+    )
+    .unwrap();
 
     let plugins = discover_adapter_plugins(&root).unwrap();
-    assert_eq!(plugins.len(), 1);
-    assert_eq!(plugins[0].manifest_path, manifest_path);
-    assert!(plugins[0].manifest.adapters[0].enabled);
+    assert_eq!(plugins.len(), 3);
+    assert!(
+        plugins
+            .iter()
+            .any(|plugin| plugin.manifest_path == bundle)
+    );
+    let files = plugins
+        .iter()
+        .find(|plugin| plugin.manifest_path == manifest_path)
+        .expect("json manifest should be discovered");
+    assert!(files.manifest.adapters[0].enabled);
+    assert!(
+        plugins
+            .iter()
+            .any(|plugin| plugin.manifest_path.extension().is_some_and(|extension| {
+                extension.eq_ignore_ascii_case("json")
+            }))
+    );
     fs::remove_dir_all(root).unwrap();
 }

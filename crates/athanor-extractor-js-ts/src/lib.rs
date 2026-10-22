@@ -231,6 +231,18 @@ impl Extractor for JsTsExtractor {
             if let Some(returned_type) = &declaration.returned_type {
                 payload["returned_type"] = json!(returned_type);
             }
+            if let Some(returned_callee) = &declaration.returned_callee {
+                payload["returned_callee"] = json!(returned_callee);
+            }
+            if let Some(asserted_type) = &declaration.asserted_type {
+                payload["asserted_type"] = json!(asserted_type);
+            }
+            if let Some(returned_function_type) = &declaration.returned_function_type {
+                payload["returned_function_type"] = json!(returned_function_type);
+            }
+            if let Some(aliased_type) = &declaration.aliased_type {
+                payload["aliased_type"] = json!(aliased_type);
+            }
 
             entities.push(Entity {
                 id: entity_id.clone(),
@@ -476,6 +488,17 @@ struct SourceDeclaration {
     return_type: Option<String>,
     awaited_return_type: Option<String>,
     returned_type: Option<String>,
+    /// The one callee every `return` of the body calls, when the declaration
+    /// constructs nothing and the linker should read that factory's type.
+    returned_callee: Option<String>,
+    /// The one type every `return` asserts with `as Type` or `<Type>expr`.
+    asserted_type: Option<String>,
+    /// The type a function-type annotation yields: `(): () => Repo` records
+    /// `Repo`, so `create()().save()` can dispatch. A second function hop,
+    /// a generic function type, and an `async` factory name nothing.
+    returned_function_type: Option<String>,
+    /// The one named type a type alias writes, when the alias is a bare name.
+    aliased_type: Option<String>,
 }
 
 /// `extends`/`implements` heritage of a class or interface, reduced to bare type names.
@@ -511,7 +534,9 @@ fn collect_source_items(
 /// The statically proven type of one receiver binding.
 struct TypedBinding {
     /// Binding name: `service` for a local or parameter, `Class.field` for a
-    /// class field, so the linker can match `this.field` inside its class.
+    /// class field, so the linker can match `this.field` inside its class, and
+    /// `items[]` / `Class.fields[]` for the element of a collection annotation,
+    /// so `items[0].save()` can walk the same rows.
     name: String,
     /// Bare type name, reduced to its terminal identifier like heritage names.
     type_name: String,
@@ -526,9 +551,11 @@ struct TypedBinding {
 /// Records the receiver types a source file proves statically.
 ///
 /// A receiver only helps the call linker when the source says what it holds: a
-/// `new Type()` initializer or a TypeScript type annotation. A call result, a
-/// destructured binding, and an inferred type are not evidence, so they stay
-/// unrecorded rather than being guessed.
+/// `new Type()` initializer, a TypeScript type annotation, or the element type
+/// a collection annotation states — including the synthetic `name[]` row that
+/// types `items[0]` — or the one type every element of an array literal
+/// constructs. A call result, a destructured binding, and an inferred type are
+/// not evidence, so they stay unrecorded rather than being guessed.
 fn typed_bindings(root: Node, bytes: &[u8]) -> (Vec<Value>, usize) {
     // The element of a collection is typed by the collection's own annotation,
     // so the annotation text has to be read before the walk that uses it: the
@@ -537,7 +564,15 @@ fn typed_bindings(root: Node, bytes: &[u8]) -> (Vec<Value>, usize) {
     let annotations = declared_annotations(root, bytes, &mut names);
     let mut collected = Vec::new();
     let mut owner_names = Vec::new();
-    collect_typed_bindings(root, bytes, &mut owner_names, &annotations, &mut collected);
+    let mut type_params = Vec::new();
+    collect_typed_bindings(
+        root,
+        bytes,
+        &mut owner_names,
+        &annotations,
+        &mut type_params,
+        &mut collected,
+    );
 
     let mut bindings = Vec::new();
     let mut omitted = 0usize;
@@ -565,12 +600,15 @@ fn typed_bindings(root: Node, bytes: &[u8]) -> (Vec<Value>, usize) {
 /// field row is recorded as `Owner.field`: two classes in one file never
 /// collide, and the row names the owner a linker can walk to. `annotations`
 /// carries the annotation text of every binding in the file, which is what
-/// names the element type of a collection.
+/// names the element type of a collection. `type_params` is the stack of
+/// enclosing type-parameter scopes, so `T extends Repo` types a receiver
+/// annotated `T` as `Repo`.
 fn collect_typed_bindings(
     node: Node,
     bytes: &[u8],
     owner_names: &mut Vec<String>,
     annotations: &HashMap<String, String>,
+    type_params: &mut Vec<HashMap<String, Option<String>>>,
     bindings: &mut Vec<TypedBinding>,
 ) {
     if matches!(
@@ -579,18 +617,33 @@ fn collect_typed_bindings(
     ) && let Some(name) = node_name(node, bytes)
     {
         owner_names.push(name);
+        let pushed = push_type_param_scope(node, bytes, type_params);
         let mut cursor = node.walk();
         for child in node.named_children(&mut cursor) {
-            collect_typed_bindings(child, bytes, owner_names, annotations, bindings);
+            collect_typed_bindings(
+                child,
+                bytes,
+                owner_names,
+                annotations,
+                type_params,
+                bindings,
+            );
+        }
+        if pushed {
+            type_params.pop();
         }
         owner_names.pop();
         return;
     }
 
+    let pushed = push_type_param_scope(node, bytes, type_params);
     match node.kind() {
         "variable_declarator" => {
             if let Some(binding) = declarator_binding(node, bytes) {
-                bindings.push(binding);
+                push_typed_binding(bindings, binding, type_params);
+            }
+            if let Some(binding) = collection_element_binding(node, bytes) {
+                push_typed_binding(bindings, binding, type_params);
             }
             if let Some(name) = node
                 .child_by_field_name("name")
@@ -598,6 +651,9 @@ fn collect_typed_bindings(
                 && let Some(value) = node.child_by_field_name("value")
             {
                 object_bindings(&name, value, node, bytes, bindings);
+                if let Some(binding) = array_element_binding(&name, value, node, bytes) {
+                    push_typed_binding(bindings, binding, type_params);
+                }
             }
         }
         // `public_field_definition` is a class field and `property_signature` an
@@ -605,10 +661,26 @@ fn collect_typed_bindings(
         "public_field_definition" | "property_signature" => {
             if let (Some(owner), Some(binding)) = (owner_names.last(), member_binding(node, bytes))
             {
-                bindings.push(TypedBinding {
-                    name: format!("{owner}.{}", binding.name),
-                    ..binding
-                });
+                push_typed_binding(
+                    bindings,
+                    TypedBinding {
+                        name: format!("{owner}.{}", binding.name),
+                        ..binding
+                    },
+                    type_params,
+                );
+            }
+            if let (Some(owner), Some(binding)) =
+                (owner_names.last(), collection_element_binding(node, bytes))
+            {
+                push_typed_binding(
+                    bindings,
+                    TypedBinding {
+                        name: format!("{owner}.{}", binding.name),
+                        ..binding
+                    },
+                    type_params,
+                );
             }
             if let Some(owner) = owner_names.last()
                 && let Some(name) = node
@@ -616,7 +688,11 @@ fn collect_typed_bindings(
                     .and_then(|name| node_text(name, bytes))
                 && let Some(value) = node.child_by_field_name("value")
             {
-                object_bindings(&format!("{owner}.{name}"), value, node, bytes, bindings);
+                let field = format!("{owner}.{name}");
+                object_bindings(&field, value, node, bytes, bindings);
+                if let Some(binding) = array_element_binding(&field, value, node, bytes) {
+                    push_typed_binding(bindings, binding, type_params);
+                }
             }
         }
         "required_parameter" | "optional_parameter" => {
@@ -626,14 +702,35 @@ fn collect_typed_bindings(
                 if has_child_kind(node, "accessibility_modifier")
                     && let Some(owner) = owner_names.last()
                 {
-                    bindings.push(TypedBinding {
-                        name: format!("{owner}.{}", binding.name),
-                        type_name: binding.type_name.clone(),
-                        kind: binding.kind,
-                        line: binding.line,
-                    });
+                    push_typed_binding(
+                        bindings,
+                        TypedBinding {
+                            name: format!("{owner}.{}", binding.name),
+                            type_name: binding.type_name.clone(),
+                            kind: binding.kind,
+                            line: binding.line,
+                        },
+                        type_params,
+                    );
                 }
-                bindings.push(binding);
+                push_typed_binding(bindings, binding, type_params);
+            }
+            if let Some(binding) = collection_element_binding(node, bytes) {
+                if has_child_kind(node, "accessibility_modifier")
+                    && let Some(owner) = owner_names.last()
+                {
+                    push_typed_binding(
+                        bindings,
+                        TypedBinding {
+                            name: format!("{owner}.{}", binding.name),
+                            type_name: binding.type_name.clone(),
+                            kind: binding.kind,
+                            line: binding.line,
+                        },
+                        type_params,
+                    );
+                }
+                push_typed_binding(bindings, binding, type_params);
             }
         }
         // A `for...of` variable and an array combinator's callback parameter
@@ -641,12 +738,12 @@ fn collect_typed_bindings(
         // annotation states their type even though they carry none.
         "for_in_statement" => {
             if let Some(binding) = loop_element_binding(node, bytes, annotations, owner_names) {
-                bindings.push(binding);
+                push_typed_binding(bindings, binding, type_params);
             }
         }
         "call_expression" => {
             if let Some(binding) = callback_element_binding(node, bytes, annotations, owner_names) {
-                bindings.push(binding);
+                push_typed_binding(bindings, binding, type_params);
             }
         }
         _ => {}
@@ -654,8 +751,101 @@ fn collect_typed_bindings(
 
     let mut cursor = node.walk();
     for child in node.named_children(&mut cursor) {
-        collect_typed_bindings(child, bytes, owner_names, annotations, bindings);
+        collect_typed_bindings(
+            child,
+            bytes,
+            owner_names,
+            annotations,
+            type_params,
+            bindings,
+        );
     }
+    if pushed {
+        type_params.pop();
+    }
+}
+
+/// Pushes one enclosing type-parameter scope when the node declares any.
+///
+/// `T extends Repo` records `Repo`; an unconstrained parameter, a union bound,
+/// and a default without `extends` record no bound. Returns whether a scope
+/// was pushed so the caller can pop it.
+fn push_type_param_scope(
+    node: Node,
+    bytes: &[u8],
+    type_params: &mut Vec<HashMap<String, Option<String>>>,
+) -> bool {
+    let Some(parameters) = node
+        .child_by_field_name("type_parameters")
+        .or_else(|| find_child_kind(node, "type_parameters"))
+    else {
+        return false;
+    };
+    let mut scope = HashMap::new();
+    let mut cursor = parameters.walk();
+    for child in parameters.named_children(&mut cursor) {
+        if child.kind() != "type_parameter" {
+            continue;
+        }
+        let Some(name) = node_name(child, bytes) else {
+            continue;
+        };
+        let bound = child
+            .child_by_field_name("constraint")
+            .and_then(|constraint| constraint.named_child(0))
+            .and_then(|type_node| node_text(type_node, bytes))
+            .and_then(|text| terminal_name(&text));
+        scope.insert(name, bound);
+    }
+    type_params.push(scope);
+    true
+}
+
+/// Substitutes a type-parameter name for the one named type it extends.
+fn push_typed_binding(
+    bindings: &mut Vec<TypedBinding>,
+    mut binding: TypedBinding,
+    type_params: &[HashMap<String, Option<String>>],
+) {
+    if let Some(bound) = type_param_bound(&binding.type_name, type_params) {
+        binding.type_name = bound;
+    }
+    bindings.push(binding);
+}
+
+/// The innermost usable `extends` bound for `type_name`, when it names a
+/// type parameter of an enclosing declaration.
+fn type_param_bound(
+    type_name: &str,
+    type_params: &[HashMap<String, Option<String>>],
+) -> Option<String> {
+    for scope in type_params.iter().rev() {
+        if let Some(bound) = scope.get(type_name) {
+            return bound.clone();
+        }
+    }
+    None
+}
+
+/// Substitutes a type-parameter return type for the one named type it extends.
+///
+/// Walks from the declaration to the root so `class App<T extends Repo> {
+/// build(): T }` and `function create<T extends Repo>(): T` both record
+/// `Repo`. An unconstrained parameter, a union bound, and a name that is not a
+/// type parameter stay as written.
+fn apply_declared_type_bound(name: String, node: Node, bytes: &[u8]) -> String {
+    let mut chain = Vec::new();
+    let mut current = Some(node);
+    while let Some(item) = current {
+        chain.push(item);
+        current = item.parent();
+    }
+    chain.reverse();
+    let mut scopes = Vec::new();
+    for item in chain {
+        push_type_param_scope(item, bytes, &mut scopes);
+    }
+    type_param_bound(&name, &scopes).unwrap_or(name)
 }
 
 /// Records the annotation text of every binding in one file, keyed by the name
@@ -840,6 +1030,25 @@ fn callback_parameter(node: Node, bytes: &[u8]) -> Option<String> {
     }
 }
 
+/// Types the element of a collection annotation as `name[]`.
+///
+/// `const items: Item[]` does not type `items` itself — the wrapper is not a
+/// receiver the source writes — but it does type `items[0]`, recorded as the
+/// synthetic name `items[]` so a member call on an index can walk the same
+/// rows as a `for...of` variable. A class field is scoped by its owner, so
+/// `Repo.items: Item[]` records `Repo.items[]` for a path that leaves the
+/// calling file.
+fn collection_element_binding(node: Node, bytes: &[u8]) -> Option<TypedBinding> {
+    let name = declarator_name(node, bytes)?;
+    let type_name = element_type(&annotation_text(node, bytes)?)?;
+    Some(TypedBinding {
+        name: format!("{name}[]"),
+        type_name,
+        kind: "element",
+        line: node.start_position().row as u32 + 1,
+    })
+}
+
 /// The element type a collection annotation states: `Item[]` and `Array<Item>`
 /// both name `Item`.
 ///
@@ -929,22 +1138,76 @@ fn object_bindings(
     bindings.extend(members);
 }
 
+/// Types the element of an array literal that constructs one type.
+///
+/// `const items = [new Item(), new Item()]` states that `items[0]` is an `Item`
+/// the same way a `return new Item()` states a factory's type: every element
+/// the source writes is a construction of that type. An empty array, a hole, a
+/// spread, a nested array, and two different constructed types name nothing.
+fn array_element_binding(
+    name: &str,
+    value: Node,
+    node: Node,
+    bytes: &[u8],
+) -> Option<TypedBinding> {
+    if value.kind() != "array" {
+        return None;
+    }
+    let mut constructed = None;
+    let mut count = 0usize;
+    let mut cursor = value.walk();
+    for child in value.named_children(&mut cursor) {
+        if child.kind() != "new_expression" {
+            return None;
+        }
+        let type_name = terminal_name(&node_text(
+            child.child_by_field_name("constructor")?,
+            bytes,
+        )?)?;
+        if let Some(existing) = constructed.as_deref() {
+            if existing != type_name {
+                return None;
+            }
+        } else {
+            constructed = Some(type_name);
+        }
+        count += 1;
+    }
+    if count == 0 {
+        return None;
+    }
+    Some(TypedBinding {
+        name: format!("{name}[]"),
+        type_name: constructed?,
+        kind: "construction",
+        line: node.start_position().row as u32 + 1,
+    })
+}
+
 /// Types one `name = new Type()` or `name: Type = …` variable declarator.
 fn declarator_binding(node: Node, bytes: &[u8]) -> Option<TypedBinding> {
     let name = node_text(node.child_by_field_name("name")?, bytes)?;
     let line = node.start_position().row as u32 + 1;
-    let value = node.child_by_field_name("value");
-    if let Some(value) = value
-        && value.kind() == "new_expression"
-    {
-        let constructor = value.child_by_field_name("constructor")?;
-        let type_name = terminal_name(&node_text(constructor, bytes)?)?;
-        return Some(TypedBinding {
-            name,
-            type_name,
-            kind: "construction",
-            line,
-        });
+    if let Some(value) = node.child_by_field_name("value") {
+        let peeled = peel_return_value(value);
+        if peeled.kind() == "new_expression" {
+            let constructor = peeled.child_by_field_name("constructor")?;
+            let type_name = terminal_name(&node_text(constructor, bytes)?)?;
+            return Some(TypedBinding {
+                name,
+                type_name,
+                kind: "construction",
+                line,
+            });
+        }
+        if let Some(type_name) = expression_assertion_type(value, bytes) {
+            return Some(TypedBinding {
+                name,
+                type_name,
+                kind: "annotation",
+                line,
+            });
+        }
     }
     declared_type(node, bytes).map(|type_name| TypedBinding {
         name,
@@ -958,17 +1221,26 @@ fn declarator_binding(node: Node, bytes: &[u8]) -> Option<TypedBinding> {
 fn member_binding(node: Node, bytes: &[u8]) -> Option<TypedBinding> {
     let name = node_text(node.child_by_field_name("name")?, bytes)?;
     let line = node.start_position().row as u32 + 1;
-    if let Some(value) = node.child_by_field_name("value")
-        && value.kind() == "new_expression"
-    {
-        let constructor = value.child_by_field_name("constructor")?;
-        let type_name = terminal_name(&node_text(constructor, bytes)?)?;
-        return Some(TypedBinding {
-            name,
-            type_name,
-            kind: "construction",
-            line,
-        });
+    if let Some(value) = node.child_by_field_name("value") {
+        let peeled = peel_return_value(value);
+        if peeled.kind() == "new_expression" {
+            let constructor = peeled.child_by_field_name("constructor")?;
+            let type_name = terminal_name(&node_text(constructor, bytes)?)?;
+            return Some(TypedBinding {
+                name,
+                type_name,
+                kind: "construction",
+                line,
+            });
+        }
+        if let Some(type_name) = expression_assertion_type(value, bytes) {
+            return Some(TypedBinding {
+                name,
+                type_name,
+                kind: "annotation",
+                line,
+            });
+        }
     }
     declared_type(node, bytes).map(|type_name| TypedBinding {
         name,
@@ -999,6 +1271,22 @@ fn parameter_binding(node: Node, bytes: &[u8]) -> Option<TypedBinding> {
 /// Only a bare named type is evidence: generics are reduced to their base name,
 /// and unions, arrays, function types, and literals name nothing the linker can
 /// dispatch on.
+/// The one named type a `type T = Repo` alias writes.
+///
+/// Only a bare named type is evidence: generics reduce to their base name, and
+/// a union, an array, a function type, or an import type names nothing the
+/// linker can unfold.
+fn aliased_type(node: Node, bytes: &[u8]) -> Option<String> {
+    let value = node.child_by_field_name("value")?;
+    let text = node_text(value, bytes)?;
+    terminal_name(&text)
+}
+
+/// Reads a declared type from a `type` field or a `type_annotation` child.
+///
+/// Only a bare named type is evidence: generics are reduced to their base name,
+/// and unions, arrays, function types, and literals name nothing the linker can
+/// dispatch on.
 fn declared_type(node: Node, bytes: &[u8]) -> Option<String> {
     let annotation = node
         .child_by_field_name("type")
@@ -1017,16 +1305,78 @@ fn declared_type(node: Node, bytes: &[u8]) -> Option<String> {
 ///
 /// Only a bare named type is usable: `Promise<Repo>` returns a promise and not a
 /// `Repo`, so a generic instantiation, a union, an array type, and a function
-/// type name nothing the linker may take as a receiver type. An `async` function
-/// returns a promise whatever it declares, so its annotation names the awaited
-/// value and not the value the call returns.
+/// type name nothing the linker may take as a receiver type. A type parameter
+/// that names one `extends` bound is that bound: `function create<T extends
+/// Repo>(): T` records `Repo`, the same substitution a `T` parameter uses. An
+/// `async` function returns a promise whatever it declares, so its annotation
+/// names the awaited value and not the value the call returns.
 fn function_return_type(node: Node, bytes: &[u8]) -> Option<String> {
     let annotation = node.child_by_field_name("return_type")?;
     let text = node_text(annotation.named_child(0)?, bytes)?;
     if is_async_function(node) || text.contains(['<', '[', '(', '|', '&']) {
         return None;
     }
+    Some(apply_declared_type_bound(
+        terminal_name(&text)?,
+        node,
+        bytes,
+    ))
+}
+
+/// Reads the type a function-type annotation yields after one call of the result.
+///
+/// `function create(): () => Repo` returns a function, not a `Repo`, so
+/// `return_type` stays empty. The inner yield is `Repo`, which `create()()`
+/// takes. A second function hop (`() => () => Repo`), a generic function type,
+/// a constructor type (`new () => Repo`), and an `async` factory name nothing.
+fn returned_function_type(node: Node, bytes: &[u8]) -> Option<String> {
+    if is_async_function(node) {
+        return None;
+    }
+    let annotation = node.child_by_field_name("return_type")?;
+    let type_node = peel_parenthesized_type(annotation.named_child(0)?);
+    let name = function_type_yield(type_node, bytes)?;
+    Some(apply_declared_type_bound(name, node, bytes))
+}
+
+/// The bare named type a `function_type` yields: `() => Repo` records `Repo`.
+fn function_type_yield(type_node: Node, bytes: &[u8]) -> Option<String> {
+    if type_node.kind() != "function_type" {
+        return None;
+    }
+    if type_node.child_by_field_name("type_parameters").is_some() {
+        return None;
+    }
+    let return_ty = peel_parenthesized_type(type_node.child_by_field_name("return_type")?);
+    if matches!(
+        return_ty.kind(),
+        "function_type" | "constructor_type" | "asserts" | "type_predicate"
+    ) {
+        return None;
+    }
+    let text = node_text(return_ty, bytes)?;
+    if text.contains(['<', '[', '(', '|', '&']) {
+        return None;
+    }
     terminal_name(&text)
+}
+
+/// Peels parentheses off a type: `(() => Repo)` is the same function type.
+fn peel_parenthesized_type(node: Node) -> Node {
+    let mut current = node;
+    for _ in 0..MAX_RETURN_UNWRAP {
+        if current.kind() != "parenthesized_type" {
+            break;
+        }
+        let Some(inner) = current
+            .named_child(0)
+            .filter(|inner| inner.id() != current.id())
+        else {
+            break;
+        };
+        current = inner;
+    }
+    current
 }
 
 /// Reads the type an `await` on a call to this declaration yields.
@@ -1048,12 +1398,16 @@ fn awaited_return_type(node: Node, bytes: &[u8]) -> Option<String> {
         if inner.contains(['<', '[', '(', '|', '&']) {
             return None;
         }
-        return terminal_name(&inner);
+        return Some(apply_declared_type_bound(
+            terminal_name(&inner)?,
+            node,
+            bytes,
+        ));
     }
     // An `async` declaration without an annotation awaits to whatever it
-    // constructs and returns, since that is the value the promise yields.
+    // constructs or asserts, since that is the value the promise yields.
     if is_async_function(node) {
-        return returned_type(node, bytes);
+        return returned_type(node, bytes).or_else(|| asserted_type(node, bytes));
     }
     None
 }
@@ -1064,9 +1418,10 @@ fn awaited_return_type(node: Node, bytes: &[u8]) -> Option<String> {
 /// annotation does, so the declaration records it. A `return` that is not a
 /// construction, two returns that construct different types, and a declaration
 /// that returns nothing name nothing, because the value the declaration returns
-/// is then not the one the source states.
+/// is then not the one the source states. Parentheses, `await`, `as`, and a
+/// non-null assertion wrap the same construction, so they are peeled first.
 fn returned_type(node: Node, bytes: &[u8]) -> Option<String> {
-    let body = node.child_by_field_name("body")?;
+    let body = peel_return_value(node.child_by_field_name("body")?);
     let mut constructed = None;
     collect_returned(body, bytes, &mut constructed)?;
     if constructed.is_some() {
@@ -1080,19 +1435,212 @@ fn returned_type(node: Node, bytes: &[u8]) -> Option<String> {
     None
 }
 
-/// Walks one declaration body for the constructions its `return` statements make.
-fn collect_returned(node: Node, bytes: &[u8], constructed: &mut Option<String>) -> Option<()> {
+/// Reads the one callee every `return` of this declaration calls.
+///
+/// A wrapper that only forwards to another factory does not construct, so it
+/// records the callee and leaves the type to the linker. A construction already
+/// names the type, two different callees disagree, a member callee is not a
+/// factory name, and a `return` that is not a call names nothing. Parentheses,
+/// `await`, `as`, and a non-null assertion wrap the same call, so they are
+/// peeled first. An `async` wrapper still records the callee: the linker types
+/// an `await` of it and refuses an unawaited binding.
+fn returned_callee(node: Node, bytes: &[u8]) -> Option<String> {
+    if returned_type(node, bytes).is_some() || asserted_type(node, bytes).is_some() {
+        return None;
+    }
+    let body = peel_return_value(node.child_by_field_name("body")?);
+    let mut callee = None;
+    collect_returned_callee(body, bytes, &mut callee)?;
+    if callee.is_some() {
+        return callee;
+    }
+    if body.kind() == "call_expression" {
+        return identifier_callee(body, bytes);
+    }
+    None
+}
+
+/// Peels parentheses, `await`, `as Type`, and non-null assertions off a returned
+/// or initializing expression. The bound stops a wrapped chain from walking
+/// forever; a form the peel does not name is left as it is.
+fn peel_return_value(node: Node) -> Node {
+    peel_return_value_awaited(node).0
+}
+
+/// The most wrappers one returned or initializing expression peels.
+const MAX_RETURN_UNWRAP: usize = 4;
+
+fn peel_return_value_awaited(node: Node) -> (Node, bool) {
+    let mut current = node;
+    let mut awaited = false;
+    for _ in 0..MAX_RETURN_UNWRAP {
+        let kind = current.kind();
+        if !matches!(
+            kind,
+            "parenthesized_expression"
+                | "await_expression"
+                | "as_expression"
+                | "non_null_expression"
+        ) {
+            break;
+        }
+        if kind == "await_expression" {
+            awaited = true;
+        }
+        let Some(inner) = current
+            .child_by_field_name("expression")
+            .or_else(|| current.named_child(0))
+        else {
+            break;
+        };
+        if inner.id() == current.id() {
+            break;
+        }
+        current = inner;
+    }
+    (current, awaited)
+}
+
+/// Reads the one type every `return` of this declaration asserts.
+///
+/// `return load() as Repo` writes the type on the value, so the declaration
+/// records it when it constructs nothing. Two different assertions, a `return`
+/// with no assertion, and `as const` name nothing. A construction already names
+/// the type, so it wins.
+fn asserted_type(node: Node, bytes: &[u8]) -> Option<String> {
+    if returned_type(node, bytes).is_some() {
+        return None;
+    }
+    let body = node.child_by_field_name("body")?;
+    let mut asserted = None;
+    collect_asserted(body, bytes, &mut asserted)?;
+    if asserted.is_some() {
+        return asserted;
+    }
+    expression_assertion_type(body, bytes)
+}
+
+/// Walks one declaration body for the types its `return` statements assert.
+fn collect_asserted(node: Node, bytes: &[u8], asserted: &mut Option<String>) -> Option<()> {
     match node.kind() {
-        // A nested function returns its own value, not this declaration's.
         "function_declaration"
         | "generator_function_declaration"
+        | "function"
+        | "generator_function"
         | "arrow_function"
         | "function_expression"
         | "method_definition"
         | "class_declaration"
         | "class" => return Some(()),
         "return_statement" => {
-            let value = node.named_child(0)?;
+            let type_name = expression_assertion_type(node.named_child(0)?, bytes)?;
+            match asserted {
+                Some(existing) if *existing == type_name => {}
+                None => *asserted = Some(type_name),
+                _ => return None,
+            }
+        }
+        _ => {}
+    }
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        collect_asserted(child, bytes, asserted)?;
+    }
+    Some(())
+}
+
+/// The bare type an `as Type` or `<Type>expr` assertion names, after peeling
+/// parentheses, `await`, and non-null assertions that wrap it.
+fn expression_assertion_type(node: Node, bytes: &[u8]) -> Option<String> {
+    let mut current = node;
+    for _ in 0..MAX_RETURN_UNWRAP {
+        match current.kind() {
+            "parenthesized_expression" | "await_expression" | "non_null_expression" => {
+                current = current
+                    .child_by_field_name("expression")
+                    .or_else(|| current.named_child(0))?;
+            }
+            "as_expression" => {
+                return assertion_type_name(current.named_child(1)?, bytes);
+            }
+            "type_assertion" => {
+                return assertion_type_name(current.named_child(0)?, bytes);
+            }
+            _ => return None,
+        }
+    }
+    None
+}
+
+/// A usable asserted type: `as const` and unions/arrays/functions name nothing.
+fn assertion_type_name(node: Node, bytes: &[u8]) -> Option<String> {
+    let text = node_text(node, bytes)?;
+    if text.trim() == "const" {
+        return None;
+    }
+    terminal_name(&text)
+}
+
+/// The bare identifier a call expression names, when it names one.
+fn identifier_callee(call: Node, bytes: &[u8]) -> Option<String> {
+    let function = call.child_by_field_name("function")?;
+    if function.kind() != "identifier" {
+        return None;
+    }
+    node_text(function, bytes)
+}
+
+/// Walks one declaration body for the calls its `return` statements make.
+fn collect_returned_callee(node: Node, bytes: &[u8], callee: &mut Option<String>) -> Option<()> {
+    match node.kind() {
+        // A nested function returns its own value, not this declaration's.
+        // `"function"` / `"generator_function"` are the expression forms the
+        // grammar uses for `const f = function () {}`.
+        "function_declaration"
+        | "generator_function_declaration"
+        | "function"
+        | "generator_function"
+        | "arrow_function"
+        | "function_expression"
+        | "method_definition"
+        | "class_declaration"
+        | "class" => return Some(()),
+        "return_statement" => {
+            let value = peel_return_value(node.named_child(0)?);
+            if value.kind() != "call_expression" {
+                return None;
+            }
+            let path = identifier_callee(value, bytes)?;
+            match callee {
+                Some(existing) if *existing == path => {}
+                None => *callee = Some(path),
+                _ => return None,
+            }
+        }
+        _ => {}
+    }
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        collect_returned_callee(child, bytes, callee)?;
+    }
+    Some(())
+}
+
+/// Walks one declaration body for the constructions its `return` statements make.
+fn collect_returned(node: Node, bytes: &[u8], constructed: &mut Option<String>) -> Option<()> {
+    match node.kind() {
+        // A nested function returns its own value, not this declaration's.
+        "function_declaration"
+        | "generator_function_declaration"
+        | "function"
+        | "generator_function"
+        | "arrow_function"
+        | "function_expression"
+        | "method_definition"
+        | "class_declaration"
+        | "class" => return Some(()),
+        "return_statement" => {
+            let value = peel_return_value(node.named_child(0)?);
             if value.kind() != "new_expression" {
                 return None;
             }
@@ -1163,59 +1711,78 @@ fn call_bindings(root: Node, bytes: &[u8]) -> (Vec<Value>, usize) {
 
     let mut bindings = Vec::new();
     let mut omitted = 0usize;
-    for (name, callee, line, awaited) in collected {
+    for (name, callee, line, awaited, invoked) in collected {
         if name.is_empty() || callee.is_empty() || bindings.len() == MAX_TYPED_BINDINGS {
             omitted += 1;
             continue;
         }
-        bindings.push(json!({
+        let mut binding = json!({
             "name": name,
             "callee": callee,
             "line": line,
             "awaited": awaited,
-        }));
+        });
+        if invoked {
+            binding["invoked"] = json!(true);
+        }
+        bindings.push(binding);
     }
     (bindings, omitted)
 }
 
-/// The statically named callee one initializer calls, and whether the binding
-/// takes what that call resolves to.
+/// The statically named callee one initializer calls, whether the binding
+/// takes what that call resolves to, and whether the initializer calls the
+/// result once more.
 ///
 /// `const repo = await createRepo()` holds the value the promise yields, not the
 /// promise, so the two initializers name different receivers even though they
-/// call the same factory.
-fn called_callee(node: Node, bytes: &[u8]) -> Option<(String, bool)> {
-    match node.kind() {
-        "call_expression" => Some((
-            callee_path(node.child_by_field_name("function")?, bytes)?,
-            false,
-        )),
-        "await_expression" => {
-            let call = (0..node.named_child_count())
-                .filter_map(|index| node.named_child(index as u32))
-                .find(|child| child.kind() == "call_expression")?;
-            Some((
-                callee_path(call.child_by_field_name("function")?, bytes)?,
-                true,
-            ))
-        }
-        _ => None,
+/// call the same factory. `const repo = create()()` holds what the returned
+/// function yields, so the row marks `invoked` and the linker reads
+/// `returned_function_type`. A third hop, an awaited invocation, and a member
+/// factory (`svc.build()()`) name nothing.
+fn called_callee(node: Node, bytes: &[u8]) -> Option<(String, bool, bool)> {
+    let (inner, awaited) = peel_return_value_awaited(node);
+    if inner.kind() != "call_expression" {
+        return None;
     }
+    let function = inner.child_by_field_name("function")?;
+    let peeled = peel_grouping(function);
+    if peeled.kind() == "call_expression" {
+        if awaited {
+            return None;
+        }
+        let inner_fn = peel_grouping(peeled.child_by_field_name("function")?);
+        if inner_fn.kind() == "call_expression" {
+            return None;
+        }
+        let name = callee_path(inner_fn, bytes)?;
+        if name.is_empty() || name.contains('.') {
+            return None;
+        }
+        return Some((name, false, true));
+    }
+    Some((callee_path(function, bytes)?, awaited, false))
 }
 
 fn collect_call_bindings(
     node: Node,
     bytes: &[u8],
-    bindings: &mut Vec<(String, String, u32, bool)>,
+    bindings: &mut Vec<(String, String, u32, bool, bool)>,
 ) {
     if node.kind() == "variable_declarator"
         && let Some(name_node) = node.child_by_field_name("name")
         && name_node.kind() == "identifier"
         && let Some(name) = node_text(name_node, bytes)
         && let Some(value) = node.child_by_field_name("value")
-        && let Some((callee, awaited)) = called_callee(value, bytes)
+        && let Some((callee, awaited, invoked)) = called_callee(value, bytes)
     {
-        bindings.push((name, callee, node.start_position().row as u32 + 1, awaited));
+        bindings.push((
+            name,
+            callee,
+            node.start_position().row as u32 + 1,
+            awaited,
+            invoked,
+        ));
     }
 
     let mut cursor = node.walk();
@@ -1258,6 +1825,10 @@ fn collect_statement(
                     return_type: function_return_type(node, bytes),
                     awaited_return_type: awaited_return_type(node, bytes),
                     returned_type: returned_type(node, bytes),
+                    returned_callee: returned_callee(node, bytes),
+                    asserted_type: asserted_type(node, bytes),
+                    returned_function_type: returned_function_type(node, bytes),
+                    aliased_type: None,
                 });
             }
         }
@@ -1277,6 +1848,10 @@ fn collect_statement(
                     return_type: function_return_type(node, bytes),
                     awaited_return_type: awaited_return_type(node, bytes),
                     returned_type: returned_type(node, bytes),
+                    returned_callee: returned_callee(node, bytes),
+                    asserted_type: asserted_type(node, bytes),
+                    returned_function_type: returned_function_type(node, bytes),
+                    aliased_type: None,
                 });
             }
         }
@@ -1296,6 +1871,10 @@ fn collect_statement(
                     return_type: None,
                     awaited_return_type: None,
                     returned_type: None,
+                    returned_callee: None,
+                    asserted_type: None,
+                    returned_function_type: None,
+                    aliased_type: None,
                 });
                 collect_class_members(&name, node, bytes, exported, declarations);
             }
@@ -1316,6 +1895,10 @@ fn collect_statement(
                     return_type: None,
                     awaited_return_type: None,
                     returned_type: None,
+                    returned_callee: None,
+                    asserted_type: None,
+                    returned_function_type: None,
+                    aliased_type: None,
                 });
             }
         }
@@ -1335,6 +1918,10 @@ fn collect_statement(
                     return_type: None,
                     awaited_return_type: None,
                     returned_type: None,
+                    returned_callee: None,
+                    asserted_type: None,
+                    returned_function_type: None,
+                    aliased_type: aliased_type(node, bytes),
                 });
             }
         }
@@ -1406,6 +1993,22 @@ fn collect_anonymous_default(node: Node, bytes: &[u8], declarations: &mut Vec<So
             } else {
                 returned_type(child, bytes)
             },
+            returned_callee: if is_class {
+                None
+            } else {
+                returned_callee(child, bytes)
+            },
+            asserted_type: if is_class {
+                None
+            } else {
+                asserted_type(child, bytes)
+            },
+            returned_function_type: if is_class {
+                None
+            } else {
+                returned_function_type(child, bytes)
+            },
+            aliased_type: None,
         });
         if is_class {
             collect_class_members(ANONYMOUS_DEFAULT_NAME, child, bytes, true, declarations);
@@ -1445,6 +2048,10 @@ fn collect_class_members(
                     return_type: function_return_type(member, bytes),
                     awaited_return_type: awaited_return_type(member, bytes),
                     returned_type: returned_type(member, bytes),
+                    returned_callee: returned_callee(member, bytes),
+                    asserted_type: asserted_type(member, bytes),
+                    returned_function_type: returned_function_type(member, bytes),
+                    aliased_type: None,
                 });
             }
         }
@@ -1487,6 +2094,10 @@ fn collect_variable_functions(
                 return_type: function_return_type(value_node, bytes),
                 awaited_return_type: awaited_return_type(value_node, bytes),
                 returned_type: returned_type(value_node, bytes),
+                returned_callee: returned_callee(value_node, bytes),
+                asserted_type: asserted_type(value_node, bytes),
+                returned_function_type: returned_function_type(value_node, bytes),
+                aliased_type: None,
             });
         }
     }
@@ -1693,12 +2304,19 @@ fn node_text(node: Node, bytes: &[u8]) -> Option<String> {
 ///
 /// Only statically named callees are recorded: identifiers (`login()`),
 /// member chains rooted in an identifier or `this` (`api.send()`,
-/// `this.refresh()`), `super` calls, and constructor invocations
-/// (`new Session()`). Computed calls (`handlers[key]()`), calls through
-/// parenthesized or call results (`factory()()`), and tags/JSX are omitted
-/// rather than guessed. Call sites are attributed to the declaration that
-/// contains them; nested class bodies are skipped because their members are
-/// separate declarations.
+/// `this.refresh()`), a member of an indexed collection (`items[0].save()`
+/// recorded as `items[].save`), a member of a factory or construction the
+/// source named (`createRepo().save()` recorded as `createRepo().save`,
+/// `svc.build().save()` as `svc.build().save`, `createRepo().getStore().save()`
+/// as `createRepo().getStore().save`, `new Repo().save()` / `new ns.Repo().save()` as `Repo{}.save`,
+/// `(await createRepo()).save()` as `createRepo()@.save`, `create()().save()` as
+/// `create()().save`, `(value as Repo).save()`
+/// as `Repo#.save`, `super` calls, and constructor invocations
+/// (`new Session()`). Computed calls (`handlers[key]()`), nested index access
+/// (`items[0][1].save()`), a third call hop (`factory()()()`), `as const`
+/// and mixed assertions, and tags/JSX are omitted rather than guessed.
+/// Call sites are attributed to the declaration that contains them; nested
+/// class bodies are skipped because their members are separate declarations.
 ///
 /// A call whose callee name is a known callback combinator additionally
 /// records its statically nameable arguments in `callback_arguments`, so
@@ -1806,15 +2424,157 @@ fn callee_path(node: Node, bytes: &[u8]) -> Option<String> {
         | "type_identifier"
         | "this"
         | "super" => node_text(node, bytes),
+        "parenthesized_expression" | "non_null_expression" => {
+            callee_path(unwrap_expression(node)?, bytes)
+        }
         "member_expression" => {
             let object = node.child_by_field_name("object")?;
             let property = node.child_by_field_name("property")?;
-            let object_path = callee_path(object, bytes)?;
+            let object_path = receiver_path(object, bytes)?;
             let property_path = callee_path(property, bytes)?;
             Some(format!("{object_path}.{property_path}"))
         }
         _ => None,
     }
+}
+
+/// Names the object of a member call.
+///
+/// A factory or construction is recorded with a synthetic suffix so the linker
+/// can type the result without a binding: `createRepo().save` from
+/// `createRepo().save()`, `svc.build().save` from `svc.build().save()`,
+/// `createRepo()@.save` from `(await createRepo()).save()`, `Repo{}.save`
+/// from `new Repo().save()` or `new ns.Repo().save()`, and `Repo#.save` from
+/// `(value as Repo).save()`.
+/// Parentheses and a non-null assertion wrap the same receiver. An `as const`,
+/// a mixed assertion, and a third call hop (`factory()()()`) name nothing.
+fn receiver_path(node: Node, bytes: &[u8]) -> Option<String> {
+    let mut current = node;
+    let mut awaited = false;
+    for _ in 0..MAX_RETURN_UNWRAP {
+        match current.kind() {
+            "parenthesized_expression" | "non_null_expression" => {
+                current = unwrap_expression(current)?;
+            }
+            "await_expression" => {
+                awaited = true;
+                current = unwrap_expression(current)?;
+            }
+            "as_expression" | "type_assertion" | "satisfies_expression" => {
+                let type_name = receiver_assertion_type(current, bytes)?;
+                return Some(format!("{type_name}#"));
+            }
+            _ => break,
+        }
+    }
+    match current.kind() {
+        "call_expression" => call_result_receiver_path(current, bytes, awaited),
+        "new_expression" => construction_receiver_path(current, bytes),
+        "subscript_expression" => {
+            if awaited {
+                return None;
+            }
+            indexed_collection_path(current, bytes)
+        }
+        _ => {
+            if awaited {
+                return None;
+            }
+            callee_path(current, bytes)
+        }
+    }
+}
+
+/// The bare type an inline `as Type`, `<Type>expr`, or `satisfies Type` names.
+fn receiver_assertion_type(node: Node, bytes: &[u8]) -> Option<String> {
+    let type_node = match node.kind() {
+        "as_expression" | "satisfies_expression" => node
+            .child_by_field_name("type")
+            .or_else(|| node.named_child(1))?,
+        "type_assertion" => node
+            .child_by_field_name("type")
+            .or_else(|| node.named_child(0))?,
+        _ => return None,
+    };
+    assertion_type_name(type_node, bytes)
+}
+
+/// The inner expression a grouping, `await`, or non-null node wraps.
+fn unwrap_expression(node: Node) -> Option<Node> {
+    node.child_by_field_name("expression")
+        .or_else(|| node.named_child(0))
+        .filter(|inner| inner.id() != node.id())
+}
+
+/// `createRepo().save`, `svc.build().save`, `createRepo()@.save`, or
+/// `create()().save` when the factory is an identifier or an identifier-rooted
+/// member. One extra call hop records `create()()`; a third hop, an awaited
+/// invocation, and a member factory as that extra hop name nothing.
+fn call_result_receiver_path(node: Node, bytes: &[u8], awaited: bool) -> Option<String> {
+    let function = peel_grouping(node.child_by_field_name("function")?);
+    if function.kind() == "call_expression" {
+        if awaited {
+            return None;
+        }
+        let inner = call_result_receiver_path(function, bytes, false)?;
+        if inner.contains('.') || !inner.ends_with("()") || inner.ends_with("()()") {
+            return None;
+        }
+        return Some(format!("{inner}()"));
+    }
+    let name = callee_path(function, bytes)?;
+    if name.is_empty() {
+        return None;
+    }
+    if awaited {
+        Some(format!("{name}()@"))
+    } else {
+        Some(format!("{name}()"))
+    }
+}
+
+/// `Repo{}.save` when `new Repo()` or `new ns.Repo()` names a constructor.
+///
+/// The constructed type is the terminal identifier: a qualified constructor is
+/// still one type, and a computed constructor (`new ns[key]()`) names nothing.
+fn construction_receiver_path(node: Node, bytes: &[u8]) -> Option<String> {
+    let constructor = node.child_by_field_name("constructor")?;
+    let path = callee_path(constructor, bytes)?;
+    let name = terminal_name(&path)?;
+    Some(format!("{name}{{}}"))
+}
+
+/// Peels parentheses and non-null assertions off a factory or constructor name.
+fn peel_grouping(node: Node) -> Node {
+    let mut current = node;
+    for _ in 0..MAX_RETURN_UNWRAP {
+        if !matches!(
+            current.kind(),
+            "parenthesized_expression" | "non_null_expression"
+        ) {
+            break;
+        }
+        let Some(inner) = unwrap_expression(current) else {
+            break;
+        };
+        current = inner;
+    }
+    current
+}
+
+/// Names a member call whose receiver is an index into a collection.
+///
+/// `items[0].save()` and `items[i].save()` are the same receiver: the index
+/// is not a name, so both record as `items[].save`. Nested index access
+/// (`items[0][1]`) and a computed call of the element itself (`handlers[key]()`)
+/// cannot be named and stay omitted.
+fn indexed_collection_path(node: Node, bytes: &[u8]) -> Option<String> {
+    let object = node.child_by_field_name("object")?;
+    if object.kind() == "subscript_expression" {
+        return None;
+    }
+    let object_path = callee_path(object, bytes)?;
+    Some(format!("{object_path}[]"))
 }
 
 fn export_payload(node: Node, bytes: &[u8]) -> Value {
@@ -3797,7 +4557,7 @@ mod tests {
         let output = JsTsExtractor
             .extract(input(
                 "src/dispatch.ts",
-                "export function dispatch() {\n  handlers[key]();\n  registry[cacheKey].run();\n  run();\n}\n",
+                "export function dispatch() {\n  handlers[key]();\n  run();\n}\n",
                 "typescript",
             ))
             .await
@@ -3847,6 +4607,43 @@ mod tests {
             entity.kind == EntityKind::Function
                 && entity.stable_key.0 == "symbol://js-ts:src/App.tsx#App"
         }));
+    }
+
+    #[tokio::test]
+    async fn records_a_bare_named_type_alias() {
+        let output = JsTsExtractor
+            .extract(input(
+                "src/types.ts",
+                "export type Client = Repo;\n\
+                 export type Qualified = ns.Repo;\n\
+                 export type Generic = Repo<K>;\n\
+                 export type Union = Repo | Store;\n\
+                 export type Fn = () => Repo;\n",
+                "typescript",
+            ))
+            .await
+            .unwrap();
+
+        let alias = |name: &str| {
+            output
+                .entities
+                .iter()
+                .find(|entity| entity.stable_key.0 == format!("symbol://js-ts:src/types.ts#{name}"))
+                .unwrap_or_else(|| panic!("{name} type alias must exist"))
+        };
+        assert_eq!(alias("Client").payload["aliased_type"], "Repo");
+        assert_eq!(alias("Qualified").payload["aliased_type"], "Repo");
+        assert_eq!(alias("Generic").payload["aliased_type"], "Repo");
+        assert!(
+            alias("Union").payload.get("aliased_type").is_none(),
+            "a union alias names nothing, got {}",
+            alias("Union").payload
+        );
+        assert!(
+            alias("Fn").payload.get("aliased_type").is_none(),
+            "a function alias names nothing, got {}",
+            alias("Fn").payload
+        );
     }
 
     #[tokio::test]
@@ -4556,6 +5353,9 @@ mod tests {
             .find(|entity| entity.kind == EntityKind::Module)
             .expect("module entity must exist");
         let mut expected = vec![
+            "items[]:Item:element".to_string(),
+            "wrapped[]:Item:element".to_string(),
+            "App.fields[]:Field:element".to_string(),
             "item:Item:element".to_string(),
             "each:Item:element".to_string(),
             "one:Item:element".to_string(),
@@ -4603,9 +5403,301 @@ mod tests {
             .find(|entity| entity.kind == EntityKind::Module)
             .expect("module entity must exist");
         let rows = typed_binding_text(&module.payload["typed_bindings"]);
+        assert_eq!(
+            rows,
+            vec!["items[]:Item:element".to_string()],
+            "only a flat collection annotation types its element, got {rows:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn records_the_element_type_of_an_indexed_collection() {
+        let output = JsTsExtractor
+            .extract(input(
+                "src/app.ts",
+                "const items: Item[] = [];\n\
+                 const wrapped: Array<Item> = [];\n\
+                 function run(rows: Row[]) {}\n\
+                 class App {\n\
+                   fields: Field[] = [];\n\
+                 }\n\
+                 interface Repo {\n\
+                   entries: Entry[];\n\
+                 }\n",
+                "typescript",
+            ))
+            .await
+            .unwrap();
+
+        let module = output
+            .entities
+            .iter()
+            .find(|entity| entity.kind == EntityKind::Module)
+            .expect("module entity must exist");
+        let mut expected = vec![
+            "items[]:Item:element".to_string(),
+            "wrapped[]:Item:element".to_string(),
+            "rows[]:Row:element".to_string(),
+            "App.fields[]:Field:element".to_string(),
+            "Repo.entries[]:Entry:element".to_string(),
+        ];
+        expected.sort();
+        assert_eq!(
+            typed_binding_text(&module.payload["typed_bindings"]),
+            expected
+        );
+        assert_eq!(module.payload["omitted_typed_bindings"], 0);
+    }
+
+    #[tokio::test]
+    async fn records_member_calls_on_an_indexed_collection() {
+        let output = JsTsExtractor
+            .extract(input(
+                "src/app.ts",
+                "export function run(items: Item[]) {\n\
+                   items[0].save();\n\
+                   items[i].load();\n\
+                   handlers[key]();\n\
+                   items[0][1].save();\n\
+                 }\n\
+                 class App {\n\
+                   fields: Field[] = [];\n\
+                   start() {\n\
+                     this.fields[0].save();\n\
+                   }\n\
+                 }\n",
+                "typescript",
+            ))
+            .await
+            .unwrap();
+
+        let run = output
+            .entities
+            .iter()
+            .find(|entity| entity.stable_key.0 == "symbol://js-ts:src/app.ts#run")
+            .expect("run declaration must exist");
+        let calls = run.payload["calls"].as_array().expect("calls array");
+        let callees = calls
+            .iter()
+            .filter_map(|call| call["callee"].as_str().map(str::to_string))
+            .collect::<Vec<_>>();
         assert!(
-            rows.is_empty(),
-            "no element type may be recorded: {rows:?}"
+            callees.contains(&"items[].save".to_string()),
+            "an index access member call must be named, got {callees:?}"
+        );
+        assert!(
+            callees.contains(&"items[].load".to_string()),
+            "an index variable is the same receiver as a literal index, got {callees:?}"
+        );
+        assert!(
+            !callees.iter().any(|callee| callee.contains("handlers[]")),
+            "a computed call of the element itself stays omitted, got {callees:?}"
+        );
+        assert!(
+            !callees.iter().any(|callee| callee.contains("[][]")),
+            "nested index access stays omitted, got {callees:?}"
+        );
+
+        let start = output
+            .entities
+            .iter()
+            .find(|entity| entity.stable_key.0 == "symbol://js-ts:src/app.ts#App.start")
+            .expect("App.start declaration must exist");
+        let start_calls = start.payload["calls"].as_array().expect("calls array");
+        assert!(
+            start_calls
+                .iter()
+                .any(|call| call["callee"] == "this.fields[].save"),
+            "a class field index access must keep the this receiver, got {start_calls:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn records_member_calls_on_a_factory_or_construction_result() {
+        let output = JsTsExtractor
+            .extract(input(
+                "src/app.ts",
+                "export async function run(svc) {\n\
+                   createRepo().save();\n\
+                   (createRepo()).load();\n\
+                   (await createRepo()).flush();\n\
+                   createRepo()!.close();\n\
+                   new Repo().reset();\n\
+                   new ns.Repo().save();\n\
+                   (new ns.Repo()).load();\n\
+                   new ns[key].Repo().wipe();\n\
+                   createRepo().items.save();\n\
+                   svc.build().save();\n\
+                   createRepo().getStore().save();\n\
+                   create()().save();\n\
+                   factory()();\n\
+                   factory()()().save();\n\
+                   (createRepo() as Repo).save();\n\
+                 }\n",
+                "typescript",
+            ))
+            .await
+            .unwrap();
+
+        let run = output
+            .entities
+            .iter()
+            .find(|entity| entity.stable_key.0 == "symbol://js-ts:src/app.ts#run")
+            .expect("run declaration must exist");
+        let calls = run.payload["calls"].as_array().expect("calls array");
+        let callees = calls
+            .iter()
+            .filter_map(|call| call["callee"].as_str().map(str::to_string))
+            .collect::<Vec<_>>();
+        assert!(
+            callees.contains(&"createRepo().save".to_string()),
+            "a member of an identifier factory result must be named, got {callees:?}"
+        );
+        assert!(
+            callees.contains(&"createRepo().load".to_string()),
+            "parentheses wrap the same factory result, got {callees:?}"
+        );
+        assert!(
+            callees.contains(&"createRepo()@.flush".to_string()),
+            "an awaited factory result must keep the await, got {callees:?}"
+        );
+        assert!(
+            callees.contains(&"createRepo().close".to_string()),
+            "a non-null assertion wraps the same factory result, got {callees:?}"
+        );
+        assert!(
+            callees.contains(&"Repo{}.reset".to_string()),
+            "a member of a construction result must be named, got {callees:?}"
+        );
+        assert!(
+            callees.contains(&"Repo{}.save".to_string()),
+            "a qualified constructor still names the terminal type, got {callees:?}"
+        );
+        assert!(
+            callees.contains(&"Repo{}.load".to_string()),
+            "parentheses wrap the same qualified construction, got {callees:?}"
+        );
+        assert!(
+            !callees.iter().any(|callee| callee.contains("wipe")),
+            "a computed constructor stays omitted, got {callees:?}"
+        );
+        assert!(
+            callees.contains(&"createRepo().items.save".to_string()),
+            "a field walk on a factory result must be named, got {callees:?}"
+        );
+        assert!(
+            callees.contains(&"svc.build().save".to_string()),
+            "a member factory result must be named, got {callees:?}"
+        );
+        assert!(
+            callees.contains(&"createRepo().getStore().save".to_string()),
+            "a nested identifier-rooted call result must be named, got {callees:?}"
+        );
+        assert!(
+            callees.contains(&"createRepo().getStore".to_string()),
+            "the inner identifier factory member call is still named, got {callees:?}"
+        );
+        assert!(
+            callees.contains(&"create()().save".to_string()),
+            "one extra call hop on an identifier factory must be named, got {callees:?}"
+        );
+        assert!(
+            !callees.iter().any(|callee| callee.contains("()()()")
+                || callee.contains("()()().")
+                || callee == "factory()"),
+            "a third call hop stays omitted, got {callees:?}"
+        );
+        assert!(
+            callees.contains(&"Repo#.save".to_string()),
+            "an inline assertion on the receiver must name the asserted type, got {callees:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn records_member_calls_on_an_inline_receiver_assertion() {
+        let output = JsTsExtractor
+            .extract(input(
+                "src/app.ts",
+                "export function run(value, other) {\\n\\\
+                   (value as Repo).save();\\n\\\
+                   (<Store>value).load();\\n\\\
+                   (value satisfies Item).flush();\\n\\\
+                   (value as Repo).items.save();\\n\\\
+                   (value as const).reset();\\n\\\
+                   (value as Repo | Other).close();\\n\\\
+                 }\\n",
+                "typescript",
+            ))
+            .await
+            .unwrap();
+
+        let run = output
+            .entities
+            .iter()
+            .find(|entity| entity.stable_key.0 == "symbol://js-ts:src/app.ts#run")
+            .expect("run declaration must exist");
+        let calls = run.payload["calls"].as_array().expect("calls array");
+        let callees = calls
+            .iter()
+            .filter_map(|call| call["callee"].as_str().map(str::to_string))
+            .collect::<Vec<_>>();
+        assert!(
+            callees.contains(&"Repo#.save".to_string()),
+            "as Type must name the asserted type, got {callees:?}"
+        );
+        assert!(
+            callees.contains(&"Store#.load".to_string()),
+            "a type assertion must name the asserted type, got {callees:?}"
+        );
+        assert!(
+            callees.contains(&"Item#.flush".to_string()),
+            "satisfies Type must name the satisfied type, got {callees:?}"
+        );
+        assert!(
+            callees.contains(&"Repo#.items.save".to_string()),
+            "a field walk on an asserted receiver must be named, got {callees:?}"
+        );
+        assert!(
+            !callees.iter().any(|callee| callee.contains("reset")
+                || callee.contains("close")
+                || callee.contains('|')),
+            "as const and mixed assertions stay omitted, got {callees:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn records_super_member_calls() {
+        let output = JsTsExtractor
+            .extract(input(
+                "src/app.ts",
+                "class App extends Base {\n\
+                   start() {\n\
+                     super.save();\n\
+                     super.repo.load();\n\
+                   }\n\
+                 }\n",
+                "typescript",
+            ))
+            .await
+            .unwrap();
+
+        let start = output
+            .entities
+            .iter()
+            .find(|entity| entity.stable_key.0 == "symbol://js-ts:src/app.ts#App.start")
+            .expect("App.start declaration must exist");
+        let calls = start.payload["calls"].as_array().expect("calls array");
+        let callees = calls
+            .iter()
+            .filter_map(|call| call["callee"].as_str().map(str::to_string))
+            .collect::<Vec<_>>();
+        assert!(
+            callees.contains(&"super.save".to_string()),
+            "a super member call must be named, got {callees:?}"
+        );
+        assert!(
+            callees.contains(&"super.repo.load".to_string()),
+            "a super field walk must be named, got {callees:?}"
         );
     }
 
@@ -4757,7 +5849,10 @@ mod tests {
                  }\n\
                  function late() { return compute(); }\n\
                  function bare() { return; }\n\
-                 async function load() { return new Repo(); }\n",
+                 async function load() { return new Repo(); }\n\
+                 function parens() { return (new Repo()); }\n\
+                 const arrowParens = () => (new Store());\n\
+                 async function awaitedNew() { return await new Repo(); }\n",
                 "typescript",
             ))
             .await
@@ -4782,10 +5877,13 @@ mod tests {
             recorded,
             vec![
                 ("App.build".to_string(), "Builder".to_string()),
+                ("arrowParens".to_string(), "Store".to_string()),
+                ("awaitedNew".to_string(), "Repo".to_string()),
                 ("createRepo".to_string(), "Repo".to_string()),
                 ("guarded".to_string(), "Repo".to_string()),
                 ("load".to_string(), "Repo".to_string()),
                 ("makeStore".to_string(), "Store".to_string()),
+                ("parens".to_string(), "Repo".to_string()),
             ]
         );
 
@@ -4803,12 +5901,185 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn records_the_callee_a_declaration_returns() {
+        let output = JsTsExtractor
+            .extract(input(
+                "src/app.ts",
+                "function createRepo() { return makeRepo(); }\n\
+                 const wrap = () => makeStore();\n\
+                 class App { build() { return makeBuilder(); } }\n\
+                 function guarded() {\n\
+                   const f = () => { return inner(); };\n\
+                   return makeRepo();\n\
+                 }\n\
+                 function nestedFn() {\n\
+                   const f = function () { return other(); };\n\
+                   return makeRepo();\n\
+                 }\n\
+                 function mixed() {\n\
+                   if (true) { return makeRepo(); }\n\
+                   return makeOther();\n\
+                 }\n\
+                 function constructed() { return new Repo(); }\n\
+                 function both() {\n\
+                   if (true) { return new Repo(); }\n\
+                   return makeRepo();\n\
+                 }\n\
+                 function member() { return factories.make(); }\n\
+                 function late() { return compute(); }\n\
+                 function bare() { return; }\n\
+                 async function load() { return makeRepo(); }\n\
+                 function parens() { return (makeRepo()); }\n\
+                 const arrowParens = () => (makeStore());\n\
+                 async function awaitedCall() { return await makeRepo(); }\n",
+                "typescript",
+            ))
+            .await
+            .unwrap();
+
+        let mut recorded = Vec::new();
+        for entity in &output.entities {
+            let Some(qualified) = entity
+                .payload
+                .get("qualified_name")
+                .and_then(Value::as_str)
+            else {
+                continue;
+            };
+            if let Some(returned_callee) = entity
+                .payload
+                .get("returned_callee")
+                .and_then(Value::as_str)
+            {
+                recorded.push((qualified.to_string(), returned_callee.to_string()));
+            }
+        }
+        recorded.sort();
+        assert_eq!(
+            recorded,
+            vec![
+                ("App.build".to_string(), "makeBuilder".to_string()),
+                ("arrowParens".to_string(), "makeStore".to_string()),
+                ("awaitedCall".to_string(), "makeRepo".to_string()),
+                ("createRepo".to_string(), "makeRepo".to_string()),
+                ("guarded".to_string(), "makeRepo".to_string()),
+                ("late".to_string(), "compute".to_string()),
+                ("load".to_string(), "makeRepo".to_string()),
+                ("nestedFn".to_string(), "makeRepo".to_string()),
+                ("parens".to_string(), "makeRepo".to_string()),
+                ("wrap".to_string(), "makeStore".to_string()),
+            ]
+        );
+
+        for name in ["constructed", "both", "member", "mixed", "bare"] {
+            let entity = output
+                .entities
+                .iter()
+                .find(|entity| {
+                    entity.payload.get("qualified_name").and_then(Value::as_str) == Some(name)
+                })
+                .unwrap_or_else(|| panic!("{name} must exist"));
+            assert_eq!(
+                entity.payload.get("returned_callee"),
+                None,
+                "{name} must not record a returned callee"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn records_the_type_a_declaration_asserts_on_its_return() {
+        let output = JsTsExtractor
+            .extract(input(
+                "src/app.ts",
+                "function createRepo() { return load() as Repo; }\n\
+                 const wrap = () => fetch() as Store;\n\
+                 class App { build() { return make() as Builder; } }\n\
+                 function parens() { return (load() as Repo); }\n\
+                 async function load() { return await get() as Repo; }\n\
+                 function constructed() { return new Repo() as Other; }\n\
+                 function mixed() {\n\
+                   if (true) { return a as Repo; }\n\
+                   return b as Other;\n\
+                 }\n\
+                 function none() { return load(); }\n\
+                 function asConst() { return load() as const; }\n\
+                 const repo = load() as Item;\n\
+                 const built = new Item() as Other;\n",
+                "typescript",
+            ))
+            .await
+            .unwrap();
+
+        let mut recorded = Vec::new();
+        for entity in &output.entities {
+            let Some(qualified) = entity
+                .payload
+                .get("qualified_name")
+                .and_then(Value::as_str)
+            else {
+                continue;
+            };
+            if let Some(asserted_type) = entity
+                .payload
+                .get("asserted_type")
+                .and_then(Value::as_str)
+            {
+                recorded.push((qualified.to_string(), asserted_type.to_string()));
+            }
+        }
+        recorded.sort();
+        assert_eq!(
+            recorded,
+            vec![
+                ("App.build".to_string(), "Builder".to_string()),
+                ("createRepo".to_string(), "Repo".to_string()),
+                ("load".to_string(), "Repo".to_string()),
+                ("parens".to_string(), "Repo".to_string()),
+                ("wrap".to_string(), "Store".to_string()),
+            ]
+        );
+
+        for name in ["constructed", "mixed", "none", "asConst"] {
+            let entity = output
+                .entities
+                .iter()
+                .find(|entity| {
+                    entity.payload.get("qualified_name").and_then(Value::as_str) == Some(name)
+                })
+                .unwrap_or_else(|| panic!("{name} must exist"));
+            assert_eq!(
+                entity.payload.get("asserted_type"),
+                None,
+                "{name} must not record an asserted type"
+            );
+        }
+
+        let module = output
+            .entities
+            .iter()
+            .find(|entity| entity.kind == EntityKind::Module)
+            .expect("module entity must exist");
+        let rows = typed_binding_text(&module.payload["typed_bindings"]);
+        assert!(
+            rows.contains(&"repo:Item:annotation".to_string()),
+            "an initializer assertion types the binding, got {rows:?}"
+        );
+        assert!(
+            rows.iter().any(|row| row.starts_with("built:Item:construction")),
+            "a construction still wins over an assertion, got {rows:?}"
+        );
+    }
+
+    #[tokio::test]
     async fn records_whether_a_binding_awaits_the_call_that_initializes_it() {
         let output = JsTsExtractor
             .extract(input(
                 "src/app.ts",
                 "async function run() {\n\
                    const repo = await createRepo();\n\
+                   const wrapped = await (createRepo());\n\
+                   const parens = (createRepo());\n\
                    const pending = createRepo();\n\
                    const plain = compute();\n\
                  }\n",
@@ -4838,9 +6109,11 @@ mod tests {
         assert_eq!(
             rows,
             vec![
+                "parens:createRepo:false".to_string(),
                 "pending:createRepo:false".to_string(),
                 "plain:compute:false".to_string(),
                 "repo:createRepo:true".to_string(),
+                "wrapped:createRepo:true".to_string(),
             ]
         );
         assert_eq!(module.payload["omitted_call_bindings"], 0);
@@ -4879,6 +6152,347 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn records_the_element_type_an_array_literal_constructs() {
+        let output = JsTsExtractor
+            .extract(input(
+                "src/app.ts",
+                "const items = [new Item(), new Item()];\n\
+                 const empty = [];\n\
+                 const mixed = [new Item(), new Other()];\n\
+                 const nested = [[new Item()]];\n\
+                 const called = [createItem()];\n\
+                 const spread = [...items];\n\
+                 class App { fields = [new Field()]; }\n",
+                "typescript",
+            ))
+            .await
+            .unwrap();
+
+        let module = output
+            .entities
+            .iter()
+            .find(|entity| entity.kind == EntityKind::Module)
+            .expect("module entity must exist");
+        let mut expected = vec![
+            "items[]:Item:construction".to_string(),
+            "App.fields[]:Field:construction".to_string(),
+        ];
+        expected.sort();
+        assert_eq!(
+            typed_binding_text(&module.payload["typed_bindings"]),
+            expected
+        );
+        assert_eq!(module.payload["omitted_typed_bindings"], 0);
+    }
+
+    #[tokio::test]
+    async fn records_constrained_type_parameters_as_the_bound() {
+        let output = JsTsExtractor
+            .extract(input(
+                "src/app.ts",
+                "function run<T extends Repo>(repo: T) {}\n\
+                 function qualified<T extends ns.Store>(store: T) {}\n\
+                 function both<T extends Client = Other>(client: T) {}\n\
+                 class App<T extends Item> {\n\
+                   repo: T;\n\
+                   start(entry: T) {}\n\
+                 }\n\
+                 class Service {\n\
+                   load<T extends Cache>(cache: T) {}\n\
+                 }\n\
+                 interface Box<T extends Entry> {\n\
+                   item: T;\n\
+                 }\n",
+                "typescript",
+            ))
+            .await
+            .unwrap();
+
+        let module = output
+            .entities
+            .iter()
+            .find(|entity| entity.kind == EntityKind::Module)
+            .expect("module entity must exist");
+        let rows = typed_binding_text(&module.payload["typed_bindings"]);
+        for expected in [
+            "repo:Repo:annotation",
+            "store:Store:annotation",
+            "client:Client:annotation",
+            "App.repo:Item:annotation",
+            "entry:Item:annotation",
+            "cache:Cache:annotation",
+            "Box.item:Entry:annotation",
+        ] {
+            assert!(
+                rows.contains(&expected.to_string()),
+                "constrained type parameter must record the bound {expected}, got {rows:?}"
+            );
+        }
+        assert!(
+            !rows.iter().any(|row| row.contains(":T:")),
+            "a usable bound must replace the type parameter, got {rows:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn records_constrained_return_types_as_the_bound() {
+        let output = JsTsExtractor
+            .extract(input(
+                "src/app.ts",
+                r#"
+function create<T extends Repo>(): T { return load(); }
+function qualified<T extends ns.Store>(): T { return load(); }
+class App<T extends Item> {
+  build(): T { return load(); }
+}
+class Service {
+  load<T extends Cache>(): T { return load(); }
+}
+const make = <T extends Client>(): T => load();
+async function wrap<T extends Repo>(): T { return load(); }
+async function promised<T extends Store>(): Promise<T> { return load(); }
+"#,
+                "typescript",
+            ))
+            .await
+            .unwrap();
+
+        let return_of = |name: &str| {
+            output
+                .entities
+                .iter()
+                .find(|entity| {
+                    entity
+                        .payload
+                        .get("qualified_name")
+                        .and_then(Value::as_str)
+                        == Some(name)
+                })
+                .and_then(|entity| {
+                    entity
+                        .payload
+                        .get("return_type")
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                })
+        };
+        let awaited_of = |name: &str| {
+            output
+                .entities
+                .iter()
+                .find(|entity| {
+                    entity
+                        .payload
+                        .get("qualified_name")
+                        .and_then(Value::as_str)
+                        == Some(name)
+                })
+                .and_then(|entity| {
+                    entity
+                        .payload
+                        .get("awaited_return_type")
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                })
+        };
+
+        assert_eq!(return_of("create").as_deref(), Some("Repo"));
+        assert_eq!(return_of("qualified").as_deref(), Some("Store"));
+        assert_eq!(return_of("App.build").as_deref(), Some("Item"));
+        assert_eq!(return_of("Service.load").as_deref(), Some("Cache"));
+        assert_eq!(return_of("make").as_deref(), Some("Client"));
+        assert_eq!(return_of("wrap"), None);
+        assert_eq!(awaited_of("wrap").as_deref(), Some("Repo"));
+        assert_eq!(return_of("promised"), None);
+        assert_eq!(awaited_of("promised").as_deref(), Some("Store"));
+    }
+
+    #[tokio::test]
+    async fn unconstrained_return_type_parameters_do_not_take_a_bound() {
+        let output = JsTsExtractor
+            .extract(input(
+                "src/app.ts",
+                r#"
+function free<T>(): T { return load(); }
+function union<T extends Repo | Store>(): T { return load(); }
+function def<T = Repo>(): T { return load(); }
+"#,
+                "typescript",
+            ))
+            .await
+            .unwrap();
+
+        for name in ["free", "union", "def"] {
+            let entity = output
+                .entities
+                .iter()
+                .find(|entity| {
+                    entity
+                        .payload
+                        .get("qualified_name")
+                        .and_then(Value::as_str)
+                        == Some(name)
+                })
+                .unwrap_or_else(|| panic!("{name} must be extracted"));
+            assert_ne!(
+                entity.payload.get("return_type").and_then(Value::as_str),
+                Some("Repo"),
+                "{name} must not record the bound, got {}",
+                entity.payload
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn records_returned_function_types() {
+        let output = JsTsExtractor
+            .extract(input(
+                "src/app.ts",
+                r#"
+function create(): () => Repo { return load; }
+function nested(): (() => Store) { return load; }
+function params(x: number): (n: number) => Client { return load; }
+function hop(): () => () => Repo { return load; }
+function generic(): <T>() => Repo { return load; }
+async function wrap(): () => Repo { return load; }
+function make<T extends Item>(): () => T { return load; }
+class App {
+  build(): () => Cache { return load; }
+}
+const factory = (): (() => Session) => load;
+"#,
+                "typescript",
+            ))
+            .await
+            .unwrap();
+
+        let yielded = |name: &str| -> Option<String> {
+            output
+                .entities
+                .iter()
+                .find(|entity| {
+                    entity
+                        .payload
+                        .get("qualified_name")
+                        .and_then(Value::as_str)
+                        == Some(name)
+                })
+                .and_then(|entity| {
+                    entity
+                        .payload
+                        .get("returned_function_type")
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                })
+        };
+        let return_of = |name: &str| -> Option<String> {
+            output
+                .entities
+                .iter()
+                .find(|entity| {
+                    entity
+                        .payload
+                        .get("qualified_name")
+                        .and_then(Value::as_str)
+                        == Some(name)
+                })
+                .and_then(|entity| {
+                    entity
+                        .payload
+                        .get("return_type")
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                })
+        };
+
+        assert_eq!(yielded("create").as_deref(), Some("Repo"));
+        assert_eq!(return_of("create"), None);
+        assert_eq!(yielded("nested").as_deref(), Some("Store"));
+        assert_eq!(yielded("params").as_deref(), Some("Client"));
+        assert_eq!(yielded("hop"), None);
+        assert_eq!(yielded("generic"), None);
+        assert_eq!(yielded("wrap"), None);
+        assert_eq!(yielded("make").as_deref(), Some("Item"));
+        assert_eq!(yielded("App.build").as_deref(), Some("Cache"));
+        assert_eq!(yielded("factory").as_deref(), Some("Session"));
+    }
+
+    #[tokio::test]
+    async fn records_bindings_initialized_by_an_invoked_factory() {
+        let output = JsTsExtractor
+            .extract(input(
+                "src/app.ts",
+                r#"
+const repo = create()();
+const nested = (create())();
+const once = create();
+const triple = create()()();
+const awaited = await create()();
+const member = svc.build()();
+"#,
+                "typescript",
+            ))
+            .await
+            .unwrap();
+
+        let module = output
+            .entities
+            .iter()
+            .find(|entity| entity.kind == EntityKind::Module)
+            .expect("module entity must exist");
+        let bindings = module.payload["call_bindings"]
+            .as_array()
+            .expect("call bindings array");
+        let mut rows = Vec::new();
+        for binding in bindings {
+            rows.push(format!(
+                "{}:{}:{}:{}",
+                binding["name"].as_str().unwrap_or_default(),
+                binding["callee"].as_str().unwrap_or_default(),
+                binding["awaited"].as_bool().unwrap_or_default(),
+                binding["invoked"].as_bool().unwrap_or_default()
+            ));
+        }
+        rows.sort();
+        assert_eq!(
+            rows,
+            vec![
+                "nested:create:false:true".to_string(),
+                "once:create:false:false".to_string(),
+                "repo:create:false:true".to_string(),
+            ]
+        );
+        assert_eq!(module.payload["omitted_call_bindings"], 0);
+    }
+
+    #[tokio::test]
+    async fn unconstrained_or_union_type_parameters_do_not_take_a_bound() {
+        let output = JsTsExtractor
+            .extract(input(
+                "src/app.ts",
+                "function free<T>(repo: T) {}\n\
+                 function union<T extends Repo | Store>(pair: T) {}\n\
+                 function def<T = Repo>(value: T) {}\n",
+                "typescript",
+            ))
+            .await
+            .unwrap();
+
+        let module = output
+            .entities
+            .iter()
+            .find(|entity| entity.kind == EntityKind::Module)
+            .expect("module entity must exist");
+        let rows = typed_binding_text(&module.payload["typed_bindings"]);
+        assert!(
+            !rows
+                .iter()
+                .any(|row| row.contains(":Repo:") || row.contains(":Store:")),
+            "an unconstrained, union, or default-only parameter must not take a bound, got {rows:?}"
+        );
+    }
+
+    #[tokio::test]
     async fn records_typescript_parameter_properties_as_typed_fields() {
         let output = JsTsExtractor
             .extract(input(
@@ -4906,7 +6520,6 @@ mod tests {
         for source in [
             "const service = createService();\n",
             "let pair: Service | Repo;\n",
-            "let items: Service[];\n",
             "const { service } = context;\n",
             "const alias = service;\n",
             "let handler: () => void;\n",

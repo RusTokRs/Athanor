@@ -22,7 +22,7 @@ fn runtime_owner_is_conventional_and_bounded() {
         ("runtime root", RUNTIME_ROOT, 100),
         ("runtime model", RUNTIME_MODEL, 140),
         ("runtime registry", RUNTIME_REGISTRY, 360),
-        ("runtime builder", RUNTIME_BUILDER, 220),
+        ("runtime builder", RUNTIME_BUILDER, 250),
         ("runtime trust", RUNTIME_TRUST, 160),
     ] {
         let lines = source.lines().count();

@@ -1,35 +1,36 @@
-use std::path::{Path, PathBuf};
-
 use anyhow::{Context, Result};
 
+use super::process_adapter_support::command_payload_files;
 use super::{DiscoveredAdapterPlugin, TrustedAdapterExecutable, TrustedAdapterPlugin, plugin_hash};
 
 /// Builds the immutable record compared against the user trust registry.
-pub(super) fn build(
-    plugin: &DiscoveredAdapterPlugin,
-    resolve_program: impl Fn(&Path, &str) -> Result<PathBuf>,
-) -> Result<TrustedAdapterPlugin> {
+pub(super) fn build(plugin: &DiscoveredAdapterPlugin) -> Result<TrustedAdapterPlugin> {
     let manifest_dir = plugin.manifest_path.parent().ok_or_else(|| {
         anyhow::anyhow!(
             "adapter manifest has no parent: {}",
             plugin.manifest_path.display()
         )
     })?;
-    let mut executable_hashes = plugin
+    let mut executable_hashes = Vec::new();
+    for adapter in plugin
         .manifest
         .adapters
         .iter()
         .filter(|adapter| adapter.enabled)
-        .filter_map(|adapter| adapter.command.as_ref())
-        .map(|command| {
-            let program = resolve_program(manifest_dir, &command.program)?;
-            Ok(TrustedAdapterExecutable {
-                content_hash: plugin_hash::executable(&program)?,
-                content_size_bytes: plugin_hash::executable_size(&program)?,
+    {
+        let Some(command) = adapter.command.as_ref() else {
+            continue;
+        };
+        for program in command_payload_files(manifest_dir, command)? {
+            let (content_hash, content_size_bytes) =
+                plugin_hash::digest(&program, "adapter executable")?;
+            executable_hashes.push(TrustedAdapterExecutable {
+                content_hash,
+                content_size_bytes,
                 program,
-            })
-        })
-        .collect::<Result<Vec<_>>>()?;
+            });
+        }
+    }
     executable_hashes.sort_by(|left, right| left.program.cmp(&right.program));
     executable_hashes.dedup_by(|left, right| left.program == right.program);
     Ok(TrustedAdapterPlugin {

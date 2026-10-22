@@ -9,6 +9,7 @@ use athanor_core::{CancellationHandle, OperationContext, OperationContextCancell
 #[derive(Debug, Default)]
 struct CancellationState {
     cancelled: AtomicBool,
+    notify: tokio::sync::Notify,
     operation: Mutex<Option<CancellationHandle>>,
 }
 
@@ -28,6 +29,7 @@ impl CancellationToken {
 
     pub fn cancel(&self) {
         self.state.cancelled.store(true, Ordering::Release);
+        self.state.notify.notify_waiters();
         let operation = self
             .state
             .operation
@@ -36,6 +38,19 @@ impl CancellationToken {
             .clone();
         if let Some(operation) = operation {
             operation.cancel();
+        }
+    }
+
+    pub async fn cancelled(&self) {
+        loop {
+            if self.is_cancelled() {
+                return;
+            }
+            let notified = self.state.notify.notified();
+            if self.is_cancelled() {
+                return;
+            }
+            notified.await;
         }
     }
 

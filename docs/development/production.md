@@ -106,6 +106,7 @@ External process adapters are disabled by default:
 [adapters]
 allow_external_process = false
 external_process_allowlist = []
+disabled = []
 ```
 
 Set the value to `true` only for trusted manifests and executables. Athanor logs every enabled
@@ -117,13 +118,17 @@ and an empty allowlist rejects all external process adapters.
 Adapter manifests are parsed strictly and reject unknown fields. External adapter commands must use
 explicit absolute paths or manifest-relative paths that stay inside the manifest directory after
 canonicalization; bare command names are not resolved through `PATH`. Process execution is bounded by
-stdin, stdout, stderr, and wall-clock limits. Timed-out adapter processes are terminated, and
-oversized output fails with a bounded adapter-scoped error.
+stdin, stdout, stderr, and wall-clock limits. Timed-out or oversized adapter processes are terminated
+immediately, and oversized output fails with a bounded adapter-scoped error. Regular files named in
+command `args` are part of the trust digest; symlink arguments are rejected.
 
 External adapter manifests also require user-level trust stored outside the repository. The default
-trust store is `~/.athanor/adapter-trust.json` or `ATHANOR_ADAPTER_TRUST` when set. A trust record
-contains the canonical manifest path and SHA-256 hash of the manifest content, so modifying a
-manifest requires a new explicit trust action:
+trust store is `~/.athanor/adapter-trust.json` or `ATHANOR_ADAPTER_TRUST` when set. Relative
+`ATHANOR_ADAPTER_TRUST` values are resolved against the current working directory. A trust record
+contains the canonical manifest path, the SHA-256 hash of the manifest, and SHA-256 hashes of the
+command program plus regular files named in `args`. Modifying any of those files requires a new
+explicit trust action. Existing symlink or directory command arguments fail closed instead of being hashed.
+`ath plugins untrust` can remove a record after the manifest file is deleted:
 
 ```bash
 ath plugins list

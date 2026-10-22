@@ -8,15 +8,16 @@ status: active
 # Bounded Code Exploration (ath explore, MCP `explore`)
 
 `explore` answers one orientation question in a single bounded call: which canonical entities the
-question is about, where they live in the source tree, what they are connected to, which relation
-chains lead away from them, and how large their blast radius is within the requested hop budget.
-Everything is read out of one committed canonical snapshot, so each field keeps a path and line
-citation and nothing is re-parsed at query time. Source text is never read; the query surface stays
-bounded even for large repositories.
+question is about, the cited source slice of those declarations, what they are connected to, which
+relation chains lead away from them, and how large their blast radius is within the requested hop
+budget. Graph fields are read out of one committed canonical snapshot. Excerpts re-read only the
+line range each declaration already cites, clipped to 32 lines and 4,096 bytes, so the query surface
+stays bounded even for large repositories.
 
 The owner is `crates/athanor-app/src/explore.rs`, with the traversal in
-`crates/athanor-app/src/explore/paths.rs`. The same application service backs the CLI command and the
-MCP tool, so both surfaces report identical budgets and disclosures.
+`crates/athanor-app/src/explore/paths.rs` and the excerpt reader in
+`crates/athanor-app/src/explore/excerpts.rs`. The same application service backs the CLI command and
+the MCP tool, so both surfaces report identical budgets and disclosures.
 
 ## CLI Command Usage
 
@@ -53,18 +54,20 @@ blast-radius files; both limits are reported, never hidden.
 
 ## Reported Fields
 
-- `entries` — ranked entities with stable key, kind, name, source anchor, retrieval score, up to four
+- `entries` — ranked entities with stable key, kind, name, source anchor, a bounded `excerpt` of the
+  cited declaration range when the working tree can supply it, retrieval score, up to four
   de-duplicated fact citations, open diagnostic counts, and the one-hop relation neighbourhood in both
   directions with per-link evidence.
 - `paths` — the shortest chain from each entry to each entity reached at two hops or deeper. Each step
   carries the relation kind, linker status and confidence, traversal `direction` relative to the stored
-  relation, both endpoints, and the first cited file and line. Chains of one hop are deliberately not
+  relation, both endpoints, and the first cited file and line. The reached declaration also carries a
+  bounded `excerpt` when its cited range can be read. Chains of one hop are deliberately not
   repeated: they are already the entry's `outgoing` and `incoming` links.
 - `blast` — aggregate blast radius for the same hop budget: entries, distinct reached entities, distinct
   relations that carried the traversal, expanded edge count, per-hop reach counts, open diagnostics over
   the entry set plus everything it reaches, and the sorted file list.
 - `omitted` — unresolved seeds, candidates dropped by the entry budget, link and path truncation counts,
-  and human-readable notes for each disclosure.
+  unread source excerpts, and human-readable notes for each disclosure.
 - `limits` and `anchor` — the effective budgets and the `--target` value, so a response can be replayed.
 
 ## Traversal Rules
@@ -78,7 +81,8 @@ and `ath change-map` ([Change Map](change-map.md)) remains the ranked candidate 
 
 Ordering is deterministic end to end: adjacency is sorted by relation kind, then counterpart stable key,
 then relation id; chains are sorted by entry stable key, hop, and target stable key; files are sorted
-lexically. Two identical requests against the same snapshot produce byte-identical reports.
+lexically. Two identical requests against the same snapshot and the same working tree produce
+byte-identical reports.
 
 ## Boundaries
 
@@ -88,8 +92,9 @@ lexically. Two identical requests against the same snapshot produce byte-identic
   list, and omitted file is counted in `omitted` and described in a note.
 - Confidence and status are copied from the canonical relation, so an `inferred` call edge stays marked as
   such instead of reading like a verified fact.
-- The report never inlines source bodies. It cites path and line ranges so a caller reads exactly the
-  referenced slice with its own file access.
+- The report never dumps a file. An excerpt is only the cited declaration range, clipped to 32 lines
+  and 4,096 bytes, and an absolute path, a `..` component, a missing file, and non-UTF-8 contents are
+  counted in `omitted.source_unread` instead of being guessed. Blast-radius files stay a path list.
 
 ## Verification
 

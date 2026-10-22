@@ -71,18 +71,7 @@ async fn validate_changed_inner(
     }
     let config = load_config(&root)?;
     let pipeline = RuntimeBuilder::from_composition(&root, composition)
-        .allow_external_process(config.adapters.allow_external_process)
-        .clear_external_process_environment(matches!(
-            config.adapters.external_process_sandbox,
-            crate::config::ExternalProcessSandboxProfile::CleanEnvironment
-        ))
-        .allowed_external_process_programs(
-            config
-                .adapters
-                .external_process_allowlist
-                .iter()
-                .map(PathBuf::from),
-        )
+        .with_adapters_config(&config.adapters)
         .with_discovered_plugins()
         .context("failed to discover adapter plugins")?
         .build_extraction_pipeline(

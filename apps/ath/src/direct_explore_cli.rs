@@ -149,6 +149,20 @@ fn print_report(report: &ExploreReport) {
                 );
             }
         }
+        if let Some(excerpt) = &entry.excerpt {
+            let label = if excerpt.truncated {
+                "source (truncated)"
+            } else {
+                "source"
+            };
+            println!(
+                "  {label}: {}:{}-{}",
+                excerpt.source_file, excerpt.line_start, excerpt.line_end
+            );
+            for line in excerpt.text.lines() {
+                println!("    {line}");
+            }
+        }
         for link in &entry.outgoing {
             println!(
                 "  -> {} {} ({})",

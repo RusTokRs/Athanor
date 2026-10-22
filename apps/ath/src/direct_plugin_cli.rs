@@ -195,7 +195,19 @@ pub(crate) fn run(command: Command) -> Result<()> {
 }
 
 fn trust_path(path: Option<PathBuf>) -> Result<PathBuf> {
-    path.map_or_else(default_adapter_trust_path, Ok)
+    match path {
+        Some(path) if path.as_os_str().is_empty() => {
+            anyhow::bail!("--trust-store must not be empty")
+        }
+        Some(path) if path.is_absolute() => Ok(path),
+        Some(path) => std::path::absolute(&path).with_context(|| {
+            format!(
+                "failed to resolve relative --trust-store {} against the current directory",
+                path.display()
+            )
+        }),
+        None => default_adapter_trust_path(),
+    }
 }
 
 fn print_report(report: &VersionedAdapterTrustReport) {
@@ -227,6 +239,13 @@ fn print_report(report: &VersionedAdapterTrustReport) {
             plugin.manifest_path.display()
         );
         println!("    hash: {}", plugin.content_hash);
+        for executable in &plugin.executable_hashes {
+            println!(
+                "    payload: {} ({})",
+                executable.program.display(),
+                executable.content_hash
+            );
+        }
     }
 }
 

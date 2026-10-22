@@ -28,13 +28,50 @@ Stable keys use the `symbol://rust:` namespace and a collision-resistant crate/m
 Declarations record the evidence a relation linker needs to resolve a call. Functions, methods, and
 trait methods carry a bounded `calls` array of `{callee, name, receiver, kind, line}`: a bare path
 call keeps `receiver: null` with `kind: "call"`, and a method call records the receiver expression
-as written with `kind: "method"`. They also carry a bounded `typed_bindings` array of rows
+with spaces around `.` and wrapping parentheses collapsed so `self.reader.write()`
+records as `self.reader`, `(&mut self.reader).write()` as `&mut self.reader`, and
+`svc.create().write()` as `svc.create()`, and
+`create_repo().get().write()` as `create_repo().get()`, and
+`Store::new().write()` as `Store::new()`, and
+`Store::new().get().write()` as `Store::new().get()`, and
+`crate::create_repo().write()` as `crate::create_repo()`, and
+`crate::create_repo().get().write()` as `crate::create_repo().get()`, and
+`create_repo()?.write()` as `create_repo()?`, and
+`create_repo()?.get().write()` as `create_repo()?.get()`, and
+`create_repo().unwrap().write()` as `create_repo().unwrap()`, and
+`create_repo().unwrap().get().write()` as `create_repo().unwrap().get()` with
+`kind: "method"`. Function, method, and trait-method payloads also carry
+`return_type` when the signature names one usable type: `fn create_repo() -> Store`
+records `Store`, and so do `-> Box<Store>` and `-> &Store`. On an inherent impl,
+`-> Self` is that type: `impl Store { fn new() -> Self }` records `Store`. `-> Result<Store, E>`
+and `-> Option<Store>` record `Store` with `try_yield`, so only a `?`,
+`.unwrap()`, or `.expect(...)` on that hop may take it. A type parameter that
+names one trait bound (`T: Reader` or `where T: Reader`) records that trait with
+`return_kind: impl_trait`, and so do `-> impl Reader` and `-> Box<dyn Reader>`
+(`trait_object`). Unconstrained `T`, extra bounds, a tuple, a missing `->`, and `Self` outside an
+inherent impl record nothing. They also carry a bounded `typed_bindings` array of rows
 `{name, type, kind, line}` — `kind` is `annotation`, `trait_object`, or `impl_trait` — read from
 typed parameters and annotated locals, including those nested in blocks and match arms, bounded to 64
-rows with an `omitted_typed_bindings` count. References
+rows with an `omitted_typed_bindings` count. An unannotated `let store = create_repo()`,
+`let store = Store::new()`, `let store = svc.create()` / `self.create()`,
+`let store = crate::create_repo()`, one extra hop such as
+`let store = create_repo().get()`, `let store = crate::create_repo().get()`, or a trailing `?` such as
+`let store = create_repo()?`, or an inner-try hop such as
+`let store = create_repo()?.get()`, or a trailing `.unwrap()` / `.expect(...)` such as
+`let store = create_repo().unwrap()`, or an inner unwrap hop such as
+`let store = create_repo().unwrap().get()` instead records a
+bounded `call_bindings` row `{name, callee, line}` so the linker can read that factory's
+declared return; a trailing `?` or unwrap/expect also sets `try: true`. A third hop names nothing. Named struct fields use the same `typed_bindings` rows, so
+`self.reader.write()` can dispatch from the field `App` declares; a tuple or unit struct records
+none. References
 and `Box`/`Rc`/`Arc` unwrap to the type they name; a generic argument, a trait object with extra
 bounds, a primitive, `Self`, and an unannotated local name nothing dispatchable and are not
-recorded. A trait declaration's own methods are emitted as `symbol_kind: "trait_method"`
+recorded. A type parameter that names one trait bound — `T: Reader` on the parameter, on the
+enclosing impl, trait, or struct, or in a `where T: Reader` clause — records that trait as `impl_trait`, so
+the linker dispatches like `impl Reader`. Unconstrained `T`, `T: Reader + Send`, and `T: Into<U>`
+leave the parameter name. A type-alias payload carries `aliased_type` when the right-hand side is a
+bare named type: `type Client = Store` and `type Client = crate::app::Store` record `Store`. A
+generic, a tuple, a reference, and a primitive name nothing the linker can unfold. A trait declaration's own methods are emitted as `symbol_kind: "trait_method"`
 functions, so a `dyn Trait` receiver has a declaration to resolve to.
 
 Every `impl Trait for Type` block is recorded as a `symbol_defined` fact with

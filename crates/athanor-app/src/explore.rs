@@ -1,12 +1,13 @@
 //! Bounded single-call code exploration over one exact canonical snapshot.
 //!
 //! `explore` answers one agent question with ranked entry entities, their portable source anchors,
-//! citation evidence, the one-hop relation neighbourhood in both directions, bounded multi-hop
-//! code-flow chains, and an aggregate blast radius for the same hop budget. Entries are seeded
-//! either by bounded retrieval (the same lexical/semantic/hybrid search the `search` tool uses) or
-//! by an exact stable key or repository path, so an agent that already knows where to look does not
-//! pay a retrieval round-trip first. It never reads source files: every field is derived from
-//! canonical entities, relations, facts, and diagnostics.
+//! bounded declaration excerpts, citation evidence, the one-hop relation neighbourhood in both
+//! directions, bounded multi-hop code-flow chains, and an aggregate blast radius for the same hop
+//! budget. Entries are seeded either by bounded retrieval (the same lexical/semantic/hybrid search
+//! the `search` tool uses) or by an exact stable key or repository path, so an agent that already
+//! knows where to look does not pay a retrieval round-trip first. Graph fields come from the
+//! canonical snapshot; excerpts read only the cited line range of each declaration, clipped to a
+//! line and byte bound, and a missing, escaped, or non-UTF-8 file is disclosed rather than guessed.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -25,9 +26,12 @@ use crate::search::{
     SearchMode, SearchReport, search_snapshot_with_composition_and_operation_context,
 };
 
+#[path = "explore/excerpts.rs"]
+mod excerpts;
 #[path = "explore/paths.rs"]
 mod paths;
 
+pub use excerpts::{ExploreExcerpt, MAX_EXCERPT_LINES};
 pub use paths::{
     DEFAULT_EXPLORE_DEPTH, DEFAULT_EXPLORE_PATHS, ExploreBlast, ExploreBlastDepth, ExplorePath,
     ExplorePathEndpoint, ExplorePathStep, MAX_EXPLORE_DEPTH, MAX_EXPLORE_PATHS,
@@ -71,6 +75,8 @@ pub struct ExploreOmissions {
     pub entries_over_budget: usize,
     pub links_truncated: usize,
     pub paths_truncated: usize,
+    /// Cited declaration ranges that could not be read from the working tree.
+    pub source_unread: usize,
     pub notes: Vec<String>,
 }
 
@@ -112,6 +118,8 @@ pub struct ExploreEntry {
     pub outgoing: Vec<ExploreLink>,
     pub incoming: Vec<ExploreLink>,
     pub open_diagnostics: usize,
+    /// Bounded source slice of the declaration, when the cited range can be read.
+    pub excerpt: Option<ExploreExcerpt>,
 }
 
 /// One resolved starting point of an exploration, before canonical entity lookup.
@@ -325,10 +333,20 @@ pub fn explore_snapshot(
                 .iter()
                 .filter(|diagnostic| diagnostic.entities.contains(&entity.id))
                 .count(),
+            excerpt: None,
         });
     }
 
     let traversal = paths::explore_flow(snapshot, &explored, depth, path_budget);
+    let mut paths = traversal.paths;
+    let mut reader = excerpts::ExcerptReader::new(root);
+    for entry in &mut built {
+        entry.excerpt = reader.take(entry.source.as_ref());
+    }
+    for path in &mut paths {
+        path.excerpt = reader.take(path.target.source.as_ref());
+    }
+    let source_unread = reader.unread();
     let entries_over_budget = request.candidates.saturating_sub(built.len());
 
     if unresolved > 0 {
@@ -349,6 +367,11 @@ pub fn explore_snapshot(
     if request.retrieval_truncated {
         notes.push("retrieval returned more candidates than the entry budget".to_string());
     }
+    if source_unread > 0 {
+        notes.push(format!(
+            "{source_unread} source excerpts could not be read from the working tree"
+        ));
+    }
     notes.extend(traversal.notes);
 
     ExploreReport {
@@ -360,13 +383,14 @@ pub fn explore_snapshot(
         anchor: request.anchor.clone(),
         limits: *limits,
         entries: built,
-        paths: traversal.paths,
+        paths,
         blast: traversal.blast,
         omitted: ExploreOmissions {
             entries_unresolved: unresolved,
             entries_over_budget,
             links_truncated,
             paths_truncated: traversal.paths_truncated,
+            source_unread,
             notes,
         },
     }
@@ -510,7 +534,7 @@ mod tests {
     use athanor_domain::{
         Diagnostic, DiagnosticId, DiagnosticKind, DiagnosticStatus, EntityKind, EvidenceStatus,
         Fact, FactId, FactKind, LanguageCode, RelationId, RelationKind, RelationStatus, Severity,
-        SnapshotId, StableKey,
+        SnapshotId, SourceLocation, StableKey,
     };
     use serde_json::json;
 
@@ -627,7 +651,14 @@ mod tests {
                 .any(|path| path.target.name == "LOG_LEVEL"),
             "diagnostic-only relations must not carry the traversal"
         );
-        assert!(report.omitted.notes.is_empty());
+        assert!(report.entries[0].excerpt.is_none());
+        assert_eq!(report.omitted.source_unread, 3);
+        assert_eq!(report.omitted.notes.len(), 1);
+        assert!(
+            report.omitted.notes[0].contains("source excerpts could not be read"),
+            "a missing working tree must be disclosed: {:?}",
+            report.omitted.notes
+        );
     }
 
     #[test]
@@ -767,6 +798,110 @@ mod tests {
         );
         assert_eq!(report.omitted.entries_unresolved, 1);
         assert!(report.omitted.notes[0].contains("not canonical entities"));
+        assert_eq!(report.omitted.source_unread, 0);
+    }
+
+    #[test]
+    fn explore_inlines_bounded_declaration_excerpts() {
+        let root = std::env::temp_dir().join(format!(
+            "athanor-explore-excerpt-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(
+            root.join("src/store.rs"),
+            "mod store;\nuse crate::store;\npub fn load() {\n    refresh();\n}\nfn extra() {}\nfn more() {}\nfn tail() {}\nfn end() {}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("src/writer.rs"),
+            "pub struct Writer;\nimpl Writer {}\nfn a() {}\nfn b() {}\nfn c() {}\nfn d() {}\nfn e() {}\nfn f() {}\nfn g() {}\n",
+        )
+        .unwrap();
+
+        let snapshot = snapshot_fixture();
+        let report = explore_snapshot(
+            &root,
+            &snapshot,
+            &ExploreRequest {
+                query: "store load".to_string(),
+                mode: SearchMode::Lexical,
+                snapshot: "snap_fixture".to_string(),
+                anchor: None,
+                candidates: 1,
+                retrieval_truncated: false,
+                seeds: vec![ExploreSeed {
+                    stable_key: LOAD.to_string(),
+                    kind: "function".to_string(),
+                    score: 1.5,
+                }],
+            },
+            &ExploreLimits {
+                entries: 5,
+                links: 8,
+                depth: 2,
+                paths: 16,
+            },
+        );
+
+        let excerpt = report.entries[0]
+            .excerpt
+            .as_ref()
+            .expect("the cited declaration range must be inlined");
+        assert_eq!(excerpt.source_file, "src/store.rs");
+        assert_eq!(excerpt.line_start, 1);
+        assert_eq!(excerpt.line_end, 9);
+        assert!(!excerpt.truncated);
+        assert!(excerpt.text.contains("pub fn load() {"));
+        assert_eq!(report.omitted.source_unread, 0);
+        assert!(
+            report
+                .paths
+                .iter()
+                .any(|path| path.target.name == "writer"
+                    && path
+                        .excerpt
+                        .as_ref()
+                        .is_some_and(|excerpt| excerpt.source_file == "src/writer.rs")),
+            "a path target must carry its own excerpt"
+        );
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn explore_refuses_an_escaped_source_path() {
+        let mut snapshot = snapshot_fixture();
+        snapshot.entities[1].source = Some(SourceLocation {
+            path: "../secret.rs".to_string(),
+            line_start: Some(1),
+            line_end: Some(2),
+        });
+        let report = explore(
+            &snapshot,
+            &[LOAD],
+            ExploreLimits {
+                entries: 5,
+                links: 8,
+                depth: 1,
+                paths: 16,
+            },
+        );
+
+        assert!(report.entries[0].excerpt.is_none());
+        assert!(report.omitted.source_unread >= 1);
+        assert!(
+            report
+                .omitted
+                .notes
+                .iter()
+                .any(|note| note.contains("source excerpts could not be read")),
+            "an escaped citation must be disclosed: {:?}",
+            report.omitted.notes
+        );
     }
 
     #[test]

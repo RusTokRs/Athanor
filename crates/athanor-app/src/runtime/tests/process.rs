@@ -39,6 +39,42 @@ fn raw_process_test_timeout_ms() -> u64 {
     10_000
 }
 
+#[cfg(unix)]
+#[test]
+fn directory_file_args_are_rejected() {
+    let root = temp_root("runtime-directory-arg");
+    fs::create_dir_all(&root).unwrap();
+    let scripts = root.join("scripts");
+    fs::create_dir_all(&scripts).unwrap();
+    let command = AdapterProcessCommand {
+        program: sh_path().display().to_string(),
+        args: vec![scripts.display().to_string()],
+    };
+    let error = ProcessCommand::from_manifest(&root, &command)
+        .expect_err("directory payload args must fail closed");
+    assert!(error.to_string().contains("regular file"));
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn symlink_file_args_are_rejected() {
+    let root = temp_root("runtime-symlink-arg");
+    fs::create_dir_all(&root).unwrap();
+    let target = root.join("payload.py");
+    fs::write(&target, b"print(1)\n").unwrap();
+    let link = root.join("payload.link");
+    std::os::unix::fs::symlink(&target, &link).unwrap();
+    let command = AdapterProcessCommand {
+        program: sh_path().display().to_string(),
+        args: vec![link.display().to_string()],
+    };
+    let error = ProcessCommand::from_manifest(&root, &command)
+        .expect_err("symlink payload args must fail closed");
+    assert!(error.to_string().contains("symlink"));
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn rejects_bare_and_parent_directory_process_commands() {
     for program in ["sh", "../adapter"] {
@@ -83,8 +119,9 @@ async fn external_process_timeout_terminates_unix_process_group() {
             format!("sleep 30 & echo $! > '{}'; wait", child_pid.display()),
         ],
         working_dir: test_working_dir(),
-        expected_content_hash: None,
-        expected_content_size_bytes: None,
+        expected: Vec::new(),
+        fully_verified: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        limits: super::super::process_adapter_support::ProcessLimits::default(),
         clear_environment: false,
     };
 

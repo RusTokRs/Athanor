@@ -30,6 +30,8 @@ const DYN_DISPATCH_CONFIDENCE: f32 = 0.7;
 const DYN_CANDIDATE_CONFIDENCE: f32 = 0.5;
 /// The most implementations one dynamic call site records as candidates.
 const MAX_DYN_CANDIDATES: usize = 8;
+/// Call hops a factory-result receiver may take: `create_repo().get()` is two.
+const MAX_FACTORY_HOPS: usize = 2;
 
 #[derive(Debug, Clone, Default)]
 pub struct RustLinker;
@@ -226,6 +228,8 @@ impl Linker for RustLinker {
                                         name,
                                         &type_index,
                                         &rust_by_qualified_name,
+                                        &imports,
+                                        &qualified_names,
                                     )
                                 })
                         } else {
@@ -528,17 +532,47 @@ fn receiver_types(entity: &Entity) -> HashMap<String, Option<ReceiverType>> {
 
 /// Resolves a method call whose receiver the source typed.
 ///
-/// `self` dispatches inside its own impl, and any other receiver dispatches to
-/// the method of its declared type. A `dyn`/`impl` trait receiver reaches the
-/// trait's declaration, which is what dynamic dispatch calls, while a receiver
-/// the function does not type stays unresolved rather than matching by name.
+/// `self` dispatches inside its own impl. `self.field` walks the named field
+/// the owner struct declares, one hop, after wrapping parentheses and a
+/// leading `&`/`mut` are peeled. `create_repo().write()` takes the type the
+/// factory declares it returns. `svc.create().write()` and `self.create().write()`
+/// take the type that method declares it returns. `create_repo().get().write()`
+/// and `svc.create().get().write()` take one extra hop through that inner
+/// method's return. `Store::new().write()` takes the type that associated
+/// function declares it returns. `Store::new().get().write()` takes one extra
+/// hop through that inner method's return. `let store = create_repo(); store.write()`,
+/// `let store = Store::new(); store.write()`,
+/// `let store = svc.create(); store.write()`, and
+/// `let store = create_repo().get(); store.write()`,
+/// `let store = crate::create_repo().get(); store.write()`, and
+/// `let store = create_repo()?; store.write()`,
+/// `let store = create_repo()?.get(); store.write()`, and
+/// `let store = create_repo().unwrap(); store.write()` take the same factory return
+/// through the binding. A trailing `?`, `.unwrap()`, or `.expect(...)` takes the
+/// Ok/Some type a `Result` / `Option` factory declares. A `?` or unwrap/expect
+/// on the inner hop (`create_repo()?.get().write()`, `create_repo().unwrap().get().write()`,
+/// `svc.create()?.get().write()`, `Store::new()?.get().write()`,
+/// `crate::create_repo()?.get().write()`) takes that yield for that hop only.
+/// `crate::create_repo().write()` and
+/// `crate::app::Store::new().write()` take a `crate::` / `self::` / `super::`
+/// path to that factory. `crate::create_repo().get().write()` takes one extra
+/// hop through that inner method's return. Any other receiver dispatches to the
+/// method of its declared type. A type alias unfolds one hop, so
+/// `type Client = Store` types `item.write()` as `Store::write`. A `dyn`/`impl`
+/// trait receiver reaches the trait's declaration, which is what dynamic
+/// dispatch calls, while a receiver the function does not type stays unresolved
+/// rather than matching by name.
+#[allow(clippy::too_many_arguments)]
 fn resolve_typed_method<'a>(
     caller: &Entity,
     receiver: &str,
     name: &str,
     type_index: &HashMap<String, Option<&'a str>>,
     by_qualified_name: &HashMap<&'a str, &'a Entity>,
+    imports: &[String],
+    qualified_names: &HashSet<&str>,
 ) -> Option<(&'a Entity, &'static str, f32)> {
+    let (receiver, allow_try) = peel_receiver(receiver);
     let (qualified, reason, confidence) = if receiver == "self" {
         let owner = qualified_name(caller)?.rsplit_once("::")?.0;
         (
@@ -546,22 +580,125 @@ fn resolve_typed_method<'a>(
             "rust_self_method",
             SELF_METHOD_CONFIDENCE,
         )
+    } else if let Some(field) = receiver.strip_prefix("self.")
+        && !field.contains('.')
+        && is_field_ident(field)
+    {
+        // `self.reader.write()` names the field the owner struct declares. One
+        // hop only: `self.a.b.write()` is not a field the source typed on self.
+        // `self.create().write()` is a member factory, not a field.
+        let owner_qn = qualified_name(caller)?.rsplit_once("::")?.0;
+        let owner = by_qualified_name.get(owner_qn)?;
+        let receivers = receiver_types(owner);
+        let binding = receivers.get(field)?.as_ref()?;
+        typed_dispatch(binding, type_index, by_qualified_name, name)?
+    } else if let Some(factory) = factory_call_name(&receiver) {
+        let binding = factory_return_type(
+            caller,
+            factory,
+            imports,
+            qualified_names,
+            by_qualified_name,
+            allow_try,
+        )?;
+        typed_dispatch(&binding, type_index, by_qualified_name, name)?
+    } else if let Some((owner, method)) = member_factory_call(&receiver) {
+        let binding = member_factory_return(
+            caller,
+            owner,
+            method,
+            type_index,
+            by_qualified_name,
+            allow_try,
+        )?;
+        typed_dispatch(&binding, type_index, by_qualified_name, name)?
+    } else if let Some((factory, method, factory_tried)) = nested_factory_call(&receiver) {
+        let inner = factory_return_type(
+            caller,
+            factory,
+            imports,
+            qualified_names,
+            by_qualified_name,
+            factory_tried,
+        )?;
+        let binding = type_method_return(&inner, method, type_index, by_qualified_name, allow_try)?;
+        typed_dispatch(&binding, type_index, by_qualified_name, name)?
+    } else if let Some((owner, factory_method, method, factory_tried)) =
+        nested_member_factory_call(&receiver)
+    {
+        let inner = member_factory_return(
+            caller,
+            owner,
+            factory_method,
+            type_index,
+            by_qualified_name,
+            factory_tried,
+        )?;
+        let binding = type_method_return(&inner, method, type_index, by_qualified_name, allow_try)?;
+        typed_dispatch(&binding, type_index, by_qualified_name, name)?
+    } else if let Some((type_name, method)) = associated_factory_call(&receiver) {
+        let binding = ReceiverType {
+            type_name: type_name.to_string(),
+            kind: "annotation",
+        };
+        let binding =
+            type_method_return(&binding, method, type_index, by_qualified_name, allow_try)?;
+        typed_dispatch(&binding, type_index, by_qualified_name, name)?
+    } else if let Some((type_name, factory_method, method, factory_tried)) =
+        nested_associated_factory_call(&receiver)
+    {
+        let inner = ReceiverType {
+            type_name: type_name.to_string(),
+            kind: "annotation",
+        };
+        let inner = type_method_return(
+            &inner,
+            factory_method,
+            type_index,
+            by_qualified_name,
+            factory_tried,
+        )?;
+        let binding = type_method_return(&inner, method, type_index, by_qualified_name, allow_try)?;
+        typed_dispatch(&binding, type_index, by_qualified_name, name)?
+    } else if let Some(factory) = crate_path_factory_call(&receiver) {
+        let binding = factory_return_type(
+            caller,
+            factory,
+            imports,
+            qualified_names,
+            by_qualified_name,
+            allow_try,
+        )?;
+        typed_dispatch(&binding, type_index, by_qualified_name, name)?
+    } else if let Some((factory, method, factory_tried)) = nested_crate_path_factory_call(&receiver)
+    {
+        let inner = factory_return_type(
+            caller,
+            factory,
+            imports,
+            qualified_names,
+            by_qualified_name,
+            factory_tried,
+        )?;
+        let binding = type_method_return(&inner, method, type_index, by_qualified_name, allow_try)?;
+        typed_dispatch(&binding, type_index, by_qualified_name, name)?
     } else {
         let receivers = receiver_types(caller);
-        let binding = receivers.get(receiver)?.as_ref()?;
-        let type_qualified = type_index.get(&binding.type_name)?.as_ref()?;
-        if matches!(binding.kind, "trait_object" | "impl_trait") {
-            (
-                format!("{type_qualified}::{name}"),
-                "rust_dyn_dispatch_method",
-                DYN_DISPATCH_CONFIDENCE,
-            )
+        if let Some(entry) = receivers.get(receiver.as_str()) {
+            let binding = entry.as_ref()?;
+            typed_dispatch(binding, type_index, by_qualified_name, name)?
         } else {
-            (
-                format!("{type_qualified}::{name}"),
-                "rust_typed_receiver_method",
-                TYPED_RECEIVER_CONFIDENCE,
-            )
+            let (callee, tried) = call_receivers(caller).get(receiver.as_str())?.clone()?;
+            let binding = factory_callee_return(
+                caller,
+                &callee,
+                type_index,
+                imports,
+                qualified_names,
+                by_qualified_name,
+                tried,
+            )?;
+            typed_dispatch(&binding, type_index, by_qualified_name, name)?
         }
     };
     let target = by_qualified_name.get(qualified.as_str()).copied()?;
@@ -569,6 +706,672 @@ fn resolve_typed_method<'a>(
         return None;
     }
     Some((target, reason, confidence))
+}
+
+fn typed_dispatch<'a>(
+    binding: &ReceiverType,
+    type_index: &HashMap<String, Option<&'a str>>,
+    by_qualified_name: &HashMap<&'a str, &'a Entity>,
+    name: &str,
+) -> Option<(String, &'static str, f32)> {
+    let type_name = unfold_alias_type(&binding.type_name, type_index, by_qualified_name);
+    let type_qualified = type_index.get(&type_name)?.as_ref()?;
+    if matches!(binding.kind, "trait_object" | "impl_trait") {
+        Some((
+            format!("{type_qualified}::{name}"),
+            "rust_dyn_dispatch_method",
+            DYN_DISPATCH_CONFIDENCE,
+        ))
+    } else {
+        Some((
+            format!("{type_qualified}::{name}"),
+            "rust_typed_receiver_method",
+            TYPED_RECEIVER_CONFIDENCE,
+        ))
+    }
+}
+
+/// Strips wrapping parentheses, a leading `&`/`mut`, a trailing `?`, a trailing
+/// `.unwrap()` / `.expect(...)` on a factory call, and pretty-printed spaces
+/// around `.`, `::`, and `()` so `(&mut self.reader)`, `self . reader`,
+/// `Store :: new ()`, `svc . create ()`, `create_repo()?`, and
+/// `create_repo().unwrap()` walk as `self.reader` / `Store::new()` /
+/// `svc.create()` / `create_repo()`. The bool is whether a trailing try was
+/// peeled. A `?` on an inner hop stays so `create_repo()?.get()` still names
+/// that hop. An inner unwrap (`create_repo().unwrap().get()`) folds to `?` on
+/// that hop.
+fn peel_receiver(receiver: &str) -> (String, bool) {
+    let mut text = compact_receiver_dots(receiver);
+    let mut tried = false;
+    loop {
+        let trimmed = compact_receiver_dots(&text);
+        let trimmed = trimmed.trim();
+        if let Some(folded) = fold_one_inner_unwrap_or_expect(trimmed) {
+            text = folded;
+            continue;
+        }
+        if let Some(inner) = trimmed
+            .strip_prefix('(')
+            .and_then(|rest| rest.strip_suffix(')'))
+        {
+            text = inner.to_string();
+            continue;
+        }
+        if let Some(rest) = trimmed.strip_prefix('&') {
+            text = rest.to_string();
+            continue;
+        }
+        if let Some(rest) = trimmed.strip_prefix("mut ") {
+            text = rest.to_string();
+            continue;
+        }
+        if let Some(rest) = trimmed.strip_suffix('?') {
+            tried = true;
+            text = rest.to_string();
+            continue;
+        }
+        if let Some(rest) = peel_trailing_unwrap_or_expect(trimmed) {
+            if rest.contains("()") {
+                tried = true;
+                text = rest.to_string();
+                continue;
+            }
+        }
+        return (trimmed.to_string(), tried);
+    }
+}
+
+/// Folds one inner `.unwrap().` / `.expect(...).` into `?.` so
+/// `create_repo().unwrap().get()` is `create_repo()?.get()`. Trailing unwrap
+/// stays for `peel_trailing_unwrap_or_expect`.
+fn fold_one_inner_unwrap_or_expect(text: &str) -> Option<String> {
+    if let Some(idx) = text.find(".unwrap().") {
+        let mut folded = String::with_capacity(text.len() - ".unwrap()".len() + 1);
+        folded.push_str(&text[..idx]);
+        folded.push_str("?.");
+        folded.push_str(&text[idx + ".unwrap().".len()..]);
+        return Some(folded);
+    }
+    let mut search = 0;
+    while let Some(rel) = text[search..].find(".expect") {
+        let idx = search + rel;
+        let rest = &text[idx + ".expect".len()..];
+        let after = rest.trim_start();
+        if !after.starts_with('(') {
+            search = idx + 1;
+            continue;
+        }
+        let open = text.len() - after.len();
+        let Some(close) = matching_close_paren(text, open) else {
+            search = idx + 1;
+            continue;
+        };
+        let Some(following_raw) = text.get(close + 1..) else {
+            search = idx + 1;
+            continue;
+        };
+        let following = following_raw.trim_start();
+        if !following.starts_with('.') {
+            search = idx + 1;
+            continue;
+        }
+        let dot_at = text.len() - following.len();
+        let mut folded = String::with_capacity(text.len());
+        folded.push_str(&text[..idx]);
+        folded.push('?');
+        folded.push_str(&text[dot_at..]);
+        return Some(folded);
+    }
+    None
+}
+
+/// Peels a trailing `.unwrap()` or `.expect(...)` so `create_repo().unwrap()`
+/// is `create_repo()`. `store.unwrap()` and `unwrap_or` are not peeled here.
+fn peel_trailing_unwrap_or_expect(text: &str) -> Option<&str> {
+    let trimmed = text.trim();
+    if let Some(rest) = trimmed.strip_suffix(".unwrap()") {
+        return Some(rest.trim_end());
+    }
+    let idx = trimmed.rfind(".expect")?;
+    let after = trimmed[idx + ".expect".len()..].trim_start();
+    if !after.starts_with('(') {
+        return None;
+    }
+    let open = trimmed.len() - after.len();
+    if matching_close_paren(trimmed, open) != Some(trimmed.len() - 1) {
+        return None;
+    }
+    Some(trimmed[..idx].trim_end())
+}
+
+fn matching_close_paren(text: &str, open: usize) -> Option<usize> {
+    if text.as_bytes().get(open) != Some(&b'(') {
+        return None;
+    }
+    let mut depth = 0;
+    let mut in_string = false;
+    let mut escaped = false;
+    for (idx, ch) in text[open..].char_indices() {
+        let at = open + idx;
+        if in_string {
+            if escaped {
+                escaped = false;
+                continue;
+            }
+            match ch {
+                '\\' => escaped = true,
+                '"' => in_string = false,
+                _ => {}
+            }
+            continue;
+        }
+        match ch {
+            '"' => in_string = true,
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(at);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Peels a trailing `?` from one hop: `create_repo()?` is `create_repo()` plus tried.
+fn peel_hop_try(hop: &str) -> (&str, bool) {
+    let trimmed = hop.trim();
+    match trimmed.strip_suffix('?') {
+        Some(rest) => (rest.trim_end(), true),
+        None => (trimmed, false),
+    }
+}
+
+/// The factory an identifier call names: `create_repo()` is `create_repo`.
+///
+/// A second hop (`create_repo()()`) and a path that is not one identifier name
+/// nothing. A method after the call is `nested_factory_call`.
+fn factory_call_name(receiver: &str) -> Option<&str> {
+    let name = receiver.trim().strip_suffix("()")?.trim_end();
+    if name.contains(['(', ')', '.', ':']) || !is_field_ident(name) {
+        return None;
+    }
+    Some(name)
+}
+
+/// The method a member factory names: `svc.create()` is `svc` + `create`.
+///
+/// One hop only. `foo.bar.create()` names nothing. A method after the call is
+/// `nested_member_factory_call`.
+fn member_factory_call(receiver: &str) -> Option<(&str, &str)> {
+    member_factory_name(receiver.trim().strip_suffix("()")?.trim_end())
+}
+
+/// `svc.create` without the call: one owner identifier or `self`, then one method.
+fn member_factory_name(callee: &str) -> Option<(&str, &str)> {
+    if callee.contains(['(', ')', ':']) {
+        return None;
+    }
+    let (owner, method) = callee.rsplit_once('.')?;
+    if owner.contains('.') || !is_field_ident(method) {
+        return None;
+    }
+    if owner != "self" && !is_field_ident(owner) {
+        return None;
+    }
+    Some((owner, method))
+}
+
+/// Identifier factory then one method: `create_repo().get()` is `create_repo` + `get`.
+///
+/// Exactly two call hops. A `?` on the inner hop (`create_repo()?.get()`) is
+/// peeled and returned as tried. `create_repo()()` and `create_repo().a().b()`
+/// name nothing.
+fn nested_factory_call(receiver: &str) -> Option<(&str, &str, bool)> {
+    if receiver.matches("()").count() != MAX_FACTORY_HOPS {
+        return None;
+    }
+    nested_factory_name(receiver.trim().strip_suffix("()")?.trim_end())
+}
+
+/// `create_repo().get` without the trailing call: one identifier factory, then one method.
+/// A `?` on the inner hop (`create_repo()?.get`) is peeled and returned as tried.
+fn nested_factory_name(callee: &str) -> Option<(&str, &str, bool)> {
+    if callee.matches("()").count() != 1 {
+        return None;
+    }
+    let (factory, method) = callee.rsplit_once('.')?;
+    if !is_field_ident(method) {
+        return None;
+    }
+    let (factory, factory_tried) = peel_hop_try(factory);
+    Some((factory_call_name(factory)?, method, factory_tried))
+}
+
+/// Member factory then one method: `svc.create().get()` is `svc` + `create` + `get`.
+///
+/// Exactly two call hops. A `?` on the inner hop (`svc.create()?.get()`) is
+/// peeled and returned as tried. `svc.create().inner` and `foo.bar.create().get()`
+/// name nothing.
+fn nested_member_factory_call(receiver: &str) -> Option<(&str, &str, &str, bool)> {
+    if receiver.matches("()").count() != MAX_FACTORY_HOPS {
+        return None;
+    }
+    nested_member_factory_name(receiver.trim().strip_suffix("()")?.trim_end())
+}
+
+/// `svc.create().get` without the trailing call.
+fn nested_member_factory_name(callee: &str) -> Option<(&str, &str, &str, bool)> {
+    if callee.matches("()").count() != 1 {
+        return None;
+    }
+    let (prefix, method) = callee.rsplit_once('.')?;
+    if !is_field_ident(method) {
+        return None;
+    }
+    let (prefix, factory_tried) = peel_hop_try(prefix);
+    let (owner, factory_method) = member_factory_call(prefix)?;
+    Some((owner, factory_method, method, factory_tried))
+}
+
+/// Associated function factory: `Store::new()` is `Store` + `new`.
+///
+/// One hop only. `crate::Store::new()` is `crate_path_factory_call`.
+/// A method after the call is `nested_associated_factory_call`.
+fn associated_factory_call(receiver: &str) -> Option<(&str, &str)> {
+    associated_factory_name(receiver.trim().strip_suffix("()")?.trim_end())
+}
+
+/// Associated factory then one method: `Store::new().get()` is `Store` + `new` + `get`.
+///
+/// Exactly two call hops. A `?` on the inner hop (`Store::new()?.get()`) is
+/// peeled and returned as tried. `crate::Store::new().get()` is
+/// `nested_crate_path_factory_call`. `Store::new().a().b()` names nothing.
+fn nested_associated_factory_call(receiver: &str) -> Option<(&str, &str, &str, bool)> {
+    if receiver.matches("()").count() != MAX_FACTORY_HOPS {
+        return None;
+    }
+    nested_associated_factory_name(receiver.trim().strip_suffix("()")?.trim_end())
+}
+
+/// `Store::new().get` without the trailing call.
+fn nested_associated_factory_name(callee: &str) -> Option<(&str, &str, &str, bool)> {
+    if callee.matches("()").count() != 1 {
+        return None;
+    }
+    let (prefix, method) = callee.rsplit_once('.')?;
+    if !is_field_ident(method) {
+        return None;
+    }
+    let (prefix, factory_tried) = peel_hop_try(prefix);
+    let (type_name, factory_method) = associated_factory_call(prefix)?;
+    Some((type_name, factory_method, method, factory_tried))
+}
+
+/// `Store::new` without the call: one type identifier and one method.
+///
+/// `crate::create_repo` is a crate-path factory, not a type named `crate`.
+fn associated_factory_name(callee: &str) -> Option<(&str, &str)> {
+    if callee.contains(['(', ')', '.']) {
+        return None;
+    }
+    let (type_name, method) = callee.rsplit_once("::")?;
+    if type_name.contains(':')
+        || matches!(type_name, "crate" | "self" | "super")
+        || !is_field_ident(type_name)
+        || !is_field_ident(method)
+    {
+        return None;
+    }
+    Some((type_name, method))
+}
+
+/// A `crate::` / `self::` / `super::` factory call: `crate::create_repo()` or
+/// `crate::app::Store::new()`.
+///
+/// Relative `app::create_repo()` stays an associated factory or unresolved.
+/// A method after the call is `nested_crate_path_factory_call`.
+fn crate_path_factory_call(receiver: &str) -> Option<&str> {
+    crate_path_factory_name(receiver.trim().strip_suffix("()")?.trim_end())
+}
+
+/// Crate-path factory then one method: `crate::create_repo().get()` is
+/// `crate::create_repo` + `get`.
+///
+/// Exactly two call hops. A `?` on the inner hop (`crate::create_repo()?.get()`)
+/// is peeled and returned as tried. `crate::create_repo().a().b()` names nothing.
+fn nested_crate_path_factory_call(receiver: &str) -> Option<(&str, &str, bool)> {
+    if receiver.matches("()").count() != MAX_FACTORY_HOPS {
+        return None;
+    }
+    nested_crate_path_factory_name(receiver.trim().strip_suffix("()")?.trim_end())
+}
+
+/// `crate::create_repo().get` without the trailing call.
+fn nested_crate_path_factory_name(callee: &str) -> Option<(&str, &str, bool)> {
+    if callee.matches("()").count() != 1 {
+        return None;
+    }
+    let (factory, method) = callee.rsplit_once('.')?;
+    if !is_field_ident(method) {
+        return None;
+    }
+    let (factory, factory_tried) = peel_hop_try(factory);
+    Some((crate_path_factory_call(factory)?, method, factory_tried))
+}
+
+/// `crate::create_repo` without the call.
+fn crate_path_factory_name(callee: &str) -> Option<&str> {
+    if callee.contains(['(', ')', '.']) {
+        return None;
+    }
+    let mut segments = callee.split("::");
+    let first = segments.next()?;
+    if !matches!(first, "crate" | "self" | "super") {
+        return None;
+    }
+    let mut rest = 0usize;
+    for segment in segments {
+        if !is_field_ident(segment) {
+            return None;
+        }
+        rest += 1;
+    }
+    if rest == 0 {
+        return None;
+    }
+    Some(callee)
+}
+
+/// Reads the bindings one function initializes with a factory call.
+///
+/// A name bound to two different factories is ambiguous and names nothing.
+fn call_receivers(entity: &Entity) -> HashMap<String, Option<(String, bool)>> {
+    let mut receivers: HashMap<String, Option<(String, bool)>> = HashMap::new();
+    let Some(bindings) = entity
+        .payload
+        .get("call_bindings")
+        .and_then(|value| value.as_array())
+    else {
+        return receivers;
+    };
+    for binding in bindings {
+        let (Some(name), Some(callee)) = (
+            binding.get("name").and_then(|value| value.as_str()),
+            binding.get("callee").and_then(|value| value.as_str()),
+        ) else {
+            continue;
+        };
+        if name.is_empty() || callee.is_empty() {
+            continue;
+        }
+        let tried = binding
+            .get("try")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false);
+        let entry = (callee.to_string(), tried);
+        let prior = receivers.get(name).cloned();
+        match prior {
+            None => {
+                receivers.insert(name.to_string(), Some(entry));
+            }
+            Some(Some(existing)) => {
+                if existing != entry {
+                    receivers.insert(name.to_string(), None);
+                }
+            }
+            Some(None) => {}
+        }
+    }
+    receivers
+}
+
+/// The type a `let store = create_repo()`, `let store = Store::new()`,
+/// `let store = svc.create()`, `let store = crate::create_repo()`,
+/// `let store = create_repo().get()`, `let store = crate::create_repo().get()`,
+/// `let store = create_repo()?`, `let store = create_repo()?.get()`,
+/// `let store = create_repo().unwrap()`, or
+/// `let store = create_repo().unwrap().get()` factory
+/// declares it returns.
+#[allow(clippy::too_many_arguments)]
+fn factory_callee_return<'a>(
+    caller: &Entity,
+    callee: &str,
+    type_index: &HashMap<String, Option<&'a str>>,
+    imports: &[String],
+    qualified_names: &HashSet<&str>,
+    by_qualified_name: &HashMap<&'a str, &'a Entity>,
+    allow_try: bool,
+) -> Option<ReceiverType> {
+    if let Some((type_name, method)) = associated_factory_name(callee) {
+        let binding = ReceiverType {
+            type_name: type_name.to_string(),
+            kind: "annotation",
+        };
+        return type_method_return(&binding, method, type_index, by_qualified_name, allow_try);
+    }
+    if let Some((owner, method)) = member_factory_name(callee) {
+        return member_factory_return(
+            caller,
+            owner,
+            method,
+            type_index,
+            by_qualified_name,
+            allow_try,
+        );
+    }
+    if let Some((type_name, factory_method, method, factory_tried)) =
+        nested_associated_factory_name(callee)
+    {
+        let inner = ReceiverType {
+            type_name: type_name.to_string(),
+            kind: "annotation",
+        };
+        let inner = type_method_return(
+            &inner,
+            factory_method,
+            type_index,
+            by_qualified_name,
+            factory_tried,
+        )?;
+        return type_method_return(&inner, method, type_index, by_qualified_name, allow_try);
+    }
+    if let Some((owner, factory_method, method, factory_tried)) =
+        nested_member_factory_name(callee)
+    {
+        let inner = member_factory_return(
+            caller,
+            owner,
+            factory_method,
+            type_index,
+            by_qualified_name,
+            factory_tried,
+        )?;
+        return type_method_return(&inner, method, type_index, by_qualified_name, allow_try);
+    }
+    if let Some((factory, method, factory_tried)) = nested_factory_name(callee) {
+        let inner = factory_return_type(
+            caller,
+            factory,
+            imports,
+            qualified_names,
+            by_qualified_name,
+            factory_tried,
+        )?;
+        return type_method_return(&inner, method, type_index, by_qualified_name, allow_try);
+    }
+    if let Some((factory, method, factory_tried)) = nested_crate_path_factory_name(callee) {
+        let inner = factory_return_type(
+            caller,
+            factory,
+            imports,
+            qualified_names,
+            by_qualified_name,
+            factory_tried,
+        )?;
+        return type_method_return(&inner, method, type_index, by_qualified_name, allow_try);
+    }
+    if crate_path_factory_name(callee).is_some() {
+        return factory_return_type(
+            caller,
+            callee,
+            imports,
+            qualified_names,
+            by_qualified_name,
+            allow_try,
+        );
+    }
+    if !is_field_ident(callee) {
+        return None;
+    }
+    factory_return_type(
+        caller,
+        callee,
+        imports,
+        qualified_names,
+        by_qualified_name,
+        allow_try,
+    )
+}
+
+/// The type a factory declaration states it returns, resolved like a static call.
+fn factory_return_type<'a>(
+    caller: &Entity,
+    factory: &str,
+    imports: &[String],
+    qualified_names: &HashSet<&str>,
+    by_qualified_name: &HashMap<&'a str, &'a Entity>,
+    allow_try: bool,
+) -> Option<ReceiverType> {
+    let parent = qualified_name(caller)?.rsplit_once("::")?.0;
+    let resolved = resolve_path(parent, factory, imports, qualified_names)?;
+    let entity = by_qualified_name.get(resolved.as_str()).copied()?;
+    entity_return_type(entity, allow_try)
+}
+
+/// The type `owner.method()` returns: `svc.create()` reads `App::create`.
+fn member_factory_return<'a>(
+    caller: &Entity,
+    owner: &str,
+    method: &str,
+    type_index: &HashMap<String, Option<&'a str>>,
+    by_qualified_name: &HashMap<&'a str, &'a Entity>,
+    allow_try: bool,
+) -> Option<ReceiverType> {
+    if owner == "self" {
+        let owner_qn = qualified_name(caller)?.rsplit_once("::")?.0;
+        let factory = by_qualified_name
+            .get(format!("{owner_qn}::{method}").as_str())
+            .copied()?;
+        return entity_return_type(factory, allow_try);
+    }
+    let receivers = receiver_types(caller);
+    let binding = receivers.get(owner)?.as_ref()?;
+    type_method_return(binding, method, type_index, by_qualified_name, allow_try)
+}
+
+/// The type `Type::method` declares it returns, from a receiver already typed.
+fn type_method_return<'a>(
+    binding: &ReceiverType,
+    method: &str,
+    type_index: &HashMap<String, Option<&'a str>>,
+    by_qualified_name: &HashMap<&'a str, &'a Entity>,
+    allow_try: bool,
+) -> Option<ReceiverType> {
+    let type_name = unfold_alias_type(&binding.type_name, type_index, by_qualified_name);
+    let type_qualified = type_index.get(&type_name)?.as_ref()?;
+    let factory = by_qualified_name
+        .get(format!("{type_qualified}::{method}").as_str())
+        .copied()?;
+    entity_return_type(factory, allow_try)
+}
+
+fn entity_return_type(entity: &Entity, allow_try: bool) -> Option<ReceiverType> {
+    if !matches!(entity.kind, EntityKind::Function) {
+        return None;
+    }
+    let try_yield = entity
+        .payload
+        .get("try_yield")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
+    if try_yield != allow_try {
+        return None;
+    }
+    let type_name = entity
+        .payload
+        .get("return_type")
+        .and_then(|value| value.as_str())
+        .filter(|type_name| !type_name.is_empty())?
+        .to_string();
+    let kind = match entity
+        .payload
+        .get("return_kind")
+        .and_then(|value| value.as_str())
+    {
+        Some("trait_object") => "trait_object",
+        Some("impl_trait") => "impl_trait",
+        _ => "annotation",
+    };
+    Some(ReceiverType { type_name, kind })
+}
+
+fn compact_receiver_dots(text: &str) -> String {
+    text.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .replace(" . ", ".")
+        .replace(" .", ".")
+        .replace(". ", ".")
+        .replace(" :: ", "::")
+        .replace(" ::", "::")
+        .replace(":: ", "::")
+        .replace(" ()", "()")
+}
+
+fn is_field_ident(name: &str) -> bool {
+    let mut chars = name.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    (first.is_ascii_alphabetic() || first == '_')
+        && chars.all(|character| character.is_ascii_alphanumeric() || character == '_')
+}
+
+/// One hop through a type alias the source writes: `type Client = Store` names
+/// `Store`.
+///
+/// A generic, a tuple, and an alias that names itself stay the original name.
+/// A second hop is not taken.
+fn unfold_alias_type<'a>(
+    type_name: &str,
+    type_index: &HashMap<String, Option<&'a str>>,
+    by_qualified_name: &HashMap<&'a str, &'a Entity>,
+) -> String {
+    let Some(Some(qualified)) = type_index.get(type_name) else {
+        return type_name.to_string();
+    };
+    let Some(entity) = by_qualified_name.get(qualified).copied() else {
+        return type_name.to_string();
+    };
+    if !entity
+        .payload
+        .get("symbol_kind")
+        .and_then(|value| value.as_str())
+        .is_some_and(|kind| kind == "type_alias")
+    {
+        return type_name.to_string();
+    }
+    match entity
+        .payload
+        .get("aliased_type")
+        .and_then(|value| value.as_str())
+    {
+        Some(aliased) if !aliased.is_empty() && aliased != type_name => aliased.to_string(),
+        _ => type_name.to_string(),
+    }
 }
 
 fn resolve_path(
@@ -1026,6 +1829,35 @@ mod tests {
         })
     }
 
+    fn factory_fn(
+        id: &str,
+        qualified_name: &str,
+        return_type: Option<&str>,
+        return_kind: Option<&str>,
+    ) -> Entity {
+        let mut payload = json!({
+            "qualified_name": qualified_name,
+            "symbol_kind": "function",
+            "calls": json!([]),
+        });
+        if let Some(return_type) = return_type {
+            payload["return_type"] = json!(return_type);
+        }
+        if let Some(return_kind) = return_kind {
+            payload["return_kind"] = json!(return_kind);
+        }
+        entity(
+            id,
+            &format!("symbol://rust:{qualified_name}"),
+            EntityKind::Function,
+            qualified_name
+                .rsplit_once("::")
+                .map(|(_, name)| name)
+                .unwrap_or(qualified_name),
+            payload,
+        )
+    }
+
     fn typed_caller(
         id: &str,
         qualified_name: &str,
@@ -1453,7 +2285,2128 @@ mod tests {
             relations
                 .iter()
                 .all(|relation| relation.kind != RelationKind::Calls),
-            "an untyped, ambiguous, or nested receiver must not resolve"
+            "an untyped, ambiguous, or free-function nested receiver must not resolve"
+        );
+    }
+
+    #[tokio::test]
+    async fn resolves_a_method_through_a_struct_field() {
+        let mut app = type_entity("ent_struct_app", "crate::app::App", "struct");
+        app.payload["typed_bindings"] = json!([
+            {"name": "reader", "type": "Store", "kind": "annotation", "line": 3},
+            {"name": "boxed", "type": "Reader", "kind": "trait_object", "line": 4},
+            {"name": "client", "type": "Client", "kind": "annotation", "line": 5}
+        ]);
+        let mut client = type_entity("ent_alias_client", "crate::app::Client", "type_alias");
+        client.payload["aliased_type"] = json!("Store");
+        let store = type_entity("ent_struct_store", "crate::app::Store", "struct");
+        let reader = type_entity("ent_trait_reader", "crate::app::Reader", "trait");
+        let write = method("ent_store_write", "crate::app::Store::write");
+        let read = trait_method("ent_reader_read", "crate::app::Reader::read");
+        let field_caller = typed_caller(
+            "ent_start",
+            "crate::app::App::start",
+            json!([]),
+            json!([call_site("method", "self.reader.write", "write")]),
+        );
+        let ref_caller = typed_caller(
+            "ent_flush",
+            "crate::app::App::flush",
+            json!([]),
+            json!([call_site("method", "&self.reader.write", "write")]),
+        );
+        let dyn_caller = typed_caller(
+            "ent_read_all",
+            "crate::app::App::read_all",
+            json!([]),
+            json!([call_site("method", "self.boxed.read", "read")]),
+        );
+        let alias_caller = typed_caller(
+            "ent_via_alias",
+            "crate::app::App::via_alias",
+            json!([]),
+            json!([call_site("method", "self.client.write", "write")]),
+        );
+        let paren_caller = typed_caller(
+            "ent_paren",
+            "crate::app::App::paren",
+            json!([]),
+            json!([call_site("method", "(&mut self.reader).write", "write")]),
+        );
+
+        let entities = vec![
+            app,
+            client,
+            store,
+            reader,
+            write.clone(),
+            read.clone(),
+            field_caller.clone(),
+            ref_caller.clone(),
+            dyn_caller.clone(),
+            alias_caller.clone(),
+            paren_caller.clone(),
+        ];
+        let relations = RustLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: entities.clone().into(),
+                facts: Vec::new().into(),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = |from: &Entity| {
+            relations
+                .iter()
+                .filter(|relation| relation.kind == RelationKind::Calls && relation.from == from.id)
+                .collect::<Vec<_>>()
+        };
+
+        let field_calls = calls(&field_caller);
+        assert_eq!(field_calls.len(), 1);
+        assert_eq!(field_calls[0].to, write.id);
+        assert_eq!(
+            field_calls[0].payload["reason"],
+            "rust_typed_receiver_method"
+        );
+        assert_eq!(field_calls[0].confidence, 0.8);
+
+        let ref_calls = calls(&ref_caller);
+        assert_eq!(ref_calls.len(), 1);
+        assert_eq!(ref_calls[0].to, write.id);
+        assert_eq!(ref_calls[0].payload["reason"], "rust_typed_receiver_method");
+        assert_eq!(ref_calls[0].confidence, 0.8);
+
+        let dyn_calls = calls(&dyn_caller);
+        assert_eq!(dyn_calls.len(), 1);
+        assert_eq!(dyn_calls[0].to, read.id);
+        assert_eq!(dyn_calls[0].payload["reason"], "rust_dyn_dispatch_method");
+        assert_eq!(dyn_calls[0].confidence, 0.7);
+
+        let alias_calls = calls(&alias_caller);
+        assert_eq!(alias_calls.len(), 1);
+        assert_eq!(alias_calls[0].to, write.id);
+        assert_eq!(
+            alias_calls[0].payload["reason"],
+            "rust_typed_receiver_method"
+        );
+        assert_eq!(alias_calls[0].confidence, 0.8);
+
+        let paren_calls = calls(&paren_caller);
+        assert_eq!(paren_calls.len(), 1);
+        assert_eq!(paren_calls[0].to, write.id);
+        assert_eq!(paren_calls[0].payload["reason"], "rust_typed_receiver_method");
+        assert_eq!(paren_calls[0].confidence, 0.8);
+    }
+
+    #[tokio::test]
+    async fn unproven_struct_field_receivers_stay_unresolved() {
+        let mut app = type_entity("ent_struct_app", "crate::app::App", "struct");
+        app.payload["typed_bindings"] = json!([
+            {"name": "reader", "type": "Store", "kind": "annotation", "line": 3}
+        ]);
+        let store = type_entity("ent_struct_store", "crate::app::Store", "struct");
+        let write = method("ent_store_write", "crate::app::Store::write");
+        let nested = typed_caller(
+            "ent_nested",
+            "crate::app::App::nested",
+            json!([]),
+            json!([call_site("method", "self.reader.inner.write", "write")]),
+        );
+        let missing = typed_caller(
+            "ent_missing",
+            "crate::app::App::missing",
+            json!([]),
+            json!([call_site("method", "self.other.write", "write")]),
+        );
+        let trait_impl_owner = typed_caller(
+            "ent_trait_impl",
+            "crate::app::App::Writer::flush",
+            json!([]),
+            json!([call_site("method", "self.reader.write", "write")]),
+        );
+        let mut conflict = type_entity("ent_struct_conflict", "crate::app::Conflict", "struct");
+        conflict.payload["typed_bindings"] = json!([
+            {"name": "reader", "type": "Store", "kind": "annotation", "line": 3},
+            {"name": "reader", "type": "Other", "kind": "annotation", "line": 4}
+        ]);
+        let conflict_caller = typed_caller(
+            "ent_conflict",
+            "crate::app::Conflict::start",
+            json!([]),
+            json!([call_site("method", "self.reader.write", "write")]),
+        );
+
+        let entities = vec![
+            app,
+            store,
+            write,
+            nested,
+            missing,
+            trait_impl_owner,
+            conflict,
+            conflict_caller,
+        ];
+        let relations = RustLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: entities.clone().into(),
+                facts: Vec::new().into(),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        assert!(
+            relations
+                .iter()
+                .all(|relation| relation.kind != RelationKind::Calls),
+            "a two-hop, missing, trait-impl-owned, or ambiguous field must not resolve"
+        );
+    }
+
+    #[tokio::test]
+    async fn resolves_a_method_on_a_factory_result() {
+        let store = type_entity("ent_struct_store", "crate::app::Store", "struct");
+        let write = method("ent_store_write", "crate::app::Store::write");
+        let factory = factory_fn(
+            "ent_create_repo",
+            "crate::app::create_repo",
+            Some("Store"),
+            None,
+        );
+        let caller = typed_caller(
+            "ent_run",
+            "crate::app::run",
+            json!([]),
+            json!([call_site("method", "create_repo().write", "write")]),
+        );
+        let entities = vec![store, write.clone(), factory, caller.clone()];
+        let relations = link_all(entities, Vec::new()).await;
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls && relation.from == caller.id)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].to, write.id);
+        assert_eq!(calls[0].payload["reason"], "rust_typed_receiver_method");
+        assert_eq!(calls[0].confidence, 0.8);
+    }
+
+    #[tokio::test]
+    async fn an_untyped_factory_result_stays_unresolved() {
+        let store = type_entity("ent_struct_store", "crate::app::Store", "struct");
+        let write = method("ent_store_write", "crate::app::Store::write");
+        let factory = factory_fn("ent_create_repo", "crate::app::create_repo", None, None);
+        let untyped = typed_caller(
+            "ent_run",
+            "crate::app::run",
+            json!([]),
+            json!([call_site("method", "create_repo().write", "write")]),
+        );
+        let nested = typed_caller(
+            "ent_nested",
+            "crate::app::nested",
+            json!([]),
+            json!([call_site("method", "create_repo()().write", "write")]),
+        );
+        let member = typed_caller(
+            "ent_member",
+            "crate::app::member",
+            json!([]),
+            json!([call_site("method", "svc.create().write", "write")]),
+        );
+        let entities = vec![store, write, factory, untyped, nested, member];
+        let relations = link_all(entities, Vec::new()).await;
+
+        assert!(
+            relations
+                .iter()
+                .all(|relation| relation.kind != RelationKind::Calls),
+            "an untyped factory, a second hop, or an untyped member factory must not resolve"
+        );
+    }
+
+    #[tokio::test]
+    async fn resolves_a_method_on_a_constrained_factory_result() {
+        let reader_trait = type_entity("ent_trait_reader", "crate::app::Reader", "trait");
+        let trait_read = trait_method("ent_reader_read", "crate::app::Reader::read");
+        let factory = factory_fn(
+            "ent_wrap",
+            "crate::app::wrap",
+            Some("Reader"),
+            Some("impl_trait"),
+        );
+        let caller = typed_caller(
+            "ent_run",
+            "crate::app::run",
+            json!([]),
+            json!([call_site("method", "wrap().read", "read")]),
+        );
+        let entities = vec![
+            reader_trait,
+            trait_read.clone(),
+            factory,
+            caller.clone(),
+        ];
+        let relations = link_all(entities, Vec::new()).await;
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls && relation.from == caller.id)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].to, trait_read.id);
+        assert_eq!(calls[0].payload["reason"], "rust_dyn_dispatch_method");
+        assert_eq!(calls[0].confidence, 0.7);
+    }
+
+    #[tokio::test]
+    async fn resolves_a_method_on_a_member_factory_result() {
+        let app = type_entity("ent_struct_app", "crate::app::App", "struct");
+        let store = type_entity("ent_struct_store", "crate::app::Store", "struct");
+        let write = method("ent_store_write", "crate::app::Store::write");
+        let create = factory_fn(
+            "ent_app_create",
+            "crate::app::App::create",
+            Some("Store"),
+            None,
+        );
+        let caller = typed_caller(
+            "ent_run",
+            "crate::app::run",
+            json!([{"name": "svc", "type": "App", "kind": "annotation", "line": 3}]),
+            json!([call_site("method", "svc.create().write", "write")]),
+        );
+        let entities = vec![app, store, write.clone(), create, caller.clone()];
+        let relations = link_all(entities, Vec::new()).await;
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls && relation.from == caller.id)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].to, write.id);
+        assert_eq!(calls[0].payload["reason"], "rust_typed_receiver_method");
+        assert_eq!(calls[0].confidence, 0.8);
+    }
+
+    #[tokio::test]
+    async fn resolves_a_method_on_a_self_factory_result() {
+        let store = type_entity("ent_struct_store", "crate::app::Store", "struct");
+        let write = method("ent_store_write", "crate::app::Store::write");
+        let create = factory_fn(
+            "ent_app_create",
+            "crate::app::App::create",
+            Some("Store"),
+            None,
+        );
+        let caller = typed_caller(
+            "ent_start",
+            "crate::app::App::start",
+            json!([]),
+            json!([call_site("method", "self.create().write", "write")]),
+        );
+        let entities = vec![store, write.clone(), create, caller.clone()];
+        let relations = link_all(entities, Vec::new()).await;
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls && relation.from == caller.id)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].to, write.id);
+        assert_eq!(calls[0].payload["reason"], "rust_typed_receiver_method");
+        assert_eq!(calls[0].confidence, 0.8);
+    }
+
+    #[tokio::test]
+    async fn an_untyped_member_factory_stays_unresolved() {
+        let app = type_entity("ent_struct_app", "crate::app::App", "struct");
+        let store = type_entity("ent_struct_store", "crate::app::Store", "struct");
+        let write = method("ent_store_write", "crate::app::Store::write");
+        let create = factory_fn(
+            "ent_app_create",
+            "crate::app::App::create",
+            Some("Store"),
+            None,
+        );
+        let two_hop = typed_caller(
+            "ent_nested",
+            "crate::app::run",
+            json!([{"name": "svc", "type": "App", "kind": "annotation", "line": 3}]),
+            json!([call_site("method", "svc.create().inner.write", "write")]),
+        );
+        let missing = typed_caller(
+            "ent_missing",
+            "crate::app::missing",
+            json!([{"name": "svc", "type": "App", "kind": "annotation", "line": 3}]),
+            json!([call_site("method", "svc.other().write", "write")]),
+        );
+        let untyped_owner = typed_caller(
+            "ent_untyped_owner",
+            "crate::app::untyped_owner",
+            json!([]),
+            json!([call_site("method", "svc.create().write", "write")]),
+        );
+        let untyped_return = factory_fn("ent_app_build", "crate::app::App::build", None, None);
+        let untyped_method = typed_caller(
+            "ent_untyped_method",
+            "crate::app::untyped_method",
+            json!([{"name": "svc", "type": "App", "kind": "annotation", "line": 3}]),
+            json!([call_site("method", "svc.build().write", "write")]),
+        );
+        let entities = vec![
+            app,
+            store,
+            write,
+            create,
+            untyped_return,
+            two_hop,
+            missing,
+            untyped_owner,
+            untyped_method,
+        ];
+        let relations = link_all(entities, Vec::new()).await;
+
+        assert!(
+            relations
+                .iter()
+                .all(|relation| relation.kind != RelationKind::Calls),
+            "a two-hop, missing, untyped-owner, or untyped-return member factory must not resolve"
+        );
+    }
+
+    #[tokio::test]
+    async fn resolves_a_method_on_a_nested_factory_result() {
+        let store = type_entity("ent_struct_store", "crate::app::Store", "struct");
+        let inner = type_entity("ent_struct_inner", "crate::app::Inner", "struct");
+        let write = method("ent_inner_write", "crate::app::Inner::write");
+        let factory = factory_fn(
+            "ent_create_repo",
+            "crate::app::create_repo",
+            Some("Store"),
+            None,
+        );
+        let get = factory_fn("ent_store_get", "crate::app::Store::get", Some("Inner"), None);
+        let caller = typed_caller(
+            "ent_run",
+            "crate::app::run",
+            json!([]),
+            json!([call_site("method", "create_repo().get().write", "write")]),
+        );
+        let entities = vec![store, inner, write.clone(), factory, get, caller.clone()];
+        let relations = link_all(entities, Vec::new()).await;
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls && relation.from == caller.id)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].to, write.id);
+        assert_eq!(calls[0].payload["reason"], "rust_typed_receiver_method");
+        assert_eq!(calls[0].confidence, 0.8);
+    }
+
+    #[tokio::test]
+    async fn resolves_a_method_on_a_nested_member_factory_result() {
+        let app = type_entity("ent_struct_app", "crate::app::App", "struct");
+        let store = type_entity("ent_struct_store", "crate::app::Store", "struct");
+        let inner = type_entity("ent_struct_inner", "crate::app::Inner", "struct");
+        let write = method("ent_inner_write", "crate::app::Inner::write");
+        let create = factory_fn(
+            "ent_app_create",
+            "crate::app::App::create",
+            Some("Store"),
+            None,
+        );
+        let get = factory_fn("ent_store_get", "crate::app::Store::get", Some("Inner"), None);
+        let member = typed_caller(
+            "ent_run",
+            "crate::app::run",
+            json!([{"name": "svc", "type": "App", "kind": "annotation", "line": 3}]),
+            json!([call_site("method", "svc.create().get().write", "write")]),
+        );
+        let self_caller = typed_caller(
+            "ent_start",
+            "crate::app::App::start",
+            json!([]),
+            json!([call_site("method", "self.create().get().write", "write")]),
+        );
+        let entities = vec![
+            app,
+            store,
+            inner,
+            write.clone(),
+            create,
+            get,
+            member.clone(),
+            self_caller.clone(),
+        ];
+        let relations = link_all(entities, Vec::new()).await;
+
+        let member_calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls && relation.from == member.id)
+            .collect::<Vec<_>>();
+        assert_eq!(member_calls.len(), 1);
+        assert_eq!(member_calls[0].to, write.id);
+        assert_eq!(
+            member_calls[0].payload["reason"],
+            "rust_typed_receiver_method"
+        );
+        let self_calls = relations
+            .iter()
+            .filter(|relation| {
+                relation.kind == RelationKind::Calls && relation.from == self_caller.id
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(self_calls.len(), 1);
+        assert_eq!(self_calls[0].to, write.id);
+    }
+
+    #[tokio::test]
+    async fn a_third_factory_hop_stays_unresolved() {
+        let store = type_entity("ent_struct_store", "crate::app::Store", "struct");
+        let inner = type_entity("ent_struct_inner", "crate::app::Inner", "struct");
+        let write = method("ent_inner_write", "crate::app::Inner::write");
+        let factory = factory_fn(
+            "ent_create_repo",
+            "crate::app::create_repo",
+            Some("Store"),
+            None,
+        );
+        let get = factory_fn("ent_store_get", "crate::app::Store::get", Some("Inner"), None);
+        let untyped_get = factory_fn("ent_store_extra", "crate::app::Store::extra", None, None);
+        let three = typed_caller(
+            "ent_three",
+            "crate::app::three",
+            json!([]),
+            json!([call_site(
+                "method",
+                "create_repo().get().extra().write",
+                "write"
+            )]),
+        );
+        let field = typed_caller(
+            "ent_field",
+            "crate::app::field",
+            json!([]),
+            json!([call_site("method", "create_repo().get().inner.write", "write")]),
+        );
+        let missing = typed_caller(
+            "ent_missing",
+            "crate::app::missing",
+            json!([]),
+            json!([call_site("method", "create_repo().other().write", "write")]),
+        );
+        let untyped = typed_caller(
+            "ent_untyped",
+            "crate::app::untyped",
+            json!([]),
+            json!([call_site("method", "create_repo().extra().write", "write")]),
+        );
+        let entities = vec![
+            store,
+            inner,
+            write,
+            factory,
+            get,
+            untyped_get,
+            three,
+            field,
+            missing,
+            untyped,
+        ];
+        let relations = link_all(entities, Vec::new()).await;
+
+        assert!(
+            relations
+                .iter()
+                .all(|relation| relation.kind != RelationKind::Calls),
+            "a third hop, field walk, missing method, or untyped inner factory must not resolve"
+        );
+    }
+
+    #[tokio::test]
+    async fn resolves_a_method_on_an_associated_factory_result() {
+        let store = type_entity("ent_struct_store", "crate::app::Store", "struct");
+        let write = method("ent_store_write", "crate::app::Store::write");
+        let new = factory_fn(
+            "ent_store_new",
+            "crate::app::Store::new",
+            Some("Store"),
+            None,
+        );
+        let caller = typed_caller(
+            "ent_run",
+            "crate::app::run",
+            json!([]),
+            json!([call_site("method", "Store::new().write", "write")]),
+        );
+        let entities = vec![store, write.clone(), new, caller.clone()];
+        let relations = link_all(entities, Vec::new()).await;
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls && relation.from == caller.id)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].to, write.id);
+        assert_eq!(calls[0].payload["reason"], "rust_typed_receiver_method");
+        assert_eq!(calls[0].confidence, 0.8);
+    }
+
+    #[tokio::test]
+    async fn an_untyped_associated_factory_stays_unresolved() {
+        let store = type_entity("ent_struct_store", "crate::app::Store", "struct");
+        let write = method("ent_store_write", "crate::app::Store::write");
+        let new = factory_fn(
+            "ent_store_new",
+            "crate::app::Store::new",
+            Some("Store"),
+            None,
+        );
+        let untyped = factory_fn("ent_store_build", "crate::app::Store::build", None, None);
+        let missing = typed_caller(
+            "ent_missing",
+            "crate::app::missing",
+            json!([]),
+            json!([call_site("method", "Store::other().write", "write")]),
+        );
+        let no_return = typed_caller(
+            "ent_untyped",
+            "crate::app::untyped",
+            json!([]),
+            json!([call_site("method", "Store::build().write", "write")]),
+        );
+        let entities = vec![store, write, new, untyped, missing, no_return];
+        let relations = link_all(entities, Vec::new()).await;
+
+        assert!(
+            relations
+                .iter()
+                .all(|relation| relation.kind != RelationKind::Calls),
+            "a missing or untyped associated factory must not resolve"
+        );
+    }
+
+    #[tokio::test]
+    async fn resolves_a_method_on_a_nested_associated_factory_result() {
+        let store = type_entity("ent_struct_store", "crate::app::Store", "struct");
+        let inner = type_entity("ent_struct_inner", "crate::app::Inner", "struct");
+        let write = method("ent_inner_write", "crate::app::Inner::write");
+        let new = factory_fn(
+            "ent_store_new",
+            "crate::app::Store::new",
+            Some("Store"),
+            None,
+        );
+        let get = factory_fn("ent_store_get", "crate::app::Store::get", Some("Inner"), None);
+        let caller = typed_caller(
+            "ent_run",
+            "crate::app::run",
+            json!([]),
+            json!([call_site("method", "Store::new().get().write", "write")]),
+        );
+        let entities = vec![store, inner, write.clone(), new, get, caller.clone()];
+        let relations = link_all(entities, Vec::new()).await;
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls && relation.from == caller.id)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].to, write.id);
+        assert_eq!(calls[0].payload["reason"], "rust_typed_receiver_method");
+        assert_eq!(calls[0].confidence, 0.8);
+    }
+
+    #[tokio::test]
+    async fn a_missing_nested_associated_factory_stays_unresolved() {
+        let store = type_entity("ent_struct_store", "crate::app::Store", "struct");
+        let inner = type_entity("ent_struct_inner", "crate::app::Inner", "struct");
+        let write = method("ent_inner_write", "crate::app::Inner::write");
+        let new = factory_fn(
+            "ent_store_new",
+            "crate::app::Store::new",
+            Some("Store"),
+            None,
+        );
+        let get = factory_fn("ent_store_get", "crate::app::Store::get", Some("Inner"), None);
+        let untyped_get = factory_fn("ent_store_extra", "crate::app::Store::extra", None, None);
+        let missing = typed_caller(
+            "ent_missing",
+            "crate::app::missing",
+            json!([]),
+            json!([call_site("method", "Store::new().other().write", "write")]),
+        );
+        let untyped = typed_caller(
+            "ent_untyped",
+            "crate::app::untyped",
+            json!([]),
+            json!([call_site("method", "Store::new().extra().write", "write")]),
+        );
+        let three = typed_caller(
+            "ent_three",
+            "crate::app::three",
+            json!([]),
+            json!([call_site(
+                "method",
+                "Store::new().get().extra().write",
+                "write"
+            )]),
+        );
+        let entities = vec![
+            store,
+            inner,
+            write,
+            new,
+            get,
+            untyped_get,
+            missing,
+            untyped,
+            three,
+        ];
+        let relations = link_all(entities, Vec::new()).await;
+
+        assert!(
+            relations
+                .iter()
+                .all(|relation| relation.kind != RelationKind::Calls),
+            "a missing, untyped, or third-hop nested associated factory must not resolve"
+        );
+    }
+
+    #[tokio::test]
+    async fn resolves_a_method_on_a_crate_path_factory_result() {
+        let store = type_entity("ent_struct_store", "crate::app::Store", "struct");
+        let write = method("ent_store_write", "crate::app::Store::write");
+        let factory = factory_fn(
+            "ent_create_repo",
+            "crate::create_repo",
+            Some("Store"),
+            None,
+        );
+        let new = factory_fn(
+            "ent_store_new",
+            "crate::app::Store::new",
+            Some("Store"),
+            None,
+        );
+        let ident = typed_caller(
+            "ent_run",
+            "crate::app::run",
+            json!([]),
+            json!([call_site("method", "crate::create_repo().write", "write")]),
+        );
+        let associated = typed_caller(
+            "ent_start",
+            "crate::app::start",
+            json!([]),
+            json!([call_site("method", "crate::app::Store::new().write", "write")]),
+        );
+        let entities = vec![
+            store,
+            write.clone(),
+            factory,
+            new,
+            ident.clone(),
+            associated.clone(),
+        ];
+        let relations = link_all(entities, Vec::new()).await;
+
+        let ident_calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls && relation.from == ident.id)
+            .collect::<Vec<_>>();
+        assert_eq!(ident_calls.len(), 1);
+        assert_eq!(ident_calls[0].to, write.id);
+        let associated_calls = relations
+            .iter()
+            .filter(|relation| {
+                relation.kind == RelationKind::Calls && relation.from == associated.id
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(associated_calls.len(), 1);
+        assert_eq!(associated_calls[0].to, write.id);
+        assert_eq!(
+            associated_calls[0].payload["reason"],
+            "rust_typed_receiver_method"
+        );
+    }
+
+    #[tokio::test]
+    async fn resolves_a_method_on_a_crate_path_factory_initialized_binding() {
+        let store = type_entity("ent_struct_store", "crate::app::Store", "struct");
+        let write = method("ent_store_write", "crate::app::Store::write");
+        let factory = factory_fn(
+            "ent_create_repo",
+            "crate::create_repo",
+            Some("Store"),
+            None,
+        );
+        let mut caller = typed_caller(
+            "ent_run",
+            "crate::app::run",
+            json!([]),
+            json!([call_site("method", "store.write", "write")]),
+        );
+        caller.payload["call_bindings"] =
+            json!([{"name": "store", "callee": "crate::create_repo", "line": 4}]);
+        let entities = vec![store, write.clone(), factory, caller.clone()];
+        let relations = link_all(entities, Vec::new()).await;
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls && relation.from == caller.id)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].to, write.id);
+    }
+
+    #[tokio::test]
+    async fn a_missing_crate_path_factory_stays_unresolved() {
+        let store = type_entity("ent_struct_store", "crate::app::Store", "struct");
+        let write = method("ent_store_write", "crate::app::Store::write");
+        let factory = factory_fn(
+            "ent_create_repo",
+            "crate::create_repo",
+            Some("Store"),
+            None,
+        );
+        let untyped = factory_fn("ent_build", "crate::build", None, None);
+        let missing = typed_caller(
+            "ent_missing",
+            "crate::app::missing",
+            json!([]),
+            json!([call_site("method", "crate::other().write", "write")]),
+        );
+        let no_return = typed_caller(
+            "ent_untyped",
+            "crate::app::untyped",
+            json!([]),
+            json!([call_site("method", "crate::build().write", "write")]),
+        );
+        let entities = vec![store, write, factory, untyped, missing, no_return];
+        let relations = link_all(entities, Vec::new()).await;
+
+        assert!(
+            relations
+                .iter()
+                .all(|relation| relation.kind != RelationKind::Calls),
+            "a missing or untyped crate-path factory must not resolve"
+        );
+    }
+
+    #[tokio::test]
+    async fn resolves_a_method_on_a_nested_crate_path_factory_result() {
+        let store = type_entity("ent_struct_store", "crate::app::Store", "struct");
+        let inner = type_entity("ent_struct_inner", "crate::app::Inner", "struct");
+        let write = method("ent_inner_write", "crate::app::Inner::write");
+        let factory = factory_fn(
+            "ent_create_repo",
+            "crate::create_repo",
+            Some("Store"),
+            None,
+        );
+        let new = factory_fn(
+            "ent_store_new",
+            "crate::app::Store::new",
+            Some("Store"),
+            None,
+        );
+        let get = factory_fn("ent_store_get", "crate::app::Store::get", Some("Inner"), None);
+        let ident = typed_caller(
+            "ent_run",
+            "crate::app::run",
+            json!([]),
+            json!([call_site("method", "crate::create_repo().get().write", "write")]),
+        );
+        let associated = typed_caller(
+            "ent_start",
+            "crate::app::start",
+            json!([]),
+            json!([call_site(
+                "method",
+                "crate::app::Store::new().get().write",
+                "write"
+            )]),
+        );
+        let entities = vec![
+            store,
+            inner,
+            write.clone(),
+            factory,
+            new,
+            get,
+            ident.clone(),
+            associated.clone(),
+        ];
+        let relations = link_all(entities, Vec::new()).await;
+
+        let ident_calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls && relation.from == ident.id)
+            .collect::<Vec<_>>();
+        assert_eq!(ident_calls.len(), 1);
+        assert_eq!(ident_calls[0].to, write.id);
+        let associated_calls = relations
+            .iter()
+            .filter(|relation| {
+                relation.kind == RelationKind::Calls && relation.from == associated.id
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(associated_calls.len(), 1);
+        assert_eq!(associated_calls[0].to, write.id);
+        assert_eq!(
+            associated_calls[0].payload["reason"],
+            "rust_typed_receiver_method"
+        );
+    }
+
+    #[tokio::test]
+    async fn resolves_a_method_on_a_nested_crate_path_factory_initialized_binding() {
+        let store = type_entity("ent_struct_store", "crate::app::Store", "struct");
+        let inner = type_entity("ent_struct_inner", "crate::app::Inner", "struct");
+        let write = method("ent_inner_write", "crate::app::Inner::write");
+        let factory = factory_fn(
+            "ent_create_repo",
+            "crate::create_repo",
+            Some("Store"),
+            None,
+        );
+        let get = factory_fn("ent_store_get", "crate::app::Store::get", Some("Inner"), None);
+        let mut caller = typed_caller(
+            "ent_run",
+            "crate::app::run",
+            json!([]),
+            json!([call_site("method", "store.write", "write")]),
+        );
+        caller.payload["call_bindings"] =
+            json!([{"name": "store", "callee": "crate::create_repo().get", "line": 4}]);
+        let entities = vec![store, inner, write.clone(), factory, get, caller.clone()];
+        let relations = link_all(entities, Vec::new()).await;
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls && relation.from == caller.id)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].to, write.id);
+    }
+
+    #[tokio::test]
+    async fn a_missing_nested_crate_path_factory_stays_unresolved() {
+        let store = type_entity("ent_struct_store", "crate::app::Store", "struct");
+        let inner = type_entity("ent_struct_inner", "crate::app::Inner", "struct");
+        let write = method("ent_inner_write", "crate::app::Inner::write");
+        let factory = factory_fn(
+            "ent_create_repo",
+            "crate::create_repo",
+            Some("Store"),
+            None,
+        );
+        let get = factory_fn("ent_store_get", "crate::app::Store::get", Some("Inner"), None);
+        let untyped_get = factory_fn("ent_store_extra", "crate::app::Store::extra", None, None);
+        let missing = typed_caller(
+            "ent_missing",
+            "crate::app::missing",
+            json!([]),
+            json!([call_site("method", "crate::create_repo().other().write", "write")]),
+        );
+        let untyped = typed_caller(
+            "ent_untyped",
+            "crate::app::untyped",
+            json!([]),
+            json!([call_site("method", "crate::create_repo().extra().write", "write")]),
+        );
+        let three = typed_caller(
+            "ent_three",
+            "crate::app::three",
+            json!([]),
+            json!([call_site(
+                "method",
+                "crate::create_repo().get().extra().write",
+                "write"
+            )]),
+        );
+        let relative = typed_caller(
+            "ent_relative",
+            "crate::app::relative",
+            json!([]),
+            json!([call_site("method", "app::create_repo().get().write", "write")]),
+        );
+        let entities = vec![
+            store,
+            inner,
+            write,
+            factory,
+            get,
+            untyped_get,
+            missing,
+            untyped,
+            three,
+            relative,
+        ];
+        let relations = link_all(entities, Vec::new()).await;
+
+        assert!(
+            relations
+                .iter()
+                .all(|relation| relation.kind != RelationKind::Calls),
+            "a missing, untyped, third-hop, or relative nested crate-path factory must not resolve"
+        );
+    }
+
+    #[tokio::test]
+    async fn resolves_a_method_on_a_factory_initialized_binding() {
+        let store = type_entity("ent_struct_store", "crate::app::Store", "struct");
+        let write = method("ent_store_write", "crate::app::Store::write");
+        let factory = factory_fn(
+            "ent_create_repo",
+            "crate::app::create_repo",
+            Some("Store"),
+            None,
+        );
+        let mut caller = typed_caller(
+            "ent_run",
+            "crate::app::run",
+            json!([]),
+            json!([call_site("method", "store.write", "write")]),
+        );
+        caller.payload["call_bindings"] = json!([{"name": "store", "callee": "create_repo", "line": 4}]);
+        let entities = vec![store, write.clone(), factory, caller.clone()];
+        let relations = link_all(entities, Vec::new()).await;
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls && relation.from == caller.id)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].to, write.id);
+        assert_eq!(calls[0].payload["reason"], "rust_typed_receiver_method");
+        assert_eq!(calls[0].confidence, 0.8);
+    }
+
+    #[tokio::test]
+    async fn resolves_a_method_on_an_associated_factory_initialized_binding() {
+        let store = type_entity("ent_struct_store", "crate::app::Store", "struct");
+        let write = method("ent_store_write", "crate::app::Store::write");
+        let new = factory_fn(
+            "ent_store_new",
+            "crate::app::Store::new",
+            Some("Store"),
+            None,
+        );
+        let mut caller = typed_caller(
+            "ent_run",
+            "crate::app::run",
+            json!([]),
+            json!([call_site("method", "store.write", "write")]),
+        );
+        caller.payload["call_bindings"] = json!([{"name": "store", "callee": "Store::new", "line": 4}]);
+        let entities = vec![store, write.clone(), new, caller.clone()];
+        let relations = link_all(entities, Vec::new()).await;
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls && relation.from == caller.id)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].to, write.id);
+        assert_eq!(calls[0].payload["reason"], "rust_typed_receiver_method");
+        assert_eq!(calls[0].confidence, 0.8);
+    }
+
+    #[tokio::test]
+    async fn an_untyped_factory_initialized_binding_stays_unresolved() {
+        let store = type_entity("ent_struct_store", "crate::app::Store", "struct");
+        let write = method("ent_store_write", "crate::app::Store::write");
+        let factory = factory_fn("ent_create_repo", "crate::app::create_repo", None, None);
+        let mut untyped = typed_caller(
+            "ent_run",
+            "crate::app::run",
+            json!([]),
+            json!([call_site("method", "store.write", "write")]),
+        );
+        untyped.payload["call_bindings"] =
+            json!([{"name": "store", "callee": "create_repo", "line": 4}]);
+        let mut conflict = typed_caller(
+            "ent_conflict",
+            "crate::app::conflict",
+            json!([]),
+            json!([call_site("method", "store.write", "write")]),
+        );
+        conflict.payload["call_bindings"] = json!([
+            {"name": "store", "callee": "create_repo", "line": 4},
+            {"name": "store", "callee": "Store::new", "line": 5}
+        ]);
+        let entities = vec![store, write, factory, untyped, conflict];
+        let relations = link_all(entities, Vec::new()).await;
+
+        assert!(
+            relations
+                .iter()
+                .all(|relation| relation.kind != RelationKind::Calls),
+            "an untyped or ambiguous factory-initialized binding must not resolve"
+        );
+    }
+
+    #[tokio::test]
+    async fn resolves_a_method_on_a_member_factory_initialized_binding() {
+        let app = type_entity("ent_struct_app", "crate::app::App", "struct");
+        let store = type_entity("ent_struct_store", "crate::app::Store", "struct");
+        let write = method("ent_store_write", "crate::app::Store::write");
+        let create = factory_fn(
+            "ent_app_create",
+            "crate::app::App::create",
+            Some("Store"),
+            None,
+        );
+        let mut member = typed_caller(
+            "ent_run",
+            "crate::app::run",
+            json!([{"name": "svc", "type": "App", "kind": "annotation", "line": 3}]),
+            json!([call_site("method", "store.write", "write")]),
+        );
+        member.payload["call_bindings"] =
+            json!([{"name": "store", "callee": "svc.create", "line": 4}]);
+        let mut self_caller = typed_caller(
+            "ent_start",
+            "crate::app::App::start",
+            json!([]),
+            json!([call_site("method", "store.write", "write")]),
+        );
+        self_caller.payload["call_bindings"] =
+            json!([{"name": "store", "callee": "self.create", "line": 4}]);
+        let entities = vec![
+            app,
+            store,
+            write.clone(),
+            create,
+            member.clone(),
+            self_caller.clone(),
+        ];
+        let relations = link_all(entities, Vec::new()).await;
+
+        let member_calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls && relation.from == member.id)
+            .collect::<Vec<_>>();
+        assert_eq!(member_calls.len(), 1);
+        assert_eq!(member_calls[0].to, write.id);
+        assert_eq!(
+            member_calls[0].payload["reason"],
+            "rust_typed_receiver_method"
+        );
+        let self_calls = relations
+            .iter()
+            .filter(|relation| {
+                relation.kind == RelationKind::Calls && relation.from == self_caller.id
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(self_calls.len(), 1);
+        assert_eq!(self_calls[0].to, write.id);
+    }
+
+    #[tokio::test]
+    async fn an_untyped_member_factory_initialized_binding_stays_unresolved() {
+        let app = type_entity("ent_struct_app", "crate::app::App", "struct");
+        let store = type_entity("ent_struct_store", "crate::app::Store", "struct");
+        let write = method("ent_store_write", "crate::app::Store::write");
+        let create = factory_fn(
+            "ent_app_create",
+            "crate::app::App::create",
+            Some("Store"),
+            None,
+        );
+        let mut untyped_owner = typed_caller(
+            "ent_untyped",
+            "crate::app::untyped",
+            json!([]),
+            json!([call_site("method", "store.write", "write")]),
+        );
+        untyped_owner.payload["call_bindings"] =
+            json!([{"name": "store", "callee": "svc.create", "line": 4}]);
+        let mut missing = typed_caller(
+            "ent_missing",
+            "crate::app::missing",
+            json!([{"name": "svc", "type": "App", "kind": "annotation", "line": 3}]),
+            json!([call_site("method", "store.write", "write")]),
+        );
+        missing.payload["call_bindings"] =
+            json!([{"name": "store", "callee": "svc.other", "line": 4}]);
+        let entities = vec![app, store, write, create, untyped_owner, missing];
+        let relations = link_all(entities, Vec::new()).await;
+
+        assert!(
+            relations
+                .iter()
+                .all(|relation| relation.kind != RelationKind::Calls),
+            "an untyped owner or missing member factory init must not resolve"
+        );
+    }
+
+    #[tokio::test]
+    async fn resolves_a_method_on_a_nested_factory_initialized_binding() {
+        let store = type_entity("ent_struct_store", "crate::app::Store", "struct");
+        let inner = type_entity("ent_struct_inner", "crate::app::Inner", "struct");
+        let write = method("ent_inner_write", "crate::app::Inner::write");
+        let factory = factory_fn(
+            "ent_create_repo",
+            "crate::app::create_repo",
+            Some("Store"),
+            None,
+        );
+        let get = factory_fn("ent_store_get", "crate::app::Store::get", Some("Inner"), None);
+        let mut caller = typed_caller(
+            "ent_run",
+            "crate::app::run",
+            json!([]),
+            json!([call_site("method", "store.write", "write")]),
+        );
+        caller.payload["call_bindings"] =
+            json!([{"name": "store", "callee": "create_repo().get", "line": 4}]);
+        let entities = vec![store, inner, write.clone(), factory, get, caller.clone()];
+        let relations = link_all(entities, Vec::new()).await;
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls && relation.from == caller.id)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].to, write.id);
+        assert_eq!(calls[0].payload["reason"], "rust_typed_receiver_method");
+        assert_eq!(calls[0].confidence, 0.8);
+    }
+
+    #[tokio::test]
+    async fn resolves_a_method_on_a_nested_associated_factory_initialized_binding() {
+        let store = type_entity("ent_struct_store", "crate::app::Store", "struct");
+        let inner = type_entity("ent_struct_inner", "crate::app::Inner", "struct");
+        let write = method("ent_inner_write", "crate::app::Inner::write");
+        let new = factory_fn(
+            "ent_store_new",
+            "crate::app::Store::new",
+            Some("Store"),
+            None,
+        );
+        let get = factory_fn("ent_store_get", "crate::app::Store::get", Some("Inner"), None);
+        let mut caller = typed_caller(
+            "ent_run",
+            "crate::app::run",
+            json!([]),
+            json!([call_site("method", "store.write", "write")]),
+        );
+        caller.payload["call_bindings"] =
+            json!([{"name": "store", "callee": "Store::new().get", "line": 4}]);
+        let entities = vec![store, inner, write.clone(), new, get, caller.clone()];
+        let relations = link_all(entities, Vec::new()).await;
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls && relation.from == caller.id)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].to, write.id);
+    }
+
+    #[tokio::test]
+    async fn resolves_a_method_on_a_nested_member_factory_initialized_binding() {
+        let app = type_entity("ent_struct_app", "crate::app::App", "struct");
+        let store = type_entity("ent_struct_store", "crate::app::Store", "struct");
+        let inner = type_entity("ent_struct_inner", "crate::app::Inner", "struct");
+        let write = method("ent_inner_write", "crate::app::Inner::write");
+        let create = factory_fn(
+            "ent_app_create",
+            "crate::app::App::create",
+            Some("Store"),
+            None,
+        );
+        let get = factory_fn("ent_store_get", "crate::app::Store::get", Some("Inner"), None);
+        let mut member = typed_caller(
+            "ent_run",
+            "crate::app::run",
+            json!([{"name": "svc", "type": "App", "kind": "annotation", "line": 3}]),
+            json!([call_site("method", "store.write", "write")]),
+        );
+        member.payload["call_bindings"] =
+            json!([{"name": "store", "callee": "svc.create().get", "line": 4}]);
+        let mut self_caller = typed_caller(
+            "ent_start",
+            "crate::app::App::start",
+            json!([]),
+            json!([call_site("method", "store.write", "write")]),
+        );
+        self_caller.payload["call_bindings"] =
+            json!([{"name": "store", "callee": "self.create().get", "line": 4}]);
+        let entities = vec![
+            app,
+            store,
+            inner,
+            write.clone(),
+            create,
+            get,
+            member.clone(),
+            self_caller.clone(),
+        ];
+        let relations = link_all(entities, Vec::new()).await;
+
+        let member_calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls && relation.from == member.id)
+            .collect::<Vec<_>>();
+        assert_eq!(member_calls.len(), 1);
+        assert_eq!(member_calls[0].to, write.id);
+        let self_calls = relations
+            .iter()
+            .filter(|relation| {
+                relation.kind == RelationKind::Calls && relation.from == self_caller.id
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(self_calls.len(), 1);
+        assert_eq!(self_calls[0].to, write.id);
+    }
+
+    #[tokio::test]
+    async fn a_missing_nested_factory_initialized_binding_stays_unresolved() {
+        let store = type_entity("ent_struct_store", "crate::app::Store", "struct");
+        let inner = type_entity("ent_struct_inner", "crate::app::Inner", "struct");
+        let write = method("ent_inner_write", "crate::app::Inner::write");
+        let factory = factory_fn(
+            "ent_create_repo",
+            "crate::app::create_repo",
+            Some("Store"),
+            None,
+        );
+        let get = factory_fn("ent_store_get", "crate::app::Store::get", Some("Inner"), None);
+        let untyped_get = factory_fn("ent_store_extra", "crate::app::Store::extra", None, None);
+        let mut missing = typed_caller(
+            "ent_missing",
+            "crate::app::missing",
+            json!([]),
+            json!([call_site("method", "store.write", "write")]),
+        );
+        missing.payload["call_bindings"] =
+            json!([{"name": "store", "callee": "create_repo().other", "line": 4}]);
+        let mut untyped = typed_caller(
+            "ent_untyped",
+            "crate::app::untyped",
+            json!([]),
+            json!([call_site("method", "store.write", "write")]),
+        );
+        untyped.payload["call_bindings"] =
+            json!([{"name": "store", "callee": "create_repo().extra", "line": 4}]);
+        let mut third = typed_caller(
+            "ent_third",
+            "crate::app::third",
+            json!([]),
+            json!([call_site("method", "store.write", "write")]),
+        );
+        third.payload["call_bindings"] =
+            json!([{"name": "store", "callee": "create_repo().get().extra", "line": 4}]);
+        let entities = vec![
+            store,
+            inner,
+            write,
+            factory,
+            get,
+            untyped_get,
+            missing,
+            untyped,
+            third,
+        ];
+        let relations = link_all(entities, Vec::new()).await;
+
+        assert!(
+            relations
+                .iter()
+                .all(|relation| relation.kind != RelationKind::Calls),
+            "a missing, untyped, or third-hop factory init must not resolve"
+        );
+    }
+
+    #[tokio::test]
+    async fn resolves_a_method_on_a_try_factory_result() {
+        let store = type_entity("ent_struct_store", "crate::app::Store", "struct");
+        let write = method("ent_store_write", "crate::app::Store::write");
+        let mut factory = factory_fn(
+            "ent_create_repo",
+            "crate::app::create_repo",
+            Some("Store"),
+            None,
+        );
+        factory.payload["try_yield"] = json!(true);
+        let caller = typed_caller(
+            "ent_run",
+            "crate::app::run",
+            json!([]),
+            json!([call_site("method", "create_repo()?.write", "write")]),
+        );
+        let entities = vec![store, write.clone(), factory, caller.clone()];
+        let relations = link_all(entities, Vec::new()).await;
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls && relation.from == caller.id)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].to, write.id);
+        assert_eq!(calls[0].payload["reason"], "rust_typed_receiver_method");
+        assert_eq!(calls[0].confidence, 0.8);
+    }
+
+    #[tokio::test]
+    async fn resolves_a_method_on_a_try_factory_initialized_binding() {
+        let store = type_entity("ent_struct_store", "crate::app::Store", "struct");
+        let write = method("ent_store_write", "crate::app::Store::write");
+        let mut factory = factory_fn(
+            "ent_create_repo",
+            "crate::app::create_repo",
+            Some("Store"),
+            None,
+        );
+        factory.payload["try_yield"] = json!(true);
+        let mut caller = typed_caller(
+            "ent_run",
+            "crate::app::run",
+            json!([]),
+            json!([call_site("method", "store.write", "write")]),
+        );
+        caller.payload["call_bindings"] =
+            json!([{"name": "store", "callee": "create_repo", "line": 4, "try": true}]);
+        let entities = vec![store, write.clone(), factory, caller.clone()];
+        let relations = link_all(entities, Vec::new()).await;
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls && relation.from == caller.id)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].to, write.id);
+    }
+
+    #[tokio::test]
+    async fn resolves_a_method_on_a_try_nested_factory_result() {
+        let store = type_entity("ent_struct_store", "crate::app::Store", "struct");
+        let inner = type_entity("ent_struct_inner", "crate::app::Inner", "struct");
+        let write = method("ent_inner_write", "crate::app::Inner::write");
+        let factory = factory_fn(
+            "ent_create_repo",
+            "crate::app::create_repo",
+            Some("Store"),
+            None,
+        );
+        let mut get = factory_fn("ent_store_get", "crate::app::Store::get", Some("Inner"), None);
+        get.payload["try_yield"] = json!(true);
+        let caller = typed_caller(
+            "ent_run",
+            "crate::app::run",
+            json!([]),
+            json!([call_site("method", "create_repo().get()?.write", "write")]),
+        );
+        let entities = vec![store, inner, write.clone(), factory, get, caller.clone()];
+        let relations = link_all(entities, Vec::new()).await;
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls && relation.from == caller.id)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].to, write.id);
+    }
+
+    #[tokio::test]
+    async fn resolves_a_method_on_an_inner_try_factory_hop() {
+        let app = type_entity("ent_struct_app", "crate::app::App", "struct");
+        let store = type_entity("ent_struct_store", "crate::app::Store", "struct");
+        let inner = type_entity("ent_struct_inner", "crate::app::Inner", "struct");
+        let write = method("ent_inner_write", "crate::app::Inner::write");
+        let mut factory = factory_fn(
+            "ent_create_repo",
+            "crate::app::create_repo",
+            Some("Store"),
+            None,
+        );
+        factory.payload["try_yield"] = json!(true);
+        let mut crate_factory = factory_fn(
+            "ent_crate_create_repo",
+            "crate::create_repo",
+            Some("Store"),
+            None,
+        );
+        crate_factory.payload["try_yield"] = json!(true);
+        let mut create = factory_fn(
+            "ent_app_create",
+            "crate::app::App::create",
+            Some("Store"),
+            None,
+        );
+        create.payload["try_yield"] = json!(true);
+        let mut new = factory_fn(
+            "ent_store_new",
+            "crate::app::Store::new",
+            Some("Store"),
+            None,
+        );
+        new.payload["try_yield"] = json!(true);
+        let get = factory_fn("ent_store_get", "crate::app::Store::get", Some("Inner"), None);
+        let ident = typed_caller(
+            "ent_run",
+            "crate::app::run",
+            json!([]),
+            json!([call_site("method", "create_repo()?.get().write", "write")]),
+        );
+        let member = typed_caller(
+            "ent_member",
+            "crate::app::member",
+            json!([{"name": "svc", "type": "App", "kind": "annotation", "line": 3}]),
+            json!([call_site("method", "svc.create()?.get().write", "write")]),
+        );
+        let self_caller = typed_caller(
+            "ent_self",
+            "crate::app::App::start",
+            json!([]),
+            json!([call_site("method", "self.create()?.get().write", "write")]),
+        );
+        let associated = typed_caller(
+            "ent_associated",
+            "crate::app::associated",
+            json!([]),
+            json!([call_site("method", "Store::new()?.get().write", "write")]),
+        );
+        let path = typed_caller(
+            "ent_path",
+            "crate::app::path",
+            json!([]),
+            json!([call_site(
+                "method",
+                "crate::create_repo()?.get().write",
+                "write"
+            )]),
+        );
+        let entities = vec![
+            app,
+            store,
+            inner,
+            write.clone(),
+            factory,
+            crate_factory,
+            create,
+            new,
+            get,
+            ident.clone(),
+            member.clone(),
+            self_caller.clone(),
+            associated.clone(),
+            path.clone(),
+        ];
+        let relations = link_all(entities, Vec::new()).await;
+
+        for caller in [&ident, &member, &self_caller, &associated, &path] {
+            let calls = relations
+                .iter()
+                .filter(|relation| relation.kind == RelationKind::Calls && relation.from == caller.id)
+                .collect::<Vec<_>>();
+            assert_eq!(
+                calls.len(),
+                1,
+                "inner-try hop must resolve for {}",
+                caller.name
+            );
+            assert_eq!(calls[0].to, write.id);
+            assert_eq!(calls[0].payload["reason"], "rust_typed_receiver_method");
+            assert_eq!(calls[0].confidence, 0.8);
+        }
+    }
+
+    #[tokio::test]
+    async fn resolves_a_method_on_an_inner_try_factory_initialized_binding() {
+        let store = type_entity("ent_struct_store", "crate::app::Store", "struct");
+        let inner = type_entity("ent_struct_inner", "crate::app::Inner", "struct");
+        let write = method("ent_inner_write", "crate::app::Inner::write");
+        let mut factory = factory_fn(
+            "ent_create_repo",
+            "crate::app::create_repo",
+            Some("Store"),
+            None,
+        );
+        factory.payload["try_yield"] = json!(true);
+        let get = factory_fn("ent_store_get", "crate::app::Store::get", Some("Inner"), None);
+        let mut caller = typed_caller(
+            "ent_run",
+            "crate::app::run",
+            json!([]),
+            json!([call_site("method", "store.write", "write")]),
+        );
+        caller.payload["call_bindings"] =
+            json!([{"name": "store", "callee": "create_repo()?.get", "line": 4}]);
+        let entities = vec![store, inner, write.clone(), factory, get, caller.clone()];
+        let relations = link_all(entities, Vec::new()).await;
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls && relation.from == caller.id)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].to, write.id);
+        assert_eq!(calls[0].payload["reason"], "rust_typed_receiver_method");
+        assert_eq!(calls[0].confidence, 0.8);
+    }
+
+    #[tokio::test]
+    async fn resolves_a_method_on_an_unwrap_factory_result() {
+        let app = type_entity("ent_struct_app", "crate::app::App", "struct");
+        let store = type_entity("ent_struct_store", "crate::app::Store", "struct");
+        let write = method("ent_store_write", "crate::app::Store::write");
+        let mut factory = factory_fn(
+            "ent_create_repo",
+            "crate::app::create_repo",
+            Some("Store"),
+            None,
+        );
+        factory.payload["try_yield"] = json!(true);
+        let mut crate_factory = factory_fn(
+            "ent_crate_create_repo",
+            "crate::create_repo",
+            Some("Store"),
+            None,
+        );
+        crate_factory.payload["try_yield"] = json!(true);
+        let mut create = factory_fn(
+            "ent_app_create",
+            "crate::app::App::create",
+            Some("Store"),
+            None,
+        );
+        create.payload["try_yield"] = json!(true);
+        let mut new = factory_fn(
+            "ent_store_new",
+            "crate::app::Store::new",
+            Some("Store"),
+            None,
+        );
+        new.payload["try_yield"] = json!(true);
+        let ident = typed_caller(
+            "ent_run",
+            "crate::app::run",
+            json!([]),
+            json!([call_site("method", "create_repo().unwrap().write", "write")]),
+        );
+        let expect = typed_caller(
+            "ent_expect",
+            "crate::app::expect_run",
+            json!([]),
+            json!([call_site(
+                "method",
+                "create_repo().expect(\"failed\").write",
+                "write"
+            )]),
+        );
+        let member = typed_caller(
+            "ent_member",
+            "crate::app::member",
+            json!([{"name": "svc", "type": "App", "kind": "annotation", "line": 3}]),
+            json!([call_site("method", "svc.create().unwrap().write", "write")]),
+        );
+        let associated = typed_caller(
+            "ent_associated",
+            "crate::app::associated",
+            json!([]),
+            json!([call_site("method", "Store::new().unwrap().write", "write")]),
+        );
+        let path = typed_caller(
+            "ent_path",
+            "crate::app::path",
+            json!([]),
+            json!([call_site(
+                "method",
+                "crate::create_repo().unwrap().write",
+                "write"
+            )]),
+        );
+        let entities = vec![
+            app,
+            store,
+            write.clone(),
+            factory,
+            crate_factory,
+            create,
+            new,
+            ident.clone(),
+            expect.clone(),
+            member.clone(),
+            associated.clone(),
+            path.clone(),
+        ];
+        let relations = link_all(entities, Vec::new()).await;
+
+        for caller in [&ident, &expect, &member, &associated, &path] {
+            let calls = relations
+                .iter()
+                .filter(|relation| relation.kind == RelationKind::Calls && relation.from == caller.id)
+                .collect::<Vec<_>>();
+            assert_eq!(
+                calls.len(),
+                1,
+                "unwrap factory hop must resolve for {}",
+                caller.name
+            );
+            assert_eq!(calls[0].to, write.id);
+            assert_eq!(calls[0].payload["reason"], "rust_typed_receiver_method");
+            assert_eq!(calls[0].confidence, 0.8);
+        }
+    }
+
+    #[tokio::test]
+    async fn resolves_a_method_on_an_unwrap_factory_initialized_binding() {
+        let store = type_entity("ent_struct_store", "crate::app::Store", "struct");
+        let write = method("ent_store_write", "crate::app::Store::write");
+        let mut factory = factory_fn(
+            "ent_create_repo",
+            "crate::app::create_repo",
+            Some("Store"),
+            None,
+        );
+        factory.payload["try_yield"] = json!(true);
+        let mut caller = typed_caller(
+            "ent_run",
+            "crate::app::run",
+            json!([]),
+            json!([call_site("method", "store.write", "write")]),
+        );
+        caller.payload["call_bindings"] =
+            json!([{"name": "store", "callee": "create_repo", "line": 4, "try": true}]);
+        let entities = vec![store, write.clone(), factory, caller.clone()];
+        let relations = link_all(entities, Vec::new()).await;
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls && relation.from == caller.id)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].to, write.id);
+    }
+
+    #[tokio::test]
+    async fn resolves_a_method_on_an_unwrap_nested_factory_result() {
+        let store = type_entity("ent_struct_store", "crate::app::Store", "struct");
+        let inner = type_entity("ent_struct_inner", "crate::app::Inner", "struct");
+        let write = method("ent_inner_write", "crate::app::Inner::write");
+        let factory = factory_fn(
+            "ent_create_repo",
+            "crate::app::create_repo",
+            Some("Store"),
+            None,
+        );
+        let mut get = factory_fn("ent_store_get", "crate::app::Store::get", Some("Inner"), None);
+        get.payload["try_yield"] = json!(true);
+        let caller = typed_caller(
+            "ent_run",
+            "crate::app::run",
+            json!([]),
+            json!([call_site(
+                "method",
+                "create_repo().get().unwrap().write",
+                "write"
+            )]),
+        );
+        let entities = vec![store, inner, write.clone(), factory, get, caller.clone()];
+        let relations = link_all(entities, Vec::new()).await;
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls && relation.from == caller.id)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].to, write.id);
+    }
+
+    #[tokio::test]
+    async fn resolves_a_method_on_an_inner_unwrap_factory_hop() {
+        let app = type_entity("ent_struct_app", "crate::app::App", "struct");
+        let store = type_entity("ent_struct_store", "crate::app::Store", "struct");
+        let inner = type_entity("ent_struct_inner", "crate::app::Inner", "struct");
+        let write = method("ent_inner_write", "crate::app::Inner::write");
+        let mut factory = factory_fn(
+            "ent_create_repo",
+            "crate::app::create_repo",
+            Some("Store"),
+            None,
+        );
+        factory.payload["try_yield"] = json!(true);
+        let mut crate_factory = factory_fn(
+            "ent_crate_create_repo",
+            "crate::create_repo",
+            Some("Store"),
+            None,
+        );
+        crate_factory.payload["try_yield"] = json!(true);
+        let mut create = factory_fn(
+            "ent_app_create",
+            "crate::app::App::create",
+            Some("Store"),
+            None,
+        );
+        create.payload["try_yield"] = json!(true);
+        let mut new = factory_fn(
+            "ent_store_new",
+            "crate::app::Store::new",
+            Some("Store"),
+            None,
+        );
+        new.payload["try_yield"] = json!(true);
+        let get = factory_fn("ent_store_get", "crate::app::Store::get", Some("Inner"), None);
+        let ident = typed_caller(
+            "ent_run",
+            "crate::app::run",
+            json!([]),
+            json!([call_site(
+                "method",
+                "create_repo().unwrap().get().write",
+                "write"
+            )]),
+        );
+        let expect = typed_caller(
+            "ent_expect",
+            "crate::app::expect_run",
+            json!([]),
+            json!([call_site(
+                "method",
+                "create_repo().expect(\"failed\").get().write",
+                "write"
+            )]),
+        );
+        let member = typed_caller(
+            "ent_member",
+            "crate::app::member",
+            json!([{"name": "svc", "type": "App", "kind": "annotation", "line": 3}]),
+            json!([call_site(
+                "method",
+                "svc.create().unwrap().get().write",
+                "write"
+            )]),
+        );
+        let associated = typed_caller(
+            "ent_associated",
+            "crate::app::associated",
+            json!([]),
+            json!([call_site(
+                "method",
+                "Store::new().unwrap().get().write",
+                "write"
+            )]),
+        );
+        let path = typed_caller(
+            "ent_path",
+            "crate::app::path",
+            json!([]),
+            json!([call_site(
+                "method",
+                "crate::create_repo().unwrap().get().write",
+                "write"
+            )]),
+        );
+        let entities = vec![
+            app,
+            store,
+            inner,
+            write.clone(),
+            factory,
+            crate_factory,
+            create,
+            new,
+            get,
+            ident.clone(),
+            expect.clone(),
+            member.clone(),
+            associated.clone(),
+            path.clone(),
+        ];
+        let relations = link_all(entities, Vec::new()).await;
+
+        for caller in [&ident, &expect, &member, &associated, &path] {
+            let calls = relations
+                .iter()
+                .filter(|relation| {
+                    relation.kind == RelationKind::Calls && relation.from == caller.id
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(
+                calls.len(),
+                1,
+                "inner unwrap hop must resolve for {}",
+                caller.name
+            );
+            assert_eq!(calls[0].to, write.id);
+            assert_eq!(calls[0].payload["reason"], "rust_typed_receiver_method");
+            assert_eq!(calls[0].confidence, 0.8);
+        }
+    }
+
+    #[tokio::test]
+    async fn resolves_a_method_on_an_inner_unwrap_factory_initialized_binding() {
+        let store = type_entity("ent_struct_store", "crate::app::Store", "struct");
+        let inner = type_entity("ent_struct_inner", "crate::app::Inner", "struct");
+        let write = method("ent_inner_write", "crate::app::Inner::write");
+        let mut factory = factory_fn(
+            "ent_create_repo",
+            "crate::app::create_repo",
+            Some("Store"),
+            None,
+        );
+        factory.payload["try_yield"] = json!(true);
+        let get = factory_fn("ent_store_get", "crate::app::Store::get", Some("Inner"), None);
+        let mut caller = typed_caller(
+            "ent_run",
+            "crate::app::run",
+            json!([]),
+            json!([call_site("method", "store.write", "write")]),
+        );
+        caller.payload["call_bindings"] =
+            json!([{"name": "store", "callee": "create_repo()?.get", "line": 4}]);
+        let entities = vec![store, inner, write.clone(), factory, get, caller.clone()];
+        let relations = link_all(entities, Vec::new()).await;
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls && relation.from == caller.id)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].to, write.id);
+        assert_eq!(calls[0].payload["reason"], "rust_typed_receiver_method");
+        assert_eq!(calls[0].confidence, 0.8);
+    }
+
+    #[tokio::test]
+    async fn an_unwrap_without_try_yield_stays_unresolved() {
+        let store = type_entity("ent_struct_store", "crate::app::Store", "struct");
+        let inner = type_entity("ent_struct_inner", "crate::app::Inner", "struct");
+        let write = method("ent_store_write", "crate::app::Store::write");
+        let inner_write = method("ent_inner_write", "crate::app::Inner::write");
+        let plain = factory_fn("ent_build", "crate::app::build", Some("Store"), None);
+        let mut factory = factory_fn(
+            "ent_create_repo",
+            "crate::app::create_repo",
+            Some("Store"),
+            None,
+        );
+        factory.payload["try_yield"] = json!(true);
+        let get = factory_fn("ent_store_get", "crate::app::Store::get", Some("Inner"), None);
+        let on_plain = typed_caller(
+            "ent_on_plain",
+            "crate::app::on_plain",
+            json!([]),
+            json!([call_site("method", "build().unwrap().write", "write")]),
+        );
+        let or_default = typed_caller(
+            "ent_or_default",
+            "crate::app::or_default",
+            json!([]),
+            json!([call_site(
+                "method",
+                "create_repo().unwrap_or_default().write",
+                "write"
+            )]),
+        );
+        let inner_plain = typed_caller(
+            "ent_inner_plain",
+            "crate::app::inner_plain",
+            json!([]),
+            json!([call_site(
+                "method",
+                "build().unwrap().get().write",
+                "write"
+            )]),
+        );
+        let inner_third = typed_caller(
+            "ent_inner_third",
+            "crate::app::inner_third",
+            json!([]),
+            json!([call_site(
+                "method",
+                "create_repo().unwrap().get().extra().write",
+                "write"
+            )]),
+        );
+        let field = typed_caller(
+            "ent_field",
+            "crate::app::field",
+            json!([{"name": "store", "type": "Store", "kind": "annotation", "line": 3}]),
+            json!([call_site("method", "store.unwrap().write", "write")]),
+        );
+        let entities = vec![
+            store,
+            inner,
+            write,
+            inner_write,
+            plain,
+            factory,
+            get,
+            on_plain,
+            or_default,
+            inner_plain,
+            inner_third,
+            field,
+        ];
+        let relations = link_all(entities, Vec::new()).await;
+
+        assert!(
+            relations
+                .iter()
+                .all(|relation| relation.kind != RelationKind::Calls),
+            "unwrap on a non-Result factory, unwrap_or_default, a third inner-unwrap hop, or store.unwrap() must not resolve"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_try_factory_without_question_stays_unresolved() {
+        let store = type_entity("ent_struct_store", "crate::app::Store", "struct");
+        let inner = type_entity("ent_struct_inner", "crate::app::Inner", "struct");
+        let write = method("ent_store_write", "crate::app::Store::write");
+        let inner_write = method("ent_inner_write", "crate::app::Inner::write");
+        let mut factory = factory_fn(
+            "ent_create_repo",
+            "crate::app::create_repo",
+            Some("Store"),
+            None,
+        );
+        factory.payload["try_yield"] = json!(true);
+        let get = factory_fn("ent_store_get", "crate::app::Store::get", Some("Inner"), None);
+        let no_try = typed_caller(
+            "ent_no_try",
+            "crate::app::no_try",
+            json!([]),
+            json!([call_site("method", "create_repo().write", "write")]),
+        );
+        let mut binding = typed_caller(
+            "ent_binding",
+            "crate::app::binding",
+            json!([]),
+            json!([call_site("method", "store.write", "write")]),
+        );
+        binding.payload["call_bindings"] =
+            json!([{"name": "store", "callee": "create_repo", "line": 4}]);
+        let plain = factory_fn("ent_build", "crate::app::build", Some("Store"), None);
+        let question = typed_caller(
+            "ent_question",
+            "crate::app::question",
+            json!([]),
+            json!([call_site("method", "build()?.write", "write")]),
+        );
+        let nested_no_try = typed_caller(
+            "ent_nested_no_try",
+            "crate::app::nested_no_try",
+            json!([]),
+            json!([call_site("method", "create_repo().get().write", "write")]),
+        );
+        let inner_question = typed_caller(
+            "ent_inner_question",
+            "crate::app::inner_question",
+            json!([]),
+            json!([call_site("method", "build()?.get().write", "write")]),
+        );
+        let inner_third = typed_caller(
+            "ent_inner_third",
+            "crate::app::inner_third",
+            json!([]),
+            json!([call_site(
+                "method",
+                "create_repo()?.get().extra().write",
+                "write"
+            )]),
+        );
+        let entities = vec![
+            store,
+            inner,
+            write,
+            inner_write,
+            factory,
+            get,
+            no_try,
+            binding,
+            plain,
+            question,
+            nested_no_try,
+            inner_question,
+            inner_third,
+        ];
+        let relations = link_all(entities, Vec::new()).await;
+
+        assert!(
+            relations
+                .iter()
+                .all(|relation| relation.kind != RelationKind::Calls),
+            "a Result factory without ?, a ? on a non-Result factory, or a third inner-try hop must not resolve"
+        );
+    }
+
+    #[tokio::test]
+    async fn resolves_a_member_through_a_type_alias() {
+        let mut client = type_entity("ent_alias_client", "crate::app::Client", "type_alias");
+        client.payload["aliased_type"] = json!("Store");
+        let store = type_entity("ent_struct_store", "crate::app::Store", "struct");
+        let write = method("ent_store_write", "crate::app::Store::write");
+        let caller = typed_caller(
+            "ent_run",
+            "crate::app::run",
+            json!([{"name": "item", "type": "Client", "kind": "annotation", "line": 3}]),
+            json!([call_site("method", "item.write", "write")]),
+        );
+
+        let entities = vec![client, store, write.clone(), caller.clone()];
+        let relations = RustLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: entities.clone().into(),
+                facts: Vec::new().into(),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from, caller.id);
+        assert_eq!(calls[0].to, write.id);
+        assert_eq!(calls[0].payload["reason"], "rust_typed_receiver_method");
+        assert_eq!(calls[0].confidence, 0.8);
+    }
+
+    #[tokio::test]
+    async fn a_type_alias_without_a_named_type_does_not_resolve() {
+        let client = type_entity("ent_alias_client", "crate::app::Client", "type_alias");
+        let write = method("ent_store_write", "crate::app::Store::write");
+        let caller = typed_caller(
+            "ent_run",
+            "crate::app::run",
+            json!([{"name": "item", "type": "Client", "kind": "annotation", "line": 3}]),
+            json!([call_site("method", "item.write", "write")]),
+        );
+
+        let entities = vec![client, write, caller];
+        let relations = RustLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: entities.clone().into(),
+                facts: Vec::new().into(),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        assert!(
+            relations
+                .iter()
+                .all(|relation| relation.kind != RelationKind::Calls),
+            "an unnamed alias must not unfold to a unique member"
         );
     }
 
