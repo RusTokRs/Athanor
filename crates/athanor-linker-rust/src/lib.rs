@@ -1355,11 +1355,11 @@ fn unfold_alias_type<'a>(
     let Some(entity) = by_qualified_name.get(qualified).copied() else {
         return type_name.to_string();
     };
-    if !entity
+    if entity
         .payload
         .get("symbol_kind")
         .and_then(|value| value.as_str())
-        .is_some_and(|kind| kind == "type_alias")
+        .is_none_or(|kind| kind != "type_alias")
     {
         return type_name.to_string();
     }

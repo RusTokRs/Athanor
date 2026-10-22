@@ -407,9 +407,10 @@ impl<'ast> Visit<'ast> for CallVisitor {
 
 /// Collapses pretty-printed token spacing so `self . reader` records as
 /// `self.reader`, `svc . create ()` as `svc.create()`, `Store :: new ()` as
-/// `Store::new()`, and peels wrapping parentheses so `(&mut self.reader)` is
-/// `&mut self.reader`. Spaces that are not around `.`, `::`, or `()` stay, so
-/// `&mut self` is not smashed into `&mutself`.
+/// `Store::new()`, `create_repo () ?` as `create_repo()?`, and peels wrapping
+/// parentheses so `(&mut self.reader)` is `&mut self.reader`. Spaces that are
+/// not around `.`, `::`, `()`, or postfix `?` stay, so `&mut self` is not
+/// smashed into `&mutself`.
 fn normalize_receiver_expr(text: &str) -> String {
     let mut text = compact_receiver_dots(text);
     while let Some(inner) = text
@@ -433,6 +434,7 @@ fn compact_receiver_dots(text: &str) -> String {
         .replace(" ::", "::")
         .replace(":: ", "::")
         .replace(" ()", "()")
+        .replace(" ?", "?")
 }
 
 /// One statically named call site.
@@ -682,8 +684,15 @@ fn path_factory_callee(func: &syn::Expr) -> Option<String> {
 /// `crate::create_repo().get`. A `?` or unwrap/expect on the inner hop records
 /// `create_repo()?.get`.
 ///
-/// The inner factory is one hop only. `create_repo().get().extra()` names nothing.
+/// The inner factory is one hop only. `create_repo().get().extra()` and the
+/// `unwrap_or` / `unwrap_or_else` / `unwrap_or_default` family name nothing.
 fn nested_factory_init_callee(receiver: &syn::Expr, method: &syn::Ident) -> Option<String> {
+    if matches!(
+        method.to_string().as_str(),
+        "unwrap_or" | "unwrap_or_else" | "unwrap_or_default"
+    ) {
+        return None;
+    }
     let (receiver, inner_tried) = peel_init_try(receiver);
     let inner = match receiver {
         syn::Expr::Call(call) => path_factory_callee(&call.func)?,
@@ -3053,6 +3062,8 @@ impl App {
         let inner_member = svc.create().unwrap().get();
         let inner_path = crate::create_repo().unwrap().get();
         let inner_expect = create_repo().expect("failed").get();
+        let or = create_repo().unwrap_or(Store);
+        let or_else = create_repo().unwrap_or_else(|| Store);
         let or_default = create_repo().unwrap_or_default();
         unwrapped.write();
     }
@@ -3127,8 +3138,12 @@ pub fn create_repo() -> Store { Store }
             .expect("inner binding");
         assert!(inner.get("try").is_none());
         assert!(
-            !rows.iter().any(|row| row.starts_with("or_default:")),
-            "unwrap_or_default must not be recorded as try, got {rows:?}"
+            !rows.iter().any(|row| {
+                row.starts_with("or:")
+                    || row.starts_with("or_else:")
+                    || row.starts_with("or_default:")
+            }),
+            "unwrap_or variants must not be recorded as factories, got {rows:?}"
         );
         for name in ["unwrapped", "expected", "nested", "member"] {
             let binding = bindings
