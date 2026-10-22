@@ -10,7 +10,8 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 
 use super::process_adapter_support::{
-    ProcessCommand, ProcessLimits, normalize_extension, process_output_excerpt,
+    ProcessCommand, ProcessLimits, extractor_matches_all, normalize_extension,
+    process_output_excerpt,
 };
 use crate::{
     CancellableProcessRunner, CancellationToken, current_process_execution_context,
@@ -96,7 +97,7 @@ impl Extractor for ProcessExtractor {
     }
 
     fn supports(&self, source: &SourceFile) -> bool {
-        self.supports_extensions.is_empty()
+        extractor_matches_all(&self.supports_extensions)
             || Path::new(&source.path)
                 .extension()
                 .and_then(|extension| extension.to_str())
@@ -149,7 +150,7 @@ where
         adapter_id,
         command,
         input,
-        ProcessLimits::default(),
+        command.limits,
         context.operation.as_ref(),
         context.cancellation.as_ref(),
     )
@@ -237,16 +238,6 @@ where
     if !stderr.is_empty() {
         warn!(adapter_kind, adapter_id, stderr = %stderr, "external process adapter stderr");
     }
-    if !output.success {
-        return Err(CoreError::Adapter(format!(
-            "external {adapter_kind} {adapter_id} exited with {}; stderr: {}",
-            output.exit_code.map_or_else(
-                || "unknown status".to_string(),
-                |code| format!("exit code: {code}")
-            ),
-            stderr
-        )));
-    }
     if output.stdout_truncated {
         return Err(CoreError::Adapter(format!(
             "external {adapter_kind} {adapter_id} stdout exceeded {} bytes",
@@ -257,6 +248,16 @@ where
         return Err(CoreError::Adapter(format!(
             "external {adapter_kind} {adapter_id} stderr exceeded {} bytes",
             limits.max_stderr_bytes
+        )));
+    }
+    if !output.success {
+        return Err(CoreError::Adapter(format!(
+            "external {adapter_kind} {adapter_id} exited with {}; stderr: {}",
+            output.exit_code.map_or_else(
+                || "unknown status".to_string(),
+                |code| format!("exit code: {code}")
+            ),
+            stderr
         )));
     }
     serde_json::from_slice(&output.stdout).map_err(|error| {
@@ -457,8 +458,9 @@ mod tests {
             args: vec!["--json".to_string()],
             working_dir: PathBuf::from("/fake"),
             clear_environment: true,
-            expected_content_hash: None,
-            expected_content_size_bytes: None,
+            limits: ProcessLimits::default(),
+            expected: Vec::new(),
+            fully_verified: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
 

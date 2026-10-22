@@ -100,8 +100,8 @@ cargo run -p ath --quiet -- overview .
 cargo run -p ath --quiet -- overview . --json
 ```
 
-Answer one code question in a single bounded call — ranked entities, citations, the one-hop
-neighbourhood, multi-hop relation chains, and the aggregate blast radius:
+Answer one code question in a single bounded call — ranked entities, bounded source excerpts,
+citations, the one-hop neighbourhood, multi-hop relation chains, and the aggregate blast radius:
 
 ```bash
 cargo run -p ath --quiet -- explore "index publication rollback"

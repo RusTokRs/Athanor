@@ -178,21 +178,7 @@ async fn index_project_inner(
     };
 
     let output_result = if options.validate_only {
-        let pipeline = runtime_builder(&root, composition)
-            .allow_external_process(config.adapters.allow_external_process)
-            .clear_external_process_environment(matches!(
-                config.adapters.external_process_sandbox,
-                crate::config::ExternalProcessSandboxProfile::CleanEnvironment
-            ))
-            .allowed_external_process_programs(
-                config
-                    .adapters
-                    .external_process_allowlist
-                    .iter()
-                    .map(PathBuf::from),
-            )
-            .with_discovered_plugins()
-            .context("failed to discover adapter plugins")?
+        let pipeline = runtime_builder(&root, composition, &config)?
             .build_index_pipeline(TransientKnowledgeStore::new())
             .extraction_concurrency(config.pipeline.extraction_concurrency)
             .max_extraction_bytes_in_flight(config.pipeline.max_extraction_bytes_in_flight)
@@ -232,21 +218,7 @@ async fn index_project_inner(
                 .await
         }
     } else {
-        let pipeline = runtime_builder(&root, composition)
-            .allow_external_process(config.adapters.allow_external_process)
-            .clear_external_process_environment(matches!(
-                config.adapters.external_process_sandbox,
-                crate::config::ExternalProcessSandboxProfile::CleanEnvironment
-            ))
-            .allowed_external_process_programs(
-                config
-                    .adapters
-                    .external_process_allowlist
-                    .iter()
-                    .map(PathBuf::from),
-            )
-            .with_discovered_plugins()
-            .context("failed to discover adapter plugins")?
+        let pipeline = runtime_builder(&root, composition, &config)?
             .build_index_pipeline(canonical_store.clone())
             .extraction_concurrency(config.pipeline.extraction_concurrency)
             .max_extraction_bytes_in_flight(config.pipeline.max_extraction_bytes_in_flight)
@@ -457,8 +429,15 @@ async fn publish_index_snapshot_with_cleanup(
     }
 }
 
-fn runtime_builder(root: &Path, composition: &RuntimeComposition) -> RuntimeBuilder {
+fn runtime_builder(
+    root: &Path,
+    composition: &RuntimeComposition,
+    config: &crate::config::ProjectConfig,
+) -> Result<RuntimeBuilder> {
     RuntimeBuilder::from_composition(root, composition)
+        .with_adapters_config(&config.adapters)
+        .with_discovered_plugins()
+        .context("failed to discover adapter plugins")
 }
 
 /// An OS-level lock covering source-state classification, canonical writes, and publication.

@@ -55,7 +55,7 @@ pub(crate) fn list() -> Value {
             },
             {
                 "name": "explore",
-                "description": "Answer one code question in a single call: ranked entry entities with portable source anchors, citation evidence, the one-hop relation neighbourhood in both directions, bounded multi-hop call/relation chains, and the aggregate blast radius of the entries. Provide `query` to search for entries or `target` to anchor on an exact stable key or repository path.",
+                "description": "Answer one code question in a single call: ranked entry entities with portable source anchors, bounded declaration excerpts, citation evidence, the one-hop relation neighbourhood in both directions, bounded multi-hop call/relation chains, and the aggregate blast radius of the entries. Provide `query` to search for entries or `target` to anchor on an exact stable key or repository path.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {

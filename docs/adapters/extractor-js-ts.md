@@ -126,10 +126,14 @@ initializer, `annotation` for a TypeScript annotation), and the declaration `lin
 variable declarators, class fields and interface property signatures — recorded as `Owner.field`,
 where the owner is the enclosing class or interface, so two owners in one file never collide — and
 TypeScript parameter properties, where `constructor(private repo: Repo)` also yields `Class.repo`.
-Only a type the source names is recorded: a call result, a union, an array type, a destructuring
-pattern, an aliased initializer, a function type, and a generic instantiation that is not a bare
-identifier are skipped, and a qualified or generic name is reduced to its terminal identifier, so
-`Promise<Repo>` and `ns.Repo` both record `Repo`. Rows are bounded to 64 per module with an
+Only a type the source names is recorded: a call result, a union, a destructuring pattern, an
+aliased initializer, a function type, and a generic instantiation that is not a bare identifier are
+skipped, and a qualified or generic name is reduced to its terminal identifier, so `Promise<Repo>`
+and `ns.Repo` both record `Repo`. A type parameter that `extends` one named type records that bound
+instead of the parameter, so `function run<T extends Repo>(repo: T)` types `repo` as `Repo`; an
+unconstrained parameter, a union bound, and a default without `extends` leave the parameter name.
+An array annotation records the element as `name[]` rather than
+the wrapper. Rows are bounded to 64 per module with an
 `omitted_typed_bindings` count.
 
 An object literal types the members it constructs, because the literal states each one: `const
@@ -146,38 +150,75 @@ dispatches on: the iteration variable of a `for...of` loop and the first paramet
 combinator's callback (`forEach`, `map`, `filter`, `flatMap`, `find`, `findIndex`, `findLast`,
 `findLastIndex`, `some`, `every`) record a row with kind `element` when the collection's own
 annotation names one element type, so `Item[]` and `Array<Item>` both record `Item` and a `readonly`
-prefix is ignored. `reduce` is excluded because its first parameter is the accumulator, `for...in`
-because it iterates string keys, and a nested array, a tuple, a union, a generic element, a wrapper
-that is not an array, and a collection the file never annotates because none of them names one
-element type. A collection annotation records no row for the collection itself: the wrapper is not a
-receiver the source writes. The element rows share the 64-row bound and the omission count.
+prefix is ignored. The same annotation records `name[]` for an index access, so `items[0].save()`
+and `this.fields[i].save()` walk `items[]` / `Class.fields[]` without inventing a loop variable.
+`reduce` is excluded because its first parameter is the accumulator, `for...in` because it iterates
+string keys, and a nested array, a tuple, a union, a generic element, a wrapper that is not an
+array, and a collection the file never annotates because none of them names one element type. A
+collection annotation records no row for the collection itself: the wrapper is not a receiver the
+source writes. An array literal that constructs one type records the same `name[]` row with kind
+`construction`, so `const items = [new Item(), new Item()]` types `items[0]` without an annotation;
+an empty array, a mixed constructed type, a nested array, a spread, and a call element name nothing.
+The element rows share the 64-row bound and the omission count.
 
 Module payloads also carry bounded `call_bindings`: one row per binding the module initializes with
 a statically named call, with the binding `name`, the `callee`, the `line`, and whether the binding
 `awaited` the call. `const repo = await createRepo()` and `const pending = createRepo()` name
 different receivers even though they call the same factory, because one holds what the promise
-yields and the other holds the promise. A destructuring initializer and a non-call initializer are
+yields and the other holds the promise. `const repo = create()()` also marks `invoked`, because the
+binding holds what the returned function yields. A third hop, an awaited invocation, and a member
+factory as that extra hop are not rows. A destructuring initializer and a non-call initializer are
 not rows, because neither names one receiver. Rows are bounded to 64 per module with an
 `omitted_call_bindings` count.
 
 A declaration payload carries `return_type` when the function, method, or arrow function declares
 one: only a bare named type is recorded, so `Promise<Repo>`, a union, an array type, and a function
-type are left out because they do not name the type a receiver will hold. An `async` declaration is
+type are left out because they do not name the type a receiver will hold. A type parameter that
+`extends` one named type is that bound, so `function create<T extends Repo>(): T` and
+`class App<T extends Item> { build(): T }` record `Repo` / `Item` — the same substitution a `T`
+parameter uses. An unconstrained parameter, a union bound, and a default without `extends` leave
+the parameter name. An `async` declaration is
 left out for the same reason — it returns a promise whatever it declares. It instead carries
 `awaited_return_type`: the type an `await` on a call to it yields, which is `Repo` both for
 `Promise<Repo>` and `PromiseLike<Repo>` and for the bare annotation of an `async` declaration, since
-`async function load(): Repo` awaits to a `Repo`. A promise of a union, an array, or a nested
+`async function load(): Repo` awaits to a `Repo`. The same type-parameter bound applies, so
+`async function wrap<T extends Repo>(): T` and `(): Promise<T>` await to `Repo`. A promise of a union, an array, or a nested
 generic awaits to nothing, and a declaration that names no promise and is not `async` carries no
 awaited type at all.
 
 A declaration payload also carries `returned_type`: the one type every `return` of its body
 constructs, so `function createRepo() { return new Repo(); }` records `Repo`, and so does an arrow
-function with an expression body, `const makeStore = () => new Store()`. A `return` that is not a
-construction, two returns that construct different types, and a declaration that returns nothing
-record nothing, because the value the declaration returns is then not the one the source states. A
-`return` of a nested function is not the declaration's own value and is skipped. An `async`
-declaration that constructs what it returns awaits to that type and returns nothing, since it returns
-a promise.
+function with an expression body, `const makeStore = () => new Store()`. Parentheses, `await`,
+`as Type`, and a non-null assertion wrap the same construction, so `return (new Repo())` and
+`return await new Repo()` record `Repo` too. A `return` that is not a construction, two returns
+that construct different types, and a declaration that returns nothing record nothing, because the
+value the declaration returns is then not the one the source states. A `return` of a nested function
+is not the declaration's own value and is skipped. An `async` declaration that constructs what it
+returns awaits to that type and returns nothing, since it returns a promise.
+
+A declaration payload also carries `returned_callee` when the body constructs nothing and every
+`return` is a call to the same bare identifier, so `function createRepo() { return makeRepo(); }`
+records `makeRepo` for the linker to read that factory's type. The same wrappers peel off a
+returned call, and an `async` wrapper records the callee so an `await` of it can hop. A
+construction already names the type, two different callees, a member callee, and a mix of
+construction and call record nothing. A nested function's return is skipped.
+
+A declaration payload also carries `asserted_type` when every `return` asserts the same bare type
+with `as Type` or `<Type>expr`, so `function createRepo() { return load() as Repo; }` records
+`Repo`. A construction already names the type, `as const`, a union, and two disagreeing assertions
+record nothing. An initializer `const repo = load() as Repo` records a typed-binding row of kind
+`annotation`; `new Item() as Other` is still a construction.
+
+A declaration payload also carries `returned_function_type` when the annotation is a function type
+that yields one bare named type: `function create(): () => Repo` records `Repo`, and so does
+`(): (() => Repo)` and `(n: number) => Repo`. The annotation is not `return_type`, because
+`create()` itself is a function. A second function hop, a generic function type, a constructor
+type, and an `async` factory record nothing. A type parameter that `extends` one named type is
+that bound, so `function make<T extends Item>(): () => T` records `Item`.
+
+A type-alias payload carries `aliased_type` when the right-hand side is a bare named type:
+`type Client = Repo`, `type Client = ns.Repo`, and `type Client = Repo<K>` record `Repo`. A union,
+an array, and a function type name nothing the linker can unfold.
 
 ## Call Sites
 
@@ -187,9 +228,14 @@ such as `login`, `api.send`, or `this.refresh`), the terminal `name`, the option
 `kind` (`call` or `new`), the callee `line` and `column`, and the argument `arg_count`.
 
 Only shapes whose target can be named without running the program are recorded: identifiers, member
-chains rooted in an identifier or `this`/`super`, and constructor invocations. Computed calls
-(`handlers[key]()`), calls through call results or parenthesized expressions (`factory()()`), and JSX
-elements are omitted rather than guessed. Call sites are attributed to the declaration that contains
+chains rooted in an identifier or `this`/`super`, a member of an indexed collection
+(`items[0].save()` recorded as `items[].save`), a member of an identifier factory or construction
+(`createRepo().save()` recorded as `createRepo().save`, `svc.build().save()` as
+`svc.build().save`, `createRepo().getStore().save()` as `createRepo().getStore().save`,
+`(await createRepo()).save()` as `createRepo()@.save`, `create()().save()` as `create()().save`, `new Repo().save()` / `new ns.Repo().save()` as `Repo{}.save`,
+`(value as Repo).save()` as `Repo#.save`), and constructor invocations. Computed calls
+(`handlers[key]()`), nested index access (`items[0][1].save()`), a third call hop
+(`factory()()()`), `as const` and mixed assertions, and JSX elements are omitted rather than guessed. Call sites are attributed to the declaration that contains
 them, nested class bodies are skipped because their members are separate declarations, and the array
 is capped at 256 entries per declaration so payloads stay bounded. Call sites are raw syntax
 evidence: resolving them to declarations is the job of the JS/TS call linker.

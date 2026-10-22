@@ -160,57 +160,42 @@ fn default_store<'a>(
     })
 }
 
+const DEFAULT_BUILTIN_ADAPTERS: &[(AdapterPluginKind, &str)] = &[
+    (AdapterPluginKind::Source, "builtin.source.local_filesystem"),
+    (AdapterPluginKind::Extractor, "builtin.extractor.file"),
+    (AdapterPluginKind::Extractor, "builtin.extractor.markdown"),
+    (AdapterPluginKind::Extractor, "builtin.extractor.openapi"),
+    (AdapterPluginKind::Extractor, "builtin.extractor.graphql"),
+    (AdapterPluginKind::Extractor, "builtin.extractor.operations"),
+    (AdapterPluginKind::Extractor, "builtin.extractor.js_ts"),
+    (AdapterPluginKind::Extractor, "builtin.extractor.nextjs"),
+    (AdapterPluginKind::Extractor, "builtin.extractor.express"),
+    (AdapterPluginKind::Extractor, "builtin.extractor.rust"),
+    (AdapterPluginKind::Extractor, "builtin.extractor.axum"),
+    (AdapterPluginKind::Extractor, "builtin.extractor.treesitter"),
+    (AdapterPluginKind::Linker, "builtin.linker.markdown_containment"),
+    (AdapterPluginKind::Linker, "builtin.linker.api_knowledge"),
+    (AdapterPluginKind::Linker, "builtin.linker.js_ts_imports"),
+    (AdapterPluginKind::Linker, "builtin.linker.js_ts_calls"),
+    (AdapterPluginKind::Linker, "builtin.linker.js_ts_implements"),
+    (AdapterPluginKind::Linker, "builtin.linker.rust"),
+    (AdapterPluginKind::Linker, "builtin.linker.treesitter"),
+    (AdapterPluginKind::Checker, "builtin.checker.markdown_structure"),
+    (AdapterPluginKind::Checker, "builtin.checker.api_consistency"),
+    (AdapterPluginKind::Checker, "builtin.checker.env_docs"),
+    (AdapterPluginKind::Checker, "builtin.checker.script_docs"),
+    (AdapterPluginKind::Checker, "builtin.checker.deployment_docs"),
+    (AdapterPluginKind::Checker, "builtin.checker.runbook_consistency"),
+];
+
 pub fn default_adapter_registry() -> AdapterRegistry {
-    AdapterRegistry::empty()
-        .register_source_id("builtin.source.local_filesystem", |root| {
-            Box::new(LocalFileSystemSource::new(root))
-        })
-        .register_extractor_id("builtin.extractor.file", || Box::new(FileExtractor))
-        .register_extractor_id("builtin.extractor.markdown", || Box::new(MarkdownExtractor))
-        .register_extractor_id("builtin.extractor.openapi", || Box::new(OpenApiExtractor))
-        .register_extractor_id("builtin.extractor.graphql", || Box::new(GraphQlExtractor))
-        .register_extractor_id("builtin.extractor.operations", || {
-            Box::new(OperationsExtractor)
-        })
-        .register_extractor_id("builtin.extractor.js_ts", || Box::new(JsTsExtractor))
-        .register_extractor_id("builtin.extractor.nextjs", || Box::new(NextJsExtractor))
-        .register_extractor_id("builtin.extractor.express", || Box::new(ExpressExtractor))
-        .register_extractor_id("builtin.extractor.rust", || Box::new(RustExtractor))
-        .register_extractor_id("builtin.extractor.axum", || Box::new(AxumExtractor))
-        .register_extractor_id("builtin.extractor.treesitter", || {
-            Box::new(TreeSitterExtractor)
-        })
-        .register_linker_id("builtin.linker.markdown_containment", || {
-            Box::new(MarkdownContainmentLinker)
-        })
-        .register_linker_id("builtin.linker.api_knowledge", || {
-            Box::new(ApiKnowledgeLinker)
-        })
-        .register_linker_id("builtin.linker.js_ts_imports", || {
-            Box::new(JsTsImportLinker)
-        })
-        .register_linker_id("builtin.linker.js_ts_calls", || Box::new(JsTsCallLinker))
-        .register_linker_id("builtin.linker.js_ts_implements", || {
-            Box::new(JsTsImplementsLinker)
-        })
-        .register_linker_id("builtin.linker.rust", || Box::new(RustLinker))
-        .register_linker_id("builtin.linker.treesitter", || Box::new(TreeSitterLinker))
-        .register_checker_id("builtin.checker.markdown_structure", || {
-            Box::new(MarkdownStructureChecker)
-        })
-        .register_checker_id("builtin.checker.api_consistency", || {
-            Box::new(ApiConsistencyChecker)
-        })
-        .register_checker_id("builtin.checker.env_docs", || Box::new(EnvDocsChecker))
-        .register_checker_id("builtin.checker.script_docs", || {
-            Box::new(ScriptDocsChecker)
-        })
-        .register_checker_id("builtin.checker.deployment_docs", || {
-            Box::new(DeploymentDocsChecker)
-        })
-        .register_checker_id("builtin.checker.runbook_consistency", || {
-            Box::new(RunbookConsistencyChecker)
-        })
+    let mut registry = AdapterRegistry::empty();
+    for (kind, id) in DEFAULT_BUILTIN_ADAPTERS {
+        registry = resolve_builtin_adapter(registry, *kind, id).expect(
+            "default adapter catalog only contains ids handled by resolve_builtin_adapter",
+        );
+    }
+    registry
 }
 
 pub fn resolve_builtin_adapter(

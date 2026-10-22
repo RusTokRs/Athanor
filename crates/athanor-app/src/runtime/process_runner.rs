@@ -82,8 +82,17 @@ async fn execute_process(
     let stderr = child.stderr.take().ok_or_else(|| {
         CoreError::Adapter(format!("failed to open stderr for {}", request.label))
     })?;
-    let mut stdout_reader = tokio::spawn(read_limited(stdout, request.limits.max_stdout_bytes));
-    let mut stderr_reader = tokio::spawn(read_limited(stderr, request.limits.max_stderr_bytes));
+    let (truncate_tx, mut truncate_rx) = tokio::sync::mpsc::channel::<()>(2);
+    let mut stdout_reader = tokio::spawn(read_limited(
+        stdout,
+        request.limits.max_stdout_bytes,
+        Some(truncate_tx.clone()),
+    ));
+    let mut stderr_reader = tokio::spawn(read_limited(
+        stderr,
+        request.limits.max_stderr_bytes,
+        Some(truncate_tx),
+    ));
     let mut stdin = child
         .stdin
         .take()
@@ -91,26 +100,25 @@ async fn execute_process(
     let deadline = tokio::time::Instant::now() + Duration::from_millis(request.limits.timeout_ms);
 
     let write_result = tokio::select! {
-        result = stdin.write_all(&request.stdin) => result,
+        result = stdin.write_all(&request.stdin) => Some(result),
         _ = tokio::time::sleep_until(deadline) => {
-            terminate_external_process_tree(&mut child).await;
-            let _ = (&mut stdout_reader).await;
-            let _ = (&mut stderr_reader).await;
+            terminate_and_join(&mut child, &mut stdout_reader, &mut stderr_reader).await;
             return Err(process_timeout(&request));
         }
+        _ = truncate_rx.recv() => None,
         terminal = wait_for_termination(operation, cancellation), if operation.is_some() || cancellation.is_some() => {
-            terminate_external_process_tree(&mut child).await;
-            let _ = (&mut stdout_reader).await;
-            let _ = (&mut stderr_reader).await;
+            terminate_and_join(&mut child, &mut stdout_reader, &mut stderr_reader).await;
             return Err(terminal);
         }
+    };
+    let Some(write_result) = write_result else {
+        terminate_external_process_tree(&mut child).await;
+        return collect_truncated_output(&request, stdout_reader, stderr_reader).await;
     };
     if let Err(error) = write_result
         && error.kind() != std::io::ErrorKind::BrokenPipe
     {
-        terminate_external_process_tree(&mut child).await;
-        let _ = (&mut stdout_reader).await;
-        let _ = (&mut stderr_reader).await;
+        terminate_and_join(&mut child, &mut stdout_reader, &mut stderr_reader).await;
         return Err(CoreError::Adapter(format!(
             "failed to write input for {}: {error}",
             request.label
@@ -123,9 +131,7 @@ async fn execute_process(
     if let Err(error) = stdin.shutdown().await
         && error.kind() != std::io::ErrorKind::BrokenPipe
     {
-        terminate_external_process_tree(&mut child).await;
-        let _ = (&mut stdout_reader).await;
-        let _ = (&mut stderr_reader).await;
+        terminate_and_join(&mut child, &mut stdout_reader, &mut stderr_reader).await;
         return Err(CoreError::Adapter(format!(
             "failed to close input for {}: {error}",
             request.label
@@ -134,19 +140,20 @@ async fn execute_process(
     drop(stdin);
 
     let status = tokio::select! {
-        result = child.wait() => result.map_err(|error| CoreError::Adapter(format!("failed to wait for {}: {error}", request.label)))?,
+        result = child.wait() => Some(result.map_err(|error| CoreError::Adapter(format!("failed to wait for {}: {error}", request.label)))?),
         _ = tokio::time::sleep_until(deadline) => {
-            terminate_external_process_tree(&mut child).await;
-            let _ = (&mut stdout_reader).await;
-            let _ = (&mut stderr_reader).await;
+            terminate_and_join(&mut child, &mut stdout_reader, &mut stderr_reader).await;
             return Err(process_timeout(&request));
         }
+        _ = truncate_rx.recv() => None,
         terminal = wait_for_termination(operation, cancellation), if operation.is_some() || cancellation.is_some() => {
-            terminate_external_process_tree(&mut child).await;
-            let _ = (&mut stdout_reader).await;
-            let _ = (&mut stderr_reader).await;
+            terminate_and_join(&mut child, &mut stdout_reader, &mut stderr_reader).await;
             return Err(terminal);
         }
+    };
+    let Some(status) = status else {
+        terminate_external_process_tree(&mut child).await;
+        return collect_truncated_output(&request, stdout_reader, stderr_reader).await;
     };
     let (stdout, stdout_truncated) = stdout_reader.await.map_err(|_| {
         CoreError::Adapter(format!("failed to read stdout for {}", request.label))
@@ -196,8 +203,29 @@ async fn wait_for_termination(
         if let Err(error) = check_active(operation, cancellation) {
             return error;
         }
-        tokio::time::sleep(Duration::from_millis(10)).await;
+        if let Some(cancellation) = cancellation {
+            tokio::select! {
+                _ = cancellation.cancelled() => {
+                    return CoreError::Cancelled(
+                        "external process operation was cancelled".to_string(),
+                    );
+                }
+                _ = tokio::time::sleep(Duration::from_millis(10)) => {}
+            }
+        } else {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
     }
+}
+
+async fn terminate_and_join(
+    child: &mut tokio::process::Child,
+    stdout_reader: &mut tokio::task::JoinHandle<CoreResult<(Vec<u8>, bool)>>,
+    stderr_reader: &mut tokio::task::JoinHandle<CoreResult<(Vec<u8>, bool)>>,
+) {
+    terminate_external_process_tree(child).await;
+    let _ = stdout_reader.await;
+    let _ = stderr_reader.await;
 }
 
 /// Stops an external adapter and, where the platform exposes a native tree command, its descendants.
@@ -211,12 +239,12 @@ async fn terminate_external_process_tree(child: &mut tokio::process::Child) {
     if let Some(pid) = child.id() {
         let process_group = format!("-{pid}");
         let _ = Command::new("kill")
-            .args(["-TERM", "--", process_group.as_str()])
+            .args(["-TERM", process_group.as_str()])
             .kill_on_drop(true)
             .output()
             .await;
         let _ = Command::new("kill")
-            .args(["-KILL", "--", process_group.as_str()])
+            .args(["-KILL", process_group.as_str()])
             .kill_on_drop(true)
             .output()
             .await;
@@ -243,9 +271,31 @@ async fn terminate_external_process_tree(child: &mut tokio::process::Child) {
     let _ = child.wait().await;
 }
 
+async fn collect_truncated_output(
+    request: &ProcessRequest,
+    stdout_reader: tokio::task::JoinHandle<CoreResult<(Vec<u8>, bool)>>,
+    stderr_reader: tokio::task::JoinHandle<CoreResult<(Vec<u8>, bool)>>,
+) -> CoreResult<ProcessOutput> {
+    let (stdout, stdout_truncated) = stdout_reader.await.map_err(|_| {
+        CoreError::Adapter(format!("failed to read stdout for {}", request.label))
+    })??;
+    let (stderr, stderr_truncated) = stderr_reader.await.map_err(|_| {
+        CoreError::Adapter(format!("failed to read stderr for {}", request.label))
+    })??;
+    Ok(ProcessOutput {
+        success: false,
+        exit_code: None,
+        stdout,
+        stderr,
+        stdout_truncated,
+        stderr_truncated,
+    })
+}
+
 async fn read_limited(
     mut reader: impl AsyncRead + Unpin,
     max_bytes: usize,
+    truncate_notify: Option<tokio::sync::mpsc::Sender<()>>,
 ) -> CoreResult<(Vec<u8>, bool)> {
     let mut output = Vec::new();
     let mut buffer = [0_u8; 8192];
@@ -263,6 +313,9 @@ async fn read_limited(
         if read > remaining {
             output.extend_from_slice(&buffer[..remaining]);
             truncated = true;
+            if let Some(notify) = truncate_notify {
+                let _ = notify.try_send(());
+            }
             break;
         }
 

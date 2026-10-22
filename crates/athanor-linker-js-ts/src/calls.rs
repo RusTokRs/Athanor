@@ -7,7 +7,7 @@
 //!
 //! Every relation carries the matched callee, its resolution reason, and the
 //! call-site line, so a query can always be traced back to the source. Dynamic
-//! call shapes (computed members, call results, reflective dispatch) stay
+//! call shapes (computed members, calls of call results, reflective dispatch) stay
 //! unresolved instead of being guessed, and name-based fallbacks require a
 //! unique candidate so ambiguity never silently becomes a fact.
 //!
@@ -106,6 +106,7 @@ impl Linker for JsTsCallLinker {
 
         let mut modules = HashMap::new();
         let mut declarations = Vec::new();
+        let mut type_aliases = Vec::new();
         for entity in input.entities.iter() {
             if is_js_ts_module(entity) {
                 if let Some(path) = entity_path(entity) {
@@ -113,6 +114,8 @@ impl Linker for JsTsCallLinker {
                 }
             } else if is_js_ts_declaration(entity) {
                 declarations.push(entity);
+            } else if is_js_ts_type_alias(entity) {
+                type_aliases.push(entity);
             }
         }
 
@@ -129,6 +132,12 @@ impl Linker for JsTsCallLinker {
                 .entry(declaration.name.clone())
                 .or_default()
                 .push(declaration);
+        }
+        for alias in &type_aliases {
+            declarations_by_name
+                .entry(alias.name.clone())
+                .or_default()
+                .push(alias);
         }
         for candidates in declarations_by_path.values_mut() {
             candidates.sort_by(|left, right| left.stable_key.0.cmp(&right.stable_key.0));
@@ -287,6 +296,16 @@ fn is_js_ts_declaration(entity: &Entity) -> bool {
         && entity.stable_key.0.starts_with(SYMBOL_PREFIX)
 }
 
+fn is_js_ts_type_alias(entity: &Entity) -> bool {
+    entity.kind == EntityKind::Symbol
+        && entity.stable_key.0.starts_with(SYMBOL_PREFIX)
+        && entity
+            .payload
+            .get("symbol_kind")
+            .and_then(Value::as_str)
+            .is_some_and(|kind| kind == "type_alias")
+}
+
 fn entity_path(entity: &Entity) -> Option<String> {
     entity
         .source
@@ -356,8 +375,11 @@ fn resolve_call<'a>(
 
     // 3. Import bindings: `import { login }`, `import api from`, `import * as ns`.
     // An unresolved explicit binding stays unresolved; it must not fall through
-    // to a weaker snapshot-wide name guess.
-    if let Some((head, tail)) = head_and_tail(callee)
+    // to a weaker snapshot-wide name guess. A synthetic call-result path
+    // (`svc.build().save`, `createRepo().save`) is typed evidence, not an
+    // imported member named `save`, so it skips this step.
+    if !is_synthetic_call_path(callee)
+        && let Some((head, tail)) = head_and_tail(callee)
         && let Some(binding) = import_binding(caller_module, head)
     {
         let (target_module, _) =
@@ -436,10 +458,12 @@ fn resolve_call<'a>(
         return Some((target, "imported_symbol_name", IMPORTED_NAME_CONFIDENCE));
     }
 
-    // 4. Type-aware receiver dispatch: `service.run()` and `this.repo.items.map()`
+    // 4. Type-aware receiver dispatch: `service.run()`, `this.repo.items.map()`,
+    //    `super.save()`, `createRepo().save()`, and `(value as Repo).save()`
     //    resolve when every receiver segment names a binding whose type the
-    //    extractor proved. A receiver that is only named, not typed, falls
-    //    through to the weaker member-name guess below.
+    //    extractor proved, or a factory, construction, assertion, or `super`
+    //    the callee path itself names. A receiver that is only named, not typed,
+    //    falls through to the weaker member-name guess below.
     if allow_typed
         && callee.contains('.')
         && let Some((target, kind, segments, inherited)) = resolve_typed_member(
@@ -476,6 +500,15 @@ fn resolve_call<'a>(
         return Some((target, resolution, confidence));
     }
 
+    // An index-access receiver (`items[].save`) is only evidence when the
+    // collection's annotation types the element. A factory- or construction-
+    // result receiver (`createRepo().save`, `Repo{}.save`) is only evidence
+    // when that factory's type is stated. A unique member named `save` is
+    // not that evidence, so the walk ends here instead of guessing.
+    if is_synthetic_call_path(callee) || callee.starts_with("super.") {
+        return None;
+    }
+
     let name = callee.rsplit('.').next().unwrap_or(callee);
     if callee.contains('.') {
         // 5. Member call with an unknown receiver: accept a unique member name
@@ -493,13 +526,29 @@ fn resolve_call<'a>(
         // 6. Bare call without a local or imported target: accept a unique
         //    exported declaration elsewhere in the snapshot.
         if let Some(target) = unique_match(declarations_by_name.get(name), |candidate| {
-            candidate.id != caller.id && is_exported(candidate)
+            candidate.id != caller.id
+                && is_exported(candidate)
+                && is_js_ts_declaration(candidate)
         }) {
             return Some((target, "unique_exported_name", UNIQUE_NAME_CONFIDENCE));
         }
     }
 
     None
+}
+
+/// A callee whose receiver is an index, factory result, construction, or
+/// inline assertion.
+///
+/// These paths are only evidence when the typed walk names a type; a unique
+/// member `save` is not that evidence.
+fn is_synthetic_call_path(callee: &str) -> bool {
+    callee.contains("[]")
+        || callee.contains("()")
+        || callee.contains("{}")
+        || callee.split('.').any(|segment| {
+            segment.len() > 1 && segment.ends_with('#') && !segment.starts_with('#')
+        })
 }
 
 fn method_owner(entity: &Entity) -> Option<&str> {
@@ -1221,11 +1270,154 @@ fn returned_type(entity: &Entity) -> Option<&str> {
     entity.payload.get("returned_type").and_then(Value::as_str)
 }
 
+/// The type a declaration asserts on every `return`: `return load() as Repo`.
+fn asserted_type(entity: &Entity) -> Option<&str> {
+    entity.payload.get("asserted_type").and_then(Value::as_str)
+}
+
+/// The type a function-type annotation yields: `(): () => Repo` records `Repo`.
+fn returned_function_type(entity: &Entity) -> Option<&str> {
+    entity
+        .payload
+        .get("returned_function_type")
+        .and_then(Value::as_str)
+}
+
+/// The one factory a wrapper's body returns a call to, when it constructs
+/// nothing of its own.
+fn returned_callee(entity: &Entity) -> Option<&str> {
+    entity
+        .payload
+        .get("returned_callee")
+        .and_then(Value::as_str)
+}
+
+fn is_async_declaration(entity: &Entity) -> bool {
+    entity
+        .payload
+        .get("async")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
+/// Resolves the one factory a wrapper's `returned_callee` names, from the
+/// wrapper's module, with the same provenance a receiver factory needs.
+#[allow(clippy::too_many_arguments)]
+fn forwarded_inner<'a>(
+    factory: &'a Entity,
+    modules: &HashMap<String, &'a Entity>,
+    declarations_by_path: &HashMap<String, Vec<&'a Entity>>,
+    declarations_by_name: &HashMap<String, Vec<&'a Entity>>,
+    type_modules: &HashMap<String, Option<&'a Entity>>,
+    config: &ModuleResolutionConfig,
+) -> Option<&'a Entity> {
+    let callee = returned_callee(factory)?;
+    let factory_module = *modules.get(&entity_path(factory)?)?;
+    let inner = resolve_call(
+        callee,
+        factory,
+        factory_module,
+        modules,
+        declarations_by_path,
+        declarations_by_name,
+        type_modules,
+        config,
+        false,
+    )?;
+    FACTORY_RESOLUTIONS
+        .contains(&inner.1)
+        .then_some(inner.0)
+}
+
+/// One hop through a factory that only returns another factory's call.
+///
+/// The wrapper names the callee, not the type, so the linker reads the inner
+/// factory's annotation or constructed return from the wrapper's module. The
+/// hop does not follow another `returned_callee`: a chain of wrappers is not
+/// the type the source states. An `async` wrapper, and an inner factory that
+/// yields a promise, type nothing on an unawaited binding: the binding holds
+/// the promise, not the awaited value.
+#[allow(clippy::too_many_arguments)]
+fn forwarded_return_type<'a>(
+    factory: &'a Entity,
+    modules: &HashMap<String, &'a Entity>,
+    declarations_by_path: &HashMap<String, Vec<&'a Entity>>,
+    declarations_by_name: &HashMap<String, Vec<&'a Entity>>,
+    type_modules: &HashMap<String, Option<&'a Entity>>,
+    config: &ModuleResolutionConfig,
+) -> Option<(String, &'static str)> {
+    if is_async_declaration(factory) {
+        return None;
+    }
+    let inner = forwarded_inner(
+        factory,
+        modules,
+        declarations_by_path,
+        declarations_by_name,
+        type_modules,
+        config,
+    )?;
+    if let Some(declared) = declared_return_type(inner) {
+        return Some((declared.to_string(), "annotation"));
+    }
+    // An inner factory that yields a promise does not type an unawaited
+    // wrapper: `return makeRepo()` holds the promise, not the value `await`
+    // would unwrap. The hop does not read `awaited_return_type`.
+    if awaited_return_type(inner).is_some() {
+        return None;
+    }
+    if let Some(returned) = returned_type(inner) {
+        return Some((returned.to_string(), "returned"));
+    }
+    if let Some(asserted) = asserted_type(inner) {
+        return Some((asserted.to_string(), "annotation"));
+    }
+    None
+}
+
+/// One hop through an `async` wrapper the module awaits.
+///
+/// `await wrap()` yields what the inner factory yields: its awaited type if it
+/// returns a promise, otherwise its annotation or constructed return. A second
+/// hop is not the type the source states.
+#[allow(clippy::too_many_arguments)]
+fn forwarded_awaited_type<'a>(
+    factory: &'a Entity,
+    modules: &HashMap<String, &'a Entity>,
+    declarations_by_path: &HashMap<String, Vec<&'a Entity>>,
+    declarations_by_name: &HashMap<String, Vec<&'a Entity>>,
+    type_modules: &HashMap<String, Option<&'a Entity>>,
+    config: &ModuleResolutionConfig,
+) -> Option<(String, &'static str)> {
+    let inner = forwarded_inner(
+        factory,
+        modules,
+        declarations_by_path,
+        declarations_by_name,
+        type_modules,
+        config,
+    )?;
+    if let Some(awaited) = awaited_return_type(inner) {
+        return Some((awaited.to_string(), "awaited"));
+    }
+    if let Some(declared) = declared_return_type(inner) {
+        return Some((declared.to_string(), "annotation"));
+    }
+    if let Some(returned) = returned_type(inner) {
+        return Some((returned.to_string(), "returned"));
+    }
+    if let Some(asserted) = asserted_type(inner) {
+        return Some((asserted.to_string(), "annotation"));
+    }
+    None
+}
+
 /// One binding the module initializes with a call.
 #[derive(Clone)]
 struct CallReceiver {
     callee: String,
     awaited: bool,
+    invoked: bool,
 }
 
 /// Reads the bindings one module initializes with a call.
@@ -1254,6 +1446,10 @@ fn call_receivers(module: &Entity) -> HashMap<String, Option<CallReceiver>> {
                 .get("awaited")
                 .and_then(Value::as_bool)
                 .unwrap_or(false),
+            invoked: binding
+                .get("invoked")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
         };
         let prior = receivers.get(name).cloned();
         match prior {
@@ -1261,7 +1457,10 @@ fn call_receivers(module: &Entity) -> HashMap<String, Option<CallReceiver>> {
                 receivers.insert(name.to_string(), Some(recorded));
             }
             Some(Some(existing)) => {
-                if existing.callee != callee || existing.awaited != recorded.awaited {
+                if existing.callee != callee
+                    || existing.awaited != recorded.awaited
+                    || existing.invoked != recorded.invoked
+                {
                     receivers.insert(name.to_string(), None);
                 }
             }
@@ -1290,15 +1489,321 @@ fn typed_field(
     typed_receivers(module).get(&field)?.clone()
 }
 
+/// A synthetic first segment the extractor records for a member of a call,
+/// construction, or inline assertion that has no binding: `createRepo()`,
+/// `createRepo()@`, `create()()`, `Repo{}`, `Repo#`.
+enum CallResultRoot {
+    Factory {
+        name: String,
+        awaited: bool,
+        invoked: bool,
+    },
+    Construction { name: String },
+    Assertion { name: String },
+}
+
+/// Reads a factory- or construction-result segment the extractor named.
+fn call_result_root(segment: &str) -> Option<CallResultRoot> {
+    if let Some(name) = segment.strip_suffix("{}") {
+        if call_result_ident(name) {
+            return Some(CallResultRoot::Construction {
+                name: name.to_string(),
+            });
+        }
+        return None;
+    }
+    if let Some(name) = segment.strip_suffix("()@") {
+        if call_result_ident(name) {
+            return Some(CallResultRoot::Factory {
+                name: name.to_string(),
+                awaited: true,
+                invoked: false,
+            });
+        }
+        return None;
+    }
+    if let Some(name) = segment.strip_suffix("()") {
+        if call_result_ident(name) {
+            return Some(CallResultRoot::Factory {
+                name: name.to_string(),
+                awaited: false,
+                invoked: false,
+            });
+        }
+        if let Some(inner) = name.strip_suffix("()") {
+            if call_result_ident(inner) {
+                return Some(CallResultRoot::Factory {
+                    name: inner.to_string(),
+                    awaited: false,
+                    invoked: true,
+                });
+            }
+        }
+        return None;
+    }
+    if let Some(name) = segment.strip_suffix('#') {
+        if call_result_ident(name) {
+            return Some(CallResultRoot::Assertion {
+                name: name.to_string(),
+            });
+        }
+        return None;
+    }
+    None
+}
+
+fn call_result_ident(name: &str) -> bool {
+    !name.is_empty()
+        && !name.contains('.')
+        && name
+            .chars()
+            .all(|character| character.is_alphanumeric() || character == '_' || character == '$')
+}
+
+/// Types a receiver from the factory the source named, with the same provenance
+/// a `call_bindings` row uses: a local, imported, or re-exported declaration,
+/// never a unique-name guess.
+#[allow(clippy::too_many_arguments)]
+fn factory_typed_receiver<'a>(
+    callee: &str,
+    awaited: bool,
+    invoked: bool,
+    caller: &'a Entity,
+    caller_module: &'a Entity,
+    modules: &HashMap<String, &'a Entity>,
+    declarations_by_path: &HashMap<String, Vec<&'a Entity>>,
+    declarations_by_name: &HashMap<String, Vec<&'a Entity>>,
+    type_modules: &HashMap<String, Option<&'a Entity>>,
+    config: &ModuleResolutionConfig,
+) -> Option<TypedReceiver> {
+    let factory = resolve_call(
+        callee,
+        caller,
+        caller_module,
+        modules,
+        declarations_by_path,
+        declarations_by_name,
+        type_modules,
+        config,
+        false,
+    )?;
+    if !FACTORY_RESOLUTIONS.contains(&factory.1) {
+        return None;
+    }
+    factory_return_receiver(
+        factory.0,
+        awaited,
+        invoked,
+        modules,
+        declarations_by_path,
+        declarations_by_name,
+        type_modules,
+        config,
+    )
+}
+
+/// The type a factory declaration states for a receiver: annotation, constructed
+/// return, asserted return, or one forwarded hop, and the awaited type when the
+/// source awaits the call. An extra call of the result (`create()()`) takes the
+/// function-type yield instead, and not the value the first call returns.
+#[allow(clippy::too_many_arguments)]
+fn factory_return_receiver<'a>(
+    factory: &'a Entity,
+    awaited: bool,
+    invoked: bool,
+    modules: &HashMap<String, &'a Entity>,
+    declarations_by_path: &HashMap<String, Vec<&'a Entity>>,
+    declarations_by_name: &HashMap<String, Vec<&'a Entity>>,
+    type_modules: &HashMap<String, Option<&'a Entity>>,
+    config: &ModuleResolutionConfig,
+) -> Option<TypedReceiver> {
+    if invoked {
+        if awaited {
+            return None;
+        }
+        let type_name = returned_function_type(factory)?.to_string();
+        return Some(TypedReceiver {
+            type_name,
+            kind: "annotation",
+        });
+    }
+    // `await f()` takes what the promise yields rather than what the call
+    // returns, so the binding asks for the awaited type when the source
+    // awaits it. Otherwise the annotation the factory declares wins, a
+    // factory that declares none is typed by the one type every `return` of
+    // its body constructs, and a wrapper that constructs nothing is typed
+    // by the one factory it returns a call to — one hop, and no further.
+    let declared = declared_return_type(factory);
+    let (type_name, kind) = if awaited {
+        if let Some(awaited_type) = awaited_return_type(factory) {
+            (awaited_type.to_string(), "awaited")
+        } else {
+            forwarded_awaited_type(
+                factory,
+                modules,
+                declarations_by_path,
+                declarations_by_name,
+                type_modules,
+                config,
+            )?
+        }
+    } else if let Some(declared) = declared {
+        (declared.to_string(), "annotation")
+    } else if let Some(returned) = returned_type(factory) {
+        (returned.to_string(), "returned")
+    } else if let Some(asserted) = asserted_type(factory) {
+        (asserted.to_string(), "annotation")
+    } else {
+        forwarded_return_type(
+            factory,
+            modules,
+            declarations_by_path,
+            declarations_by_name,
+            type_modules,
+            config,
+        )?
+    };
+    Some(TypedReceiver { type_name, kind })
+}
+
+/// The method `Owner.method` when the snapshot states it, including a method
+/// the owner inherits through `extends`.
+fn typed_method<'a>(
+    owner: &str,
+    method: &str,
+    owner_hint: Option<&str>,
+    declarations_by_name: &HashMap<String, Vec<&'a Entity>>,
+) -> Option<&'a Entity> {
+    let qualified = format!("{owner}.{method}");
+    if let Some(target) = unique_match(declarations_by_name.get(method), |candidate| {
+        qualified_name(candidate) == Some(qualified.as_str())
+    }) {
+        return Some(target);
+    }
+    inherited_member(owner, method, owner_hint, declarations_by_name)
+}
+
+/// Types a receiver from a call of a method on the current type: `svc.build()`.
+#[allow(clippy::too_many_arguments)]
+fn method_call_receiver<'a>(
+    owner: &str,
+    method: &str,
+    awaited: bool,
+    invoked: bool,
+    caller_module: &'a Entity,
+    modules: &HashMap<String, &'a Entity>,
+    declarations_by_path: &HashMap<String, Vec<&'a Entity>>,
+    declarations_by_name: &HashMap<String, Vec<&'a Entity>>,
+    type_modules: &HashMap<String, Option<&'a Entity>>,
+    config: &ModuleResolutionConfig,
+) -> Option<TypedReceiver> {
+    let owner_hint = type_modules
+        .get(owner)
+        .and_then(|module| module.as_ref())
+        .and_then(|module| entity_path(module))
+        .or_else(|| entity_path(caller_module));
+    let factory = typed_method(owner, method, owner_hint.as_deref(), declarations_by_name)?;
+    factory_return_receiver(
+        factory,
+        awaited,
+        invoked,
+        modules,
+        declarations_by_path,
+        declarations_by_name,
+        type_modules,
+        config,
+    )
+}
+
+/// One hop through a type alias the source writes: `type T = Repo` names `Repo`.
+///
+/// A union, a function type, and an alias that names itself stay the original
+/// name, so the walk does not invent a type. A second hop is not taken.
+fn unfold_alias_type<'a>(
+    type_name: &str,
+    hint: Option<&str>,
+    declarations_by_name: &HashMap<String, Vec<&'a Entity>>,
+) -> String {
+    let Some(alias) = type_alias_declaration(type_name, hint, declarations_by_name) else {
+        return type_name.to_string();
+    };
+    match alias
+        .payload
+        .get("aliased_type")
+        .and_then(Value::as_str)
+    {
+        Some(aliased) if !aliased.is_empty() && aliased != type_name => aliased.to_string(),
+        _ => type_name.to_string(),
+    }
+}
+
+/// The unique `type` declaration that `type_name` names, when the snapshot
+/// states exactly one.
+fn type_alias_declaration<'a>(
+    type_name: &str,
+    hint: Option<&str>,
+    declarations_by_name: &HashMap<String, Vec<&'a Entity>>,
+) -> Option<&'a Entity> {
+    let candidates = declarations_by_name
+        .get(type_name)?
+        .iter()
+        .copied()
+        .filter(|candidate| {
+            candidate
+                .payload
+                .get("symbol_kind")
+                .and_then(Value::as_str)
+                .is_some_and(|kind| kind == "type_alias")
+        })
+        .collect::<Vec<_>>();
+    if let Some(hint) = hint {
+        let same_module = candidates
+            .iter()
+            .copied()
+            .filter(|candidate| entity_path(candidate).as_deref() == Some(hint))
+            .collect::<Vec<_>>();
+        match same_module.as_slice() {
+            [only] => return Some(*only),
+            [] => {}
+            _ => return None,
+        }
+    }
+    match candidates.as_slice() {
+        [only] => Some(*only),
+        _ => None,
+    }
+}
+
+/// The type `super` names: the one class the caller's owner extends.
+fn super_receiver<'a>(
+    caller: &'a Entity,
+    declarations_by_name: &HashMap<String, Vec<&'a Entity>>,
+) -> Option<TypedReceiver> {
+    let owner = method_owner(caller)?;
+    let hint = entity_path(caller);
+    let owner_entity = heritage_base(owner, hint.as_deref(), declarations_by_name)?;
+    let base = extends_name(owner_entity)?;
+    Some(TypedReceiver {
+        type_name: base,
+        kind: "construction",
+    })
+}
+
 /// Resolves a member call whose receiver the source typed.
 ///
 /// The receiver path is walked segment by segment: `this` starts at the calling
-/// declaration's class, and every other segment must name a binding of the
-/// calling module or a field of the current type whose recorded type continues
-/// the path. A field is read from the calling module first and then from the
+/// declaration's class, `super` starts at the class that owner extends, and
+/// every other segment must name a binding of the calling module or a field of
+/// the current type whose recorded type continues the path. A type alias
+/// unfolds one hop (`type Client = Repo` continues as `Repo`). A field is read from the calling module first and then from the
 /// module that declares the owning type, so a path can leave the calling file.
-/// The walk is bounded, a repeated type ends it, and an untyped or ambiguous
-/// segment leaves the call unresolved rather than falling back to a name match.
+/// The root may also be a factory or construction the callee path itself names
+/// (`createRepo().save`, `create()().save`, `Repo{}.save`, `Repo#.save`) with the same type evidence
+/// a bound `const repo = createRepo()` or `value as Repo` uses. A later segment may be a call of a method
+/// on the current type (`svc.build().save`, `createRepo().getStore().save`):
+/// the method's stated return type continues the path. The walk is bounded, a
+/// repeated type ends it, and an untyped or ambiguous segment leaves the call
+/// unresolved rather than falling back to a name match.
 #[allow(clippy::too_many_arguments)]
 fn resolve_typed_member<'a>(
     callee: &str,
@@ -1327,15 +1832,50 @@ fn resolve_typed_member<'a>(
             type_name: method_owner(caller)?.to_string(),
             kind: "construction",
         }
+    } else if segments[0] == "super" {
+        // `super.save()` names the base class the owner extends: the heritage
+        // clause is written in the source, so the walk starts at that type.
+        super_receiver(caller, declarations_by_name)?
     } else if let Some(Some(binding)) = receivers.get(segments[0]) {
         binding.clone()
+    } else if let Some(call_root) = call_result_root(segments[0]) {
+        // `createRepo().save()` has no binding: the callee path itself names
+        // the factory or constructor, so the walk starts at that result.
+        match call_root {
+            CallResultRoot::Construction { name } => TypedReceiver {
+                type_name: name,
+                kind: "construction",
+            },
+            CallResultRoot::Assertion { name } => TypedReceiver {
+                type_name: name,
+                kind: "annotation",
+            },
+            CallResultRoot::Factory {
+                name,
+                awaited,
+                invoked,
+            } => factory_typed_receiver(
+                &name,
+                awaited,
+                invoked,
+                caller,
+                caller_module,
+                modules,
+                declarations_by_path,
+                declarations_by_name,
+                type_modules,
+                config,
+            )?,
+        }
     } else {
         // A binding initialized by a call takes the factory's declared return
         // type: the type is stated by the factory's own annotation, not inferred
         // from the call's name.
         let call = call_receivers.get(segments[0])?.as_ref()?;
-        let factory = resolve_call(
+        factory_typed_receiver(
             &call.callee,
+            call.awaited,
+            call.invoked,
             caller,
             caller_module,
             modules,
@@ -1343,34 +1883,44 @@ fn resolve_typed_member<'a>(
             declarations_by_name,
             type_modules,
             config,
-            false,
-        )?;
-        if !FACTORY_RESOLUTIONS.contains(&factory.1) {
-            return None;
-        }
-        // `await f()` takes what the promise yields rather than what the call
-        // returns, so the binding asks for the awaited type when the source
-        // awaits it. Otherwise the annotation the factory declares wins, and a
-        // factory that declares none is typed by the one type every `return` of
-        // its body constructs.
-        let declared = declared_return_type(factory.0);
-        let (type_name, kind) = if call.awaited {
-            (awaited_return_type(factory.0)?.to_string(), "awaited")
-        } else if let Some(declared) = declared {
-            (declared.to_string(), "annotation")
-        } else {
-            (returned_type(factory.0)?.to_string(), "returned")
-        };
-        TypedReceiver { type_name, kind }
+        )?
     };
-    let mut current = root.type_name;
+    let hint = entity_path(caller).or_else(|| entity_path(caller_module));
+    let mut current = unfold_alias_type(&root.type_name, hint.as_deref(), declarations_by_name);
     let mut kind = root.kind;
 
     let mut visited = vec![current.clone()];
     for segment in segments.iter().skip(1) {
-        let binding = typed_field(&current, segment, &receivers, type_modules)?;
-        current = binding.type_name.clone();
-        kind = binding.kind;
+        let next = if let Some(call_root) = call_result_root(segment) {
+            // `svc.build()` calls a method of the current type and continues
+            // from that method's stated return type. A nested construction
+            // (`Repo{}.save` as a non-root segment) is not a method call.
+            match call_root {
+                CallResultRoot::Construction { .. } | CallResultRoot::Assertion { .. } => {
+                    return None;
+                }
+                CallResultRoot::Factory {
+                    name,
+                    awaited,
+                    invoked,
+                } => method_call_receiver(
+                    &current,
+                    &name,
+                    awaited,
+                    invoked,
+                    caller_module,
+                    modules,
+                    declarations_by_path,
+                    declarations_by_name,
+                    type_modules,
+                    config,
+                )?,
+            }
+        } else {
+            typed_field(&current, segment, &receivers, type_modules)?
+        };
+        current = unfold_alias_type(&next.type_name, hint.as_deref(), declarations_by_name);
+        kind = next.kind;
         if visited.contains(&current) {
             return None;
         }
@@ -2340,6 +2890,270 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn resolves_a_call_on_an_indexed_element_of_a_declared_collection() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({
+                "imports": [],
+                "typed_bindings": [
+                    {"name": "items[]", "type": "Item", "kind": "element", "line": 1}
+                ]
+            }),
+        );
+        let save = declaration(
+            "ent_item_save",
+            "src/item.ts",
+            "Item.save",
+            "save",
+            true,
+            json!([]),
+        );
+        let start = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "start",
+            "start",
+            false,
+            json!([call_site("items[].save", "save", 3)]),
+        );
+        let entities = vec![app_module, save.clone(), start.clone()];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from, start.id);
+        assert_eq!(calls[0].to, save.id);
+        assert_eq!(calls[0].payload["resolution"], "typed_receiver_member");
+        assert_eq!(calls[0].confidence, 0.65);
+    }
+
+    #[tokio::test]
+    async fn resolves_an_indexed_field_on_this() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({
+                "imports": [],
+                "typed_bindings": [
+                    {"name": "App.fields[]", "type": "Field", "kind": "element", "line": 2}
+                ]
+            }),
+        );
+        let save = declaration(
+            "ent_field_save",
+            "src/field.ts",
+            "Field.save",
+            "save",
+            true,
+            json!([]),
+        );
+        let start = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "App.start",
+            "start",
+            false,
+            json!([call_site("this.fields[].save", "save", 5)]),
+        );
+        let entities = vec![app_module, save.clone(), start.clone()];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from, start.id);
+        assert_eq!(calls[0].to, save.id);
+        assert_eq!(calls[0].payload["resolution"], "typed_receiver_path");
+        assert_eq!(calls[0].confidence, 0.65);
+    }
+
+    #[tokio::test]
+    async fn resolves_an_indexed_field_on_a_type_declared_in_another_module() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({
+                "imports": [],
+                "typed_bindings": [
+                    {"name": "repo", "type": "Repo", "kind": "construction", "line": 2}
+                ]
+            }),
+        );
+        let repo_module = module(
+            "ent_repo_module",
+            "src/repo.ts",
+            json!({
+                "imports": [],
+                "typed_bindings": [
+                    {"name": "Repo.items[]", "type": "Item", "kind": "element", "line": 3}
+                ]
+            }),
+        );
+        let repo_class = class_declaration("ent_repo_class", "src/repo.ts", "Repo", "Repo", true);
+        let save = declaration(
+            "ent_item_save",
+            "src/item.ts",
+            "Item.save",
+            "save",
+            true,
+            json!([]),
+        );
+        let start = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "start",
+            "start",
+            false,
+            json!([call_site("repo.items[].save", "save", 4)]),
+        );
+        let entities = vec![
+            app_module,
+            repo_module,
+            repo_class,
+            save.clone(),
+            start.clone(),
+        ];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from, start.id);
+        assert_eq!(calls[0].to, save.id);
+        assert_eq!(calls[0].payload["resolution"], "typed_receiver_path");
+        assert_eq!(calls[0].confidence, 0.65);
+    }
+
+    #[tokio::test]
+    async fn an_untyped_index_access_does_not_guess_a_unique_member() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({"imports": [], "typed_bindings": []}),
+        );
+        let save = declaration(
+            "ent_item_save",
+            "src/app.ts",
+            "Item.save",
+            "save",
+            true,
+            json!([]),
+        );
+        let start = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "start",
+            "start",
+            false,
+            json!([call_site("items[].save", "save", 3)]),
+        );
+        let entities = vec![app_module, save, start];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        assert!(
+            relations
+                .iter()
+                .all(|relation| relation.kind != RelationKind::Calls),
+            "an untyped index access must not fall through to a unique member name"
+        );
+    }
+
+    #[tokio::test]
+    async fn resolves_a_call_on_an_element_an_array_literal_constructs() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({
+                "imports": [],
+                "typed_bindings": [
+                    {"name": "items[]", "type": "Item", "kind": "construction", "line": 1}
+                ]
+            }),
+        );
+        let save = declaration(
+            "ent_item_save",
+            "src/item.ts",
+            "Item.save",
+            "save",
+            true,
+            json!([]),
+        );
+        let start = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "start",
+            "start",
+            false,
+            json!([call_site("items[].save", "save", 3)]),
+        );
+        let entities = vec![app_module, save.clone(), start.clone()];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from, start.id);
+        assert_eq!(calls[0].to, save.id);
+        assert_eq!(calls[0].payload["resolution"], "typed_receiver_member");
+        assert_eq!(calls[0].confidence, 0.8);
+    }
+
+    #[tokio::test]
     async fn resolves_a_member_inherited_from_a_base_class() {
         let app_module = module(
             "ent_app_module",
@@ -2955,6 +3769,1676 @@ mod tests {
         assert_eq!(calls[0].to, save.id);
         assert_eq!(calls[0].payload["resolution"], "typed_receiver_member");
         assert_eq!(calls[0].confidence, 0.8);
+    }
+
+    #[tokio::test]
+    async fn resolves_a_call_on_a_receiver_a_wrapper_forwards_to_a_factory() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({
+                "imports": [],
+                "typed_bindings": [],
+                "call_bindings": [
+                    {"name": "repo", "callee": "createRepo", "line": 3, "awaited": false}
+                ]
+            }),
+        );
+        let wrapper = forwarded_factory_declaration(
+            "ent_create_repo",
+            "src/app.ts",
+            "createRepo",
+            "createRepo",
+            true,
+            Some("makeRepo"),
+        );
+        let inner = returned_factory_declaration(
+            "ent_make_repo",
+            "src/app.ts",
+            "makeRepo",
+            "makeRepo",
+            true,
+            Some("Repo"),
+        );
+        let save = declaration(
+            "ent_repo_save",
+            "src/repo.ts",
+            "Repo.save",
+            "save",
+            true,
+            json!([]),
+        );
+        let start = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "start",
+            "start",
+            false,
+            json!([call_site("repo.save", "save", 6)]),
+        );
+        let entities = vec![app_module, wrapper, inner, save.clone(), start.clone()];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from, start.id);
+        assert_eq!(calls[0].to, save.id);
+        assert_eq!(calls[0].payload["resolution"], "typed_receiver_member");
+        assert_eq!(calls[0].confidence, 0.8);
+    }
+
+    #[tokio::test]
+    async fn a_wrapper_inherits_the_annotation_the_inner_factory_declares() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({
+                "imports": [],
+                "typed_bindings": [],
+                "call_bindings": [
+                    {"name": "repo", "callee": "createRepo", "line": 3, "awaited": false}
+                ]
+            }),
+        );
+        let wrapper = forwarded_factory_declaration(
+            "ent_create_repo",
+            "src/app.ts",
+            "createRepo",
+            "createRepo",
+            true,
+            Some("makeRepo"),
+        );
+        let inner = factory_declaration(
+            "ent_make_repo",
+            "src/app.ts",
+            "makeRepo",
+            "makeRepo",
+            true,
+            Some("Repo"),
+        );
+        let save = declaration(
+            "ent_repo_save",
+            "src/repo.ts",
+            "Repo.save",
+            "save",
+            true,
+            json!([]),
+        );
+        let start = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "start",
+            "start",
+            false,
+            json!([call_site("repo.save", "save", 6)]),
+        );
+        let entities = vec![app_module, wrapper, inner, save.clone(), start.clone()];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from, start.id);
+        assert_eq!(calls[0].to, save.id);
+        assert_eq!(calls[0].payload["resolution"], "typed_receiver_member");
+        assert_eq!(calls[0].confidence, 0.7);
+    }
+
+    #[tokio::test]
+    async fn a_second_returned_callee_hop_stays_unresolved() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({
+                "imports": [],
+                "typed_bindings": [],
+                "call_bindings": [
+                    {"name": "repo", "callee": "createRepo", "line": 3, "awaited": false}
+                ]
+            }),
+        );
+        let wrapper = forwarded_factory_declaration(
+            "ent_create_repo",
+            "src/app.ts",
+            "createRepo",
+            "createRepo",
+            true,
+            Some("wrap"),
+        );
+        let middle = forwarded_factory_declaration(
+            "ent_wrap",
+            "src/app.ts",
+            "wrap",
+            "wrap",
+            true,
+            Some("makeRepo"),
+        );
+        let inner = returned_factory_declaration(
+            "ent_make_repo",
+            "src/app.ts",
+            "makeRepo",
+            "makeRepo",
+            true,
+            Some("Repo"),
+        );
+        let save = declaration(
+            "ent_repo_save",
+            "src/repo.ts",
+            "Repo.save",
+            "save",
+            true,
+            json!([]),
+        );
+        let start = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "start",
+            "start",
+            false,
+            json!([call_site("repo.save", "save", 6)]),
+        );
+        let entities = vec![app_module, wrapper, middle, inner, save, start];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+        assert!(
+            relations
+                .iter()
+                .all(|relation| relation.kind != RelationKind::Calls),
+            "a chain of wrappers is not the type the source states"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_wrapper_through_a_promise_factory_stays_unresolved() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({
+                "imports": [],
+                "typed_bindings": [],
+                "call_bindings": [
+                    {"name": "repo", "callee": "createRepo", "line": 3, "awaited": false}
+                ]
+            }),
+        );
+        let wrapper = forwarded_factory_declaration(
+            "ent_create_repo",
+            "src/app.ts",
+            "createRepo",
+            "createRepo",
+            true,
+            Some("makeRepo"),
+        );
+        let inner = promise_factory_declaration(
+            "ent_make_repo",
+            "src/app.ts",
+            "makeRepo",
+            "makeRepo",
+            true,
+            Some("Repo"),
+        );
+        let save = declaration(
+            "ent_repo_save",
+            "src/repo.ts",
+            "Repo.save",
+            "save",
+            true,
+            json!([]),
+        );
+        let start = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "start",
+            "start",
+            false,
+            json!([call_site("repo.save", "save", 6)]),
+        );
+        let entities = vec![app_module, wrapper, inner, save, start];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+        assert!(
+            relations
+                .iter()
+                .all(|relation| relation.kind != RelationKind::Calls),
+            "an inner promise is not the value an unawaited wrapper holds"
+        );
+    }
+
+    #[tokio::test]
+    async fn resolves_a_call_on_a_receiver_the_module_awaits_through_a_wrapper() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({
+                "imports": [],
+                "typed_bindings": [],
+                "call_bindings": [
+                    {"name": "repo", "callee": "createRepo", "line": 3, "awaited": true}
+                ]
+            }),
+        );
+        let mut wrapper = forwarded_factory_declaration(
+            "ent_create_repo",
+            "src/app.ts",
+            "createRepo",
+            "createRepo",
+            true,
+            Some("makeRepo"),
+        );
+        wrapper.payload["async"] = json!(true);
+        let inner = returned_factory_declaration(
+            "ent_make_repo",
+            "src/app.ts",
+            "makeRepo",
+            "makeRepo",
+            true,
+            Some("Repo"),
+        );
+        let save = declaration(
+            "ent_repo_save",
+            "src/repo.ts",
+            "Repo.save",
+            "save",
+            true,
+            json!([]),
+        );
+        let start = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "start",
+            "start",
+            false,
+            json!([call_site("repo.save", "save", 6)]),
+        );
+        let entities = vec![app_module, wrapper, inner, save.clone(), start.clone()];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from, start.id);
+        assert_eq!(calls[0].to, save.id);
+        assert_eq!(calls[0].payload["resolution"], "typed_receiver_member");
+        assert_eq!(calls[0].confidence, 0.8);
+    }
+
+    #[tokio::test]
+    async fn an_unawaited_async_wrapper_types_nothing() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({
+                "imports": [],
+                "typed_bindings": [],
+                "call_bindings": [
+                    {"name": "repo", "callee": "createRepo", "line": 3, "awaited": false}
+                ]
+            }),
+        );
+        let mut wrapper = forwarded_factory_declaration(
+            "ent_create_repo",
+            "src/app.ts",
+            "createRepo",
+            "createRepo",
+            true,
+            Some("makeRepo"),
+        );
+        wrapper.payload["async"] = json!(true);
+        let inner = returned_factory_declaration(
+            "ent_make_repo",
+            "src/app.ts",
+            "makeRepo",
+            "makeRepo",
+            true,
+            Some("Repo"),
+        );
+        let save = declaration(
+            "ent_repo_save",
+            "src/repo.ts",
+            "Repo.save",
+            "save",
+            true,
+            json!([]),
+        );
+        let start = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "start",
+            "start",
+            false,
+            json!([call_site("repo.save", "save", 6)]),
+        );
+        let entities = vec![app_module, wrapper, inner, save, start];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+        assert!(
+            relations
+                .iter()
+                .all(|relation| relation.kind != RelationKind::Calls),
+            "an unawaited async wrapper holds a promise, not the inner type"
+        );
+    }
+
+    #[tokio::test]
+    async fn resolves_a_call_on_a_receiver_a_factory_asserts() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({
+                "imports": [],
+                "typed_bindings": [],
+                "call_bindings": [
+                    {"name": "repo", "callee": "createRepo", "line": 3, "awaited": false}
+                ]
+            }),
+        );
+        let factory = asserted_factory_declaration(
+            "ent_create_repo",
+            "src/app.ts",
+            "createRepo",
+            "createRepo",
+            true,
+            Some("Repo"),
+        );
+        let save = declaration(
+            "ent_repo_save",
+            "src/repo.ts",
+            "Repo.save",
+            "save",
+            true,
+            json!([]),
+        );
+        let start = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "start",
+            "start",
+            false,
+            json!([call_site("repo.save", "save", 6)]),
+        );
+        let entities = vec![app_module, factory, save.clone(), start.clone()];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from, start.id);
+        assert_eq!(calls[0].to, save.id);
+        assert_eq!(calls[0].payload["resolution"], "typed_receiver_member");
+        assert_eq!(calls[0].confidence, 0.7);
+    }
+
+    #[tokio::test]
+    async fn resolves_a_call_on_a_receiver_an_initializer_asserts() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({
+                "imports": [],
+                "typed_bindings": [
+                    {"name": "repo", "type": "Repo", "kind": "annotation", "line": 2}
+                ],
+                "call_bindings": []
+            }),
+        );
+        let save = declaration(
+            "ent_repo_save",
+            "src/repo.ts",
+            "Repo.save",
+            "save",
+            true,
+            json!([]),
+        );
+        let start = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "start",
+            "start",
+            false,
+            json!([call_site("repo.save", "save", 6)]),
+        );
+        let entities = vec![app_module, save.clone(), start.clone()];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from, start.id);
+        assert_eq!(calls[0].to, save.id);
+        assert_eq!(calls[0].payload["resolution"], "typed_receiver_member");
+        assert_eq!(calls[0].confidence, 0.7);
+    }
+
+    #[tokio::test]
+    async fn resolves_a_call_on_a_factory_result() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({"imports": [], "typed_bindings": [], "call_bindings": []}),
+        );
+        let factory = factory_declaration(
+            "ent_create_repo",
+            "src/app.ts",
+            "createRepo",
+            "createRepo",
+            true,
+            Some("Repo"),
+        );
+        let save = declaration(
+            "ent_repo_save",
+            "src/repo.ts",
+            "Repo.save",
+            "save",
+            true,
+            json!([]),
+        );
+        let start = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "start",
+            "start",
+            false,
+            json!([call_site("createRepo().save", "save", 4)]),
+        );
+        let entities = vec![app_module, factory, save.clone(), start.clone()];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from, start.id);
+        assert_eq!(calls[0].to, save.id);
+        assert_eq!(calls[0].payload["resolution"], "typed_receiver_member");
+        assert_eq!(calls[0].confidence, 0.7);
+        assert_eq!(calls[0].payload["callee"], "createRepo().save");
+    }
+
+    #[tokio::test]
+    async fn resolves_a_call_on_an_invoked_factory_result() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({"imports": [], "typed_bindings": [], "call_bindings": []}),
+        );
+        let mut factory = factory_declaration(
+            "ent_create",
+            "src/app.ts",
+            "create",
+            "create",
+            true,
+            None,
+        );
+        factory.payload["returned_function_type"] = json!("Repo");
+        let save = declaration(
+            "ent_repo_save",
+            "src/repo.ts",
+            "Repo.save",
+            "save",
+            true,
+            json!([]),
+        );
+        let start = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "start",
+            "start",
+            false,
+            json!([call_site("create()().save", "save", 4)]),
+        );
+        let entities = vec![app_module, factory, save.clone(), start.clone()];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from, start.id);
+        assert_eq!(calls[0].to, save.id);
+        assert_eq!(calls[0].payload["resolution"], "typed_receiver_member");
+        assert_eq!(calls[0].confidence, 0.7);
+        assert_eq!(calls[0].payload["callee"], "create()().save");
+    }
+
+    #[tokio::test]
+    async fn an_uninvoked_function_factory_does_not_type_the_first_call() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({"imports": [], "typed_bindings": [], "call_bindings": []}),
+        );
+        let mut factory = factory_declaration(
+            "ent_create",
+            "src/app.ts",
+            "create",
+            "create",
+            true,
+            None,
+        );
+        factory.payload["returned_function_type"] = json!("Repo");
+        let save = declaration(
+            "ent_repo_save",
+            "src/repo.ts",
+            "Repo.save",
+            "save",
+            true,
+            json!([]),
+        );
+        let start = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "start",
+            "start",
+            false,
+            json!([call_site("create().save", "save", 3)]),
+        );
+        let entities = vec![app_module, factory, save, start];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        assert!(
+            relations
+                .iter()
+                .all(|relation| relation.kind != RelationKind::Calls),
+            "create().save must not take the type create()() yields"
+        );
+    }
+
+    #[tokio::test]
+    async fn resolves_a_binding_initialized_by_an_invoked_factory() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({
+                "imports": [],
+                "typed_bindings": [],
+                "call_bindings": [
+                    {"name": "repo", "callee": "create", "line": 3, "awaited": false, "invoked": true}
+                ]
+            }),
+        );
+        let mut factory = factory_declaration(
+            "ent_create",
+            "src/app.ts",
+            "create",
+            "create",
+            true,
+            None,
+        );
+        factory.payload["returned_function_type"] = json!("Repo");
+        let save = declaration(
+            "ent_repo_save",
+            "src/repo.ts",
+            "Repo.save",
+            "save",
+            true,
+            json!([]),
+        );
+        let start = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "start",
+            "start",
+            false,
+            json!([call_site("repo.save", "save", 4)]),
+        );
+        let entities = vec![app_module, factory, save.clone(), start.clone()];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from, start.id);
+        assert_eq!(calls[0].to, save.id);
+        assert_eq!(calls[0].payload["resolution"], "typed_receiver_member");
+        assert_eq!(calls[0].confidence, 0.7);
+    }
+
+    #[tokio::test]
+    async fn a_triple_call_hop_does_not_guess_a_unique_member() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({"imports": [], "typed_bindings": [], "call_bindings": []}),
+        );
+        let mut factory = factory_declaration(
+            "ent_create",
+            "src/app.ts",
+            "create",
+            "create",
+            true,
+            None,
+        );
+        factory.payload["returned_function_type"] = json!("Repo");
+        let save = declaration(
+            "ent_repo_save",
+            "src/repo.ts",
+            "Repo.save",
+            "save",
+            true,
+            json!([]),
+        );
+        let start = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "start",
+            "start",
+            false,
+            json!([call_site("create()()().save", "save", 3)]),
+        );
+        let entities = vec![app_module, factory, save, start];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        assert!(
+            relations
+                .iter()
+                .all(|relation| relation.kind != RelationKind::Calls),
+            "a third call hop must not fall through to a unique name"
+        );
+    }
+
+    #[tokio::test]
+    async fn resolves_a_call_on_a_construction_result() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({"imports": [], "typed_bindings": [], "call_bindings": []}),
+        );
+        let save = declaration(
+            "ent_repo_save",
+            "src/repo.ts",
+            "Repo.save",
+            "save",
+            true,
+            json!([]),
+        );
+        let start = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "start",
+            "start",
+            false,
+            json!([call_site("Repo{}.save", "save", 4)]),
+        );
+        let entities = vec![app_module, save.clone(), start.clone()];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from, start.id);
+        assert_eq!(calls[0].to, save.id);
+        assert_eq!(calls[0].payload["resolution"], "typed_receiver_member");
+        assert_eq!(calls[0].confidence, 0.8);
+        assert_eq!(calls[0].payload["callee"], "Repo{}.save");
+    }
+
+    #[tokio::test]
+    async fn resolves_a_call_on_an_awaited_factory_result() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({"imports": [], "typed_bindings": [], "call_bindings": []}),
+        );
+        let factory = promise_factory_declaration(
+            "ent_create_repo",
+            "src/app.ts",
+            "createRepo",
+            "createRepo",
+            true,
+            Some("Repo"),
+        );
+        let save = declaration(
+            "ent_repo_save",
+            "src/repo.ts",
+            "Repo.save",
+            "save",
+            true,
+            json!([]),
+        );
+        let start = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "start",
+            "start",
+            false,
+            json!([call_site("createRepo()@.save", "save", 4)]),
+        );
+        let entities = vec![app_module, factory, save.clone(), start.clone()];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from, start.id);
+        assert_eq!(calls[0].to, save.id);
+        assert_eq!(calls[0].payload["resolution"], "typed_receiver_member");
+        assert_eq!(calls[0].confidence, 0.65);
+    }
+
+    #[tokio::test]
+    async fn resolves_a_field_walk_on_a_factory_result() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({
+                "imports": [],
+                "typed_bindings": [
+                    {"name": "Repo.items", "type": "ItemStore", "kind": "annotation", "line": 8}
+                ],
+                "call_bindings": []
+            }),
+        );
+        let factory = factory_declaration(
+            "ent_create_repo",
+            "src/app.ts",
+            "createRepo",
+            "createRepo",
+            true,
+            Some("Repo"),
+        );
+        let items_map = declaration(
+            "ent_store_map",
+            "src/store.ts",
+            "ItemStore.map",
+            "map",
+            true,
+            json!([]),
+        );
+        let start = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "start",
+            "start",
+            false,
+            json!([call_site("createRepo().items.map", "map", 4)]),
+        );
+        let entities = vec![app_module, factory, items_map.clone(), start.clone()];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from, start.id);
+        assert_eq!(calls[0].to, items_map.id);
+        assert_eq!(calls[0].payload["resolution"], "typed_receiver_path");
+        assert_eq!(calls[0].confidence, 0.7);
+    }
+
+    #[tokio::test]
+    async fn an_untyped_factory_result_does_not_guess_a_unique_member() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({"imports": [], "typed_bindings": [], "call_bindings": []}),
+        );
+        let save = declaration(
+            "ent_item_save",
+            "src/app.ts",
+            "Item.save",
+            "save",
+            true,
+            json!([]),
+        );
+        let start = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "start",
+            "start",
+            false,
+            json!([call_site("createRepo().save", "save", 3)]),
+        );
+        let entities = vec![app_module, save, start];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        assert!(
+            relations
+                .iter()
+                .all(|relation| relation.kind != RelationKind::Calls),
+            "an untyped factory result must not fall through to a unique member name"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_unawaited_async_factory_result_types_nothing() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({"imports": [], "typed_bindings": [], "call_bindings": []}),
+        );
+        let factory = promise_factory_declaration(
+            "ent_create_repo",
+            "src/app.ts",
+            "createRepo",
+            "createRepo",
+            true,
+            Some("Repo"),
+        );
+        let save = declaration(
+            "ent_repo_save",
+            "src/repo.ts",
+            "Repo.save",
+            "save",
+            true,
+            json!([]),
+        );
+        let start = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "start",
+            "start",
+            false,
+            json!([call_site("createRepo().save", "save", 4)]),
+        );
+        let entities = vec![app_module, factory, save, start];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        assert!(
+            relations
+                .iter()
+                .all(|relation| relation.kind != RelationKind::Calls),
+            "an unawaited factory result holds the promise, not the awaited type"
+        );
+    }
+
+    #[tokio::test]
+    async fn resolves_a_call_on_a_member_factory_result() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({
+                "imports": [],
+                "typed_bindings": [
+                    {"name": "svc", "type": "Service", "kind": "annotation", "line": 2}
+                ],
+                "call_bindings": []
+            }),
+        );
+        let build = factory_declaration(
+            "ent_service_build",
+            "src/service.ts",
+            "Service.build",
+            "build",
+            true,
+            Some("Repo"),
+        );
+        let save = declaration(
+            "ent_repo_save",
+            "src/repo.ts",
+            "Repo.save",
+            "save",
+            true,
+            json!([]),
+        );
+        let start = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "start",
+            "start",
+            false,
+            json!([call_site("svc.build().save", "save", 4)]),
+        );
+        let entities = vec![app_module, build, save.clone(), start.clone()];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from, start.id);
+        assert_eq!(calls[0].to, save.id);
+        assert_eq!(calls[0].payload["resolution"], "typed_receiver_path");
+        assert_eq!(calls[0].confidence, 0.7);
+        assert_eq!(calls[0].payload["callee"], "svc.build().save");
+    }
+
+    #[tokio::test]
+    async fn resolves_a_call_on_a_nested_factory_result() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({"imports": [], "typed_bindings": [], "call_bindings": []}),
+        );
+        let factory = factory_declaration(
+            "ent_create_repo",
+            "src/app.ts",
+            "createRepo",
+            "createRepo",
+            true,
+            Some("Repo"),
+        );
+        let get_store = factory_declaration(
+            "ent_repo_get_store",
+            "src/repo.ts",
+            "Repo.getStore",
+            "getStore",
+            true,
+            Some("Store"),
+        );
+        let save = declaration(
+            "ent_store_save",
+            "src/store.ts",
+            "Store.save",
+            "save",
+            true,
+            json!([]),
+        );
+        let start = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "start",
+            "start",
+            false,
+            json!([call_site("createRepo().getStore().save", "save", 4)]),
+        );
+        let entities = vec![app_module, factory, get_store, save.clone(), start.clone()];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from, start.id);
+        assert_eq!(calls[0].to, save.id);
+        assert_eq!(calls[0].payload["resolution"], "typed_receiver_path");
+        assert_eq!(calls[0].confidence, 0.7);
+    }
+
+    #[tokio::test]
+    async fn resolves_a_call_on_this_member_factory_result() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({"imports": [], "typed_bindings": [], "call_bindings": []}),
+        );
+        let factory = factory_declaration(
+            "ent_app_factory",
+            "src/app.ts",
+            "App.factory",
+            "factory",
+            true,
+            Some("Repo"),
+        );
+        let save = declaration(
+            "ent_repo_save",
+            "src/repo.ts",
+            "Repo.save",
+            "save",
+            true,
+            json!([]),
+        );
+        let start = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "App.start",
+            "start",
+            false,
+            json!([call_site("this.factory().save", "save", 4)]),
+        );
+        let entities = vec![app_module, factory, save.clone(), start.clone()];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from, start.id);
+        assert_eq!(calls[0].to, save.id);
+        assert_eq!(calls[0].payload["resolution"], "typed_receiver_path");
+        assert_eq!(calls[0].confidence, 0.7);
+    }
+
+    #[tokio::test]
+    async fn resolves_a_call_on_an_inherited_member_factory_result() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({"imports": [], "typed_bindings": [], "call_bindings": []}),
+        );
+        let app = subclass("ent_app_class", "src/app.ts", "App", true, &["Base"]);
+        let base = class_declaration("ent_base_class", "src/base.ts", "Base", "Base", true);
+        let build = factory_declaration(
+            "ent_base_build",
+            "src/base.ts",
+            "Base.build",
+            "build",
+            true,
+            Some("Repo"),
+        );
+        let save = declaration(
+            "ent_repo_save",
+            "src/repo.ts",
+            "Repo.save",
+            "save",
+            true,
+            json!([]),
+        );
+        let start = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "App.start",
+            "start",
+            false,
+            json!([call_site("this.build().save", "save", 4)]),
+        );
+        let entities = vec![app_module, app, base, build, save.clone(), start.clone()];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from, start.id);
+        assert_eq!(calls[0].to, save.id);
+        assert_eq!(calls[0].payload["resolution"], "typed_receiver_path");
+        assert_eq!(calls[0].confidence, 0.7);
+    }
+
+    #[tokio::test]
+    async fn resolves_a_super_call_to_the_base_class_method() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({"imports": [], "typed_bindings": [], "call_bindings": []}),
+        );
+        let app = subclass("ent_app_class", "src/app.ts", "App", true, &["Base"]);
+        let base = class_declaration("ent_base_class", "src/base.ts", "Base", "Base", true);
+        let save = declaration(
+            "ent_base_save",
+            "src/base.ts",
+            "Base.save",
+            "save",
+            true,
+            json!([]),
+        );
+        let start = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "App.start",
+            "start",
+            false,
+            json!([call_site("super.save", "save", 4)]),
+        );
+        let entities = vec![app_module, app, base, save.clone(), start.clone()];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from, start.id);
+        assert_eq!(calls[0].to, save.id);
+        assert_eq!(calls[0].payload["resolution"], "typed_receiver_member");
+        assert_eq!(calls[0].confidence, 0.8);
+        assert_eq!(calls[0].payload["callee"], "super.save");
+    }
+
+    #[tokio::test]
+    async fn a_super_call_without_a_base_class_does_not_guess_a_unique_member() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({"imports": [], "typed_bindings": [], "call_bindings": []}),
+        );
+        let app = class_declaration("ent_app_class", "src/app.ts", "App", "App", true);
+        let save = declaration(
+            "ent_item_save",
+            "src/app.ts",
+            "Item.save",
+            "save",
+            true,
+            json!([]),
+        );
+        let start = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "App.start",
+            "start",
+            false,
+            json!([call_site("super.save", "save", 4)]),
+        );
+        let entities = vec![app_module, app, save, start];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        assert!(
+            relations
+                .iter()
+                .all(|relation| relation.kind != RelationKind::Calls),
+            "super without a declared base must not fall through to a unique member name"
+        );
+    }
+
+    #[tokio::test]
+    async fn resolves_a_member_through_a_type_alias() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({
+                "imports": [],
+                "typed_bindings": [
+                    {"name": "repo", "type": "Client", "kind": "annotation", "line": 3}
+                ],
+                "call_bindings": []
+            }),
+        );
+        let client = type_alias_entity(
+            "ent_client_alias",
+            "src/app.ts",
+            "Client",
+            true,
+            Some("Repo"),
+        );
+        let save = declaration(
+            "ent_repo_save",
+            "src/repo.ts",
+            "Repo.save",
+            "save",
+            true,
+            json!([]),
+        );
+        let start = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "start",
+            "start",
+            false,
+            json!([call_site("repo.save", "save", 4)]),
+        );
+        let entities = vec![app_module, client, save.clone(), start.clone()];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from, start.id);
+        assert_eq!(calls[0].to, save.id);
+        assert_eq!(calls[0].payload["resolution"], "typed_receiver_member");
+        assert_eq!(calls[0].confidence, 0.7);
+        assert_eq!(calls[0].payload["callee"], "repo.save");
+    }
+
+    #[tokio::test]
+    async fn a_type_alias_without_a_named_type_does_not_resolve() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({
+                "imports": [],
+                "typed_bindings": [
+                    {"name": "repo", "type": "Client", "kind": "annotation", "line": 3}
+                ],
+                "call_bindings": []
+            }),
+        );
+        let client = type_alias_entity("ent_client_alias", "src/app.ts", "Client", true, None);
+        let save = declaration(
+            "ent_repo_save",
+            "src/repo.ts",
+            "Repo.save",
+            "save",
+            true,
+            json!([]),
+        );
+        let start = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "start",
+            "start",
+            false,
+            json!([call_site("repo.save", "save", 4)]),
+        );
+        let entities = vec![app_module, client, save, start];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        assert!(
+            relations
+                .iter()
+                .all(|relation| relation.kind != RelationKind::Calls),
+            "a union or unnamed alias must not unfold to a unique member"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_untyped_member_factory_does_not_guess_a_unique_member() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({"imports": [], "typed_bindings": [], "call_bindings": []}),
+        );
+        let save = declaration(
+            "ent_item_save",
+            "src/app.ts",
+            "Item.save",
+            "save",
+            true,
+            json!([]),
+        );
+        let start = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "start",
+            "start",
+            false,
+            json!([call_site("svc.build().save", "save", 3)]),
+        );
+        let entities = vec![app_module, save, start];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        assert!(
+            relations
+                .iter()
+                .all(|relation| relation.kind != RelationKind::Calls),
+            "an untyped member factory must not fall through to a unique member name"
+        );
+    }
+
+    #[tokio::test]
+    async fn resolves_a_call_on_an_inline_receiver_assertion() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({"imports": [], "typed_bindings": [], "call_bindings": []}),
+        );
+        let save = declaration(
+            "ent_repo_save",
+            "src/repo.ts",
+            "Repo.save",
+            "save",
+            true,
+            json!([]),
+        );
+        let start = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "start",
+            "start",
+            false,
+            json!([call_site("Repo#.save", "save", 4)]),
+        );
+        let entities = vec![app_module, save.clone(), start.clone()];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from, start.id);
+        assert_eq!(calls[0].to, save.id);
+        assert_eq!(calls[0].payload["resolution"], "typed_receiver_member");
+        assert_eq!(calls[0].confidence, 0.7);
+        assert_eq!(calls[0].payload["callee"], "Repo#.save");
+    }
+
+    #[tokio::test]
+    async fn resolves_a_field_walk_on_an_inline_receiver_assertion() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({
+                "imports": [],
+                "typed_bindings": [
+                    {"name": "Repo.items", "type": "ItemStore", "kind": "annotation", "line": 8}
+                ],
+                "call_bindings": []
+            }),
+        );
+        let items_map = declaration(
+            "ent_store_map",
+            "src/store.ts",
+            "ItemStore.map",
+            "map",
+            true,
+            json!([]),
+        );
+        let start = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "start",
+            "start",
+            false,
+            json!([call_site("Repo#.items.map", "map", 4)]),
+        );
+        let entities = vec![app_module, items_map.clone(), start.clone()];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        let calls = relations
+            .iter()
+            .filter(|relation| relation.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from, start.id);
+        assert_eq!(calls[0].to, items_map.id);
+        assert_eq!(calls[0].payload["resolution"], "typed_receiver_path");
+        assert_eq!(calls[0].confidence, 0.7);
+    }
+
+    #[tokio::test]
+    async fn an_unresolved_inline_assertion_does_not_guess_a_unique_member() {
+        let app_module = module(
+            "ent_app_module",
+            "src/app.ts",
+            json!({"imports": [], "typed_bindings": [], "call_bindings": []}),
+        );
+        let save = declaration(
+            "ent_item_save",
+            "src/app.ts",
+            "Item.save",
+            "save",
+            true,
+            json!([]),
+        );
+        let start = declaration(
+            "ent_app_start",
+            "src/app.ts",
+            "start",
+            "start",
+            false,
+            json!([call_site("Repo#.save", "save", 3)]),
+        );
+        let entities = vec![app_module, save, start];
+
+        let relations = JsTsCallLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(entities.clone()),
+                facts: Arc::new(Vec::new()),
+                affected: AffectedSubset::from_extracted(entities, Vec::new()),
+            })
+            .await
+            .unwrap();
+
+        assert!(
+            relations
+                .iter()
+                .all(|relation| relation.kind != RelationKind::Calls),
+            "an assertion of a type with no such member must not fall through to a unique name"
+        );
     }
 
     #[tokio::test]
@@ -5570,6 +8054,42 @@ mod tests {
         entity
     }
 
+    fn type_alias_entity(
+        id: &str,
+        path: &str,
+        name: &str,
+        exported: bool,
+        aliased_type: Option<&str>,
+    ) -> Entity {
+        let mut payload = json!({
+            "symbol_kind": "type_alias",
+            "qualified_name": name,
+            "exported": exported,
+            "calls": json!([]),
+        });
+        if let Some(aliased) = aliased_type {
+            payload["aliased_type"] = json!(aliased);
+        }
+        Entity {
+            id: EntityId(id.to_string()),
+            stable_key: StableKey(format!("{SYMBOL_PREFIX}{path}#{name}")),
+            kind: EntityKind::Symbol,
+            name: name.to_string(),
+            title: None,
+            source: Some(SourceLocation {
+                path: path.to_string(),
+                line_start: Some(1),
+                line_end: Some(2),
+            }),
+            language: Some(LanguageCode("typescript".to_string())),
+            aliases: Vec::new(),
+            ownership: vec![Ownership {
+                source_file: path.to_string(),
+            }],
+            payload,
+        }
+    }
+
     fn class_declaration(
         id: &str,
         path: &str,
@@ -5662,6 +8182,34 @@ mod tests {
     ) -> Entity {
         let mut entity = factory_declaration(id, path, qualified, name, exported, None);
         entity.payload["returned_type"] = json!(returned_type);
+        entity
+    }
+
+    /// A wrapper that constructs nothing and returns a call to another factory.
+    fn forwarded_factory_declaration(
+        id: &str,
+        path: &str,
+        qualified: &str,
+        name: &str,
+        exported: bool,
+        returned_callee: Option<&str>,
+    ) -> Entity {
+        let mut entity = factory_declaration(id, path, qualified, name, exported, None);
+        entity.payload["returned_callee"] = json!(returned_callee);
+        entity
+    }
+
+    /// A factory that asserts the type of the value it returns.
+    fn asserted_factory_declaration(
+        id: &str,
+        path: &str,
+        qualified: &str,
+        name: &str,
+        exported: bool,
+        asserted_type: Option<&str>,
+    ) -> Entity {
+        let mut entity = factory_declaration(id, path, qualified, name, exported, None);
+        entity.payload["asserted_type"] = json!(asserted_type);
         entity
     }
 

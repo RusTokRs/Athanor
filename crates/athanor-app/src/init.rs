@@ -111,6 +111,11 @@ path = ".athanor/store/canonical/jsonl"
 allow_external_process = false
 external_process_allowlist = []
 external_process_sandbox = "disabled"
+disabled = []
+external_process_timeout_ms = 30000
+external_process_max_stdin_bytes = 8388608
+external_process_max_stdout_bytes = 8388608
+external_process_max_stderr_bytes = 1048576
 
 [pipeline]
 extraction_concurrency = 16

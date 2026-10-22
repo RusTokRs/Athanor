@@ -89,7 +89,13 @@ The call linker consumes the bounded `calls` arrays and the import bindings that
    the calling module. The binding's specifier resolves relatively, through a path alias, or through
    a workspace package, using the same rules as the import linker.
 4. `typed_receiver_member` / `typed_receiver_path` — a receiver whose declared type the calling
-   module records is walked as a typed path: `this` roots at the enclosing method owner, every
+   module records is walked as a typed path: `this` roots at the enclosing method owner, `super`
+   roots at the class that owner `extends` so `super.save()` dispatches at construction confidence
+   0.8 and a `super` call without a declared base does not fall through to a unique member, a type
+   alias unfolds one hop so `type Client = Repo` types `repo.save()` as `Repo.save`, a type
+   parameter that `extends` one named type is recorded as that bound so `T extends Repo` types
+   `repo.save()` as `Repo.save` and `function create<T extends Repo>(): T` types `create().save()`
+   as `Repo.save`, every
    further segment resolves the type the previous segment declared, and the terminal member must
    match `<Type>.<member>` exactly once. `this.repo.items.map()` resolves when `App.repo` is a
    `Repo` and `Repo.items` is an `ItemStore`, even when `Repo` is declared in another module: a
@@ -107,12 +113,22 @@ The call linker consumes the bounded `calls` arrays and the import bindings that
    two files declare and a base no file declares both end the walk. The root may instead be typed by
    the collection it came out of: a `for...of` iteration variable and an array combinator's callback
    parameter carry the element type of the annotated collection, so `for (const item of items)`
-   dispatches `item.save()`. The root may also be a binding the module awaits: `const repo =
+   dispatches `item.save()`, and an index access `items[0].save()` walks the same type through the
+   synthetic name `items[]`. An array literal that constructs one type records that name as a
+   construction, so `const items = [new Item()]; items[0].save()` dispatches at `0.8`. The root may
+   also be a binding the module awaits: `const repo =`
    await createRepo()` takes the type the factory's declared promise yields, so `repo.save()`
    dispatches at the same `0.65`, while an unawaited `const pending = createRepo()` names nothing. The root may also be a binding a factory produced: the factory's declared
    return type types it at `0.7`, and a factory that declares none is typed by the one type every
    `return` of its body constructs at `0.8`, because a body cannot lie about what it builds while an
-   annotation can — and an annotation still wins when the declaration has one. A segment may also be
+   annotation can — and an annotation still wins when the declaration has one. A wrapper that
+   constructs nothing and only `return makeRepo()` is typed by that factory's annotation or
+   constructed return one hop. An `async` wrapper is typed only when the binding awaits it:
+   `const repo = await wrap()` inherits the inner factory one hop, and `const pending = wrap()`
+   holds a promise and names nothing. A factory that asserts `return load() as Repo` types the
+   receiver at `0.7`, the same tier as a declared annotation. A second hop, a mix of construction
+   and call, two callees, a member callee, and an inner factory that yields a promise on an
+   unawaited binding name nothing. A segment may also be
    a member of an object literal: the literal states the type of each member it constructs, so
    `config.logger.flush()` walks through `config$object` and dispatches at `0.8`. A repeated type, a
    path longer than four segments, an ambiguous binding,
@@ -163,18 +179,28 @@ commands, use the network, or modify project files.
   multi-segment paths through named-import namespace aliases stay unresolved. Existing
   namespace-import receiver behavior is unchanged. A default expression that declares nothing
   callable or constructible stays unresolved because it has no statically nameable local binding.
-- Dynamic `import()`, CommonJS `require()`, computed calls (`handlers[key]()`), calls through call
-  results, and reflective dispatch are not resolved. Receiver typing covers only a type the source
-  states: an inferred type, a type imported by another module but never named in an annotation, a
-  structural type, and a member reached through an unannotated factory or an index stay
-  unresolved. A member inherited through a declared `extends` chain does resolve, but only to a base
-  the snapshot states unambiguously and only within four hops. A receiver the module awaits is typed
+- Dynamic `import()`, CommonJS `require()`, computed calls (`handlers[key]()`), nested index access,
+  a third call hop (`factory()()()`), and reflective dispatch are not resolved. A member of a
+  factory or construction (`createRepo().save()`, `create()().save()`, `svc.build().save()`,
+  `createRepo().getStore().save()`, `new Repo().save()`, `new ns.Repo().save()`) does resolve when that factory's type is
+  stated, an inline `as Type` / `satisfies Type` / `<Type>expr` (`(value as Repo).save()`)
+  resolves from the type the source writes, and `super.save()` resolves to the method on the
+  class the owner extends. Receiver typing covers only
+  a type the source states: an inferred type, a type imported by another module but never named in
+  an annotation, and a member reached through a factory whose body names neither a construction nor one callee stay unresolved. An index
+  access resolves only when the collection's annotation or an array literal of constructions names
+  one element type. A member inherited
+  through a declared `extends` chain does resolve, but only to a base the snapshot states
+  unambiguously and only within four hops. A receiver the module awaits is typed
   by the promise the factory declares, but an unawaited promise names nothing. A receiver path may
   walk through an object literal, but only into a member the literal constructs; a property whose
   value is a literal, a call, or a shorthand names nothing. A receiver a factory
   produced is typed by the return type the factory declares or, when it declares none, by the one
-  type every `return` of its body constructs — two returns that disagree, a `return` of a call, and a
-  `return` of a nested function name nothing. A
+  type every `return` of its body constructs, or one hop through the factory a wrapper returns a
+  call to, or the function-type yield when the source calls the result once more (`create()()`) —
+  two returns that disagree, a mix of construction and call, two callees, a member callee,
+  an unawaited `async` wrapper, a second hop, an inner factory that yields a promise on an
+  unawaited binding, and a `return` of a nested function name nothing. A
   field is read from the module that declares its owner only when that owner is exported and
   unambiguous, and an ambiguous, cyclic, or over-bound path ends the walk instead of being
   guessed.

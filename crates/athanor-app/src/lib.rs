@@ -14,6 +14,7 @@ pub mod change_map;
 pub mod check;
 pub mod composition;
 pub mod config;
+mod config_doctor;
 #[path = "context_composition.rs"]
 pub mod context;
 mod context_operation;
@@ -223,6 +224,7 @@ pub use change_map::*;
 pub use check::*;
 pub use composition::*;
 pub use config::*;
+pub use config_doctor::doctor_project_config;
 pub use context::*;
 pub use context_report::*;
 pub use coverage::*;

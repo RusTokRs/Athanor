@@ -75,6 +75,8 @@ pub struct ExplorePath {
     pub steps: Vec<ExplorePathStep>,
     /// Open diagnostics attached to the reached entity.
     pub open_diagnostics: usize,
+    /// Bounded source slice of the reached declaration, when the cited range can be read.
+    pub excerpt: Option<super::ExploreExcerpt>,
 }
 
 /// Reach count for one hop of the traversal.
@@ -386,6 +388,7 @@ pub(super) fn explore_flow<'a>(
             target: graph.counterpart(found.target),
             steps: found.steps,
             open_diagnostics: graph.open_diagnostics(found.target),
+            excerpt: None,
         })
         .collect::<Vec<_>>();
 

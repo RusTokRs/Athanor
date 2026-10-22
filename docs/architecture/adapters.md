@@ -210,7 +210,7 @@ builtin.checker.rustok_ffa
 builtin.checker.rustok_page_builder
 ```
 
-The RusTok FFA, FBA, and Page Builder ids are built-in factories for manifest opt-in only. They are not part of `AdapterRegistry::built_in()` and should be enabled from repository-local manifests such as `.athanor/adapters/rustok-ffa.json`, `.athanor/adapters/rustok-fba.json`, and `.athanor/adapters/rustok-page-builder.json`.
+The RusTok FFA, FBA, and Page Builder ids are built-in factories for manifest opt-in only. They are not registered by `default_adapter_registry()` and should be enabled from repository-local manifests such as `.athanor/adapters/rustok-ffa.json`, `.athanor/adapters/rustok-fba.json`, and `.athanor/adapters/rustok-page-builder.json`.
 
 This is the first discovery layer. It gives the app layer a single current manifest contract and a validation path for adapter/plugin configuration. It does not dynamically load external Rust code yet; unknown adapter ids fail fast with a clear runtime-builder error. The optional `version` field describes the plugin package, not a separate generation of the adapter contract.
 
@@ -234,7 +234,7 @@ The current process adapter protocol is intentionally narrow:
 - Source commands write a JSON array of `SourceFile` objects to stdout.
 - stderr is used only for failure details.
 - Athanor records bounded external process stdout and stderr excerpts through tracing. stdout remains the process adapter protocol stream and is logged only at debug level; stderr is logged when present and is still included in process failure errors.
-- `supports_extensions` scopes which source file extensions should be sent to extractor commands; it does not apply to source, linker, or checker commands.
+- `supports_extensions` scopes which source file extensions should be sent to extractor commands; it does not apply to source, linker, or checker commands. External extractors must declare the field. Use `"*"` to receive every source file.
 
 Source discovery request:
 
@@ -268,9 +268,12 @@ resolved relative to the manifest file directory, must canonicalize inside that 
 not contain parent-directory components. Absolute command paths are canonicalized before execution.
 Bare command names are rejected instead of being resolved through the operating system `PATH`.
 External process execution is bounded by runtime limits for stdin serialization, stdout bytes,
-stderr bytes, and wall-clock execution time. A timed-out adapter process is terminated. Oversized
-stdout, oversized stderr, invalid JSON, and non-zero exit status fail the adapter run with a bounded
-adapter-scoped error.
+stderr bytes, and wall-clock execution time. A timed-out or oversized adapter process is terminated
+immediately. Invalid JSON and non-zero exit status fail the adapter run with a bounded adapter-scoped
+error. `.athanor/adapters/*.json` discovery is case-insensitive on the extension.
+`.athanor/plugins/*/athanor-adapter.json` is also matched case-insensitively. Regular files named in
+`args` are hashed into the trust record; existing symlink or directory arguments fail closed. Arguments
+that start with `-` are treated as flags and are not hashed.
 
 External process adapters are disabled by default in production:
 
@@ -279,6 +282,11 @@ External process adapters are disabled by default in production:
 allow_external_process = false
 external_process_allowlist = []
 external_process_sandbox = "disabled"
+disabled = []
+external_process_timeout_ms = 30000
+external_process_max_stdin_bytes = 8388608
+external_process_max_stdout_bytes = 8388608
+external_process_max_stderr_bytes = 1048576
 ```
 
 Any enabled manifest entry with a `command` is rejected before registration unless the project
@@ -290,9 +298,14 @@ entry in `external_process_allowlist`. Relative allowlist entries are resolved f
 An empty allowlist rejects every external process adapter.
 
 External process manifests also require a user-level trust record outside the repository. The trust
-record stores the canonical manifest path and the current SHA-256 hash of the manifest file. If the
-manifest changes, the hash no longer matches and Athanor rejects the plugin until the user trusts the
-new manifest contents. Manage trust records with:
+record stores the canonical manifest path, the SHA-256 hash of the manifest file, and SHA-256 hashes
+of the command program plus any regular files named in `args`. Symlink arguments are rejected instead
+of being hashed through the link target. Launching an adapter re-checks those
+digests against the trust record rather than pinning whatever bytes happen to be on disk at assembly
+time. Changing the manifest, the executable, or a file argument invalidates trust until the user
+trusts the new contents. Duplicate adapter ids in one manifest fail closed; a later plugin cannot
+override an already registered id with an external process adapter. Adapter ids listed in
+`[adapters].disabled` are removed after plugin discovery. Manage trust records with:
 
 ```bash
 ath plugins list
