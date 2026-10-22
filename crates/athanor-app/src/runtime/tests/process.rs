@@ -145,19 +145,45 @@ async fn external_process_timeout_terminates_unix_process_group() {
         .expect("background child should record its pid")
         .trim()
         .to_string();
-    let mut stopped = false;
-    for _ in 0..20 {
-        let output = std::process::Command::new("kill")
-            .args(["-0", pid.as_str()])
-            .output()
-            .expect("kill command should be available on Unix");
-        if !output.status.success() {
-            stopped = true;
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(25)).await;
-    }
-    assert!(stopped, "background process {pid} remained alive");
+    assert_process_stopped(&pid).await;
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn descendant_output_pipes_do_not_extend_the_process_deadline() {
+    let root = temp_root("runtime-descendant-pipes");
+    fs::create_dir_all(&root).unwrap();
+    let child_pid = root.join("child.pid");
+    let error = ProcessRunner::run(
+        &TokioProcessRunner,
+        ProcessRequest {
+            label: "descendant output pipes".to_string(),
+            program: sh_path(),
+            args: vec![
+                "-c".to_string(),
+                format!("sleep 30 & echo $! > '{}'; exit 0", child_pid.display()),
+            ],
+            working_dir: test_working_dir(),
+            clear_environment: false,
+            stdin: Vec::new(),
+            limits: CoreProcessLimits {
+                timeout_ms: 200,
+                max_stdin_bytes: 64,
+                max_stdout_bytes: 1024,
+                max_stderr_bytes: 1024,
+            },
+        },
+    )
+    .await
+    .expect_err("inherited output pipes must not outlast the process deadline");
+    assert!(matches!(error, CoreError::DeadlineExceeded(_)));
+
+    let pid = fs::read_to_string(&child_pid)
+        .expect("background child should record its pid")
+        .trim()
+        .to_string();
+    assert_process_stopped(&pid).await;
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -334,6 +360,21 @@ async fn closed_output_streams_are_not_reported_as_truncation() {
     assert_eq!(output.exit_code, Some(0));
     assert!(!output.stdout_truncated);
     assert!(!output.stderr_truncated);
+}
+
+#[cfg(unix)]
+async fn assert_process_stopped(pid: &str) {
+    for _ in 0..20 {
+        let output = std::process::Command::new("kill")
+            .args(["-0", pid])
+            .output()
+            .expect("kill command should be available on Unix");
+        if !output.status.success() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    panic!("background process {pid} remained alive");
 }
 
 #[cfg(unix)]

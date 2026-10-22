@@ -1530,14 +1530,14 @@ fn call_result_root(segment: &str) -> Option<CallResultRoot> {
                 invoked: false,
             });
         }
-        if let Some(inner) = name.strip_suffix("()") {
-            if call_result_ident(inner) {
-                return Some(CallResultRoot::Factory {
-                    name: inner.to_string(),
-                    awaited: false,
-                    invoked: true,
-                });
-            }
+        if let Some(inner) = name.strip_suffix("()")
+            && call_result_ident(inner)
+        {
+            return Some(CallResultRoot::Factory {
+                name: inner.to_string(),
+                awaited: false,
+                invoked: true,
+            });
         }
         return None;
     }

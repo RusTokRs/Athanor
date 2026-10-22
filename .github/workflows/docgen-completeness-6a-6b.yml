@@ -54,4 +54,4 @@ jobs:
         run: cargo test -p ath --test documentation_completeness_cli --locked
 
       - name: Run focused Clippy
-        run: cargo clippy -p athanor-app -p ath --all-targets --locked -- -D warnings
+        run: bash .github/scripts/run-with-log.sh "$RUNNER_TEMP/completeness-clippy.log" "Completeness Clippy log tail" cargo clippy -p athanor-app -p ath --all-targets --locked -- -D warnings
