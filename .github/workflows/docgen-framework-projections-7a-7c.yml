@@ -42,13 +42,13 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Test Next.js and Express projections
-        run: cargo test -p athanor-extractor-js-ts --locked
+        run: bash .github/scripts/run-with-log.sh "$RUNNER_TEMP/js-ts-tests.log" "JS/TS extractor test log tail" cargo test -p athanor-extractor-js-ts --locked
 
       - name: Test Axum projection
-        run: cargo test -p athanor-extractor-rust --locked
+        run: bash .github/scripts/run-with-log.sh "$RUNNER_TEMP/rust-extractor-tests.log" "Rust extractor test log tail" cargo test -p athanor-extractor-rust --locked
 
       - name: Clippy Next.js and Express projections
-        run: cargo clippy -p athanor-extractor-js-ts --all-targets --locked -- -D warnings
+        run: bash .github/scripts/run-with-log.sh "$RUNNER_TEMP/js-ts-clippy.log" "JS/TS extractor Clippy log tail" cargo clippy -p athanor-extractor-js-ts --all-targets --locked -- -D warnings
 
       - name: Clippy Axum projection
-        run: cargo clippy -p athanor-extractor-rust --all-targets --locked -- -D warnings
+        run: bash .github/scripts/run-with-log.sh "$RUNNER_TEMP/rust-extractor-clippy.log" "Rust extractor Clippy log tail" cargo clippy -p athanor-extractor-rust --all-targets --locked -- -D warnings
