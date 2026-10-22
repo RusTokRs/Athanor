@@ -40,8 +40,9 @@ external adapter phases:
 - checking.
 
 The process runner checks active state before spawning, while writing stdin, while waiting for the
-child, and before returning success. The operation deadline therefore participates in the process
-lifecycle instead of relying only on an outer future timeout.
+child, while joining stdout/stderr readers (including output-limit cleanup), and before returning
+success. The operation deadline therefore participates in the complete process lifecycle instead of
+relying only on an outer future timeout or on descendants closing inherited pipes.
 
 The request-local adapter timeout remains an independent upper bound. The earliest terminal condition
 wins:
@@ -52,8 +53,10 @@ wins:
 - operation cancellation;
 - application cancellation token.
 
-Cancellation or timeout terminates the process tree and drains the stdout/stderr reader tasks before
-the runner returns. A simultaneous late process success cannot replace the terminal operation error.
+Cancellation or timeout terminates the process tree and joins the stdout/stderr reader tasks before
+the runner returns. Reader tasks still blocked on inherited pipes are aborted after tree termination
+so cleanup cannot extend the deadline. A simultaneous late process success cannot replace the
+terminal operation error.
 
 ## Bounded I/O And Errors
 
@@ -81,9 +84,10 @@ payload.
 ## Process-Tree Cleanup
 
 Unix children start in a dedicated process group. Timeout or cancellation sends termination signals to
-the group and retains `Child::kill` as a fallback. Windows uses `taskkill /T /F` plus the same child
-fallback. Windows Job Object containment and stronger Linux sandbox launchers remain separate P1.1
-hardening work.
+the saved group id, including after the direct child has exited, and retains `Child::kill` as a
+fallback. Windows uses `taskkill /T /F` while the direct child is alive plus the same child fallback.
+Windows Job Object containment and stronger Linux sandbox launchers remain separate P1.1 hardening
+work.
 
 ## Compatibility
 
@@ -110,6 +114,7 @@ Required regressions cover:
 - request timeout;
 - operation cancellation;
 - process cleanup before a delayed side effect;
+- descendants retaining stdout/stderr after the direct child exits;
 - stdout truncation;
 - stable non-zero-exit and protocol classifications;
 - injected request, limit, operation, and cancellation propagation;
