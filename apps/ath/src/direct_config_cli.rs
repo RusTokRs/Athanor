@@ -2,8 +2,8 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use athanor_app::{
-    ConfigDoctorReport, ConfigReportOptions, ConfigValidateReport, doctor_project_config,
-    validate_project_config,
+    ConfigDoctorReport, ConfigReportOptions, ConfigValidateReport,
+    doctor_project_config_with_store_support, validate_project_config,
 };
 use clap::error::ErrorKind;
 use clap::{Parser, Subcommand};
@@ -82,7 +82,10 @@ pub(crate) fn run(command: Command) -> Result<()> {
             }
         }
         Command::Doctor { path, json } => {
-            let report = doctor_project_config(ConfigReportOptions { root: path })?;
+            let report = doctor_project_config_with_store_support(
+                ConfigReportOptions { root: path },
+                cfg!(feature = "store-surreal"),
+            )?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
@@ -110,7 +113,7 @@ fn print_doctor_report(report: &ConfigDoctorReport) {
         ("external_process_sandbox", "external process sandbox"),
     ] {
         if let Some(check) = report.checks.iter().find(|check| check.name == name) {
-            println!("  {label}: {}", check.status);
+            println!("  {label}: {} — {}", check.status, check.detail);
         }
     }
 }

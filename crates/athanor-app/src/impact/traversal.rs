@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use athanor_core::CanonicalSnapshot;
-use athanor_domain::{Entity, EntityId, RelationKind};
+use athanor_domain::{DiagnosticStatus, Entity, EntityId, RelationKind};
 
 use crate::json_contract::IMPACT_ANALYSIS_SCHEMA_V1;
 
@@ -104,10 +104,11 @@ pub fn impact_snapshot(
         .diagnostics
         .iter()
         .filter(|diagnostic| {
-            diagnostic
-                .entities
-                .iter()
-                .any(|id| all_affected_ids.contains(id))
+            diagnostic.status == DiagnosticStatus::Open
+                && diagnostic
+                    .entities
+                    .iter()
+                    .any(|id| all_affected_ids.contains(id))
         })
         .cloned()
         .collect::<Vec<_>>();

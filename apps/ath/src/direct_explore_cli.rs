@@ -150,18 +150,7 @@ fn print_report(report: &ExploreReport) {
             }
         }
         if let Some(excerpt) = &entry.excerpt {
-            let label = if excerpt.truncated {
-                "source (truncated)"
-            } else {
-                "source"
-            };
-            println!(
-                "  {label}: {}:{}-{}",
-                excerpt.source_file, excerpt.line_start, excerpt.line_end
-            );
-            for line in excerpt.text.lines() {
-                println!("    {line}");
-            }
+            print_excerpt(excerpt);
         }
         for link in &entry.outgoing {
             println!(
@@ -204,6 +193,9 @@ fn print_report(report: &ExploreReport) {
                 .collect::<Vec<_>>()
                 .join(" -> ");
             println!("  {} [{}] {}", path.depth, path.target.stable_key, steps);
+            if let Some(excerpt) = &path.excerpt {
+                print_excerpt(excerpt);
+            }
         }
     }
 
@@ -224,6 +216,21 @@ fn print_report(report: &ExploreReport) {
         for note in &report.omitted.notes {
             println!("omitted: {note}");
         }
+    }
+}
+
+fn print_excerpt(excerpt: &athanor_app::ExploreExcerpt) {
+    let label = if excerpt.truncated {
+        "source (truncated)"
+    } else {
+        "source"
+    };
+    println!(
+        "  {label}: {}:{}-{}",
+        excerpt.source_file, excerpt.line_start, excerpt.line_end
+    );
+    for line in excerpt.text.lines() {
+        println!("    {line}");
     }
 }
 

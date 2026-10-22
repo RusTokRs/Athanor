@@ -57,13 +57,15 @@ blast-radius files; both limits are reported, never hidden.
 - `entries` — ranked entities with stable key, kind, name, source anchor, a bounded `excerpt` of the
   cited declaration range when the working tree can supply it, retrieval score, up to four
   de-duplicated fact citations, open diagnostic counts, and the one-hop relation neighbourhood in both
-  directions with per-link evidence.
+  directions with per-link evidence. Only diagnostics whose canonical status is `open` are counted.
 - `paths` — the shortest chain from each entry to each entity reached at two hops or deeper. Each step
   carries the relation kind, linker status and confidence, traversal `direction` relative to the stored
   relation, both endpoints, and the first cited file and line. The reached declaration also carries a
-  bounded `excerpt` when its cited range can be read. Chains of one hop are deliberately not
-  repeated: they are already the entry's `outgoing` and `incoming` links.
-- `blast` — aggregate blast radius for the same hop budget: entries, distinct reached entities, distinct
+  bounded `excerpt` when its cited range can be read. Text output prints both entry and path-target
+  excerpts. Chains of one hop are deliberately not repeated: they are already the entry's `outgoing`
+  and `incoming` links.
+- `blast` — aggregate blast radius for the same hop budget: entries, distinct reached entities beyond
+  the entry set, distinct
   relations that carried the traversal, expanded edge count, per-hop reach counts, open diagnostics over
   the entry set plus everything it reaches, and the sorted file list.
 - `omitted` — unresolved seeds, candidates dropped by the entry budget, link and path truncation counts,
