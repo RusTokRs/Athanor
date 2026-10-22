@@ -83,6 +83,9 @@ async fn execute_process(
         CoreError::Adapter(format!("failed to open stderr for {}", request.label))
     })?;
     let (truncate_tx, mut truncate_rx) = tokio::sync::mpsc::channel::<()>(2);
+    // Keep the channel open after both readers finish normally. Otherwise `recv()` reports
+    // channel closure and the select arms below mistake ordinary EOF for oversized output.
+    let _truncate_guard = truncate_tx.clone();
     let mut stdout_reader = tokio::spawn(read_limited(
         stdout,
         request.limits.max_stdout_bytes,

@@ -198,10 +198,38 @@ fn normalize_requested_file(root: &Path, file: &Path) -> Result<String> {
     let relative = absolute
         .strip_prefix(root)
         .with_context(|| format!("{} is outside {}", absolute.display(), root.display()))?;
+    if relative.as_os_str().is_empty()
+        || relative.components().any(|component| {
+            matches!(
+                component,
+                std::path::Component::ParentDir
+                    | std::path::Component::RootDir
+                    | std::path::Component::Prefix(_)
+            )
+        })
+    {
+        anyhow::bail!("{} is outside {}", absolute.display(), root.display());
+    }
+    let candidate = root.join(relative);
+    if candidate.exists() {
+        let canonical = candidate.canonicalize().with_context(|| {
+            format!(
+                "failed to canonicalize requested file {}",
+                candidate.display()
+            )
+        })?;
+        if !canonical.starts_with(root) {
+            anyhow::bail!("{} is outside {}", candidate.display(), root.display());
+        }
+    }
 
     Ok(relative
         .components()
-        .map(|component| component.as_os_str().to_string_lossy())
+        .filter_map(|component| match component {
+            std::path::Component::Normal(part) => Some(part.to_string_lossy()),
+            std::path::Component::CurDir => None,
+            _ => None,
+        })
         .collect::<Vec<_>>()
         .join("/")
         .replace('\\', "/"))
@@ -221,16 +249,25 @@ fn parse_git_status_z(output: &[u8]) -> ChangedPaths {
         let x = entry[0] as char;
         let y = entry[1] as char;
         let path = String::from_utf8_lossy(&entry[3..]).replace('\\', "/");
-        if path.starts_with(".athanor/") {
-            continue;
-        }
-        if x == 'R' || x == 'C' {
-            let _ = entries.next();
-        }
-        if x == 'D' || y == 'D' {
-            removed.insert(path);
+        let renamed = x == 'R' || y == 'R';
+        let copied = x == 'C' || y == 'C';
+        let source = if renamed || copied {
+            entries.next()
         } else {
-            changed.insert(path);
+            None
+        };
+        if !path.starts_with(".athanor/") {
+            if x == 'D' || y == 'D' {
+                removed.insert(path);
+            } else {
+                changed.insert(path);
+            }
+        }
+        if renamed && let Some(source) = source {
+            let source = String::from_utf8_lossy(source).replace('\\', "/");
+            if !source.starts_with(".athanor/") {
+                removed.insert(source);
+            }
         }
     }
 
@@ -244,14 +281,18 @@ mod tests {
     #[test]
     fn parses_git_status_z_changed_removed_and_renamed_paths() {
         let report = parse_git_status_z(
-            b" M src/lib.rs\0D  docs/old.md\0?? apps/admin/app.tsx\0R  docs/new.md\0docs/old-name.md\0",
+            b" M src/lib.rs\0D  docs/old.md\0?? apps/admin/app.tsx\0R  docs/new.md\0docs/old-name.md\0C  docs/copied.md\0docs/source.md\0",
         );
 
         assert!(report.changed.contains("src/lib.rs"));
         assert!(report.changed.contains("apps/admin/app.tsx"));
         assert!(report.changed.contains("docs/new.md"));
+        assert!(report.changed.contains("docs/copied.md"));
         assert!(report.removed.contains("docs/old.md"));
+        assert!(report.removed.contains("docs/old-name.md"));
         assert!(!report.changed.contains("docs/old-name.md"));
+        assert!(!report.changed.contains("docs/source.md"));
+        assert!(!report.removed.contains("docs/source.md"));
     }
 
     #[test]
@@ -268,5 +309,38 @@ mod tests {
             normalize_requested_file(&root, &absolute).unwrap(),
             "docs/development/agent-workflow.md"
         );
+    }
+
+    #[test]
+    fn rejects_requested_files_that_escape_the_project() {
+        let root = std::env::current_dir().unwrap();
+        let error = normalize_requested_file(&root, Path::new("../outside.rs"))
+            .expect_err("parent-directory input must be rejected");
+
+        assert!(error.to_string().contains("is outside"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_requested_symlinks_that_escape_the_project() {
+        let root = std::env::temp_dir().join(format!(
+            "athanor-validate-changed-root-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let outside = root.with_extension("outside.rs");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(&outside, "fn outside() {}\n").unwrap();
+        let link = root.join("linked.rs");
+        std::os::unix::fs::symlink(&outside, &link).unwrap();
+
+        let error = normalize_requested_file(&root, &link)
+            .expect_err("a symlink outside the project must be rejected");
+
+        assert!(error.to_string().contains("is outside"));
+        std::fs::remove_dir_all(root).unwrap();
+        std::fs::remove_file(outside).unwrap();
     }
 }

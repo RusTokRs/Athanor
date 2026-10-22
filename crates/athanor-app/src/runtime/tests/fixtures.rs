@@ -1,5 +1,4 @@
 use std::path::PathBuf;
-use std::sync::{Arc, atomic::AtomicBool};
 
 use super::super::AdapterProcessCommand;
 use super::super::process_adapter_support::{ProcessCommand, ProcessLimits};
@@ -74,21 +73,13 @@ pub(super) fn empty_output_program() -> PathBuf {
     sh_path()
 }
 
-fn unverified_fields() -> (
-    Vec<super::super::TrustedAdapterExecutable>,
-    Arc<AtomicBool>,
-    ProcessLimits,
-) {
-    (
-        Vec::new(),
-        Arc::new(AtomicBool::new(false)),
-        ProcessLimits::default(),
-    )
+fn unverified_fields() -> (Vec<super::super::TrustedAdapterExecutable>, ProcessLimits) {
+    (Vec::new(), ProcessLimits::default())
 }
 
 #[cfg(windows)]
 pub(super) fn sleep_command() -> ProcessCommand {
-    let (expected, fully_verified, limits) = unverified_fields();
+    let (expected, limits) = unverified_fields();
     ProcessCommand {
         program: powershell_path(),
         args: vec![
@@ -98,7 +89,6 @@ pub(super) fn sleep_command() -> ProcessCommand {
         ],
         working_dir: test_working_dir(),
         expected,
-        fully_verified,
         limits,
         clear_environment: false,
     }
@@ -106,13 +96,12 @@ pub(super) fn sleep_command() -> ProcessCommand {
 
 #[cfg(not(windows))]
 pub(super) fn sleep_command() -> ProcessCommand {
-    let (expected, fully_verified, limits) = unverified_fields();
+    let (expected, limits) = unverified_fields();
     ProcessCommand {
         program: sh_path(),
         args: vec!["-c".to_string(), "cat >/dev/null; sleep 5".to_string()],
         working_dir: test_working_dir(),
         expected,
-        fully_verified,
         limits,
         clear_environment: false,
     }
@@ -120,7 +109,7 @@ pub(super) fn sleep_command() -> ProcessCommand {
 
 #[cfg(windows)]
 pub(super) fn stdout_bytes_command(bytes: usize) -> ProcessCommand {
-    let (expected, fully_verified, limits) = unverified_fields();
+    let (expected, limits) = unverified_fields();
     ProcessCommand {
         program: powershell_path(),
         args: vec![
@@ -132,7 +121,6 @@ pub(super) fn stdout_bytes_command(bytes: usize) -> ProcessCommand {
         ],
         working_dir: test_working_dir(),
         expected,
-        fully_verified,
         limits,
         clear_environment: false,
     }
@@ -140,7 +128,7 @@ pub(super) fn stdout_bytes_command(bytes: usize) -> ProcessCommand {
 
 #[cfg(not(windows))]
 pub(super) fn stdout_bytes_command(bytes: usize) -> ProcessCommand {
-    let (expected, fully_verified, limits) = unverified_fields();
+    let (expected, limits) = unverified_fields();
     ProcessCommand {
         program: sh_path(),
         args: vec![
@@ -149,7 +137,6 @@ pub(super) fn stdout_bytes_command(bytes: usize) -> ProcessCommand {
         ],
         working_dir: test_working_dir(),
         expected,
-        fully_verified,
         limits,
         clear_environment: false,
     }
@@ -157,7 +144,7 @@ pub(super) fn stdout_bytes_command(bytes: usize) -> ProcessCommand {
 
 #[cfg(windows)]
 pub(super) fn failing_command() -> ProcessCommand {
-    let (expected, fully_verified, limits) = unverified_fields();
+    let (expected, limits) = unverified_fields();
     ProcessCommand {
         program: powershell_path(),
         args: vec![
@@ -167,7 +154,6 @@ pub(super) fn failing_command() -> ProcessCommand {
         ],
         working_dir: test_working_dir(),
         expected,
-        fully_verified,
         limits,
         clear_environment: false,
     }
@@ -175,7 +161,7 @@ pub(super) fn failing_command() -> ProcessCommand {
 
 #[cfg(not(windows))]
 pub(super) fn failing_command() -> ProcessCommand {
-    let (expected, fully_verified, limits) = unverified_fields();
+    let (expected, limits) = unverified_fields();
     ProcessCommand {
         program: sh_path(),
         args: vec![
@@ -184,7 +170,6 @@ pub(super) fn failing_command() -> ProcessCommand {
         ],
         working_dir: test_working_dir(),
         expected,
-        fully_verified,
         limits,
         clear_environment: false,
     }

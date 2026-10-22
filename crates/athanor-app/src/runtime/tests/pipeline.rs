@@ -185,7 +185,8 @@ fn duplicate_adapter_ids_in_one_manifest_are_rejected() {
     };
     let error = AdapterRegistry::empty()
         .with_plugin_manifest(&manifest)
-        .expect_err("duplicate adapter ids must fail");
+        .err()
+        .expect("duplicate adapter ids must fail");
     assert!(error.to_string().contains("duplicate adapter id"));
 }
 
@@ -205,7 +206,8 @@ fn supports_extensions_are_rejected_on_non_extractors() {
     };
     let error = AdapterRegistry::empty()
         .with_plugin_manifest(&manifest)
-        .expect_err("supports_extensions is extractor-only");
+        .err()
+        .expect("supports_extensions is extractor-only");
     assert!(error.to_string().contains("supports_extensions"));
 }
 
@@ -225,7 +227,8 @@ fn external_extractor_requires_supports_extensions() {
     };
     let error = AdapterRegistry::empty()
         .with_plugin_manifest(&manifest)
-        .expect_err("external extractors must declare extensions");
+        .err()
+        .expect("external extractors must declare extensions");
     assert!(error.to_string().contains("supports_extensions"));
 }
 

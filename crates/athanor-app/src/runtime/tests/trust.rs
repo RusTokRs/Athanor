@@ -244,6 +244,35 @@ fn launch_digests_must_match_the_trust_record() {
 }
 
 #[test]
+fn every_launch_rechecks_payload_hash_when_size_is_unchanged() {
+    let root = temp_root("runtime-trust-rehash");
+    let manifest_dir = root.join(".athanor/adapters");
+    fs::create_dir_all(&manifest_dir).unwrap();
+    let program = manifest_dir.join("adapter.bin");
+    fs::write(&program, b"trusted").unwrap();
+    let command = AdapterProcessCommand {
+        program: "./adapter.bin".to_string(),
+        args: Vec::new(),
+    };
+    let command = super::super::process_adapter_support::ProcessCommand::from_manifest(
+        &manifest_dir,
+        &command,
+    )
+    .expect("initial payload should produce launch digests");
+    command
+        .verify_unchanged()
+        .expect("unchanged payload should pass its first launch check");
+
+    fs::write(&program, b"altered").unwrap();
+
+    let error = command.verify_unchanged().expect_err(
+        "a same-size payload replacement must not pass after an earlier successful launch",
+    );
+    assert!(error.to_string().contains("changed after runtime assembly"));
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn rejects_unknown_manifest_fields() {
     let content = serde_json::json!({
         "schema": ADAPTER_MANIFEST_SCHEMA_V1,

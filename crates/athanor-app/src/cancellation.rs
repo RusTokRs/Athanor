@@ -47,6 +47,10 @@ impl CancellationToken {
                 return;
             }
             let notified = self.state.notify.notified();
+            tokio::pin!(notified);
+            // Register before the second cancellation check so `notify_waiters` cannot slip
+            // between that check and the first poll of the future.
+            let _ = notified.as_mut().enable();
             if self.is_cancelled() {
                 return;
             }

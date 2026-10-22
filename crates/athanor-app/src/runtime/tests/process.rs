@@ -120,7 +120,6 @@ async fn external_process_timeout_terminates_unix_process_group() {
         ],
         working_dir: test_working_dir(),
         expected: Vec::new(),
-        fully_verified: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         limits: super::super::process_adapter_support::ProcessLimits::default(),
         clear_environment: false,
     };
@@ -303,6 +302,38 @@ async fn clean_environment_process_profile_removes_inherited_environment() {
     .expect("clean-environment process should run");
     assert!(output.success);
     assert!(output.stdout.is_empty());
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn closed_output_streams_are_not_reported_as_truncation() {
+    let output = ProcessRunner::run(
+        &TokioProcessRunner,
+        ProcessRequest {
+            label: "closed output streams".to_string(),
+            program: sh_path(),
+            args: vec![
+                "-c".to_string(),
+                "exec 1>&- 2>&-; cat >/dev/null".to_string(),
+            ],
+            working_dir: test_working_dir(),
+            clear_environment: false,
+            stdin: b"ordinary input".to_vec(),
+            limits: CoreProcessLimits {
+                timeout_ms: 10_000,
+                max_stdin_bytes: 64,
+                max_stdout_bytes: 64,
+                max_stderr_bytes: 64,
+            },
+        },
+    )
+    .await
+    .expect("ordinary EOF on both output streams must not kill the process");
+
+    assert!(output.success, "unexpected process output: {output:?}");
+    assert_eq!(output.exit_code, Some(0));
+    assert!(!output.stdout_truncated);
+    assert!(!output.stderr_truncated);
 }
 
 #[cfg(unix)]
