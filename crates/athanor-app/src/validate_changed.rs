@@ -216,13 +216,13 @@ fn parse_git_status_z(output: &[u8], prefix: &[u8]) -> Result<ChangedPaths> {
         } else {
             None
         };
-        if let Some(path) = project_git_path(&entry[3..], prefix)? {
-            if !path.starts_with(".athanor/") {
-                if x == 'D' || y == 'D' {
-                    removed.insert(path);
-                } else {
-                    changed.insert(path);
-                }
+        if let Some(path) = project_git_path(&entry[3..], prefix)?
+            && !path.starts_with(".athanor/")
+        {
+            if x == 'D' || y == 'D' {
+                removed.insert(path);
+            } else {
+                changed.insert(path);
             }
         }
         if renamed
